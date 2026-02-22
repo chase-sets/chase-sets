@@ -1,37 +1,34 @@
-﻿---
-owner: docs
-status: active
-audience: agents
-last_reviewed: 2026-02-16
----
-
-# Chase Sets Marketplace Agent Guide
+# Agent Guide
 
 ## Purpose
-- Define the default workflow for AI agents editing this repo.
-- Keep edits aligned with canonical documentation hierarchy.
-- Prevent duplicate or conflicting source-of-truth updates.
+Provide operating rules for AI agents working in this documentation-first repository.
 
-## Scope / Non-scope
-- In scope: repository-wide documentation edits.
-- Non-scope: runtime behavior claims not represented in repository docs.
+## Repository Boundaries
+- This repo defines product, architecture, and engineering documentation.
+- This repo does not contain production application code.
+- Agents must avoid claiming runtime behavior as implemented.
 
-## Start Sequence
-1. Read `docs/README.md`.
-2. Read `docs/AGENT_GUIDE.md`.
-3. Read the target topic index (`docs/domain/README.md`, `docs/architecture/README.md`, etc.).
-4. Read service-local guidance only when required: `services/<service>/AGENT.md`.
+## Docs Organization
+- `docs/00-overview/`: boundaries, glossary, and decisions.
+- `docs/01-getting-started/`: onboarding and workflows.
+- `docs/02-architecture/`: architecture principles and boundaries.
+- `docs/03-engineering/`: standards and delivery policy.
+- `docs/04-product/`: PRD, requirements, flows, and acceptance.
+- `docs/05-operations/`: runbooks and incident stubs.
+- `docs/06-reference/`: templates and reference contracts.
 
-## Non-negotiables
-- Update canonical docs before summaries.
-- Keep bounded-context ownership explicit.
-- Keep API and event contracts versioned.
-- Avoid speculative claims about runtime behavior.
+## Where To Look First
+- Architecture intent: `docs/02-architecture/index.md`
+- Standards and quality bar: `docs/03-engineering/standards.md`
+- Workflow and doc placement: `docs/01-getting-started/workflows.md`
+- Product intent: `docs/04-product/prd.md`
 
-## Related docs
-- [Agent Workflow Guide](docs/AGENT_GUIDE.md)
-- [Contributing](CONTRIBUTING.md)
-- [Services Documentation](services/README.md)
+## Writing Conventions For Agents
+- Keep docs short, structured, and link-forward.
+- Keep one canonical doc per topic.
+- Prefer updating canonical docs over creating summaries.
+- Use relative links only.
+- Use explicit `must`, `should`, and `may` language for norms.
 
-## Next steps
-- Keep service guides synchronized with canonical domain docs when boundaries change.
+## Decision Recording
+Record major architecture or product decisions in `docs/00-overview/decisions.md` using the ADR-lite format defined there.

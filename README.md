@@ -1,43 +1,22 @@
-﻿---
-owner: docs
-status: active
-audience: all
-last_reviewed: 2026-02-16
----
-
 # Chase Sets Marketplace
 
-## Purpose
-- Define implementation-ready product, architecture, and domain documentation.
-- Provide a single source-of-truth map for engineers and AI agents.
-- Keep repository scope documentation-first until code implementation starts.
+Chase Sets Marketplace is a documentation-first repository for defining product, architecture, engineering, and operational standards before implementation code exists. The goal is to keep decisions, requirements, and contracts explicit so humans and AI agents can work from one clear source of truth.
 
-## Audience
-- AI agents that need source-of-truth navigation and contracts.
-- Engineers defining scope, interfaces, and constraints.
+This repository treats docs as the product. Content is organized into a repeatable numbered structure so new docs have an obvious home and topic ownership stays unambiguous.
 
-## Scope / Non-scope
-- In scope: documentation for product, domain, architecture, data, API, engineering standards, planning, and operations.
-- Non-scope: runtime implementation code in this repository at this stage.
+## Start Here
+- [Getting Started](docs/01-getting-started/index.md)
+- [Overview](docs/00-overview/index.md)
+- [Architecture](docs/02-architecture/index.md)
 
-## Quickstart
-1. Read `docs/README.md`.
-2. Read `docs/product/PRD.md`.
-3. Read `docs/domain/README.md`.
-4. Read `docs/setup.md`.
-5. Follow `CONTRIBUTING.md`.
-
-## Repository Structure
-- `docs/`: canonical docs hub.
-- `services/`: service ownership guides.
-- `infra/`: infrastructure playbook.
-
-## Related docs
-- [Documentation Index](docs/README.md)
-- [Agent Guide](AGENT.md)
-- [Contributing](CONTRIBUTING.md)
-- [Skill Index](SKILL.md)
-
-## Next steps
-- Keep all new documentation under `docs/` unless service-local guidance is required.
-- Add runbook procedures as soon as executable services exist.
+## How To Contribute To Docs
+- Read the target section `index.md` before editing.
+- Keep one canonical doc per topic.
+- Use short sections and direct language.
+- Use `must`, `should`, and `may` for norms.
+- Keep links relative.
+- Add new terms to `docs/00-overview/glossary.md`.
+- Record major decisions in `docs/00-overview/decisions.md`.
+- Link adjacent docs in a `Links` section.
+- Remove overlap instead of creating parallel docs.
+- Keep file names kebab-case.
