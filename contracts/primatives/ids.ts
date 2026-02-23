@@ -8,6 +8,8 @@ export type TenantId = TypedUlid<"tnt">;
 
 export type CorrelationId = TypedUlid<"cor">;
 
+export type CausationId = TypedUlid<"cau">;
+
 export type CommandId = TypedUlid<"cmd">;
 
 export type AccountId = TypedUlid<"acc">;

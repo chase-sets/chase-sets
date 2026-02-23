@@ -22,18 +22,19 @@ An **Account** represents a person or system that can perform actions in the mar
 
 This includes:
 
-- Registered users
+- Registered buyers and sellers
 - Sellers
 - Staff
 - Administrators
 - Automation accounts
-- Guest checkout users
+- Guest checkout buyers
 
 Notes:
 
 - Guest checkout creates a minimal account record.
 - Accounts may belong to one or more organizations.
 - Accounts may have multiple credentials and authentication methods.
+- Accounts are assigned roles through memberships; not permissions directly.
 
 Examples of usage:
 
@@ -57,31 +58,20 @@ Organizations:
 - Own tax settings and tax identity
 - Receive payouts
 - Manage staff through memberships
+- Own locations (addresses) and fulfillment settings
 
 Examples:
 
 - A card shop
 - A distributor
 - A business seller
-- A personal buying account (Personal Organization)
+- An individual buyer or seller
 
 Notes:
 
 - Organizations do not sign in; accounts sign in.
 - All commerce activity is attributed to an organization.
-
----
-
-## Personal Organization
-
-A **Personal Organization** is an organization owned and operated by a single individual.
-
-Notes:
-
-- A personal organization may be created automatically for buyer-only experiences, including guest checkout.
-- The UI may hide the organization concept for simplicity.
-- Orders, tax settings, and wallets are still attributed to the personal organization.
-- A personal organization may later evolve into a selling organization.
+- Even guest buyers have an associated organization for their orders and payments (even if it's not visible to them).
 
 ---
 
@@ -175,6 +165,7 @@ Examples:
 - Passkey
 - Google login
 - Magic link
+- SMS code
 
 Notes:
 
@@ -297,7 +288,7 @@ Notes:
 
 # Auditing and Events
 
-All events and audit records must include:
+All stored/transmitted events (not domain) and audit records must include:
 
 - performedByAccountId
 - forOrganizationId
@@ -311,23 +302,6 @@ Notes:
 
 - These are audit fields, not domain entities.
 - Automation and system processes use automation accounts.
-
----
-
-## Automation Account
-
-An **Automation Account** is an account used by software, background jobs, or integrations to perform actions.
-
-Examples:
-
-- Pricing engine
-- Inventory synchronization
-- Import services
-
-Notes:
-
-- Automation accounts follow the same rules as human accounts.
-- Automation accounts typically authenticate using API keys.
 
 ---
 
@@ -348,8 +322,7 @@ To maintain consistency:
 1. Use **Account**, not User or Identity.
 2. Use **Membership**, not Member or Organization Member.
 3. Use **Organization** as the commercial owner of listings, offers, wallets, and orders.
-4. Use **Action Context** instead of Actor as an entity.
-5. Use glossary terms consistently in:
+4. Use glossary terms consistently in:
    - Table names
    - Event names
    - API routes
