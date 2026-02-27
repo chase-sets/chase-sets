@@ -1,7 +1,7 @@
-import { nowIsoUtcTimestamp } from "../primitives/iso-utc-timestamp";
-import type { IsoUtcTimestamp } from "../primitives/iso-utc-timestamp";
-import type { PgQueryable } from "./postgres-types";
-import type { ProjectionCheckpointStore } from "./projector";
+import { nowIsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
+import type { IsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
+import type { ProjectionCheckpointStore } from "../projector";
+import type { PgQueryable } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 
 type DbCheckpointRow = Readonly<{

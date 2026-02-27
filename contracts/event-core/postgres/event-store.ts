@@ -1,8 +1,8 @@
-import { nowIsoUtcTimestamp } from "../primitives/iso-utc-timestamp";
-import type { IsoUtcTimestamp } from "../primitives/iso-utc-timestamp";
-import type { JsonObject } from "../primitives/json";
-import type { EventId } from "../primitives/typed-ids";
-import { createEventStoreError, type EventStore } from "./event-store";
+import { nowIsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
+import type { IsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
+import type { JsonObject } from "../../primitives/json";
+import type { EventId } from "../../primitives/typed-ids";
+import { createEventStoreError, type EventStore } from "../event-store";
 import type {
   AppendToStreamInput,
   EventRecordToStore,
@@ -10,8 +10,8 @@ import type {
   ReadAllInput,
   ReadStreamInput,
   StoredEvent,
-} from "./storage";
-import type { PgPoolClient, PgTransactionalPool } from "./postgres-types";
+} from "../storage";
+import type { PgPoolClient, PgTransactionalPool } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 
 type DbEventRow = Readonly<{
