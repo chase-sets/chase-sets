@@ -3,10 +3,16 @@ import type { IsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
 import type { JsonObject } from "../../primitives/json";
 import type { EventId } from "../../primitives/typed-ids";
 import { createEventStoreError, type EventStore } from "../event-store";
+import {
+  ZERO_GLOBAL_POSITION,
+  globalPositionFromBigInt,
+  parseGlobalPosition,
+} from "../storage";
 import type {
   AppendToStreamInput,
   EventRecordToStore,
   ExpectedStreamVersion,
+  GlobalPosition,
   ReadAllInput,
   ReadStreamInput,
   StoredEvent,
@@ -18,7 +24,7 @@ type DbEventRow = Readonly<{
   event_id: string;
   stream_id: string;
   stream_version: number | string;
-  global_position: number | string;
+  global_position: string | number | bigint;
   tenant_id: string;
   event_type: string;
   payload: unknown;
@@ -133,7 +139,7 @@ export function createPostgresEventStore(
   const readAllSql = `
     SELECT ${EVENT_COLUMNS}
     FROM ${eventsTable}
-    WHERE global_position > $1
+    WHERE global_position > $1::bigint
     ORDER BY global_position ASC
     LIMIT $2
   `;
@@ -142,7 +148,7 @@ export function createPostgresEventStore(
     SELECT ${EVENT_COLUMNS}
     FROM ${eventsTable}
     WHERE tenant_id = $1
-      AND global_position > $2
+      AND global_position > $2::bigint
     ORDER BY global_position ASC
     LIMIT $3
   `;
@@ -198,10 +204,8 @@ export function createPostgresEventStore(
     },
 
     readAll: async (input?: ReadAllInput) => {
-      const afterGlobalPosition = assertNonNegativeInteger(
-        input?.afterGlobalPosition ?? 0,
-        "afterGlobalPosition",
-      );
+      const afterGlobalPosition =
+        input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION;
       const limit = assertPositiveInteger(input?.limit ?? 500, "limit");
 
       try {
@@ -442,7 +446,10 @@ function mapDbEventRow(row: DbEventRow): StoredEvent {
     eventId: row.event_id as EventId,
     streamId: row.stream_id,
     streamVersion: toNumber(row.stream_version),
-    globalPosition: toNumber(row.global_position),
+    globalPosition: coerceDbGlobalPosition(
+      row.global_position,
+      "global_position",
+    ),
     tenantId: row.tenant_id as StoredEvent["tenantId"],
     eventType: row.event_type,
     payload: toJsonObject(row.payload, "payload"),
@@ -459,6 +466,37 @@ function mapDbEventRow(row: DbEventRow): StoredEvent {
       : undefined,
     commandId: row.command_id ? (row.command_id as StoredEvent["commandId"]) : undefined,
   };
+}
+
+function coerceDbGlobalPosition(
+  value: string | number | bigint,
+  fieldName: string,
+): GlobalPosition {
+  if (typeof value === "string") {
+    try {
+      return parseGlobalPosition(value);
+    } catch {
+      throw new Error(
+        `Expected "${fieldName}" to be a canonical unsigned base-10 string.`,
+      );
+    }
+  }
+
+  if (typeof value === "bigint") {
+    if (value < BigInt(0)) {
+      throw new Error(`Expected "${fieldName}" to be non-negative.`);
+    }
+
+    return globalPositionFromBigInt(value);
+  }
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(
+      `Expected "${fieldName}" to be a non-negative safe integer when returned as a number.`,
+    );
+  }
+
+  return globalPositionFromBigInt(BigInt(value));
 }
 
 function toJsonObject(value: unknown, fieldName: string): JsonObject {
@@ -492,14 +530,6 @@ function toNumber(value: number | string): number {
 function assertPositiveInteger(value: number, fieldName: string): number {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${fieldName} must be a positive integer.`);
-  }
-
-  return value;
-}
-
-function assertNonNegativeInteger(value: number, fieldName: string): number {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${fieldName} must be a non-negative integer.`);
   }
 
   return value;

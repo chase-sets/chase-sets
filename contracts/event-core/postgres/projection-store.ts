@@ -1,11 +1,19 @@
 import { nowIsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
 import type { IsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
 import type { ProjectionCheckpointStore } from "../projector";
+import type {
+  GlobalPosition,
+} from "../storage";
+import {
+  ZERO_GLOBAL_POSITION,
+  globalPositionFromBigInt,
+  parseGlobalPosition,
+} from "../storage";
 import type { PgQueryable } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 
 type DbCheckpointRow = Readonly<{
-  last_global_position: number | string;
+  last_global_position: string | number | bigint;
 }>;
 
 export type PostgresProjectionStoreConfig = Readonly<{
@@ -32,7 +40,7 @@ export function createPostgresProjectionStore(
 
   const upsertCheckpointSql = `
     INSERT INTO ${tableName} (projector_name, last_global_position, updated_at)
-    VALUES ($1, $2, $3)
+    VALUES ($1, $2::bigint, $3)
     ON CONFLICT (projector_name)
     DO UPDATE SET
       last_global_position = GREATEST(
@@ -49,41 +57,52 @@ export function createPostgresProjectionStore(
       ]);
 
       if (result.rows.length === 0) {
-        return 0;
+        return ZERO_GLOBAL_POSITION;
       }
 
-      return toNumber(result.rows[0].last_global_position);
+      return coerceDbGlobalPosition(
+        result.rows[0].last_global_position,
+        "last_global_position",
+      );
     },
 
     saveCheckpoint: async (projectorName, globalPosition) => {
-      const safeGlobalPosition = assertNonNegativeInteger(
-        globalPosition,
-        "globalPosition",
-      );
-
       await config.db.query(upsertCheckpointSql, [
         projectorName,
-        safeGlobalPosition,
+        globalPosition,
         now(),
       ]);
     },
   };
 }
 
-function toNumber(value: number | string): number {
-  const parsed = typeof value === "number" ? value : Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`Could not convert "${String(value)}" to number.`);
+function coerceDbGlobalPosition(
+  value: string | number | bigint,
+  fieldName: string,
+): GlobalPosition {
+  if (typeof value === "string") {
+    try {
+      return parseGlobalPosition(value);
+    } catch {
+      throw new Error(
+        `Expected "${fieldName}" to be a canonical unsigned base-10 string.`,
+      );
+    }
   }
 
-  return parsed;
-}
+  if (typeof value === "bigint") {
+    if (value < BigInt(0)) {
+      throw new Error(`Expected "${fieldName}" to be non-negative.`);
+    }
 
-function assertNonNegativeInteger(value: number, fieldName: string): number {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${fieldName} must be a non-negative integer.`);
+    return globalPositionFromBigInt(value);
   }
 
-  return value;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(
+      `Expected "${fieldName}" to be a non-negative safe integer when returned as a number.`,
+    );
+  }
+
+  return globalPositionFromBigInt(BigInt(value));
 }

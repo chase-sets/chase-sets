@@ -1,11 +1,12 @@
 import type { EventStore } from "./event-store";
+import type { GlobalPosition } from "./storage";
 import { toTransportEvent, type TransportEvent } from "./transport";
 
 export type ProjectionCheckpointStore = Readonly<{
-  loadCheckpoint: (projectorName: string) => Promise<number>;
+  loadCheckpoint: (projectorName: string) => Promise<GlobalPosition>;
   saveCheckpoint: (
     projectorName: string,
-    globalPosition: number,
+    globalPosition: GlobalPosition,
   ) => Promise<void>;
 }>;
 
@@ -17,7 +18,7 @@ export type ProjectorHandlerMap = Readonly<Record<string, ProjectorHandler>>;
 
 export type ProjectorRunResult = Readonly<{
   processed: number;
-  lastGlobalPosition: number;
+  lastGlobalPosition: GlobalPosition;
 }>;
 
 export type Projector = Readonly<{
