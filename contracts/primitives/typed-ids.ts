@@ -16,6 +16,24 @@ export type AccountId = TypedUlid<"acc">;
 
 export type OrganizationId = TypedUlid<"org">;
 
+export type CatalogItemId = TypedUlid<"cat">;
+
+export type InventoryLotId = TypedUlid<"lot">;
+
+export type ListingId = TypedUlid<"lst">;
+
+export type OfferId = TypedUlid<"off">;
+
+export type OrderId = TypedUlid<"ord">;
+
+export type ShipmentId = TypedUlid<"shp">;
+
+export type PaymentId = TypedUlid<"pay">;
+
+export type LedgerEntryId = TypedUlid<"led">;
+
+export type PayoutId = TypedUlid<"pyo">;
+
 export type MembershipId = TypedUlid<"mbr">;
 
 export type RoleId = TypedUlid<"rol">;

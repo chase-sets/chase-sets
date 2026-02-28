@@ -1,0 +1,88 @@
+# Chase Sets Bounded Context Map
+
+This directory defines the strategic bounded context map for Chase Sets.
+
+The goal is to keep ownership, language, and invariants explicit before implementation packages are created. Each bounded context owns its own terms, state transitions, and internal models. Cross-context interaction must happen through typed IDs and published integration events.
+
+## Contexts
+
+| Context | Purpose |
+| --- | --- |
+| [Identity](./identity/README.md) | Own who can act in the system and on whose behalf they act. |
+| [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
+| [Inventory](./inventory/README.md) | Own seller-held stock and operational availability. |
+| [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
+| [Ordering](./ordering/README.md) | Own checkout normalization and commercial commitment. |
+| [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
+| [Payments](./payments/README.md) | Own external money movement and buyer-facing charges or refunds. |
+| [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
+| [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
+| [Insights](./insights/README.md) | Own cross-context reporting, analytics, and forecasting views. |
+
+## Ownership Rules
+
+The following rules apply to every context in this directory:
+
+1. A business concept has exactly one owning bounded context.
+2. Contexts may reference each other only by stable IDs and published integration events.
+3. Contexts must not import another context's internal aggregate state or reuse internal types directly.
+4. Shared contracts are limited to primitives, typed IDs, and integration-event schemas.
+5. Search is not a bounded context; it should be built as read models projected from Catalog, Marketplace, and Insights data.
+
+## Canonical Ownership
+
+These marketplace nouns are already fixed to a single owner:
+
+- Buyer and Seller are roles played by an Organization, not separate root entities.
+- Listing is owned by Marketplace.
+- Offer is owned by Marketplace.
+- Order is owned by Ordering.
+- Shipment is owned by Fulfillment.
+
+## Shared Typed IDs
+
+Cross-context references should use the canonical IDs defined in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/typed-ids.ts):
+
+- `AccountId`
+- `OrganizationId`
+- `CatalogItemId`
+- `InventoryLotId`
+- `ListingId`
+- `OfferId`
+- `OrderId`
+- `ShipmentId`
+- `PaymentId`
+- `LedgerEntryId`
+- `PayoutId`
+
+## Upstream and Downstream Relationships
+
+- Identity is upstream for actor and organization references.
+- Catalog is upstream for canonical item references.
+- Inventory depends on Identity and Catalog.
+- Marketplace depends on Identity, Catalog, and Inventory availability signals.
+- Ordering depends on Marketplace decisions and Identity organization references.
+- Fulfillment depends on Ordering.
+- Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
+- Settlement depends on Payments and Ordering.
+- Pricing consumes history from Catalog, Inventory, Marketplace, Ordering, and Fulfillment.
+- Insights consumes integration events from every context.
+
+## Integration Rule
+
+Integration events must publish facts, not commands.
+
+Each context may define rich internal domain events, but only a small, stable integration-event surface should be shared downstream.
+
+## Scenario Ownership Checks
+
+These scenarios should map cleanly to one owner per decision:
+
+1. Inventory owns bulk stock ingestion and sellable availability.
+2. Marketplace owns listing publication and offer negotiation.
+3. Ordering owns cart decomposition and order creation.
+4. Fulfillment owns shipment state and tracking.
+5. Payments owns charge and refund execution.
+6. Settlement owns ledger adjustments and payout eligibility.
+7. Pricing owns recommendations but never directly mutates listings or inventory.
+8. Insights owns reporting and forecasting without owning source transactions.
