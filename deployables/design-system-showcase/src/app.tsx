@@ -33,6 +33,7 @@ import {
   Select,
   SellerBadge,
   SplitPane,
+  Stack,
   Stat,
   StatGrid,
   Surface,
@@ -188,23 +189,23 @@ function MarketplaceView() {
             </Text>
           }
         >
-          <Grid columns={{ base: 1, md: 2, xl: 3 }} gap={4}>
+          <Grid columns={{ base: 1, sm: 2, lg: 3, xl: 4 }} gap={3}>
             {inventoryRows.map((row) => (
               <Card key={row.sku}>
-                <Thumbnail alt={row.card} ratio={4 / 5} />
-                <PageSection>
+                <Thumbnail alt={row.card} ratio={1} />
+                <Stack gap={3}>
                   <Inline gap={2}>
                     <ConditionBadge condition={row.condition} />
                     <Badge tone="success">In stock</Badge>
                   </Inline>
                   <Heading level={5}>{row.card}</Heading>
-                  <Text tone="secondary">Sold by North Side Cards</Text>
+                  <Text size="sm" tone="secondary">Sold by North Side Cards</Text>
                   <Inline gap={3}>
-                    <PriceDisplay amount={row.price} emphasis />
-                    <Text tone="secondary">{row.stock} available</Text>
+                    <PriceDisplay amount={row.price} />
+                    <Text size="sm" tone="secondary">{row.stock} available</Text>
                   </Inline>
                   <Button block>Add to cart</Button>
-                </PageSection>
+                </Stack>
               </Card>
             ))}
           </Grid>
