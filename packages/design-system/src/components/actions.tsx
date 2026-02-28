@@ -7,6 +7,7 @@ import type {
 import { forwardRef } from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { Icon, type IconName } from "../icons";
+import { layoutWidthClasses, type LayoutWidth } from "../primitives/layout";
 import { cx } from "../utils/cx";
 
 export interface NavigationItem {
@@ -534,6 +535,7 @@ export interface TopNavProps
   onSelect?: (key: string) => void;
   brand?: ReactNode;
   actions?: ReactNode;
+  width?: LayoutWidth;
 }
 
 export function TopNav({
@@ -542,6 +544,7 @@ export function TopNav({
   onSelect,
   brand,
   actions,
+  width = "full",
   ...rest
 }: TopNavProps) {
   return (
@@ -549,7 +552,12 @@ export function TopNav({
       {...rest}
       className="sticky top-0 z-sticky border-b border-muted bg-elevated px-4 py-3 shadow-tokenSm"
     >
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
+      <div
+        className={cx(
+          "mx-auto flex w-full items-center justify-between gap-4",
+          layoutWidthClasses[width]
+        )}
+      >
         <div className="flex items-center gap-4">
           {brand}
           <div className="hidden items-center gap-1 md:flex">
@@ -594,12 +602,14 @@ export interface BottomNavProps
   items: NavigationItem[];
   activeKey?: string;
   onSelect?: (key: string) => void;
+  width?: LayoutWidth;
 }
 
 export function BottomNav({
   items,
   activeKey,
   onSelect,
+  width = "full",
   ...rest
 }: BottomNavProps) {
   return (
@@ -607,7 +617,7 @@ export function BottomNav({
       {...rest}
       className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-elevated px-3 py-2 shadow-tokenLg md:hidden"
     >
-      <div className="mx-auto grid max-w-lg grid-cols-4 gap-2">
+      <div className={cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width])}>
         {items.slice(0, 4).map((item) =>
           renderNavigationItem(item, item.key === activeKey, "rail", onSelect)
         )}

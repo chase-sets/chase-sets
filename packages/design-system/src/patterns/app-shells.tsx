@@ -6,6 +6,7 @@ import {
   TopNav,
   type NavigationItem
 } from "../components/actions";
+import { layoutWidthClasses, type LayoutWidth } from "../primitives/layout";
 import { cx } from "../utils/cx";
 import {
   Card,
@@ -19,16 +20,21 @@ import { Badge } from "../components/feedback";
 export interface PageProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
+  width?: LayoutWidth;
 }
 
 export function Page({
   children,
+  width = "full",
   ...rest
 }: PageProps) {
   return (
     <div
       {...rest}
-      className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 pb-24 md:px-6 md:pb-8"
+      className={cx(
+        "mx-auto flex w-full flex-col gap-6 px-4 py-6 pb-24 md:px-6 md:pb-8",
+        layoutWidthClasses[width]
+      )}
     >
       {children}
     </div>
@@ -127,15 +133,17 @@ export interface RecordPageProps {
   header: ReactNode;
   summary: ReactNode;
   details: ReactNode;
+  width?: LayoutWidth;
 }
 
 export function RecordPage({
   header,
   summary,
-  details
+  details,
+  width = "full"
 }: RecordPageProps) {
   return (
-    <Page>
+    <Page width={width}>
       {header}
       <SplitPane
         primary={summary}
@@ -154,6 +162,7 @@ export interface MarketplaceShellProps {
   hero?: ReactNode;
   sidebar?: ReactNode;
   children?: ReactNode;
+  width?: LayoutWidth;
 }
 
 export function MarketplaceShell({
@@ -164,7 +173,8 @@ export function MarketplaceShell({
   actions,
   hero,
   sidebar,
-  children
+  children,
+  width = "full"
 }: MarketplaceShellProps) {
   const content = <div className="space-y-6">{children}</div>;
 
@@ -175,8 +185,9 @@ export function MarketplaceShell({
         items={topNavItems}
         activeKey={activeKey}
         actions={actions}
+        width={width}
       />
-      <Page>
+      <Page width={width}>
         {hero}
         {sidebar ? (
           <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
@@ -187,7 +198,7 @@ export function MarketplaceShell({
           content
         )}
       </Page>
-      <BottomNav items={bottomNavItems} activeKey={activeKey} />
+      <BottomNav items={bottomNavItems} activeKey={activeKey} width={width} />
     </div>
   );
 }
@@ -198,6 +209,7 @@ export interface AdminShellProps {
   activeKey?: string;
   actions?: ReactNode;
   children?: ReactNode;
+  width?: LayoutWidth;
 }
 
 export function AdminShell({
@@ -205,7 +217,8 @@ export function AdminShell({
   navItems,
   activeKey,
   actions,
-  children
+  children,
+  width = "full"
 }: AdminShellProps) {
   return (
     <div className="min-h-screen bg-background">
@@ -214,14 +227,20 @@ export function AdminShell({
         items={navItems}
         activeKey={activeKey}
         actions={actions}
+        width={width}
       />
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl gap-6 px-4 py-6 pb-24 lg:grid-cols-[16rem_minmax(0,1fr)] lg:pb-8">
+      <div
+        className={cx(
+          "mx-auto grid min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-6 pb-24 lg:grid-cols-[16rem_minmax(0,1fr)] lg:pb-8",
+          layoutWidthClasses[width]
+        )}
+      >
         <div className="hidden lg:block">
           <SideNav items={navItems} activeKey={activeKey} />
         </div>
         <div className="space-y-6">{children}</div>
       </div>
-      <BottomNav items={navItems} activeKey={activeKey} />
+      <BottomNav items={navItems} activeKey={activeKey} width={width} />
     </div>
   );
 }
@@ -414,7 +433,7 @@ export function OrderSummary({
           value: line.value
         }))}
       />
-      <div className="mt-4 flex items-center justify-between border-t border-muted pt-4">
+      <div className="flex items-center justify-between border-t border-muted pt-4">
         <span className="text-sm font-semibold text-foreground">Total</span>
         <span className="font-heading text-2xl font-semibold text-foreground">{total}</span>
       </div>
@@ -436,7 +455,7 @@ export function MetricStrip({
   items
 }: MetricStripProps) {
   return (
-    <StatGrid>
+    <StatGrid columns={{ base: 1, sm: 2, xl: 4 }}>
       {items.map((item, index) => (
         <Stat
           key={index}

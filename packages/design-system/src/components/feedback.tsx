@@ -484,32 +484,48 @@ export function ToastRegion({
 
   return (
     <ToastPrimitive.Provider duration={4000} swipeDirection="right">
-      {items.map((item) => (
-        <ToastPrimitive.Root
-          key={item.id}
-          open={item.open ?? true}
-          onOpenChange={item.onOpenChange}
-          className="modern-surface grid grid-cols-[auto_1fr] items-start gap-3 rounded-tokenLg border border-muted p-4 shadow-overlay"
-        >
-          <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-background">
-            <Icon
-              name={toneIcon(item.tone ?? "info")}
-              size="sm"
-              tone={item.tone ?? "info"}
-            />
-          </div>
-          <div className="space-y-1">
-            <ToastPrimitive.Title className="text-sm font-semibold text-foreground">
-              {item.title}
-            </ToastPrimitive.Title>
-            {item.description ? (
-              <ToastPrimitive.Description className="text-sm text-secondary">
-                {item.description}
-              </ToastPrimitive.Description>
-            ) : null}
-          </div>
-        </ToastPrimitive.Root>
-      ))}
+      {items.map((item) => {
+        const rootProps =
+          item.open === undefined
+            ? { onOpenChange: item.onOpenChange }
+            : { open: item.open, onOpenChange: item.onOpenChange };
+
+        return (
+          <ToastPrimitive.Root
+            key={item.id}
+            {...rootProps}
+            className="modern-surface grid grid-cols-[auto_1fr_auto] items-start gap-3 rounded-tokenLg border border-muted p-4 shadow-overlay"
+          >
+            <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-background">
+              <Icon
+                name={toneIcon(item.tone ?? "info")}
+                size="sm"
+                tone={item.tone ?? "info"}
+              />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <ToastPrimitive.Title className="text-sm font-semibold text-foreground">
+                {item.title}
+              </ToastPrimitive.Title>
+              {item.description ? (
+                <ToastPrimitive.Description className="text-sm text-secondary">
+                  {item.description}
+                </ToastPrimitive.Description>
+              ) : null}
+            </div>
+            <div className="self-start">
+              <ToastPrimitive.Close asChild>
+                <IconButton
+                  label="Dismiss notification"
+                  icon="close"
+                  tone="ghost"
+                  size="sm"
+                />
+              </ToastPrimitive.Close>
+            </div>
+          </ToastPrimitive.Root>
+        );
+      })}
       {toastNode ? createPortal(viewport, toastNode) : viewport}
     </ToastPrimitive.Provider>
   );

@@ -1,5 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import type { ResponsiveValue } from "../theme/tokens";
 import { cx } from "../utils/cx";
+import { resolveColumnsClass } from "../utils/system";
 import { Button } from "./actions";
 import { Drawer, EmptyState, type DrawerProps } from "./feedback";
 
@@ -235,16 +237,18 @@ export function Stat({
 export interface StatGridProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
+  columns?: ResponsiveValue<1 | 2 | 3 | 4>;
 }
 
 export function StatGrid({
+  columns = { base: 1, sm: 2 },
   children,
   ...rest
 }: StatGridProps) {
   return (
     <div
       {...rest}
-      className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+      className={cx("grid gap-4", resolveColumnsClass(columns))}
     >
       {children}
     </div>
@@ -367,7 +371,7 @@ export function DetailPanel({
         <div className="font-heading text-lg font-semibold text-foreground">{title}</div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
       </div>
-      {children}
+      {children != null ? <div className="space-y-4">{children}</div> : null}
     </Card>
   );
 }

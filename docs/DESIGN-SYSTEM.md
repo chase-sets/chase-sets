@@ -28,10 +28,13 @@ Application code should not introduce:
 - Form screens should use `Field`, `FormSection`, and field controls rather than direct inputs.
 - Overlays should use `Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, and `AlertDialog`.
 - Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionBar`, and `MetricStrip`.
+- `DetailPanel` applies default vertical spacing between direct child content blocks.
 
 ## Responsive Defaults
 
 - Mobile-first behavior is the default for every component.
+- Layout and shell primitives span the viewport by default and preserve responsive horizontal gutters.
+- Width-capped layouts are opt-in through optional `width` props on layout and shell wrappers.
 - Marketplace navigation uses bottom navigation on smaller screens.
 - Admin navigation uses bottom navigation on smaller screens and persistent side navigation at larger breakpoints.
 - `DataTable` defaults to stacked cards on mobile.

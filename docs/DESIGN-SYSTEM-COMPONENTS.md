@@ -2,6 +2,8 @@
 
 ## Layout Primitives
 
+`Container` remains configurable with an optional `width` prop and now defaults to `full`, so layout wrappers span the viewport by default while width caps remain opt-in.
+
 - `Box`
 - `Container`
 - `Stack`

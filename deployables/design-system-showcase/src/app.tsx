@@ -338,6 +338,7 @@ export function App() {
   const [showcaseMode, setShowcaseMode] = useState<"marketplace" | "admin">(
     "marketplace"
   );
+  const [isDemoToastOpen, setIsDemoToastOpen] = useState(true);
 
   return (
     <ChaseRoot colorMode={colorMode}>
@@ -382,7 +383,9 @@ export function App() {
             title: "Design system ready",
             description:
               "Marketplace and admin surfaces are rendering from a shared package with an explicit stylesheet import.",
-            tone: "success"
+            tone: "success",
+            open: isDemoToastOpen,
+            onOpenChange: setIsDemoToastOpen
           }
         ]}
       />

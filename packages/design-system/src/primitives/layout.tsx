@@ -66,10 +66,12 @@ export function Box({
 
 export interface ContainerProps
   extends Omit<BoxProps, "element"> {
-  width?: "narrow" | "content" | "wide" | "full";
+  width?: LayoutWidth;
 }
 
-const containerWidths: Record<NonNullable<ContainerProps["width"]>, string> = {
+export type LayoutWidth = "narrow" | "content" | "wide" | "full";
+
+export const layoutWidthClasses: Record<LayoutWidth, string> = {
   narrow: "max-w-3xl",
   content: "max-w-5xl",
   wide: "max-w-7xl",
@@ -78,7 +80,7 @@ const containerWidths: Record<NonNullable<ContainerProps["width"]>, string> = {
 
 export function Container({
   children,
-  width = "wide",
+  width = "full",
   paddingX = 4,
   ...rest
 }: ContainerProps) {
@@ -87,7 +89,7 @@ export function Container({
       {...rest}
       className={cx("w-full", resolveSystemProps({ paddingX }))}
     >
-      <div className={cx("mx-auto w-full", containerWidths[width])}>
+      <div className={cx("mx-auto w-full", layoutWidthClasses[width])}>
         {children}
       </div>
     </div>
