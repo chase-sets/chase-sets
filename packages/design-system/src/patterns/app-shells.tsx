@@ -166,6 +166,8 @@ export function MarketplaceShell({
   sidebar,
   children
 }: MarketplaceShellProps) {
+  const content = <div className="space-y-6">{children}</div>;
+
   return (
     <div className="min-h-screen bg-background">
       <TopNav
@@ -176,10 +178,14 @@ export function MarketplaceShell({
       />
       <Page>
         {hero}
-        <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
-          {sidebar ? <div className="hidden lg:block">{sidebar}</div> : null}
-          <div className="space-y-6">{children}</div>
-        </div>
+        {sidebar ? (
+          <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+            <div className="hidden lg:block">{sidebar}</div>
+            {content}
+          </div>
+        ) : (
+          content
+        )}
       </Page>
       <BottomNav items={bottomNavItems} activeKey={activeKey} />
     </div>
@@ -231,13 +237,21 @@ export function SearchResultsLayout({
   summary,
   children
 }: SearchResultsLayoutProps) {
+  const content = (
+    <div className="space-y-6">
+      {summary}
+      {children}
+    </div>
+  );
+
+  if (!filters) {
+    return content;
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      {filters ? <div className="hidden lg:block">{filters}</div> : null}
-      <div className="space-y-6">
-        {summary}
-        {children}
-      </div>
+      <div className="hidden lg:block">{filters}</div>
+      {content}
     </div>
   );
 }

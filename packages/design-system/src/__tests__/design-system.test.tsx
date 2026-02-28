@@ -4,11 +4,19 @@ import { describe, expect, it } from "vitest";
 import { Button, Tabs } from "../components/actions";
 import { DataTable } from "../components/data-display";
 import { Dialog } from "../components/feedback";
+import {
+  MarketplaceShell,
+  SearchResultsLayout
+} from "../patterns/app-shells";
 import { ChaseRoot } from "../theme/provider";
 import { resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
 import { resolveResponsiveClass } from "../utils/system";
 
 describe("design system", () => {
+  const marketplaceNav = [
+    { key: "browse", label: "Browse", icon: "search" as const }
+  ];
+
   it("resolves theme variables", () => {
     const style = resolveThemeStyle({
       colors: {
@@ -88,6 +96,74 @@ describe("design system", () => {
 
     expect(screen.getByText("Review listing")).toBeTruthy();
     expect(screen.getByText("Content body")).toBeTruthy();
+  });
+
+  it("renders search results without a reserved desktop rail when filters are omitted", () => {
+    const markup = renderToString(
+      <SearchResultsLayout
+        summary={<div>Listing summary</div>}
+      >
+        <div>Listing results</div>
+      </SearchResultsLayout>
+    );
+
+    expect(markup).toContain("Listing summary");
+    expect(markup).toContain("Listing results");
+    expect(markup).not.toContain("lg:grid-cols-[18rem_minmax(0,1fr)]");
+  });
+
+  it("renders search results with a desktop rail when filters are provided", () => {
+    const markup = renderToString(
+      <SearchResultsLayout
+        filters={<div>Filter rail</div>}
+        summary={<div>Listing summary</div>}
+      >
+        <div>Listing results</div>
+      </SearchResultsLayout>
+    );
+
+    expect(markup).toContain("Filter rail");
+    expect(markup).toContain("Listing summary");
+    expect(markup).toContain("Listing results");
+    expect(markup).toContain("lg:grid-cols-[18rem_minmax(0,1fr)]");
+  });
+
+  it("renders marketplace content without a reserved desktop rail when the sidebar is omitted", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <MarketplaceShell
+          brand={<div>Brand</div>}
+          topNavItems={marketplaceNav}
+          bottomNavItems={marketplaceNav}
+          activeKey="browse"
+        >
+          <div>Marketplace body</div>
+        </MarketplaceShell>
+      </ChaseRoot>
+    );
+
+    expect(markup).toContain("Marketplace body");
+    expect(markup).not.toContain("lg:grid-cols-[18rem_minmax(0,1fr)]");
+  });
+
+  it("renders marketplace content with a desktop rail when the sidebar is provided", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <MarketplaceShell
+          brand={<div>Brand</div>}
+          topNavItems={marketplaceNav}
+          bottomNavItems={marketplaceNav}
+          activeKey="browse"
+          sidebar={<div>Sidebar content</div>}
+        >
+          <div>Marketplace body</div>
+        </MarketplaceShell>
+      </ChaseRoot>
+    );
+
+    expect(markup).toContain("Sidebar content");
+    expect(markup).toContain("Marketplace body");
+    expect(markup).toContain("lg:grid-cols-[18rem_minmax(0,1fr)]");
   });
 
   it("resolves responsive classes from maps", () => {
