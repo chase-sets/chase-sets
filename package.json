@@ -1,0 +1,29 @@
+{
+  "name": "chase-sets",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "deployables/*"
+  ],
+  "scripts": {
+    "dev:showcase": "npm run dev --workspace @chase-sets/design-system-showcase",
+    "test:design-system": "npm run test --workspace @chase-sets/design-system",
+    "typecheck": "npm run typecheck --workspace @chase-sets/design-system && npm run typecheck --workspace @chase-sets/design-system-showcase"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.8",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^5.0.4",
+    "jsdom": "^26.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^4.0.8",
+    "typescript": "^5.7.3",
+    "vite": "^6.3.1",
+    "vitest": "^3.0.8"
+  }
+}

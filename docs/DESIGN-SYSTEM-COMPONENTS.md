@@ -1,0 +1,123 @@
+# Chase Sets Design System Component Inventory
+
+## Layout Primitives
+
+- `Box`
+- `Container`
+- `Stack`
+- `Inline`
+- `Cluster`
+- `Grid`
+- `Spacer`
+- `Inset`
+- `Center`
+- `AspectRatio`
+- `Surface`
+- `Divider`
+- `ScrollArea`
+- `VisuallyHidden`
+
+## Typography And Media
+
+- `Text`
+- `Heading`
+- `Label`
+- `Caption`
+- `CodeText`
+- `LinkText`
+- `List`
+- `Quote`
+- `Icon`
+- `Avatar`
+- `Thumbnail`
+- `EmptyStateIllustration`
+
+## Actions And Navigation
+
+- `Button`
+- `IconButton`
+- `LinkButton`
+- `ButtonGroup`
+- `Tabs`
+- `SegmentedControl`
+- `Breadcrumbs`
+- `Pagination`
+- `PageStepper`
+- `TopNav`
+- `SideNav`
+- `BottomNav`
+- `NavRail`
+
+## Forms
+
+- `Field`
+- `Fieldset`
+- `FormSection`
+- `TextInput`
+- `NumberInput`
+- `CurrencyInput`
+- `SearchInput`
+- `Textarea`
+- `Select`
+- `Combobox`
+- `Checkbox`
+- `CheckboxGroup`
+- `RadioGroup`
+- `Switch`
+- `Slider`
+- `DateInput`
+- `FileDropzone`
+- `InlineMessage`
+- `HelperText`
+
+## Feedback And Overlays
+
+- `Badge`
+- `StatusPill`
+- `Tag`
+- `Banner`
+- `AlertDialog`
+- `Dialog`
+- `Drawer`
+- `Popover`
+- `Tooltip`
+- `Menu`
+- `ToastRegion`
+- `LoadingSpinner`
+- `ProgressBar`
+- `Skeleton`
+- `EmptyState`
+
+## Data Display
+
+- `Table`
+- `DataTable`
+- `KeyValueList`
+- `Stat`
+- `StatGrid`
+- `Timeline`
+- `ActivityList`
+- `Card`
+- `DetailPanel`
+- `FilterBar`
+- `FilterDrawer`
+- `BulkActionBar`
+
+## App Patterns
+
+- `Page`
+- `PageHeader`
+- `PageSection`
+- `SplitPane`
+- `RecordPage`
+- `MarketplaceShell`
+- `AdminShell`
+- `SearchResultsLayout`
+- `CheckoutLayout`
+- `InspectorLayout`
+- `SelectionToolbar`
+- `PriceDisplay`
+- `ConditionBadge`
+- `SellerBadge`
+- `OrderSummary`
+- `MetricStrip`

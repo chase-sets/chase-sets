@@ -2,7 +2,11 @@ import { nowIsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
 import type { IsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
 import type { JsonObject } from "../../primitives/json";
 import type { EventId } from "../../primitives/typed-ids";
-import { createEventStoreError, type EventStore } from "../event-store";
+import {
+  createEventStoreError,
+  EventStoreError,
+  type EventStore,
+} from "../event-store";
 import {
   ZERO_GLOBAL_POSITION,
   globalPositionFromBigInt,
@@ -259,9 +263,13 @@ async function appendEventsToStream(
   );
 
   if (streamVersionResult.rows.length !== 1) {
-    throw createEventStoreError("infrastructure_failure", "Stream row not found", {
-      streamId: args.input.streamId,
-    });
+    throw createEventStoreError(
+      "infrastructure_failure",
+      "Stream row not found",
+      {
+        streamId: args.input.streamId,
+      },
+    );
   }
 
   const currentVersion = toNumber(streamVersionResult.rows[0].current_version);
@@ -399,7 +407,10 @@ async function withTransaction<T>(
   }
 }
 
-function normalizeEventStoreError(error: unknown, message: string): Error {
+function normalizeEventStoreError(
+  error: unknown,
+  message: string,
+): EventStoreError {
   if (isEventStoreError(error)) {
     return error;
   }
@@ -432,7 +443,7 @@ function isPgUniqueViolation(error: unknown): error is PgError {
   );
 }
 
-function isEventStoreError(error: unknown): boolean {
+function isEventStoreError(error: unknown): error is EventStoreError {
   return (
     typeof error === "object" &&
     error !== null &&
@@ -456,15 +467,19 @@ function mapDbEventRow(row: DbEventRow): StoredEvent {
     metadata: toJsonObject(row.metadata ?? {}, "metadata"),
     occurredAt: toIsoUtcTimestamp(row.occurred_at),
     recordedAt: toIsoUtcTimestamp(row.recorded_at),
-    performedByAccountId: row.performed_by_account_id as StoredEvent["performedByAccountId"],
-    forOrganizationId: row.for_organization_id as StoredEvent["forOrganizationId"],
+    performedByAccountId:
+      row.performed_by_account_id as StoredEvent["performedByAccountId"],
+    forOrganizationId:
+      row.for_organization_id as StoredEvent["forOrganizationId"],
     correlationId: row.correlation_id
       ? (row.correlation_id as StoredEvent["correlationId"])
       : undefined,
     causationId: row.causation_id
       ? (row.causation_id as StoredEvent["causationId"])
       : undefined,
-    commandId: row.command_id ? (row.command_id as StoredEvent["commandId"]) : undefined,
+    commandId: row.command_id
+      ? (row.command_id as StoredEvent["commandId"])
+      : undefined,
   };
 }
 

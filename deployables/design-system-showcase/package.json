@@ -1,0 +1,16 @@
+{
+  "name": "@chase-sets/design-system-showcase",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@chase-sets/design-system": "0.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "scripts": {
+    "build": "vite build && node ./scripts/verify-css.mjs",
+    "dev": "vite",
+    "typecheck": "tsc -p ./tsconfig.json --noEmit"
+  }
+}
