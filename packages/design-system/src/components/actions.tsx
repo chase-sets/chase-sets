@@ -110,6 +110,64 @@ function renderNavigationItem(
   );
 }
 
+function renderBottomNavigationItem(
+  item: NavigationItem,
+  active: boolean,
+  onSelect?: (key: string) => void
+) {
+  const content = (
+    <>
+      <span className="relative inline-flex h-5 w-5 items-center justify-center">
+        {item.icon ? (
+          <Icon
+            name={item.icon}
+            size="sm"
+            tone={active ? "accent" : "secondary"}
+          />
+        ) : null}
+        {item.badge ? (
+          <span
+            aria-hidden="true"
+            className="absolute -right-2 -top-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-background px-1 text-[0.65rem] font-semibold leading-none text-secondary shadow-tokenSm"
+          >
+            {item.badge}
+          </span>
+        ) : null}
+      </span>
+      <span className="text-xs">{item.label}</span>
+      {item.badge ? (
+        <span className="sr-only">{` ${item.badge}`}</span>
+      ) : null}
+    </>
+  );
+
+  const className = cx(
+    "focus-ring inline-flex w-full flex-col items-center justify-center gap-1 rounded-tokenMd px-3 py-3 text-sm font-medium transition",
+    active
+      ? "bg-background text-accent shadow-tokenSm"
+      : "text-secondary hover:bg-background hover:text-foreground"
+  );
+
+  if (item.href) {
+    return (
+      <a key={item.key} href={item.href} className={className}>
+        {content}
+      </a>
+    );
+  }
+
+  return (
+    <button
+      key={item.key}
+      type="button"
+      className={className}
+      onClick={() => onSelect?.(item.key)}
+    >
+      {content}
+    </button>
+  );
+}
+
 export interface ButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> {
   tone?: ButtonTone;
@@ -619,7 +677,7 @@ export function BottomNav({
     >
       <div className={cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width])}>
         {items.slice(0, 4).map((item) =>
-          renderNavigationItem(item, item.key === activeKey, "rail", onSelect)
+          renderBottomNavigationItem(item, item.key === activeKey, onSelect)
         )}
       </div>
     </nav>

@@ -275,6 +275,23 @@ describe("design system", () => {
     expect(bottomNavMarkup).not.toContain("max-w-lg");
   });
 
+  it("renders bottom nav badges as icon overlays without changing label flow", () => {
+    const markup = renderToString(
+      <BottomNav
+        items={[
+          { key: "browse", label: "Browse", icon: "search" },
+          { key: "cart", label: "Cart", icon: "cart", badge: "3" }
+        ]}
+        activeKey="cart"
+      />
+    );
+
+    expect(markup).toContain("relative inline-flex h-5 w-5 items-center justify-center");
+    expect(markup).toContain("absolute -right-2 -top-2 inline-flex min-h-4 min-w-4");
+    expect(markup).toContain("aria-hidden=\"true\"");
+    expect(markup).toContain("class=\"sr-only\"> 3</span>");
+  });
+
   it("renders search results without a reserved desktop rail when filters are omitted", () => {
     const markup = renderToString(
       <SearchResultsLayout
