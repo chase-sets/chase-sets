@@ -16,8 +16,6 @@ export type AccountId = TypedUlid<"acc">;
 
 export type OrganizationId = TypedUlid<"org">;
 
-export type CatalogItemId = TypedUlid<"cat">;
-
 export type InventoryLotId = TypedUlid<"lot">;
 
 export type ListingId = TypedUlid<"lst">;

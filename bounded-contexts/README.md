@@ -43,11 +43,12 @@ These marketplace nouns are already fixed to a single owner:
 
 ## Shared Typed IDs
 
-Cross-context references should use the canonical IDs defined in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/typed-ids.ts):
+Cross-context references should use the canonical IDs defined in shared contracts or the owning bounded context.
+
+Shared IDs in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/typed-ids.ts):
 
 - `AccountId`
 - `OrganizationId`
-- `CatalogItemId`
 - `InventoryLotId`
 - `ListingId`
 - `OfferId`
@@ -57,6 +58,10 @@ Cross-context references should use the canonical IDs defined in [`contracts/pri
 - `PaymentId`
 - `LedgerEntryId`
 - `PayoutId`
+
+Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
+
+- `CatalogItemId`
 
 ## Upstream and Downstream Relationships
 
