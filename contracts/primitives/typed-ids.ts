@@ -28,6 +28,8 @@ export type OrderId = TypedUlid<"ord">;
 
 export type ShipmentId = TypedUlid<"shp">;
 
+export type ReviewId = TypedUlid<"rev">;
+
 export type PaymentId = TypedUlid<"pay">;
 
 export type LedgerEntryId = TypedUlid<"led">;

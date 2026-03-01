@@ -14,6 +14,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
 | [Ordering](./ordering/README.md) | Own checkout normalization and commercial commitment. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
+| [Reputation](./reputation/README.md) | Own post-transaction ratings, written feedback, and canonical reputation summaries. |
 | [Payments](./payments/README.md) | Own external money movement and buyer-facing charges or refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
@@ -38,6 +39,7 @@ These marketplace nouns are already fixed to a single owner:
 - Offer is owned by Marketplace.
 - Order is owned by Ordering.
 - Shipment is owned by Fulfillment.
+- Review is owned by Reputation.
 
 ## Shared Typed IDs
 
@@ -51,6 +53,7 @@ Cross-context references should use the canonical IDs defined in [`contracts/pri
 - `OfferId`
 - `OrderId`
 - `ShipmentId`
+- `ReviewId`
 - `PaymentId`
 - `LedgerEntryId`
 - `PayoutId`
@@ -63,6 +66,7 @@ Cross-context references should use the canonical IDs defined in [`contracts/pri
 - Marketplace depends on Identity, Catalog, and Inventory availability signals.
 - Ordering depends on Marketplace decisions and Identity organization references.
 - Fulfillment depends on Ordering.
+- Reputation depends on Identity for organization references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
 - Settlement depends on Payments and Ordering.
 - Pricing consumes history from Catalog, Inventory, Marketplace, Ordering, and Fulfillment.
@@ -82,7 +86,8 @@ These scenarios should map cleanly to one owner per decision:
 2. Marketplace owns listing publication and offer negotiation.
 3. Ordering owns cart decomposition and order creation.
 4. Fulfillment owns shipment state and tracking.
-5. Payments owns charge and refund execution.
-6. Settlement owns ledger adjustments and payout eligibility.
-7. Pricing owns recommendations but never directly mutates listings or inventory.
-8. Insights owns reporting and forecasting without owning source transactions.
+5. Reputation owns post-transaction ratings, written feedback, and aggregate reputation summaries.
+6. Payments owns charge and refund execution.
+7. Settlement owns ledger adjustments and payout eligibility.
+8. Pricing owns recommendations but never directly mutates listings or inventory.
+9. Insights owns reporting and forecasting without owning source transactions.

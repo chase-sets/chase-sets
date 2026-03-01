@@ -49,3 +49,11 @@ A **Shipment** is the physical delivery of items from a seller to a buyer to ful
 Notes:
 
 - Shipment is owned by the Fulfillment bounded context.
+
+## Review
+
+A **Review** is a post-transaction evaluation one organization records about another.
+
+Notes:
+
+- Review is owned by the Reputation bounded context.
