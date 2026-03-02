@@ -33,7 +33,7 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Identity for seller organization references
+- Identity for seller account references
 - Catalog for canonical item identity
 
 ## Outgoing Integration Events
@@ -47,7 +47,7 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. Inventory is private seller state.
-2. Every inventory lot belongs to exactly one seller organization.
+2. Every inventory lot belongs to exactly one seller account.
 3. Inventory availability must be derived from on-hand quantity minus active reservations.
 4. A listing can only be created from inventory that is available for sale.
 

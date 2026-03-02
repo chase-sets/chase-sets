@@ -8,7 +8,7 @@ An **Analytical Projection** is a read model built from integration events acros
 
 ## KPI
 
-A **KPI** is a named metric used to track marketplace or organization performance.
+A **KPI** is a named metric used to track marketplace or account performance.
 
 Examples:
 
@@ -26,4 +26,4 @@ A **Forecast Model** is the analytical model used to estimate future demand, pri
 
 ## Report Slice
 
-A **Report Slice** is a filtered analytical view scoped by time, organization, or product dimensions.
+A **Report Slice** is a filtered analytical view scoped by time, account, or product dimensions.

@@ -8,7 +8,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 
 | Context | Purpose |
 | --- | --- |
-| [Identity](./identity/README.md) | Own who can act in the system and on whose behalf they act. |
+| [Identity](./identity/README.md) | Own users and the accounts they act for. |
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Inventory](./inventory/README.md) | Own seller-held stock and operational availability. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
@@ -34,7 +34,7 @@ The following rules apply to every context in this directory:
 
 These marketplace nouns are already fixed to a single owner:
 
-- Buyer and Seller are roles played by an Organization, not separate root entities.
+- Buyer and Seller are roles played by an Account, not separate root entities.
 - Listing is owned by Marketplace.
 - Offer is owned by Marketplace.
 - Order is owned by Ordering.
@@ -48,7 +48,7 @@ Cross-context references should use the canonical IDs defined in shared contract
 Shared IDs in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/typed-ids.ts):
 
 - `AccountId`
-- `OrganizationId`
+- `UserId`
 - `InventoryLotId`
 - `ListingId`
 - `OfferId`
@@ -65,13 +65,13 @@ Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
 
 ## Upstream and Downstream Relationships
 
-- Identity is upstream for actor and organization references.
+- Identity is upstream for user and account references.
 - Catalog is upstream for canonical item references.
 - Inventory depends on Identity and Catalog.
 - Marketplace depends on Identity, Catalog, and Inventory availability signals.
-- Ordering depends on Marketplace decisions and Identity organization references.
+- Ordering depends on Marketplace decisions and Identity account references.
 - Fulfillment depends on Ordering.
-- Reputation depends on Identity for organization references, Ordering for order references, and Fulfillment for delivery outcomes.
+- Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
 - Settlement depends on Payments and Ordering.
 - Pricing consumes history from Catalog, Inventory, Marketplace, Ordering, and Fulfillment.

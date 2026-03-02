@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Reputation owns post-transaction ratings, written feedback, and the canonical reputation summary for organizations.
+Reputation owns post-transaction ratings, written feedback, and the canonical reputation summary for accounts.
 
 ## Owns
 
@@ -34,7 +34,7 @@ Reputation terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Identity for author and subject organization references
+- Identity for author and subject account references
 - Ordering for order references and counterparty pairing
 - Fulfillment for delivery-complete signals that unlock review eligibility
 
@@ -48,8 +48,8 @@ Reputation terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. A review is always attached to an Order, never directly to a listing or shipment.
-2. Only organizations that were counterparties on the same completed order may review each other.
-3. Reputation allows at most one active review per order, per direction (`authorOrganizationId` -> `subjectOrganizationId`).
+2. Only accounts that were counterparties on the same completed order may review each other.
+3. Reputation allows at most one active review per order, per direction (`authorAccountId` -> `subjectAccountId`).
 4. The canonical reputation summary is derived only from active reviews.
 5. Reputation is downstream of commerce execution and must not block ordering, payment, or fulfillment flows.
 

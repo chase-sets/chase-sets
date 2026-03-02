@@ -7,8 +7,8 @@ import type {
   CommandId,
   CorrelationId,
   EventId,
-  OrganizationId,
   TenantId,
+  UserId,
 } from "../primitives/typed-ids";
 
 export type StreamId = string;
@@ -62,8 +62,8 @@ export function compareGlobalPosition(
 }
 
 export type EventAuditContext = Readonly<{
-  performedByAccountId: AccountId;
-  forOrganizationId: OrganizationId;
+  performedByUserId: UserId;
+  forAccountId: AccountId;
 }>;
 
 export type EventTraceContext = Readonly<{
@@ -100,8 +100,8 @@ export type StoredEvent<
   metadata: Metadata;
   occurredAt: IsoUtcTimestamp;
   recordedAt: IsoUtcTimestamp;
-  performedByAccountId: AccountId;
-  forOrganizationId: OrganizationId;
+  performedByUserId: UserId;
+  forAccountId: AccountId;
   correlationId?: CorrelationId;
   causationId?: CausationId;
   commandId?: CommandId;

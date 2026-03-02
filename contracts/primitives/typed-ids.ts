@@ -14,7 +14,7 @@ export type CommandId = TypedUlid<"cmd">;
 
 export type AccountId = TypedUlid<"acc">;
 
-export type OrganizationId = TypedUlid<"org">;
+export type UserId = TypedUlid<"usr">;
 
 export type InventoryLotId = TypedUlid<"lot">;
 

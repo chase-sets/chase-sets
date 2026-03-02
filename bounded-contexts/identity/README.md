@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Identity owns who can act in Chase Sets and which organization they act for.
+Identity owns users and the accounts they act for in Chase Sets.
 
 ## Owns
 
+- User
 - Account
-- Organization
 - Membership
 - Role
 - Permission
@@ -35,8 +35,8 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 
 ## Core Aggregates and Process Managers
 
-- Organization
 - Account
+- User
 - Membership
 - Invitation
 - Session
@@ -47,8 +47,9 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 
 ## Outgoing Integration Events
 
-- `OrganizationCreated`
-- `OrganizationProfileUpdated`
+- `UserCreated`
+- `AccountCreated`
+- `AccountProfileUpdated`
 - `MembershipGranted`
 - `MembershipRevoked`
 - `ContactMethodVerified`
@@ -56,10 +57,10 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 
 ## Invariants
 
-1. All actions are performed by an Account for an Organization.
-2. Organizations are the root of all commerce activity.
-3. Accounts never directly own listings, offers, wallets, or orders.
-4. Buyer and Seller remain roles an Organization plays in downstream contexts.
+1. All actions are performed by a User for an Account.
+2. Accounts are the root of all commerce activity.
+3. Users never directly own listings, offers, wallets, or orders.
+4. Buyer and Seller remain roles an Account plays in downstream contexts.
 
 ## Open Extraction Candidates
 

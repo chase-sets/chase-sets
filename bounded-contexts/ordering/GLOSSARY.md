@@ -8,7 +8,7 @@ A **Cart** is the buyer's in-progress checkout state before one or more orders a
 
 ## Order
 
-An **Order** is the commercial commitment between a buyer organization and a seller organization created from a listing purchase or accepted offer.
+An **Order** is the commercial commitment between a buyer account and a seller account created from a listing purchase or accepted offer.
 
 Notes:
 

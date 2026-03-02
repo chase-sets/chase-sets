@@ -6,7 +6,7 @@ Use these terms consistently in documentation, APIs, events, and internal models
 
 ## Review
 
-A **Review** is the full post-transaction evaluation record one organization records about another, scoped to a single order.
+A **Review** is the full post-transaction evaluation record one account records about another, scoped to a single order.
 
 Notes:
 
@@ -31,19 +31,19 @@ Notes:
 
 ## Review Author
 
-A **Review Author** is the organization that leaves a review.
+A **Review Author** is the account that leaves a review.
 
 Notes:
 
-- A Review Author is an `Organization`, not a separate root entity.
+- A Review Author is an `Account`, not a separate root entity.
 
 ## Review Subject
 
-A **Review Subject** is the organization being evaluated by a review.
+A **Review Subject** is the account being evaluated by a review.
 
 Notes:
 
-- A Review Subject is an `Organization`, not a separate root entity.
+- A Review Subject is an `Account`, not a separate root entity.
 
 ## Review Eligibility
 
@@ -55,7 +55,7 @@ Notes:
 
 ## Reputation Summary
 
-A **Reputation Summary** is the canonical aggregate snapshot for an organization derived from active reviews.
+A **Reputation Summary** is the canonical aggregate snapshot for an account derived from active reviews.
 
 Examples:
 

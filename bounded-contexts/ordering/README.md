@@ -34,7 +34,7 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Identity for buyer and seller organization references
+- Identity for buyer and seller account references
 - Marketplace for accepted purchase decisions
 
 ## Outgoing Integration Events

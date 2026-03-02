@@ -35,7 +35,7 @@ Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Identity for buyer and seller organization references
+- Identity for buyer and seller account references
 - Catalog for canonical item references
 - Inventory for sellable availability signals
 
@@ -55,7 +55,7 @@ Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 1. Listings and Offers share the same negotiation boundary and stay in one context.
 2. Marketplace may expose sellable quantity but does not own inventory truth.
 3. Marketplace emits the decision that an order should be created, but it does not own order state.
-4. Buyer and Seller are organization roles, not Marketplace-specific entities.
+4. Buyer and Seller are account roles, not Marketplace-specific entities.
 
 ## Open Extraction Candidates
 

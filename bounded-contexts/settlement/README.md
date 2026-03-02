@@ -7,7 +7,7 @@ Settlement owns internal financial truth for marketplace balances and payouts.
 ## Owns
 
 - Ledger entries
-- Organization balances and wallets
+- Account balances and wallets
 - Fee postings
 - Rebate postings
 - Payout eligibility
@@ -40,7 +40,7 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Outgoing Integration Events
 
 - `LedgerEntryPosted`
-- `OrganizationBalanceUpdated`
+- `AccountBalanceUpdated`
 - `PayoutEligible`
 - `PayoutScheduled`
 - `PayoutCompleted`

@@ -8,7 +8,7 @@ An **Inventory Lot** is a seller-owned stock record for a specific catalog item,
 
 Notes:
 
-- Inventory lots are private to the seller organization.
+- Inventory lots are private to the seller account.
 - Inventory lots are referenced by Marketplace but not owned there.
 
 ## Availability

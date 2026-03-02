@@ -33,7 +33,7 @@ Fulfillment terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Incoming Dependencies
 
 - Ordering for order readiness
-- Identity for seller and buyer organization references
+- Identity for seller and buyer account references
 
 ## Outgoing Integration Events
 

@@ -16,39 +16,39 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 # Core Concepts
 
-## Account
+## User
 
-An **Account** represents a person or system that can perform actions in the marketplace.
+A **User** represents a person or system that can perform actions in the marketplace.
 
 This includes:
 
-- Registered buyers and sellers
-- Sellers
+- Registered buyers
+- Registered sellers
 - Staff
 - Administrators
-- Automation accounts
-- Guest checkout buyers
+- Automation users
+- Guest checkout users
 
 Notes:
 
-- Guest checkout creates a minimal account record.
-- Accounts may belong to one or more organizations.
-- Accounts may have multiple credentials and authentication methods.
-- Accounts are assigned roles through memberships; not permissions directly.
+- Guest checkout creates a minimal user record plus a corresponding account record.
+- Users may belong to one or more accounts.
+- Users may have multiple credentials and authentication methods.
+- Users are assigned roles through memberships; not permissions directly.
 
 Examples of usage:
 
-- accounts table
-- AccountCreated event
-- Account Settings (UI)
+- users table
+- UserCreated event
+- User Settings (UI)
 
 ---
 
-## Organization
+## Account
 
-An **Organization** is the root entity that owns commercial activity within the marketplace.
+An **Account** is the root entity that owns commercial activity within the marketplace.
 
-Organizations:
+Accounts:
 
 - Own orders
 - Own listings
@@ -57,7 +57,7 @@ Organizations:
 - Own wallets and balances
 - Own tax settings and tax identity
 - Receive payouts
-- Manage staff through memberships
+- Manage users and automation through memberships
 - Own locations (addresses) and fulfillment settings
 
 Examples:
@@ -69,15 +69,15 @@ Examples:
 
 Notes:
 
-- Organizations do not sign in; accounts sign in.
-- All commerce activity is attributed to an organization.
-- Even guest buyers have an associated organization for their orders and payments (even if it's not visible to them).
+- Accounts do not sign in; users sign in.
+- All commerce activity is attributed to an account.
+- Even guest buyers have an associated account for their orders and payments (even if it's not visible to them).
 
 ---
 
 ## Membership
 
-A **Membership** links an Account to an Organization and defines what the account can do on behalf of that organization.
+A **Membership** links a User to an Account and defines what the user can do on behalf of that account.
 
 A membership records:
 
@@ -88,8 +88,9 @@ A membership records:
 
 Notes:
 
+- A user may have multiple memberships.
 - An account may have multiple memberships.
-- A membership belongs to exactly one organization.
+- A membership belongs to exactly one account.
 
 Examples:
 
@@ -113,7 +114,7 @@ Examples:
 
 Notes:
 
-- Roles are scoped to an organization.
+- Roles are scoped to an account.
 - Roles should be human-readable and stable.
 
 ---
@@ -140,7 +141,7 @@ Notes:
 
 ## Credential
 
-A **Credential** is a secret or authentication factor used to verify an account.
+A **Credential** is a secret or authentication factor used to verify a user.
 
 Examples:
 
@@ -157,7 +158,7 @@ Notes:
 
 ## Authentication Method
 
-An **Authentication Method** is a configured way an account can sign in.
+An **Authentication Method** is a configured way a user can sign in.
 
 Examples:
 
@@ -169,13 +170,13 @@ Examples:
 
 Notes:
 
-- An account may have multiple authentication methods.
+- A user may have multiple authentication methods.
 
 ---
 
 ## Session
 
-A **Session** is a time-bounded authenticated interaction between an account and the system.
+A **Session** is a time-bounded authenticated interaction between a user and the system.
 
 Examples:
 
@@ -194,7 +195,7 @@ An **API Key** is a credential used by software or integrations to access the sy
 
 Notes:
 
-- API keys belong to accounts.
+- API keys belong to users.
 - API keys should support rotation and revocation.
 
 ---
@@ -203,7 +204,7 @@ Notes:
 
 ## Profile
 
-A **Profile** is the collection of display and contact information associated with an account or organization.
+A **Profile** is the collection of display and contact information associated with a user or account.
 
 Examples:
 
@@ -221,7 +222,7 @@ Notes:
 
 ## Contact Method
 
-A **Contact Method** is a way to reach or verify an account.
+A **Contact Method** is a way to reach or verify a user.
 
 Examples:
 
@@ -230,7 +231,7 @@ Examples:
 
 Notes:
 
-- An account may have multiple contact methods.
+- A user may have multiple contact methods.
 - Contact methods may require verification.
 
 ---
@@ -251,11 +252,11 @@ Notes:
 
 ---
 
-# Organization Lifecycle
+# Account Lifecycle
 
 ## Invitation
 
-An **Invitation** is a request for an account or email address to join an organization with a specific role.
+An **Invitation** is a request for a user or email address to join an account with a specific role.
 
 Examples:
 
@@ -271,7 +272,7 @@ Notes:
 
 ## Consent
 
-A **Consent** records that an account or organization agreed to a policy, contract, or terms.
+A **Consent** records that a user or account agreed to a policy, contract, or terms.
 
 Examples:
 
@@ -290,18 +291,18 @@ Notes:
 
 All stored/transmitted events (not domain) and audit records must include:
 
-- performedByAccountId
-- forOrganizationId
+- performedByUserId
+- forAccountId
 
 These fields identify:
 
-- The account that performed the action
-- The organization the action was performed for
+- The user that performed the action
+- The account the action was performed for
 
 Notes:
 
 - These are audit fields, not domain entities.
-- Automation and system processes use automation accounts.
+- Automation and system processes use automation users.
 
 ---
 
@@ -309,9 +310,9 @@ Notes:
 
 The following rules must always hold:
 
-1. All actions are performed by an Account for an Organization.
-2. Organizations are the root of all commerce activity.
-3. Accounts never directly own listings, offers, wallets, or orders.
+1. All actions are performed by a User for an Account.
+2. Accounts are the root of all commerce activity.
+3. Users never directly own listings, offers, wallets, or orders.
 
 ---
 
@@ -319,9 +320,9 @@ The following rules must always hold:
 
 To maintain consistency:
 
-1. Use **Account**, not User or Identity.
-2. Use **Membership**, not Member or Organization Member.
-3. Use **Organization** as the commercial owner of listings, offers, wallets, and orders.
+1. Use **User** for the acting identity, not Account or Identity.
+2. Use **Membership**, not Member or Account Member.
+3. Use **Account** as the commercial owner of listings, offers, wallets, and orders.
 4. Use glossary terms consistently in:
    - Table names
    - Event names

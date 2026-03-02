@@ -35,8 +35,8 @@ type DbEventRow = Readonly<{
   metadata: unknown;
   occurred_at: Date | string;
   recorded_at: Date | string;
-  performed_by_account_id: string;
-  for_organization_id: string;
+  performed_by_user_id: string;
+  for_account_id: string;
   correlation_id: string | null;
   causation_id: string | null;
   command_id: string | null;
@@ -69,8 +69,8 @@ const EVENT_COLUMNS = [
   "metadata",
   "occurred_at",
   "recorded_at",
-  "performed_by_account_id",
-  "for_organization_id",
+  "performed_by_user_id",
+  "for_account_id",
   "correlation_id",
   "causation_id",
   "command_id",
@@ -113,8 +113,8 @@ export function createPostgresEventStore(
       metadata,
       occurred_at,
       recorded_at,
-      performed_by_account_id,
-      for_organization_id,
+      performed_by_user_id,
+      for_account_id,
       correlation_id,
       causation_id,
       command_id
@@ -333,8 +333,8 @@ async function insertSingleEvent(
     args.event.metadata ?? {},
     args.event.occurredAt ?? args.now,
     args.now,
-    args.context.audit.performedByAccountId,
-    args.context.audit.forOrganizationId,
+    args.context.audit.performedByUserId,
+    args.context.audit.forAccountId,
     args.context.trace?.correlationId ?? null,
     args.context.trace?.causationId ?? null,
     args.context.trace?.commandId ?? null,
@@ -467,10 +467,10 @@ function mapDbEventRow(row: DbEventRow): StoredEvent {
     metadata: toJsonObject(row.metadata ?? {}, "metadata"),
     occurredAt: toIsoUtcTimestamp(row.occurred_at),
     recordedAt: toIsoUtcTimestamp(row.recorded_at),
-    performedByAccountId:
-      row.performed_by_account_id as StoredEvent["performedByAccountId"],
-    forOrganizationId:
-      row.for_organization_id as StoredEvent["forOrganizationId"],
+    performedByUserId:
+      row.performed_by_user_id as StoredEvent["performedByUserId"],
+    forAccountId:
+      row.for_account_id as StoredEvent["forAccountId"],
     correlationId: row.correlation_id
       ? (row.correlation_id as StoredEvent["correlationId"])
       : undefined,

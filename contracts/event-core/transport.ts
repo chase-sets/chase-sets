@@ -6,8 +6,8 @@ import type {
   CommandId,
   CorrelationId,
   EventId,
-  OrganizationId,
   TenantId,
+  UserId,
 } from "../primitives/typed-ids";
 import type {
   GlobalPosition,
@@ -26,8 +26,8 @@ export type TransportEvent = Readonly<{
   data: JsonObject;
   metadata: JsonObject;
   audit: Readonly<{
-    performedByAccountId: AccountId;
-    forOrganizationId: OrganizationId;
+    performedByUserId: UserId;
+    forAccountId: AccountId;
   }>;
   trace: Readonly<{
     correlationId?: CorrelationId;
@@ -51,8 +51,8 @@ export function toTransportEvent(event: StoredEvent): TransportEvent {
     data: event.payload,
     metadata: event.metadata,
     audit: {
-      performedByAccountId: event.performedByAccountId,
-      forOrganizationId: event.forOrganizationId,
+      performedByUserId: event.performedByUserId,
+      forAccountId: event.forAccountId,
     },
     trace: {
       correlationId: event.correlationId,
