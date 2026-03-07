@@ -191,7 +191,7 @@ export function MarketplaceShell({
         actions={actions}
         width={width}
       />
-      <div id="main-content">
+      <main id="main-content">
         <Page width={width}>
           {hero}
           {sidebar ? (
@@ -203,7 +203,7 @@ export function MarketplaceShell({
             content
           )}
         </Page>
-      </div>
+      </main>
       <BottomNav items={bottomNavItems} activeKey={activeKey} width={width} />
     </div>
   );
@@ -236,7 +236,7 @@ export function AdminShell({
         actions={actions}
         width={width}
       />
-      <div
+      <main
         id="main-content"
         className={cx(
           "mx-auto grid min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-6 pb-24 lg:grid-cols-[16rem_minmax(0,1fr)] lg:pb-8",
@@ -247,7 +247,7 @@ export function AdminShell({
           <SideNav items={navItems} activeKey={activeKey} />
         </div>
         <div className="space-y-6">{children}</div>
-      </div>
+      </main>
       <BottomNav items={navItems} activeKey={activeKey} width={width} />
     </div>
   );

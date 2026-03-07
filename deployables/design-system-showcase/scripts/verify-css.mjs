@@ -1,13 +1,19 @@
-import { readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const distAssetsDir = new URL("../dist/assets/", import.meta.url);
-const requiredSelectors = [
-  ".flex",
-  ".bg-background",
-  ".rounded-tokenLg",
-  ".shadow-tokenSm"
+const designSystemPackageUrl = new URL(
+  "../../../packages/design-system/package.json",
+  import.meta.url
+);
+const requiredCssContractSnippets = [
+  "[data-chase-theme][data-color-mode=light]",
+  "[data-chase-theme][data-color-mode=dark]",
+  "--color-background:",
+  "--font-body:",
+  ".modern-surface",
+  ".focus-ring:focus-visible"
 ];
 
 async function findCssBundle() {
@@ -23,15 +29,27 @@ async function findCssBundle() {
 }
 
 async function main() {
+  const packageJsonPath = fileURLToPath(designSystemPackageUrl);
+  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  const stylesheetExport = packageJson.exports?.["./styles.css"];
+
+  if (typeof stylesheetExport !== "string") {
+    throw new Error(
+      "Missing ./styles.css export in packages/design-system/package.json."
+    );
+  }
+
+  await access(resolve(dirname(packageJsonPath), stylesheetExport));
+
   const cssBundlePath = await findCssBundle();
   const css = await readFile(cssBundlePath, "utf8");
-  const missingSelectors = requiredSelectors.filter(
+  const missingContractSnippets = requiredCssContractSnippets.filter(
     (selector) => !css.includes(selector)
   );
 
-  if (missingSelectors.length > 0) {
+  if (missingContractSnippets.length > 0) {
     throw new Error(
-      `Generated CSS is missing required selectors: ${missingSelectors.join(", ")}`
+      `Generated CSS is missing required design-system contract snippets: ${missingContractSnippets.join(", ")}`
     );
   }
 }

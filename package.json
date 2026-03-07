@@ -9,7 +9,8 @@
   "scripts": {
     "dev:showcase": "npm run dev --workspace @chase-sets/design-system-showcase",
     "test:design-system": "npm run test --workspace @chase-sets/design-system",
-    "typecheck": "npm run typecheck --workspace @chase-sets/design-system && npm run typecheck --workspace @chase-sets/design-system-showcase"
+    "typecheck": "npm run typecheck --workspace @chase-sets/design-system && npm run typecheck --workspace @chase-sets/design-system-showcase",
+    "verify:design-system-contracts": "npm run verify:source --workspace @chase-sets/design-system-showcase"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.8",

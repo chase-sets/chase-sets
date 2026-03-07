@@ -9,8 +9,10 @@
     "react-dom": "^18.3.1"
   },
   "scripts": {
-    "build": "vite build && node ./scripts/verify-css.mjs",
+    "build": "npm run verify:source && vite build && npm run verify:css",
     "dev": "vite",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit"
+    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "verify:css": "node ./scripts/verify-css.mjs",
+    "verify:source": "node ./scripts/verify-showcase-source.mjs"
   }
 }

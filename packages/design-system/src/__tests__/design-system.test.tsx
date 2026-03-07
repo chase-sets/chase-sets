@@ -607,8 +607,8 @@ describe("design system", () => {
     expect(markup).toContain("Second");
   });
 
-  it("renders shells with SkipLink for accessibility", () => {
-    const markup = renderToString(
+  it("renders marketplace shells with a main landmark and skip link target", () => {
+    render(
       <ChaseRoot>
         <MarketplaceShell
           brand={<div>Brand</div>}
@@ -621,8 +621,29 @@ describe("design system", () => {
       </ChaseRoot>
     );
 
-    expect(markup).toContain("Skip to main content");
-    expect(markup).toContain('id="main-content"');
+    expect(screen.getByRole("main").getAttribute("id")).toBe("main-content");
+    expect(
+      screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")
+    ).toBe("#main-content");
+  });
+
+  it("renders admin shells with a main landmark and skip link target", () => {
+    render(
+      <ChaseRoot>
+        <AdminShell
+          brand={<div>Brand</div>}
+          navItems={marketplaceNav}
+          activeKey="browse"
+        >
+          <div>Body</div>
+        </AdminShell>
+      </ChaseRoot>
+    );
+
+    expect(screen.getByRole("main").getAttribute("id")).toBe("main-content");
+    expect(
+      screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")
+    ).toBe("#main-content");
   });
 
   it("renders i18n props with custom labels", () => {
