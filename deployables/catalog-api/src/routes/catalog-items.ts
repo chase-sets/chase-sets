@@ -1,0 +1,193 @@
+import { Hono } from "hono";
+import type { CatalogServices } from "../infrastructure/wiring";
+import type { TenantContextEnv } from "../middleware/tenant-context";
+import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../../bounded-contexts/catalog/ids";
+import { listCatalogItems, getCatalogItem } from "../projections/queries";
+
+export function catalogItemRoutes(services: CatalogServices): Hono<TenantContextEnv> {
+  const app = new Hono<TenantContextEnv>();
+
+  app.post("/", async (c) => {
+    const body = await c.req.json();
+    const context = c.get("context");
+    const itemId = body.itemId as CatalogItemId;
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "CreateItem",
+        itemId,
+        title: body.title,
+        subtitle: body.subtitle,
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/:id/blueprint", async (c) => {
+    const itemId = c.req.param("id");
+    const body = await c.req.json();
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "AssignBlueprintToItem",
+        blueprintId: body.blueprintId as BlueprintId,
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.put("/:id/fields/:fieldId", async (c) => {
+    const itemId = c.req.param("id");
+    const body = await c.req.json();
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "SetItemFieldValue",
+        fieldId: c.req.param("fieldId") as FieldId,
+        value: body.value,
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.delete("/:id/fields/:fieldId", async (c) => {
+    const itemId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "ClearItemFieldValue",
+        fieldId: c.req.param("fieldId") as FieldId,
+        requiredFieldIds: body.requiredFieldIds as FieldId[] | undefined,
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.post("/:id/categories/:categoryId", async (c) => {
+    const itemId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "AssignItemToCategory",
+        categoryId: c.req.param("categoryId") as CategoryId,
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.delete("/:id/categories/:categoryId", async (c) => {
+    const itemId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "RemoveItemFromCategory",
+        categoryId: c.req.param("categoryId") as CategoryId,
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.post("/:id/publish", async (c) => {
+    const itemId = c.req.param("id");
+    const body = await c.req.json();
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "PublishItem",
+        blueprintIsActive: body.blueprintIsActive,
+        requiredFieldIds: body.requiredFieldIds as FieldId[],
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.put("/:id/metadata", async (c) => {
+    const itemId = c.req.param("id");
+    const body = await c.req.json();
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "ReviseItemMetadata",
+        title: body.title,
+        subtitle: body.subtitle,
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.post("/:id/retire", async (c) => {
+    const itemId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: { type: "RetireItem" },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.post("/:id/archive", async (c) => {
+    const itemId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.catalogItemHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: { type: "ArchiveItem" },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.get("/", async (c) => {
+    const items = await listCatalogItems(services.db);
+
+    return c.json({ items, count: items.length });
+  });
+
+  app.get("/:id", async (c) => {
+    const item = await getCatalogItem(services.db, c.req.param("id"));
+
+    if (!item) {
+      return c.json({ error: "Catalog item not found." }, 404);
+    }
+
+    return c.json(item);
+  });
+
+  return app;
+}

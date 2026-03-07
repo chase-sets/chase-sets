@@ -7,7 +7,12 @@
       "Bash(wc -l /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/components/*.tsx)",
       "Bash(npm install --workspace=packages/design-system @radix-ui/react-accordion)",
       "Bash(npm run typecheck)",
-      "Bash(npm run test:design-system)"
+      "Bash(npm run test:design-system)",
+      "Read(//mnt/d/Users/ToddS/Source/Repos/chase-sets/bounded-contexts/**)",
+      "Bash(npm install)",
+      "Bash(npm run test:catalog)",
+      "Bash(npx tsc -p deployables/catalog-api/tsconfig.json --noEmit)",
+      "Bash(npx tsc -p deployables/catalog-admin/tsconfig.json --noEmit)"
     ]
   }
 }

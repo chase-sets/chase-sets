@@ -1,0 +1,107 @@
+import { Hono } from "hono";
+import type { CatalogServices } from "../infrastructure/wiring";
+import type { TenantContextEnv } from "../middleware/tenant-context";
+import type { FieldId } from "../../../../bounded-contexts/catalog/ids";
+import { listFields, getField } from "../projections/queries";
+
+export function fieldRoutes(services: CatalogServices): Hono<TenantContextEnv> {
+  const app = new Hono<TenantContextEnv>();
+
+  app.post("/", async (c) => {
+    const body = await c.req.json();
+    const context = c.get("context");
+    const fieldId = body.fieldId as FieldId;
+
+    const result = await services.fieldHandler({
+      streamId: `catalog.field-${fieldId}`,
+      command: {
+        type: "CreateField",
+        fieldId,
+        key: body.key,
+        name: body.name,
+        valueType: body.valueType,
+        behavior: body.behavior,
+      },
+      context,
+    });
+
+    return c.json({ id: fieldId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.put("/:id", async (c) => {
+    const fieldId = c.req.param("id");
+    const body = await c.req.json();
+    const context = c.get("context");
+
+    const result = await services.fieldHandler({
+      streamId: `catalog.field-${fieldId}`,
+      command: {
+        type: "ConfigureField",
+        key: body.key,
+        name: body.name,
+        valueType: body.valueType,
+        behavior: body.behavior,
+      },
+      context,
+    });
+
+    return c.json({ id: fieldId, version: result.version, status: result.state.status });
+  });
+
+  app.post("/:id/activate", async (c) => {
+    const fieldId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.fieldHandler({
+      streamId: `catalog.field-${fieldId}`,
+      command: { type: "ActivateField" },
+      context,
+    });
+
+    return c.json({ id: fieldId, version: result.version, status: result.state.status });
+  });
+
+  app.post("/:id/deprecate", async (c) => {
+    const fieldId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.fieldHandler({
+      streamId: `catalog.field-${fieldId}`,
+      command: { type: "DeprecateField" },
+      context,
+    });
+
+    return c.json({ id: fieldId, version: result.version, status: result.state.status });
+  });
+
+  app.post("/:id/archive", async (c) => {
+    const fieldId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.fieldHandler({
+      streamId: `catalog.field-${fieldId}`,
+      command: { type: "ArchiveField" },
+      context,
+    });
+
+    return c.json({ id: fieldId, version: result.version, status: result.state.status });
+  });
+
+  app.get("/", async (c) => {
+    const items = await listFields(services.db);
+
+    return c.json({ items, count: items.length });
+  });
+
+  app.get("/:id", async (c) => {
+    const field = await getField(services.db, c.req.param("id"));
+
+    if (!field) {
+      return c.json({ error: "Field not found." }, 404);
+    }
+
+    return c.json(field);
+  });
+
+  return app;
+}
