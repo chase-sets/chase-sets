@@ -406,13 +406,33 @@ export function SegmentedControl({
   onValueChange,
   ...rest
 }: SegmentedControlProps) {
+  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next = -1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      next = (index + 1) % items.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      next = (index - 1 + items.length) % items.length;
+    } else if (event.key === "Home") {
+      next = 0;
+    } else if (event.key === "End") {
+      next = items.length - 1;
+    }
+    if (next >= 0) {
+      event.preventDefault();
+      onValueChange?.(items[next].value);
+      const container = event.currentTarget.parentElement;
+      const buttons = container?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+      buttons?.[next]?.focus();
+    }
+  }
+
   return (
     <div
       {...rest}
       role="tablist"
       className="inline-flex flex-wrap rounded-tokenLg border border-muted bg-background p-1"
     >
-      {items.map((item) => {
+      {items.map((item, index) => {
         const active = item.value === value;
 
         return (
@@ -421,6 +441,7 @@ export function SegmentedControl({
             type="button"
             role="tab"
             aria-selected={active}
+            tabIndex={active ? 0 : -1}
             className={cx(
               "focus-ring inline-flex min-h-10 items-center gap-2 rounded-tokenMd px-3 py-2 text-sm font-semibold transition",
               active
@@ -428,6 +449,7 @@ export function SegmentedControl({
                 : "text-secondary hover:text-foreground"
             )}
             onClick={() => onValueChange?.(item.value)}
+            onKeyDown={(event) => handleKeyDown(event, index)}
           >
             {item.icon ? <Icon name={item.icon} size="sm" /> : null}
             <span>{item.label}</span>
@@ -487,13 +509,33 @@ export interface PaginationProps
   onPageChange?: (page: number) => void;
 }
 
+function buildPageRange(page: number, totalPages: number): (number | "ellipsis-start" | "ellipsis-end")[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const pages: (number | "ellipsis-start" | "ellipsis-end")[] = [1];
+  if (page > 3) {
+    pages.push("ellipsis-start");
+  }
+  const start = Math.max(2, page - 1);
+  const end = Math.min(totalPages - 1, page + 1);
+  for (let i = start; i <= end; i++) {
+    pages.push(i);
+  }
+  if (page < totalPages - 2) {
+    pages.push("ellipsis-end");
+  }
+  pages.push(totalPages);
+  return pages;
+}
+
 export function Pagination({
   page,
   totalPages,
   onPageChange,
   ...rest
 }: PaginationProps) {
-  const pages = Array.from({ length: totalPages }, (_, index) => index + 1);
+  const pages = buildPageRange(page, totalPages);
 
   return (
     <nav {...rest} aria-label="Pagination" className="flex items-center gap-2">
@@ -505,21 +547,35 @@ export function Pagination({
         onClick={() => onPageChange?.(Math.max(1, page - 1))}
       />
       <div className="flex flex-wrap gap-2">
-        {pages.map((value) => (
-          <button
-            key={value}
-            type="button"
-            className={cx(
-              "focus-ring inline-flex min-h-10 min-w-10 items-center justify-center rounded-tokenMd border px-3 text-sm font-semibold transition",
-              value === page
-                ? "border-accent bg-accent text-accent-contrast"
-                : "border-muted bg-elevated text-secondary hover:text-foreground"
-            )}
-            onClick={() => onPageChange?.(value)}
-          >
-            {value}
-          </button>
-        ))}
+        {pages.map((value) => {
+          if (typeof value === "string") {
+            return (
+              <span
+                key={value}
+                className="inline-flex min-h-10 min-w-10 items-center justify-center text-sm text-secondary"
+                aria-hidden="true"
+              >
+                &hellip;
+              </span>
+            );
+          }
+          return (
+            <button
+              key={value}
+              type="button"
+              aria-current={value === page ? "page" : undefined}
+              className={cx(
+                "focus-ring inline-flex min-h-10 min-w-10 items-center justify-center rounded-tokenMd border px-3 text-sm font-semibold transition",
+                value === page
+                  ? "border-accent bg-accent text-accent-contrast"
+                  : "border-muted bg-elevated text-secondary hover:text-foreground"
+              )}
+              onClick={() => onPageChange?.(value)}
+            >
+              {value}
+            </button>
+          );
+        })}
       </div>
       <IconButton
         label="Next page"

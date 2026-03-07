@@ -206,58 +206,57 @@ export function resolveTheme(
   };
 }
 
-function assignTokenStyle(
-  target: CSSProperties,
-  key: string,
-  value: string | undefined
-): void {
-  if (value !== undefined) {
-    (target as Record<string, string>)[key] = value;
-  }
-}
+const tokenMap: [string, (theme: ThemeTokens | ThemeOverrides) => string | undefined][] = [
+  ["--color-background", (t) => t.colors?.background],
+  ["--color-surface", (t) => t.colors?.surface],
+  ["--color-elevated-surface", (t) => t.colors?.elevatedSurface],
+  ["--color-border", (t) => t.colors?.border],
+  ["--color-muted-border", (t) => t.colors?.mutedBorder],
+  ["--color-text-primary", (t) => t.colors?.textPrimary],
+  ["--color-text-secondary", (t) => t.colors?.textSecondary],
+  ["--color-text-inverse", (t) => t.colors?.textInverse],
+  ["--color-accent", (t) => t.colors?.accent],
+  ["--color-accent-contrast", (t) => t.colors?.accentContrast],
+  ["--color-success", (t) => t.colors?.success],
+  ["--color-warning", (t) => t.colors?.warning],
+  ["--color-danger", (t) => t.colors?.danger],
+  ["--color-info", (t) => t.colors?.info],
+  ["--color-focus-ring", (t) => t.colors?.focusRing],
+  ["--font-display", (t) => t.typography?.display],
+  ["--font-heading", (t) => t.typography?.heading],
+  ["--font-body", (t) => t.typography?.body],
+  ["--font-mono", (t) => t.typography?.mono],
+  ["--radius-sm", (t) => t.radius?.sm],
+  ["--radius-md", (t) => t.radius?.md],
+  ["--radius-lg", (t) => t.radius?.lg],
+  ["--radius-xl", (t) => t.radius?.xl],
+  ["--shadow-sm", (t) => t.shadows?.sm],
+  ["--shadow-md", (t) => t.shadows?.md],
+  ["--shadow-lg", (t) => t.shadows?.lg],
+  ["--shadow-overlay", (t) => t.shadows?.overlay],
+  ["--z-sticky", (t) => t.zIndex?.sticky],
+  ["--z-dropdown", (t) => t.zIndex?.dropdown],
+  ["--z-popover", (t) => t.zIndex?.popover],
+  ["--z-drawer", (t) => t.zIndex?.drawer],
+  ["--z-modal", (t) => t.zIndex?.modal],
+  ["--z-toast", (t) => t.zIndex?.toast],
+  ["--motion-fast", (t) => t.motion?.fast],
+  ["--motion-base", (t) => t.motion?.base],
+  ["--motion-slow", (t) => t.motion?.slow],
+  ["--motion-ease", (t) => t.motion?.ease],
+];
 
 function applyThemeStyle(
   target: CSSProperties,
   theme: ThemeTokens | ThemeOverrides
 ): CSSProperties {
-  assignTokenStyle(target, "--color-background", theme.colors?.background);
-  assignTokenStyle(target, "--color-surface", theme.colors?.surface);
-  assignTokenStyle(target, "--color-elevated-surface", theme.colors?.elevatedSurface);
-  assignTokenStyle(target, "--color-border", theme.colors?.border);
-  assignTokenStyle(target, "--color-muted-border", theme.colors?.mutedBorder);
-  assignTokenStyle(target, "--color-text-primary", theme.colors?.textPrimary);
-  assignTokenStyle(target, "--color-text-secondary", theme.colors?.textSecondary);
-  assignTokenStyle(target, "--color-text-inverse", theme.colors?.textInverse);
-  assignTokenStyle(target, "--color-accent", theme.colors?.accent);
-  assignTokenStyle(target, "--color-accent-contrast", theme.colors?.accentContrast);
-  assignTokenStyle(target, "--color-success", theme.colors?.success);
-  assignTokenStyle(target, "--color-warning", theme.colors?.warning);
-  assignTokenStyle(target, "--color-danger", theme.colors?.danger);
-  assignTokenStyle(target, "--color-info", theme.colors?.info);
-  assignTokenStyle(target, "--color-focus-ring", theme.colors?.focusRing);
-  assignTokenStyle(target, "--font-display", theme.typography?.display);
-  assignTokenStyle(target, "--font-heading", theme.typography?.heading);
-  assignTokenStyle(target, "--font-body", theme.typography?.body);
-  assignTokenStyle(target, "--font-mono", theme.typography?.mono);
-  assignTokenStyle(target, "--radius-sm", theme.radius?.sm);
-  assignTokenStyle(target, "--radius-md", theme.radius?.md);
-  assignTokenStyle(target, "--radius-lg", theme.radius?.lg);
-  assignTokenStyle(target, "--radius-xl", theme.radius?.xl);
-  assignTokenStyle(target, "--shadow-sm", theme.shadows?.sm);
-  assignTokenStyle(target, "--shadow-md", theme.shadows?.md);
-  assignTokenStyle(target, "--shadow-lg", theme.shadows?.lg);
-  assignTokenStyle(target, "--shadow-overlay", theme.shadows?.overlay);
-  assignTokenStyle(target, "--z-sticky", theme.zIndex?.sticky);
-  assignTokenStyle(target, "--z-dropdown", theme.zIndex?.dropdown);
-  assignTokenStyle(target, "--z-popover", theme.zIndex?.popover);
-  assignTokenStyle(target, "--z-drawer", theme.zIndex?.drawer);
-  assignTokenStyle(target, "--z-modal", theme.zIndex?.modal);
-  assignTokenStyle(target, "--z-toast", theme.zIndex?.toast);
-  assignTokenStyle(target, "--motion-fast", theme.motion?.fast);
-  assignTokenStyle(target, "--motion-base", theme.motion?.base);
-  assignTokenStyle(target, "--motion-slow", theme.motion?.slow);
-  assignTokenStyle(target, "--motion-ease", theme.motion?.ease);
-
+  const record = target as Record<string, string>;
+  for (const [cssVar, accessor] of tokenMap) {
+    const value = accessor(theme);
+    if (value !== undefined) {
+      record[cssVar] = value;
+    }
+  }
   return target;
 }
 

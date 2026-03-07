@@ -157,7 +157,7 @@ export function Tag({
           type="button"
           className="focus-ring rounded-full"
           onClick={onRemove}
-          aria-label="Remove tag"
+          aria-label={`Remove ${typeof children === "string" ? children : "tag"}`}
         >
           <Icon name="close" size="sm" tone={toneToIconTone(tone)} />
         </button>
@@ -623,12 +623,14 @@ export interface EmptyStateProps
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  icon?: IconName;
 }
 
 export function EmptyState({
   title,
   description,
   actions,
+  icon = "spark",
   ...rest
 }: EmptyStateProps) {
   return (
@@ -638,7 +640,7 @@ export function EmptyState({
     >
       <div className="mx-auto flex max-w-sm flex-col items-center gap-4">
         <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-elevated shadow-tokenSm">
-          <Icon name="spark" size="lg" tone="accent" />
+          <Icon name={icon} size="lg" tone="accent" />
         </div>
         <div className="space-y-2">
           <div className="font-heading text-xl font-semibold text-foreground">{title}</div>

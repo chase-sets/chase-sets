@@ -55,7 +55,6 @@ export interface DataColumn<T> {
   header: ReactNode;
   mobileLabel?: ReactNode;
   align?: "left" | "right";
-  sortable?: boolean;
   cell: (row: T) => ReactNode;
 }
 
@@ -100,12 +99,7 @@ export function DataTable<T>({
                   column.align === "right" && "text-right"
                 )}
               >
-                <div className="inline-flex items-center gap-2">
-                  <span>{column.header}</span>
-                  {column.sortable ? (
-                    <span className="text-xs text-secondary">Sort</span>
-                  ) : null}
-                </div>
+                {column.header}
               </th>
             ))}
           </tr>
@@ -380,17 +374,23 @@ export interface FilterBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   actions?: ReactNode;
+  stickyOffset?: string;
 }
 
 export function FilterBar({
   children,
   actions,
+  stickyOffset,
   ...rest
 }: FilterBarProps) {
   return (
     <div
       {...rest}
-      className="modern-surface sticky top-16 z-sticky flex flex-col gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:flex-row md:items-center md:justify-between"
+      style={stickyOffset ? { top: stickyOffset } : undefined}
+      className={cx(
+        "modern-surface sticky z-sticky flex flex-col gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:flex-row md:items-center md:justify-between",
+        !stickyOffset && "top-16"
+      )}
     >
       <div className="flex flex-1 flex-wrap gap-3">{children}</div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}

@@ -184,9 +184,7 @@ export function Cluster({
         resolveSpaceClass("gap", gap)
       )}
     >
-      <div className="contents">
-        {children}
-      </div>
+      {children}
     </div>
   );
 }
@@ -237,7 +235,7 @@ export function Spacer({
       className={cx(
         flexible && "flex-1",
         axis === "vertical"
-          ? resolveSpaceClass("m", size)
+          ? resolveSpaceClass("my", size)
           : resolveSpaceClass("mx", size)
       )}
     />
