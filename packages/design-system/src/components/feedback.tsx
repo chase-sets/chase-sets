@@ -1,5 +1,6 @@
 import { createPortal } from "react-dom";
 import type { HTMLAttributes, ReactNode } from "react";
+import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
@@ -58,7 +59,8 @@ function renderDialogFrame({
   children,
   footer,
   onDismiss,
-  kind
+  kind,
+  closeLabel = "Close"
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -66,6 +68,7 @@ function renderDialogFrame({
   footer?: ReactNode;
   onDismiss?: () => void;
   kind: "dialog" | "drawer";
+  closeLabel?: string;
 }) {
   return (
     <>
@@ -89,7 +92,7 @@ function renderDialogFrame({
           </div>
           <DialogPrimitive.Close asChild>
             <IconButton
-              label="Close"
+              label={closeLabel}
               icon="close"
               tone="ghost"
               onClick={onDismiss}
@@ -210,6 +213,7 @@ export interface DialogProps {
   trigger?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
+  closeLabel?: string;
 }
 
 export function Dialog({
@@ -220,7 +224,8 @@ export function Dialog({
   description,
   trigger,
   children,
-  footer
+  footer,
+  closeLabel
 }: DialogProps) {
   const { overlayNode } = usePortalRoots();
 
@@ -237,7 +242,8 @@ export function Dialog({
           description,
           footer,
           kind: "dialog",
-          children
+          children,
+          closeLabel
         })}
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
@@ -254,7 +260,8 @@ export function Drawer({
   description,
   trigger,
   children,
-  footer
+  footer,
+  closeLabel
 }: DrawerProps) {
   const { overlayNode } = usePortalRoots();
 
@@ -271,7 +278,8 @@ export function Drawer({
           description,
           footer,
           kind: "drawer",
-          children
+          children,
+          closeLabel
         })}
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
@@ -414,16 +422,57 @@ export interface MenuItem {
   description?: string;
   destructive?: boolean;
   onSelect?: () => void;
+  icon?: IconName;
+  shortcut?: string;
+  disabled?: boolean;
+}
+
+export interface MenuGroup {
+  label?: string;
+  items: MenuItem[];
 }
 
 export interface MenuProps {
   trigger: ReactNode;
-  items: MenuItem[];
+  items?: MenuItem[];
+  groups?: MenuGroup[];
+}
+
+function renderMenuItem(item: MenuItem) {
+  return (
+    <DropdownMenuPrimitive.Item
+      key={item.key}
+      disabled={item.disabled}
+      className={cx(
+        "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none data-[highlighted]:bg-background data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
+        item.destructive ? "text-danger" : "text-foreground"
+      )}
+      onSelect={item.onSelect}
+    >
+      {item.icon ? (
+        <Icon
+          name={item.icon}
+          size="sm"
+          tone={item.destructive ? "danger" : "secondary"}
+        />
+      ) : null}
+      <div className="flex-1 space-y-0.5">
+        <div className="font-medium">{item.label}</div>
+        {item.description ? (
+          <div className="text-xs text-secondary">{item.description}</div>
+        ) : null}
+      </div>
+      {item.shortcut ? (
+        <span className="ml-auto text-xs text-secondary">{item.shortcut}</span>
+      ) : null}
+    </DropdownMenuPrimitive.Item>
+  );
 }
 
 export function Menu({
   trigger,
-  items
+  items,
+  groups
 }: MenuProps) {
   const { overlayNode } = usePortalRoots();
 
@@ -437,23 +486,21 @@ export function Menu({
           sideOffset={8}
           className="modern-surface z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay"
         >
-          {items.map((item) => (
-            <DropdownMenuPrimitive.Item
-              key={item.key}
-              className={cx(
-                "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none data-[highlighted]:bg-background",
-                item.destructive ? "text-danger" : "text-foreground"
-              )}
-              onSelect={item.onSelect}
-            >
-              <div className="space-y-0.5">
-                <div className="font-medium">{item.label}</div>
-                {item.description ? (
-                  <div className="text-xs text-secondary">{item.description}</div>
-                ) : null}
-              </div>
-            </DropdownMenuPrimitive.Item>
-          ))}
+          {groups
+            ? groups.map((group, groupIndex) => (
+                <DropdownMenuPrimitive.Group key={groupIndex}>
+                  {group.label ? (
+                    <DropdownMenuPrimitive.Label className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-secondary">
+                      {group.label}
+                    </DropdownMenuPrimitive.Label>
+                  ) : null}
+                  {group.items.map(renderMenuItem)}
+                  {groupIndex < groups.length - 1 ? (
+                    <DropdownMenuPrimitive.Separator className="my-1 h-px bg-muted" />
+                  ) : null}
+                </DropdownMenuPrimitive.Group>
+              ))
+            : items?.map(renderMenuItem)}
         </DropdownMenuPrimitive.Content>
       </DropdownMenuPrimitive.Portal>
     </DropdownMenuPrimitive.Root>
@@ -467,6 +514,7 @@ export interface ToastItem {
   tone?: Exclude<Tone, "neutral">;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  dismissLabel?: string;
 }
 
 export interface ToastRegionProps {
@@ -516,7 +564,7 @@ export function ToastRegion({
             <div className="self-start">
               <ToastPrimitive.Close asChild>
                 <IconButton
-                  label="Dismiss notification"
+                  label={item.dismissLabel ?? "Dismiss notification"}
                   icon="close"
                   tone="ghost"
                   size="sm"
@@ -564,12 +612,14 @@ export interface ProgressBarProps
   value: number;
   max?: number;
   tone?: Exclude<Tone, "neutral">;
+  formatLabel?: (percentage: number) => string;
 }
 
 export function ProgressBar({
   value,
   max = 100,
   tone = "accent",
+  formatLabel = (p) => `${Math.round(p)}%`,
   ...rest
 }: ProgressBarProps) {
   const percentage = Math.max(0, Math.min(100, (value / max) * 100));
@@ -589,7 +639,7 @@ export function ProgressBar({
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <div className="text-xs text-secondary">{Math.round(percentage)}%</div>
+      <div className="text-xs text-secondary">{formatLabel(percentage)}</div>
     </div>
   );
 }
@@ -649,5 +699,173 @@ export function EmptyState({
         {actions ? <div className="flex flex-wrap justify-center gap-2">{actions}</div> : null}
       </div>
     </div>
+  );
+}
+
+export type RatingSize = "sm" | "md" | "lg";
+
+const ratingSizeClasses: Record<RatingSize, string> = {
+  sm: "h-4 w-4",
+  md: "h-5 w-5",
+  lg: "h-6 w-6"
+};
+
+export interface RatingProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "onChange"> {
+  value: number;
+  max?: number;
+  size?: RatingSize;
+  interactive?: boolean;
+  onValueChange?: (value: number) => void;
+  label?: string;
+}
+
+export function Rating({
+  value,
+  max = 5,
+  size = "md",
+  interactive = false,
+  onValueChange,
+  label = "Rating",
+  ...rest
+}: RatingProps) {
+  const stars = Array.from({ length: max }, (_, i) => {
+    const position = i + 1;
+    const filled = value >= position;
+    const half = !filled && value >= position - 0.5;
+    const iconName = filled ? "star" : half ? "starHalf" : "starEmpty";
+
+    if (interactive) {
+      return (
+        <button
+          key={position}
+          type="button"
+          role="radio"
+          aria-checked={value === position}
+          aria-label={`${position} of ${max}`}
+          className="focus-ring rounded-sm text-warning"
+          onClick={() => onValueChange?.(position)}
+        >
+          <svg
+            aria-hidden
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={ratingSizeClasses[size]}
+          >
+            {iconName === "star" ? (
+              <path
+                d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"
+                fill="currentColor"
+              />
+            ) : iconName === "starHalf" ? (
+              <>
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z" />
+                <path
+                  d="M12 2v15.27L5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"
+                  fill="currentColor"
+                />
+              </>
+            ) : (
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.27 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z" />
+            )}
+          </svg>
+        </button>
+      );
+    }
+
+    return (
+      <Icon
+        key={position}
+        name={iconName}
+        size={size}
+        tone="warning"
+      />
+    );
+  });
+
+  return (
+    <div
+      {...rest}
+      role={interactive ? "radiogroup" : undefined}
+      aria-label={label}
+      className="inline-flex items-center gap-0.5"
+    >
+      {stars}
+    </div>
+  );
+}
+
+export interface AccordionItem {
+  value: string;
+  trigger: ReactNode;
+  content: ReactNode;
+}
+
+export interface AccordionProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "defaultValue" | "dir"> {
+  items: AccordionItem[];
+  type?: "single" | "multiple";
+  defaultValue?: string | string[];
+  collapsible?: boolean;
+}
+
+export function Accordion({
+  items,
+  type = "single",
+  defaultValue,
+  collapsible = true,
+  ...rest
+}: AccordionProps) {
+  const rootProps =
+    type === "multiple"
+      ? {
+          type: "multiple" as const,
+          defaultValue: Array.isArray(defaultValue)
+            ? defaultValue
+            : defaultValue
+              ? [defaultValue]
+              : undefined
+        }
+      : {
+          type: "single" as const,
+          collapsible,
+          defaultValue: typeof defaultValue === "string" ? defaultValue : undefined
+        };
+
+  return (
+    <AccordionPrimitive.Root
+      {...rootProps}
+      {...rest}
+      className="modern-surface rounded-tokenLg border border-muted shadow-tokenSm"
+    >
+      {items.map((item, index) => (
+        <AccordionPrimitive.Item
+          key={item.value}
+          value={item.value}
+          className={cx(
+            "border-muted",
+            index < items.length - 1 && "border-b"
+          )}
+        >
+          <AccordionPrimitive.Header>
+            <AccordionPrimitive.Trigger className="focus-ring flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-foreground transition hover:bg-background [&[data-state=open]>span]:rotate-180">
+              <span className="flex-1">{item.trigger}</span>
+              <span className="inline-flex shrink-0 transition-transform duration-200">
+                <Icon name="chevronDown" size="sm" tone="secondary" />
+              </span>
+            </AccordionPrimitive.Trigger>
+          </AccordionPrimitive.Header>
+          <AccordionPrimitive.Content className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+            <div className="px-4 pb-4 text-sm text-secondary">
+              {item.content}
+            </div>
+          </AccordionPrimitive.Content>
+        </AccordionPrimitive.Item>
+      ))}
+    </AccordionPrimitive.Root>
   );
 }

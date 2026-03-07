@@ -1,12 +1,15 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import {
   BottomNav,
+  Button,
   ButtonGroup,
+  PageStepper,
   SideNav,
   TopNav,
-  type NavigationItem
+  type NavigationItem,
+  type PageStepperItem
 } from "../components/actions";
-import { layoutWidthClasses, type LayoutWidth } from "../primitives/layout";
+import { SkipLink, layoutWidthClasses, type LayoutWidth } from "../primitives/layout";
 import { cx } from "../utils/cx";
 import {
   Card,
@@ -180,6 +183,7 @@ export function MarketplaceShell({
 
   return (
     <div className="min-h-screen bg-background">
+      <SkipLink />
       <TopNav
         brand={brand}
         items={topNavItems}
@@ -187,17 +191,19 @@ export function MarketplaceShell({
         actions={actions}
         width={width}
       />
-      <Page width={width}>
-        {hero}
-        {sidebar ? (
-          <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
-            <div className="hidden lg:block">{sidebar}</div>
-            {content}
-          </div>
-        ) : (
-          content
-        )}
-      </Page>
+      <div id="main-content">
+        <Page width={width}>
+          {hero}
+          {sidebar ? (
+            <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+              <div className="hidden lg:block">{sidebar}</div>
+              {content}
+            </div>
+          ) : (
+            content
+          )}
+        </Page>
+      </div>
       <BottomNav items={bottomNavItems} activeKey={activeKey} width={width} />
     </div>
   );
@@ -222,6 +228,7 @@ export function AdminShell({
 }: AdminShellProps) {
   return (
     <div className="min-h-screen bg-background">
+      <SkipLink />
       <TopNav
         brand={brand}
         items={navItems}
@@ -230,6 +237,7 @@ export function AdminShell({
         width={width}
       />
       <div
+        id="main-content"
         className={cx(
           "mx-auto grid min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-6 pb-24 lg:grid-cols-[16rem_minmax(0,1fr)] lg:pb-8",
           layoutWidthClasses[width]
@@ -313,11 +321,13 @@ export interface SelectionToolbarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   count: number;
   actions?: ReactNode;
+  formatSelectedLabel?: (count: number) => string;
 }
 
 export function SelectionToolbar({
   count,
   actions,
+  formatSelectedLabel = (n) => `${n} record${n === 1 ? "" : "s"} selected`,
   ...rest
 }: SelectionToolbarProps) {
   return (
@@ -326,7 +336,7 @@ export function SelectionToolbar({
       className="modern-surface sticky bottom-20 z-sticky flex flex-col gap-3 rounded-tokenLg border border-accent p-4 shadow-overlay md:bottom-4 md:flex-row md:items-center md:justify-between"
     >
       <div className="text-sm font-semibold text-foreground">
-        {count} record{count === 1 ? "" : "s"} selected
+        {formatSelectedLabel(count)}
       </div>
       {actions ? <ButtonGroup>{actions}</ButtonGroup> : null}
     </div>
@@ -338,12 +348,14 @@ export interface PriceDisplayProps
   amount: number;
   currency?: string;
   emphasis?: boolean;
+  locale?: string;
 }
 
 export function PriceDisplay({
   amount,
   currency = "USD",
   emphasis = false,
+  locale,
   ...rest
 }: PriceDisplayProps) {
   return (
@@ -354,7 +366,7 @@ export function PriceDisplay({
         emphasis ? "text-2xl font-semibold text-foreground" : "text-lg font-semibold text-foreground"
       )}
     >
-      {new Intl.NumberFormat("en-US", {
+      {new Intl.NumberFormat(locale, {
         style: "currency",
         currency
       }).format(amount)}
@@ -418,12 +430,14 @@ export interface OrderSummaryProps {
   title?: ReactNode;
   lines: OrderSummaryLine[];
   total: ReactNode;
+  totalLabel?: ReactNode;
 }
 
 export function OrderSummary({
   title = "Order summary",
   lines,
-  total
+  total,
+  totalLabel = "Total"
 }: OrderSummaryProps) {
   return (
     <DetailPanel title={title}>
@@ -434,7 +448,7 @@ export function OrderSummary({
         }))}
       />
       <div className="flex items-center justify-between border-t border-muted pt-4">
-        <span className="text-sm font-semibold text-foreground">Total</span>
+        <span className="text-sm font-semibold text-foreground">{totalLabel}</span>
         <span className="font-heading text-2xl font-semibold text-foreground">{total}</span>
       </div>
     </DetailPanel>
@@ -465,5 +479,87 @@ export function MetricStrip({
         />
       ))}
     </StatGrid>
+  );
+}
+
+export interface WizardStep {
+  key: string;
+  label: string;
+  description?: string;
+  content: ReactNode;
+  isValid?: boolean;
+}
+
+export interface WizardProps {
+  steps: WizardStep[];
+  activeStep: string;
+  onStepChange: (key: string) => void;
+  onComplete?: () => void;
+  nextLabel?: string;
+  previousLabel?: string;
+  completeLabel?: string;
+}
+
+export function Wizard({
+  steps,
+  activeStep,
+  onStepChange,
+  onComplete,
+  nextLabel = "Continue",
+  previousLabel = "Back",
+  completeLabel = "Complete"
+}: WizardProps) {
+  const activeIndex = steps.findIndex((s) => s.key === activeStep);
+  const current = steps[activeIndex];
+  const isFirst = activeIndex === 0;
+  const isLast = activeIndex === steps.length - 1;
+
+  const stepperItems: PageStepperItem[] = steps.map((step, index) => ({
+    label: step.label,
+    description: step.description,
+    status:
+      index < activeIndex
+        ? "complete"
+        : index === activeIndex
+          ? "current"
+          : "upcoming"
+  }));
+
+  return (
+    <div className="space-y-6">
+      <PageStepper items={stepperItems} />
+      <div>{current?.content}</div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          {!isFirst ? (
+            <Button
+              tone="secondary"
+              onClick={() => onStepChange(steps[activeIndex - 1].key)}
+            >
+              {previousLabel}
+            </Button>
+          ) : null}
+        </div>
+        <div>
+          {isLast ? (
+            <Button
+              tone="primary"
+              disabled={current?.isValid === false}
+              onClick={onComplete}
+            >
+              {completeLabel}
+            </Button>
+          ) : (
+            <Button
+              tone="primary"
+              disabled={current?.isValid === false}
+              onClick={() => onStepChange(steps[activeIndex + 1].key)}
+            >
+              {nextLabel}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

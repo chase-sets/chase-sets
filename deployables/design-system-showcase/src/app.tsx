@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Accordion,
   ActivityList,
   AdminShell,
   AlertDialog,
@@ -21,9 +22,11 @@ import {
   Cluster,
   CodeText,
   type ColorMode,
+  ColorModeToggle as DesignSystemColorModeToggle,
   Combobox,
   ConditionBadge,
   Container,
+  CopyButton,
   CurrencyInput,
   DataTable,
   DateInput,
@@ -44,6 +47,7 @@ import {
   HelperText,
   Icon,
   IconButton,
+  ImageGallery,
   Inline,
   InlineMessage,
   Inset,
@@ -65,11 +69,13 @@ import {
   PageSection,
   PageStepper,
   Pagination,
+  PasswordInput,
   Popover,
   PriceDisplay,
   ProgressBar,
   Quote,
   RadioGroup,
+  Rating,
   RecordPage,
   ScrollArea,
   SearchInput,
@@ -91,6 +97,7 @@ import {
   Table,
   Tabs,
   Tag,
+  TagInput,
   Text,
   TextInput,
   Textarea,
@@ -98,7 +105,8 @@ import {
   Timeline,
   ToastRegion,
   Tooltip,
-  VisuallyHidden
+  VisuallyHidden,
+  Wizard
 } from "@chase-sets/design-system";
 
 const marketplaceNav = [
@@ -622,6 +630,43 @@ function AdminView() {
   );
 }
 
+function RatingDemo() {
+  const [value, setValue] = useState(3);
+  return (
+    <Rating value={value} max={5} size="md" interactive onValueChange={setValue} label="Your rating" />
+  );
+}
+
+function TagInputDemo() {
+  const [tags, setTags] = useState(["Pokemon", "Charizard"]);
+  return (
+    <TagInput values={tags} onValuesChange={setTags} placeholder="Add a tag..." maxTags={5} />
+  );
+}
+
+function ColorModeToggleDemo() {
+  const [mode, setMode] = useState<ColorMode>("system");
+  return <DesignSystemColorModeToggle value={mode} onValueChange={setMode} />;
+}
+
+function WizardDemo() {
+  const [step, setStep] = useState("details");
+  return (
+    <Surface>
+      <Wizard
+        steps={[
+          { key: "details", label: "Card Details", content: <Stack gap={3}><TextInput label="Card name" defaultValue="Charizard ex" /><Select label="Set" items={[{ value: "ss", label: "Surging Sparks" }, { value: "sc", label: "Stellar Crown" }]} /></Stack> },
+          { key: "condition", label: "Condition & Price", content: <Stack gap={3}><Select label="Condition" items={[{ value: "nm", label: "Near Mint" }, { value: "lp", label: "Light Play" }]} /><CurrencyInput label="Price" defaultValue="29.95" /></Stack> },
+          { key: "review", label: "Review", content: <Stack gap={3}><Text>Review your listing before publishing.</Text><KeyValueList items={[{ key: "Card", value: "Charizard ex" }, { key: "Condition", value: "Near Mint" }, { key: "Price", value: "$29.95" }]} /></Stack> }
+        ]}
+        activeStep={step}
+        onStepChange={setStep}
+        onComplete={() => {}}
+      />
+    </Surface>
+  );
+}
+
 function ComponentsView() {
   return (
     <Page>
@@ -634,7 +679,7 @@ function ComponentsView() {
       <PageSection title="Icons">
         <Surface>
           <Inline gap={4}>
-            {(["search", "cart", "filter", "dashboard", "close", "check", "warning", "chevronDown", "chevronLeft", "chevronRight", "menu", "spark", "package", "settings", "user", "info"] as const).map((name) => (
+            {(["search", "cart", "filter", "dashboard", "close", "check", "warning", "chevronDown", "chevronUp", "chevronLeft", "chevronRight", "menu", "spark", "package", "settings", "user", "info", "star", "starHalf", "starEmpty", "copy", "plus", "minus", "edit", "trash", "heart", "heartFilled", "share", "image", "dollar", "truck", "clock", "eye", "eyeOff"] as const).map((name) => (
               <Tooltip key={name} content={name}>
                 <Stack gap={1} align="center">
                   <Icon name={name} size="md" tone="accent" />
@@ -1008,6 +1053,131 @@ function ComponentsView() {
             </DetailPanel>
           }
         />
+      </PageSection>
+
+      <PageSection title="New Components">
+        <Grid columns={{ base: 1, md: 2 }} gap={4}>
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>Rating</Heading>
+              <Inline gap={4} align="center">
+                <Rating value={4} max={5} size="md" label="Product rating" />
+                <Rating value={3.5} max={5} size="sm" label="Small rating" />
+              </Inline>
+              <Text size="sm" tone="secondary">Interactive rating:</Text>
+              <RatingDemo />
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>CopyButton</Heading>
+              <Inline gap={2}>
+                <CopyButton value="CS-001-NM" label="Copy SKU" copiedLabel="SKU copied!" />
+                <CopyButton value="https://chase-sets.com/listing/199" tone="ghost" />
+              </Inline>
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>Accordion</Heading>
+              <Accordion
+                type="single"
+                collapsible
+                items={[
+                  { value: "details", trigger: "Card Details", content: <Text size="sm">Charizard ex - 199/165, Surging Sparks. Illustration rare with textured holo.</Text> },
+                  { value: "condition", trigger: "Condition Guide", content: <Text size="sm">Near Mint (NM): Minimal edge wear, no scratches on holo surface.</Text> },
+                  { value: "shipping", trigger: "Shipping Policy", content: <Text size="sm">Free standard shipping on orders over $25. Cards ship in penny sleeve + toploader.</Text> }
+                ]}
+              />
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>ImageGallery</Heading>
+              <ImageGallery
+                images={[
+                  { src: "https://placehold.co/300x400/1a1a2e/eaeaea?text=Front", alt: "Card front" },
+                  { src: "https://placehold.co/300x400/16213e/eaeaea?text=Back", alt: "Card back" },
+                  { src: "https://placehold.co/300x400/0f3460/eaeaea?text=Close-up", alt: "Holo close-up" }
+                ]}
+              />
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>TagInput</Heading>
+              <TagInputDemo />
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>PasswordInput</Heading>
+              <PasswordInput label="Password" placeholder="Enter password" />
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>Card with Media Slot</Heading>
+              <Card
+                media={
+                  <AspectRatio ratio={3 / 4}>
+                    <div className="flex h-full w-full items-center justify-center bg-accent/10">
+                      <Icon name="image" size="lg" tone="accent" />
+                    </div>
+                  </AspectRatio>
+                }
+                interactive
+              >
+                <Stack gap={1}>
+                  <Text weight="semibold">Charizard ex - 199/165</Text>
+                  <Text size="sm" tone="secondary">Near Mint &middot; Surging Sparks</Text>
+                  <PriceDisplay amount={29.95} />
+                </Stack>
+              </Card>
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>Enhanced Menu</Heading>
+              <Menu
+                trigger={<Button tone="secondary">Actions menu</Button>}
+                groups={[
+                  {
+                    label: "Listing",
+                    items: [
+                      { key: "edit", label: "Edit listing", icon: "edit", onSelect: () => {} },
+                      { key: "copy", label: "Copy link", icon: "copy", shortcut: "Ctrl+C", onSelect: () => {} }
+                    ]
+                  },
+                  {
+                    label: "Danger zone",
+                    items: [
+                      { key: "delete", label: "Delete listing", icon: "trash", disabled: false, onSelect: () => {} }
+                    ]
+                  }
+                ]}
+              />
+            </Stack>
+          </Card>
+
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>Design System ColorModeToggle</Heading>
+              <ColorModeToggleDemo />
+            </Stack>
+          </Card>
+        </Grid>
+      </PageSection>
+
+      <PageSection title="Wizard Pattern">
+        <WizardDemo />
       </PageSection>
 
       <VisuallyHidden>

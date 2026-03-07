@@ -108,3 +108,43 @@ export function useReducedMotion(): boolean {
 export function usePortalRoots(): PortalContextValue {
   return useContext(PortalContext);
 }
+
+export interface ColorModeToggleProps {
+  value: ColorMode;
+  onValueChange: (mode: ColorMode) => void;
+  lightLabel?: string;
+  darkLabel?: string;
+  systemLabel?: string;
+}
+
+const colorModeOrder: ColorMode[] = ["light", "dark", "system"];
+
+export function ColorModeToggle({
+  value,
+  onValueChange,
+  lightLabel = "Light",
+  darkLabel = "Dark",
+  systemLabel = "System"
+}: ColorModeToggleProps) {
+  const labels: Record<ColorMode, string> = {
+    light: lightLabel,
+    dark: darkLabel,
+    system: systemLabel
+  };
+
+  function cycle() {
+    const index = colorModeOrder.indexOf(value);
+    const next = colorModeOrder[(index + 1) % colorModeOrder.length];
+    onValueChange(next);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={cycle}
+      className="focus-ring inline-flex touch-target items-center gap-2 rounded-tokenMd border border-muted bg-elevated px-3 py-2 text-sm font-medium text-secondary shadow-tokenSm transition hover:text-foreground"
+    >
+      {labels[value]}
+    </button>
+  );
+}

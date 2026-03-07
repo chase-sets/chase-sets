@@ -4,7 +4,7 @@ import type {
   HTMLAttributes,
   ReactNode
 } from "react";
-import { forwardRef } from "react";
+import { forwardRef, useCallback, useRef, useState } from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { Icon, type IconName } from "../icons";
 import { layoutWidthClasses, type LayoutWidth } from "../primitives/layout";
@@ -468,14 +468,16 @@ export interface BreadcrumbItem {
 export interface BreadcrumbsProps
   extends Omit<HTMLAttributes<HTMLElement>, "className" | "style"> {
   items: BreadcrumbItem[];
+  ariaLabel?: string;
 }
 
 export function Breadcrumbs({
   items,
+  ariaLabel = "Breadcrumb",
   ...rest
 }: BreadcrumbsProps) {
   return (
-    <nav {...rest} aria-label="Breadcrumb">
+    <nav {...rest} aria-label={ariaLabel}>
       <ol className="flex flex-wrap items-center gap-2 text-sm text-secondary">
         {items.map((item, index) => {
           const isCurrent = index === items.length - 1;
@@ -507,6 +509,8 @@ export interface PaginationProps
   page: number;
   totalPages: number;
   onPageChange?: (page: number) => void;
+  previousLabel?: string;
+  nextLabel?: string;
 }
 
 function buildPageRange(page: number, totalPages: number): (number | "ellipsis-start" | "ellipsis-end")[] {
@@ -533,6 +537,8 @@ export function Pagination({
   page,
   totalPages,
   onPageChange,
+  previousLabel = "Previous page",
+  nextLabel = "Next page",
   ...rest
 }: PaginationProps) {
   const pages = buildPageRange(page, totalPages);
@@ -540,7 +546,7 @@ export function Pagination({
   return (
     <nav {...rest} aria-label="Pagination" className="flex items-center gap-2">
       <IconButton
-        label="Previous page"
+        label={previousLabel}
         icon="chevronLeft"
         tone="secondary"
         disabled={page <= 1}
@@ -578,7 +584,7 @@ export function Pagination({
         })}
       </div>
       <IconButton
-        label="Next page"
+        label={nextLabel}
         icon="chevronRight"
         tone="secondary"
         disabled={page >= totalPages}
@@ -762,5 +768,55 @@ export function NavRail({
         renderNavigationItem(item, item.key === activeKey, "rail", onSelect)
       )}
     </nav>
+  );
+}
+
+export interface CopyButtonProps
+  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style" | "children"> {
+  value: string;
+  label?: string;
+  copiedLabel?: string;
+  tone?: ButtonTone;
+  size?: ButtonSize;
+}
+
+export function CopyButton({
+  value,
+  label = "Copy",
+  copiedLabel = "Copied",
+  tone = "secondary",
+  size = "sm",
+  type = "button",
+  ...rest
+}: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleClick = useCallback(() => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
+    });
+  }, [value]);
+
+  return (
+    <button
+      {...rest}
+      type={type}
+      className={cx(
+        buttonBaseClass,
+        buttonToneClasses[tone],
+        buttonSizeClasses[size]
+      )}
+      onClick={handleClick}
+    >
+      <Icon
+        name={copied ? "check" : "copy"}
+        size="sm"
+        tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
+      />
+      <span>{copied ? copiedLabel : label}</span>
+    </button>
   );
 }

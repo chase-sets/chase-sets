@@ -18,6 +18,7 @@
 - `Divider`
 - `ScrollArea`
 - `VisuallyHidden`
+- `SkipLink`
 
 ## Typography And Media
 
@@ -40,6 +41,7 @@
 - `IconButton`
 - `LinkButton`
 - `ButtonGroup`
+- `CopyButton`
 - `Tabs`
 - `SegmentedControl`
 - `Breadcrumbs`
@@ -59,6 +61,7 @@
 - `NumberInput`
 - `CurrencyInput`
 - `SearchInput`
+- `PasswordInput`
 - `Textarea`
 - `Select`
 - `Combobox`
@@ -69,6 +72,7 @@
 - `Slider`
 - `DateInput`
 - `FileDropzone`
+- `TagInput`
 - `InlineMessage`
 - `HelperText`
 
@@ -78,6 +82,8 @@
 - `StatusPill`
 - `Tag`
 - `Banner`
+- `Rating`
+- `Accordion`
 - `AlertDialog`
 - `Dialog`
 - `Drawer`
@@ -101,6 +107,7 @@
 - `ActivityList`
 - `Card`
 - `DetailPanel`
+- `ImageGallery`
 - `FilterBar`
 - `FilterDrawer`
 - `BulkActionBar`
@@ -117,9 +124,11 @@
 - `SearchResultsLayout`
 - `CheckoutLayout`
 - `InspectorLayout`
+- `Wizard`
 - `SelectionToolbar`
 - `PriceDisplay`
 - `ConditionBadge`
 - `SellerBadge`
 - `OrderSummary`
 - `MetricStrip`
+- `ColorModeToggle`

@@ -4,7 +4,10 @@
       "Bash(npx vitest run --project design-system)",
       "Bash(npx vitest run)",
       "Bash(npx tsc --noEmit)",
-      "Bash(wc -l /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/components/*.tsx)"
+      "Bash(wc -l /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/components/*.tsx)",
+      "Bash(npm install --workspace=packages/design-system @radix-ui/react-accordion)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run test:design-system)"
     ]
   }
 }

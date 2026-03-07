@@ -2,19 +2,21 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { BottomNav, Button, Tabs, TopNav } from "../components/actions";
-import { DataTable, DetailPanel, StatGrid } from "../components/data-display";
-import { Dialog, ToastRegion } from "../components/feedback";
+import { BottomNav, Button, CopyButton, Tabs, TopNav } from "../components/actions";
+import { Card, DataTable, DetailPanel, ImageGallery, StatGrid } from "../components/data-display";
+import { Accordion, Dialog, Rating, ToastRegion } from "../components/feedback";
+import { PasswordInput, TagInput } from "../components/forms";
 import {
   AdminShell,
   MarketplaceShell,
   MetricStrip,
   OrderSummary,
   Page,
-  SearchResultsLayout
+  SearchResultsLayout,
+  Wizard
 } from "../patterns/app-shells";
-import { Container } from "../primitives/layout";
-import { ChaseRoot } from "../theme/provider";
+import { Container, SkipLink } from "../primitives/layout";
+import { ChaseRoot, ColorModeToggle } from "../theme/provider";
 import { resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
 import { resolveResponsiveClass } from "../utils/system";
 
@@ -443,5 +445,196 @@ describe("design system", () => {
 
     expect(result).toContain("flex-row");
     expect(result).toContain("md:flex-col");
+  });
+
+  it("renders Rating with correct number of stars", () => {
+    const markup = renderToString(<Rating value={3} max={5} label="Product rating" />);
+
+    expect(markup).toContain("aria-label=\"Product rating\"");
+    // 3 filled stars have fill="currentColor", 2 empty stars do not
+    const filledCount = (markup.match(/fill="currentColor"/g) || []).length;
+    expect(filledCount).toBe(3);
+  });
+
+  it("renders interactive Rating with radio role", () => {
+    render(
+      <ChaseRoot>
+        <Rating value={3} max={5} interactive label="Rate this" />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByRole("radiogroup")).toBeTruthy();
+  });
+
+  it("renders Accordion items", () => {
+    render(
+      <ChaseRoot>
+        <Accordion
+          type="single"
+          collapsible
+          items={[
+            { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
+            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> }
+          ]}
+        />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByText("Section 1")).toBeTruthy();
+    expect(screen.getByText("Section 2")).toBeTruthy();
+  });
+
+  it("renders ImageGallery with thumbnails", () => {
+    const markup = renderToString(
+      <ImageGallery
+        images={[
+          { src: "/img1.jpg", alt: "Front" },
+          { src: "/img2.jpg", alt: "Back" }
+        ]}
+      />
+    );
+
+    expect(markup).toContain("Front");
+    expect(markup).toContain("Back");
+  });
+
+  it("renders CopyButton with label", () => {
+    render(
+      <ChaseRoot>
+        <CopyButton value="test-value" label="Copy ID" />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByText("Copy ID")).toBeTruthy();
+  });
+
+  it("renders TagInput with tag values", () => {
+    render(
+      <ChaseRoot>
+        <TagInput values={["Pokemon", "Charizard"]} placeholder="Add tag" />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByText("Pokemon")).toBeTruthy();
+    expect(screen.getByText("Charizard")).toBeTruthy();
+  });
+
+  it("renders PasswordInput with visibility toggle", () => {
+    render(
+      <ChaseRoot>
+        <PasswordInput label="Password" />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByLabelText("Password")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show password" })).toBeTruthy();
+  });
+
+  it("renders SkipLink with target and label", () => {
+    const markup = renderToString(<SkipLink targetId="main" label="Skip navigation" />);
+
+    expect(markup).toContain('href="#main"');
+    expect(markup).toContain("Skip navigation");
+    expect(markup).toContain("sr-only");
+  });
+
+  it("renders Card with media slot", () => {
+    const markup = renderToString(
+      <Card media={<img src="/card.jpg" alt="Card" />}>
+        <div>Card content</div>
+      </Card>
+    );
+
+    expect(markup).toContain("Card content");
+    expect(markup).toContain('alt="Card"');
+  });
+
+  it("renders Card with interactive styles", () => {
+    const markup = renderToString(
+      <Card interactive>
+        <div>Clickable card</div>
+      </Card>
+    );
+
+    expect(markup).toContain("Clickable card");
+    expect(markup).toContain("cursor-pointer");
+  });
+
+  it("renders DataTable with sortable column headers", () => {
+    const markup = renderToString(
+      <DataTable
+        rows={[{ name: "Alpha", price: 10 }]}
+        columns={[
+          { key: "name", header: "Name", cell: (r: { name: string }) => r.name, sortable: true },
+          { key: "price", header: "Price", cell: (r: { price: number }) => r.price }
+        ]}
+        sortKey="name"
+        sortDirection="asc"
+        onSortChange={() => {}}
+      />
+    );
+
+    expect(markup).toContain("Alpha");
+    // Sortable header renders as a button
+    expect(markup).toContain("<button");
+    expect(markup).toContain("Name");
+  });
+
+  it("renders ColorModeToggle with current mode label", () => {
+    render(
+      <ChaseRoot>
+        <ColorModeToggle value="dark" onValueChange={() => {}} />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByText("Dark")).toBeTruthy();
+  });
+
+  it("renders Wizard with step content", () => {
+    const markup = renderToString(
+      <Wizard
+        steps={[
+          { key: "step1", label: "First", content: <div>Step 1 content</div> },
+          { key: "step2", label: "Second", content: <div>Step 2 content</div> }
+        ]}
+        activeStep="step1"
+        onStepChange={() => {}}
+      />
+    );
+
+    expect(markup).toContain("Step 1 content");
+    expect(markup).toContain("First");
+    expect(markup).toContain("Second");
+  });
+
+  it("renders shells with SkipLink for accessibility", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <MarketplaceShell
+          brand={<div>Brand</div>}
+          topNavItems={marketplaceNav}
+          bottomNavItems={marketplaceNav}
+          activeKey="browse"
+        >
+          <div>Body</div>
+        </MarketplaceShell>
+      </ChaseRoot>
+    );
+
+    expect(markup).toContain("Skip to main content");
+    expect(markup).toContain('id="main-content"');
+  });
+
+  it("renders i18n props with custom labels", () => {
+    const markup = renderToString(
+      <OrderSummary
+        lines={[{ label: "Subtotal", value: "$10" }]}
+        total="$10"
+        totalLabel="Grand Total"
+      />
+    );
+
+    expect(markup).toContain("Grand Total");
+    expect(markup).not.toContain(">Total<");
   });
 });

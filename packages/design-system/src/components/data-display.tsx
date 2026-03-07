@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { HTMLAttributes, ReactNode } from "react";
 import type { ResponsiveValue } from "../theme/tokens";
+import { Icon, type IconName } from "../icons";
 import { cx } from "../utils/cx";
 import { resolveColumnsClass } from "../utils/system";
 import { Button } from "./actions";
@@ -56,6 +58,7 @@ export interface DataColumn<T> {
   mobileLabel?: ReactNode;
   align?: "left" | "right";
   cell: (row: T) => ReactNode;
+  sortable?: boolean;
 }
 
 export interface DataTableProps<T>
@@ -66,6 +69,11 @@ export interface DataTableProps<T>
   getRowId?: (row: T, index: number) => string;
   emptyTitle?: ReactNode;
   emptyDescription?: ReactNode;
+  sortKey?: string;
+  sortDirection?: "asc" | "desc";
+  onSortChange?: (key: string, direction: "asc" | "desc") => void;
+  selectedKeys?: Set<string>;
+  onSelectionChange?: (keys: Set<string>) => void;
 }
 
 export function DataTable<T>({
@@ -75,6 +83,11 @@ export function DataTable<T>({
   getRowId,
   emptyTitle = "Nothing to review",
   emptyDescription = "Adjust filters or add new records to populate this view.",
+  sortKey,
+  sortDirection,
+  onSortChange,
+  selectedKeys,
+  onSelectionChange,
   ...rest
 }: DataTableProps<T>) {
   if (rows.length === 0) {
@@ -86,11 +99,69 @@ export function DataTable<T>({
     );
   }
 
+  const selectable = selectedKeys !== undefined && onSelectionChange !== undefined;
+  const allIds = selectable
+    ? rows.map((row, index) => getRowId ? getRowId(row, index) : String(index))
+    : [];
+  const allSelected = selectable && allIds.length > 0 && allIds.every((id) => selectedKeys.has(id));
+
+  function handleSortClick(column: DataColumn<T>) {
+    if (!column.sortable || !onSortChange) return;
+    const nextDirection =
+      sortKey === column.key && sortDirection === "asc" ? "desc" : "asc";
+    onSortChange(column.key, nextDirection);
+  }
+
+  function handleSelectAll() {
+    if (!onSelectionChange) return;
+    if (allSelected) {
+      onSelectionChange(new Set());
+    } else {
+      onSelectionChange(new Set(allIds));
+    }
+  }
+
+  function handleSelectRow(id: string) {
+    if (!onSelectionChange || !selectedKeys) return;
+    const next = new Set(selectedKeys);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    onSelectionChange(next);
+  }
+
+  function renderSortIndicator(column: DataColumn<T>) {
+    if (!column.sortable) return null;
+    if (sortKey !== column.key) {
+      return <Icon name="chevronDown" size="sm" tone="secondary" />;
+    }
+    return (
+      <Icon
+        name={sortDirection === "asc" ? "chevronUp" : "chevronDown"}
+        size="sm"
+        tone="accent"
+      />
+    );
+  }
+
   const table = (
     <div className="modern-surface overflow-x-auto rounded-tokenLg border border-muted shadow-tokenSm">
       <table className="min-w-full border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-muted bg-background">
+            {selectable ? (
+              <th className="w-12 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={handleSelectAll}
+                  aria-label="Select all rows"
+                  className="h-4 w-4 rounded border-border accent-accent"
+                />
+              </th>
+            ) : null}
             {columns.map((column) => (
               <th
                 key={column.key}
@@ -99,40 +170,71 @@ export function DataTable<T>({
                   column.align === "right" && "text-right"
                 )}
               >
-                {column.header}
+                {column.sortable ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-accent"
+                    onClick={() => handleSortClick(column)}
+                  >
+                    {column.header}
+                    {renderSortIndicator(column)}
+                  </button>
+                ) : (
+                  column.header
+                )}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
-            <tr
-              key={getRowId ? getRowId(row, index) : String(index)}
-              className="border-b border-muted last:border-b-0"
-            >
-              {columns.map((column) => (
-                <td
-                  key={column.key}
-                  className={cx(
-                    "px-4 py-3 text-secondary",
-                    column.align === "right" && "text-right"
-                  )}
-                >
-                  {column.cell(row)}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((row, index) => {
+            const rowId = getRowId ? getRowId(row, index) : String(index);
+            const isSelected = selectable && selectedKeys.has(rowId);
+
+            return (
+              <tr
+                key={rowId}
+                className={cx(
+                  "border-b border-muted last:border-b-0",
+                  isSelected && "bg-background"
+                )}
+              >
+                {selectable ? (
+                  <td className="w-12 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleSelectRow(rowId)}
+                      aria-label={`Select row ${rowId}`}
+                      className="h-4 w-4 rounded border-border accent-accent"
+                    />
+                  </td>
+                ) : null}
+                {columns.map((column) => (
+                  <td
+                    key={column.key}
+                    className={cx(
+                      "px-4 py-3 text-secondary",
+                      column.align === "right" && "text-right"
+                    )}
+                  >
+                    {column.cell(row)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 
   const cards = (
-    <div className="space-y-3 md:hidden">
+    <div role="list" className="space-y-3 md:hidden">
       {rows.map((row, rowIndex) => (
         <div
           key={getRowId ? getRowId(row, rowIndex) : String(rowIndex)}
+          role="listitem"
           className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
         >
           <div className="space-y-3">
@@ -332,18 +434,33 @@ export function ActivityList({
 export interface CardProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
+  media?: ReactNode;
+  interactive?: boolean;
 }
 
 export function Card({
   children,
+  media,
+  interactive = false,
   ...rest
 }: CardProps) {
   return (
     <div
       {...rest}
-      className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
+      className={cx(
+        "modern-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm",
+        interactive && "cursor-pointer transition hover:border-accent hover:shadow-tokenMd",
+        !media && "p-4"
+      )}
     >
-      {children}
+      {media ? (
+        <>
+          <div>{media}</div>
+          <div className="p-4">{children}</div>
+        </>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -402,19 +519,23 @@ export interface FilterDrawerProps
   extends Omit<DrawerProps, "title" | "trigger" | "children"> {
   trigger: ReactNode;
   children?: ReactNode;
+  title?: ReactNode;
+  applyLabel?: string;
 }
 
 export function FilterDrawer({
   trigger,
   children,
+  title = "Filters",
+  applyLabel = "Apply filters",
   ...rest
 }: FilterDrawerProps) {
   return (
     <Drawer
       {...rest}
       trigger={trigger}
-      title="Filters"
-      footer={<Button tone="primary" block>Apply filters</Button>}
+      title={title}
+      footer={<Button tone="primary" block>{applyLabel}</Button>}
     >
       <div className="space-y-4">{children}</div>
     </Drawer>
@@ -425,11 +546,13 @@ export interface BulkActionBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   count: number;
   actions?: ReactNode;
+  formatSelectedLabel?: (count: number) => string;
 }
 
 export function BulkActionBar({
   count,
   actions,
+  formatSelectedLabel = (n) => `${n} item${n === 1 ? "" : "s"} selected`,
   ...rest
 }: BulkActionBarProps) {
   return (
@@ -438,9 +561,71 @@ export function BulkActionBar({
       className="modern-surface sticky bottom-20 z-sticky flex flex-col gap-3 rounded-tokenLg border border-accent p-4 shadow-overlay md:bottom-4 md:flex-row md:items-center md:justify-between"
     >
       <div className="text-sm font-semibold text-foreground">
-        {count} item{count === 1 ? "" : "s"} selected
+        {formatSelectedLabel(count)}
       </div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+export interface GalleryImage {
+  src: string;
+  alt: string;
+}
+
+export interface ImageGalleryProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  images: GalleryImage[];
+  aspectRatio?: string;
+}
+
+export function ImageGallery({
+  images,
+  aspectRatio = "3/4",
+  ...rest
+}: ImageGalleryProps) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const active = images[activeIndex];
+
+  if (images.length === 0) return null;
+
+  return (
+    <div {...rest} className="space-y-3">
+      <div
+        className="modern-surface overflow-hidden rounded-tokenLg border border-muted"
+        style={{ aspectRatio }}
+      >
+        {active ? (
+          <img
+            src={active.src}
+            alt={active.alt}
+            className="h-full w-full object-contain"
+          />
+        ) : null}
+      </div>
+      {images.length > 1 ? (
+        <div className="flex gap-2 overflow-x-auto">
+          {images.map((image, index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={() => setActiveIndex(index)}
+              className={cx(
+                "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
+                index === activeIndex
+                  ? "border-accent shadow-tokenSm"
+                  : "border-muted hover:border-accent"
+              )}
+            >
+              <img
+                src={image.src}
+                alt={image.alt}
+                className="h-full w-full object-cover"
+              />
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

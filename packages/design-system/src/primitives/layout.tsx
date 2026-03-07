@@ -434,3 +434,22 @@ export function renderOptionalNode(
 ): ReactNode {
   return node ?? null;
 }
+
+export interface SkipLinkProps {
+  targetId?: string;
+  label?: string;
+}
+
+export function SkipLink({
+  targetId = "main-content",
+  label = "Skip to main content"
+}: SkipLinkProps) {
+  return (
+    <a
+      href={`#${targetId}`}
+      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-tokenMd focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-accent-contrast focus:shadow-overlay"
+    >
+      {label}
+    </a>
+  );
+}
