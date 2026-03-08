@@ -13,7 +13,8 @@
     "verify:design-system-contracts": "npm run verify:source --workspace @chase-sets/design-system-showcase",
     "dev:catalog-api": "npm run dev --workspace @chase-sets/catalog-api",
     "test:catalog": "npm run test --workspace @chase-sets/catalog-api",
-    "dev:catalog-admin": "docker compose -f deployables/catalog-api/docker-compose.yml up -d && npm run dev --workspace @chase-sets/catalog-api > /dev/null 2>&1 & npm run dev --workspace @chase-sets/catalog-admin"
+    "dev:catalog-admin": "docker compose -f deployables/catalog-api/docker-compose.yml up -d && npm run dev --workspace @chase-sets/catalog-api > /dev/null 2>&1 & npm run dev --workspace @chase-sets/catalog-admin",
+    "seed:catalog": "npm run seed --workspace @chase-sets/catalog-api"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.8",
@@ -29,5 +30,8 @@
     "typescript": "^5.7.3",
     "vite": "^6.3.1",
     "vitest": "^3.0.8"
+  },
+  "dependencies": {
+    "ulid": "^3.0.2"
   }
 }

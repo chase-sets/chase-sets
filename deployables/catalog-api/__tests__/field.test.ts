@@ -13,13 +13,13 @@ const defaultBehavior = { filterable: false, searchable: false, sortable: false 
 
 function createdState() {
   return givenEvents(initialFieldState, evolveField, [
-    { type: "catalog.field.created", data: { fieldId, key: "brand", name: "Brand", valueType: "string", behavior: defaultBehavior } },
+    { type: "catalog.field.created", data: { fieldId, key: "brand", name: "Brand", description: "", valueType: "string", behavior: defaultBehavior } },
   ] as FieldEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialFieldState, evolveField, [
-    { type: "catalog.field.created", data: { fieldId, key: "brand", name: "Brand", valueType: "string", behavior: defaultBehavior } },
+    { type: "catalog.field.created", data: { fieldId, key: "brand", name: "Brand", description: "", valueType: "string", behavior: defaultBehavior } },
     { type: "catalog.field.activated", data: {} },
   ] as FieldEvent[]);
 }
@@ -111,7 +111,7 @@ describe("Field aggregate", () => {
     it("evolves created event", () => {
       const state = evolveField(initialFieldState, {
         type: "catalog.field.created",
-        data: { fieldId, key: "brand", name: "Brand", valueType: "number", behavior: { filterable: true, searchable: false, sortable: true } },
+        data: { fieldId, key: "brand", name: "Brand", description: "", valueType: "number", behavior: { filterable: true, searchable: false, sortable: true } },
       });
 
       expect(state.id).toBe(fieldId);
@@ -122,7 +122,7 @@ describe("Field aggregate", () => {
     it("evolves configured event", () => {
       const state = evolveField(createdState(), {
         type: "catalog.field.configured",
-        data: { key: "brand-v2", name: "Brand V2", valueType: "boolean", behavior: defaultBehavior },
+        data: { key: "brand-v2", name: "Brand V2", description: "", valueType: "boolean", behavior: defaultBehavior },
       });
 
       expect(state.key).toBe("brand-v2");

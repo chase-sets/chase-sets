@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS catalog_dimensions (
   dimension_id text PRIMARY KEY,
   key text NOT NULL,
   name text NOT NULL,
+  description text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS catalog_fields (
   field_id text PRIMARY KEY,
   key text NOT NULL,
   name text NOT NULL,
+  description text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft',
   value_type text NOT NULL DEFAULT 'string',
   filterable boolean NOT NULL DEFAULT false,
@@ -88,6 +90,7 @@ CREATE TABLE IF NOT EXISTS catalog_components (
   component_id text PRIMARY KEY,
   key text NOT NULL,
   name text NOT NULL,
+  description text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft',
   field_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
   dimension_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -98,6 +101,7 @@ CREATE TABLE IF NOT EXISTS catalog_blueprints (
   blueprint_id text PRIMARY KEY,
   key text NOT NULL,
   name text NOT NULL,
+  description text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft',
   component_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   field_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -110,6 +114,7 @@ CREATE TABLE IF NOT EXISTS catalog_categories (
   category_id text PRIMARY KEY,
   key text NOT NULL,
   name text NOT NULL,
+  description text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft',
   parent_category_id text NULL,
   display_order integer NOT NULL DEFAULT 0,
@@ -120,9 +125,33 @@ CREATE TABLE IF NOT EXISTS catalog_items (
   item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
+  description text NOT NULL DEFAULT '',
   blueprint_id text NULL,
   status text NOT NULL DEFAULT 'draft',
   field_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   category_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  tags jsonb NOT NULL DEFAULT '[]'::jsonb,
+  image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Indexes for search and filtering
+CREATE INDEX IF NOT EXISTS catalog_dimensions_status_idx ON catalog_dimensions (status);
+CREATE INDEX IF NOT EXISTS catalog_dimensions_key_name_idx ON catalog_dimensions USING gin (to_tsvector('simple', key || ' ' || name));
+
+CREATE INDEX IF NOT EXISTS catalog_fields_status_idx ON catalog_fields (status);
+CREATE INDEX IF NOT EXISTS catalog_fields_key_name_idx ON catalog_fields USING gin (to_tsvector('simple', key || ' ' || name));
+
+CREATE INDEX IF NOT EXISTS catalog_components_status_idx ON catalog_components (status);
+CREATE INDEX IF NOT EXISTS catalog_components_key_name_idx ON catalog_components USING gin (to_tsvector('simple', key || ' ' || name));
+
+CREATE INDEX IF NOT EXISTS catalog_blueprints_status_idx ON catalog_blueprints (status);
+CREATE INDEX IF NOT EXISTS catalog_blueprints_key_name_idx ON catalog_blueprints USING gin (to_tsvector('simple', key || ' ' || name));
+
+CREATE INDEX IF NOT EXISTS catalog_categories_status_idx ON catalog_categories (status);
+CREATE INDEX IF NOT EXISTS catalog_categories_parent_idx ON catalog_categories (parent_category_id);
+
+CREATE INDEX IF NOT EXISTS catalog_items_status_idx ON catalog_items (status);
+CREATE INDEX IF NOT EXISTS catalog_items_blueprint_idx ON catalog_items (blueprint_id);
+CREATE INDEX IF NOT EXISTS catalog_items_title_idx ON catalog_items USING gin (to_tsvector('simple', title));
+CREATE INDEX IF NOT EXISTS catalog_items_tags_idx ON catalog_items USING gin (tags);

@@ -8,20 +8,20 @@ import {
 import type { ComponentId, DimensionId, FieldId, ChoiceId } from "../../../bounded-contexts/catalog/ids";
 import { givenEvents, decide, expectDomainError } from "./helpers";
 
-const compId = "comp_test" as ComponentId;
+const compId = "cmp_test" as ComponentId;
 const fieldA = "fld_a" as FieldId;
 const fieldB = "fld_b" as FieldId;
 const dimA = "dim_a" as DimensionId;
 
 function createdState() {
   return givenEvents(initialComponentState, evolveComponent, [
-    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: "Base" } },
+    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: "Base", description: "" } },
   ] as ComponentEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialComponentState, evolveComponent, [
-    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: "Base" } },
+    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: "Base", description: "" } },
     { type: "catalog.component.activated", data: {} },
   ] as ComponentEvent[]);
 }
@@ -132,7 +132,7 @@ describe("Component aggregate", () => {
     it("evolves created event", () => {
       const state = evolveComponent(initialComponentState, {
         type: "catalog.component.created",
-        data: { componentId: compId, key: "base", name: "Base" },
+        data: { componentId: compId, key: "base", name: "Base", description: "" },
       });
 
       expect(state.id).toBe(compId);

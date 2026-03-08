@@ -36,6 +36,7 @@ export type BlueprintState = Readonly<{
   id: BlueprintId | null;
   key: string | null;
   name: string | null;
+  description: string;
   status: CatalogLifecycleStatus;
   componentIds: ComponentId[];
   fieldRules: BlueprintFieldRule[];
@@ -47,6 +48,7 @@ export const initialBlueprintState: BlueprintState = {
   id: null,
   key: null,
   name: null,
+  description: "",
   status: "draft",
   componentIds: [],
   fieldRules: [],
@@ -59,6 +61,14 @@ export type CreateBlueprintCommand = Readonly<{
   blueprintId: BlueprintId;
   key: string;
   name: string;
+  description?: string;
+}>;
+
+export type ReviseBlueprintCommand = Readonly<{
+  type: "ReviseBlueprint";
+  key: string;
+  name: string;
+  description?: string;
 }>;
 
 export type AttachComponentToBlueprintCommand = Readonly<{
@@ -100,6 +110,7 @@ export type ArchiveBlueprintCommand = Readonly<{
 
 export type BlueprintCommand =
   | CreateBlueprintCommand
+  | ReviseBlueprintCommand
   | AttachComponentToBlueprintCommand
   | DetachComponentFromBlueprintCommand
   | SetBlueprintFieldsCommand
@@ -115,6 +126,16 @@ export type BlueprintCreatedEvent = DomainEvent<
     blueprintId: BlueprintId;
     key: string;
     name: string;
+    description: string;
+  }>
+>;
+
+export type BlueprintRevisedEvent = DomainEvent<
+  "catalog.blueprint.revised",
+  Readonly<{
+    key: string;
+    name: string;
+    description: string;
   }>
 >;
 
@@ -170,6 +191,7 @@ export type BlueprintArchivedEvent = DomainEvent<
 
 export type BlueprintEvent =
   | BlueprintCreatedEvent
+  | BlueprintRevisedEvent
   | BlueprintComponentAttachedEvent
   | BlueprintComponentDetachedEvent
   | BlueprintFieldsSetEvent
@@ -195,6 +217,21 @@ export const decideBlueprint: AggregateDecider<
             blueprintId: command.blueprintId,
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? "",
+          },
+        },
+      ];
+    case "ReviseBlueprint":
+      requireCreatedBlueprint(state);
+      assert(state.status !== "archived", "Archived blueprints cannot be revised.");
+
+      return [
+        {
+          type: "catalog.blueprint.revised",
+          data: {
+            key: command.key.trim(),
+            name: command.name.trim(),
+            description: command.description?.trim() ?? state.description,
           },
         },
       ];
@@ -330,7 +367,15 @@ export const evolveBlueprint: AggregateEvolver<BlueprintState, BlueprintEvent> =
         id: event.data.blueprintId,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
         status: "draft",
+      };
+    case "catalog.blueprint.revised":
+      return {
+        ...state,
+        key: event.data.key,
+        name: event.data.name,
+        description: event.data.description,
       };
     case "catalog.blueprint.component-attached":
       return {

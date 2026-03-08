@@ -7,17 +7,28 @@ const STREAM_PREFIX = "catalog.blueprint-";
 export function buildBlueprintProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.blueprint.created": async (event) => {
-      const { blueprintId, key, name } = event.data as {
+      const { blueprintId, key, name, description } = event.data as {
         blueprintId: string;
         key: string;
         name: string;
+        description: string;
       };
 
       await db.query(
-        `INSERT INTO catalog_blueprints (blueprint_id, key, name, status, updated_at)
-         VALUES ($1, $2, $3, 'draft', $4)
-         ON CONFLICT (blueprint_id) DO UPDATE SET key = $2, name = $3, updated_at = $4`,
-        [blueprintId, key, name, event.timing.recordedAt],
+        `INSERT INTO catalog_blueprints (blueprint_id, key, name, description, status, updated_at)
+         VALUES ($1, $2, $3, $4, 'draft', $5)
+         ON CONFLICT (blueprint_id) DO UPDATE SET key = $2, name = $3, description = $4, updated_at = $5`,
+        [blueprintId, key, name, description ?? "", event.timing.recordedAt],
+      );
+    },
+
+    "catalog.blueprint.revised": async (event) => {
+      const blueprintId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { key, name, description } = event.data as { key: string; name: string; description: string };
+
+      await db.query(
+        `UPDATE catalog_blueprints SET key = $2, name = $3, description = $4, updated_at = $5 WHERE blueprint_id = $1`,
+        [blueprintId, key, name, description ?? "", event.timing.recordedAt],
       );
     },
 

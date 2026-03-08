@@ -18,6 +18,7 @@ export type FieldState = Readonly<{
   id: FieldId | null;
   key: string | null;
   name: string | null;
+  description: string;
   status: CatalogLifecycleStatus;
   valueType: FieldValueType;
   behavior: FieldBehavior;
@@ -27,6 +28,7 @@ export const initialFieldState: FieldState = {
   id: null,
   key: null,
   name: null,
+  description: "",
   status: "draft",
   valueType: "string",
   behavior: {
@@ -41,6 +43,7 @@ export type CreateFieldCommand = Readonly<{
   fieldId: FieldId;
   key: string;
   name: string;
+  description?: string;
   valueType: FieldValueType;
   behavior: FieldBehavior;
 }>;
@@ -49,6 +52,7 @@ export type ConfigureFieldCommand = Readonly<{
   type: "ConfigureField";
   key: string;
   name: string;
+  description?: string;
   valueType: FieldValueType;
   behavior: FieldBehavior;
 }>;
@@ -75,6 +79,7 @@ export type FieldCommand =
 type FieldConfiguration = Readonly<{
   key: string;
   name: string;
+  description: string;
   valueType: FieldValueType;
   behavior: FieldBehavior;
 }>;
@@ -129,6 +134,7 @@ export const decideField: AggregateDecider<FieldState, FieldCommand, FieldEvent>
             fieldId: command.fieldId,
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? "",
             valueType: command.valueType,
             behavior: normalizeBehavior(command.behavior),
           },
@@ -144,6 +150,7 @@ export const decideField: AggregateDecider<FieldState, FieldCommand, FieldEvent>
           data: {
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? state.description,
             valueType: command.valueType,
             behavior: normalizeBehavior(command.behavior),
           },
@@ -195,6 +202,7 @@ export const evolveField: AggregateEvolver<FieldState, FieldEvent> = (
         id: event.data.fieldId,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
         status: "draft",
         valueType: event.data.valueType,
         behavior: normalizeBehavior(event.data.behavior),
@@ -204,6 +212,7 @@ export const evolveField: AggregateEvolver<FieldState, FieldEvent> = (
         ...state,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
         valueType: event.data.valueType,
         behavior: normalizeBehavior(event.data.behavior),
       };

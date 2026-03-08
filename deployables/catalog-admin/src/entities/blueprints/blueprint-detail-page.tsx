@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Button,
+  Checkbox,
   DataTable,
   Dialog,
   Inline,
@@ -16,8 +17,10 @@ import { EntityDetailPage } from "../../shared/entity-detail-page";
 import { LifecycleControls, type Transition } from "../../shared/lifecycle-controls";
 import {
   useBlueprint,
+  reviseBlueprint,
   attachComponent,
   detachComponent,
+  setBlueprintFields,
   setBlueprintDimensions,
   setBlueprintVersionRules,
   publishBlueprint,
@@ -49,6 +52,17 @@ interface DimensionRule {
   allowedChoiceIds: string[];
 }
 
+interface EditFieldRule {
+  fieldId: string;
+  required: boolean;
+}
+
+interface EditDimensionRule {
+  dimensionId: string;
+  required: boolean;
+  allowedChoiceIds: string;
+}
+
 export function BlueprintDetailPage({ id }: { id: string }) {
   const { data, loading, error, refresh } = useBlueprint(id);
   const { addToast } = useToasts();
@@ -56,6 +70,18 @@ export function BlueprintDetailPage({ id }: { id: string }) {
   const [componentId, setComponentId] = useState("");
   const [showSetVersionRules, setShowSetVersionRules] = useState(false);
   const [canonicalOrder, setCanonicalOrder] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editKey, setEditKey] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+
+  // Set field rules
+  const [showSetFieldRules, setShowSetFieldRules] = useState(false);
+  const [editFieldRules, setEditFieldRules] = useState<EditFieldRule[]>([]);
+
+  // Set dimension rules
+  const [showSetDimRules, setShowSetDimRules] = useState(false);
+  const [editDimRules, setEditDimRules] = useState<EditDimensionRule[]>([]);
 
   async function handleLifecycleAction(action: string) {
     const actions: Record<string, () => Promise<unknown>> = {
@@ -65,6 +91,22 @@ export function BlueprintDetailPage({ id }: { id: string }) {
     };
     await actions[action]?.();
     addToast(`Blueprint ${action}ed`, "success");
+    refresh();
+  }
+
+  function startEditing() {
+    if (data) {
+      setEditKey(data.key);
+      setEditName(data.name);
+      setEditDescription(data.description ?? "");
+      setEditing(true);
+    }
+  }
+
+  async function handleRevise() {
+    await reviseBlueprint(id, { key: editKey, name: editName, description: editDescription || undefined });
+    addToast("Blueprint revised", "success");
+    setEditing(false);
     refresh();
   }
 
@@ -91,10 +133,62 @@ export function BlueprintDetailPage({ id }: { id: string }) {
     refresh();
   }
 
+  function startSetFieldRules() {
+    setEditFieldRules(
+      fieldRules.length > 0
+        ? fieldRules.map((r) => ({ fieldId: r.fieldId, required: r.required }))
+        : [{ fieldId: "", required: false }],
+    );
+    setShowSetFieldRules(true);
+  }
+
+  async function handleSetFieldRules() {
+    const rules = editFieldRules.filter((r) => r.fieldId.trim());
+    await setBlueprintFields(id, rules);
+    addToast("Field rules set", "success");
+    setShowSetFieldRules(false);
+    refresh();
+  }
+
+  function startSetDimRules() {
+    setEditDimRules(
+      dimensionRules.length > 0
+        ? dimensionRules.map((r) => ({
+            dimensionId: r.dimensionId,
+            required: r.required,
+            allowedChoiceIds: r.allowedChoiceIds.join(", "),
+          }))
+        : [{ dimensionId: "", required: false, allowedChoiceIds: "" }],
+    );
+    setShowSetDimRules(true);
+  }
+
+  async function handleSetDimRules() {
+    const rules = editDimRules
+      .filter((r) => r.dimensionId.trim())
+      .map((r) => ({
+        dimensionId: r.dimensionId,
+        required: r.required,
+        allowedChoiceIds: r.allowedChoiceIds.split(",").map((s) => s.trim()).filter(Boolean),
+      }));
+    await setBlueprintDimensions(id, rules);
+    addToast("Dimension rules set", "success");
+    setShowSetDimRules(false);
+    refresh();
+  }
+
   const componentIds = (data?.component_ids ?? []) as string[];
   const fieldRules = (data?.field_rules ?? []) as FieldRule[];
   const dimensionRules = (data?.dimension_rules ?? []) as DimensionRule[];
   const canonicalDimensionOrder = (data?.canonical_dimension_order ?? []) as string[];
+
+  const nameMap = new Map<string, string>();
+  for (const list of Object.values(data?._resolved ?? {})) {
+    for (const entry of list as { id: string; name: string }[]) {
+      nameMap.set(entry.id, entry.name);
+    }
+  }
+  const resolveName = (id: string) => nameMap.get(id) ?? id;
 
   return (
     <>
@@ -106,11 +200,18 @@ export function BlueprintDetailPage({ id }: { id: string }) {
         ]}
         actions={
           data ? (
-            <LifecycleControls
-              status={data.status}
-              transitions={getTransitions(data.status)}
-              onAction={handleLifecycleAction}
-            />
+            <Inline gap={2}>
+              <LifecycleControls
+                status={data.status}
+                transitions={getTransitions(data.status)}
+                onAction={handleLifecycleAction}
+              />
+              {data.status !== "archived" && (
+                <Button tone="secondary" size="sm" onClick={startEditing}>
+                  Edit
+                </Button>
+              )}
+            </Inline>
           ) : undefined
         }
         loading={loading}
@@ -121,9 +222,9 @@ export function BlueprintDetailPage({ id }: { id: string }) {
           <Stack gap={6}>
             <KeyValueList
               items={[
-                { key: "ID", value: data.blueprint_id },
                 { key: "Key", value: data.key },
                 { key: "Name", value: data.name },
+                { key: "Description", value: data.description ?? "—" },
                 { key: "Status", value: data.status },
                 { key: "Updated", value: data.updated_at },
               ]}
@@ -142,7 +243,7 @@ export function BlueprintDetailPage({ id }: { id: string }) {
                   <DataTable
                     rows={componentIds.map((cId) => ({ id: cId }))}
                     columns={[
-                      { key: "id", header: "Component ID", cell: (row) => row.id },
+                      { key: "id", header: "Component", cell: (row) => resolveName(row.id) },
                       {
                         key: "actions",
                         header: "",
@@ -158,34 +259,53 @@ export function BlueprintDetailPage({ id }: { id: string }) {
             </PageSection>
 
             <PageSection title="Field Rules">
-              <DataTable
-                rows={fieldRules}
-                columns={[
-                  { key: "fieldId", header: "Field ID", cell: (row) => row.fieldId },
-                  { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
-                ] as DataColumn<FieldRule>[]}
-                getRowId={(row) => row.fieldId}
-                emptyTitle="No field rules"
-              />
+              <Stack gap={3}>
+                {data.status === "draft" && (
+                  <Inline>
+                    <Button size="sm" onClick={startSetFieldRules}>Set Field Rules</Button>
+                  </Inline>
+                )}
+                <DataTable
+                  rows={fieldRules}
+                  columns={[
+                    { key: "fieldId", header: "Field", cell: (row) => resolveName(row.fieldId) },
+                    { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
+                  ] as DataColumn<FieldRule>[]}
+                  getRowId={(row) => row.fieldId}
+                  emptyTitle="No field rules"
+                />
+              </Stack>
             </PageSection>
 
             <PageSection title="Dimension Rules">
-              <DataTable
-                rows={dimensionRules}
-                columns={[
-                  { key: "dimensionId", header: "Dimension ID", cell: (row) => row.dimensionId },
-                  { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
-                ] as DataColumn<DimensionRule>[]}
-                getRowId={(row) => row.dimensionId}
-                emptyTitle="No dimension rules"
-              />
+              <Stack gap={3}>
+                {data.status === "draft" && (
+                  <Inline>
+                    <Button size="sm" onClick={startSetDimRules}>Set Dimension Rules</Button>
+                  </Inline>
+                )}
+                <DataTable
+                  rows={dimensionRules}
+                  columns={[
+                    { key: "dimensionId", header: "Dimension", cell: (row) => resolveName(row.dimensionId) },
+                    { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
+                    {
+                      key: "allowedChoiceIds",
+                      header: "Allowed Choices",
+                      cell: (row) => row.allowedChoiceIds.length > 0 ? row.allowedChoiceIds.map(resolveName).join(", ") : "All",
+                    },
+                  ] as DataColumn<DimensionRule>[]}
+                  getRowId={(row) => row.dimensionId}
+                  emptyTitle="No dimension rules"
+                />
+              </Stack>
             </PageSection>
 
             <PageSection title="Version Rules">
               <Stack gap={3}>
                 <KeyValueList
                   items={[
-                    { key: "Canonical Dimension Order", value: canonicalDimensionOrder.length > 0 ? canonicalDimensionOrder.join(", ") : "Not set" },
+                    { key: "Canonical Dimension Order", value: canonicalDimensionOrder.length > 0 ? canonicalDimensionOrder.map(resolveName).join(", ") : "Not set" },
                   ]}
                 />
                 {data.status === "draft" && (
@@ -203,6 +323,19 @@ export function BlueprintDetailPage({ id }: { id: string }) {
           </Stack>
         )}
       </EntityDetailPage>
+
+      <Dialog
+        open={editing}
+        onOpenChange={setEditing}
+        title="Edit Blueprint"
+        footer={<Button onClick={handleRevise}>Save</Button>}
+      >
+        <Stack gap={3}>
+          <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
+          <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+        </Stack>
+      </Dialog>
 
       <Dialog
         open={showAttachComponent}
@@ -225,6 +358,89 @@ export function BlueprintDetailPage({ id }: { id: string }) {
           value={canonicalOrder}
           onChange={(e) => setCanonicalOrder(e.target.value)}
         />
+      </Dialog>
+
+      <Dialog
+        open={showSetFieldRules}
+        onOpenChange={setShowSetFieldRules}
+        title="Set Field Rules"
+        description="Configure which fields apply to this blueprint."
+        footer={<Button onClick={handleSetFieldRules}>Save</Button>}
+      >
+        <Stack gap={3}>
+          {editFieldRules.map((rule, i) => (
+            <Inline key={i} gap={2}>
+              <TextInput
+                label={i === 0 ? "Field ID" : undefined}
+                value={rule.fieldId}
+                onChange={(e) =>
+                  setEditFieldRules((prev) => prev.map((r, j) => (j === i ? { ...r, fieldId: e.target.value } : r)))
+                }
+              />
+              <Checkbox
+                label="Required"
+                checked={rule.required}
+                onCheckedChange={(v) =>
+                  setEditFieldRules((prev) => prev.map((r, j) => (j === i ? { ...r, required: v === true } : r)))
+                }
+              />
+              <Button size="sm" tone="danger" onClick={() => setEditFieldRules((prev) => prev.filter((_, j) => j !== i))}>
+                Remove
+              </Button>
+            </Inline>
+          ))}
+          <Inline>
+            <Button size="sm" tone="secondary" onClick={() => setEditFieldRules((prev) => [...prev, { fieldId: "", required: false }])}>
+              Add Rule
+            </Button>
+          </Inline>
+        </Stack>
+      </Dialog>
+
+      <Dialog
+        open={showSetDimRules}
+        onOpenChange={setShowSetDimRules}
+        title="Set Dimension Rules"
+        description="Configure which dimensions apply to this blueprint."
+        footer={<Button onClick={handleSetDimRules}>Save</Button>}
+      >
+        <Stack gap={3}>
+          {editDimRules.map((rule, i) => (
+            <Stack key={i} gap={2}>
+              <Inline gap={2}>
+                <TextInput
+                  label={i === 0 ? "Dimension ID" : undefined}
+                  value={rule.dimensionId}
+                  onChange={(e) =>
+                    setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, dimensionId: e.target.value } : r)))
+                  }
+                />
+                <Checkbox
+                  label="Required"
+                  checked={rule.required}
+                  onCheckedChange={(v) =>
+                    setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, required: v === true } : r)))
+                  }
+                />
+                <Button size="sm" tone="danger" onClick={() => setEditDimRules((prev) => prev.filter((_, j) => j !== i))}>
+                  Remove
+                </Button>
+              </Inline>
+              <TextInput
+                label="Allowed Choice IDs (comma-separated, leave empty for all)"
+                value={rule.allowedChoiceIds}
+                onChange={(e) =>
+                  setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, allowedChoiceIds: e.target.value } : r)))
+                }
+              />
+            </Stack>
+          ))}
+          <Inline>
+            <Button size="sm" tone="secondary" onClick={() => setEditDimRules((prev) => [...prev, { dimensionId: "", required: false, allowedChoiceIds: "" }])}>
+              Add Rule
+            </Button>
+          </Inline>
+        </Stack>
       </Dialog>
     </>
   );

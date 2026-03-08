@@ -1,6 +1,7 @@
 import { nowIsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
 import type { IsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
 import type { JsonObject } from "../../primitives/json";
+import { createId } from "../../primitives/typed-ids";
 import type { EventId } from "../../primitives/typed-ids";
 import {
   createEventStoreError,
@@ -551,7 +552,5 @@ function assertPositiveInteger(value: number, fieldName: string): number {
 }
 
 function createDefaultEventId(): EventId {
-  const timestampPart = Date.now().toString(36);
-  const randomPart = Math.random().toString(36).slice(2, 12);
-  return `evt_${timestampPart}${randomPart}` as EventId;
+  return createId("evt");
 }

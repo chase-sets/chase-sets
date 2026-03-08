@@ -1,6 +1,12 @@
+import { ulid } from "ulid";
+
 export type Ulid = string;
 
 export type TypedUlid<Prefix extends string> = `${Prefix}_${Ulid}`;
+
+export function createId<Prefix extends string>(prefix: Prefix): TypedUlid<Prefix> {
+  return `${prefix}_${ulid()}` as TypedUlid<Prefix>;
+}
 
 export type EventId = TypedUlid<"evt">;
 

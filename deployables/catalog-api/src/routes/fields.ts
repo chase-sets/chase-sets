@@ -19,6 +19,7 @@ export function fieldRoutes(services: CatalogServices): Hono<TenantContextEnv> {
         fieldId,
         key: body.key,
         name: body.name,
+        description: body.description,
         valueType: body.valueType,
         behavior: body.behavior,
       },
@@ -39,6 +40,7 @@ export function fieldRoutes(services: CatalogServices): Hono<TenantContextEnv> {
         type: "ConfigureField",
         key: body.key,
         name: body.name,
+        description: body.description,
         valueType: body.valueType,
         behavior: body.behavior,
       },
@@ -88,9 +90,10 @@ export function fieldRoutes(services: CatalogServices): Hono<TenantContextEnv> {
   });
 
   app.get("/", async (c) => {
-    const items = await listFields(services.db);
+    const { search, status, limit, offset } = c.req.query();
+    const result = await listFields(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
-    return c.json({ items, count: items.length });
+    return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {

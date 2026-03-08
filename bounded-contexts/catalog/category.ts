@@ -16,6 +16,7 @@ export type CategoryState = Readonly<{
   id: CategoryId | null;
   key: string | null;
   name: string | null;
+  description: string;
   status: CatalogLifecycleStatus;
   parentCategoryId: CategoryId | null;
   displayOrder: number;
@@ -25,6 +26,7 @@ export const initialCategoryState: CategoryState = {
   id: null,
   key: null,
   name: null,
+  description: "",
   status: "draft",
   parentCategoryId: null,
   displayOrder: 0,
@@ -35,6 +37,7 @@ export type CreateCategoryCommand = Readonly<{
   categoryId: CategoryId;
   key: string;
   name: string;
+  description?: string;
   parentCategoryId?: CategoryId | null;
   displayOrder?: number;
 }>;
@@ -43,6 +46,7 @@ export type ReviseCategoryCommand = Readonly<{
   type: "ReviseCategory";
   key: string;
   name: string;
+  description?: string;
   parentCategoryId?: CategoryId | null;
   displayOrder?: number;
 }>;
@@ -69,6 +73,7 @@ export type CategoryCommand =
 type CategorySnapshot = Readonly<{
   key: string;
   name: string;
+  description: string;
   parentCategoryId: CategoryId | null;
   displayOrder: number;
 }>;
@@ -124,6 +129,7 @@ export const decideCategory: AggregateDecider<
             categoryId: command.categoryId,
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? "",
             parentCategoryId: command.parentCategoryId ?? null,
             displayOrder: command.displayOrder ?? 0,
           },
@@ -139,6 +145,7 @@ export const decideCategory: AggregateDecider<
           data: {
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? state.description,
             parentCategoryId: command.parentCategoryId ?? null,
             displayOrder: command.displayOrder ?? state.displayOrder,
           },
@@ -196,6 +203,7 @@ export const evolveCategory: AggregateEvolver<CategoryState, CategoryEvent> = (
         id: event.data.categoryId,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
         status: "draft",
         parentCategoryId: event.data.parentCategoryId,
         displayOrder: event.data.displayOrder,
@@ -205,6 +213,7 @@ export const evolveCategory: AggregateEvolver<CategoryState, CategoryEvent> = (
         ...state,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
         parentCategoryId: event.data.parentCategoryId,
         displayOrder: event.data.displayOrder,
       };

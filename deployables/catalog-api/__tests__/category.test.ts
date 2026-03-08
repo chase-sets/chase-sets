@@ -8,18 +8,18 @@ import {
 import type { CategoryId } from "../../../bounded-contexts/catalog/ids";
 import { givenEvents, decide, expectDomainError } from "./helpers";
 
-const catId = "cat_test" as CategoryId;
-const parentId = "cat_parent" as CategoryId;
+const catId = "ctg_test" as CategoryId;
+const parentId = "ctg_parent" as CategoryId;
 
 function createdState() {
   return givenEvents(initialCategoryState, evolveCategory, [
-    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: "Singles", parentCategoryId: null, displayOrder: 0 } },
+    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: "Singles", description: "", parentCategoryId: null, displayOrder: 0 } },
   ] as CategoryEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialCategoryState, evolveCategory, [
-    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: "Singles", parentCategoryId: null, displayOrder: 0 } },
+    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: "Singles", description: "", parentCategoryId: null, displayOrder: 0 } },
     { type: "catalog.category.published", data: {} },
   ] as CategoryEvent[]);
 }
@@ -105,7 +105,7 @@ describe("Category aggregate", () => {
     it("evolves created event", () => {
       const state = evolveCategory(initialCategoryState, {
         type: "catalog.category.created",
-        data: { categoryId: catId, key: "singles", name: "Singles", parentCategoryId: parentId, displayOrder: 3 },
+        data: { categoryId: catId, key: "singles", name: "Singles", description: "", parentCategoryId: parentId, displayOrder: 3 },
       });
 
       expect(state.id).toBe(catId);
@@ -116,7 +116,7 @@ describe("Category aggregate", () => {
     it("evolves revised event", () => {
       const state = evolveCategory(createdState(), {
         type: "catalog.category.revised",
-        data: { key: "v2", name: "V2", parentCategoryId: null, displayOrder: 10 },
+        data: { key: "v2", name: "V2", description: "", parentCategoryId: null, displayOrder: 10 },
       });
 
       expect(state.key).toBe("v2");

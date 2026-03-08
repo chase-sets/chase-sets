@@ -16,6 +16,7 @@ import { EntityDetailPage } from "../../shared/entity-detail-page";
 import { LifecycleControls, type Transition } from "../../shared/lifecycle-controls";
 import {
   useComponent,
+  configureComponent,
   activateComponent,
   deprecateComponent,
   archiveComponent,
@@ -52,12 +53,23 @@ interface DimensionRule {
 export function ComponentDetailPage({ id }: { id: string }) {
   const { data, loading, error, refresh } = useComponent(id);
   const { addToast } = useToasts();
+
+  // Add field rule
   const [showAddField, setShowAddField] = useState(false);
   const [fieldId, setFieldId] = useState("");
   const [fieldRequired, setFieldRequired] = useState(false);
+
+  // Add dimension rule
   const [showAddDimension, setShowAddDimension] = useState(false);
   const [dimensionId, setDimensionId] = useState("");
   const [dimRequired, setDimRequired] = useState(false);
+  const [dimAllowedChoiceIds, setDimAllowedChoiceIds] = useState("");
+
+  // Edit component metadata
+  const [editing, setEditing] = useState(false);
+  const [editKey, setEditKey] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
 
   async function handleLifecycleAction(action: string) {
     const actions: Record<string, () => Promise<unknown>> = {
@@ -67,6 +79,28 @@ export function ComponentDetailPage({ id }: { id: string }) {
     };
     await actions[action]?.();
     addToast(`Component ${action}d`, "success");
+    refresh();
+  }
+
+  function startEditing() {
+    if (data) {
+      setEditKey(data.key);
+      setEditName(data.name);
+      setEditDescription(data.description ?? "");
+      setEditing(true);
+    }
+  }
+
+  async function handleConfigure() {
+    await configureComponent(id, {
+      key: editKey,
+      name: editName,
+      description: editDescription || undefined,
+      fieldRules: (data?.field_rules ?? []) as FieldRule[],
+      dimensionRules: (data?.dimension_rules ?? []) as DimensionRule[],
+    });
+    addToast("Component updated", "success");
+    setEditing(false);
     refresh();
   }
 
@@ -86,11 +120,17 @@ export function ComponentDetailPage({ id }: { id: string }) {
   }
 
   async function handleAddDimensionRule() {
-    await addDimensionRule(id, { dimensionId, required: dimRequired });
+    const allowedChoiceIds = dimAllowedChoiceIds.split(",").map((s) => s.trim()).filter(Boolean);
+    await addDimensionRule(id, {
+      dimensionId,
+      required: dimRequired,
+      allowedChoiceIds: allowedChoiceIds.length > 0 ? allowedChoiceIds : undefined,
+    });
     addToast("Dimension rule added", "success");
     setShowAddDimension(false);
     setDimensionId("");
     setDimRequired(false);
+    setDimAllowedChoiceIds("");
     refresh();
   }
 
@@ -103,8 +143,16 @@ export function ComponentDetailPage({ id }: { id: string }) {
   const fieldRules = (data?.field_rules ?? []) as FieldRule[];
   const dimensionRules = (data?.dimension_rules ?? []) as DimensionRule[];
 
+  const nameMap = new Map<string, string>();
+  for (const list of Object.values(data?._resolved ?? {})) {
+    for (const entry of list as { id: string; name: string }[]) {
+      nameMap.set(entry.id, entry.name);
+    }
+  }
+  const resolveName = (id: string) => nameMap.get(id) ?? id;
+
   const fieldRuleColumns: DataColumn<FieldRule>[] = [
-    { key: "fieldId", header: "Field ID", cell: (row) => row.fieldId },
+    { key: "fieldId", header: "Field", cell: (row) => resolveName(row.fieldId) },
     { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
     {
       key: "actions",
@@ -116,8 +164,13 @@ export function ComponentDetailPage({ id }: { id: string }) {
   ];
 
   const dimensionRuleColumns: DataColumn<DimensionRule>[] = [
-    { key: "dimensionId", header: "Dimension ID", cell: (row) => row.dimensionId },
+    { key: "dimensionId", header: "Dimension", cell: (row) => resolveName(row.dimensionId) },
     { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
+    {
+      key: "allowedChoiceIds",
+      header: "Allowed Choices",
+      cell: (row) => row.allowedChoiceIds.length > 0 ? row.allowedChoiceIds.map(resolveName).join(", ") : "All",
+    },
     {
       key: "actions",
       header: "",
@@ -137,11 +190,18 @@ export function ComponentDetailPage({ id }: { id: string }) {
         ]}
         actions={
           data ? (
-            <LifecycleControls
-              status={data.status}
-              transitions={getTransitions(data.status)}
-              onAction={handleLifecycleAction}
-            />
+            <Inline gap={2}>
+              <LifecycleControls
+                status={data.status}
+                transitions={getTransitions(data.status)}
+                onAction={handleLifecycleAction}
+              />
+              {data.status !== "archived" && (
+                <Button tone="secondary" size="sm" onClick={startEditing}>
+                  Edit
+                </Button>
+              )}
+            </Inline>
           ) : undefined
         }
         loading={loading}
@@ -152,9 +212,9 @@ export function ComponentDetailPage({ id }: { id: string }) {
           <Stack gap={6}>
             <KeyValueList
               items={[
-                { key: "ID", value: data.component_id },
                 { key: "Key", value: data.key },
                 { key: "Name", value: data.name },
+                { key: "Description", value: data.description ?? "—" },
                 { key: "Status", value: data.status },
                 { key: "Updated", value: data.updated_at },
               ]}
@@ -196,6 +256,19 @@ export function ComponentDetailPage({ id }: { id: string }) {
       </EntityDetailPage>
 
       <Dialog
+        open={editing}
+        onOpenChange={setEditing}
+        title="Edit Component"
+        footer={<Button onClick={handleConfigure}>Save</Button>}
+      >
+        <Stack gap={3}>
+          <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
+          <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+        </Stack>
+      </Dialog>
+
+      <Dialog
         open={showAddField}
         onOpenChange={setShowAddField}
         title="Add Field Rule"
@@ -216,6 +289,11 @@ export function ComponentDetailPage({ id }: { id: string }) {
         <Stack gap={3}>
           <TextInput label="Dimension ID" value={dimensionId} onChange={(e) => setDimensionId(e.target.value)} />
           <Checkbox label="Required" checked={dimRequired} onCheckedChange={(v) => setDimRequired(v === true)} />
+          <TextInput
+            label="Allowed Choice IDs (comma-separated, leave empty for all)"
+            value={dimAllowedChoiceIds}
+            onChange={(e) => setDimAllowedChoiceIds(e.target.value)}
+          />
         </Stack>
       </Dialog>
     </>

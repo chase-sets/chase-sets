@@ -37,6 +37,7 @@ export function CategoryDetailPage({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   const [editKey, setEditKey] = useState("");
   const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editParentId, setEditParentId] = useState("");
   const [editDisplayOrder, setEditDisplayOrder] = useState("0");
 
@@ -55,6 +56,7 @@ export function CategoryDetailPage({ id }: { id: string }) {
     if (data) {
       setEditKey(data.key);
       setEditName(data.name);
+      setEditDescription(data.description ?? "");
       setEditParentId(data.parent_category_id ?? "");
       setEditDisplayOrder(String(data.display_order));
       setEditing(true);
@@ -65,6 +67,7 @@ export function CategoryDetailPage({ id }: { id: string }) {
     await reviseCategory(id, {
       key: editKey,
       name: editName,
+      description: editDescription || undefined,
       parentCategoryId: editParentId || null,
       displayOrder: Number(editDisplayOrder) || 0,
     });
@@ -104,10 +107,12 @@ export function CategoryDetailPage({ id }: { id: string }) {
         {data && (
           <KeyValueList
             items={[
-              { key: "ID", value: data.category_id },
               { key: "Key", value: data.key },
               { key: "Name", value: data.name },
-              { key: "Parent Category", value: data.parent_category_id ?? "None (root)" },
+              { key: "Description", value: data.description ?? "—" },
+              { key: "Parent Category", value: data.parent_category_id
+                ? (data._resolved?.categories?.find((c) => c.id === data.parent_category_id)?.name ?? data.parent_category_id)
+                : "None (root)" },
               { key: "Display Order", value: String(data.display_order) },
               { key: "Status", value: data.status },
               { key: "Updated", value: data.updated_at },
@@ -125,6 +130,7 @@ export function CategoryDetailPage({ id }: { id: string }) {
         <Stack gap={3}>
           <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
           <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
           <TextInput label="Parent Category ID" value={editParentId} onChange={(e) => setEditParentId(e.target.value)} />
           <TextInput label="Display Order" value={editDisplayOrder} onChange={(e) => setEditDisplayOrder(e.target.value)} />
         </Stack>

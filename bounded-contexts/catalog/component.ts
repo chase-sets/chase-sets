@@ -29,6 +29,7 @@ export type ComponentState = Readonly<{
   id: ComponentId | null;
   key: string | null;
   name: string | null;
+  description: string;
   status: CatalogLifecycleStatus;
   fieldRules: ComponentFieldRule[];
   dimensionRules: ComponentDimensionRule[];
@@ -38,6 +39,7 @@ export const initialComponentState: ComponentState = {
   id: null,
   key: null,
   name: null,
+  description: "",
   status: "draft",
   fieldRules: [],
   dimensionRules: [],
@@ -48,6 +50,7 @@ export type CreateComponentCommand = Readonly<{
   componentId: ComponentId;
   key: string;
   name: string;
+  description?: string;
 }>;
 
 export type AddFieldRuleToComponentCommand = Readonly<{
@@ -77,6 +80,7 @@ export type ConfigureComponentRulesCommand = Readonly<{
   type: "ConfigureComponentRules";
   key: string;
   name: string;
+  description?: string;
   fieldRules: readonly ComponentFieldRule[];
   dimensionRules: readonly ComponentDimensionRule[];
 }>;
@@ -107,6 +111,7 @@ export type ComponentCommand =
 type ComponentRuleSet = Readonly<{
   key: string;
   name: string;
+  description: string;
   fieldRules: ComponentFieldRule[];
   dimensionRules: ComponentDimensionRule[];
 }>;
@@ -117,6 +122,7 @@ export type ComponentCreatedEvent = DomainEvent<
     componentId: ComponentId;
     key: string;
     name: string;
+    description: string;
   }>
 >;
 
@@ -191,6 +197,7 @@ export const decideComponent: AggregateDecider<
             componentId: command.componentId,
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? "",
           },
         },
       ];
@@ -275,6 +282,7 @@ export const decideComponent: AggregateDecider<
           data: {
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? state.description,
             fieldRules: normalizeFieldRules(command.fieldRules),
             dimensionRules: normalizeDimensionRules(command.dimensionRules),
           },
@@ -332,6 +340,7 @@ export const evolveComponent: AggregateEvolver<ComponentState, ComponentEvent> =
         id: event.data.componentId,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
         status: "draft",
       };
     case "catalog.component.field-rule-added":
@@ -366,6 +375,7 @@ export const evolveComponent: AggregateEvolver<ComponentState, ComponentEvent> =
         ...state,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
         fieldRules: normalizeFieldRules(event.data.fieldRules),
         dimensionRules: normalizeDimensionRules(event.data.dimensionRules),
       };

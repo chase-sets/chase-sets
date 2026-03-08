@@ -29,6 +29,7 @@ export type DimensionState = Readonly<{
   id: DimensionId | null;
   key: string | null;
   name: string | null;
+  description: string;
   status: CatalogLifecycleStatus;
   choices: DimensionChoice[];
 }>;
@@ -37,6 +38,7 @@ export const initialDimensionState: DimensionState = {
   id: null,
   key: null,
   name: null,
+  description: "",
   status: "draft",
   choices: [],
 };
@@ -46,12 +48,14 @@ export type CreateDimensionCommand = Readonly<{
   dimensionId: DimensionId;
   key: string;
   name: string;
+  description?: string;
 }>;
 
 export type ReviseDimensionCommand = Readonly<{
   type: "ReviseDimension";
   key: string;
   name: string;
+  description?: string;
 }>;
 
 export type AddChoiceCommand = Readonly<{
@@ -124,6 +128,7 @@ export type DimensionCreatedEvent = DomainEvent<
     dimensionId: DimensionId;
     key: string;
     name: string;
+    description: string;
   }>
 >;
 
@@ -132,6 +137,7 @@ export type DimensionRevisedEvent = DomainEvent<
   Readonly<{
     key: string;
     name: string;
+    description: string;
   }>
 >;
 
@@ -209,6 +215,7 @@ export const decideDimension: AggregateDecider<
             dimensionId: command.dimensionId,
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? "",
           },
         },
       ];
@@ -222,6 +229,7 @@ export const decideDimension: AggregateDecider<
           data: {
             key: command.key.trim(),
             name: command.name.trim(),
+            description: command.description?.trim() ?? state.description,
           },
         },
       ];
@@ -379,6 +387,7 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         id: event.data.dimensionId,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
         status: "draft",
       };
     case "catalog.dimension.revised":
@@ -386,6 +395,7 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         ...state,
         key: event.data.key,
         name: event.data.name,
+        description: event.data.description,
       };
     case "catalog.dimension.choice-added":
       return {

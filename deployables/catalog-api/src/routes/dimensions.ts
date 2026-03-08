@@ -19,6 +19,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<TenantContextEn
         dimensionId,
         key: body.key,
         name: body.name,
+        description: body.description,
       },
       context,
     });
@@ -37,6 +38,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<TenantContextEn
         type: "ReviseDimension",
         key: body.key,
         name: body.name,
+        description: body.description,
       },
       context,
     });
@@ -173,9 +175,10 @@ export function dimensionRoutes(services: CatalogServices): Hono<TenantContextEn
   });
 
   app.get("/", async (c) => {
-    const items = await listDimensions(services.db);
+    const { search, status, limit, offset } = c.req.query();
+    const result = await listDimensions(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
-    return c.json({ items, count: items.length });
+    return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {

@@ -25,6 +25,8 @@ import {
   reviseMetadata,
   retireCatalogItem,
   archiveCatalogItem,
+  setTags,
+  setImageUrls,
 } from "./use-catalog-items";
 
 function getTransitions(status: string): Transition[] {
@@ -66,11 +68,20 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
   const [showEditMetadata, setShowEditMetadata] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editSubtitle, setEditSubtitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
 
   // Publish dialog
   const [showPublish, setShowPublish] = useState(false);
   const [publishBlueprintActive, setPublishBlueprintActive] = useState(true);
   const [publishRequiredFieldIds, setPublishRequiredFieldIds] = useState("");
+
+  // Tags
+  const [showSetTags, setShowSetTags] = useState(false);
+  const [tagsInput, setTagsInput] = useState("");
+
+  // Image URLs
+  const [showSetImageUrls, setShowSetImageUrls] = useState(false);
+  const [imageUrlsInput, setImageUrlsInput] = useState("");
 
   async function handleLifecycleAction(action: string) {
     if (action === "publish") {
@@ -135,6 +146,7 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
     await reviseMetadata(id, {
       title: editTitle,
       subtitle: editSubtitle || null,
+      description: editDescription || undefined,
     });
     addToast("Metadata revised", "success");
     setShowEditMetadata(false);
@@ -145,15 +157,54 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
     if (data) {
       setEditTitle(data.title);
       setEditSubtitle(data.subtitle ?? "");
+      setEditDescription(data.description ?? "");
       setShowEditMetadata(true);
+    }
+  }
+
+  async function handleSetTags() {
+    const tags = tagsInput.split(",").map((s) => s.trim()).filter(Boolean);
+    await setTags(id, tags);
+    addToast("Tags updated", "success");
+    setShowSetTags(false);
+    refresh();
+  }
+
+  function startSetTags() {
+    if (data) {
+      setTagsInput((data.tags ?? []).join(", "));
+      setShowSetTags(true);
+    }
+  }
+
+  async function handleSetImageUrls() {
+    const urls = imageUrlsInput.split("\n").map((s) => s.trim()).filter(Boolean);
+    await setImageUrls(id, urls);
+    addToast("Image URLs updated", "success");
+    setShowSetImageUrls(false);
+    refresh();
+  }
+
+  function startSetImageUrls() {
+    if (data) {
+      setImageUrlsInput((data.image_urls ?? []).join("\n"));
+      setShowSetImageUrls(true);
     }
   }
 
   const fieldValues = (data?.field_values ?? []) as FieldValue[];
   const categoryIds = (data?.category_ids ?? []) as string[];
 
+  const nameMap = new Map<string, string>();
+  for (const list of Object.values(data?._resolved ?? {})) {
+    for (const entry of list as { id: string; name: string }[]) {
+      nameMap.set(entry.id, entry.name);
+    }
+  }
+  const resolveName = (id: string) => nameMap.get(id) ?? id;
+
   const fieldValueColumns: DataColumn<FieldValue>[] = [
-    { key: "fieldId", header: "Field ID", cell: (row) => row.fieldId },
+    { key: "fieldId", header: "Field", cell: (row) => resolveName(row.fieldId) },
     { key: "value", header: "Value", cell: (row) => row.value },
     {
       key: "actions",
@@ -180,7 +231,7 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
                 transitions={getTransitions(data.status)}
                 onAction={handleLifecycleAction}
               />
-              {data.status === "active" && (
+              {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditMetadata}>
                   Edit Metadata
                 </Button>
@@ -196,10 +247,10 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
           <Stack gap={6}>
             <KeyValueList
               items={[
-                { key: "ID", value: data.item_id },
                 { key: "Title", value: data.title },
                 { key: "Subtitle", value: data.subtitle ?? "—" },
-                { key: "Blueprint", value: data.blueprint_id ?? "None" },
+                { key: "Description", value: data.description ?? "—" },
+                { key: "Blueprint", value: data.blueprint_id ? resolveName(data.blueprint_id) : "None" },
                 { key: "Status", value: data.status },
                 { key: "Updated", value: data.updated_at },
               ]}
@@ -240,7 +291,7 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
                   <DataTable
                     rows={categoryIds.map((catId) => ({ id: catId }))}
                     columns={[
-                      { key: "id", header: "Category ID", cell: (row) => row.id },
+                      { key: "id", header: "Category", cell: (row) => resolveName(row.id) },
                       {
                         key: "actions",
                         header: "",
@@ -251,6 +302,40 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
                     ]}
                     getRowId={(row) => row.id}
                   />
+                )}
+              </Stack>
+            </PageSection>
+
+            <PageSection title="Tags">
+              <Stack gap={3}>
+                {data.status !== "archived" && (
+                  <Inline>
+                    <Button size="sm" onClick={startSetTags}>Set Tags</Button>
+                  </Inline>
+                )}
+                {(data.tags ?? []).length === 0 ? (
+                  <Text tone="secondary">No tags.</Text>
+                ) : (
+                  <Text>{(data.tags ?? []).join(", ")}</Text>
+                )}
+              </Stack>
+            </PageSection>
+
+            <PageSection title="Image URLs">
+              <Stack gap={3}>
+                {data.status !== "archived" && (
+                  <Inline>
+                    <Button size="sm" onClick={startSetImageUrls}>Set Image URLs</Button>
+                  </Inline>
+                )}
+                {(data.image_urls ?? []).length === 0 ? (
+                  <Text tone="secondary">No image URLs.</Text>
+                ) : (
+                  <Stack gap={1}>
+                    {(data.image_urls ?? []).map((url, i) => (
+                      <Text key={i}>{url}</Text>
+                    ))}
+                  </Stack>
                 )}
               </Stack>
             </PageSection>
@@ -297,6 +382,7 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
         <Stack gap={3}>
           <TextInput label="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
           <TextInput label="Subtitle" value={editSubtitle} onChange={(e) => setEditSubtitle(e.target.value)} />
+          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
         </Stack>
       </Dialog>
 
@@ -314,6 +400,34 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
             onChange={(e) => setPublishRequiredFieldIds(e.target.value)}
           />
         </Stack>
+      </Dialog>
+
+      <Dialog
+        open={showSetTags}
+        onOpenChange={setShowSetTags}
+        title="Set Tags"
+        description="Enter tags separated by commas."
+        footer={<Button onClick={handleSetTags}>Save</Button>}
+      >
+        <TextInput
+          label="Tags"
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+        />
+      </Dialog>
+
+      <Dialog
+        open={showSetImageUrls}
+        onOpenChange={setShowSetImageUrls}
+        title="Set Image URLs"
+        description="Enter one URL per line."
+        footer={<Button onClick={handleSetImageUrls}>Save</Button>}
+      >
+        <TextInput
+          label="Image URLs"
+          value={imageUrlsInput}
+          onChange={(e) => setImageUrlsInput(e.target.value)}
+        />
       </Dialog>
     </>
   );

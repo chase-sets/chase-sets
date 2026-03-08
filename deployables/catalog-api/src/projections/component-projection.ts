@@ -7,17 +7,18 @@ const STREAM_PREFIX = "catalog.component-";
 export function buildComponentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.component.created": async (event) => {
-      const { componentId, key, name } = event.data as {
+      const { componentId, key, name, description } = event.data as {
         componentId: string;
         key: string;
         name: string;
+        description: string;
       };
 
       await db.query(
-        `INSERT INTO catalog_components (component_id, key, name, status, updated_at)
-         VALUES ($1, $2, $3, 'draft', $4)
-         ON CONFLICT (component_id) DO UPDATE SET key = $2, name = $3, updated_at = $4`,
-        [componentId, key, name, event.timing.recordedAt],
+        `INSERT INTO catalog_components (component_id, key, name, description, status, updated_at)
+         VALUES ($1, $2, $3, $4, 'draft', $5)
+         ON CONFLICT (component_id) DO UPDATE SET key = $2, name = $3, description = $4, updated_at = $5`,
+        [componentId, key, name, description ?? "", event.timing.recordedAt],
       );
     },
 
@@ -79,18 +80,19 @@ export function buildComponentProjectionHandlers(db: PgQueryable): ProjectorHand
 
     "catalog.component.rules-configured": async (event) => {
       const componentId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { key, name, fieldRules, dimensionRules } = event.data as {
+      const { key, name, description, fieldRules, dimensionRules } = event.data as {
         key: string;
         name: string;
+        description: string;
         fieldRules: unknown;
         dimensionRules: unknown;
       };
 
       await db.query(
         `UPDATE catalog_components
-         SET key = $2, name = $3, field_rules = $4, dimension_rules = $5, updated_at = $6
+         SET key = $2, name = $3, description = $4, field_rules = $5, dimension_rules = $6, updated_at = $7
          WHERE component_id = $1`,
-        [componentId, key, name, JSON.stringify(fieldRules), JSON.stringify(dimensionRules), event.timing.recordedAt],
+        [componentId, key, name, description ?? "", JSON.stringify(fieldRules), JSON.stringify(dimensionRules), event.timing.recordedAt],
       );
     },
 

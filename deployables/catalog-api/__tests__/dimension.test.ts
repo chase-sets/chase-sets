@@ -9,18 +9,18 @@ import type { ChoiceId, DimensionId } from "../../../bounded-contexts/catalog/id
 import { givenEvents, decide, expectDomainError } from "./helpers";
 
 const dimId = "dim_test" as DimensionId;
-const choiceA = "choice_a" as ChoiceId;
-const choiceB = "choice_b" as ChoiceId;
+const choiceA = "chc_a" as ChoiceId;
+const choiceB = "chc_b" as ChoiceId;
 
 function createdState() {
   return givenEvents(initialDimensionState, evolveDimension, [
-    { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color" } },
+    { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "" } },
   ] as DimensionEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialDimensionState, evolveDimension, [
-    { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color" } },
+    { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "" } },
     { type: "catalog.dimension.choice-added", data: { choiceId: choiceA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
     { type: "catalog.dimension.activated", data: {} },
   ] as DimensionEvent[]);
@@ -37,7 +37,7 @@ describe("Dimension aggregate", () => {
       });
 
       expect(events).toEqual([
-        { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color" } },
+        { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "" } },
       ]);
     });
 
@@ -152,7 +152,7 @@ describe("Dimension aggregate", () => {
     it("evolves created event", () => {
       const state = evolveDimension(initialDimensionState, {
         type: "catalog.dimension.created",
-        data: { dimensionId: dimId, key: "color", name: "Color" },
+        data: { dimensionId: dimId, key: "color", name: "Color", description: "" },
       });
 
       expect(state.id).toBe(dimId);

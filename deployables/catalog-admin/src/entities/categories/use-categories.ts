@@ -2,8 +2,8 @@ import { api } from "../../api/client";
 import type { Category, ListResponse, CommandResponse } from "../../api/types";
 import { useFetch } from "../../shared/use-fetch";
 
-export function useCategoryList() {
-  return useFetch(() => api.get<ListResponse<Category>>("/categories"));
+export function useCategoryList(query: string) {
+  return useFetch(() => api.get<ListResponse<Category>>(`/categories?${query}`), [query]);
 }
 
 export function useCategory(id: string) {
@@ -14,6 +14,7 @@ export function createCategory(body: {
   categoryId: string;
   key: string;
   name: string;
+  description?: string;
   parentCategoryId?: string;
   displayOrder?: number;
 }) {
@@ -23,6 +24,7 @@ export function createCategory(body: {
 export function reviseCategory(id: string, body: {
   key: string;
   name: string;
+  description?: string;
   parentCategoryId?: string | null;
   displayOrder?: number;
 }) {

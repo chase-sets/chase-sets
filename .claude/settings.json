@@ -12,7 +12,19 @@
       "Bash(npm install)",
       "Bash(npm run test:catalog)",
       "Bash(npx tsc -p deployables/catalog-api/tsconfig.json --noEmit)",
-      "Bash(npx tsc -p deployables/catalog-admin/tsconfig.json --noEmit)"
+      "Bash(npx tsc -p deployables/catalog-admin/tsconfig.json --noEmit)",
+      "Bash(npx vite build)",
+      "Bash(npm run build)",
+      "Bash(npm test)",
+      "Bash(xargs grep -l \"ulid\\\\|generateId\\\\|randomUUID\")",
+      "Bash(xargs grep -l \"new.*Id\\\\|id.*=\")",
+      "Bash(xargs grep -l \"crypto\\\\|randomUUID\\\\|Math.random\")",
+      "Bash(xargs grep -l \"Branded\\\\|TypedUlid\")",
+      "Bash(grep -n \"crypto.randomUUID\" /d/Users/ToddS/Source/Repos/chase-sets/deployables/catalog-admin/src/entities/**/*.tsx)",
+      "Bash(xargs grep -n \"Branded<string\")",
+      "Bash(xargs grep -n \"as.*Id\\\\|as.*Id>\")",
+      "Bash(grep -n \"as.*Id>\" /d/Users/ToddS/Source/Repos/chase-sets/deployables/catalog-api/src/routes/*.ts)",
+      "Bash(npm install ulid)"
     ]
   }
 }

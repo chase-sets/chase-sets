@@ -2,15 +2,15 @@ import { api } from "../../api/client";
 import type { CatalogItem, ListResponse, CommandResponse } from "../../api/types";
 import { useFetch } from "../../shared/use-fetch";
 
-export function useCatalogItemList() {
-  return useFetch(() => api.get<ListResponse<CatalogItem>>("/catalog-items"));
+export function useCatalogItemList(query: string) {
+  return useFetch(() => api.get<ListResponse<CatalogItem>>(`/catalog-items?${query}`), [query]);
 }
 
 export function useCatalogItem(id: string) {
   return useFetch(() => api.get<CatalogItem>(`/catalog-items/${id}`), [id]);
 }
 
-export function createCatalogItem(body: { itemId: string; title: string; subtitle?: string }) {
+export function createCatalogItem(body: { itemId: string; title: string; subtitle?: string; description?: string }) {
   return api.post<CommandResponse>("/catalog-items", body);
 }
 
@@ -38,7 +38,7 @@ export function publishCatalogItem(id: string, blueprintIsActive: boolean, requi
   return api.post<CommandResponse>(`/catalog-items/${id}/publish`, { blueprintIsActive, requiredFieldIds });
 }
 
-export function reviseMetadata(id: string, body: { title: string; subtitle?: string | null }) {
+export function reviseMetadata(id: string, body: { title: string; subtitle?: string | null; description?: string }) {
   return api.put<CommandResponse>(`/catalog-items/${id}/metadata`, body);
 }
 
@@ -48,4 +48,12 @@ export function retireCatalogItem(id: string) {
 
 export function archiveCatalogItem(id: string) {
   return api.post<CommandResponse>(`/catalog-items/${id}/archive`);
+}
+
+export function setTags(id: string, tags: string[]) {
+  return api.put<CommandResponse>(`/catalog-items/${id}/tags`, { tags });
+}
+
+export function setImageUrls(id: string, imageUrls: string[]) {
+  return api.put<CommandResponse>(`/catalog-items/${id}/image-urls`, { imageUrls });
 }

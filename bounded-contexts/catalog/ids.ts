@@ -1,19 +1,18 @@
-import type { Branded } from "../../contracts/primitives/brand";
 import type { TypedUlid } from "../../contracts/primitives/typed-ids";
 
 export type CatalogItemId = TypedUlid<"cat">;
 
-export type DimensionId = Branded<string, "DimensionId">;
+export type DimensionId = TypedUlid<"dim">;
 
-export type ChoiceId = Branded<string, "ChoiceId">;
+export type ChoiceId = TypedUlid<"chc">;
 
-export type FieldId = Branded<string, "FieldId">;
+export type FieldId = TypedUlid<"fld">;
 
-export type ComponentId = Branded<string, "ComponentId">;
+export type ComponentId = TypedUlid<"cmp">;
 
-export type BlueprintId = Branded<string, "BlueprintId">;
+export type BlueprintId = TypedUlid<"bpr">;
 
-export type CategoryId = Branded<string, "CategoryId">;
+export type CategoryId = TypedUlid<"ctg">;
 
 export type SelectionEntry = Readonly<{
   dimensionId: DimensionId;

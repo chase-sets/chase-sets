@@ -2,8 +2,8 @@ import { api } from "../../api/client";
 import type { Field, ListResponse, CommandResponse } from "../../api/types";
 import { useFetch } from "../../shared/use-fetch";
 
-export function useFieldList() {
-  return useFetch(() => api.get<ListResponse<Field>>("/fields"));
+export function useFieldList(query: string) {
+  return useFetch(() => api.get<ListResponse<Field>>(`/fields?${query}`), [query]);
 }
 
 export function useField(id: string) {
@@ -14,6 +14,7 @@ export function createField(body: {
   fieldId: string;
   key: string;
   name: string;
+  description?: string;
   valueType: string;
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 }) {
@@ -23,6 +24,7 @@ export function createField(body: {
 export function configureField(id: string, body: {
   key: string;
   name: string;
+  description?: string;
   valueType: string;
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 }) {

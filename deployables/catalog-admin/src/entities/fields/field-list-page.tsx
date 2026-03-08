@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { createId } from "../../../../../contracts/primitives/typed-ids";
+import { useState, useMemo } from "react";
 import {
   Button,
   Checkbox,
@@ -28,24 +29,46 @@ const valueTypeOptions = [
   { value: "date", label: "Date" },
 ];
 
+const statusOptions = [
+  { label: "Draft", value: "draft" },
+  { label: "Active", value: "active" },
+  { label: "Deprecated", value: "deprecated" },
+  { label: "Archived", value: "archived" },
+];
+
 export function FieldListPage() {
-  const { data, loading, error, refresh } = useFieldList();
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [page, setPage] = useState(0);
+
+  const query = useMemo(() => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (statusFilter) params.set("status", statusFilter);
+    params.set("limit", "50");
+    params.set("offset", String(page * 50));
+    return params.toString();
+  }, [search, statusFilter, page]);
+
+  const { data, loading, error, refresh } = useFieldList(query);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
   const [key, setKey] = useState("");
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [valueType, setValueType] = useState("string");
   const [filterable, setFilterable] = useState(false);
   const [searchable, setSearchable] = useState(false);
   const [sortable, setSortable] = useState(false);
 
   async function handleCreate() {
-    const fieldId = crypto.randomUUID();
-    await createField({ fieldId, key, name, valueType, behavior: { filterable, searchable, sortable } });
+    const fieldId = createId("fld");
+    await createField({ fieldId, key, name, description: description || undefined, valueType, behavior: { filterable, searchable, sortable } });
     addToast("Field created", "success");
     setShowCreate(false);
     setKey("");
     setName("");
+    setDescription("");
     setValueType("string");
     setFilterable(false);
     setSearchable(false);
@@ -59,11 +82,20 @@ export function FieldListPage() {
         title="Fields"
         entityName="field"
         items={data?.items ?? null}
+        total={data?.total}
         loading={loading}
         error={error}
         columns={columns}
         getRowId={(row) => row.field_id}
         getHref={(row) => `#/fields/${row.field_id}`}
+        search={search}
+        onSearchChange={(v) => { setSearch(v); setPage(0); }}
+        statusFilter={statusFilter}
+        onStatusFilterChange={(v) => { setStatusFilter(v); setPage(0); }}
+        statusOptions={statusOptions}
+        page={page}
+        pageSize={50}
+        onPageChange={setPage}
         createButton={
           <Button onClick={() => setShowCreate(true)}>New Field</Button>
         }
@@ -77,6 +109,7 @@ export function FieldListPage() {
         <Stack gap={3}>
           <TextInput label="Key" value={key} onChange={(e) => setKey(e.target.value)} />
           <TextInput label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextInput label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
           <Select label="Value Type" items={valueTypeOptions} value={valueType} onValueChange={setValueType} />
           <Checkbox label="Filterable" checked={filterable} onCheckedChange={(v) => setFilterable(v === true)} />
           <Checkbox label="Searchable" checked={searchable} onCheckedChange={(v) => setSearchable(v === true)} />

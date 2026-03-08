@@ -40,6 +40,7 @@ export function FieldDetailPage({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   const [editKey, setEditKey] = useState("");
   const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editValueType, setEditValueType] = useState("string");
   const [editFilterable, setEditFilterable] = useState(false);
   const [editSearchable, setEditSearchable] = useState(false);
@@ -60,6 +61,7 @@ export function FieldDetailPage({ id }: { id: string }) {
     if (data) {
       setEditKey(data.key);
       setEditName(data.name);
+      setEditDescription(data.description ?? "");
       setEditValueType(data.value_type);
       setEditFilterable(data.filterable);
       setEditSearchable(data.searchable);
@@ -72,6 +74,7 @@ export function FieldDetailPage({ id }: { id: string }) {
     await configureField(id, {
       key: editKey,
       name: editName,
+      description: editDescription || undefined,
       valueType: editValueType,
       behavior: { filterable: editFilterable, searchable: editSearchable, sortable: editSortable },
     });
@@ -111,9 +114,9 @@ export function FieldDetailPage({ id }: { id: string }) {
         {data && (
           <KeyValueList
             items={[
-              { key: "ID", value: data.field_id },
               { key: "Key", value: data.key },
               { key: "Name", value: data.name },
+              { key: "Description", value: data.description ?? "—" },
               { key: "Value Type", value: data.value_type },
               { key: "Filterable", value: data.filterable ? "Yes" : "No" },
               { key: "Searchable", value: data.searchable ? "Yes" : "No" },
@@ -134,6 +137,7 @@ export function FieldDetailPage({ id }: { id: string }) {
         <Stack gap={3}>
           <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
           <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
           <Select label="Value Type" items={valueTypeOptions} value={editValueType} onValueChange={setEditValueType} />
           <Checkbox label="Filterable" checked={editFilterable} onCheckedChange={(v) => setEditFilterable(v === true)} />
           <Checkbox label="Searchable" checked={editSearchable} onCheckedChange={(v) => setEditSearchable(v === true)} />

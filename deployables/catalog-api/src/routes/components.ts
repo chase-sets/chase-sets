@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { CatalogServices } from "../infrastructure/wiring";
 import type { TenantContextEnv } from "../middleware/tenant-context";
 import type { ComponentId, FieldId, DimensionId, ChoiceId } from "../../../../bounded-contexts/catalog/ids";
-import { listComponents, getComponent } from "../projections/queries";
+import { listComponents, getComponent, resolveFieldNames, resolveDimensionNames, resolveChoiceCodes } from "../projections/queries";
 
 export function componentRoutes(services: CatalogServices): Hono<TenantContextEnv> {
   const app = new Hono<TenantContextEnv>();
@@ -19,6 +19,7 @@ export function componentRoutes(services: CatalogServices): Hono<TenantContextEn
         componentId,
         key: body.key,
         name: body.name,
+        description: body.description,
       },
       context,
     });
@@ -106,6 +107,7 @@ export function componentRoutes(services: CatalogServices): Hono<TenantContextEn
         type: "ConfigureComponentRules",
         key: body.key,
         name: body.name,
+        description: body.description,
         fieldRules: body.fieldRules,
         dimensionRules: body.dimensionRules,
       },
@@ -155,9 +157,10 @@ export function componentRoutes(services: CatalogServices): Hono<TenantContextEn
   });
 
   app.get("/", async (c) => {
-    const items = await listComponents(services.db);
+    const { search, status, limit, offset } = c.req.query();
+    const result = await listComponents(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
-    return c.json({ items, count: items.length });
+    return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
@@ -167,7 +170,18 @@ export function componentRoutes(services: CatalogServices): Hono<TenantContextEn
       return c.json({ error: "Component not found." }, 404);
     }
 
-    return c.json(component);
+    const fieldIds = ((component.field_rules ?? []) as { fieldId: string }[]).map((r) => r.fieldId);
+    const dimRules = (component.dimension_rules ?? []) as { dimensionId: string; allowedChoiceIds: string[] }[];
+    const dimensionIds = dimRules.map((r) => r.dimensionId);
+    const choiceIds = dimRules.flatMap((r) => r.allowedChoiceIds ?? []);
+
+    const [fields, dimensions, choices] = await Promise.all([
+      resolveFieldNames(services.db, fieldIds),
+      resolveDimensionNames(services.db, dimensionIds),
+      resolveChoiceCodes(services.db, choiceIds),
+    ]);
+
+    return c.json({ ...component, _resolved: { fields, dimensions, choices } });
   });
 
   return app;

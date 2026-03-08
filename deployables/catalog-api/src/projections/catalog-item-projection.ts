@@ -7,17 +7,18 @@ const STREAM_PREFIX = "catalog.item-";
 export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
-      const { itemId, title, subtitle } = event.data as {
+      const { itemId, title, subtitle, description } = event.data as {
         itemId: string;
         title: string;
         subtitle: string | null;
+        description: string;
       };
 
       await db.query(
-        `INSERT INTO catalog_items (item_id, title, subtitle, status, updated_at)
-         VALUES ($1, $2, $3, 'draft', $4)
-         ON CONFLICT (item_id) DO UPDATE SET title = $2, subtitle = $3, updated_at = $4`,
-        [itemId, title, subtitle, event.timing.recordedAt],
+        `INSERT INTO catalog_items (item_id, title, subtitle, description, status, updated_at)
+         VALUES ($1, $2, $3, $4, 'draft', $5)
+         ON CONFLICT (item_id) DO UPDATE SET title = $2, subtitle = $3, description = $4, updated_at = $5`,
+        [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
       );
     },
 
@@ -103,11 +104,31 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
 
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { title, subtitle } = event.data as { title: string; subtitle: string | null };
+      const { title, subtitle, description } = event.data as { title: string; subtitle: string | null; description: string };
 
       await db.query(
-        `UPDATE catalog_items SET title = $2, subtitle = $3, updated_at = $4 WHERE item_id = $1`,
-        [itemId, title, subtitle, event.timing.recordedAt],
+        `UPDATE catalog_items SET title = $2, subtitle = $3, description = $4, updated_at = $5 WHERE item_id = $1`,
+        [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
+      );
+    },
+
+    "catalog.catalog-item.tags-set": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { tags } = event.data as { tags: string[] };
+
+      await db.query(
+        `UPDATE catalog_items SET tags = $2, updated_at = $3 WHERE item_id = $1`,
+        [itemId, JSON.stringify(tags), event.timing.recordedAt],
+      );
+    },
+
+    "catalog.catalog-item.image-urls-set": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { imageUrls } = event.data as { imageUrls: string[] };
+
+      await db.query(
+        `UPDATE catalog_items SET image_urls = $2, updated_at = $3 WHERE item_id = $1`,
+        [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
       );
     },
 

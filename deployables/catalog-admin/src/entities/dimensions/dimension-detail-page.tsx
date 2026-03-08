@@ -1,3 +1,4 @@
+import { createId } from "../../../../../contracts/primitives/typed-ids";
 import { useState } from "react";
 import {
   Button,
@@ -9,7 +10,6 @@ import {
   Stack,
   StatusPill,
   TextInput,
-  NumberInput,
   type DataColumn,
 } from "@chase-sets/design-system";
 import { useToasts } from "../../toasts";
@@ -25,6 +25,7 @@ import {
   reviseChoice,
   deprecateChoice,
   reactivateChoice,
+  reorderChoices,
 } from "./use-dimensions";
 import type { DimensionChoice } from "../../api/types";
 
@@ -43,20 +44,49 @@ function getTransitions(status: string): Transition[] {
 
 const choiceColumns: DataColumn<DimensionChoice>[] = [
   { key: "code", header: "Code", cell: (row) => row.code },
+  {
+    key: "labels",
+    header: "Labels",
+    cell: (row) =>
+      row.labels && row.labels.length > 0
+        ? row.labels.map((l) => `${l.locale}: ${l.value}`).join(", ")
+        : "—",
+  },
   { key: "numeric_value", header: "Numeric Value", cell: (row) => row.numeric_value ?? "—" },
   { key: "display_order", header: "Order", cell: (row) => row.display_order },
   { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
 ];
 
+interface LabelEntry {
+  locale: string;
+  value: string;
+}
+
 export function DimensionDetailPage({ id }: { id: string }) {
   const { data, loading, error, refresh } = useDimension(id);
   const { addToast } = useToasts();
-  const [showAddChoice, setShowAddChoice] = useState(false);
-  const [choiceCode, setChoiceCode] = useState("");
-  const [choiceNumericValue, setChoiceNumericValue] = useState("");
+
+  // Edit dimension
   const [editing, setEditing] = useState(false);
   const [editKey, setEditKey] = useState("");
   const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+
+  // Add choice
+  const [showAddChoice, setShowAddChoice] = useState(false);
+  const [choiceCode, setChoiceCode] = useState("");
+  const [choiceNumericValue, setChoiceNumericValue] = useState("");
+  const [choiceLabels, setChoiceLabels] = useState<LabelEntry[]>([{ locale: "en", value: "" }]);
+
+  // Edit choice
+  const [editingChoice, setEditingChoice] = useState<DimensionChoice | null>(null);
+  const [editChoiceCode, setEditChoiceCode] = useState("");
+  const [editChoiceNumericValue, setEditChoiceNumericValue] = useState("");
+  const [editChoiceLabels, setEditChoiceLabels] = useState<LabelEntry[]>([]);
+
+  // Reorder choices
+  const [showReorder, setShowReorder] = useState(false);
+  const [reorderInput, setReorderInput] = useState("");
 
   async function handleLifecycleAction(action: string) {
     const actions: Record<string, () => Promise<unknown>> = {
@@ -70,24 +100,51 @@ export function DimensionDetailPage({ id }: { id: string }) {
   }
 
   async function handleRevise() {
-    await reviseDimension(id, { key: editKey, name: editName });
+    await reviseDimension(id, { key: editKey, name: editName, description: editDescription || undefined });
     addToast("Dimension revised", "success");
     setEditing(false);
     refresh();
   }
 
   async function handleAddChoice() {
-    const choiceId = crypto.randomUUID();
+    const choiceId = createId("chc");
+    const labels = choiceLabels.filter((l) => l.value.trim());
     await addChoice(id, {
       choiceId,
       code: choiceCode,
+      labels: labels.length > 0 ? labels : undefined,
       numericValue: choiceNumericValue ? Number(choiceNumericValue) : undefined,
     });
     addToast("Choice added", "success");
     setShowAddChoice(false);
     setChoiceCode("");
     setChoiceNumericValue("");
+    setChoiceLabels([{ locale: "en", value: "" }]);
     refresh();
+  }
+
+  async function handleReviseChoice() {
+    if (!editingChoice) return;
+    const labels = editChoiceLabels.filter((l) => l.value.trim());
+    await reviseChoice(id, editingChoice.choice_id, {
+      code: editChoiceCode,
+      labels: labels.length > 0 ? labels : undefined,
+      numericValue: editChoiceNumericValue ? Number(editChoiceNumericValue) : undefined,
+    });
+    addToast("Choice revised", "success");
+    setEditingChoice(null);
+    refresh();
+  }
+
+  function startEditChoice(choice: DimensionChoice) {
+    setEditChoiceCode(choice.code);
+    setEditChoiceNumericValue(choice.numeric_value?.toString() ?? "");
+    setEditChoiceLabels(
+      choice.labels && choice.labels.length > 0
+        ? choice.labels.map((l) => ({ locale: l.locale, value: l.value }))
+        : [{ locale: "en", value: "" }],
+    );
+    setEditingChoice(choice);
   }
 
   async function handleDeprecateChoice(choiceId: string) {
@@ -102,12 +159,61 @@ export function DimensionDetailPage({ id }: { id: string }) {
     refresh();
   }
 
+  async function handleReorderChoices() {
+    const choiceIds = reorderInput.split(",").map((s) => s.trim()).filter(Boolean);
+    await reorderChoices(id, choiceIds);
+    addToast("Choices reordered", "success");
+    setShowReorder(false);
+    refresh();
+  }
+
+  function startReorder() {
+    if (data) {
+      setReorderInput(data.choices.map((c) => c.choice_id).join(", "));
+      setShowReorder(true);
+    }
+  }
+
   function startEditing() {
     if (data) {
       setEditKey(data.key);
       setEditName(data.name);
+      setEditDescription(data.description ?? "");
       setEditing(true);
     }
+  }
+
+  function updateLabel(labels: LabelEntry[], setLabels: (l: LabelEntry[]) => void, index: number, field: keyof LabelEntry, value: string) {
+    setLabels(labels.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
+  }
+
+  function renderLabelsEditor(labels: LabelEntry[], setLabels: (l: LabelEntry[]) => void) {
+    return (
+      <Stack gap={2}>
+        {labels.map((label, i) => (
+          <Inline key={i} gap={2}>
+            <TextInput
+              label={i === 0 ? "Locale" : undefined}
+              value={label.locale}
+              onChange={(e) => updateLabel(labels, setLabels, i, "locale", e.target.value)}
+            />
+            <TextInput
+              label={i === 0 ? "Label" : undefined}
+              value={label.value}
+              onChange={(e) => updateLabel(labels, setLabels, i, "value", e.target.value)}
+            />
+            <Button size="sm" tone="danger" onClick={() => setLabels(labels.filter((_, j) => j !== i))}>
+              Remove
+            </Button>
+          </Inline>
+        ))}
+        <Inline>
+          <Button size="sm" tone="secondary" onClick={() => setLabels([...labels, { locale: "", value: "" }])}>
+            Add Label
+          </Button>
+        </Inline>
+      </Stack>
+    );
   }
 
   return (
@@ -142,9 +248,9 @@ export function DimensionDetailPage({ id }: { id: string }) {
           <Stack gap={6}>
             <KeyValueList
               items={[
-                { key: "ID", value: data.dimension_id },
                 { key: "Key", value: data.key },
                 { key: "Name", value: data.name },
+                { key: "Description", value: data.description ?? "—" },
                 { key: "Status", value: data.status },
                 { key: "Updated", value: data.updated_at },
               ]}
@@ -158,6 +264,9 @@ export function DimensionDetailPage({ id }: { id: string }) {
                 {data.status !== "archived" && (
                   <Inline gap={2}>
                     <Button size="sm" onClick={() => setShowAddChoice(true)}>Add Choice</Button>
+                    {data.choices.length > 1 && (
+                      <Button size="sm" tone="secondary" onClick={startReorder}>Reorder</Button>
+                    )}
                   </Inline>
                 )}
                 <DataTable
@@ -169,6 +278,11 @@ export function DimensionDetailPage({ id }: { id: string }) {
                       header: "Actions",
                       cell: (row) => (
                         <Inline gap={1}>
+                          {data.status !== "archived" && (
+                            <Button size="sm" tone="secondary" onClick={() => startEditChoice(row)}>
+                              Edit
+                            </Button>
+                          )}
                           {row.status === "active" && (
                             <Button size="sm" tone="secondary" onClick={() => handleDeprecateChoice(row.choice_id)}>
                               Deprecate
@@ -202,7 +316,35 @@ export function DimensionDetailPage({ id }: { id: string }) {
         <Stack gap={3}>
           <TextInput label="Code" value={choiceCode} onChange={(e) => setChoiceCode(e.target.value)} />
           <TextInput label="Numeric Value (optional)" value={choiceNumericValue} onChange={(e) => setChoiceNumericValue(e.target.value)} />
+          {renderLabelsEditor(choiceLabels, setChoiceLabels)}
         </Stack>
+      </Dialog>
+
+      <Dialog
+        open={editingChoice !== null}
+        onOpenChange={(open) => { if (!open) setEditingChoice(null); }}
+        title="Edit Choice"
+        footer={<Button onClick={handleReviseChoice}>Save</Button>}
+      >
+        <Stack gap={3}>
+          <TextInput label="Code" value={editChoiceCode} onChange={(e) => setEditChoiceCode(e.target.value)} />
+          <TextInput label="Numeric Value (optional)" value={editChoiceNumericValue} onChange={(e) => setEditChoiceNumericValue(e.target.value)} />
+          {renderLabelsEditor(editChoiceLabels, setEditChoiceLabels)}
+        </Stack>
+      </Dialog>
+
+      <Dialog
+        open={showReorder}
+        onOpenChange={setShowReorder}
+        title="Reorder Choices"
+        description="Enter choice IDs separated by commas in the desired order."
+        footer={<Button onClick={handleReorderChoices}>Save</Button>}
+      >
+        <TextInput
+          label="Choice IDs"
+          value={reorderInput}
+          onChange={(e) => setReorderInput(e.target.value)}
+        />
       </Dialog>
 
       <Dialog
@@ -214,6 +356,7 @@ export function DimensionDetailPage({ id }: { id: string }) {
         <Stack gap={3}>
           <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
           <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
         </Stack>
       </Dialog>
     </>

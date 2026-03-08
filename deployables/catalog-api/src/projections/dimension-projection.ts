@@ -7,27 +7,28 @@ const STREAM_PREFIX = "catalog.dimension-";
 export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.dimension.created": async (event) => {
-      const { dimensionId, key, name } = event.data as {
+      const { dimensionId, key, name, description } = event.data as {
         dimensionId: string;
         key: string;
         name: string;
+        description: string;
       };
 
       await db.query(
-        `INSERT INTO catalog_dimensions (dimension_id, key, name, status, updated_at)
-         VALUES ($1, $2, $3, 'draft', $4)
-         ON CONFLICT (dimension_id) DO UPDATE SET key = $2, name = $3, updated_at = $4`,
-        [dimensionId, key, name, event.timing.recordedAt],
+        `INSERT INTO catalog_dimensions (dimension_id, key, name, description, status, updated_at)
+         VALUES ($1, $2, $3, $4, 'draft', $5)
+         ON CONFLICT (dimension_id) DO UPDATE SET key = $2, name = $3, description = $4, updated_at = $5`,
+        [dimensionId, key, name, description ?? "", event.timing.recordedAt],
       );
     },
 
     "catalog.dimension.revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { key, name } = event.data as { key: string; name: string };
+      const { key, name, description } = event.data as { key: string; name: string; description: string };
 
       await db.query(
-        `UPDATE catalog_dimensions SET key = $2, name = $3, updated_at = $4 WHERE dimension_id = $1`,
-        [dimensionId, key, name, event.timing.recordedAt],
+        `UPDATE catalog_dimensions SET key = $2, name = $3, description = $4, updated_at = $5 WHERE dimension_id = $1`,
+        [dimensionId, key, name, description ?? "", event.timing.recordedAt],
       );
     },
 

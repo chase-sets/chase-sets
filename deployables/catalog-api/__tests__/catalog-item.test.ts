@@ -9,21 +9,21 @@ import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../b
 import { givenEvents, decide, expectDomainError } from "./helpers";
 
 const itemId = "cat_test_item" as CatalogItemId;
-const bpId = "bp_test" as BlueprintId;
+const bpId = "bpr_test" as BlueprintId;
 const fieldA = "fld_a" as FieldId;
 const fieldB = "fld_b" as FieldId;
-const catA = "cat_a" as CategoryId;
-const catB = "cat_b" as CategoryId;
+const catA = "ctg_a" as CategoryId;
+const catB = "ctg_b" as CategoryId;
 
 function createdState() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null } },
+    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null, description: "" } },
   ] as CatalogItemEvent[]);
 }
 
 function draftWithBlueprint() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null } },
+    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null, description: "" } },
     { type: "catalog.catalog-item.blueprint-assigned", data: { blueprintId: bpId } },
     { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },
   ] as CatalogItemEvent[]);
@@ -31,7 +31,7 @@ function draftWithBlueprint() {
 
 function activeState() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null } },
+    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null, description: "" } },
     { type: "catalog.catalog-item.blueprint-assigned", data: { blueprintId: bpId } },
     { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },
     { type: "catalog.catalog-item.published", data: { blueprintId: bpId } },
@@ -70,7 +70,7 @@ describe("CatalogItem aggregate", () => {
 
     it("rejects blueprint assignment after publish", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, activeState(), { type: "AssignBlueprintToItem" as const, blueprintId: "bp_other" as BlueprintId }),
+        () => decide(decideCatalogItem, activeState(), { type: "AssignBlueprintToItem" as const, blueprintId: "bpr_other" as BlueprintId }),
         "Blueprint may only be assigned while draft.",
       );
     });
@@ -202,7 +202,7 @@ describe("CatalogItem aggregate", () => {
     it("evolves created event", () => {
       const state = evolveCatalogItem(initialCatalogItemState, {
         type: "catalog.catalog-item.created",
-        data: { itemId, title: "Test", subtitle: "Sub" },
+        data: { itemId, title: "Test", subtitle: "Sub", description: "" },
       });
 
       expect(state.id).toBe(itemId);

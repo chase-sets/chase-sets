@@ -23,20 +23,26 @@ export type CatalogItemState = Readonly<{
   id: CatalogItemId | null;
   title: string | null;
   subtitle: string | null;
+  description: string;
   blueprintId: BlueprintId | null;
   status: CatalogItemStatus;
   fieldValues: readonly ItemFieldValue[];
   categoryIds: readonly CategoryId[];
+  tags: readonly string[];
+  imageUrls: readonly string[];
 }>;
 
 export const initialCatalogItemState: CatalogItemState = {
   id: null,
   title: null,
   subtitle: null,
+  description: "",
   blueprintId: null,
   status: "draft",
   fieldValues: [],
   categoryIds: [],
+  tags: [],
+  imageUrls: [],
 };
 
 export type CreateItemCommand = Readonly<{
@@ -44,6 +50,7 @@ export type CreateItemCommand = Readonly<{
   itemId: CatalogItemId;
   title: string;
   subtitle?: string | null;
+  description?: string;
 }>;
 
 export type AssignBlueprintToItemCommand = Readonly<{
@@ -83,6 +90,17 @@ export type ReviseItemMetadataCommand = Readonly<{
   type: "ReviseItemMetadata";
   title: string;
   subtitle?: string | null;
+  description?: string;
+}>;
+
+export type SetItemTagsCommand = Readonly<{
+  type: "SetItemTags";
+  tags: readonly string[];
+}>;
+
+export type SetItemImageUrlsCommand = Readonly<{
+  type: "SetItemImageUrls";
+  imageUrls: readonly string[];
 }>;
 
 export type RetireItemCommand = Readonly<{
@@ -102,12 +120,15 @@ export type CatalogItemCommand =
   | RemoveItemFromCategoryCommand
   | PublishItemCommand
   | ReviseItemMetadataCommand
+  | SetItemTagsCommand
+  | SetItemImageUrlsCommand
   | RetireItemCommand
   | ArchiveItemCommand;
 
 type ItemMetadata = Readonly<{
   title: string;
   subtitle: string | null;
+  description: string;
 }>;
 
 export type ItemCreatedEvent = DomainEvent<
@@ -163,6 +184,20 @@ export type ItemMetadataRevisedEvent = DomainEvent<
   ItemMetadata
 >;
 
+export type ItemTagsSetEvent = DomainEvent<
+  "catalog.catalog-item.tags-set",
+  Readonly<{
+    tags: string[];
+  }>
+>;
+
+export type ItemImageUrlsSetEvent = DomainEvent<
+  "catalog.catalog-item.image-urls-set",
+  Readonly<{
+    imageUrls: string[];
+  }>
+>;
+
 export type ItemRetiredEvent = DomainEvent<
   "catalog.catalog-item.retired",
   EmptyEventData
@@ -182,6 +217,8 @@ export type CatalogItemEvent =
   | ItemCategoryRemovedEvent
   | ItemPublishedEvent
   | ItemMetadataRevisedEvent
+  | ItemTagsSetEvent
+  | ItemImageUrlsSetEvent
   | ItemRetiredEvent
   | ItemArchivedEvent;
 
@@ -201,6 +238,7 @@ export const decideCatalogItem: AggregateDecider<
             itemId: command.itemId,
             title: command.title.trim(),
             subtitle: command.subtitle?.trim() ?? null,
+            description: command.description?.trim() ?? "",
           },
         },
       ];
@@ -328,6 +366,31 @@ export const decideCatalogItem: AggregateDecider<
           data: {
             title: command.title.trim(),
             subtitle: command.subtitle?.trim() ?? null,
+            description: command.description?.trim() ?? state.description,
+          },
+        },
+      ];
+    case "SetItemTags":
+      requireCreatedItem(state);
+      assert(state.status !== "archived", "Archived items cannot be modified.");
+
+      return [
+        {
+          type: "catalog.catalog-item.tags-set",
+          data: {
+            tags: normalizeTags(command.tags),
+          },
+        },
+      ];
+    case "SetItemImageUrls":
+      requireCreatedItem(state);
+      assert(state.status !== "archived", "Archived items cannot be modified.");
+
+      return [
+        {
+          type: "catalog.catalog-item.image-urls-set",
+          data: {
+            imageUrls: [...command.imageUrls],
           },
         },
       ];
@@ -367,6 +430,7 @@ export const evolveCatalogItem: AggregateEvolver<
         id: event.data.itemId,
         title: event.data.title,
         subtitle: event.data.subtitle,
+        description: event.data.description,
         status: "draft",
       };
     case "catalog.catalog-item.blueprint-assigned":
@@ -416,6 +480,17 @@ export const evolveCatalogItem: AggregateEvolver<
         ...state,
         title: event.data.title,
         subtitle: event.data.subtitle,
+        description: event.data.description,
+      };
+    case "catalog.catalog-item.tags-set":
+      return {
+        ...state,
+        tags: event.data.tags,
+      };
+    case "catalog.catalog-item.image-urls-set":
+      return {
+        ...state,
+        imageUrls: event.data.imageUrls,
       };
     case "catalog.catalog-item.retired":
       return {
@@ -447,6 +522,12 @@ function normalizeFieldValues(
 
   return [...fieldValues].sort((left, right) =>
     left.fieldId.localeCompare(right.fieldId),
+  );
+}
+
+function normalizeTags(tags: readonly string[]): string[] {
+  return [...new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0))].sort(
+    (left, right) => left.localeCompare(right),
   );
 }
 

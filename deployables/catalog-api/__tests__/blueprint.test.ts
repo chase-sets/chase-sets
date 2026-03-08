@@ -8,21 +8,21 @@ import {
 import type { BlueprintId, ComponentId, DimensionId, FieldId, ChoiceId } from "../../../bounded-contexts/catalog/ids";
 import { givenEvents, decide, expectDomainError } from "./helpers";
 
-const bpId = "bp_test" as BlueprintId;
-const compA = "comp_a" as ComponentId;
+const bpId = "bpr_test" as BlueprintId;
+const compA = "cmp_a" as ComponentId;
 const dimA = "dim_a" as DimensionId;
 const dimB = "dim_b" as DimensionId;
 const fieldA = "fld_a" as FieldId;
 
 function createdState() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card" } },
+    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card", description: "" } },
   ] as BlueprintEvent[]);
 }
 
 function withDimensions() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card" } },
+    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card", description: "" } },
     { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [
       { dimensionId: dimA, required: true, allowedChoiceIds: [] },
       { dimensionId: dimB, required: true, allowedChoiceIds: [] },
@@ -33,7 +33,7 @@ function withDimensions() {
 
 function activeState() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card" } },
+    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card", description: "" } },
     { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [
       { dimensionId: dimA, required: true, allowedChoiceIds: [] },
     ] } },
@@ -146,7 +146,7 @@ describe("Blueprint aggregate", () => {
     it("evolves created event", () => {
       const state = evolveBlueprint(initialBlueprintState, {
         type: "catalog.blueprint.created",
-        data: { blueprintId: bpId, key: "card", name: "Card" },
+        data: { blueprintId: bpId, key: "card", name: "Card", description: "" },
       });
 
       expect(state.id).toBe(bpId);
@@ -155,7 +155,7 @@ describe("Blueprint aggregate", () => {
 
     it("evolves dimensions-set and prunes orphaned canonical order", () => {
       const state = givenEvents(initialBlueprintState, evolveBlueprint, [
-        { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card" } },
+        { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card", description: "" } },
         { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedChoiceIds: [] }, { dimensionId: dimB, required: true, allowedChoiceIds: [] }] } },
         { type: "catalog.blueprint.version-rules-set", data: { canonicalDimensionOrder: [dimA, dimB] } },
         { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedChoiceIds: [] }] } },
