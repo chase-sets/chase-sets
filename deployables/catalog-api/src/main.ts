@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { loadConfig } from "./config";
 import { createPool } from "./infrastructure/postgres";
-import { createCatalogServices } from "./infrastructure/wiring";
+import { createCatalogServices } from "../../../bounded-contexts/catalog/authoring/api";
 import { buildCatalogApp } from "./app";
 
 const config = loadConfig();

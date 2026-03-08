@@ -18,7 +18,7 @@ function installFetchMock() {
     const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
 
     switch (url) {
-      case "/api/dimensions?limit=50&offset=0":
+      case "/api/catalog/dimensions?limit=50&offset=0":
         return jsonResponse({
           items: [
             {
@@ -33,7 +33,7 @@ function installFetchMock() {
           total: 1,
           count: 1
         });
-      case "/api/categories?limit=50&offset=0":
+      case "/api/catalog/categories?limit=50&offset=0":
         return jsonResponse({
           items: [
             {
@@ -50,7 +50,7 @@ function installFetchMock() {
           total: 1,
           count: 1
         });
-      case "/api/dimensions/dim_1":
+      case "/api/catalog/dimensions/dim_1":
         return jsonResponse({
           dimension_id: "dim_1",
           key: "size",
@@ -91,7 +91,7 @@ describe("catalog admin app", () => {
     expect(await screen.findByRole("heading", { name: "Dimensions" })).toBeTruthy();
     expect((await screen.findAllByText("Size")).length).toBeGreaterThan(0);
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/dimensions?limit=50&offset=0",
+      "/api/catalog/dimensions?limit=50&offset=0",
       expect.objectContaining({
         method: "GET"
       })

@@ -1,13 +1,12 @@
-import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createPool } from "../src/infrastructure/postgres";
 import { createCatalogServices, type CatalogServices } from "../src/infrastructure/wiring";
+import { catalogApiInitSql } from "../src/database-schema";
 import { buildCatalogApp } from "../src/app";
 import type { EventStoreContext } from "../../../contracts/event-core/storage";
 import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
-const initSql = readFileSync(new URL("../init-db.sql", import.meta.url), "utf8");
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -29,7 +28,7 @@ let app: ReturnType<typeof buildCatalogApp>;
 
 async function recreateSchema() {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(initSql);
+  await pool.query(catalogApiInitSql);
 }
 
 async function drainProjectors() {
@@ -208,7 +207,7 @@ describe("Admin page projections", () => {
 
     await drainProjectors();
 
-    const componentDetail = await getJson(`/api/components/${componentId}`);
+    const componentDetail = await getJson(`/api/catalog/components/${componentId}`);
     expect(componentDetail.response.status).toBe(200);
     expect(componentDetail.json.field_rules[0]).toMatchObject({ fieldId, fieldName: "Card Name", required: true });
     expect(componentDetail.json.dimension_rules[0]).toMatchObject({
@@ -219,14 +218,14 @@ describe("Admin page projections", () => {
     expect(componentDetail.json.dimension_rules[0].allowedChoices[0]).toMatchObject({ choiceId, code: "near-mint" });
     expect(componentDetail.json._resolved).toBeUndefined();
 
-    const blueprintDetail = await getJson(`/api/blueprints/${blueprintId}`);
+    const blueprintDetail = await getJson(`/api/catalog/blueprints/${blueprintId}`);
     expect(blueprintDetail.response.status).toBe(200);
     expect(blueprintDetail.json.components[0]).toMatchObject({ componentId, name: "Base Card Info" });
     expect(blueprintDetail.json.field_rules[0]).toMatchObject({ fieldId, fieldName: "Card Name" });
     expect(blueprintDetail.json.dimension_rules[0].allowedChoices[0]).toMatchObject({ choiceId, code: "near-mint" });
     expect(blueprintDetail.json.canonical_dimension_order[0]).toMatchObject({ dimensionId, dimensionName: "Condition" });
 
-    const categoryList = await getJson(`/api/categories?status=active&parentCategoryId=${rootCategoryId}&limit=1&offset=0`);
+    const categoryList = await getJson(`/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}&limit=1&offset=0`);
     expect(categoryList.response.status).toBe(200);
     expect(categoryList.json.total).toBe(1);
     expect(categoryList.json.items[0]).toMatchObject({
@@ -235,11 +234,11 @@ describe("Admin page projections", () => {
     });
     expect(categoryList.json._resolvedNames).toBeUndefined();
 
-    const categoryDetail = await getJson(`/api/categories/${childCategoryId}`);
+    const categoryDetail = await getJson(`/api/catalog/categories/${childCategoryId}`);
     expect(categoryDetail.response.status).toBe(200);
     expect(categoryDetail.json.parent_category).toMatchObject({ categoryId: rootCategoryId, name: "Pokemon TCG" });
 
-    const itemList = await getJson(`/api/catalog-items?status=active&blueprintId=${blueprintId}&tag=featured&limit=1&offset=0`);
+    const itemList = await getJson(`/api/catalog/items?status=active&blueprintId=${blueprintId}&tag=featured&limit=1&offset=0`);
     expect(itemList.response.status).toBe(200);
     expect(itemList.json.total).toBe(1);
     expect(itemList.json.items[0]).toMatchObject({
@@ -248,16 +247,16 @@ describe("Admin page projections", () => {
     });
     expect(itemList.json._resolvedNames).toBeUndefined();
 
-    const itemDetail = await getJson(`/api/catalog-items/${itemId}`);
+    const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
     expect(itemDetail.response.status).toBe(200);
     expect(itemDetail.json.blueprint).toMatchObject({ blueprintId, name: "Raw Pokemon Card" });
     expect(itemDetail.json.field_values[0]).toMatchObject({ fieldId, fieldName: "Card Name", value: "Charizard" });
     expect(itemDetail.json.categories[0]).toMatchObject({ categoryId: childCategoryId, name: "Generation I" });
 
-    const missingBlueprintResolver = await app.fetch(new Request(`http://catalog.test/api/blueprints/${blueprintId}/resolve-names`, { headers }));
+    const missingBlueprintResolver = await app.fetch(new Request(`http://catalog.test/api/catalog/blueprints/${blueprintId}/resolve-names`, { headers }));
     expect(missingBlueprintResolver.status).toBe(404);
 
-    const missingItemResolver = await app.fetch(new Request(`http://catalog.test/api/catalog-items/${itemId}/resolve-names`, { headers }));
+    const missingItemResolver = await app.fetch(new Request(`http://catalog.test/api/catalog/items/${itemId}/resolve-names`, { headers }));
     expect(missingItemResolver.status).toBe(404);
 
     await sendCommand(services.fieldHandler, `catalog.field-${fieldId}`, {
@@ -314,31 +313,31 @@ describe("Admin page projections", () => {
 
     await drainProjectors();
 
-    const updatedComponent = await getJson(`/api/components/${componentId}`);
+    const updatedComponent = await getJson(`/api/catalog/components/${componentId}`);
     expect(updatedComponent.json.name).toBe("Base Card Info V2");
     expect(updatedComponent.json.field_rules[0].fieldName).toBe("Card Title");
     expect(updatedComponent.json.dimension_rules[0].dimensionName).toBe("Card Condition");
     expect(updatedComponent.json.dimension_rules[0].allowedChoices[0].code).toBe("mint");
 
-    const updatedBlueprint = await getJson(`/api/blueprints/${blueprintId}`);
+    const updatedBlueprint = await getJson(`/api/catalog/blueprints/${blueprintId}`);
     expect(updatedBlueprint.json.name).toBe("Raw Pokemon Card V2");
     expect(updatedBlueprint.json.components[0].name).toBe("Base Card Info V2");
     expect(updatedBlueprint.json.field_rules[0].fieldName).toBe("Card Title");
     expect(updatedBlueprint.json.dimension_rules[0].dimensionName).toBe("Card Condition");
     expect(updatedBlueprint.json.dimension_rules[0].allowedChoices[0].code).toBe("mint");
 
-    const updatedCategoryList = await getJson(`/api/categories?status=active&parentCategoryId=${rootCategoryId}`);
+    const updatedCategoryList = await getJson(`/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}`);
     expect(updatedCategoryList.json.items[0].name).toBe("Generation I Singles");
     expect(updatedCategoryList.json.items[0].parent_category.name).toBe("Pokemon Catalog");
 
-    const updatedCategoryDetail = await getJson(`/api/categories/${childCategoryId}`);
+    const updatedCategoryDetail = await getJson(`/api/catalog/categories/${childCategoryId}`);
     expect(updatedCategoryDetail.json.name).toBe("Generation I Singles");
     expect(updatedCategoryDetail.json.parent_category.name).toBe("Pokemon Catalog");
 
-    const updatedItemList = await getJson(`/api/catalog-items?status=active&blueprintId=${blueprintId}&tag=featured`);
+    const updatedItemList = await getJson(`/api/catalog/items?status=active&blueprintId=${blueprintId}&tag=featured`);
     expect(updatedItemList.json.items[0].blueprint.name).toBe("Raw Pokemon Card V2");
 
-    const updatedItemDetail = await getJson(`/api/catalog-items/${itemId}`);
+    const updatedItemDetail = await getJson(`/api/catalog/items/${itemId}`);
     expect(updatedItemDetail.json.blueprint.name).toBe("Raw Pokemon Card V2");
     expect(updatedItemDetail.json.field_values[0].fieldName).toBe("Card Title");
     expect(updatedItemDetail.json.categories[0].name).toBe("Generation I Singles");
