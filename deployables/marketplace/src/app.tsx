@@ -6,9 +6,8 @@ import {
   type NavigationItem,
   type ColorMode,
 } from "@chase-sets/design-system";
+import { ItemDetailPage, SearchPage } from "../../../bounded-contexts/discovery/ui";
 import { useHashRouter } from "./router";
-import { SearchPage } from "./pages/search-page";
-import { ItemDetailPage } from "./pages/item-detail-page";
 
 const topNavItems: NavigationItem[] = [
   { key: "search", label: "Browse", icon: "search", href: "#/search" },

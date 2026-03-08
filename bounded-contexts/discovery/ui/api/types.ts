@@ -1,4 +1,4 @@
-export interface MarketplaceSearchItem {
+export interface DiscoverySearchItem {
   item_id: string;
   title: string;
   subtitle: string | null;
@@ -12,8 +12,8 @@ export interface MarketplaceSearchItem {
   updated_at: string;
 }
 
-export interface MarketplaceSearchResponse {
-  items: MarketplaceSearchItem[];
+export interface DiscoverySearchResponse {
+  items: DiscoverySearchItem[];
   total: number;
   count: number;
 }
@@ -45,7 +45,7 @@ export interface CategoryRef {
   name: string;
 }
 
-export interface MarketplaceItemDetail {
+export interface DiscoveryItemDetail {
   item_id: string;
   title: string;
   subtitle: string | null;
@@ -61,7 +61,7 @@ export interface MarketplaceItemDetail {
   updated_at: string;
 }
 
-export interface MarketplaceCategoryItem {
+export interface DiscoveryCategoryItem {
   category_id: string;
   key: string;
   name: string;
@@ -73,7 +73,7 @@ export interface MarketplaceCategoryItem {
 }
 
 export interface CategoryListResponse {
-  items: MarketplaceCategoryItem[];
+  items: DiscoveryCategoryItem[];
   total: number;
   count: number;
 }

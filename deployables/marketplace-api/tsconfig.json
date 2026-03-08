@@ -8,6 +8,6 @@
     "src",
     "../../contracts/**/*.ts",
     "../../bounded-contexts/catalog/**/*.ts",
-    "../catalog-api/src/projections/**/*.ts"
+    "../../bounded-contexts/discovery/api/**/*.ts"
   ]
 }

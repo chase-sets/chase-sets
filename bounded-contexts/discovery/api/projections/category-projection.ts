@@ -16,7 +16,7 @@ type BaseCategoryRow = Readonly<{
   updated_at: string;
 }>;
 
-async function refreshMarketplaceCategory(db: PgQueryable, categoryId: string): Promise<void> {
+async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Promise<void> {
   const result = await db.query<BaseCategoryRow>(
     `SELECT * FROM catalog_categories WHERE category_id = $1`,
     [categoryId],
@@ -94,34 +94,34 @@ async function refreshCategoriesForItem(db: PgQueryable, itemId: string): Promis
     ? (result.rows[0].category_ids as string[])
     : [];
 
-  await Promise.all(categoryIds.map((categoryId) => refreshMarketplaceCategory(db, categoryId)));
+  await Promise.all(categoryIds.map((categoryId) => refreshDiscoveryCategory(db, categoryId)));
 }
 
-export function buildMarketplaceCategoryProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.category.created": async (event) => {
-      await refreshMarketplaceCategory(db, event.data.categoryId as string);
+      await refreshDiscoveryCategory(db, event.data.categoryId as string);
     },
     "catalog.category.revised": async (event) => {
-      await refreshMarketplaceCategory(db, extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
+      await refreshDiscoveryCategory(db, extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
     },
     "catalog.category.published": async (event) => {
-      await refreshMarketplaceCategory(db, extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
+      await refreshDiscoveryCategory(db, extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
     },
     "catalog.category.deprecated": async (event) => {
-      await refreshMarketplaceCategory(db, extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
+      await refreshDiscoveryCategory(db, extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
     },
     "catalog.category.archived": async (event) => {
-      await refreshMarketplaceCategory(db, extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
+      await refreshDiscoveryCategory(db, extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
     },
 
     "catalog.catalog-item.category-assigned": async (event) => {
       const { categoryId } = event.data as { categoryId: string };
-      await refreshMarketplaceCategory(db, categoryId);
+      await refreshDiscoveryCategory(db, categoryId);
     },
     "catalog.catalog-item.category-removed": async (event) => {
       const { categoryId } = event.data as { categoryId: string };
-      await refreshMarketplaceCategory(db, categoryId);
+      await refreshDiscoveryCategory(db, categoryId);
     },
     "catalog.catalog-item.published": async (event) => {
       await refreshCategoriesForItem(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));

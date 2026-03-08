@@ -9,15 +9,14 @@ import {
   Banner,
   Stack,
   Inline,
-  Grid,
   Text,
 } from "@chase-sets/design-system";
-import { api } from "../api/client";
-import type { MarketplaceSearchResponse, CategoryListResponse } from "../api/types";
-import { useFetch } from "../hooks/use-fetch";
-import { useDebounce } from "../hooks/use-debounce";
+import { discoveryApi } from "../api/client";
+import type { DiscoverySearchResponse, CategoryListResponse } from "../api/types";
 import { ItemCard } from "../components/item-card";
 import { SearchFilters } from "../components/search-filters";
+import { useDebounce } from "../hooks/use-debounce";
+import { useFetch } from "../hooks/use-fetch";
 
 const PAGE_SIZE = 24;
 
@@ -46,13 +45,13 @@ export function SearchPage() {
     return params.toString();
   }, [debouncedSearch, category, sort, page]);
 
-  const { data, loading, error } = useFetch<MarketplaceSearchResponse>(
-    () => api.get(`/marketplace/items?${query}`),
+  const { data, loading, error } = useFetch<DiscoverySearchResponse>(
+    () => discoveryApi.get(`/marketplace/items?${query}`),
     [query],
   );
 
   const { data: categoriesData } = useFetch<CategoryListResponse>(
-    () => api.get("/marketplace/categories"),
+    () => discoveryApi.get("/marketplace/categories"),
     [],
   );
 

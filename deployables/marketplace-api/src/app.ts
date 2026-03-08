@@ -1,17 +1,19 @@
 import { Hono } from "hono";
-import type { MarketplaceServices } from "./infrastructure/wiring";
 import { errorHandler } from "./middleware/error-handler";
 import { healthRoutes } from "./routes/health";
-import { marketplaceItemRoutes } from "./routes/marketplace-items";
-import { marketplaceCategoryRoutes } from "./routes/marketplace-categories";
+import {
+  discoveryCategoryRoutes,
+  discoveryItemRoutes,
+  type DiscoveryServices,
+} from "../../../bounded-contexts/discovery/api";
 
-export function buildMarketplaceApp(services: MarketplaceServices): Hono {
+export function buildMarketplaceApp(services: DiscoveryServices): Hono {
   const app = new Hono();
 
   app.onError(errorHandler);
   app.route("/health", healthRoutes());
-  app.route("/api/marketplace/items", marketplaceItemRoutes(services));
-  app.route("/api/marketplace/categories", marketplaceCategoryRoutes(services));
+  app.route("/api/marketplace/items", discoveryItemRoutes(services));
+  app.route("/api/marketplace/categories", discoveryCategoryRoutes(services));
 
   return app;
 }

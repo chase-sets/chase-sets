@@ -1,13 +1,13 @@
+import { rebuildDiscoverySearchIndex } from "../../../../bounded-contexts/discovery/api";
 import { loadConfig } from "../config";
 import { createPool } from "../infrastructure/postgres";
-import { rebuildMarketplaceSearchIndex } from "../projections/search-item-projection";
 
 async function main() {
   const config = loadConfig();
   const pool = createPool(config.databaseUrl);
 
   try {
-    await rebuildMarketplaceSearchIndex(pool);
+    await rebuildDiscoverySearchIndex(pool);
     console.log("Marketplace search index backfill complete.");
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();

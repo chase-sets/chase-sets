@@ -1,12 +1,12 @@
 import { serve } from "@hono/node-server";
+import { createDiscoveryServices } from "../../../bounded-contexts/discovery/api";
 import { loadConfig } from "./config";
 import { createPool } from "./infrastructure/postgres";
-import { createMarketplaceServices } from "./infrastructure/wiring";
 import { buildMarketplaceApp } from "./app";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
-const services = createMarketplaceServices(pool);
+const services = createDiscoveryServices(pool);
 const app = buildMarketplaceApp(services);
 
 const PROJECTION_INTERVAL_MS = 1_000;

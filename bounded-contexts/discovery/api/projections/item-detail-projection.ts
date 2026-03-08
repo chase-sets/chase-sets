@@ -1,11 +1,10 @@
 import type { ProjectorHandlerMap } from "../../../../contracts/event-core/projector";
 import type { PgQueryable } from "../../../../contracts/event-core/postgres/types";
-import { extractIdFromStreamId, asArray, asStringArray, loadNameMap, loadChoiceCodeMap } from "./helpers";
+import { asArray, asStringArray, extractIdFromStreamId, loadNameMap } from "./helpers";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
-const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
 
 type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 type DimensionRule = Readonly<{
@@ -106,7 +105,7 @@ async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise
   };
 }
 
-async function refreshItemDetailPage(db: PgQueryable, itemId: string): Promise<void> {
+async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<BaseCatalogItemRow>(
     `SELECT * FROM catalog_items WHERE item_id = $1`,
     [itemId],
@@ -208,7 +207,7 @@ async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Pr
     [blueprintId],
   );
 
-  await Promise.all(result.rows.map((row) => refreshItemDetailPage(db, row.item_id)));
+  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.item_id)));
 }
 
 async function refreshItemsByCategory(db: PgQueryable, categoryId: string): Promise<void> {
@@ -217,7 +216,7 @@ async function refreshItemsByCategory(db: PgQueryable, categoryId: string): Prom
     [JSON.stringify([categoryId])],
   );
 
-  await Promise.all(result.rows.map((row) => refreshItemDetailPage(db, row.item_id)));
+  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.item_id)));
 }
 
 async function refreshAllItems(db: PgQueryable): Promise<void> {
@@ -225,46 +224,46 @@ async function refreshAllItems(db: PgQueryable): Promise<void> {
     `SELECT item_id FROM catalog_items`,
   );
 
-  await Promise.all(result.rows.map((row) => refreshItemDetailPage(db, row.item_id)));
+  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.item_id)));
 }
 
-export function buildItemDetailProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
-      await refreshItemDetailPage(db, event.data.itemId as string);
+      await refreshDiscoveryItemDetailPage(db, event.data.itemId as string);
     },
     "catalog.catalog-item.blueprint-assigned": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.field-value-set": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.field-value-cleared": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.category-assigned": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.category-removed": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.published": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.tags-set": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.image-urls-set": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.retired": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.archived": async (event) => {
-      await refreshItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await refreshDiscoveryItemDetailPage(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
 
     "catalog.blueprint.revised": async (event) => {

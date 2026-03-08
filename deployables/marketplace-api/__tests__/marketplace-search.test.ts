@@ -1,9 +1,14 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  createDiscoveryServices,
+  rebuildDiscoverySearchIndex,
+  type DiscoveryServices,
+} from "../../../bounded-contexts/discovery/api";
 import { buildMarketplaceApp } from "../src/app";
 import { createPool } from "../src/infrastructure/postgres";
-import { createMarketplaceServices, type MarketplaceServices } from "../src/infrastructure/wiring";
-import { rebuildMarketplaceSearchIndex } from "../src/projections/search-item-projection";
 import { createCatalogServices, type CatalogServices } from "../../catalog-api/src/infrastructure/wiring";
 import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
 import type { EventStoreContext } from "../../../contracts/event-core/storage";
@@ -21,7 +26,7 @@ const context: EventStoreContext = {
 
 let pool: PgTransactionalPool;
 let catalogServices: CatalogServices;
-let marketplaceServices: MarketplaceServices;
+let discoveryServices: DiscoveryServices;
 let app: ReturnType<typeof buildMarketplaceApp>;
 
 async function recreateSchema() {
@@ -34,7 +39,7 @@ async function drainProjectors() {
 
   do {
     processed = 0;
-    for (const projector of marketplaceServices.projectors) {
+    for (const projector of discoveryServices.projectors) {
       const result = await projector.runOnce();
       processed += result.processed;
     }
@@ -52,6 +57,23 @@ async function sendCommand<Command>(
 async function getJson(path: string) {
   const response = await app.fetch(new Request(`http://marketplace.test${path}`));
   return { response, json: await response.json() };
+}
+
+function listFilesRecursively(dir: string): string[] {
+  const entries = readdirSync(dir);
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const fullPath = join(dir, entry);
+    const stats = statSync(fullPath);
+    if (stats.isDirectory()) {
+      files.push(...listFilesRecursively(fullPath));
+    } else {
+      files.push(fullPath);
+    }
+  }
+
+  return files;
 }
 
 async function seedMarketplaceFixture() {
@@ -193,8 +215,8 @@ describe("marketplace search", () => {
   beforeEach(async () => {
     await recreateSchema();
     catalogServices = createCatalogServices(pool);
-    marketplaceServices = createMarketplaceServices(pool);
-    app = buildMarketplaceApp(marketplaceServices);
+    discoveryServices = createDiscoveryServices(pool);
+    app = buildMarketplaceApp(discoveryServices);
   });
 
   afterAll(async () => {
@@ -233,12 +255,70 @@ describe("marketplace search", () => {
     expect(partial.json.total).toBe(0);
   });
 
+  it("serves discovery browse projections through marketplace urls", async () => {
+    await seedMarketplaceFixture();
+
+    const categories = await getJson("/api/marketplace/categories");
+    expect(categories.response.status).toBe(200);
+    expect(categories.json.items).toEqual([
+      expect.objectContaining({
+        category_id: "ctg_pokemon",
+        name: "Pokemon TCG",
+        item_count: 3,
+      }),
+    ]);
+
+    const filtered = await getJson("/api/marketplace/items?category=Pokemon%20TCG");
+    expect(filtered.response.status).toBe(200);
+    expect(filtered.json.total).toBe(3);
+
+    const detail = await getJson("/api/marketplace/items/itm_charizard_raw");
+    expect(detail.response.status).toBe(200);
+    expect(detail.json.item_id).toBe("itm_charizard_raw");
+    expect(detail.json.title).toBe("Charizard - Base Set 4/102");
+    expect(detail.json.blueprint).toEqual({
+      blueprintId: "bpr_card",
+      name: "Pokemon Card",
+    });
+    expect(detail.json.categories).toEqual(
+      expect.arrayContaining([
+        { categoryId: "ctg_pokemon", name: "Pokemon TCG" },
+      ]),
+    );
+    expect(detail.json.field_values).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fieldName: "Card Number", value: "4/102" }),
+        expect.objectContaining({ fieldName: "Card Name", value: "Charizard" }),
+      ]),
+    );
+
+    const counts = await pool.query<{
+      catalog_items: string;
+      search_items: string;
+      detail_pages: string;
+      browse_categories: string;
+    }>(
+      `SELECT
+        (SELECT COUNT(*)::text FROM catalog_items) AS catalog_items,
+        (SELECT COUNT(*)::text FROM marketplace_search_items) AS search_items,
+        (SELECT COUNT(*)::text FROM marketplace_item_detail_pages) AS detail_pages,
+        (SELECT COUNT(*)::text FROM marketplace_categories) AS browse_categories`,
+    );
+
+    expect(counts.rows[0]).toEqual({
+      catalog_items: "3",
+      search_items: "3",
+      detail_pages: "3",
+      browse_categories: "1",
+    });
+  });
+
   it("rebuilds the marketplace search index idempotently", async () => {
     await seedMarketplaceFixture();
 
     await pool.query(`TRUNCATE marketplace_search_items`);
-    await rebuildMarketplaceSearchIndex(marketplaceServices.db);
-    await rebuildMarketplaceSearchIndex(marketplaceServices.db);
+    await rebuildDiscoverySearchIndex(discoveryServices.db);
+    await rebuildDiscoverySearchIndex(discoveryServices.db);
 
     const rows = await pool.query<{
       item_id: string;
@@ -271,5 +351,14 @@ describe("marketplace search", () => {
     const numeric = await getJson("/api/marketplace/items?search=4");
     expect(numeric.response.status).toBe(200);
     expect(numeric.json.total).toBe(2);
+  });
+
+  it("keeps marketplace-api free of catalog projection imports", () => {
+    const srcDir = fileURLToPath(new URL("../src", import.meta.url));
+    const fileContents = listFilesRecursively(srcDir)
+      .filter((file) => file.endsWith(".ts"))
+      .map((file) => readFileSync(file, "utf8"));
+
+    expect(fileContents.some((content) => content.includes("catalog-api/src/projections"))).toBe(false);
   });
 });

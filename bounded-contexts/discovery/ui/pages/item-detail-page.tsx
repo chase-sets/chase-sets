@@ -12,10 +12,10 @@ import {
   PageSection,
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
-import { api } from "../api/client";
-import type { MarketplaceItemDetail } from "../api/types";
-import { useFetch } from "../hooks/use-fetch";
+import { discoveryApi } from "../api/client";
+import type { DiscoveryItemDetail } from "../api/types";
 import { VersionSelector } from "../components/version-selector";
+import { useFetch } from "../hooks/use-fetch";
 
 function formatFieldValue(value: unknown): string {
   if (value === null || value === undefined) return "\u2014";
@@ -26,8 +26,8 @@ function formatFieldValue(value: unknown): string {
 }
 
 export function ItemDetailPage({ id }: { id: string }) {
-  const { data, loading, error } = useFetch<MarketplaceItemDetail>(
-    () => api.get(`/marketplace/items/${id}`),
+  const { data, loading, error } = useFetch<DiscoveryItemDetail>(
+    () => discoveryApi.get(`/marketplace/items/${id}`),
     [id],
   );
 

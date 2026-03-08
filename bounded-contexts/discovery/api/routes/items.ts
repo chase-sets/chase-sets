@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import type { MarketplaceServices } from "../infrastructure/wiring";
-import { searchMarketplaceItems, getMarketplaceItemDetail } from "../projections/queries";
+import type { DiscoveryServices } from "../services";
+import { getDiscoveryItemDetail, searchDiscoveryItems } from "../projections/queries";
 
-export function marketplaceItemRoutes(services: MarketplaceServices): Hono {
+export function discoveryItemRoutes(services: DiscoveryServices): Hono {
   const app = new Hono();
 
   app.get("/", async (c) => {
@@ -15,7 +15,7 @@ export function marketplaceItemRoutes(services: MarketplaceServices): Hono {
     const limit = c.req.query("limit");
     const offset = c.req.query("offset");
 
-    const result = await searchMarketplaceItems(services.db, {
+    const result = await searchDiscoveryItems(services.db, {
       search: search || undefined,
       category: category || undefined,
       tag: tag || undefined,
@@ -31,7 +31,7 @@ export function marketplaceItemRoutes(services: MarketplaceServices): Hono {
 
   app.get("/:id", async (c) => {
     const itemId = c.req.param("id");
-    const item = await getMarketplaceItemDetail(services.db, itemId);
+    const item = await getDiscoveryItemDetail(services.db, itemId);
 
     if (!item) {
       return c.json({ error: "Item not found." }, 404);

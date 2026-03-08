@@ -2,6 +2,8 @@
 
 This glossary defines the canonical terminology for the Marketplace bounded context.
 
+Browse, search, filters, and item detail terminology are owned by the Discovery bounded context.
+
 ## Listing
 
 A **Listing** is a seller-published offer to sell a specific catalog item at a defined price and quantity.

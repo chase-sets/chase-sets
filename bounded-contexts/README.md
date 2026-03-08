@@ -10,6 +10,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | --- | --- |
 | [Identity](./identity/README.md) | Own users and the accounts they act for. |
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
+| [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
 | [Inventory](./inventory/README.md) | Own seller-held stock and operational availability. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
 | [Ordering](./ordering/README.md) | Own checkout normalization and commercial commitment. |
@@ -28,7 +29,7 @@ The following rules apply to every context in this directory:
 2. Contexts may reference each other only by stable IDs and published integration events.
 3. Contexts must not import another context's internal aggregate state or reuse internal types directly.
 4. Shared contracts are limited to primitives, typed IDs, and integration-event schemas.
-5. Search is not a bounded context; it should be built as read models projected from Catalog, Marketplace, and Insights data.
+5. Discovery may project browse-oriented read models from upstream contexts without taking ownership of the underlying transactional truth.
 
 ## Canonical Ownership
 
@@ -67,8 +68,10 @@ Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
 
 - Identity is upstream for user and account references.
 - Catalog is upstream for canonical item references.
+- Discovery depends on Catalog for canonical item, category, blueprint, and field facts used to build browse/search views.
 - Inventory depends on Identity and Catalog.
 - Marketplace depends on Identity, Catalog, and Inventory availability signals.
+- Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
 - Ordering depends on Marketplace decisions and Identity account references.
 - Fulfillment depends on Ordering.
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.

@@ -3,10 +3,10 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { MarketplaceCategoryItem } from "../api/types";
+import type { DiscoveryCategoryItem } from "../api/types";
 
 interface SearchFiltersProps {
-  categories: MarketplaceCategoryItem[];
+  categories: DiscoveryCategoryItem[];
   selectedCategory: string;
   onCategoryChange: (name: string) => void;
 }

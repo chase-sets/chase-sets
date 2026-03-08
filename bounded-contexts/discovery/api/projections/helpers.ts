@@ -34,16 +34,3 @@ export async function loadNameMap(
 
   return new Map(result.rows.map((row) => [row.id, row.name]));
 }
-
-export async function loadChoiceCodeMap(db: PgQueryable, ids: string[]): Promise<Map<string, string>> {
-  if (ids.length === 0) {
-    return new Map();
-  }
-
-  const result = await db.query<{ choice_id: string; code: string }>(
-    `SELECT choice_id, code FROM catalog_dimension_choices WHERE choice_id = ANY($1)`,
-    [ids],
-  );
-
-  return new Map(result.rows.map((row) => [row.choice_id, row.code]));
-}

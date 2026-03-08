@@ -18,6 +18,7 @@ Marketplace owns the buy and sell interaction layer before an order exists.
 ## Does Not Own
 
 - Inventory cost basis
+- Browse, search, and item detail discovery experiences
 - Cart checkout orchestration
 - Final order settlement
 - Shipping execution

@@ -5,7 +5,7 @@ import {
   createCatalogServices,
   type CatalogServices,
 } from "./infrastructure/wiring";
-import { createMarketplaceServices } from "../../marketplace-api/src/infrastructure/wiring";
+import { createDiscoveryServices } from "../../../bounded-contexts/discovery/api";
 import type { Projector } from "../../../contracts/event-core/projector";
 import { createId } from "../../../contracts/primitives/typed-ids";
 import type {
@@ -936,8 +936,8 @@ export async function seedDatabase() {
     await seedCatalogItems(services, blueprints, fields, categories);
     await drainProjectors("catalog", services.projectors);
 
-    const marketplaceServices = createMarketplaceServices(pool);
-    await drainProjectors("marketplace", marketplaceServices.projectors);
+    const discoveryServices = createDiscoveryServices(pool);
+    await drainProjectors("discovery", discoveryServices.projectors);
 
     console.log("\nSeed complete!");
   } finally {

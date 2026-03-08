@@ -6,10 +6,13 @@ import {
   Inline,
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
-import { navigate } from "../router";
-import type { MarketplaceSearchItem } from "../api/types";
+import type { DiscoverySearchItem } from "../api/types";
 
-export function ItemCard({ item }: { item: MarketplaceSearchItem }) {
+function navigate(path: string) {
+  window.location.hash = path;
+}
+
+export function ItemCard({ item }: { item: DiscoverySearchItem }) {
   return (
     <Card
       interactive

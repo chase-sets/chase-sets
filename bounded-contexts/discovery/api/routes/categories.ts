@@ -1,15 +1,15 @@
 import { Hono } from "hono";
-import type { MarketplaceServices } from "../infrastructure/wiring";
-import { listMarketplaceCategories } from "../projections/queries";
+import type { DiscoveryServices } from "../services";
+import { listDiscoveryCategories } from "../projections/queries";
 
-export function marketplaceCategoryRoutes(services: MarketplaceServices): Hono {
+export function discoveryCategoryRoutes(services: DiscoveryServices): Hono {
   const app = new Hono();
 
   app.get("/", async (c) => {
     const parentCategoryId = c.req.query("parentCategoryId");
     const status = c.req.query("status");
 
-    const categories = await listMarketplaceCategories(services.db, {
+    const categories = await listDiscoveryCategories(services.db, {
       parentCategoryId: parentCategoryId || undefined,
       status: status || undefined,
     });

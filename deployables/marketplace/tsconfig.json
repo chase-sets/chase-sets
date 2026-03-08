@@ -3,5 +3,9 @@
   "compilerOptions": {
     "types": ["vite/client"]
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "../../bounded-contexts/discovery/ui/**/*.ts",
+    "../../bounded-contexts/discovery/ui/**/*.tsx"
+  ]
 }
