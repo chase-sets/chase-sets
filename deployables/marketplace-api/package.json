@@ -1,16 +1,15 @@
 {
-  "name": "@chase-sets/catalog-api",
+  "name": "@chase-sets/marketplace-api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch --env-file=.env src/main.ts",
     "start": "tsx --env-file=.env src/main.ts",
+    "backfill:search": "tsx --env-file=.env src/scripts/backfill-search.ts",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
-    "test:watch": "vitest --config ./vitest.config.ts",
-    "seed": "tsx --env-file=.env src/seed.ts",
-    "reseed": "tsx --env-file=.env src/scripts/reset-db.ts"
+    "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {
     "hono": "^4.12.5",

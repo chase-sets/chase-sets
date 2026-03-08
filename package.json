@@ -14,7 +14,12 @@
     "dev:catalog-api": "npm run dev --workspace @chase-sets/catalog-api",
     "test:catalog": "npm run test --workspace @chase-sets/catalog-api",
     "dev:catalog-admin": "docker compose -f deployables/catalog-api/docker-compose.yml up -d && npm run dev --workspace @chase-sets/catalog-api > /dev/null 2>&1 & npm run dev --workspace @chase-sets/catalog-admin",
-    "seed:catalog": "npm run seed --workspace @chase-sets/catalog-api"
+    "seed:catalog": "npm run seed --workspace @chase-sets/catalog-api",
+    "reseed:catalog": "npm run reseed --workspace @chase-sets/catalog-api",
+    "dev:marketplace-api": "npm run dev --workspace @chase-sets/marketplace-api",
+    "dev:marketplace": "npm run dev --workspace @chase-sets/marketplace",
+    "dev:marketplace-full": "docker compose -f deployables/marketplace-api/docker-compose.yml up -d && npm run dev --workspace @chase-sets/marketplace-api > /dev/null 2>&1 & npm run dev --workspace @chase-sets/marketplace",
+    "test:marketplace": "npm run test --workspace @chase-sets/marketplace-api"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",

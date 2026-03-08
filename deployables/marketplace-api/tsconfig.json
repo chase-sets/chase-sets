@@ -6,9 +6,8 @@
   },
   "include": [
     "src",
-    "__tests__",
     "../../contracts/**/*.ts",
     "../../bounded-contexts/catalog/**/*.ts",
-    "../marketplace-api/src/**/*.ts"
+    "../catalog-api/src/projections/**/*.ts"
   ]
 }

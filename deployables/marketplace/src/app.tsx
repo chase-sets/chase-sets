@@ -1,0 +1,41 @@
+import { useState } from "react";
+import {
+  ChaseRoot,
+  MarketplaceShell,
+  Text,
+  type NavigationItem,
+  type ColorMode,
+} from "@chase-sets/design-system";
+import { useHashRouter } from "./router";
+import { SearchPage } from "./pages/search-page";
+import { ItemDetailPage } from "./pages/item-detail-page";
+
+const topNavItems: NavigationItem[] = [
+  { key: "search", label: "Browse", icon: "search", href: "#/search" },
+];
+
+const bottomNavItems: NavigationItem[] = [
+  { key: "search", label: "Browse", icon: "search", href: "#/search" },
+];
+
+export function App() {
+  const [colorMode] = useState<ColorMode>("system");
+  const route = useHashRouter();
+
+  return (
+    <ChaseRoot colorMode={colorMode}>
+      <MarketplaceShell
+        brand={<Text weight="semibold">Marketplace</Text>}
+        topNavItems={topNavItems}
+        bottomNavItems={bottomNavItems}
+        activeKey={route.page}
+      >
+        {route.page === "items" && route.id ? (
+          <ItemDetailPage id={route.id} />
+        ) : (
+          <SearchPage />
+        )}
+      </MarketplaceShell>
+    </ChaseRoot>
+  );
+}

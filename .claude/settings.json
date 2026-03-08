@@ -25,7 +25,20 @@
       "Bash(xargs grep -n \"as.*Id\\\\|as.*Id>\")",
       "Bash(grep -n \"as.*Id>\" /d/Users/ToddS/Source/Repos/chase-sets/deployables/catalog-api/src/routes/*.ts)",
       "Bash(npm install ulid)",
-      "Bash(xargs grep -l \"search\\\\|index\\\\|full.text\\\\|tsearch\")"
+      "Bash(xargs grep -l \"search\\\\|index\\\\|full.text\\\\|tsearch\")",
+      "Bash(npm run typecheck --workspace @chase-sets/marketplace-api)",
+      "Bash(npm run typecheck --workspace @chase-sets/marketplace)",
+      "Bash(docker compose -f deployables/marketplace-api/docker-compose.yml ps)",
+      "Bash(docker compose -f deployables/catalog-api/docker-compose.yml ps)",
+      "Bash(PGPASSWORD=catalog psql -h localhost -U catalog -d catalog -c \":*)",
+      "Bash(docker exec catalog-api-postgres-1 psql -U catalog -d catalog -c \":*)",
+      "Bash(npm run typecheck --workspace @chase-sets/catalog-api)",
+      "Bash(docker compose -f deployables/catalog-api/docker-compose.yml down -v)",
+      "Bash(docker compose -f deployables/catalog-api/docker-compose.yml up -d)",
+      "Bash(docker exec catalog-api-postgres-1 psql -U catalog -d catalog -c \"SELECT extname FROM pg_extension WHERE extname = ''vector'';\")",
+      "Bash(docker exec catalog-api-postgres-1 psql -U catalog -d catalog -c \"\\\\dt marketplace_*\")",
+      "Bash(npm run seed:catalog)",
+      "Bash(docker exec catalog-api-postgres-1 psql -U catalog -d catalog -c \"SELECT item_id, title, status, blueprint_name FROM marketplace_search_items;\")"
     ]
   }
 }

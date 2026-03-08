@@ -1,9 +1,12 @@
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config";
 import { createPool } from "./infrastructure/postgres";
 import {
   createCatalogServices,
   type CatalogServices,
 } from "./infrastructure/wiring";
+import { createMarketplaceServices } from "../../marketplace-api/src/infrastructure/wiring";
+import type { Projector } from "../../../contracts/event-core/projector";
 import { createId } from "../../../contracts/primitives/typed-ids";
 import type {
   TenantId,
@@ -880,63 +883,73 @@ async function seedCatalogItems(
 // Phase 7: Drain Projectors
 // ---------------------------------------------------------------------------
 
-async function drainProjectors(services: CatalogServices): Promise<void> {
-  console.log("Running projectors...");
+async function drainProjectors(label: string, projectors: readonly Projector[]): Promise<void> {
+  console.log(`Running ${label} projectors...`);
   let totalProcessed: number;
   do {
     totalProcessed = 0;
-    for (const projector of services.projectors) {
+    for (const projector of projectors) {
       const result = await projector.runOnce();
       totalProcessed += result.processed;
     }
   } while (totalProcessed > 0);
-  console.log("All projections up to date.");
+  console.log(`${label} projections up to date.`);
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-async function main() {
+export async function seedDatabase() {
   const config = loadConfig();
   const pool = createPool(config.databaseUrl);
   const services = createCatalogServices(pool);
 
   try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) FROM catalog_dimensions",
-    );
-    if (Number(existing.rows[0].count) > 0) {
-      console.log("Catalog already contains data. Skipping seed.");
-      return;
+    try {
+      const existing = await services.db.query(
+        "SELECT COUNT(*) FROM catalog_dimensions",
+      );
+      if (Number(existing.rows[0].count) > 0) {
+        console.log("Catalog already contains data. Skipping seed.");
+        return;
+      }
+    } catch {
+      // Table may not exist yet. Proceed with seeding.
     }
-  } catch {
-    // Table may not exist yet — proceed with seeding
+
+    console.log("Starting Pokemon TCG seed...\n");
+
+    const [dimensions, fields] = await Promise.all([
+      seedDimensions(services),
+      seedFields(services),
+    ]);
+
+    const components = await seedComponents(services, dimensions, fields);
+    const blueprints = await seedBlueprints(
+      services,
+      components,
+      dimensions,
+      fields,
+    );
+    const categories = await seedCategories(services);
+    await seedCatalogItems(services, blueprints, fields, categories);
+    await drainProjectors("catalog", services.projectors);
+
+    const marketplaceServices = createMarketplaceServices(pool);
+    await drainProjectors("marketplace", marketplaceServices.projectors);
+
+    console.log("\nSeed complete!");
+  } finally {
+    await (pool as unknown as { end: () => Promise<void> }).end();
   }
-
-  console.log("Starting Pokemon TCG seed...\n");
-
-  const [dimensions, fields] = await Promise.all([
-    seedDimensions(services),
-    seedFields(services),
-  ]);
-
-  const components = await seedComponents(services, dimensions, fields);
-  const blueprints = await seedBlueprints(
-    services,
-    components,
-    dimensions,
-    fields,
-  );
-  const categories = await seedCategories(services);
-  await seedCatalogItems(services, blueprints, fields, categories);
-  await drainProjectors(services);
-
-  console.log("\nSeed complete!");
-  await (pool as unknown as { end: () => Promise<void> }).end();
 }
 
-main().catch((error) => {
-  console.error("Seed failed:", error);
-  process.exit(1);
-});
+const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
+
+if (isDirectExecution) {
+  seedDatabase().catch((error) => {
+    console.error("Seed failed:", error);
+    process.exit(1);
+  });
+}

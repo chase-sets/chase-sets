@@ -4,7 +4,8 @@ const config: Config = {
   content: [
     "./packages/design-system/src/**/*.{ts,tsx}",
     "./deployables/design-system-showcase/src/**/*.{ts,tsx}",
-    "./deployables/design-system-showcase/index.html"
+    "./deployables/design-system-showcase/index.html",
+    "./deployables/marketplace/src/**/*.{ts,tsx}"
   ],
   theme: {
     extend: {

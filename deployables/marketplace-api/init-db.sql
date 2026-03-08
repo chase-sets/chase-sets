@@ -1,5 +1,6 @@
+-- =============================================================================
 -- Event Store Schema
--- Source: contracts/event-core/postgres/schema.sql
+-- =============================================================================
 
 CREATE TABLE IF NOT EXISTS event_store_streams (
   stream_id text PRIMARY KEY,
@@ -23,27 +24,14 @@ CREATE TABLE IF NOT EXISTS event_store_events (
   correlation_id text NULL,
   causation_id text NULL,
   command_id text NULL,
-  CONSTRAINT event_store_events_stream_version_uk UNIQUE (
-    stream_id,
-    stream_version
-  ),
-  CONSTRAINT event_store_events_stream_fk
-    FOREIGN KEY (stream_id)
-    REFERENCES event_store_streams (stream_id)
-    ON DELETE CASCADE
+  CONSTRAINT event_store_events_stream_version_uk UNIQUE (stream_id, stream_version),
+  CONSTRAINT event_store_events_stream_fk FOREIGN KEY (stream_id) REFERENCES event_store_streams (stream_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS event_store_events_stream_idx
-  ON event_store_events (stream_id, stream_version ASC);
-
-CREATE INDEX IF NOT EXISTS event_store_events_global_idx
-  ON event_store_events (global_position ASC);
-
-CREATE INDEX IF NOT EXISTS event_store_events_tenant_global_idx
-  ON event_store_events (tenant_id, global_position ASC);
-
-CREATE INDEX IF NOT EXISTS event_store_events_type_idx
-  ON event_store_events (event_type);
+CREATE INDEX IF NOT EXISTS event_store_events_stream_idx ON event_store_events (stream_id, stream_version ASC);
+CREATE INDEX IF NOT EXISTS event_store_events_global_idx ON event_store_events (global_position ASC);
+CREATE INDEX IF NOT EXISTS event_store_events_tenant_global_idx ON event_store_events (tenant_id, global_position ASC);
+CREATE INDEX IF NOT EXISTS event_store_events_type_idx ON event_store_events (event_type);
 
 CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   projector_name text PRIMARY KEY,
@@ -51,7 +39,9 @@ CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   updated_at timestamptz NOT NULL
 );
 
--- Catalog Read Model Projections
+-- =============================================================================
+-- Base Catalog Projection Tables
+-- =============================================================================
 
 CREATE TABLE IF NOT EXISTS catalog_dimensions (
   dimension_id text PRIMARY KEY,
@@ -135,118 +125,9 @@ CREATE TABLE IF NOT EXISTS catalog_items (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS catalog_admin_component_detail_pages (
-  component_id text PRIMARY KEY REFERENCES catalog_components(component_id) ON DELETE CASCADE,
-  key text NOT NULL,
-  name text NOT NULL,
-  description text NOT NULL DEFAULT '',
-  status text NOT NULL DEFAULT 'draft',
-  field_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
-  dimension_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS catalog_admin_blueprint_detail_pages (
-  blueprint_id text PRIMARY KEY REFERENCES catalog_blueprints(blueprint_id) ON DELETE CASCADE,
-  key text NOT NULL,
-  name text NOT NULL,
-  description text NOT NULL DEFAULT '',
-  status text NOT NULL DEFAULT 'draft',
-  components jsonb NOT NULL DEFAULT '[]'::jsonb,
-  field_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
-  dimension_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
-  canonical_dimension_order jsonb NOT NULL DEFAULT '[]'::jsonb,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS catalog_admin_category_list_pages (
-  category_id text PRIMARY KEY REFERENCES catalog_categories(category_id) ON DELETE CASCADE,
-  key text NOT NULL,
-  name text NOT NULL,
-  description text NOT NULL DEFAULT '',
-  status text NOT NULL DEFAULT 'draft',
-  parent_category_id text NULL,
-  parent_category jsonb NULL,
-  display_order integer NOT NULL DEFAULT 0,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS catalog_admin_category_detail_pages (
-  category_id text PRIMARY KEY REFERENCES catalog_categories(category_id) ON DELETE CASCADE,
-  key text NOT NULL,
-  name text NOT NULL,
-  description text NOT NULL DEFAULT '',
-  status text NOT NULL DEFAULT 'draft',
-  parent_category_id text NULL,
-  parent_category jsonb NULL,
-  display_order integer NOT NULL DEFAULT 0,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_list_pages (
-  item_id text PRIMARY KEY REFERENCES catalog_items(item_id) ON DELETE CASCADE,
-  title text NOT NULL DEFAULT '',
-  subtitle text NULL,
-  blueprint_id text NULL,
-  blueprint jsonb NULL,
-  status text NOT NULL DEFAULT 'draft',
-  tags jsonb NOT NULL DEFAULT '[]'::jsonb,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_detail_pages (
-  item_id text PRIMARY KEY REFERENCES catalog_items(item_id) ON DELETE CASCADE,
-  title text NOT NULL DEFAULT '',
-  subtitle text NULL,
-  description text NOT NULL DEFAULT '',
-  blueprint_id text NULL,
-  blueprint jsonb NULL,
-  status text NOT NULL DEFAULT 'draft',
-  field_values jsonb NOT NULL DEFAULT '[]'::jsonb,
-  categories jsonb NOT NULL DEFAULT '[]'::jsonb,
-  tags jsonb NOT NULL DEFAULT '[]'::jsonb,
-  image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
--- Indexes for search and filtering
-CREATE INDEX IF NOT EXISTS catalog_dimensions_status_idx ON catalog_dimensions (status);
-CREATE INDEX IF NOT EXISTS catalog_dimensions_key_name_idx ON catalog_dimensions USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_fields_status_idx ON catalog_fields (status);
-CREATE INDEX IF NOT EXISTS catalog_fields_key_name_idx ON catalog_fields USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_components_status_idx ON catalog_components (status);
-CREATE INDEX IF NOT EXISTS catalog_components_key_name_idx ON catalog_components USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_blueprints_status_idx ON catalog_blueprints (status);
-CREATE INDEX IF NOT EXISTS catalog_blueprints_key_name_idx ON catalog_blueprints USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_categories_status_idx ON catalog_categories (status);
-CREATE INDEX IF NOT EXISTS catalog_categories_parent_idx ON catalog_categories (parent_category_id);
-
-CREATE INDEX IF NOT EXISTS catalog_items_status_idx ON catalog_items (status);
-CREATE INDEX IF NOT EXISTS catalog_items_blueprint_idx ON catalog_items (blueprint_id);
-CREATE INDEX IF NOT EXISTS catalog_items_title_idx ON catalog_items USING gin (to_tsvector('simple', title));
-CREATE INDEX IF NOT EXISTS catalog_items_tags_idx ON catalog_items USING gin (tags);
-
-CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_status_idx
-  ON catalog_admin_category_list_pages (status);
-CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_parent_idx
-  ON catalog_admin_category_list_pages (parent_category_id);
-CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_key_name_idx
-  ON catalog_admin_category_list_pages USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_status_idx
-  ON catalog_admin_catalog_item_list_pages (status);
-CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_blueprint_idx
-  ON catalog_admin_catalog_item_list_pages (blueprint_id);
-CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_title_idx
-  ON catalog_admin_catalog_item_list_pages USING gin (to_tsvector('simple', title || ' ' || COALESCE(subtitle, '')));
-CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_tags_idx
-  ON catalog_admin_catalog_item_list_pages USING gin (tags);
-
--- Marketplace Read Model Projections (pgvector extension)
+-- =============================================================================
+-- pgvector Extension + Marketplace-Specific Tables
+-- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS vector;
 

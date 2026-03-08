@@ -1,0 +1,22 @@
+{
+  "name": "@chase-sets/marketplace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p ./tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@chase-sets/design-system": "0.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "@tailwindcss/vite": "^4.1.4",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
+  }
+}
