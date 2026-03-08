@@ -24,7 +24,8 @@
       "Bash(xargs grep -n \"Branded<string\")",
       "Bash(xargs grep -n \"as.*Id\\\\|as.*Id>\")",
       "Bash(grep -n \"as.*Id>\" /d/Users/ToddS/Source/Repos/chase-sets/deployables/catalog-api/src/routes/*.ts)",
-      "Bash(npm install ulid)"
+      "Bash(npm install ulid)",
+      "Bash(xargs grep -l \"search\\\\|index\\\\|full.text\\\\|tsearch\")"
     ]
   }
 }

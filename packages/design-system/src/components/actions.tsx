@@ -790,12 +790,14 @@ export function CopyButton({
   ...rest
 }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleClick = useCallback(() => {
     navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
-      clearTimeout(timerRef.current);
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+      }
       timerRef.current = setTimeout(() => setCopied(false), 2000);
     });
   }, [value]);
