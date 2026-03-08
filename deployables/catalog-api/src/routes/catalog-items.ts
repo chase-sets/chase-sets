@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { CatalogServices } from "../infrastructure/wiring";
 import type { TenantContextEnv } from "../middleware/tenant-context";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../../bounded-contexts/catalog/ids";
-import { listCatalogItems, getCatalogItem, resolveFieldNames, resolveCategoryNames, resolveBlueprintNames } from "../projections/queries";
+import { listCatalogItems, getCatalogItemDetail } from "../projections/queries";
 
 export function catalogItemRoutes(services: CatalogServices): Hono<TenantContextEnv> {
   const app = new Hono<TenantContextEnv>();
@@ -212,50 +212,17 @@ export function catalogItemRoutes(services: CatalogServices): Hono<TenantContext
   app.get("/", async (c) => {
     const { search, status, limit, offset, blueprintId, tag } = c.req.query();
     const result = await listCatalogItems(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, blueprintId, tag });
-
-    const blueprintIds = [...new Set(result.items.map((i) => i.blueprint_id).filter((id): id is string => id !== null))];
-    const blueprints = await resolveBlueprintNames(services.db, blueprintIds);
-    const blueprintNameMap = Object.fromEntries(blueprints.map((b) => [b.id, b.name]));
-
-    return c.json({ items: result.items, total: result.total, count: result.items.length, _resolvedNames: blueprintNameMap });
+    return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
-    const item = await getCatalogItem(services.db, c.req.param("id"));
+    const item = await getCatalogItemDetail(services.db, c.req.param("id"));
 
     if (!item) {
       return c.json({ error: "Catalog item not found." }, 404);
     }
 
-    const fieldIds = ((item.field_values ?? []) as { fieldId: string }[]).map((fv) => fv.fieldId);
-    const categoryIds = (item.category_ids ?? []) as string[];
-    const blueprintIds = item.blueprint_id ? [item.blueprint_id] : [];
-
-    const [fields, categories, blueprints] = await Promise.all([
-      resolveFieldNames(services.db, fieldIds),
-      resolveCategoryNames(services.db, categoryIds),
-      resolveBlueprintNames(services.db, blueprintIds),
-    ]);
-
-    return c.json({ ...item, _resolved: { fields, categories, blueprints } });
-  });
-
-  app.get("/:id/resolve-names", async (c) => {
-    const item = await getCatalogItem(services.db, c.req.param("id"));
-
-    if (!item) {
-      return c.json({ error: "Catalog item not found." }, 404);
-    }
-
-    const fieldIds = ((item.field_values ?? []) as { fieldId: string }[]).map((fv) => fv.fieldId);
-    const categoryIds = (item.category_ids ?? []) as string[];
-
-    const [fields, categories] = await Promise.all([
-      resolveFieldNames(services.db, fieldIds),
-      resolveCategoryNames(services.db, categoryIds),
-    ]);
-
-    return c.json({ fields, categories });
+    return c.json(item);
   });
 
   return app;

@@ -54,14 +54,14 @@ type FieldDef = {
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 };
 
-async function sendCommand(
+async function sendCommand<Command>(
   handler: (input: {
     streamId: string;
-    command: unknown;
+    command: Command;
     context: EventStoreContext;
   }) => Promise<unknown>,
   streamId: string,
-  command: unknown,
+  command: Command,
 ) {
   return handler({ streamId, command, context: seedContext });
 }

@@ -41,13 +41,15 @@ function getTransitions(status: string): Transition[] {
 
 interface FieldRule {
   fieldId: string;
+  fieldName: string;
   required: boolean;
 }
 
 interface DimensionRule {
   dimensionId: string;
+  dimensionName: string;
   required: boolean;
-  allowedChoiceIds: string[];
+  allowedChoices: { choiceId: string; code: string }[];
 }
 
 export function ComponentDetailPage({ id }: { id: string }) {
@@ -96,8 +98,15 @@ export function ComponentDetailPage({ id }: { id: string }) {
       key: editKey,
       name: editName,
       description: editDescription || undefined,
-      fieldRules: (data?.field_rules ?? []) as FieldRule[],
-      dimensionRules: (data?.dimension_rules ?? []) as DimensionRule[],
+      fieldRules: (data?.field_rules ?? []).map((rule) => ({
+        fieldId: rule.fieldId,
+        required: rule.required,
+      })),
+      dimensionRules: (data?.dimension_rules ?? []).map((rule) => ({
+        dimensionId: rule.dimensionId,
+        required: rule.required,
+        allowedChoiceIds: rule.allowedChoices.map((choice) => choice.choiceId),
+      })),
     });
     addToast("Component updated", "success");
     setEditing(false);
@@ -143,16 +152,8 @@ export function ComponentDetailPage({ id }: { id: string }) {
   const fieldRules = (data?.field_rules ?? []) as FieldRule[];
   const dimensionRules = (data?.dimension_rules ?? []) as DimensionRule[];
 
-  const nameMap = new Map<string, string>();
-  for (const list of Object.values(data?._resolved ?? {})) {
-    for (const entry of list as { id: string; name: string }[]) {
-      nameMap.set(entry.id, entry.name);
-    }
-  }
-  const resolveName = (id: string) => nameMap.get(id) ?? id;
-
   const fieldRuleColumns: DataColumn<FieldRule>[] = [
-    { key: "fieldId", header: "Field", cell: (row) => resolveName(row.fieldId) },
+    { key: "fieldId", header: "Field", cell: (row) => row.fieldName },
     { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
     {
       key: "actions",
@@ -164,12 +165,12 @@ export function ComponentDetailPage({ id }: { id: string }) {
   ];
 
   const dimensionRuleColumns: DataColumn<DimensionRule>[] = [
-    { key: "dimensionId", header: "Dimension", cell: (row) => resolveName(row.dimensionId) },
+    { key: "dimensionId", header: "Dimension", cell: (row) => row.dimensionName },
     { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
     {
-      key: "allowedChoiceIds",
+      key: "allowedChoices",
       header: "Allowed Choices",
-      cell: (row) => row.allowedChoiceIds.length > 0 ? row.allowedChoiceIds.map(resolveName).join(", ") : "All",
+      cell: (row) => row.allowedChoices.length > 0 ? row.allowedChoices.map((choice) => choice.code).join(", ") : "All",
     },
     {
       key: "actions",

@@ -1,13 +1,13 @@
 import { api } from "../../api/client";
-import type { CatalogItem, ListResponse, CommandResponse } from "../../api/types";
+import type { CatalogItemDetail, CatalogItemListItem, ListResponse, CommandResponse } from "../../api/types";
 import { useFetch } from "../../shared/use-fetch";
 
 export function useCatalogItemList(query: string) {
-  return useFetch(() => api.get<ListResponse<CatalogItem>>(`/catalog-items?${query}`), [query]);
+  return useFetch(() => api.get<ListResponse<CatalogItemListItem>>(`/catalog-items?${query}`), [query]);
 }
 
 export function useCatalogItem(id: string) {
-  return useFetch(() => api.get<CatalogItem>(`/catalog-items/${id}`), [id]);
+  return useFetch(() => api.get<CatalogItemDetail>(`/catalog-items/${id}`), [id]);
 }
 
 export function createCatalogItem(body: { itemId: string; title: string; subtitle?: string; description?: string }) {

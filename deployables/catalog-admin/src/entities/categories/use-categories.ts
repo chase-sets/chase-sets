@@ -1,13 +1,13 @@
 import { api } from "../../api/client";
-import type { Category, ListResponse, CommandResponse } from "../../api/types";
+import type { CategoryDetail, CategoryListItem, ListResponse, CommandResponse } from "../../api/types";
 import { useFetch } from "../../shared/use-fetch";
 
 export function useCategoryList(query: string) {
-  return useFetch(() => api.get<ListResponse<Category>>(`/categories?${query}`), [query]);
+  return useFetch(() => api.get<ListResponse<CategoryListItem>>(`/categories?${query}`), [query]);
 }
 
 export function useCategory(id: string) {
-  return useFetch(() => api.get<Category>(`/categories/${id}`), [id]);
+  return useFetch(() => api.get<CategoryDetail>(`/categories/${id}`), [id]);
 }
 
 export function createCategory(body: {

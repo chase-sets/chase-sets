@@ -14,7 +14,17 @@ const DEV_HEADERS = {
   "X-Account-Id": "account_dev",
 };
 
+const inflightGetRequests = new Map<string, Promise<unknown>>();
+
 async function apiRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const requestKey = method === "GET" && body === undefined ? `${method}:${path}` : null;
+  if (requestKey) {
+    const inflightRequest = inflightGetRequests.get(requestKey);
+    if (inflightRequest) {
+      return inflightRequest as Promise<T>;
+    }
+  }
+
   const headers: Record<string, string> = {
     ...DEV_HEADERS,
   };
@@ -23,18 +33,32 @@ async function apiRequest<T>(method: string, path: string, body?: unknown): Prom
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const request = (async () => {
+    const res = await fetch(`/api${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
 
-  if (!res.ok) {
-    const errorBody = await res.json().catch(() => null);
-    throw new ApiError(res.status, errorBody);
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => null);
+      throw new ApiError(res.status, errorBody);
+    }
+
+    return res.json() as Promise<T>;
+  })();
+
+  if (!requestKey) {
+    return request;
   }
 
-  return res.json() as Promise<T>;
+  inflightGetRequests.set(requestKey, request);
+
+  try {
+    return await request;
+  } finally {
+    inflightGetRequests.delete(requestKey);
+  }
 }
 
 export const api = {

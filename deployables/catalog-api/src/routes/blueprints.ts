@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { CatalogServices } from "../infrastructure/wiring";
 import type { TenantContextEnv } from "../middleware/tenant-context";
 import type { BlueprintId, ComponentId } from "../../../../bounded-contexts/catalog/ids";
-import { listBlueprints, getBlueprint, resolveComponentNames, resolveFieldNames, resolveDimensionNames, resolveChoiceCodes } from "../projections/queries";
+import { listBlueprints, getBlueprintDetail } from "../projections/queries";
 
 export function blueprintRoutes(services: CatalogServices): Hono<TenantContextEnv> {
   const app = new Hono<TenantContextEnv>();
@@ -176,49 +176,13 @@ export function blueprintRoutes(services: CatalogServices): Hono<TenantContextEn
   });
 
   app.get("/:id", async (c) => {
-    const blueprint = await getBlueprint(services.db, c.req.param("id"));
+    const blueprint = await getBlueprintDetail(services.db, c.req.param("id"));
 
     if (!blueprint) {
       return c.json({ error: "Blueprint not found." }, 404);
     }
 
-    const componentIds = (blueprint.component_ids ?? []) as string[];
-    const fieldIds = ((blueprint.field_rules ?? []) as { fieldId: string }[]).map((r) => r.fieldId);
-    const dimRules = (blueprint.dimension_rules ?? []) as { dimensionId: string; allowedChoiceIds: string[] }[];
-    const dimensionIds = [
-      ...dimRules.map((r) => r.dimensionId),
-      ...((blueprint.canonical_dimension_order ?? []) as string[]),
-    ].filter((id, i, arr) => arr.indexOf(id) === i);
-    const choiceIds = dimRules.flatMap((r) => r.allowedChoiceIds ?? []);
-
-    const [components, fields, dimensions, choices] = await Promise.all([
-      resolveComponentNames(services.db, componentIds),
-      resolveFieldNames(services.db, fieldIds),
-      resolveDimensionNames(services.db, dimensionIds),
-      resolveChoiceCodes(services.db, choiceIds),
-    ]);
-
-    return c.json({ ...blueprint, _resolved: { components, fields, dimensions, choices } });
-  });
-
-  app.get("/:id/resolve-names", async (c) => {
-    const blueprint = await getBlueprint(services.db, c.req.param("id"));
-
-    if (!blueprint) {
-      return c.json({ error: "Blueprint not found." }, 404);
-    }
-
-    const componentIds = (blueprint.component_ids ?? []) as string[];
-    const fieldIds = ((blueprint.field_rules ?? []) as { fieldId: string }[]).map((r) => r.fieldId);
-    const dimensionIds = ((blueprint.dimension_rules ?? []) as { dimensionId: string }[]).map((r) => r.dimensionId);
-
-    const [components, fields, dimensions] = await Promise.all([
-      resolveComponentNames(services.db, componentIds),
-      resolveFieldNames(services.db, fieldIds),
-      resolveDimensionNames(services.db, dimensionIds),
-    ]);
-
-    return c.json({ components, fields, dimensions });
+    return c.json(blueprint);
   });
 
   return app;

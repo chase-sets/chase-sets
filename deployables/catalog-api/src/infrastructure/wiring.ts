@@ -52,6 +52,7 @@ import { buildComponentProjectionHandlers } from "../projections/component-proje
 import { buildBlueprintProjectionHandlers } from "../projections/blueprint-projection";
 import { buildCategoryProjectionHandlers } from "../projections/category-projection";
 import { buildCatalogItemProjectionHandlers } from "../projections/catalog-item-projection";
+import { buildAdminPageProjectionHandlers } from "../projections/admin-page-projection";
 
 export type CatalogServices = Readonly<{
   dimensionHandler: CommandHandler<DimensionCommand, DimensionState, DimensionEvent>;
@@ -172,6 +173,12 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
       eventStore,
       checkpointStore,
       handlers: buildCatalogItemProjectionHandlers(db),
+    }),
+    createProjector({
+      projectorName: "catalog-admin-page-projection",
+      eventStore,
+      checkpointStore,
+      handlers: buildAdminPageProjectionHandlers(db),
     }),
   ];
 

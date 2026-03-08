@@ -57,7 +57,7 @@ export function CategoryDetailPage({ id }: { id: string }) {
       setEditKey(data.key);
       setEditName(data.name);
       setEditDescription(data.description ?? "");
-      setEditParentId(data.parent_category_id ?? "");
+      setEditParentId(data.parent_category?.categoryId ?? "");
       setEditDisplayOrder(String(data.display_order));
       setEditing(true);
     }
@@ -110,9 +110,7 @@ export function CategoryDetailPage({ id }: { id: string }) {
               { key: "Key", value: data.key },
               { key: "Name", value: data.name },
               { key: "Description", value: data.description ?? "—" },
-              { key: "Parent Category", value: data.parent_category_id
-                ? (data._resolved?.categories?.find((c) => c.id === data.parent_category_id)?.name ?? data.parent_category_id)
-                : "None (root)" },
+              { key: "Parent Category", value: data.parent_category?.name ?? "None (root)" },
               { key: "Display Order", value: String(data.display_order) },
               { key: "Status", value: data.status },
               { key: "Updated", value: data.updated_at },

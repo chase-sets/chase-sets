@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { CatalogServices } from "../infrastructure/wiring";
 import type { TenantContextEnv } from "../middleware/tenant-context";
 import type { ComponentId, FieldId, DimensionId, ChoiceId } from "../../../../bounded-contexts/catalog/ids";
-import { listComponents, getComponent, resolveFieldNames, resolveDimensionNames, resolveChoiceCodes } from "../projections/queries";
+import { listComponents, getComponentDetail } from "../projections/queries";
 
 export function componentRoutes(services: CatalogServices): Hono<TenantContextEnv> {
   const app = new Hono<TenantContextEnv>();
@@ -164,24 +164,13 @@ export function componentRoutes(services: CatalogServices): Hono<TenantContextEn
   });
 
   app.get("/:id", async (c) => {
-    const component = await getComponent(services.db, c.req.param("id"));
+    const component = await getComponentDetail(services.db, c.req.param("id"));
 
     if (!component) {
       return c.json({ error: "Component not found." }, 404);
     }
 
-    const fieldIds = ((component.field_rules ?? []) as { fieldId: string }[]).map((r) => r.fieldId);
-    const dimRules = (component.dimension_rules ?? []) as { dimensionId: string; allowedChoiceIds: string[] }[];
-    const dimensionIds = dimRules.map((r) => r.dimensionId);
-    const choiceIds = dimRules.flatMap((r) => r.allowedChoiceIds ?? []);
-
-    const [fields, dimensions, choices] = await Promise.all([
-      resolveFieldNames(services.db, fieldIds),
-      resolveDimensionNames(services.db, dimensionIds),
-      resolveChoiceCodes(services.db, choiceIds),
-    ]);
-
-    return c.json({ ...component, _resolved: { fields, dimensions, choices } });
+    return c.json(component);
   });
 
   return app;

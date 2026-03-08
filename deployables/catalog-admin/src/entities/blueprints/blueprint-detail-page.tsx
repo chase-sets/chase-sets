@@ -43,13 +43,15 @@ function getTransitions(status: string): Transition[] {
 
 interface FieldRule {
   fieldId: string;
+  fieldName: string;
   required: boolean;
 }
 
 interface DimensionRule {
   dimensionId: string;
+  dimensionName: string;
   required: boolean;
-  allowedChoiceIds: string[];
+  allowedChoices: { choiceId: string; code: string }[];
 }
 
 interface EditFieldRule {
@@ -156,7 +158,7 @@ export function BlueprintDetailPage({ id }: { id: string }) {
         ? dimensionRules.map((r) => ({
             dimensionId: r.dimensionId,
             required: r.required,
-            allowedChoiceIds: r.allowedChoiceIds.join(", "),
+            allowedChoiceIds: r.allowedChoices.map((choice) => choice.choiceId).join(", "),
           }))
         : [{ dimensionId: "", required: false, allowedChoiceIds: "" }],
     );
@@ -177,18 +179,10 @@ export function BlueprintDetailPage({ id }: { id: string }) {
     refresh();
   }
 
-  const componentIds = (data?.component_ids ?? []) as string[];
   const fieldRules = (data?.field_rules ?? []) as FieldRule[];
   const dimensionRules = (data?.dimension_rules ?? []) as DimensionRule[];
-  const canonicalDimensionOrder = (data?.canonical_dimension_order ?? []) as string[];
-
-  const nameMap = new Map<string, string>();
-  for (const list of Object.values(data?._resolved ?? {})) {
-    for (const entry of list as { id: string; name: string }[]) {
-      nameMap.set(entry.id, entry.name);
-    }
-  }
-  const resolveName = (id: string) => nameMap.get(id) ?? id;
+  const components = data?.components ?? [];
+  const canonicalDimensionOrder = data?.canonical_dimension_order ?? [];
 
   return (
     <>
@@ -237,22 +231,22 @@ export function BlueprintDetailPage({ id }: { id: string }) {
                     <Button size="sm" onClick={() => setShowAttachComponent(true)}>Attach Component</Button>
                   </Inline>
                 )}
-                {componentIds.length === 0 ? (
+                {components.length === 0 ? (
                   <Text tone="secondary">No components attached.</Text>
                 ) : (
                   <DataTable
-                    rows={componentIds.map((cId) => ({ id: cId }))}
+                    rows={components}
                     columns={[
-                      { key: "id", header: "Component", cell: (row) => resolveName(row.id) },
+                      { key: "componentId", header: "Component", cell: (row) => row.name },
                       {
                         key: "actions",
                         header: "",
                         cell: (row) => data.status === "draft" ? (
-                          <Button size="sm" tone="danger" onClick={() => handleDetachComponent(row.id)}>Detach</Button>
+                          <Button size="sm" tone="danger" onClick={() => handleDetachComponent(row.componentId)}>Detach</Button>
                         ) : null,
                       },
                     ]}
-                    getRowId={(row) => row.id}
+                    getRowId={(row) => row.componentId}
                   />
                 )}
               </Stack>
@@ -268,7 +262,7 @@ export function BlueprintDetailPage({ id }: { id: string }) {
                 <DataTable
                   rows={fieldRules}
                   columns={[
-                    { key: "fieldId", header: "Field", cell: (row) => resolveName(row.fieldId) },
+                    { key: "fieldId", header: "Field", cell: (row) => row.fieldName },
                     { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
                   ] as DataColumn<FieldRule>[]}
                   getRowId={(row) => row.fieldId}
@@ -287,12 +281,12 @@ export function BlueprintDetailPage({ id }: { id: string }) {
                 <DataTable
                   rows={dimensionRules}
                   columns={[
-                    { key: "dimensionId", header: "Dimension", cell: (row) => resolveName(row.dimensionId) },
+                    { key: "dimensionId", header: "Dimension", cell: (row) => row.dimensionName },
                     { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
                     {
-                      key: "allowedChoiceIds",
+                      key: "allowedChoices",
                       header: "Allowed Choices",
-                      cell: (row) => row.allowedChoiceIds.length > 0 ? row.allowedChoiceIds.map(resolveName).join(", ") : "All",
+                      cell: (row) => row.allowedChoices.length > 0 ? row.allowedChoices.map((choice) => choice.code).join(", ") : "All",
                     },
                   ] as DataColumn<DimensionRule>[]}
                   getRowId={(row) => row.dimensionId}
@@ -305,13 +299,13 @@ export function BlueprintDetailPage({ id }: { id: string }) {
               <Stack gap={3}>
                 <KeyValueList
                   items={[
-                    { key: "Canonical Dimension Order", value: canonicalDimensionOrder.length > 0 ? canonicalDimensionOrder.map(resolveName).join(", ") : "Not set" },
+                    { key: "Canonical Dimension Order", value: canonicalDimensionOrder.length > 0 ? canonicalDimensionOrder.map((dimension) => dimension.dimensionName).join(", ") : "Not set" },
                   ]}
                 />
                 {data.status === "draft" && (
                   <Inline>
                     <Button size="sm" onClick={() => {
-                      setCanonicalOrder(canonicalDimensionOrder.join(", "));
+                      setCanonicalOrder(canonicalDimensionOrder.map((dimension) => dimension.dimensionId).join(", "));
                       setShowSetVersionRules(true);
                     }}>
                       Set Version Rules

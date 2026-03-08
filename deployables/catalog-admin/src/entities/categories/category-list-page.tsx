@@ -12,13 +12,13 @@ import {
 import { useToasts } from "../../toasts";
 import { EntityListPage } from "../../shared/entity-list-page";
 import { useCategoryList, createCategory } from "./use-categories";
-import type { Category } from "../../api/types";
+import type { CategoryListItem } from "../../api/types";
 
-function buildColumns(nameMap: Record<string, string>): DataColumn<Category>[] {
+function buildColumns(): DataColumn<CategoryListItem>[] {
   return [
     { key: "key", header: "Key", cell: (row) => row.key },
     { key: "name", header: "Name", cell: (row) => row.name },
-    { key: "parent", header: "Parent", cell: (row) => row.parent_category_id ? (nameMap[row.parent_category_id] ?? row.parent_category_id) : "—" },
+    { key: "parent", header: "Parent", cell: (row) => row.parent_category?.name ?? "—" },
     { key: "order", header: "Order", align: "right", cell: (row) => row.display_order },
     { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
   ];
@@ -46,7 +46,7 @@ export function CategoryListPage() {
   }, [search, statusFilter, page]);
 
   const { data, loading, error, refresh } = useCategoryList(query);
-  const columns = useMemo(() => buildColumns(data?._resolvedNames ?? {}), [data?._resolvedNames]);
+  const columns = useMemo(() => buildColumns(), []);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
   const [key, setKey] = useState("");

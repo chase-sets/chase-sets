@@ -11,13 +11,13 @@ import {
 import { useToasts } from "../../toasts";
 import { EntityListPage } from "../../shared/entity-list-page";
 import { useCatalogItemList, createCatalogItem } from "./use-catalog-items";
-import type { CatalogItem } from "../../api/types";
+import type { CatalogItemListItem } from "../../api/types";
 
-function buildColumns(nameMap: Record<string, string>): DataColumn<CatalogItem>[] {
+function buildColumns(): DataColumn<CatalogItemListItem>[] {
   return [
     { key: "title", header: "Title", cell: (row) => row.title },
     { key: "subtitle", header: "Subtitle", cell: (row) => row.subtitle ?? "—" },
-    { key: "blueprint", header: "Blueprint", cell: (row) => row.blueprint_id ? (nameMap[row.blueprint_id] ?? row.blueprint_id) : "—" },
+    { key: "blueprint", header: "Blueprint", cell: (row) => row.blueprint?.name ?? "—" },
     { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
   ];
 }
@@ -44,7 +44,7 @@ export function CatalogItemListPage() {
   }, [search, statusFilter, page]);
 
   const { data, loading, error, refresh } = useCatalogItemList(query);
-  const columns = useMemo(() => buildColumns(data?._resolvedNames ?? {}), [data?._resolvedNames]);
+  const columns = useMemo(() => buildColumns(), []);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");

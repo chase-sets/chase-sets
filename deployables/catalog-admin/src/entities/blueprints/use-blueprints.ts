@@ -1,5 +1,5 @@
 import { api } from "../../api/client";
-import type { Blueprint, ListResponse, CommandResponse } from "../../api/types";
+import type { Blueprint, BlueprintDetail, ListResponse, CommandResponse } from "../../api/types";
 import { useFetch } from "../../shared/use-fetch";
 
 export function useBlueprintList(query: string) {
@@ -7,7 +7,7 @@ export function useBlueprintList(query: string) {
 }
 
 export function useBlueprint(id: string) {
-  return useFetch(() => api.get<Blueprint>(`/blueprints/${id}`), [id]);
+  return useFetch(() => api.get<BlueprintDetail>(`/blueprints/${id}`), [id]);
 }
 
 export function createBlueprint(body: { blueprintId: string; key: string; name: string; description?: string }) {

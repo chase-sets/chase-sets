@@ -12,6 +12,20 @@ export type ListResult<T> = {
   total: number;
 };
 
+export type NamedEntityRefRow = Readonly<{
+  categoryId?: string;
+  blueprintId?: string;
+  componentId?: string;
+  dimensionId?: string;
+  fieldId?: string;
+  name: string;
+}>;
+
+export type NamedChoiceRefRow = Readonly<{
+  choiceId: string;
+  code: string;
+}>;
+
 export type DimensionRow = Readonly<{
   dimension_id: string;
   key: string;
@@ -55,6 +69,17 @@ export type ComponentRow = Readonly<{
   updated_at: string;
 }>;
 
+export type ComponentDetailRow = Readonly<{
+  component_id: string;
+  key: string;
+  name: string;
+  description: string;
+  status: string;
+  field_rules: unknown;
+  dimension_rules: unknown;
+  updated_at: string;
+}>;
+
 export type BlueprintRow = Readonly<{
   blueprint_id: string;
   key: string;
@@ -68,26 +93,54 @@ export type BlueprintRow = Readonly<{
   updated_at: string;
 }>;
 
-export type CategoryRow = Readonly<{
+export type BlueprintDetailRow = Readonly<{
+  blueprint_id: string;
+  key: string;
+  name: string;
+  description: string;
+  status: string;
+  components: unknown;
+  field_rules: unknown;
+  dimension_rules: unknown;
+  canonical_dimension_order: unknown;
+  updated_at: string;
+}>;
+
+export type CategoryListRow = Readonly<{
   category_id: string;
   key: string;
   name: string;
   description: string;
   status: string;
   parent_category_id: string | null;
+  parent_category: unknown;
   display_order: number;
   updated_at: string;
 }>;
 
-export type CatalogItemRow = Readonly<{
+export type CategoryDetailRow = CategoryListRow;
+
+export type CatalogItemListRow = Readonly<{
+  item_id: string;
+  title: string;
+  subtitle: string | null;
+  blueprint_id: string | null;
+  blueprint: unknown;
+  status: string;
+  tags: unknown;
+  updated_at: string;
+}>;
+
+export type CatalogItemDetailRow = Readonly<{
   item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
   blueprint_id: string | null;
+  blueprint: unknown;
   status: string;
   field_values: unknown;
-  category_ids: unknown;
+  categories: unknown;
   tags: unknown;
   image_urls: unknown;
   updated_at: string;
@@ -112,7 +165,7 @@ function buildFilteredQuery(
   }
 
   if (params.search) {
-    const likeClauses = searchColumns.map((col) => `${col} ILIKE $${paramIndex}`);
+    const likeClauses = searchColumns.map((column) => `${column} ILIKE $${paramIndex}`);
     conditions.push(`(${likeClauses.join(" OR ")})`);
     values.push(`%${params.search}%`);
     paramIndex++;
@@ -135,33 +188,38 @@ async function executeListQuery<T>(db: PgQueryable, countSql: string, listSql: s
     db.query<T>(listSql, values),
   ]);
 
-  return { items: listResult.rows, total: parseInt(countResult.rows[0].count) };
+  return {
+    items: listResult.rows,
+    total: parseInt(countResult.rows[0].count, 10),
+  };
 }
 
 export async function listDimensions(db: PgQueryable, params: ListParams = {}): Promise<ListResult<DimensionRow>> {
-  const q = buildFilteredQuery("catalog_dimensions", params, ["key", "name"], "key ASC");
-  return executeListQuery<DimensionRow>(db, q.countSql, q.listSql, q.values);
+  const query = buildFilteredQuery("catalog_dimensions", params, ["key", "name"], "key ASC");
+  return executeListQuery<DimensionRow>(db, query.countSql, query.listSql, query.values);
 }
 
 export async function getDimension(db: PgQueryable, dimensionId: string) {
-  const dimResult = await db.query<DimensionRow>(
+  const dimensionResult = await db.query<DimensionRow>(
     `SELECT * FROM catalog_dimensions WHERE dimension_id = $1`,
     [dimensionId],
   );
 
-  if (dimResult.rows.length === 0) return null;
+  if (dimensionResult.rows.length === 0) {
+    return null;
+  }
 
   const choicesResult = await db.query<DimensionChoiceRow>(
     `SELECT * FROM catalog_dimension_choices WHERE dimension_id = $1 ORDER BY display_order ASC`,
     [dimensionId],
   );
 
-  return { ...dimResult.rows[0], choices: choicesResult.rows };
+  return { ...dimensionResult.rows[0], choices: choicesResult.rows };
 }
 
 export async function listFields(db: PgQueryable, params: ListParams = {}): Promise<ListResult<FieldRow>> {
-  const q = buildFilteredQuery("catalog_fields", params, ["key", "name"], "key ASC");
-  return executeListQuery<FieldRow>(db, q.countSql, q.listSql, q.values);
+  const query = buildFilteredQuery("catalog_fields", params, ["key", "name"], "key ASC");
+  return executeListQuery<FieldRow>(db, query.countSql, query.listSql, query.values);
 }
 
 export async function getField(db: PgQueryable, fieldId: string) {
@@ -174,13 +232,13 @@ export async function getField(db: PgQueryable, fieldId: string) {
 }
 
 export async function listComponents(db: PgQueryable, params: ListParams = {}): Promise<ListResult<ComponentRow>> {
-  const q = buildFilteredQuery("catalog_components", params, ["key", "name"], "key ASC");
-  return executeListQuery<ComponentRow>(db, q.countSql, q.listSql, q.values);
+  const query = buildFilteredQuery("catalog_components", params, ["key", "name"], "key ASC");
+  return executeListQuery<ComponentRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function getComponent(db: PgQueryable, componentId: string) {
-  const result = await db.query<ComponentRow>(
-    `SELECT * FROM catalog_components WHERE component_id = $1`,
+export async function getComponentDetail(db: PgQueryable, componentId: string) {
+  const result = await db.query<ComponentDetailRow>(
+    `SELECT * FROM catalog_admin_component_detail_pages WHERE component_id = $1`,
     [componentId],
   );
 
@@ -188,13 +246,13 @@ export async function getComponent(db: PgQueryable, componentId: string) {
 }
 
 export async function listBlueprints(db: PgQueryable, params: ListParams = {}): Promise<ListResult<BlueprintRow>> {
-  const q = buildFilteredQuery("catalog_blueprints", params, ["key", "name"], "key ASC");
-  return executeListQuery<BlueprintRow>(db, q.countSql, q.listSql, q.values);
+  const query = buildFilteredQuery("catalog_blueprints", params, ["key", "name"], "key ASC");
+  return executeListQuery<BlueprintRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function getBlueprint(db: PgQueryable, blueprintId: string) {
-  const result = await db.query<BlueprintRow>(
-    `SELECT * FROM catalog_blueprints WHERE blueprint_id = $1`,
+export async function getBlueprintDetail(db: PgQueryable, blueprintId: string) {
+  const result = await db.query<BlueprintDetailRow>(
+    `SELECT * FROM catalog_admin_blueprint_detail_pages WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
@@ -204,7 +262,7 @@ export async function getBlueprint(db: PgQueryable, blueprintId: string) {
 export async function listCategories(
   db: PgQueryable,
   params: ListParams & { parentCategoryId?: string } = {},
-): Promise<ListResult<CategoryRow>> {
+): Promise<ListResult<CategoryListRow>> {
   const extraConditions: string[] = [];
   const extraValues: unknown[] = [];
 
@@ -213,13 +271,21 @@ export async function listCategories(
     extraValues.push(params.parentCategoryId);
   }
 
-  const q = buildFilteredQuery("catalog_categories", params, ["key", "name"], "display_order ASC, key ASC", extraConditions, extraValues);
-  return executeListQuery<CategoryRow>(db, q.countSql, q.listSql, q.values);
+  const query = buildFilteredQuery(
+    "catalog_admin_category_list_pages",
+    params,
+    ["key", "name"],
+    "display_order ASC, key ASC",
+    extraConditions,
+    extraValues,
+  );
+
+  return executeListQuery<CategoryListRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function getCategory(db: PgQueryable, categoryId: string) {
-  const result = await db.query<CategoryRow>(
-    `SELECT * FROM catalog_categories WHERE category_id = $1`,
+export async function getCategoryDetail(db: PgQueryable, categoryId: string) {
+  const result = await db.query<CategoryDetailRow>(
+    `SELECT * FROM catalog_admin_category_detail_pages WHERE category_id = $1`,
     [categoryId],
   );
 
@@ -229,7 +295,7 @@ export async function getCategory(db: PgQueryable, categoryId: string) {
 export async function listCatalogItems(
   db: PgQueryable,
   params: ListParams & { blueprintId?: string; tag?: string } = {},
-): Promise<ListResult<CatalogItemRow>> {
+): Promise<ListResult<CatalogItemListRow>> {
   const extraConditions: string[] = [];
   const extraValues: unknown[] = [];
   let paramIndex = 1;
@@ -246,71 +312,23 @@ export async function listCatalogItems(
     paramIndex++;
   }
 
-  const q = buildFilteredQuery("catalog_items", params, ["title", "subtitle"], "title ASC", extraConditions, extraValues);
-  return executeListQuery<CatalogItemRow>(db, q.countSql, q.listSql, q.values);
+  const query = buildFilteredQuery(
+    "catalog_admin_catalog_item_list_pages",
+    params,
+    ["title", "subtitle"],
+    "title ASC",
+    extraConditions,
+    extraValues,
+  );
+
+  return executeListQuery<CatalogItemListRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function getCatalogItem(db: PgQueryable, itemId: string) {
-  const result = await db.query<CatalogItemRow>(
-    `SELECT * FROM catalog_items WHERE item_id = $1`,
+export async function getCatalogItemDetail(db: PgQueryable, itemId: string) {
+  const result = await db.query<CatalogItemDetailRow>(
+    `SELECT * FROM catalog_admin_catalog_item_detail_pages WHERE item_id = $1`,
     [itemId],
   );
 
   return result.rows[0] ?? null;
-}
-
-export type NameEntry = Readonly<{ id: string; name: string }>;
-
-export async function resolveFieldNames(db: PgQueryable, fieldIds: string[]): Promise<NameEntry[]> {
-  if (fieldIds.length === 0) return [];
-  const result = await db.query<{ field_id: string; name: string }>(
-    `SELECT field_id, name FROM catalog_fields WHERE field_id = ANY($1)`,
-    [fieldIds],
-  );
-  return result.rows.map((row) => ({ id: row.field_id, name: row.name }));
-}
-
-export async function resolveDimensionNames(db: PgQueryable, dimensionIds: string[]): Promise<NameEntry[]> {
-  if (dimensionIds.length === 0) return [];
-  const result = await db.query<{ dimension_id: string; name: string }>(
-    `SELECT dimension_id, name FROM catalog_dimensions WHERE dimension_id = ANY($1)`,
-    [dimensionIds],
-  );
-  return result.rows.map((row) => ({ id: row.dimension_id, name: row.name }));
-}
-
-export async function resolveComponentNames(db: PgQueryable, componentIds: string[]): Promise<NameEntry[]> {
-  if (componentIds.length === 0) return [];
-  const result = await db.query<{ component_id: string; name: string }>(
-    `SELECT component_id, name FROM catalog_components WHERE component_id = ANY($1)`,
-    [componentIds],
-  );
-  return result.rows.map((row) => ({ id: row.component_id, name: row.name }));
-}
-
-export async function resolveBlueprintNames(db: PgQueryable, blueprintIds: string[]): Promise<NameEntry[]> {
-  if (blueprintIds.length === 0) return [];
-  const result = await db.query<{ blueprint_id: string; name: string }>(
-    `SELECT blueprint_id, name FROM catalog_blueprints WHERE blueprint_id = ANY($1)`,
-    [blueprintIds],
-  );
-  return result.rows.map((row) => ({ id: row.blueprint_id, name: row.name }));
-}
-
-export async function resolveCategoryNames(db: PgQueryable, categoryIds: string[]): Promise<NameEntry[]> {
-  if (categoryIds.length === 0) return [];
-  const result = await db.query<{ category_id: string; name: string }>(
-    `SELECT category_id, name FROM catalog_categories WHERE category_id = ANY($1)`,
-    [categoryIds],
-  );
-  return result.rows.map((row) => ({ id: row.category_id, name: row.name }));
-}
-
-export async function resolveChoiceCodes(db: PgQueryable, choiceIds: string[]): Promise<NameEntry[]> {
-  if (choiceIds.length === 0) return [];
-  const result = await db.query<{ choice_id: string; code: string }>(
-    `SELECT choice_id, code FROM catalog_dimension_choices WHERE choice_id = ANY($1)`,
-    [choiceIds],
-  );
-  return result.rows.map((row) => ({ id: row.choice_id, name: row.code }));
 }

@@ -1,5 +1,5 @@
 import { api } from "../../api/client";
-import type { Component, ListResponse, CommandResponse } from "../../api/types";
+import type { Component, ComponentDetail, ListResponse, CommandResponse } from "../../api/types";
 import { useFetch } from "../../shared/use-fetch";
 
 export function useComponentList(query: string) {
@@ -7,7 +7,7 @@ export function useComponentList(query: string) {
 }
 
 export function useComponent(id: string) {
-  return useFetch(() => api.get<Component>(`/components/${id}`), [id]);
+  return useFetch(() => api.get<ComponentDetail>(`/components/${id}`), [id]);
 }
 
 export function createComponent(body: { componentId: string; key: string; name: string; description?: string }) {

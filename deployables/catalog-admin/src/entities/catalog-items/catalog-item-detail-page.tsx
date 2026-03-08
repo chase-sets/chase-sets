@@ -44,7 +44,25 @@ function getTransitions(status: string): Transition[] {
 
 interface FieldValue {
   fieldId: string;
-  value: string;
+  fieldName: string;
+  value: unknown;
+}
+
+interface CategoryRef {
+  categoryId: string;
+  name: string;
+}
+
+function formatFieldValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
 }
 
 export function CatalogItemDetailPage({ id }: { id: string }) {
@@ -193,19 +211,11 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
   }
 
   const fieldValues = (data?.field_values ?? []) as FieldValue[];
-  const categoryIds = (data?.category_ids ?? []) as string[];
-
-  const nameMap = new Map<string, string>();
-  for (const list of Object.values(data?._resolved ?? {})) {
-    for (const entry of list as { id: string; name: string }[]) {
-      nameMap.set(entry.id, entry.name);
-    }
-  }
-  const resolveName = (id: string) => nameMap.get(id) ?? id;
+  const categories = (data?.categories ?? []) as CategoryRef[];
 
   const fieldValueColumns: DataColumn<FieldValue>[] = [
-    { key: "fieldId", header: "Field", cell: (row) => resolveName(row.fieldId) },
-    { key: "value", header: "Value", cell: (row) => row.value },
+    { key: "fieldId", header: "Field", cell: (row) => row.fieldName },
+    { key: "value", header: "Value", cell: (row) => formatFieldValue(row.value) },
     {
       key: "actions",
       header: "",
@@ -250,13 +260,13 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
                 { key: "Title", value: data.title },
                 { key: "Subtitle", value: data.subtitle ?? "—" },
                 { key: "Description", value: data.description ?? "—" },
-                { key: "Blueprint", value: data.blueprint_id ? resolveName(data.blueprint_id) : "None" },
+                { key: "Blueprint", value: data.blueprint?.name ?? "None" },
                 { key: "Status", value: data.status },
                 { key: "Updated", value: data.updated_at },
               ]}
             />
 
-            {data.status === "draft" && !data.blueprint_id && (
+            {data.status === "draft" && !data.blueprint && (
               <PageSection title="Blueprint">
                 <Button size="sm" onClick={() => setShowAssignBlueprint(true)}>Assign Blueprint</Button>
               </PageSection>
@@ -285,22 +295,22 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
                     <Button size="sm" onClick={() => setShowAssignCategory(true)}>Assign Category</Button>
                   </Inline>
                 )}
-                {categoryIds.length === 0 ? (
+                {categories.length === 0 ? (
                   <Text tone="secondary">No categories assigned.</Text>
                 ) : (
                   <DataTable
-                    rows={categoryIds.map((catId) => ({ id: catId }))}
+                    rows={categories}
                     columns={[
-                      { key: "id", header: "Category", cell: (row) => resolveName(row.id) },
+                      { key: "categoryId", header: "Category", cell: (row) => row.name },
                       {
                         key: "actions",
                         header: "",
                         cell: (row) => data.status !== "archived" ? (
-                          <Button size="sm" tone="danger" onClick={() => handleRemoveCategory(row.id)}>Remove</Button>
+                          <Button size="sm" tone="danger" onClick={() => handleRemoveCategory(row.categoryId)}>Remove</Button>
                         ) : null,
                       },
                     ]}
-                    getRowId={(row) => row.id}
+                    getRowId={(row) => row.categoryId}
                   />
                 )}
               </Stack>
