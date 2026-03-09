@@ -1,9 +1,7 @@
-import { eventCorePostgresSchemaSql } from "../../../contracts/event-core/postgres/schema";
-import { catalogAuthoringProjectionSchemaSql } from "../../../bounded-contexts/catalog/authoring/api/schema";
+import { catalogAuthoringDatabaseSchemaSql } from "../../../bounded-contexts/catalog/authoring/database-schema";
 import { discoveryProjectionSchemaSql } from "../../../bounded-contexts/discovery/api/schema";
 
 export const catalogApiInitSql = [
-  eventCorePostgresSchemaSql,
-  catalogAuthoringProjectionSchemaSql,
+  catalogAuthoringDatabaseSchemaSql,
   discoveryProjectionSchemaSql,
 ].join("\n\n");
