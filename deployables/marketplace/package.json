@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit"
+    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
     "@chase-sets/design-system": "0.1.0",

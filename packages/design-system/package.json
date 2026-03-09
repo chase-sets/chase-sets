@@ -30,7 +30,8 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-toast": "^1.2.15",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@radix-ui/react-visually-hidden": "^1.2.4"
+    "@radix-ui/react-visually-hidden": "^1.2.4",
+    "motion": "^12.35.2"
   },
   "scripts": {
     "test": "vitest run --config ./vitest.config.ts",

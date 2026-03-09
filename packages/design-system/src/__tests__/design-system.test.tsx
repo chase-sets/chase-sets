@@ -6,6 +6,7 @@ import { BottomNav, Button, CopyButton, Tabs, TopNav } from "../components/actio
 import { Card, DataTable, DetailPanel, ImageGallery, StatGrid } from "../components/data-display";
 import { Accordion, Dialog, Rating, ToastRegion } from "../components/feedback";
 import { PasswordInput, TagInput } from "../components/forms";
+import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
 import {
   AdminShell,
   MarketplaceShell,
@@ -16,7 +17,7 @@ import {
   Wizard
 } from "../patterns/app-shells";
 import { Container, SkipLink } from "../primitives/layout";
-import { ChaseRoot, ColorModeToggle } from "../theme/provider";
+import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
 import { resolveResponsiveClass } from "../utils/system";
 
@@ -58,6 +59,18 @@ function UncontrolledToastHarness() {
   );
 }
 
+function MotionStatus() {
+  const reducedMotion = useReducedMotion();
+  const motionSettings = useChaseMotion();
+
+  return (
+    <div>
+      <span>{reducedMotion ? "reduced" : "full"}</span>
+      <span>{motionSettings.reducedMotionSetting}</span>
+    </div>
+  );
+}
+
 describe("design system", () => {
   const marketplaceNav = [
     { key: "browse", label: "Browse", icon: "search" as const }
@@ -94,6 +107,38 @@ describe("design system", () => {
     expect(markup).toContain("data-chase-theme");
     expect(markup).toContain('data-color-mode="system"');
     expect(markup).toContain("Ship it");
+  });
+
+  it("supports explicit reduced motion policy overrides", () => {
+    render(
+      <ChaseRoot reducedMotion="always">
+        <MotionStatus />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByText("reduced")).toBeTruthy();
+    expect(screen.getByText("always")).toBeTruthy();
+  });
+
+  it("resolves the user reduced motion policy from matchMedia", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: () => ({
+        matches: true,
+        addEventListener: () => {},
+        removeEventListener: () => {}
+      })
+    });
+
+    render(
+      <ChaseRoot>
+        <MotionStatus />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByText("reduced")).toBeTruthy();
+    expect(screen.getByText("user")).toBeTruthy();
   });
 
   it("renders tab content", () => {
@@ -142,6 +187,24 @@ describe("design system", () => {
 
     expect(screen.getByText("Review listing")).toBeTruthy();
     expect(screen.getByText("Content body")).toBeTruthy();
+  });
+
+  it("renders motion primitives safely on the server", () => {
+    const markup = renderToString(
+      <ChaseRoot reducedMotion="never">
+        <Stagger>
+          <Reveal preset="lift">
+            <div>Animated card</div>
+          </Reveal>
+          <ViewTransition transitionKey="search">
+            <div>Animated page</div>
+          </ViewTransition>
+        </Stagger>
+      </ChaseRoot>
+    );
+
+    expect(markup).toContain("Animated card");
+    expect(markup).toContain("Animated page");
   });
 
   it("dismisses controlled toasts through caller state", async () => {

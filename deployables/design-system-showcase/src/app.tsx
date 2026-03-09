@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ChaseRoot,
   type ColorMode,
+  type ReducedMotionSetting,
   Page,
   PageHeader,
   Surface,
@@ -17,11 +18,12 @@ type ShowcaseMode = "marketplace" | "admin" | "components";
 
 export function App() {
   const [colorMode, setColorMode] = useState<ColorMode>("system");
+  const [reducedMotion, setReducedMotion] = useState<ReducedMotionSetting>("user");
   const [showcaseMode, setShowcaseMode] = useState<ShowcaseMode>("marketplace");
   const [isDemoToastOpen, setIsDemoToastOpen] = useState(true);
 
   return (
-    <ChaseRoot colorMode={colorMode}>
+    <ChaseRoot colorMode={colorMode} reducedMotion={reducedMotion}>
       <Page>
         <Surface elevated>
           <PageHeader
@@ -32,6 +34,8 @@ export function App() {
               <ShowcaseThemeControl
                 colorMode={colorMode}
                 onColorModeChange={setColorMode}
+                reducedMotion={reducedMotion}
+                onReducedMotionChange={setReducedMotion}
               />
             }
           />

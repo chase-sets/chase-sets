@@ -5,6 +5,7 @@ import {
   Text,
   type NavigationItem,
   type ColorMode,
+  ViewTransition,
 } from "@chase-sets/design-system";
 import { ItemDetailPage, SearchPage } from "../../../bounded-contexts/discovery/ui";
 import { useHashRouter } from "./router";
@@ -29,11 +30,13 @@ export function App() {
         bottomNavItems={bottomNavItems}
         activeKey={route.page}
       >
-        {route.page === "items" && route.id ? (
-          <ItemDetailPage id={route.id} />
-        ) : (
-          <SearchPage />
-        )}
+        <ViewTransition transitionKey={`${route.page}:${route.id ?? ""}`} preset="page">
+          {route.page === "items" && route.id ? (
+            <ItemDetailPage id={route.id} />
+          ) : (
+            <SearchPage />
+          )}
+        </ViewTransition>
       </MarketplaceShell>
     </ChaseRoot>
   );

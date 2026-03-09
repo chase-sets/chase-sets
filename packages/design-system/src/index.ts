@@ -4,6 +4,8 @@ export * from "./components/feedback";
 export * from "./components/forms";
 export * from "./hooks";
 export * from "./icons";
+export * from "./motion/config";
+export * from "./motion/primitives";
 export * from "./patterns/app-shells";
 export * from "./primitives/layout";
 export * from "./primitives/typography";

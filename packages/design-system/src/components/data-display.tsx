@@ -1,7 +1,9 @@
 import { useState } from "react";
 import type { HTMLAttributes, ReactNode } from "react";
+import { motion } from "motion/react";
 import type { ResponsiveValue } from "../theme/tokens";
 import { Icon, type IconName } from "../icons";
+import { useChaseMotion } from "../theme/provider";
 import { cx } from "../utils/cx";
 import { resolveColumnsClass } from "../utils/system";
 import { Button } from "./actions";
@@ -444,9 +446,21 @@ export function Card({
   interactive = false,
   ...rest
 }: CardProps) {
+  const motionSettings = useChaseMotion();
+  const interactiveMotion =
+    interactive && !motionSettings.reducedMotion
+      ? {
+          whileHover: { y: motionSettings.interactiveLift, scale: motionSettings.interactiveScale },
+          whileTap: { y: 0, scale: 0.99 },
+          transition: { duration: motionSettings.durations.base, ease: motionSettings.easing }
+        }
+      : undefined;
+  const nativeProps = rest as unknown as Record<string, unknown>;
+
   return (
-    <div
-      {...rest}
+    <motion.div
+      {...nativeProps}
+      {...interactiveMotion}
       className={cx(
         "modern-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm",
         interactive && "cursor-pointer transition hover:border-accent hover:shadow-tokenMd",
@@ -461,7 +475,7 @@ export function Card({
       ) : (
         children
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -500,9 +514,19 @@ export function FilterBar({
   stickyOffset,
   ...rest
 }: FilterBarProps) {
+  const motionSettings = useChaseMotion();
+  const nativeProps = rest as unknown as Record<string, unknown>;
+
   return (
-    <div
-      {...rest}
+    <motion.div
+      {...nativeProps}
+      initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 10 }}
+      animate={motionSettings.reducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={
+        motionSettings.reducedMotion
+          ? undefined
+          : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+      }
       style={stickyOffset ? { top: stickyOffset } : undefined}
       className={cx(
         "modern-surface sticky z-sticky flex flex-col gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:flex-row md:items-center md:justify-between",
@@ -511,7 +535,7 @@ export function FilterBar({
     >
       <div className="flex flex-1 flex-wrap gap-3">{children}</div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
-    </div>
+    </motion.div>
   );
 }
 
@@ -555,16 +579,26 @@ export function BulkActionBar({
   formatSelectedLabel = (n) => `${n} item${n === 1 ? "" : "s"} selected`,
   ...rest
 }: BulkActionBarProps) {
+  const motionSettings = useChaseMotion();
+  const nativeProps = rest as unknown as Record<string, unknown>;
+
   return (
-    <div
-      {...rest}
+    <motion.div
+      {...nativeProps}
+      initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 14 }}
+      animate={motionSettings.reducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={
+        motionSettings.reducedMotion
+          ? undefined
+          : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+      }
       className="modern-surface sticky bottom-20 z-sticky flex flex-col gap-3 rounded-tokenLg border border-accent p-4 shadow-overlay md:bottom-4 md:flex-row md:items-center md:justify-between"
     >
       <div className="text-sm font-semibold text-foreground">
         {formatSelectedLabel(count)}
       </div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
-    </div>
+    </motion.div>
   );
 }
 

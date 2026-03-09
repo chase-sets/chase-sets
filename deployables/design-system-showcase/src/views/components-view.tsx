@@ -49,12 +49,15 @@ import {
   ProgressBar,
   Quote,
   Rating,
+  Reveal,
   RecordPage,
   ScrollArea,
   Select,
+  SegmentedControl,
   Skeleton,
   Spacer,
   Stack,
+  Stagger,
   StatusPill,
   Surface,
   Table,
@@ -64,6 +67,7 @@ import {
   TextInput,
   Thumbnail,
   Timeline,
+  ViewTransition,
   VisuallyHidden,
   Wizard
 } from "@chase-sets/design-system";
@@ -163,6 +167,57 @@ function WizardDemo() {
         onStepChange={setStep}
         onComplete={() => {}}
       />
+    </Surface>
+  );
+}
+
+function MotionDemo() {
+  const [view, setView] = useState("search");
+
+  return (
+    <Surface>
+      <Stack gap={4}>
+        <SegmentedControl
+          value={view}
+          onValueChange={setView}
+          items={[
+            { value: "search", label: "Search" },
+            { value: "detail", label: "Detail" }
+          ]}
+        />
+        <ViewTransition transitionKey={view}>
+          {view === "search" ? (
+            <Card>
+              <Stack gap={2}>
+                <Text weight="semibold">Marketplace search view</Text>
+                <Text size="sm" tone="secondary">
+                  Route-level transitions stay design-system led.
+                </Text>
+              </Stack>
+            </Card>
+          ) : (
+            <Card>
+              <Stack gap={2}>
+                <Text weight="semibold">Item detail view</Text>
+                <Text size="sm" tone="secondary">
+                  Panels can enter with shared timing and reduced-motion awareness.
+                </Text>
+              </Stack>
+            </Card>
+          )}
+        </ViewTransition>
+        <Stagger>
+          <Reveal preset="fade">
+            <Badge tone="accent">Fade</Badge>
+          </Reveal>
+          <Reveal preset="lift">
+            <Badge tone="success">Lift</Badge>
+          </Reveal>
+          <Reveal preset="slideRight">
+            <Badge tone="info">Slide Right</Badge>
+          </Reveal>
+        </Stagger>
+      </Stack>
     </Surface>
   );
 }
@@ -402,6 +457,23 @@ export function ComponentsView() {
             <Stack gap={3}>
               <Heading level={5}>NavRail</Heading>
               <NavRail items={adminNav} activeKey="dashboard" />
+            </Stack>
+          </Card>
+        </Grid>
+      </PageSection>
+
+      <PageSection title="Motion">
+        <Grid columns={{ base: 1, md: 2 }} gap={4}>
+          <MotionDemo />
+          <Card>
+            <Stack gap={3}>
+              <Heading level={5}>Motion policy</Heading>
+              <Text size="sm" tone="secondary">
+                `ChaseRoot` owns reduced-motion behavior with system, full, and reduced modes.
+              </Text>
+              <Text size="sm" tone="secondary">
+                Core overlays, navigation, tabs, cards, toasts, and wizards now inherit the same timing model.
+              </Text>
             </Stack>
           </Card>
         </Grid>

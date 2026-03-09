@@ -7,7 +7,9 @@ import {
   EmptyState,
   LoadingSpinner,
   Banner,
+  Reveal,
   Stack,
+  Stagger,
   Inline,
   Text,
 } from "@chase-sets/design-system";
@@ -84,40 +86,44 @@ export function SearchPage() {
           />
         </FilterBar>
 
-        {data && (
-          <Text size="sm" tone="secondary">
-            {data.total} {data.total === 1 ? "result" : "results"} found
-          </Text>
-        )}
+        <Stagger>
+          {data ? (
+            <Text size="sm" tone="secondary">
+              {data.total} {data.total === 1 ? "result" : "results"} found
+            </Text>
+          ) : null}
 
-        {error && <Banner tone="danger" title="Error" description={error} />}
+          {error ? <Banner tone="danger" title="Error" description={error} /> : null}
 
-        {loading && !data ? (
-          <LoadingSpinner label="Searching..." />
-        ) : data && data.items.length === 0 ? (
-          <EmptyState
-            title="No items found"
-            description={search || category ? "Try adjusting your search or filters." : "No catalog items are available yet."}
-            icon="search"
-          />
-        ) : data ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {data.items.map((item) => (
-                <ItemCard key={item.item_id} item={item} />
-              ))}
-            </div>
-            {totalPages > 1 && (
-              <Inline align="center">
-                <Pagination
-                  page={page}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                />
-              </Inline>
-            )}
-          </>
-        ) : null}
+          {loading && !data ? (
+            <LoadingSpinner label="Searching..." />
+          ) : data && data.items.length === 0 ? (
+            <EmptyState
+              title="No items found"
+              description={search || category ? "Try adjusting your search or filters." : "No catalog items are available yet."}
+              icon="search"
+            />
+          ) : data ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {data.items.map((item) => (
+                  <Reveal key={item.item_id} preset="lift">
+                    <ItemCard item={item} />
+                  </Reveal>
+                ))}
+              </div>
+              {totalPages > 1 ? (
+                <Inline align="center">
+                  <Pagination
+                    page={page}
+                    totalPages={totalPages}
+                    onPageChange={setPage}
+                  />
+                </Inline>
+              ) : null}
+            </>
+          ) : null}
+        </Stagger>
       </Stack>
     </div>
   );

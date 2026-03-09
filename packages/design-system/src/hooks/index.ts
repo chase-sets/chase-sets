@@ -1,1 +1,1 @@
-export { useDensity, usePortalRoots, useReducedMotion } from "../theme/provider";
+export { useChaseMotion, useDensity, usePortalRoots, useReducedMotion } from "../theme/provider";

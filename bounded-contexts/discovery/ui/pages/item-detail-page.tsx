@@ -6,7 +6,9 @@ import {
   DetailPanel,
   LoadingSpinner,
   Banner,
+  Reveal,
   Stack,
+  Stagger,
   Text,
   PageHeader,
   PageSection,
@@ -63,7 +65,7 @@ export function ItemDetailPage({ id }: { id: string }) {
   }));
 
   return (
-    <Stack gap={6}>
+    <Stagger>
       <Breadcrumbs
         items={[
           { label: "Search", href: "#/search" },
@@ -73,50 +75,60 @@ export function ItemDetailPage({ id }: { id: string }) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <Stack gap={6}>
-          {images.length > 0 ? (
-            <ImageGallery images={images} />
-          ) : (
-            <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-muted bg-background">
-              <Text tone="secondary">No images available</Text>
-            </div>
-          )}
+          <Reveal preset="lift">
+            {images.length > 0 ? (
+              <ImageGallery images={images} />
+            ) : (
+              <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-muted bg-background">
+                <Text tone="secondary">No images available</Text>
+              </div>
+            )}
+          </Reveal>
 
-          <PageHeader
-            title={data.title}
-            description={data.subtitle}
-          />
+          <Reveal preset="lift">
+            <PageHeader
+              title={data.title}
+              description={data.subtitle}
+            />
+          </Reveal>
 
-          {data.description && (
-            <PageSection title="Description">
-              <Text>{data.description}</Text>
-            </PageSection>
-          )}
+          {data.description ? (
+            <Reveal preset="lift">
+              <PageSection title="Description">
+                <Text>{data.description}</Text>
+              </PageSection>
+            </Reveal>
+          ) : null}
 
-          {data.version_schema && data.version_schema.dimensions.length > 0 && (
-            <PageSection title="Version">
-              <VersionSelector
-                schema={data.version_schema}
-                selections={selections}
-                onSelectionChange={(dimId, choiceId) =>
-                  setSelections((prev) => ({ ...prev, [dimId]: choiceId }))
-                }
-              />
-            </PageSection>
-          )}
+          {data.version_schema && data.version_schema.dimensions.length > 0 ? (
+            <Reveal preset="lift">
+              <PageSection title="Version">
+                <VersionSelector
+                  schema={data.version_schema}
+                  selections={selections}
+                  onSelectionChange={(dimId, choiceId) =>
+                    setSelections((prev) => ({ ...prev, [dimId]: choiceId }))
+                  }
+                />
+              </PageSection>
+            </Reveal>
+          ) : null}
 
-          {data.field_values.length > 0 && (
-            <PageSection title="Details">
-              <KeyValueList
-                items={data.field_values.map((fv) => ({
-                  key: fv.fieldName,
-                  value: formatFieldValue(fv.value),
-                }))}
-              />
-            </PageSection>
-          )}
+          {data.field_values.length > 0 ? (
+            <Reveal preset="lift">
+              <PageSection title="Details">
+                <KeyValueList
+                  items={data.field_values.map((fv) => ({
+                    key: fv.fieldName,
+                    value: formatFieldValue(fv.value),
+                  }))}
+                />
+              </PageSection>
+            </Reveal>
+          ) : null}
         </Stack>
 
-        <div>
+        <Reveal preset="slideRight">
           <DetailPanel title="Info">
             <Stack gap={3}>
               {data.blueprint && (
@@ -154,8 +166,8 @@ export function ItemDetailPage({ id }: { id: string }) {
               </div>
             </Stack>
           </DetailPanel>
-        </div>
+        </Reveal>
       </div>
-    </Stack>
+    </Stagger>
   );
 }

@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   BottomNav,
   Button,
@@ -9,6 +10,7 @@ import {
   type NavigationItem,
   type PageStepperItem
 } from "../components/actions";
+import { useChaseMotion } from "../theme/provider";
 import { SkipLink, layoutWidthClasses, type LayoutWidth } from "../primitives/layout";
 import { cx } from "../utils/cx";
 import {
@@ -330,16 +332,26 @@ export function SelectionToolbar({
   formatSelectedLabel = (n) => `${n} record${n === 1 ? "" : "s"} selected`,
   ...rest
 }: SelectionToolbarProps) {
+  const motionSettings = useChaseMotion();
+  const nativeProps = rest as unknown as Record<string, unknown>;
+
   return (
-    <div
-      {...rest}
+    <motion.div
+      {...nativeProps}
+      initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 14 }}
+      animate={motionSettings.reducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={
+        motionSettings.reducedMotion
+          ? undefined
+          : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+      }
       className="modern-surface sticky bottom-20 z-sticky flex flex-col gap-3 rounded-tokenLg border border-accent p-4 shadow-overlay md:bottom-4 md:flex-row md:items-center md:justify-between"
     >
       <div className="text-sm font-semibold text-foreground">
         {formatSelectedLabel(count)}
       </div>
       {actions ? <ButtonGroup>{actions}</ButtonGroup> : null}
-    </div>
+    </motion.div>
   );
 }
 
@@ -509,6 +521,7 @@ export function Wizard({
   previousLabel = "Back",
   completeLabel = "Complete"
 }: WizardProps) {
+  const motionSettings = useChaseMotion();
   const activeIndex = steps.findIndex((s) => s.key === activeStep);
   const current = steps[activeIndex];
   const isFirst = activeIndex === 0;
@@ -528,7 +541,21 @@ export function Wizard({
   return (
     <div className="space-y-6">
       <PageStepper items={stepperItems} />
-      <div>{current?.content}</div>
+      <AnimatePresence initial={false} mode="wait">
+        <motion.div
+          key={current?.key}
+          initial={motionSettings.reducedMotion ? false : { opacity: 0, x: 18 }}
+          animate={motionSettings.reducedMotion ? undefined : { opacity: 1, x: 0 }}
+          exit={motionSettings.reducedMotion ? undefined : { opacity: 0, x: -12 }}
+          transition={
+            motionSettings.reducedMotion
+              ? undefined
+              : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+          }
+        >
+          {current?.content}
+        </motion.div>
+      </AnimatePresence>
       <div className="flex items-center justify-between gap-3">
         <div>
           {!isFirst ? (

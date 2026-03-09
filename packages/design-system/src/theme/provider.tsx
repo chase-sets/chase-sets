@@ -1,10 +1,18 @@
 import {
   createContext,
   useContext,
+  useMemo,
+  useSyncExternalStore,
   useState,
   type HTMLAttributes,
   type PropsWithChildren
 } from "react";
+import { MotionConfig } from "motion/react";
+import {
+  resolveChaseMotion,
+  type ChaseMotionSettings,
+  type ReducedMotionSetting
+} from "../motion/config";
 import { cx } from "../utils/cx";
 import {
   resolveThemeOverrideStyle,
@@ -19,7 +27,9 @@ interface PortalContextValue {
 }
 
 const DensityContext = createContext<DensityMode>("comfortable");
-const MotionContext = createContext(false);
+const MotionContext = createContext<ChaseMotionSettings>(
+  resolveChaseMotion(undefined, "user", false)
+);
 const PortalContext = createContext<PortalContextValue>({
   overlayNode: null,
   toastNode: null
@@ -29,41 +39,89 @@ type RootFrameProps = Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"
 
 export interface ChaseRootProps extends PropsWithChildren, RootFrameProps {
   density?: DensityMode;
-  reducedMotion?: boolean;
+  reducedMotion?: ReducedMotionSetting;
   colorMode?: ColorMode;
   theme?: ThemeOverrides;
+}
+
+function subscribeToReducedMotion(callback: () => void) {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return () => {};
+  }
+
+  const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const listener = () => callback();
+
+  if (typeof mediaQuery.addEventListener === "function") {
+    mediaQuery.addEventListener("change", listener);
+    return () => mediaQuery.removeEventListener("change", listener);
+  }
+
+  mediaQuery.addListener(listener);
+  return () => mediaQuery.removeListener(listener);
+}
+
+function getReducedMotionSnapshot(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 export function ChaseRoot({
   children,
   density = "comfortable",
-  reducedMotion = false,
+  reducedMotion = "user",
   colorMode = "system",
   theme,
   ...rest
 }: ChaseRootProps) {
   const [overlayNode, setOverlayNode] = useState<HTMLDivElement | null>(null);
   const [toastNode, setToastNode] = useState<HTMLDivElement | null>(null);
+  const systemReducedMotion = useSyncExternalStore(
+    subscribeToReducedMotion,
+    getReducedMotionSnapshot,
+    () => false
+  );
+  const resolvedReducedMotion =
+    reducedMotion === "always"
+      ? true
+      : reducedMotion === "never"
+        ? false
+        : systemReducedMotion;
+  const motionSettings = useMemo(
+    () => resolveChaseMotion(theme, reducedMotion, resolvedReducedMotion),
+    [theme, reducedMotion, resolvedReducedMotion]
+  );
 
   return (
     <DensityContext.Provider value={density}>
-      <MotionContext.Provider value={reducedMotion}>
+      <MotionContext.Provider value={motionSettings}>
         <PortalContext.Provider value={{ overlayNode, toastNode }}>
-          <div
-            {...rest}
-            data-chase-theme=""
-            data-color-mode={colorMode}
-            data-density={density}
-            data-reduced-motion={reducedMotion ? "true" : "false"}
-            className={cx(
-              "chase-root relative isolate min-h-screen bg-background font-body text-foreground"
-            )}
-            style={resolveThemeOverrideStyle(theme)}
+          <MotionConfig
+            reducedMotion={reducedMotion}
+            transition={{
+              duration: motionSettings.durations.base,
+              ease: motionSettings.easing
+            }}
           >
-            {children}
-            <div ref={setOverlayNode} data-chase-overlay-root="" />
-            <div ref={setToastNode} data-chase-toast-root="" />
-          </div>
+            <div
+              {...rest}
+              data-chase-theme=""
+              data-color-mode={colorMode}
+              data-density={density}
+              data-reduced-motion={resolvedReducedMotion ? "true" : "false"}
+              className={cx(
+                "chase-root relative isolate min-h-screen bg-background font-body text-foreground"
+              )}
+              style={resolveThemeOverrideStyle(theme)}
+            >
+              {children}
+              <div ref={setOverlayNode} data-chase-overlay-root="" />
+              <div ref={setToastNode} data-chase-toast-root="" />
+            </div>
+          </MotionConfig>
         </PortalContext.Provider>
       </MotionContext.Provider>
     </DensityContext.Provider>
@@ -102,6 +160,10 @@ export function useDensity(): DensityMode {
 }
 
 export function useReducedMotion(): boolean {
+  return useContext(MotionContext).reducedMotion;
+}
+
+export function useChaseMotion(): ChaseMotionSettings {
   return useContext(MotionContext);
 }
 

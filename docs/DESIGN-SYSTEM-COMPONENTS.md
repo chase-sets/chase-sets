@@ -52,6 +52,12 @@
 - `BottomNav`
 - `NavRail`
 
+## Motion
+
+- `Reveal`
+- `Stagger`
+- `ViewTransition`
+
 ## Forms
 
 - `Field`

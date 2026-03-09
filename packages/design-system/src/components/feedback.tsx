@@ -1,5 +1,6 @@
 import { createPortal } from "react-dom";
-import type { HTMLAttributes, ReactNode } from "react";
+import { forwardRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { motion } from "motion/react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -8,7 +9,7 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import * as ToastPrimitive from "@radix-ui/react-toast";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { Icon, type IconName } from "../icons";
-import { usePortalRoots } from "../theme/provider";
+import { useChaseMotion, usePortalRoots } from "../theme/provider";
 import { cx } from "../utils/cx";
 import { Button, IconButton } from "./actions";
 
@@ -53,34 +54,109 @@ function toneToIconTone(tone: Tone) {
   return tone === "neutral" ? "secondary" : tone;
 }
 
+function useControllableOpen(
+  open: boolean | undefined,
+  defaultOpen: boolean | undefined,
+  onOpenChange?: (open: boolean) => void
+) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
+  const resolvedOpen = open ?? internalOpen;
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (open === undefined) {
+      setInternalOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  }
+
+  return [resolvedOpen, handleOpenChange] as const;
+}
+
 function renderDialogFrame({
+  open,
   title,
   description,
   children,
   footer,
   onDismiss,
   kind,
+  reducedMotion,
+  durations,
+  easing,
   closeLabel = "Close"
 }: {
+  open: boolean;
   title: ReactNode;
   description?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
   onDismiss?: () => void;
   kind: "dialog" | "drawer";
+  reducedMotion: boolean;
+  durations: { base: number; slow: number };
+  easing: [number, number, number, number];
   closeLabel?: string;
 }) {
+  const frameAnimation =
+    kind === "drawer"
+      ? {
+          initial: reducedMotion ? false : { opacity: 0, y: 24, x: 0 },
+          animate: reducedMotion
+            ? undefined
+            : open
+              ? { opacity: 1, y: 0, x: 0 }
+              : { opacity: 0, y: 20, x: 12 },
+          transition: reducedMotion
+            ? undefined
+            : { duration: durations.slow, ease: easing }
+        }
+      : {
+          initial: reducedMotion ? false : { opacity: 0, scale: 0.96, y: 14 },
+          animate: reducedMotion
+            ? undefined
+            : open
+              ? { opacity: 1, scale: 1, y: 0 }
+              : { opacity: 0, scale: 0.98, y: 10 },
+          transition: reducedMotion
+            ? undefined
+            : { duration: durations.base, ease: easing }
+        };
+
   return (
     <>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]" />
+      <DialogPrimitive.Overlay forceMount asChild>
+        <motion.div
+          initial={false}
+          animate={
+            reducedMotion
+              ? undefined
+              : open
+                ? { opacity: 1 }
+                : { opacity: 0 }
+          }
+          transition={
+            reducedMotion
+              ? undefined
+              : { duration: durations.base, ease: easing }
+          }
+          className="fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]"
+        />
+      </DialogPrimitive.Overlay>
       <DialogPrimitive.Content
-        className={cx(
-          "modern-surface fixed z-modal flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col rounded-tokenXl border border-muted p-5 shadow-overlay focus-visible:outline-none md:w-full md:max-w-2xl",
-          kind === "dialog" && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
-          kind === "drawer" &&
-            "inset-x-4 bottom-4 md:inset-y-4 md:right-4 md:left-auto md:w-[28rem]"
-        )}
+        forceMount
+        asChild
       >
+        <motion.div
+          initial={frameAnimation.initial}
+          animate={frameAnimation.animate}
+          transition={frameAnimation.transition}
+          className={cx(
+            "modern-surface fixed z-modal flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col rounded-tokenXl border border-muted p-5 shadow-overlay focus-visible:outline-none md:w-full md:max-w-2xl",
+            kind === "dialog" && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
+            kind === "drawer" &&
+              "inset-x-4 bottom-4 md:inset-y-4 md:right-4 md:left-auto md:w-[28rem]"
+          )}
+        >
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <DialogPrimitive.Title className="font-heading text-xl font-semibold text-foreground">
@@ -101,10 +177,41 @@ function renderDialogFrame({
         </div>
         <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{children}</div>
         {footer ? <div className="mt-4">{footer}</div> : null}
+        </motion.div>
       </DialogPrimitive.Content>
     </>
   );
 }
+
+const AnimatedAccordionContent = forwardRef<
+  HTMLDivElement,
+  React.ComponentProps<typeof motion.div> & { "data-state"?: "open" | "closed" }
+>(function AnimatedAccordionContent({ children, ...rest }, ref) {
+  const motionSettings = useChaseMotion();
+  const isOpen = rest["data-state"] === "open";
+
+  return (
+    <motion.div
+      {...rest}
+      ref={ref}
+      initial={false}
+      animate={
+        motionSettings.reducedMotion
+          ? undefined
+          : isOpen
+            ? { height: "auto", opacity: 1 }
+            : { height: 0, opacity: 0 }
+      }
+      transition={
+        motionSettings.reducedMotion
+          ? undefined
+          : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+      }
+    >
+      {children}
+    </motion.div>
+  );
+});
 
 export interface BadgeProps
   extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
@@ -228,21 +335,26 @@ export function Dialog({
   closeLabel
 }: DialogProps) {
   const { overlayNode } = usePortalRoots();
+  const motionSettings = useChaseMotion();
+  const [resolvedOpen, setResolvedOpen] = useControllableOpen(open, defaultOpen, onOpenChange);
 
   return (
     <DialogPrimitive.Root
-      open={open}
-      defaultOpen={defaultOpen}
-      onOpenChange={onOpenChange}
+      open={resolvedOpen}
+      onOpenChange={setResolvedOpen}
     >
       {trigger ? <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger> : null}
       <DialogPrimitive.Portal container={overlayNode ?? undefined}>
         {renderDialogFrame({
+          open: resolvedOpen,
           title,
           description,
           footer,
           kind: "dialog",
           children,
+          reducedMotion: motionSettings.reducedMotion,
+          durations: motionSettings.durations,
+          easing: motionSettings.easing,
           closeLabel
         })}
       </DialogPrimitive.Portal>
@@ -264,21 +376,26 @@ export function Drawer({
   closeLabel
 }: DrawerProps) {
   const { overlayNode } = usePortalRoots();
+  const motionSettings = useChaseMotion();
+  const [resolvedOpen, setResolvedOpen] = useControllableOpen(open, defaultOpen, onOpenChange);
 
   return (
     <DialogPrimitive.Root
-      open={open}
-      defaultOpen={defaultOpen}
-      onOpenChange={onOpenChange}
+      open={resolvedOpen}
+      onOpenChange={setResolvedOpen}
     >
       {trigger ? <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger> : null}
       <DialogPrimitive.Portal container={overlayNode ?? undefined}>
         {renderDialogFrame({
+          open: resolvedOpen,
           title,
           description,
           footer,
           kind: "drawer",
           children,
+          reducedMotion: motionSettings.reducedMotion,
+          durations: motionSettings.durations,
+          easing: motionSettings.easing,
           closeLabel
         })}
       </DialogPrimitive.Portal>
@@ -312,12 +429,13 @@ export function AlertDialog({
   onConfirm
 }: AlertDialogProps) {
   const { overlayNode } = usePortalRoots();
+  const motionSettings = useChaseMotion();
+  const [resolvedOpen, setResolvedOpen] = useControllableOpen(open, defaultOpen, onOpenChange);
 
   return (
     <AlertDialogPrimitive.Root
-      open={open}
-      defaultOpen={defaultOpen}
-      onOpenChange={onOpenChange}
+      open={resolvedOpen}
+      onOpenChange={setResolvedOpen}
     >
       {trigger ? (
         <AlertDialogPrimitive.Trigger asChild>
@@ -325,8 +443,41 @@ export function AlertDialog({
         </AlertDialogPrimitive.Trigger>
       ) : null}
       <AlertDialogPrimitive.Portal container={overlayNode ?? undefined}>
-        <AlertDialogPrimitive.Overlay className="fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]" />
-        <AlertDialogPrimitive.Content className="modern-surface fixed left-1/2 top-1/2 z-modal w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-tokenXl border border-muted p-5 shadow-overlay">
+        <AlertDialogPrimitive.Overlay forceMount asChild>
+          <motion.div
+            initial={false}
+            animate={
+              motionSettings.reducedMotion
+                ? undefined
+                : resolvedOpen
+                  ? { opacity: 1 }
+                  : { opacity: 0 }
+            }
+            transition={
+              motionSettings.reducedMotion
+                ? undefined
+                : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+            }
+            className="fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]"
+          />
+        </AlertDialogPrimitive.Overlay>
+        <AlertDialogPrimitive.Content forceMount asChild>
+          <motion.div
+            initial={motionSettings.reducedMotion ? false : { opacity: 0, scale: 0.96, y: 14 }}
+            animate={
+              motionSettings.reducedMotion
+                ? undefined
+                : resolvedOpen
+                  ? { opacity: 1, scale: 1, y: 0 }
+                  : { opacity: 0, scale: 0.98, y: 8 }
+            }
+            transition={
+              motionSettings.reducedMotion
+                ? undefined
+                : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+            }
+            className="modern-surface fixed left-1/2 top-1/2 z-modal w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-tokenXl border border-muted p-5 shadow-overlay"
+          >
           <div className="space-y-3">
             <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-background">
               <Icon name={toneIcon(tone)} size="sm" tone={tone} />
@@ -350,6 +501,7 @@ export function AlertDialog({
               </Button>
             </AlertDialogPrimitive.Action>
           </div>
+          </motion.div>
         </AlertDialogPrimitive.Content>
       </AlertDialogPrimitive.Portal>
     </AlertDialogPrimitive.Root>
@@ -368,19 +520,39 @@ export function Popover({
   children
 }: PopoverProps) {
   const { overlayNode } = usePortalRoots();
+  const motionSettings = useChaseMotion();
+  const [open, setOpen] = useState(false);
 
   return (
-    <PopoverPrimitive.Root>
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger asChild>{trigger}</PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal container={overlayNode ?? undefined}>
         <PopoverPrimitive.Content
           sideOffset={8}
-          className="modern-surface z-popover w-[min(90vw,22rem)] rounded-tokenLg border border-muted p-4 shadow-overlay"
+          forceMount
+          asChild
         >
-          {title ? (
-            <div className="mb-2 text-sm font-semibold text-foreground">{title}</div>
-          ) : null}
-          {children}
+          <motion.div
+            initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 8, scale: 0.98 }}
+            animate={
+              motionSettings.reducedMotion
+                ? undefined
+                : open
+                  ? { opacity: 1, y: 0, scale: 1 }
+                  : { opacity: 0, y: 8, scale: 0.99 }
+            }
+            transition={
+              motionSettings.reducedMotion
+                ? undefined
+                : { duration: motionSettings.durations.fast, ease: motionSettings.easing }
+            }
+            className="modern-surface z-popover w-[min(90vw,22rem)] rounded-tokenLg border border-muted p-4 shadow-overlay"
+          >
+            {title ? (
+              <div className="mb-2 text-sm font-semibold text-foreground">{title}</div>
+            ) : null}
+            {children}
+          </motion.div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
@@ -397,18 +569,38 @@ export function Tooltip({
   children
 }: TooltipProps) {
   const { overlayNode } = usePortalRoots();
+  const motionSettings = useChaseMotion();
+  const [open, setOpen] = useState(false);
 
   return (
     <TooltipPrimitive.Provider delayDuration={150}>
-      <TooltipPrimitive.Root>
+      <TooltipPrimitive.Root open={open} onOpenChange={setOpen}>
         <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
         <TooltipPrimitive.Portal container={overlayNode ?? undefined}>
           <TooltipPrimitive.Content
             sideOffset={8}
-            className="z-popover rounded-tokenMd bg-foreground px-3 py-2 text-xs font-medium text-inverse shadow-overlay"
+            forceMount
+            asChild
           >
-            {content}
-            <TooltipPrimitive.Arrow className="fill-foreground" />
+            <motion.div
+              initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 6 }}
+              animate={
+                motionSettings.reducedMotion
+                  ? undefined
+                  : open
+                    ? { opacity: 1, y: 0 }
+                    : { opacity: 0, y: 6 }
+              }
+              transition={
+                motionSettings.reducedMotion
+                  ? undefined
+                  : { duration: motionSettings.durations.fast, ease: motionSettings.easing }
+              }
+              className="z-popover rounded-tokenMd bg-foreground px-3 py-2 text-xs font-medium text-inverse shadow-overlay"
+            >
+              {content}
+              <TooltipPrimitive.Arrow className="fill-foreground" />
+            </motion.div>
           </TooltipPrimitive.Content>
         </TooltipPrimitive.Portal>
       </TooltipPrimitive.Root>
@@ -475,32 +667,52 @@ export function Menu({
   groups
 }: MenuProps) {
   const { overlayNode } = usePortalRoots();
+  const motionSettings = useChaseMotion();
+  const [open, setOpen] = useState(false);
 
   return (
-    <DropdownMenuPrimitive.Root>
+    <DropdownMenuPrimitive.Root open={open} onOpenChange={setOpen}>
       <DropdownMenuPrimitive.Trigger asChild>
         {trigger}
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal container={overlayNode ?? undefined}>
         <DropdownMenuPrimitive.Content
           sideOffset={8}
-          className="modern-surface z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay"
+          forceMount
+          asChild
         >
-          {groups
-            ? groups.map((group, groupIndex) => (
-                <DropdownMenuPrimitive.Group key={groupIndex}>
-                  {group.label ? (
-                    <DropdownMenuPrimitive.Label className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-secondary">
-                      {group.label}
-                    </DropdownMenuPrimitive.Label>
-                  ) : null}
-                  {group.items.map(renderMenuItem)}
-                  {groupIndex < groups.length - 1 ? (
-                    <DropdownMenuPrimitive.Separator className="my-1 h-px bg-muted" />
-                  ) : null}
-                </DropdownMenuPrimitive.Group>
-              ))
-            : items?.map(renderMenuItem)}
+          <motion.div
+            initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 10, scale: 0.98 }}
+            animate={
+              motionSettings.reducedMotion
+                ? undefined
+                : open
+                  ? { opacity: 1, y: 0, scale: 1 }
+                  : { opacity: 0, y: 8, scale: 0.99 }
+            }
+            transition={
+              motionSettings.reducedMotion
+                ? undefined
+                : { duration: motionSettings.durations.fast, ease: motionSettings.easing }
+            }
+            className="modern-surface z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay"
+          >
+            {groups
+              ? groups.map((group, groupIndex) => (
+                  <DropdownMenuPrimitive.Group key={groupIndex}>
+                    {group.label ? (
+                      <DropdownMenuPrimitive.Label className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-secondary">
+                        {group.label}
+                      </DropdownMenuPrimitive.Label>
+                    ) : null}
+                    {group.items.map(renderMenuItem)}
+                    {groupIndex < groups.length - 1 ? (
+                      <DropdownMenuPrimitive.Separator className="my-1 h-px bg-muted" />
+                    ) : null}
+                  </DropdownMenuPrimitive.Group>
+                ))
+              : items?.map(renderMenuItem)}
+          </motion.div>
         </DropdownMenuPrimitive.Content>
       </DropdownMenuPrimitive.Portal>
     </DropdownMenuPrimitive.Root>
@@ -521,6 +733,74 @@ export interface ToastRegionProps {
   items: ToastItem[];
 }
 
+function ToastRegionItem({ item }: { item: ToastItem }) {
+  const motionSettings = useChaseMotion();
+  const [internalOpen, setInternalOpen] = useState(item.open ?? true);
+  const resolvedOpen = item.open ?? internalOpen;
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (item.open === undefined) {
+      setInternalOpen(nextOpen);
+    }
+    item.onOpenChange?.(nextOpen);
+  }
+
+  return (
+    <ToastPrimitive.Root
+      forceMount
+      open={resolvedOpen}
+      onOpenChange={handleOpenChange}
+      className="modern-surface rounded-tokenLg border border-muted shadow-overlay"
+    >
+      {resolvedOpen ? (
+        <motion.div
+          layout
+          initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 16, scale: 0.98 }}
+          animate={
+            motionSettings.reducedMotion
+              ? undefined
+              : { opacity: 1, y: 0, scale: 1, height: "auto" }
+          }
+          transition={
+            motionSettings.reducedMotion
+              ? undefined
+              : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+          }
+          className="grid grid-cols-[auto_1fr_auto] items-start gap-3 p-4"
+        >
+          <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-background">
+            <Icon
+              name={toneIcon(item.tone ?? "info")}
+              size="sm"
+              tone={item.tone ?? "info"}
+            />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <ToastPrimitive.Title className="text-sm font-semibold text-foreground">
+              {item.title}
+            </ToastPrimitive.Title>
+            {item.description ? (
+              <ToastPrimitive.Description className="text-sm text-secondary">
+                {item.description}
+              </ToastPrimitive.Description>
+            ) : null}
+          </div>
+          <div className="self-start">
+            <ToastPrimitive.Close asChild>
+              <IconButton
+                label={item.dismissLabel ?? "Dismiss notification"}
+                icon="close"
+                tone="ghost"
+                size="sm"
+              />
+            </ToastPrimitive.Close>
+          </div>
+        </motion.div>
+      ) : null}
+    </ToastPrimitive.Root>
+  );
+}
+
 export function ToastRegion({
   items
 }: ToastRegionProps) {
@@ -532,48 +812,7 @@ export function ToastRegion({
 
   return (
     <ToastPrimitive.Provider duration={4000} swipeDirection="right">
-      {items.map((item) => {
-        const rootProps =
-          item.open === undefined
-            ? { onOpenChange: item.onOpenChange }
-            : { open: item.open, onOpenChange: item.onOpenChange };
-
-        return (
-          <ToastPrimitive.Root
-            key={item.id}
-            {...rootProps}
-            className="modern-surface grid grid-cols-[auto_1fr_auto] items-start gap-3 rounded-tokenLg border border-muted p-4 shadow-overlay"
-          >
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-background">
-              <Icon
-                name={toneIcon(item.tone ?? "info")}
-                size="sm"
-                tone={item.tone ?? "info"}
-              />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <ToastPrimitive.Title className="text-sm font-semibold text-foreground">
-                {item.title}
-              </ToastPrimitive.Title>
-              {item.description ? (
-                <ToastPrimitive.Description className="text-sm text-secondary">
-                  {item.description}
-                </ToastPrimitive.Description>
-              ) : null}
-            </div>
-            <div className="self-start">
-              <ToastPrimitive.Close asChild>
-                <IconButton
-                  label={item.dismissLabel ?? "Dismiss notification"}
-                  icon="close"
-                  tone="ghost"
-                  size="sm"
-                />
-              </ToastPrimitive.Close>
-            </div>
-          </ToastPrimitive.Root>
-        );
-      })}
+      {items.map((item) => <ToastRegionItem key={item.id} item={item} />)}
       {toastNode ? createPortal(viewport, toastNode) : viewport}
     </ToastPrimitive.Provider>
   );
@@ -859,10 +1098,12 @@ export function Accordion({
               </span>
             </AccordionPrimitive.Trigger>
           </AccordionPrimitive.Header>
-          <AccordionPrimitive.Content className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-            <div className="px-4 pb-4 text-sm text-secondary">
+          <AccordionPrimitive.Content forceMount asChild>
+            <AnimatedAccordionContent className="overflow-hidden">
+              <div className="px-4 pb-4 text-sm text-secondary">
               {item.content}
-            </div>
+              </div>
+            </AnimatedAccordionContent>
           </AccordionPrimitive.Content>
         </AccordionPrimitive.Item>
       ))}

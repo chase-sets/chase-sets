@@ -4,9 +4,11 @@ import type {
   HTMLAttributes,
   ReactNode
 } from "react";
-import { forwardRef, useCallback, useRef, useState } from "react";
+import { forwardRef, useCallback, useId, useRef, useState } from "react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { Icon, type IconName } from "../icons";
+import { useChaseMotion } from "../theme/provider";
 import { layoutWidthClasses, type LayoutWidth } from "../primitives/layout";
 import { cx } from "../utils/cx";
 
@@ -39,7 +41,32 @@ const buttonSizeClasses: Record<ButtonSize, string> = {
 };
 
 const buttonBaseClass =
-  "focus-ring inline-flex items-center justify-center gap-2 rounded-tokenMd border font-semibold shadow-tokenSm transition duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none";
+  "focus-ring relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-tokenMd border font-semibold shadow-tokenSm transition duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none";
+
+function resolveInteractiveMotion(reducedMotion: boolean, scale: number, lift: number) {
+  if (reducedMotion) {
+    return undefined;
+  }
+
+  return {
+    whileHover: { y: lift, scale },
+    whileTap: { y: 0, scale: 0.985 },
+    transition: { duration: 0.18 }
+  };
+}
+
+function renderActivePill(groupId: string, tone: "default" | "accent" = "default") {
+  return (
+    <motion.span
+      layoutId={`${groupId}-active-pill`}
+      className={cx(
+        "absolute inset-0 rounded-tokenMd",
+        tone === "accent" ? "bg-elevated shadow-tokenSm" : "bg-background shadow-tokenSm"
+      )}
+      transition={{ duration: 0.18 }}
+    />
+  );
+}
 
 function renderLeadingIcon(icon: IconName | undefined, tone: ButtonTone): ReactNode {
   if (!icon) {
@@ -59,6 +86,7 @@ function renderNavigationItem(
   item: NavigationItem,
   active: boolean,
   orientation: "horizontal" | "vertical" | "rail",
+  groupId?: string,
   onSelect?: (key: string) => void
 ) {
   const content = (
@@ -82,7 +110,7 @@ function renderNavigationItem(
   );
 
   const className = cx(
-    "focus-ring inline-flex items-center gap-2 rounded-tokenMd px-3 py-2 text-sm font-medium transition",
+    "focus-ring relative inline-flex items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-medium transition",
     orientation === "vertical" && "w-full justify-between",
     orientation === "rail" && "w-full flex-col justify-center py-3",
     active
@@ -93,7 +121,8 @@ function renderNavigationItem(
   if (item.href) {
     return (
       <a key={item.key} href={item.href} className={className}>
-        {content}
+        {active && groupId ? renderActivePill(groupId) : null}
+        <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
       </a>
     );
   }
@@ -105,7 +134,8 @@ function renderNavigationItem(
       className={className}
       onClick={() => onSelect?.(item.key)}
     >
-      {content}
+      {active && groupId ? renderActivePill(groupId) : null}
+      <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
     </button>
   );
 }
@@ -113,6 +143,7 @@ function renderNavigationItem(
 function renderBottomNavigationItem(
   item: NavigationItem,
   active: boolean,
+  groupId?: string,
   onSelect?: (key: string) => void
 ) {
   const content = (
@@ -142,7 +173,7 @@ function renderBottomNavigationItem(
   );
 
   const className = cx(
-    "focus-ring inline-flex w-full flex-col items-center justify-center gap-1 rounded-tokenMd px-3 py-3 text-sm font-medium transition",
+    "focus-ring relative inline-flex w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-tokenMd px-3 py-3 text-sm font-medium transition",
     active
       ? "bg-background text-accent shadow-tokenSm"
       : "text-secondary hover:bg-background hover:text-foreground"
@@ -151,7 +182,10 @@ function renderBottomNavigationItem(
   if (item.href) {
     return (
       <a key={item.key} href={item.href} className={className}>
-        {content}
+        {active && groupId ? renderActivePill(groupId) : null}
+        <span className="relative z-10 inline-flex flex-col items-center justify-center gap-1">
+          {content}
+        </span>
       </a>
     );
   }
@@ -163,7 +197,10 @@ function renderBottomNavigationItem(
       className={className}
       onClick={() => onSelect?.(item.key)}
     >
-      {content}
+      {active && groupId ? renderActivePill(groupId) : null}
+      <span className="relative z-10 inline-flex flex-col items-center justify-center gap-1">
+        {content}
+      </span>
     </button>
   );
 }
@@ -190,11 +227,20 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref
 ) {
+  const motionSettings = useChaseMotion();
+  const interactiveMotion = resolveInteractiveMotion(
+    motionSettings.reducedMotion,
+    motionSettings.interactiveScale,
+    motionSettings.interactiveLift
+  );
+  const nativeProps = rest as unknown as Record<string, unknown>;
+
   return (
-    <button
-      {...rest}
+    <motion.button
+      {...nativeProps}
       ref={ref}
       type={type}
+      {...interactiveMotion}
       className={cx(
         buttonBaseClass,
         buttonToneClasses[tone],
@@ -211,7 +257,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
           tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
         />
       ) : null}
-    </button>
+    </motion.button>
   );
 });
 
@@ -235,12 +281,21 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     },
     ref
   ) {
+    const motionSettings = useChaseMotion();
+    const interactiveMotion = resolveInteractiveMotion(
+      motionSettings.reducedMotion,
+      motionSettings.interactiveScale,
+      motionSettings.interactiveLift
+    );
+    const nativeProps = rest as unknown as Record<string, unknown>;
+
     return (
-      <button
-        {...rest}
+      <motion.button
+        {...nativeProps}
         ref={ref}
         type={type}
         aria-label={label}
+        {...interactiveMotion}
         className={cx(
           buttonBaseClass,
           buttonToneClasses[tone],
@@ -253,7 +308,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
           size="sm"
           tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
         />
-      </button>
+      </motion.button>
     );
   }
 );
@@ -280,10 +335,19 @@ export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(
     },
     ref
   ) {
+    const motionSettings = useChaseMotion();
+    const interactiveMotion = resolveInteractiveMotion(
+      motionSettings.reducedMotion,
+      motionSettings.interactiveScale,
+      motionSettings.interactiveLift
+    );
+    const nativeProps = rest as unknown as Record<string, unknown>;
+
     return (
-      <a
-        {...rest}
+      <motion.a
+        {...nativeProps}
         ref={ref}
+        {...interactiveMotion}
         className={cx(
           buttonBaseClass,
           buttonToneClasses[tone],
@@ -300,7 +364,7 @@ export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(
             tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
           />
         ) : null}
-      </a>
+      </motion.a>
     );
   }
 );
@@ -347,42 +411,67 @@ export function Tabs({
   activationMode = "automatic"
 }: TabsProps) {
   const resolvedValue = defaultValue ?? items[0]?.value;
+  const [internalValue, setInternalValue] = useState(resolvedValue);
+  const currentValue = value ?? internalValue ?? resolvedValue;
+  const groupId = useId();
+
+  function handleValueChange(nextValue: string) {
+    if (value === undefined) {
+      setInternalValue(nextValue);
+    }
+    onValueChange?.(nextValue);
+  }
 
   return (
     <TabsPrimitive.Root
       defaultValue={resolvedValue}
-      value={value}
-      onValueChange={onValueChange}
+      value={currentValue}
+      onValueChange={handleValueChange}
       orientation={orientation}
       dir={dir}
       activationMode={activationMode}
       className="space-y-4"
     >
-      <TabsPrimitive.List className="inline-flex w-full flex-wrap gap-2 rounded-tokenLg border border-muted bg-background p-2">
-        {items.map((item) => (
-          <TabsPrimitive.Trigger
-            key={item.value}
-            value={item.value}
-            className="focus-ring inline-flex touch-target flex-1 items-center justify-center gap-2 rounded-tokenMd px-4 py-2 text-sm font-semibold text-secondary transition data-[state=active]:bg-elevated data-[state=active]:text-accent data-[state=active]:shadow-tokenSm"
-          >
-            <span>{item.label}</span>
-            {item.badge ? (
-              <span className="rounded-full bg-background px-2 py-0.5 text-[0.7rem]">
-                {item.badge}
-              </span>
-            ) : null}
-          </TabsPrimitive.Trigger>
-        ))}
-      </TabsPrimitive.List>
-      {items.map((item) => (
-        <TabsPrimitive.Content
-          key={item.value}
-          value={item.value}
-          className="focus-visible:outline-none"
+      <LayoutGroup id={groupId}>
+        <TabsPrimitive.List className="inline-flex w-full flex-wrap gap-2 rounded-tokenLg border border-muted bg-background p-2">
+          {items.map((item) => {
+            const active = item.value === currentValue;
+
+            return (
+              <TabsPrimitive.Trigger
+                key={item.value}
+                value={item.value}
+                className="focus-ring relative inline-flex touch-target flex-1 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-4 py-2 text-sm font-semibold text-secondary transition data-[state=active]:text-accent"
+              >
+                {active ? renderActivePill(groupId, "accent") : null}
+                <span className="relative z-10">{item.label}</span>
+                {item.badge ? (
+                  <span className="relative z-10 rounded-full bg-background px-2 py-0.5 text-[0.7rem]">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </TabsPrimitive.Trigger>
+            );
+          })}
+        </TabsPrimitive.List>
+      </LayoutGroup>
+      <AnimatePresence initial={false} mode="wait">
+        <motion.div
+          key={currentValue}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18 }}
         >
-          {item.content}
-        </TabsPrimitive.Content>
-      ))}
+          <TabsPrimitive.Content
+            value={currentValue}
+            forceMount
+            className="focus-visible:outline-none"
+          >
+            {items.find((item) => item.value === currentValue)?.content}
+          </TabsPrimitive.Content>
+        </motion.div>
+      </AnimatePresence>
     </TabsPrimitive.Root>
   );
 }
@@ -406,6 +495,8 @@ export function SegmentedControl({
   onValueChange,
   ...rest
 }: SegmentedControlProps) {
+  const groupId = useId();
+
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
     let next = -1;
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
@@ -427,36 +518,39 @@ export function SegmentedControl({
   }
 
   return (
-    <div
-      {...rest}
-      role="tablist"
-      className="inline-flex flex-wrap rounded-tokenLg border border-muted bg-background p-1"
-    >
-      {items.map((item, index) => {
-        const active = item.value === value;
+    <LayoutGroup id={groupId}>
+      <div
+        {...rest}
+        role="tablist"
+        className="inline-flex flex-wrap rounded-tokenLg border border-muted bg-background p-1"
+      >
+        {items.map((item, index) => {
+          const active = item.value === value;
 
-        return (
-          <button
-            key={item.value}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            tabIndex={active ? 0 : -1}
-            className={cx(
-              "focus-ring inline-flex min-h-10 items-center gap-2 rounded-tokenMd px-3 py-2 text-sm font-semibold transition",
-              active
-                ? "bg-elevated text-accent shadow-tokenSm"
-                : "text-secondary hover:text-foreground"
-            )}
-            onClick={() => onValueChange?.(item.value)}
-            onKeyDown={(event) => handleKeyDown(event, index)}
-          >
-            {item.icon ? <Icon name={item.icon} size="sm" /> : null}
-            <span>{item.label}</span>
-          </button>
-        );
-      })}
-    </div>
+          return (
+            <button
+              key={item.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              tabIndex={active ? 0 : -1}
+              className={cx(
+                "focus-ring relative inline-flex min-h-10 items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-semibold transition",
+                active
+                  ? "text-accent"
+                  : "text-secondary hover:text-foreground"
+              )}
+              onClick={() => onValueChange?.(item.value)}
+              onKeyDown={(event) => handleKeyDown(event, index)}
+            >
+              {active ? renderActivePill(groupId, "accent") : null}
+              {item.icon ? <Icon name={item.icon} size="sm" /> : null}
+              <span className="relative z-10">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </LayoutGroup>
   );
 }
 
@@ -667,6 +761,8 @@ export function TopNav({
   width = "full",
   ...rest
 }: TopNavProps) {
+  const groupId = useId();
+
   return (
     <nav
       {...rest}
@@ -680,11 +776,13 @@ export function TopNav({
       >
         <div className="flex items-center gap-4">
           {brand}
-          <div className="hidden items-center gap-1 md:flex">
-            {items.map((item) =>
-              renderNavigationItem(item, item.key === activeKey, "horizontal", onSelect)
-            )}
-          </div>
+          <LayoutGroup id={groupId}>
+            <div className="hidden items-center gap-1 md:flex">
+              {items.map((item) =>
+                renderNavigationItem(item, item.key === activeKey, "horizontal", groupId, onSelect)
+              )}
+            </div>
+          </LayoutGroup>
         </div>
         <div className="flex items-center gap-2">{actions}</div>
       </div>
@@ -705,14 +803,18 @@ export function SideNav({
   onSelect,
   ...rest
 }: SideNavProps) {
+  const groupId = useId();
+
   return (
     <nav
       {...rest}
       className="modern-surface flex h-full flex-col gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm"
     >
-      {items.map((item) =>
-        renderNavigationItem(item, item.key === activeKey, "vertical", onSelect)
-      )}
+      <LayoutGroup id={groupId}>
+        {items.map((item) =>
+          renderNavigationItem(item, item.key === activeKey, "vertical", groupId, onSelect)
+        )}
+      </LayoutGroup>
     </nav>
   );
 }
@@ -732,16 +834,20 @@ export function BottomNav({
   width = "full",
   ...rest
 }: BottomNavProps) {
+  const groupId = useId();
+
   return (
     <nav
       {...rest}
       className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-elevated px-3 py-2 shadow-tokenLg md:hidden"
     >
-      <div className={cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width])}>
-        {items.slice(0, 4).map((item) =>
-          renderBottomNavigationItem(item, item.key === activeKey, onSelect)
-        )}
-      </div>
+      <LayoutGroup id={groupId}>
+        <div className={cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width])}>
+          {items.slice(0, 4).map((item) =>
+            renderBottomNavigationItem(item, item.key === activeKey, groupId, onSelect)
+          )}
+        </div>
+      </LayoutGroup>
     </nav>
   );
 }
@@ -759,14 +865,18 @@ export function NavRail({
   onSelect,
   ...rest
 }: NavRailProps) {
+  const groupId = useId();
+
   return (
     <nav
       {...rest}
       className="modern-surface hidden h-full w-24 flex-col gap-2 rounded-tokenLg border border-muted p-2 md:flex"
     >
-      {items.map((item) =>
-        renderNavigationItem(item, item.key === activeKey, "rail", onSelect)
-      )}
+      <LayoutGroup id={groupId}>
+        {items.map((item) =>
+          renderNavigationItem(item, item.key === activeKey, "rail", groupId, onSelect)
+        )}
+      </LayoutGroup>
     </nav>
   );
 }
@@ -791,6 +901,13 @@ export function CopyButton({
 }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const motionSettings = useChaseMotion();
+  const interactiveMotion = resolveInteractiveMotion(
+    motionSettings.reducedMotion,
+    motionSettings.interactiveScale,
+    motionSettings.interactiveLift
+  );
+  const nativeProps = rest as unknown as Record<string, unknown>;
 
   const handleClick = useCallback(() => {
     navigator.clipboard.writeText(value).then(() => {
@@ -803,9 +920,10 @@ export function CopyButton({
   }, [value]);
 
   return (
-    <button
-      {...rest}
+    <motion.button
+      {...nativeProps}
       type={type}
+      {...interactiveMotion}
       className={cx(
         buttonBaseClass,
         buttonToneClasses[tone],
@@ -819,6 +937,6 @@ export function CopyButton({
         tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
       />
       <span>{copied ? copiedLabel : label}</span>
-    </button>
+    </motion.button>
   );
 }

@@ -19,11 +19,13 @@ Application code should not introduce:
 - Styling system: Tailwind CSS v4
 - Primitive behavior layer: Radix UI
 - Theme model: one Chase Sets brand theme with semantic tokens and CSS variable overrides
+- Motion runtime: Motion for React, configured centrally through `ChaseRoot`
 
 ## Composition Rules
 
 - `ChaseRoot` must wrap every application root.
 - Application entrypoints must import `@chase-sets/design-system/styles.css` exactly once.
+- `ChaseRoot` owns reduced-motion policy through `reducedMotion="user" | "always" | "never"` and all component motion should flow through that root contract.
 - Layout should be built from primitives such as `Page`, `Grid`, `Stack`, `SplitPane`, `Surface`, and shell components.
 - Form screens should use `Field`, `FormSection`, and field controls rather than direct inputs.
 - Overlays should use `Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, and `AlertDialog`.
@@ -49,6 +51,7 @@ The design system owns:
 - interaction primitives
 - app shells
 - reusable marketplace/admin patterns
+- shared motion primitives and transition presets
 
 The design system does not own:
 
@@ -61,3 +64,10 @@ The design system does not own:
 ## Validation
 
 Use the showcase application as the default visual validation surface and `npm run test:design-system` for component-level regression checks.
+
+## Motion
+
+- Use `Reveal`, `Stagger`, and `ViewTransition` for consumer-authored motion.
+- Do not import `motion/react` directly from applications.
+- Keep motion additive and restrained: emphasize route changes, overlays, navigation state, cards, and workflow transitions rather than ambient animation.
+- All motion must degrade cleanly under reduced-motion mode.
