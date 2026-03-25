@@ -1,5 +1,6 @@
 import { api } from "../../shared/ui/api/client";
-import type { Component, ComponentDetail, ListResponse, CommandResponse } from "../../shared/ui/api/types";
+import type { ListResponse, CommandResponse } from "../../shared/ui/api/contracts";
+import type { Component, ComponentDetail } from "./contracts";
 import { useFetch } from "../../shared/ui/use-fetch";
 
 export function useComponentList(query: string) {
@@ -51,4 +52,6 @@ export function deprecateComponent(id: string) {
 export function archiveComponent(id: string) {
   return api.post<CommandResponse>(`/components/${id}/archive`);
 }
+
+
 

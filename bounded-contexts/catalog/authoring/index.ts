@@ -1,8 +1,8 @@
 export { CatalogDomainError } from "../common";
 export { buildCatalogAuthoringApi } from "./api/app";
 export type { CatalogAuthoringEnv } from "./api/types";
-export { createCatalogServices } from "./api/services";
-export type { CatalogServices } from "./api/services";
+export { createCatalogServices } from "./runtime";
+export type { CatalogServices } from "./runtime";
 export { catalogAuthoringDatabaseSchemaSql } from "./database-schema";
 export { seedCatalogDatabase } from "./seed";
 export {

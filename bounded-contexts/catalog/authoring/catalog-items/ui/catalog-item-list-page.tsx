@@ -11,7 +11,7 @@ import {
 import { useToasts } from "../../shared/ui/toasts";
 import { EntityListPage } from "../../shared/ui/entity-list-page";
 import { useCatalogItemList, createCatalogItem } from "./use-catalog-items";
-import type { CatalogItemListItem } from "../../shared/ui/api/types";
+import type { CatalogItemListItem } from "./contracts";
 
 function buildColumns(): DataColumn<CatalogItemListItem>[] {
   return [
@@ -101,4 +101,5 @@ export function CatalogItemListPage() {
     </>
   );
 }
+
 

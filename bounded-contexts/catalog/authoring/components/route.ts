@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../api/services";
+import type { CatalogServices } from "../runtime";
 import type { CatalogAuthoringEnv } from "../api/types";
 import type { ComponentId, FieldId, DimensionId, ChoiceId } from "../../ids";
 import { listComponents, getComponentDetail } from "./queries";
@@ -175,4 +175,5 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
 
   return app;
 }
+
 

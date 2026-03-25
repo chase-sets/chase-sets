@@ -6,7 +6,7 @@ import {
   Inline,
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
-import type { DiscoverySearchItem } from "../../shared/ui/api/types";
+import type { DiscoverySearchItem } from "./contracts";
 
 function navigate(path: string) {
   window.location.hash = path;
@@ -57,4 +57,5 @@ export function ItemCard({ item }: { item: DiscoverySearchItem }) {
     </Card>
   );
 }
+
 

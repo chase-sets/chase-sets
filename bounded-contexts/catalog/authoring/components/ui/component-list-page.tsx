@@ -11,7 +11,7 @@ import {
 import { useToasts } from "../../shared/ui/toasts";
 import { EntityListPage } from "../../shared/ui/entity-list-page";
 import { useComponentList, createComponent } from "./use-components";
-import type { Component } from "../../shared/ui/api/types";
+import type { Component } from "./contracts";
 
 const columns: DataColumn<Component>[] = [
   { key: "key", header: "Key", cell: (row) => row.key },
@@ -97,4 +97,5 @@ export function ComponentListPage() {
     </>
   );
 }
+
 

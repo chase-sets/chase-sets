@@ -1,5 +1,6 @@
 import { api } from "../../shared/ui/api/client";
-import type { Blueprint, BlueprintDetail, ListResponse, CommandResponse } from "../../shared/ui/api/types";
+import type { ListResponse, CommandResponse } from "../../shared/ui/api/contracts";
+import type { Blueprint, BlueprintDetail } from "./contracts";
 import { useFetch } from "../../shared/ui/use-fetch";
 
 export function useBlueprintList(query: string) {
@@ -49,4 +50,6 @@ export function deprecateBlueprint(id: string) {
 export function archiveBlueprint(id: string) {
   return api.post<CommandResponse>(`/blueprints/${id}/archive`);
 }
+
+
 

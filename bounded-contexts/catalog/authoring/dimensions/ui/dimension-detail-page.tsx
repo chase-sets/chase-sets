@@ -27,7 +27,7 @@ import {
   reactivateChoice,
   reorderChoices,
 } from "./use-dimensions";
-import type { DimensionChoice } from "../../shared/ui/api/types";
+import type { DimensionChoice } from "./contracts";
 
 function getTransitions(status: string): Transition[] {
   switch (status) {
@@ -362,4 +362,5 @@ export function DimensionDetailPage({ id }: { id: string }) {
     </>
   );
 }
+
 

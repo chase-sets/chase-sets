@@ -1,5 +1,5 @@
 import { createId } from "../../../../contracts/primitives/typed-ids";
-import type { CatalogServices } from "../api/services";
+import type { CatalogServices } from "../runtime";
 import type { BlueprintId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
 import type { ComponentIds } from "../components/seed";

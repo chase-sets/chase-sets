@@ -1,5 +1,6 @@
 import { api } from "../../shared/ui/api/client";
-import type { CategoryDetail, CategoryListItem, ListResponse, CommandResponse } from "../../shared/ui/api/types";
+import type { ListResponse, CommandResponse } from "../../shared/ui/api/contracts";
+import type { CategoryDetail, CategoryListItem } from "./contracts";
 import { useFetch } from "../../shared/ui/use-fetch";
 
 export function useCategoryList(query: string) {
@@ -42,4 +43,6 @@ export function deprecateCategory(id: string) {
 export function archiveCategory(id: string) {
   return api.post<CommandResponse>(`/categories/${id}/archive`);
 }
+
+
 

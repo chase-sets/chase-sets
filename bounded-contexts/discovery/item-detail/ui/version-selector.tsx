@@ -4,7 +4,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { VersionSchema } from "../../shared/ui/api/types";
+import type { VersionSchema } from "./contracts";
 
 interface VersionSelectorProps {
   schema: VersionSchema;
@@ -72,4 +72,5 @@ export function VersionSelector({
     </Stack>
   );
 }
+
 

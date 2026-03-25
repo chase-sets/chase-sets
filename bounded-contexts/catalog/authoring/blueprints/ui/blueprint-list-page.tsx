@@ -11,7 +11,7 @@ import {
 import { useToasts } from "../../shared/ui/toasts";
 import { EntityListPage } from "../../shared/ui/entity-list-page";
 import { useBlueprintList, createBlueprint } from "./use-blueprints";
-import type { Blueprint } from "../../shared/ui/api/types";
+import type { Blueprint } from "./contracts";
 
 const columns: DataColumn<Blueprint>[] = [
   { key: "key", header: "Key", cell: (row) => row.key },
@@ -97,4 +97,5 @@ export function BlueprintListPage() {
     </>
   );
 }
+
 

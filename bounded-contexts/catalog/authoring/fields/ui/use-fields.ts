@@ -1,5 +1,6 @@
 import { api } from "../../shared/ui/api/client";
-import type { Field, ListResponse, CommandResponse } from "../../shared/ui/api/types";
+import type { ListResponse, CommandResponse } from "../../shared/ui/api/contracts";
+import type { Field } from "./contracts";
 import { useFetch } from "../../shared/ui/use-fetch";
 
 export function useFieldList(query: string) {
@@ -42,4 +43,6 @@ export function deprecateField(id: string) {
 export function archiveField(id: string) {
   return api.post<CommandResponse>(`/fields/${id}/archive`);
 }
+
+
 

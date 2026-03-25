@@ -1,5 +1,5 @@
 import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
-import { createCatalogServices } from "./api/services";
+import { createCatalogServices } from "./runtime";
 import { seedBlueprints } from "./blueprints/seed";
 import { seedCatalogItems } from "./catalog-items/seed";
 import { seedCategories } from "./categories/seed";

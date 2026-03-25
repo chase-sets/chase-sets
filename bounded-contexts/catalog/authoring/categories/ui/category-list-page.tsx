@@ -12,7 +12,7 @@ import {
 import { useToasts } from "../../shared/ui/toasts";
 import { EntityListPage } from "../../shared/ui/entity-list-page";
 import { useCategoryList, createCategory } from "./use-categories";
-import type { CategoryListItem } from "../../shared/ui/api/types";
+import type { CategoryListItem } from "./contracts";
 
 function buildColumns(): DataColumn<CategoryListItem>[] {
   return [
@@ -116,4 +116,5 @@ export function CategoryListPage() {
     </>
   );
 }
+
 

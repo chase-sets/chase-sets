@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "./types";
-import type { CatalogServices } from "./services";
+import type { CatalogServices } from "../runtime";
 import { dimensionRoutes } from "../dimensions/route";
 import { fieldRoutes } from "../fields/route";
 import { componentRoutes } from "../components/route";

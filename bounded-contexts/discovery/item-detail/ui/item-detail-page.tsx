@@ -15,7 +15,7 @@ import {
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
 import { discoveryApi } from "../../shared/ui/api/client";
-import type { DiscoveryItemDetail } from "../../shared/ui/api/types";
+import type { DiscoveryItemDetail } from "./contracts";
 import { VersionSelector } from "./version-selector";
 import { useFetch } from "../../shared/ui/use-fetch";
 
@@ -171,4 +171,5 @@ export function ItemDetailPage({ id }: { id: string }) {
     </Stagger>
   );
 }
+
 

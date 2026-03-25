@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../api/services";
+import type { CatalogServices } from "../runtime";
 import type { CatalogAuthoringEnv } from "../api/types";
 import type { FieldId } from "../../ids";
 import { listFields, getField } from "./queries";
@@ -108,4 +108,5 @@ export function fieldRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv
 
   return app;
 }
+
 

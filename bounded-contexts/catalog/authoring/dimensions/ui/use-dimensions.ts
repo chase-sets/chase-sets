@@ -1,5 +1,6 @@
 import { api } from "../../shared/ui/api/client";
-import type { Dimension, DimensionDetail, ListResponse, CommandResponse } from "../../shared/ui/api/types";
+import type { ListResponse, CommandResponse } from "../../shared/ui/api/contracts";
+import type { Dimension, DimensionDetail } from "./contracts";
 import { useFetch } from "../../shared/ui/use-fetch";
 
 export function useDimensionList(query: string) {
@@ -49,4 +50,6 @@ export function reactivateChoice(dimensionId: string, choiceId: string) {
 export function reorderChoices(dimensionId: string, choiceIds: string[]) {
   return api.put<CommandResponse>(`/dimensions/${dimensionId}/choices/order`, { choiceIds });
 }
+
+
 

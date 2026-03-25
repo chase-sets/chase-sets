@@ -227,7 +227,7 @@ describe("marketplace search", () => {
   });
 
   it("can rebuild the search index idempotently", async () => {
-    await pool.query(`INSERT INTO catalog_items (item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
+    await pool.query(`INSERT INTO discovery_search_catalog_items (item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
 
     await rebuildDiscoverySearchIndex(discoveryServices.db);
     await rebuildDiscoverySearchIndex(discoveryServices.db);
@@ -236,3 +236,4 @@ describe("marketplace search", () => {
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });
+

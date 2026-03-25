@@ -11,7 +11,7 @@ import {
 import { useToasts } from "../../shared/ui/toasts";
 import { EntityListPage } from "../../shared/ui/entity-list-page";
 import { useDimensionList, createDimension } from "./use-dimensions";
-import type { Dimension } from "../../shared/ui/api/types";
+import type { Dimension } from "./contracts";
 
 const columns: DataColumn<Dimension>[] = [
   { key: "key", header: "Key", cell: (row) => row.key },
@@ -97,4 +97,5 @@ export function DimensionListPage() {
     </>
   );
 }
+
 

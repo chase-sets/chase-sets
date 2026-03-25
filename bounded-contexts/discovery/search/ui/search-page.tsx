@@ -14,7 +14,8 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { discoveryApi } from "../../shared/ui/api/client";
-import type { DiscoverySearchResponse, CategoryListResponse } from "../../shared/ui/api/types";
+import type { CategoryListResponse } from "../../categories/ui/contracts";
+import type { DiscoverySearchResponse } from "./contracts";
 import { ItemCard } from "./item-card";
 import { SearchFilters } from "./search-filters";
 import { useDebounce } from "../use-debounce";
@@ -128,4 +129,6 @@ export function SearchPage() {
     </div>
   );
 }
+
+
 

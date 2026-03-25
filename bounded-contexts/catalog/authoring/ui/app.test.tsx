@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { App } from "../app";
+import { CatalogAdminApp as App } from "./index";
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(body), {
@@ -131,3 +131,4 @@ describe("catalog admin app", () => {
     });
   });
 });
+

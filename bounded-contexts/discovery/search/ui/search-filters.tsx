@@ -3,7 +3,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { DiscoveryCategoryItem } from "../../shared/ui/api/types";
+import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 
 interface SearchFiltersProps {
   categories: DiscoveryCategoryItem[];
@@ -43,4 +43,5 @@ export function SearchFilters({
     </Stack>
   );
 }
+
 

@@ -1,5 +1,5 @@
 import { createId } from "../../../../contracts/primitives/typed-ids";
-import type { CatalogServices } from "../api/services";
+import type { CatalogServices } from "../runtime";
 import type { ChoiceId, DimensionId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
 

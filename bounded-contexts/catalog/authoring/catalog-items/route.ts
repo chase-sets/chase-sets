@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../api/services";
+import type { CatalogServices } from "../runtime";
 import type { CatalogAuthoringEnv } from "../api/types";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../ids";
 import { listCatalogItems, getCatalogItemDetail } from "./queries";
@@ -227,4 +227,5 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
 
   return app;
 }
+
 

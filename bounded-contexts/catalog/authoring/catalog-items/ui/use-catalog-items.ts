@@ -1,5 +1,6 @@
 import { api } from "../../shared/ui/api/client";
-import type { CatalogItemDetail, CatalogItemListItem, ListResponse, CommandResponse } from "../../shared/ui/api/types";
+import type { ListResponse, CommandResponse } from "../../shared/ui/api/contracts";
+import type { CatalogItemDetail, CatalogItemListItem } from "./contracts";
 import { useFetch } from "../../shared/ui/use-fetch";
 
 export function useCatalogItemList(query: string) {
@@ -57,4 +58,6 @@ export function setTags(id: string, tags: string[]) {
 export function setImageUrls(id: string, imageUrls: string[]) {
   return api.put<CommandResponse>(`/items/${id}/image-urls`, { imageUrls });
 }
+
+
 

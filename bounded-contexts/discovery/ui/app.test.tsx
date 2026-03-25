@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "../app";
+import { MarketplaceApp as App } from "./app";
 
 function createJsonResponse(body: unknown) {
   return Promise.resolve({
@@ -82,3 +82,4 @@ describe("marketplace app", () => {
     });
   });
 });
+
