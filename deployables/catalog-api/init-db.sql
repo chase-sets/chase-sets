@@ -1,6 +1,3 @@
--- Event Store Schema
--- Source: contracts/event-core/postgres/schema.sql
-
 CREATE TABLE IF NOT EXISTS event_store_streams (
   stream_id text PRIMARY KEY,
   current_version bigint NOT NULL CHECK (current_version >= 0),
@@ -51,7 +48,6 @@ CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   updated_at timestamptz NOT NULL
 );
 
--- Catalog Read Model Projections
 
 CREATE TABLE IF NOT EXISTS catalog_dimensions (
   dimension_id text PRIMARY KEY,
@@ -209,27 +205,6 @@ CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_detail_pages (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Indexes for search and filtering
-CREATE INDEX IF NOT EXISTS catalog_dimensions_status_idx ON catalog_dimensions (status);
-CREATE INDEX IF NOT EXISTS catalog_dimensions_key_name_idx ON catalog_dimensions USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_fields_status_idx ON catalog_fields (status);
-CREATE INDEX IF NOT EXISTS catalog_fields_key_name_idx ON catalog_fields USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_components_status_idx ON catalog_components (status);
-CREATE INDEX IF NOT EXISTS catalog_components_key_name_idx ON catalog_components USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_blueprints_status_idx ON catalog_blueprints (status);
-CREATE INDEX IF NOT EXISTS catalog_blueprints_key_name_idx ON catalog_blueprints USING gin (to_tsvector('simple', key || ' ' || name));
-
-CREATE INDEX IF NOT EXISTS catalog_categories_status_idx ON catalog_categories (status);
-CREATE INDEX IF NOT EXISTS catalog_categories_parent_idx ON catalog_categories (parent_category_id);
-
-CREATE INDEX IF NOT EXISTS catalog_items_status_idx ON catalog_items (status);
-CREATE INDEX IF NOT EXISTS catalog_items_blueprint_idx ON catalog_items (blueprint_id);
-CREATE INDEX IF NOT EXISTS catalog_items_title_idx ON catalog_items USING gin (to_tsvector('simple', title));
-CREATE INDEX IF NOT EXISTS catalog_items_tags_idx ON catalog_items USING gin (tags);
-
 CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_status_idx
   ON catalog_admin_category_list_pages (status);
 CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_parent_idx
@@ -245,64 +220,3 @@ CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_title_idx
   ON catalog_admin_catalog_item_list_pages USING gin (to_tsvector('simple', title || ' ' || COALESCE(subtitle, '')));
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_tags_idx
   ON catalog_admin_catalog_item_list_pages USING gin (tags);
-
--- Marketplace Read Model Projections (pgvector extension)
-
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE IF NOT EXISTS marketplace_search_items (
-  item_id text PRIMARY KEY,
-  title text NOT NULL DEFAULT '',
-  subtitle text NULL,
-  description text NOT NULL DEFAULT '',
-  blueprint_id text NULL,
-  blueprint_name text NULL,
-  status text NOT NULL DEFAULT 'draft',
-  category_names jsonb NOT NULL DEFAULT '[]'::jsonb,
-  tags jsonb NOT NULL DEFAULT '[]'::jsonb,
-  field_values_text text NOT NULL DEFAULT '',
-  image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
-  search_text tsvector,
-  search_text_simple tsvector,
-  search_embedding vector(1536),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS marketplace_search_items_search_text_idx ON marketplace_search_items USING gin (search_text);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_search_text_simple_idx ON marketplace_search_items USING gin (search_text_simple);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_status_idx ON marketplace_search_items (status);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_blueprint_idx ON marketplace_search_items (blueprint_id);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_tags_idx ON marketplace_search_items USING gin (tags);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_category_names_idx ON marketplace_search_items USING gin (category_names);
-
-CREATE TABLE IF NOT EXISTS marketplace_item_detail_pages (
-  item_id text PRIMARY KEY,
-  title text NOT NULL DEFAULT '',
-  subtitle text NULL,
-  description text NOT NULL DEFAULT '',
-  blueprint_id text NULL,
-  blueprint jsonb NULL,
-  status text NOT NULL DEFAULT 'draft',
-  field_values jsonb NOT NULL DEFAULT '[]'::jsonb,
-  categories jsonb NOT NULL DEFAULT '[]'::jsonb,
-  tags jsonb NOT NULL DEFAULT '[]'::jsonb,
-  image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
-  version_schema jsonb NULL,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS marketplace_categories (
-  category_id text PRIMARY KEY,
-  key text NOT NULL,
-  name text NOT NULL,
-  description text NOT NULL DEFAULT '',
-  status text NOT NULL DEFAULT 'active',
-  parent_category_id text NULL,
-  parent_category jsonb NULL,
-  display_order integer NOT NULL DEFAULT 0,
-  item_count integer NOT NULL DEFAULT 0,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS marketplace_categories_status_idx ON marketplace_categories (status);
-CREATE INDEX IF NOT EXISTS marketplace_categories_parent_idx ON marketplace_categories (parent_category_id);

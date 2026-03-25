@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { CatalogDomainError } from "../../../../bounded-contexts/catalog/common";
+import { CatalogDomainError } from "../../../../bounded-contexts/catalog/authoring";
 
 type EventStoreErrorLike = Readonly<{
   code: string;

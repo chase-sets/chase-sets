@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCatalogApp } from "../src/app";
-import type { CatalogServices } from "../src/infrastructure/wiring";
+import type { CatalogServices } from "../../../bounded-contexts/catalog/authoring";
 
 describe("catalog api host app", () => {
   it("mounts health and the catalog authoring API under /api/catalog", async () => {

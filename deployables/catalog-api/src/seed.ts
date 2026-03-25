@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
+import { seedCatalogDatabase } from "../../../bounded-contexts/catalog/authoring";
 import { loadConfig } from "./config";
 import { createPool } from "./infrastructure/postgres";
-import { seedCatalogDatabase } from "../../../bounded-contexts/catalog/authoring/seed";
 
 export async function seedDatabase() {
   const config = loadConfig();

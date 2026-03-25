@@ -1,5 +1,5 @@
 import { assert } from "./common";
-import type { CatalogItemState } from "./catalog-item";
+import type { CatalogItemState } from "./authoring/catalog-items/domain";
 import type { DomainEvent } from "../../contracts/event-core";
 import type { CatalogValue } from "./common";
 import type {

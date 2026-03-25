@@ -2,12 +2,12 @@ import { createPostgresEventStore } from "../../contracts/event-core/postgres/ev
 import { createPostgresProjectionStore } from "../../contracts/event-core/postgres/projection-store";
 import { createProjector, type Projector } from "../../contracts/event-core/projector";
 import type { PgTransactionalPool, PgQueryable } from "../../contracts/event-core/postgres/types";
-import { buildBlueprintProjectionHandlers } from "./catalog-mirror/blueprint-projection";
-import { buildCatalogItemProjectionHandlers } from "./catalog-mirror/catalog-item-projection";
-import { buildCategoryProjectionHandlers } from "./catalog-mirror/category-projection";
-import { buildComponentProjectionHandlers } from "./catalog-mirror/component-projection";
-import { buildDimensionProjectionHandlers } from "./catalog-mirror/dimension-projection";
-import { buildFieldProjectionHandlers } from "./catalog-mirror/field-projection";
+import { buildBlueprintProjectionHandlers } from "./incoming-catalog/blueprint-projection";
+import { buildCatalogItemProjectionHandlers } from "./incoming-catalog/catalog-item-projection";
+import { buildCategoryProjectionHandlers } from "./incoming-catalog/category-projection";
+import { buildComponentProjectionHandlers } from "./incoming-catalog/component-projection";
+import { buildDimensionProjectionHandlers } from "./incoming-catalog/dimension-projection";
+import { buildFieldProjectionHandlers } from "./incoming-catalog/field-projection";
 import { buildDiscoveryCategoryProjectionHandlers } from "./categories/projection";
 import { buildDiscoveryItemDetailProjectionHandlers } from "./item-detail/projection";
 import { buildDiscoverySearchItemProjectionHandlers } from "./search/projection";
@@ -25,37 +25,37 @@ export function createDiscoveryServices(pool: PgTransactionalPool): DiscoverySer
 
   const projectors: Projector[] = [
     createProjector({
-      projectorName: "discovery-catalog-mirror-dimension-projection",
+      projectorName: "discovery-incoming-catalog-dimension-projection",
       eventStore,
       checkpointStore,
       handlers: buildDimensionProjectionHandlers(db),
     }),
     createProjector({
-      projectorName: "discovery-catalog-mirror-field-projection",
+      projectorName: "discovery-incoming-catalog-field-projection",
       eventStore,
       checkpointStore,
       handlers: buildFieldProjectionHandlers(db),
     }),
     createProjector({
-      projectorName: "discovery-catalog-mirror-component-projection",
+      projectorName: "discovery-incoming-catalog-component-projection",
       eventStore,
       checkpointStore,
       handlers: buildComponentProjectionHandlers(db),
     }),
     createProjector({
-      projectorName: "discovery-catalog-mirror-blueprint-projection",
+      projectorName: "discovery-incoming-catalog-blueprint-projection",
       eventStore,
       checkpointStore,
       handlers: buildBlueprintProjectionHandlers(db),
     }),
     createProjector({
-      projectorName: "discovery-catalog-mirror-category-projection",
+      projectorName: "discovery-incoming-catalog-category-projection",
       eventStore,
       checkpointStore,
       handlers: buildCategoryProjectionHandlers(db),
     }),
     createProjector({
-      projectorName: "discovery-catalog-mirror-catalog-item-projection",
+      projectorName: "discovery-incoming-catalog-catalog-item-projection",
       eventStore,
       checkpointStore,
       handlers: buildCatalogItemProjectionHandlers(db),

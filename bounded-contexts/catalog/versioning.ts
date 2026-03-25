@@ -1,5 +1,5 @@
 import { assert } from "./common";
-import type { BlueprintDimensionRule } from "./blueprint";
+import type { BlueprintDimensionRule } from "./authoring/blueprints/domain";
 import type { Branded } from "../../contracts/primitives/brand";
 import type {
   CatalogItemId,

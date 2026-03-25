@@ -12,37 +12,47 @@ import {
   initialDimensionState,
   decideDimension,
   evolveDimension,
+} from "../dimensions/domain";
+import {
   type FieldState,
   type FieldCommand,
   type FieldEvent,
   initialFieldState,
   decideField,
   evolveField,
+} from "../fields/domain";
+import {
   type ComponentState,
   type ComponentCommand,
   type ComponentEvent,
   initialComponentState,
   decideComponent,
   evolveComponent,
+} from "../components/domain";
+import {
   type BlueprintState,
   type BlueprintCommand,
   type BlueprintEvent,
   initialBlueprintState,
   decideBlueprint,
   evolveBlueprint,
+} from "../blueprints/domain";
+import {
   type CategoryState,
   type CategoryCommand,
   type CategoryEvent,
   initialCategoryState,
   decideCategory,
   evolveCategory,
+} from "../categories/domain";
+import {
   type CatalogItemState,
   type CatalogItemCommand,
   type CatalogItemEvent,
   initialCatalogItemState,
   decideCatalogItem,
   evolveCatalogItem,
-} from "../..";
+} from "../catalog-items/domain";
 import { buildDimensionProjectionHandlers } from "../dimensions/projection";
 import { buildFieldProjectionHandlers } from "../fields/projection";
 import { buildComponentProjectionHandlers } from "../components/projection";
@@ -191,4 +201,3 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
     db,
   };
 }
-

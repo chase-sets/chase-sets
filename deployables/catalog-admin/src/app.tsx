@@ -9,7 +9,7 @@ import {
   CatalogAdminContent,
   CatalogAdminProviders,
   catalogAdminNavItems,
-} from "../../../bounded-contexts/catalog/authoring/ui";
+} from "../../../bounded-contexts/catalog/authoring";
 import { useHashRouter } from "./router";
 
 export function App() {

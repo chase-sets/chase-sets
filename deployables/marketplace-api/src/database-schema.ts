@@ -1,7 +1,7 @@
-import { catalogAuthoringDatabaseSchemaSql } from "../../../bounded-contexts/catalog/authoring/database-schema";
-import { discoveryProjectionSchemaSql } from "../../../bounded-contexts/discovery/api/schema";
+import { eventCorePostgresSchemaSql } from "../../../contracts/event-core/postgres/schema";
+import { discoveryProjectionSchemaSql } from "../../../bounded-contexts/discovery";
 
 export const marketplaceApiInitSql = [
-  catalogAuthoringDatabaseSchemaSql,
+  eventCorePostgresSchemaSql,
   discoveryProjectionSchemaSql,
 ].join("\n\n");

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { buildCatalogAuthoringApi, type CatalogServices } from "../../../bounded-contexts/catalog/authoring/api";
+import { buildCatalogAuthoringApi, type CatalogServices } from "../../../bounded-contexts/catalog/authoring";
 import { tenantContextMiddleware, type TenantContextEnv } from "./middleware/tenant-context";
 import { errorHandler } from "./middleware/error-handler";
 import { healthRoutes } from "./routes/health";

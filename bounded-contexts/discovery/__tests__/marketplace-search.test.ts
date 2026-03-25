@@ -1,13 +1,18 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import pg from "pg";
+import { Hono } from "hono";
 import {
+  buildDiscoveryApi,
   createDiscoveryServices,
+  discoveryProjectionSchemaSql,
+  rebuildDiscoverySearchIndex,
   type DiscoveryServices,
-} from "../../../bounded-contexts/discovery/services";
-import { rebuildDiscoverySearchIndex } from "../../../bounded-contexts/discovery/search/projection";
-import { marketplaceApiInitSql } from "../src/database-schema";
-import { buildMarketplaceApp } from "../src/app";
-import { createPool } from "../src/infrastructure/postgres";
-import { createCatalogServices, type CatalogServices } from "../../catalog-api/src/infrastructure/wiring";
+} from "..";
+import {
+  createCatalogServices,
+  catalogAuthoringDatabaseSchemaSql,
+  type CatalogServices,
+} from "../../catalog/authoring";
 import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
 import type { EventStoreContext } from "../../../contracts/event-core/storage";
 
@@ -24,11 +29,15 @@ const context: EventStoreContext = {
 let pool: PgTransactionalPool;
 let catalogServices: CatalogServices;
 let discoveryServices: DiscoveryServices;
-let app: ReturnType<typeof buildMarketplaceApp>;
+let app: Hono;
+
+function createPool(connectionString: string): PgTransactionalPool {
+  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+}
 
 async function recreateSchema() {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(marketplaceApiInitSql);
+  await pool.query([catalogAuthoringDatabaseSchemaSql, discoveryProjectionSchemaSql].join("\n\n"));
 }
 
 async function drainProjectors() {
@@ -65,7 +74,8 @@ describe("marketplace search", () => {
     pool = createPool(databaseUrl);
     catalogServices = createCatalogServices(pool);
     discoveryServices = createDiscoveryServices(pool);
-    app = buildMarketplaceApp(discoveryServices);
+    app = new Hono();
+    app.route("/api/marketplace", buildDiscoveryApi(discoveryServices));
   });
 
   beforeEach(async () => {

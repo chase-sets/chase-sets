@@ -7,7 +7,7 @@ import {
   type ColorMode,
   ViewTransition,
 } from "@chase-sets/design-system";
-import { ItemDetailPage, SearchPage } from "../../../bounded-contexts/discovery/ui";
+import { ItemDetailPage, SearchPage } from "../../../bounded-contexts/discovery";
 import { useHashRouter } from "./router";
 
 const topNavItems: NavigationItem[] = [
