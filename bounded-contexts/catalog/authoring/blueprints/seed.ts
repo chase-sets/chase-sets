@@ -1,5 +1,5 @@
 import { createId } from "../../../../contracts/primitives/typed-ids";
-import type { CatalogServices } from "../runtime";
+import type { CatalogServices } from "../services";
 import type { BlueprintId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
 import type { ComponentIds } from "../components/seed";
@@ -145,3 +145,5 @@ export async function seedBlueprints(
 
   return result;
 }
+
+

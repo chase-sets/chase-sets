@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "../../../../contracts/event-core/projector";
 import type { PgQueryable } from "../../../../contracts/event-core/postgres/types";
-import { extractIdFromStreamId } from "../shared/projections/extract-id-from-stream";
+import { extractIdFromStreamId } from "../support/projections/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.dimension-";
 
@@ -131,4 +131,5 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
     },
   };
 }
+
 

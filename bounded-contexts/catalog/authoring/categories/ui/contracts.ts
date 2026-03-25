@@ -1,4 +1,7 @@
-import type { CategoryRef } from "../../shared/ui/api/contracts";
+export interface CategoryRef {
+  categoryId: string;
+  name: string;
+}
 
 export interface CategoryListItem {
   category_id: string;

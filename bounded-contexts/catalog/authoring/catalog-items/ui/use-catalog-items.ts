@@ -1,7 +1,7 @@
-import { api } from "../../shared/ui/api/client";
-import type { ListResponse, CommandResponse } from "../../shared/ui/api/contracts";
+import { api } from "../../support/api/client";
+import type { CommandResponse, ListResponse } from "../../../../../contracts/http/responses";
 import type { CatalogItemDetail, CatalogItemListItem } from "./contracts";
-import { useFetch } from "../../shared/ui/use-fetch";
+import { useFetch } from "../../support/ui/use-fetch";
 
 export function useCatalogItemList(query: string) {
   return useFetch(() => api.get<ListResponse<CatalogItemListItem>>(`/items?${query}`), [query]);
@@ -58,6 +58,8 @@ export function setTags(id: string, tags: string[]) {
 export function setImageUrls(id: string, imageUrls: string[]) {
   return api.put<CommandResponse>(`/items/${id}/image-urls`, { imageUrls });
 }
+
+
 
 
 

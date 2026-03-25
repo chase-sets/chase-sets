@@ -1,7 +1,7 @@
 import type { ProjectorHandlerMap } from "../../../../contracts/event-core/projector";
 import type { PgQueryable } from "../../../../contracts/event-core/postgres/types";
-import { extractIdFromStreamId } from "../shared/projections/extract-id-from-stream";
-import { loadNameMap } from "../shared/projections/read-model-support";
+import { extractIdFromStreamId } from "../support/projections/extract-id-from-stream";
+import { loadNameMap } from "../support/projections/read-model-support";
 
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 
@@ -117,3 +117,4 @@ export function buildCatalogAdminCategoryProjectionHandlers(db: PgQueryable): Pr
     },
   };
 }
+

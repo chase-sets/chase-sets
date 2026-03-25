@@ -1,4 +1,4 @@
-import type { ChoiceRef } from "../../shared/ui/api/contracts";
+import type { ChoiceRef } from "../../dimensions/ui/contracts";
 
 export interface Component {
   component_id: string;
@@ -25,4 +25,9 @@ export interface ComponentDetail {
     allowedChoices: ChoiceRef[];
   }>;
   updated_at: string;
+}
+
+export interface ComponentRef {
+  componentId: string;
+  name: string;
 }

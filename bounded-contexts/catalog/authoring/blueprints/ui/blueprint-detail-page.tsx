@@ -12,9 +12,9 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { useToasts } from "../../shared/ui/toasts";
-import { EntityDetailPage } from "../../shared/ui/entity-detail-page";
-import { LifecycleControls, type Transition } from "../../shared/ui/lifecycle-controls";
+import { useToasts } from "../../shell/ui/toasts";
+import { EntityDetailPage } from "../../shell/ui/entity-detail-page";
+import { LifecycleControls, type Transition } from "../../shell/ui/lifecycle-controls";
 import {
   useBlueprint,
   reviseBlueprint,
@@ -439,4 +439,5 @@ export function BlueprintDetailPage({ id }: { id: string }) {
     </>
   );
 }
+
 

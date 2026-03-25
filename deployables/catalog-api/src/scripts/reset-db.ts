@@ -1,7 +1,7 @@
 import { loadConfig } from "../config";
+import { catalogAuthoringDatabaseSchemaSql } from "../../../../bounded-contexts/catalog/authoring";
 import { createPool } from "../infrastructure/postgres";
 import { seedDatabase } from "../seed";
-import { catalogApiInitSql } from "../database-schema";
 
 async function resetDatabase() {
   const config = loadConfig();
@@ -10,7 +10,7 @@ async function resetDatabase() {
   try {
     console.log("Resetting database schema...");
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-    await pool.query(catalogApiInitSql);
+    await pool.query(catalogAuthoringDatabaseSchemaSql);
     console.log("Database schema recreated.");
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();

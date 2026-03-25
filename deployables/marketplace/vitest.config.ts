@@ -28,9 +28,10 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "../../bounded-contexts/discovery/ui/**/*.test.ts", "../../bounded-contexts/discovery/ui/**/*.test.tsx"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "../../bounded-contexts/discovery/shell/**/*.test.ts", "../../bounded-contexts/discovery/shell/**/*.test.tsx"],
     exclude: ["dist/**", "node_modules/**"],
     css: true
   }
 });
+
 

@@ -4,7 +4,7 @@ import {
   executeListQuery,
   type ListParams,
   type ListResult,
-} from "../shared/projections/list-query";
+} from "../support/projections/list-query";
 
 export type DimensionRow = Readonly<{
   dimension_id: string;
@@ -50,3 +50,4 @@ export async function getDimension(db: PgQueryable, dimensionId: string) {
 
   return { ...dimensionResult.rows[0], choices: choicesResult.rows };
 }
+

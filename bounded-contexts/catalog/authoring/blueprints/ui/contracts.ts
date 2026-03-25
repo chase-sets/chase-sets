@@ -1,4 +1,5 @@
-import type { ChoiceRef, ComponentRef } from "../../shared/ui/api/contracts";
+import type { ComponentRef } from "../../components/ui/contracts";
+import type { ChoiceRef } from "../../dimensions/ui/contracts";
 
 export interface Blueprint {
   blueprint_id: string;
@@ -29,4 +30,9 @@ export interface BlueprintDetail {
   }>;
   canonical_dimension_order: Array<{ dimensionId: string; dimensionName: string }>;
   updated_at: string;
+}
+
+export interface BlueprintRef {
+  blueprintId: string;
+  name: string;
 }

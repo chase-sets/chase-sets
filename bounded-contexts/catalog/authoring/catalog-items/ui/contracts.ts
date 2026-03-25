@@ -1,4 +1,5 @@
-import type { BlueprintRef, CategoryRef } from "../../shared/ui/api/contracts";
+import type { BlueprintRef } from "../../blueprints/ui/contracts";
+import type { CategoryRef } from "../../categories/ui/contracts";
 
 export interface CatalogItemListItem {
   item_id: string;

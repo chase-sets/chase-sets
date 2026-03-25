@@ -1,5 +1,5 @@
 import { createId } from "../../../../contracts/primitives/typed-ids";
-import type { CatalogServices } from "../runtime";
+import type { CatalogServices } from "../services";
 import type { CategoryId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
 
@@ -120,3 +120,5 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
   console.log(`  ${Object.keys(result).length} categories created`);
   return result;
 }
+
+

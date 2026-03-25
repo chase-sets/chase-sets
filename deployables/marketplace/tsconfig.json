@@ -5,7 +5,7 @@
   },
   "include": [
     "src",
-    "../../bounded-contexts/discovery/ui/**/*.ts",
-    "../../bounded-contexts/discovery/ui/**/*.tsx"
+    "../../bounded-contexts/discovery/**/*.ts",
+    "../../bounded-contexts/discovery/**/*.tsx"
   ]
 }

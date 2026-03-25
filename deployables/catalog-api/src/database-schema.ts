@@ -1,1 +1,0 @@
-export { catalogAuthoringDatabaseSchemaSql as catalogApiInitSql } from "../../../bounded-contexts/catalog/authoring";

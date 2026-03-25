@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../runtime";
-import type { CatalogAuthoringEnv } from "../api/types";
+import type { CatalogServices } from "../services";
+import type { CatalogAuthoringEnv } from "../api";
 import type { BlueprintId, ComponentId } from "../../ids";
 import { listBlueprints, getBlueprintDetail } from "./queries";
 
@@ -187,5 +187,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
 
   return app;
 }
+
+
 
 

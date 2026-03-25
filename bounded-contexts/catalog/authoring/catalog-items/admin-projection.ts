@@ -1,12 +1,12 @@
 import type { ProjectorHandlerMap } from "../../../../contracts/event-core/projector";
 import type { PgQueryable } from "../../../../contracts/event-core/postgres/types";
-import { extractIdFromStreamId } from "../shared/projections/extract-id-from-stream";
+import { extractIdFromStreamId } from "../support/projections/extract-id-from-stream";
 import {
   asArray,
   asStringArray,
   type FieldValue,
   loadNameMap,
-} from "../shared/projections/read-model-support";
+} from "../support/projections/read-model-support";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -301,3 +301,4 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     },
   };
 }
+

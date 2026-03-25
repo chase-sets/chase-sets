@@ -1,5 +1,4 @@
 import { assert } from "./common";
-import type { BlueprintDimensionRule } from "./authoring/blueprints/domain";
 import type { Branded } from "../../contracts/primitives/brand";
 import type {
   CatalogItemId,
@@ -31,8 +30,14 @@ export type CatalogVersionSchema = Readonly<{
   dimensions: CatalogVersionDimension[];
 }>;
 
+export type CatalogVersionDimensionRule = Readonly<{
+  dimensionId: DimensionId;
+  required: boolean;
+  allowedChoiceIds: readonly ChoiceId[];
+}>;
+
 export type VersionableBlueprint = Readonly<{
-  dimensionRules: BlueprintDimensionRule[];
+  dimensionRules: readonly CatalogVersionDimensionRule[];
   canonicalDimensionOrder: DimensionId[];
 }>;
 

@@ -1,7 +1,7 @@
-import { api } from "../../shared/ui/api/client";
-import type { ListResponse, CommandResponse } from "../../shared/ui/api/contracts";
+import { api } from "../../support/api/client";
+import type { CommandResponse, ListResponse } from "../../../../../contracts/http/responses";
 import type { Blueprint, BlueprintDetail } from "./contracts";
-import { useFetch } from "../../shared/ui/use-fetch";
+import { useFetch } from "../../support/ui/use-fetch";
 
 export function useBlueprintList(query: string) {
   return useFetch(() => api.get<ListResponse<Blueprint>>(`/blueprints?${query}`), [query]);
@@ -50,6 +50,8 @@ export function deprecateBlueprint(id: string) {
 export function archiveBlueprint(id: string) {
   return api.post<CommandResponse>(`/blueprints/${id}/archive`);
 }
+
+
 
 
 

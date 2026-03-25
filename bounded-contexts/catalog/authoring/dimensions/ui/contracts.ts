@@ -1,4 +1,4 @@
-import type { LocalizedText } from "../../shared/ui/api/contracts";
+import type { LocalizedText } from "../../../common";
 
 export interface Dimension {
   dimension_id: string;
@@ -21,4 +21,9 @@ export interface DimensionChoice {
 
 export interface DimensionDetail extends Dimension {
   choices: DimensionChoice[];
+}
+
+export interface ChoiceRef {
+  choiceId: string;
+  code: string;
 }

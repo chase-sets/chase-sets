@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../runtime";
-import type { CatalogAuthoringEnv } from "../api/types";
+import type { CatalogServices } from "../services";
+import type { CatalogAuthoringEnv } from "../api";
 import type { DimensionId, ChoiceId } from "../../ids";
 import { listDimensions, getDimension } from "./queries";
 
@@ -193,5 +193,6 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
 
   return app;
 }
+
 
 

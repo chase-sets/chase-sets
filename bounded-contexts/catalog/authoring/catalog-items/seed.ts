@@ -1,5 +1,5 @@
 import { createId } from "../../../../contracts/primitives/typed-ids";
-import type { CatalogServices } from "../runtime";
+import type { CatalogServices } from "../services";
 import type { CatalogItemId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
 import type { BlueprintIds } from "../blueprints/seed";
@@ -154,3 +154,5 @@ export async function seedCatalogItems(
     console.log(`  Item "${item.title}" created and published`);
   }
 }
+
+

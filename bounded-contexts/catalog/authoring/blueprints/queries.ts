@@ -4,7 +4,7 @@ import {
   executeListQuery,
   type ListParams,
   type ListResult,
-} from "../shared/projections/list-query";
+} from "../support/projections/list-query";
 
 export type BlueprintRow = Readonly<{
   blueprint_id: string;
@@ -48,3 +48,4 @@ export async function getBlueprintDetail(db: PgQueryable, blueprintId: string) {
 
   return result.rows[0] ?? null;
 }
+

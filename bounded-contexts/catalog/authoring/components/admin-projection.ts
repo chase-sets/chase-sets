@@ -1,13 +1,13 @@
 import type { ProjectorHandlerMap } from "../../../../contracts/event-core/projector";
 import type { PgQueryable } from "../../../../contracts/event-core/postgres/types";
-import { extractIdFromStreamId } from "../shared/projections/extract-id-from-stream";
+import { extractIdFromStreamId } from "../support/projections/extract-id-from-stream";
 import {
   asArray,
   type DimensionRule,
   type FieldRule,
   loadChoiceCodeMap,
   loadNameMap,
-} from "../shared/projections/read-model-support";
+} from "../support/projections/read-model-support";
 
 const COMPONENT_STREAM_PREFIX = "catalog.component-";
 const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
@@ -227,3 +227,4 @@ export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): P
     },
   };
 }
+

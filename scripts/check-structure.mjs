@@ -9,6 +9,10 @@ const violations = [];
 const forbiddenPaths = [
   "bounded-contexts/catalog/authoring/api/projections/queries.ts",
   "bounded-contexts/catalog/authoring/api/projections/schema.sql",
+  "bounded-contexts/catalog/authoring/runtime.ts",
+  "bounded-contexts/catalog/authoring/ui/index.tsx",
+  "bounded-contexts/discovery/ui/app.tsx",
+  "bounded-contexts/discovery/ui/router.ts",
   "bounded-contexts/discovery/schema.sql",
   "deployables/catalog-admin/src/router.ts",
   "deployables/marketplace/src/router.ts",
@@ -48,6 +52,14 @@ function checkImport(file, specifier) {
 
   if (relativeFile.startsWith("bounded-contexts/") && normalized.includes("deployables/")) {
     addViolation(file, `bounded contexts must not import deployables (${specifier})`);
+  }
+
+  if (
+    relativeFile.startsWith("bounded-contexts/catalog/") &&
+    !relativeFile.startsWith("bounded-contexts/catalog/authoring/") &&
+    normalized.includes("bounded-contexts/catalog/authoring/")
+  ) {
+    addViolation(file, `catalog public modules must not import authoring internals (${specifier})`);
   }
 
   if (!relativeFile.startsWith("deployables/")) {

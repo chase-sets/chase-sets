@@ -9,8 +9,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { useToasts } from "../../shared/ui/toasts";
-import { EntityListPage } from "../../shared/ui/entity-list-page";
+import { useToasts } from "../../shell/ui/toasts";
+import { EntityListPage } from "../../shell/ui/entity-list-page";
 import { useCategoryList, createCategory } from "./use-categories";
 import type { CategoryListItem } from "./contracts";
 
@@ -116,5 +116,6 @@ export function CategoryListPage() {
     </>
   );
 }
+
 
 

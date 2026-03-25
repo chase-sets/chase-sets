@@ -29,9 +29,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "../../bounded-contexts/catalog/authoring/ui/**/*.test.ts", "../../bounded-contexts/catalog/authoring/ui/**/*.test.tsx"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "../../bounded-contexts/catalog/authoring/shell/**/*.test.ts", "../../bounded-contexts/catalog/authoring/shell/**/*.test.tsx"],
     exclude: ["dist/**", "node_modules/**"],
     css: true
   }
 });
+
 

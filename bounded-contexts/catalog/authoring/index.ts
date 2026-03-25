@@ -1,15 +1,9 @@
 export { CatalogDomainError } from "../common";
-export { buildCatalogAuthoringApi } from "./api/app";
-export type { CatalogAuthoringEnv } from "./api/types";
-export { createCatalogServices } from "./runtime";
-export type { CatalogServices } from "./runtime";
+export { buildCatalogAuthoringApi } from "./api";
+export type { CatalogAuthoringEnv } from "./api";
+export { createCatalogServices } from "./services";
+export type { CatalogServices } from "./services";
 export { catalogAuthoringDatabaseSchemaSql } from "./database-schema";
 export { seedCatalogDatabase } from "./seed";
-export {
-  CatalogAdminApp,
-  CatalogAdminContent,
-  CatalogAdminProviders,
-  catalogAdminNavItems,
-  useCatalogAdminRouter,
-} from "./ui";
-export type { CatalogAdminRoute } from "./ui";
+export { CatalogAdminApp } from "./shell";
+export type { CatalogAdminRoute } from "./shell";

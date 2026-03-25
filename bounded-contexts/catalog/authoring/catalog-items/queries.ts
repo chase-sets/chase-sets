@@ -4,7 +4,7 @@ import {
   executeListQuery,
   type ListParams,
   type ListResult,
-} from "../shared/projections/list-query";
+} from "../support/projections/list-query";
 
 export type CatalogItemListRow = Readonly<{
   item_id: string;
@@ -72,3 +72,4 @@ export async function getCatalogItemDetail(db: PgQueryable, itemId: string) {
 
   return result.rows[0] ?? null;
 }
+

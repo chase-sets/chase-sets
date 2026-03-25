@@ -8,8 +8,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { useToasts } from "../../shared/ui/toasts";
-import { EntityListPage } from "../../shared/ui/entity-list-page";
+import { useToasts } from "../../shell/ui/toasts";
+import { EntityListPage } from "../../shell/ui/entity-list-page";
 import { useCatalogItemList, createCatalogItem } from "./use-catalog-items";
 import type { CatalogItemListItem } from "./contracts";
 
@@ -101,5 +101,6 @@ export function CatalogItemListPage() {
     </>
   );
 }
+
 
 

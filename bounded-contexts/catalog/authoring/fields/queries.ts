@@ -4,7 +4,7 @@ import {
   executeListQuery,
   type ListParams,
   type ListResult,
-} from "../shared/projections/list-query";
+} from "../support/projections/list-query";
 
 export type FieldRow = Readonly<{
   field_id: string;
@@ -35,3 +35,4 @@ export async function getField(db: PgQueryable, fieldId: string) {
 
   return result.rows[0] ?? null;
 }
+

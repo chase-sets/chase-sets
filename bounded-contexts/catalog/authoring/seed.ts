@@ -1,5 +1,5 @@
 import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
-import { createCatalogServices } from "./runtime";
+import { createCatalogServices } from "./services";
 import { seedBlueprints } from "./blueprints/seed";
 import { seedCatalogItems } from "./catalog-items/seed";
 import { seedCategories } from "./categories/seed";
@@ -47,3 +47,4 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool) {
     await (pool as unknown as { end: () => Promise<void> }).end();
   }
 }
+

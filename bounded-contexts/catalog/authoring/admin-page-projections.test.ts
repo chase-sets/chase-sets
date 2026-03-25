@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { createPool } from "../../../deployables/catalog-api/src/infrastructure/postgres";
-import { createCatalogServices, type CatalogServices } from "./index";
-import { catalogApiInitSql } from "../../../deployables/catalog-api/src/database-schema";
-import { buildCatalogApp } from "../../../deployables/catalog-api/src/app";
+import { catalogAuthoringDatabaseSchemaSql, createCatalogServices, type CatalogServices } from "./index";
+import { buildCatalogAuthoringTestApp, createCatalogAuthoringTestPool } from "./test-support";
 import type { EventStoreContext } from "../../../contracts/event-core/storage";
 import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
 
@@ -24,11 +22,11 @@ const headers = {
 
 let pool: PgTransactionalPool;
 let services: CatalogServices;
-let app: ReturnType<typeof buildCatalogApp>;
+let app: ReturnType<typeof buildCatalogAuthoringTestApp>;
 
 async function recreateSchema() {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(catalogApiInitSql);
+  await pool.query(catalogAuthoringDatabaseSchemaSql);
 }
 
 async function drainProjectors() {
@@ -58,13 +56,13 @@ async function getJson(path: string) {
 
 describe("Admin page projections", () => {
   beforeAll(() => {
-    pool = createPool(databaseUrl);
+    pool = createCatalogAuthoringTestPool(databaseUrl);
   });
 
   beforeEach(async () => {
     await recreateSchema();
     services = createCatalogServices(pool);
-    app = buildCatalogApp(services);
+    app = buildCatalogAuthoringTestApp(services, context);
   });
 
   afterAll(async () => {
@@ -343,5 +341,3 @@ describe("Admin page projections", () => {
     expect(updatedItemDetail.json.categories[0].name).toBe("Generation I Singles");
   });
 });
-
-

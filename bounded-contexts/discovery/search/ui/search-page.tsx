@@ -13,13 +13,13 @@ import {
   Inline,
   Text,
 } from "@chase-sets/design-system";
-import { discoveryApi } from "../../shared/ui/api/client";
+import { discoveryApi } from "../../support/api/client";
 import type { CategoryListResponse } from "../../categories/ui/contracts";
 import type { DiscoverySearchResponse } from "./contracts";
 import { ItemCard } from "./item-card";
 import { SearchFilters } from "./search-filters";
 import { useDebounce } from "../use-debounce";
-import { useFetch } from "../../shared/ui/use-fetch";
+import { useFetch } from "../../support/ui/use-fetch";
 
 const PAGE_SIZE = 24;
 
@@ -129,6 +129,8 @@ export function SearchPage() {
     </div>
   );
 }
+
+
 
 
 
