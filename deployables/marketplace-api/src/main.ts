@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { createDiscoveryServices } from "../../../bounded-contexts/discovery/api";
+import { createDiscoveryServices } from "../../../bounded-contexts/discovery/services";
 import { loadConfig } from "./config";
 import { createPool } from "./infrastructure/postgres";
 import { buildMarketplaceApp } from "./app";

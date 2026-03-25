@@ -3,7 +3,6 @@ import {
   createCatalogServices,
   type CatalogServices,
 } from "./api";
-import { createDiscoveryServices } from "../../discovery/api";
 import type { Projector } from "../../../contracts/event-core/projector";
 import { createId } from "../../../contracts/primitives/typed-ids";
 import type {
@@ -932,11 +931,9 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool) {
     await seedCatalogItems(services, blueprints, fields, categories);
     await drainProjectors("catalog", services.projectors);
 
-    const discoveryServices = createDiscoveryServices(pool);
-    await drainProjectors("discovery", discoveryServices.projectors);
-
     console.log("\nSeed complete!");
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();
   }
 }
+

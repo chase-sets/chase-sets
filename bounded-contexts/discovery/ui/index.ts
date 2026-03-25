@@ -1,2 +1,2 @@
-export * from "./pages/item-detail-page";
-export * from "./pages/search-page";
+export * from "../item-detail/ui/item-detail-page";
+export * from "../search/ui/search-page";

@@ -43,13 +43,13 @@ import {
   decideCatalogItem,
   evolveCatalogItem,
 } from "../..";
-import { buildDimensionProjectionHandlers } from "./projections/dimension-projection";
-import { buildFieldProjectionHandlers } from "./projections/field-projection";
-import { buildComponentProjectionHandlers } from "./projections/component-projection";
-import { buildBlueprintProjectionHandlers } from "./projections/blueprint-projection";
-import { buildCategoryProjectionHandlers } from "./projections/category-projection";
-import { buildCatalogItemProjectionHandlers } from "./projections/catalog-item-projection";
-import { buildAdminPageProjectionHandlers } from "./projections/admin-page-projection";
+import { buildDimensionProjectionHandlers } from "../dimensions/projection";
+import { buildFieldProjectionHandlers } from "../fields/projection";
+import { buildComponentProjectionHandlers } from "../components/projection";
+import { buildBlueprintProjectionHandlers } from "../blueprints/projection";
+import { buildCategoryProjectionHandlers } from "../categories/projection";
+import { buildCatalogItemProjectionHandlers } from "../catalog-items/projection";
+import { buildAdminPageProjectionHandlers } from "../shared/projections/admin-page-projection";
 
 export type CatalogServices = Readonly<{
   dimensionHandler: CommandHandler<DimensionCommand, DimensionState, DimensionEvent>;
@@ -191,3 +191,4 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
     db,
   };
 }
+

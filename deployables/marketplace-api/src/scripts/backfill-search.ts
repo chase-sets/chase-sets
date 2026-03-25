@@ -1,4 +1,4 @@
-import { rebuildDiscoverySearchIndex } from "../../../../bounded-contexts/discovery/api";
+import { rebuildDiscoverySearchIndex } from "../../../../bounded-contexts/discovery/search/projection";
 import { loadConfig } from "../config";
 import { createPool } from "../infrastructure/postgres";
 

@@ -8,7 +8,9 @@
     "src",
     "__tests__",
     "../../contracts/**/*.ts",
-    "../../bounded-contexts/catalog/**/*.ts",
-    "../../bounded-contexts/discovery/api/**/*.ts"
+    "../../bounded-contexts/catalog/**/*.ts"
+  ],
+  "exclude": [
+    "../../bounded-contexts/**/*.tmp.*"
   ]
 }

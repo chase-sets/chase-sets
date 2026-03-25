@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { createPool } from "../src/infrastructure/postgres";
 import { createCatalogServices, type CatalogServices } from "../src/infrastructure/wiring";
-import { catalogApiInitSql } from "../src/database-schema";
+import { catalogApiInitSql } from "../src/catalog-database-schema";
 import { buildCatalogApp } from "../src/app";
 import type { EventStoreContext } from "../../../contracts/event-core/storage";
 import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
@@ -343,3 +343,4 @@ describe("Admin page projections", () => {
     expect(updatedItemDetail.json.categories[0].name).toBe("Generation I Singles");
   });
 });
+
