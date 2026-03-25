@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
-import type { NavigationItem } from "@chase-sets/design-system";
-import { Text } from "@chase-sets/design-system";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import type { NavigationItem, ColorMode } from "@chase-sets/design-system";
+import { AdminShell, ChaseRoot, Text } from "@chase-sets/design-system";
 import { ToastProvider } from "../shared/ui/toasts";
 import { DimensionListPage } from "../dimensions/ui/dimension-list-page";
 import { DimensionDetailPage } from "../dimensions/ui/dimension-detail-page";
@@ -29,6 +29,46 @@ export const catalogAdminNavItems: NavigationItem[] = [
   { key: "catalog-items", label: "Catalog Items", icon: "dashboard" },
 ];
 
+function parseHash(): CatalogAdminRoute {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (!hash) return { entity: "dimensions" };
+  const [entity, id] = hash.split("/");
+  return { entity, id };
+}
+
+let currentRoute = typeof window === "undefined" ? { entity: "dimensions" } : parseHash();
+const listeners = new Set<() => void>();
+let routerInitialized = false;
+
+function ensureRouterListener() {
+  if (routerInitialized || typeof window === "undefined") {
+    return;
+  }
+
+  window.addEventListener("hashchange", () => {
+    currentRoute = parseHash();
+    for (const listener of listeners) {
+      listener();
+    }
+  });
+
+  routerInitialized = true;
+}
+
+function subscribe(listener: () => void) {
+  ensureRouterListener();
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function getSnapshot() {
+  return currentRoute;
+}
+
+export function useCatalogAdminRouter(): CatalogAdminRoute {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
 export function CatalogAdminProviders({ children }: { children: ReactNode }) {
   return <ToastProvider>{children}</ToastProvider>;
 }
@@ -52,3 +92,24 @@ export function CatalogAdminContent({ route }: { route: CatalogAdminRoute }) {
   }
 }
 
+export function CatalogAdminApp() {
+  const [colorMode] = useState<ColorMode>("system");
+  const route = useCatalogAdminRouter();
+
+  return (
+    <ChaseRoot colorMode={colorMode}>
+      <CatalogAdminProviders>
+        <AdminShell
+          brand={<Text weight="semibold">Catalog Admin</Text>}
+          navItems={catalogAdminNavItems.map((item) => ({
+            ...item,
+            href: `#/${item.key}`,
+          }))}
+          activeKey={route.entity}
+        >
+          <CatalogAdminContent route={route} />
+        </AdminShell>
+      </CatalogAdminProviders>
+    </ChaseRoot>
+  );
+}

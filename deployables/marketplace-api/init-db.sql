@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
-CREATE TABLE IF NOT EXISTS marketplace_search_items (
+CREATE TABLE IF NOT EXISTS discovery_search_items (
   item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
@@ -151,14 +151,14 @@ CREATE TABLE IF NOT EXISTS marketplace_search_items (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS marketplace_search_items_search_text_idx ON marketplace_search_items USING gin (search_text);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_search_text_simple_idx ON marketplace_search_items USING gin (search_text_simple);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_status_idx ON marketplace_search_items (status);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_blueprint_idx ON marketplace_search_items (blueprint_id);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_tags_idx ON marketplace_search_items USING gin (tags);
-CREATE INDEX IF NOT EXISTS marketplace_search_items_category_names_idx ON marketplace_search_items USING gin (category_names);
+CREATE INDEX IF NOT EXISTS discovery_search_items_search_text_idx ON discovery_search_items USING gin (search_text);
+CREATE INDEX IF NOT EXISTS discovery_search_items_search_text_simple_idx ON discovery_search_items USING gin (search_text_simple);
+CREATE INDEX IF NOT EXISTS discovery_search_items_status_idx ON discovery_search_items (status);
+CREATE INDEX IF NOT EXISTS discovery_search_items_blueprint_idx ON discovery_search_items (blueprint_id);
+CREATE INDEX IF NOT EXISTS discovery_search_items_tags_idx ON discovery_search_items USING gin (tags);
+CREATE INDEX IF NOT EXISTS discovery_search_items_category_names_idx ON discovery_search_items USING gin (category_names);
 
-CREATE TABLE IF NOT EXISTS marketplace_item_detail_pages (
+CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS marketplace_item_detail_pages (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS marketplace_categories (
+CREATE TABLE IF NOT EXISTS discovery_categories (
   category_id text PRIMARY KEY,
   key text NOT NULL,
   name text NOT NULL,
@@ -187,5 +187,6 @@ CREATE TABLE IF NOT EXISTS marketplace_categories (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS marketplace_categories_status_idx ON marketplace_categories (status);
-CREATE INDEX IF NOT EXISTS marketplace_categories_parent_idx ON marketplace_categories (parent_category_id);
+CREATE INDEX IF NOT EXISTS discovery_categories_status_idx ON discovery_categories (status);
+CREATE INDEX IF NOT EXISTS discovery_categories_parent_idx ON discovery_categories (parent_category_id);
+

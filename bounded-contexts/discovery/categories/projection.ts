@@ -25,7 +25,7 @@ async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Pr
   const category = result.rows[0];
 
   if (!category) {
-    await db.query(`DELETE FROM marketplace_categories WHERE category_id = $1`, [categoryId]);
+    await db.query(`DELETE FROM discovery_categories WHERE category_id = $1`, [categoryId]);
     return;
   }
 
@@ -41,7 +41,7 @@ async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Pr
   const itemCount = parseInt(countResult.rows[0].count, 10);
 
   await db.query(
-    `INSERT INTO marketplace_categories (
+    `INSERT INTO discovery_categories (
       category_id,
       key,
       name,
@@ -134,4 +134,5 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
     },
   };
 }
+
 

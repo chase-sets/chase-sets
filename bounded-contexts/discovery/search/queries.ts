@@ -104,9 +104,9 @@ export async function searchDiscoveryItems(
   const limit = params.limit ?? 50;
   const offset = params.offset ?? 0;
 
-  const countSql = `SELECT COUNT(*) AS count FROM marketplace_search_items ${where}`;
+  const countSql = `SELECT COUNT(*) AS count FROM discovery_search_items ${where}`;
   const listSql = `SELECT item_id, title, subtitle, description, blueprint_id, blueprint_name, status, category_names, tags, image_urls, updated_at
-    FROM marketplace_search_items ${where}
+    FROM discovery_search_items ${where}
     ORDER BY ${orderBy}
     LIMIT ${limit} OFFSET ${offset}`;
 
@@ -120,3 +120,4 @@ export async function searchDiscoveryItems(
     total: Number.parseInt(countResult.rows[0].count, 10),
   };
 }
+

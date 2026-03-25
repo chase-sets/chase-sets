@@ -6,8 +6,10 @@ export type { CatalogServices } from "./api/services";
 export { catalogAuthoringDatabaseSchemaSql } from "./database-schema";
 export { seedCatalogDatabase } from "./seed";
 export {
+  CatalogAdminApp,
   CatalogAdminContent,
   CatalogAdminProviders,
   catalogAdminNavItems,
+  useCatalogAdminRouter,
 } from "./ui";
 export type { CatalogAdminRoute } from "./ui";

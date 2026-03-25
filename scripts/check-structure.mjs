@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -5,6 +6,13 @@ const repoRoot = process.cwd();
 const roots = ["bounded-contexts", "deployables"];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const violations = [];
+const forbiddenPaths = [
+  "bounded-contexts/catalog/authoring/api/projections/queries.ts",
+  "bounded-contexts/catalog/authoring/api/projections/schema.sql",
+  "bounded-contexts/discovery/schema.sql",
+  "deployables/catalog-admin/src/router.ts",
+  "deployables/marketplace/src/router.ts",
+];
 
 async function walk(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -24,6 +32,10 @@ async function walk(dir) {
 
 function addViolation(file, message) {
   violations.push(`${path.relative(repoRoot, file)}: ${message}`);
+}
+
+function addPathViolation(relativePath, message) {
+  violations.push(`${relativePath}: ${message}`);
 }
 
 function isTmpFile(file) {
@@ -47,6 +59,8 @@ function checkImport(file, specifier) {
     "../../../bounded-contexts/discovery",
     "../../../../bounded-contexts/catalog/authoring",
     "../../../../bounded-contexts/discovery",
+    "../../../contracts/event-core/projector-runner",
+    "../../../../contracts/event-core/projector-runner",
   ]);
 
   if (normalized.includes("bounded-contexts/catalog/authoring/") || normalized.includes("bounded-contexts/discovery/")) {
@@ -77,6 +91,12 @@ function extractImportSpecifiers(content) {
   return specifiers;
 }
 
+for (const forbiddenPath of forbiddenPaths) {
+  if (existsSync(path.join(repoRoot, forbiddenPath))) {
+    addPathViolation(forbiddenPath, "stale structure artifact should not exist");
+  }
+}
+
 for (const root of roots) {
   const rootPath = path.join(repoRoot, root);
   const files = await walk(rootPath);
@@ -91,6 +111,11 @@ for (const root of roots) {
     }
 
     const content = await readFile(file, "utf8");
+
+    if (file.includes(`${path.sep}bounded-contexts${path.sep}discovery${path.sep}`) && content.includes("marketplace_")) {
+      addViolation(file, "discovery should use discovery-owned read-model names, not marketplace_* tables");
+    }
+
     for (const specifier of extractImportSpecifiers(content)) {
       checkImport(file, specifier);
     }

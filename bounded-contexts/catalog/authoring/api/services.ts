@@ -56,10 +56,13 @@ import {
 import { buildDimensionProjectionHandlers } from "../dimensions/projection";
 import { buildFieldProjectionHandlers } from "../fields/projection";
 import { buildComponentProjectionHandlers } from "../components/projection";
+import { buildCatalogAdminComponentProjectionHandlers } from "../components/admin-projection";
 import { buildBlueprintProjectionHandlers } from "../blueprints/projection";
+import { buildCatalogAdminBlueprintProjectionHandlers } from "../blueprints/admin-projection";
 import { buildCategoryProjectionHandlers } from "../categories/projection";
+import { buildCatalogAdminCategoryProjectionHandlers } from "../categories/admin-projection";
 import { buildCatalogItemProjectionHandlers } from "../catalog-items/projection";
-import { buildAdminPageProjectionHandlers } from "../shared/projections/admin-page-projection";
+import { buildCatalogAdminCatalogItemProjectionHandlers } from "../catalog-items/admin-projection";
 
 export type CatalogServices = Readonly<{
   dimensionHandler: CommandHandler<DimensionCommand, DimensionState, DimensionEvent>;
@@ -164,10 +167,22 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
       handlers: buildComponentProjectionHandlers(db),
     }),
     createProjector({
+      projectorName: "catalog-admin-component-detail-projection",
+      eventStore,
+      checkpointStore,
+      handlers: buildCatalogAdminComponentProjectionHandlers(db),
+    }),
+    createProjector({
       projectorName: "catalog-blueprint-projection",
       eventStore,
       checkpointStore,
       handlers: buildBlueprintProjectionHandlers(db),
+    }),
+    createProjector({
+      projectorName: "catalog-admin-blueprint-detail-projection",
+      eventStore,
+      checkpointStore,
+      handlers: buildCatalogAdminBlueprintProjectionHandlers(db),
     }),
     createProjector({
       projectorName: "catalog-category-projection",
@@ -176,16 +191,22 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
       handlers: buildCategoryProjectionHandlers(db),
     }),
     createProjector({
+      projectorName: "catalog-admin-category-projection",
+      eventStore,
+      checkpointStore,
+      handlers: buildCatalogAdminCategoryProjectionHandlers(db),
+    }),
+    createProjector({
       projectorName: "catalog-item-projection",
       eventStore,
       checkpointStore,
       handlers: buildCatalogItemProjectionHandlers(db),
     }),
     createProjector({
-      projectorName: "catalog-admin-page-projection",
+      projectorName: "catalog-admin-catalog-item-projection",
       eventStore,
       checkpointStore,
-      handlers: buildAdminPageProjectionHandlers(db),
+      handlers: buildCatalogAdminCatalogItemProjectionHandlers(db),
     }),
   ];
 

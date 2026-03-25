@@ -32,7 +32,7 @@ export async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string
   const item = result.rows[0];
 
   if (!item) {
-    await db.query(`DELETE FROM marketplace_search_items WHERE item_id = $1`, [itemId]);
+    await db.query(`DELETE FROM discovery_search_items WHERE item_id = $1`, [itemId]);
     return;
   }
 
@@ -69,7 +69,7 @@ export async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string
   const simpleSearchText = normalizeSimpleSearchText(searchText);
 
   await db.query(
-    `INSERT INTO marketplace_search_items (
+    `INSERT INTO discovery_search_items (
       item_id,
       title,
       subtitle,
@@ -119,7 +119,7 @@ export async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string
 }
 
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
-  await db.query(`TRUNCATE marketplace_search_items`);
+  await db.query(`TRUNCATE discovery_search_items`);
 
   const result = await db.query<{ item_id: string }>(
     `SELECT item_id FROM catalog_items ORDER BY item_id ASC`,
@@ -196,4 +196,5 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
     },
   };
 }
+
 

@@ -232,7 +232,7 @@ describe("marketplace search", () => {
     await rebuildDiscoverySearchIndex(discoveryServices.db);
     await rebuildDiscoverySearchIndex(discoveryServices.db);
 
-    const result = await pool.query(`SELECT COUNT(*) AS count FROM marketplace_search_items WHERE item_id = 'cat_test'`);
+    const result = await pool.query(`SELECT COUNT(*) AS count FROM discovery_search_items WHERE item_id = 'cat_test'`);
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });

@@ -35,9 +35,10 @@ export async function listDiscoveryCategories(
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const result = await db.query<DiscoveryCategoryRow>(
-    `SELECT * FROM marketplace_categories ${where} ORDER BY display_order ASC`,
+    `SELECT * FROM discovery_categories ${where} ORDER BY display_order ASC`,
     values,
   );
 
   return result.rows;
 }
+

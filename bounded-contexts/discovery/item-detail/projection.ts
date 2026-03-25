@@ -114,7 +114,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
   const item = result.rows[0];
 
   if (!item) {
-    await db.query(`DELETE FROM marketplace_item_detail_pages WHERE item_id = $1`, [itemId]);
+    await db.query(`DELETE FROM discovery_item_detail_pages WHERE item_id = $1`, [itemId]);
     return;
   }
 
@@ -155,7 +155,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
     : null;
 
   await db.query(
-    `INSERT INTO marketplace_item_detail_pages (
+    `INSERT INTO discovery_item_detail_pages (
       item_id,
       title,
       subtitle,
@@ -294,4 +294,5 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
   };
 }
+
 

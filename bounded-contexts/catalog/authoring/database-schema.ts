@@ -1,7 +1,17 @@
 import { eventCorePostgresSchemaSql } from "../../../contracts/event-core/postgres/schema";
-import { catalogAuthoringProjectionSchemaSql } from "./api/schema";
+import { catalogBlueprintSchemaSql } from "./blueprints/schema";
+import { catalogCatalogItemSchemaSql } from "./catalog-items/schema";
+import { catalogCategorySchemaSql } from "./categories/schema";
+import { catalogComponentSchemaSql } from "./components/schema";
+import { catalogDimensionSchemaSql } from "./dimensions/schema";
+import { catalogFieldSchemaSql } from "./fields/schema";
 
 export const catalogAuthoringDatabaseSchemaSql = [
   eventCorePostgresSchemaSql,
-  catalogAuthoringProjectionSchemaSql,
+  catalogDimensionSchemaSql,
+  catalogFieldSchemaSql,
+  catalogComponentSchemaSql,
+  catalogBlueprintSchemaSql,
+  catalogCategorySchemaSql,
+  catalogCatalogItemSchemaSql,
 ].join("\n\n");

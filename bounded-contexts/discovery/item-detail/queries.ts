@@ -21,9 +21,10 @@ export async function getDiscoveryItemDetail(
   itemId: string,
 ): Promise<DiscoveryItemDetailRow | null> {
   const result = await db.query<DiscoveryItemDetailRow>(
-    `SELECT * FROM marketplace_item_detail_pages WHERE item_id = $1`,
+    `SELECT * FROM discovery_item_detail_pages WHERE item_id = $1`,
     [itemId],
   );
 
   return result.rows[0] ?? null;
 }
+
