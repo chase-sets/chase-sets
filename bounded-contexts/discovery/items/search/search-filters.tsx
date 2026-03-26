@@ -43,6 +43,3 @@ export function SearchFilters({
     </Stack>
   );
 }
-
-
-

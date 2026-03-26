@@ -14,18 +14,25 @@ import {
   decideBlueprint,
   evolveBlueprint,
 } from "./domain";
+import { getBlueprintDetail, listBlueprints } from "./queries";
 import { buildCatalogAdminBlueprintProjectionHandlers } from "./admin-projection";
 import { buildBlueprintProjectionHandlers } from "./projection";
 
-export type BlueprintRuntime = Readonly<{
-  blueprintHandler: CommandHandler<BlueprintCommand, BlueprintState, BlueprintEvent>;
+export type BlueprintServices = Readonly<{
+  commandHandler: CommandHandler<BlueprintCommand, BlueprintState, BlueprintEvent>;
+  listBlueprints: (
+    params?: Parameters<typeof listBlueprints>[1],
+  ) => ReturnType<typeof listBlueprints>;
+  getBlueprintDetail: (
+    blueprintId: string,
+  ) => ReturnType<typeof getBlueprintDetail>;
   projectors: readonly Projector[];
 }>;
 
 export function createBlueprintRuntime(
   deps: CatalogRuntimeDeps,
-): BlueprintRuntime {
-  const blueprintHandler = createCommandHandler({
+): BlueprintServices {
+  const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
       codec: createPassthroughDomainEventCodec<BlueprintEvent>(),
@@ -37,7 +44,9 @@ export function createBlueprintRuntime(
   });
 
   return {
-    blueprintHandler,
+    commandHandler,
+    listBlueprints: (params) => listBlueprints(deps.db, params),
+    getBlueprintDetail: (blueprintId) => getBlueprintDetail(deps.db, blueprintId),
     projectors: [
       createProjector({
         projectorName: "catalog-blueprint-projection",
@@ -54,4 +63,3 @@ export function createBlueprintRuntime(
     ],
   };
 }
-

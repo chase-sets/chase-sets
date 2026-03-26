@@ -4,12 +4,12 @@ import { Hono } from "hono";
 import {
   buildDiscoveryApi,
   createDiscoveryServices,
-  discoveryProjectionSchemaSql,
+  discoverySchemaSql,
   rebuildDiscoverySearchIndex,
-} from "..";
+} from "../..";
 import {
   createCatalogServices,
-  catalogAuthoringDatabaseSchemaSql,
+  catalogAuthoringSchemaSql,
   type CatalogServices,
 } from "@chase-sets/catalog-authoring";
 import type { PgTransactionalPool } from "@chase-sets/event-core/postgres/types";
@@ -36,7 +36,7 @@ function createPool(connectionString: string): PgTransactionalPool {
 
 async function recreateSchema() {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query([catalogAuthoringDatabaseSchemaSql, discoveryProjectionSchemaSql].join("\n\n"));
+  await pool.query([catalogAuthoringSchemaSql, discoverySchemaSql].join("\n\n"));
 }
 
 async function drainProjectors() {
@@ -86,7 +86,7 @@ describe("marketplace search", () => {
   });
 
   it("indexes catalog facts into discovery search and item detail slices", async () => {
-    await sendCommand(catalogServices.dimensionHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
       type: "CreateDimension",
       dimensionId: itemSeed.dimensionId as never,
       key: "condition",
@@ -94,7 +94,7 @@ describe("marketplace search", () => {
       description: "Card condition",
     });
 
-    await sendCommand(catalogServices.dimensionHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
       type: "AddChoice",
       choiceId: itemSeed.choiceId as never,
       code: "near-mint",
@@ -102,11 +102,11 @@ describe("marketplace search", () => {
       numericValue: null,
     });
 
-    await sendCommand(catalogServices.dimensionHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
       type: "ActivateDimension",
     });
 
-    await sendCommand(catalogServices.fieldHandler, `catalog.field-${itemSeed.fieldId}`, {
+    await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${itemSeed.fieldId}`, {
       type: "CreateField",
       fieldId: itemSeed.fieldId as never,
       key: "card-name",
@@ -116,11 +116,11 @@ describe("marketplace search", () => {
       behavior: { filterable: true, searchable: true, sortable: true },
     });
 
-    await sendCommand(catalogServices.fieldHandler, `catalog.field-${itemSeed.fieldId}`, {
+    await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${itemSeed.fieldId}`, {
       type: "ActivateField",
     });
 
-    await sendCommand(catalogServices.categoryHandler, `catalog.category-${itemSeed.categoryId}`, {
+    await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${itemSeed.categoryId}`, {
       type: "CreateCategory",
       categoryId: itemSeed.categoryId as never,
       key: "pokemon",
@@ -129,11 +129,11 @@ describe("marketplace search", () => {
       displayOrder: 0,
     });
 
-    await sendCommand(catalogServices.categoryHandler, `catalog.category-${itemSeed.categoryId}`, {
+    await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${itemSeed.categoryId}`, {
       type: "PublishCategory",
     });
 
-    await sendCommand(catalogServices.blueprintHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
       type: "CreateBlueprint",
       blueprintId: itemSeed.blueprintId as never,
       key: "card",
@@ -141,12 +141,12 @@ describe("marketplace search", () => {
       description: "A tradable card",
     });
 
-    await sendCommand(catalogServices.blueprintHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
       type: "SetBlueprintFields",
       fieldRules: [{ fieldId: itemSeed.fieldId as never, required: true }],
     });
 
-    await sendCommand(catalogServices.blueprintHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
       type: "SetBlueprintDimensions",
       dimensionRules: [{
         dimensionId: itemSeed.dimensionId as never,
@@ -155,16 +155,16 @@ describe("marketplace search", () => {
       }],
     });
 
-    await sendCommand(catalogServices.blueprintHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
       type: "SetBlueprintVersionRules",
       canonicalDimensionOrder: [itemSeed.dimensionId as never],
     });
 
-    await sendCommand(catalogServices.blueprintHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
       type: "PublishBlueprint",
     });
 
-    await sendCommand(catalogServices.catalogItemHandler, `catalog.item-${itemSeed.itemId}`, {
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "CreateItem",
       itemId: itemSeed.itemId as never,
       title: "Charizard",
@@ -172,33 +172,33 @@ describe("marketplace search", () => {
       description: "Classic fire-breathing favorite",
     });
 
-    await sendCommand(catalogServices.catalogItemHandler, `catalog.item-${itemSeed.itemId}`, {
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "AssignBlueprintToItem",
       blueprintId: itemSeed.blueprintId as never,
     });
 
-    await sendCommand(catalogServices.catalogItemHandler, `catalog.item-${itemSeed.itemId}`, {
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "SetItemFieldValue",
       fieldId: itemSeed.fieldId as never,
       value: "Charizard",
     });
 
-    await sendCommand(catalogServices.catalogItemHandler, `catalog.item-${itemSeed.itemId}`, {
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "AssignItemToCategory",
       categoryId: itemSeed.categoryId as never,
     });
 
-    await sendCommand(catalogServices.catalogItemHandler, `catalog.item-${itemSeed.itemId}`, {
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "SetItemTags",
       tags: ["fire", "vintage"],
     });
 
-    await sendCommand(catalogServices.catalogItemHandler, `catalog.item-${itemSeed.itemId}`, {
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "SetItemImageUrls",
       imageUrls: ["https://images.example/charizard.png"],
     });
 
-    await sendCommand(catalogServices.catalogItemHandler, `catalog.item-${itemSeed.itemId}`, {
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "PublishItem",
       blueprintIsActive: true,
       requiredFieldIds: [itemSeed.fieldId as never],

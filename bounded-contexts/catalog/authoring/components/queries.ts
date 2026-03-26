@@ -4,7 +4,7 @@ import {
   executeListQuery,
   type ListParams,
   type ListResult,
-} from "../support/projections/list-query";
+} from "../projection-support/list-query";
 
 export type ComponentRow = Readonly<{
   component_id: string;

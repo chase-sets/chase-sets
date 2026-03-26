@@ -4,9 +4,15 @@ import { buildMarketplaceApp } from "../src/app";
 
 const services: DiscoveryServices = {
   items: {
-    searchItems: async () => ({ items: [], total: 0 }),
-    getItemDetail: async () => null,
-    rebuildSearchIndex: async () => {},
+    search: {
+      searchItems: async () => ({ items: [], total: 0 }),
+      rebuildSearchIndex: async () => {},
+      projectors: [],
+    },
+    detail: {
+      getItemDetail: async () => null,
+      projectors: [],
+    },
     projectors: [],
   },
   categories: {

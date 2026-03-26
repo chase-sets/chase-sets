@@ -19,7 +19,7 @@ export async function seedComponents(
     const componentId = createId("cmp") as ComponentId;
     const streamId = `catalog.component-${componentId}`;
 
-    await sendSeedCommand(services.componentHandler, streamId, {
+    await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "CreateComponent",
       componentId,
       key: "base-card-info",
@@ -33,7 +33,7 @@ export async function seedComponents(
       ["artist", false],
       ["year-printed", false],
     ] as const) {
-      await sendSeedCommand(services.componentHandler, streamId, {
+      await sendSeedCommand(services.components.commandHandler, streamId, {
         type: "AddFieldRuleToComponent",
         fieldId: fields[fieldKey],
         required,
@@ -42,7 +42,7 @@ export async function seedComponents(
 
     for (const dimKey of ["pokemon-set", "rarity", "language"] as const) {
       const dim = dimensions[dimKey];
-      await sendSeedCommand(services.componentHandler, streamId, {
+      await sendSeedCommand(services.components.commandHandler, streamId, {
         type: "AddDimensionRuleToComponent",
         dimensionId: dim.dimensionId,
         required: true,
@@ -50,7 +50,7 @@ export async function seedComponents(
       });
     }
 
-    await sendSeedCommand(services.componentHandler, streamId, {
+    await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "ActivateComponent",
     });
 
@@ -62,7 +62,7 @@ export async function seedComponents(
     const componentId = createId("cmp") as ComponentId;
     const streamId = `catalog.component-${componentId}`;
 
-    await sendSeedCommand(services.componentHandler, streamId, {
+    await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "CreateComponent",
       componentId,
       key: "card-condition",
@@ -71,14 +71,14 @@ export async function seedComponents(
     });
 
     const dim = dimensions.condition;
-    await sendSeedCommand(services.componentHandler, streamId, {
+    await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "AddDimensionRuleToComponent",
       dimensionId: dim.dimensionId,
       required: true,
       allowedChoiceIds: Object.values(dim.choiceIds),
     });
 
-    await sendSeedCommand(services.componentHandler, streamId, {
+    await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "ActivateComponent",
     });
 
@@ -90,7 +90,7 @@ export async function seedComponents(
     const componentId = createId("cmp") as ComponentId;
     const streamId = `catalog.component-${componentId}`;
 
-    await sendSeedCommand(services.componentHandler, streamId, {
+    await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "CreateComponent",
       componentId,
       key: "card-grading",
@@ -102,7 +102,7 @@ export async function seedComponents(
       ["cert-number", false],
       ["pop-count", false],
     ] as const) {
-      await sendSeedCommand(services.componentHandler, streamId, {
+      await sendSeedCommand(services.components.commandHandler, streamId, {
         type: "AddFieldRuleToComponent",
         fieldId: fields[fieldKey],
         required,
@@ -111,7 +111,7 @@ export async function seedComponents(
 
     for (const dimKey of ["grading-company", "grade"] as const) {
       const dim = dimensions[dimKey];
-      await sendSeedCommand(services.componentHandler, streamId, {
+      await sendSeedCommand(services.components.commandHandler, streamId, {
         type: "AddDimensionRuleToComponent",
         dimensionId: dim.dimensionId,
         required: true,
@@ -119,7 +119,7 @@ export async function seedComponents(
       });
     }
 
-    await sendSeedCommand(services.componentHandler, streamId, {
+    await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "ActivateComponent",
     });
 

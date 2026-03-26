@@ -18,8 +18,9 @@ export function useFetch<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
     }
   }, deps);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return { data, loading, error, refresh: load };
 }
-

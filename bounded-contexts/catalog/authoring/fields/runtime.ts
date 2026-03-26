@@ -14,15 +14,20 @@ import {
   decideField,
   evolveField,
 } from "./domain";
+import { getField, listFields } from "./queries";
 import { buildFieldProjectionHandlers } from "./projection";
 
-export type FieldRuntime = Readonly<{
-  fieldHandler: CommandHandler<FieldCommand, FieldState, FieldEvent>;
+export type FieldServices = Readonly<{
+  commandHandler: CommandHandler<FieldCommand, FieldState, FieldEvent>;
+  listFields: (
+    params?: Parameters<typeof listFields>[1],
+  ) => ReturnType<typeof listFields>;
+  getField: (fieldId: string) => ReturnType<typeof getField>;
   projectors: readonly Projector[];
 }>;
 
-export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldRuntime {
-  const fieldHandler = createCommandHandler({
+export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldServices {
+  const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
       codec: createPassthroughDomainEventCodec<FieldEvent>(),
@@ -34,7 +39,9 @@ export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldRuntime {
   });
 
   return {
-    fieldHandler,
+    commandHandler,
+    listFields: (params) => listFields(deps.db, params),
+    getField: (fieldId) => getField(deps.db, fieldId),
     projectors: [
       createProjector({
         projectorName: "catalog-field-projection",
@@ -45,4 +52,3 @@ export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldRuntime {
     ],
   };
 }
-

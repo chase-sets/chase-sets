@@ -1,5 +1,5 @@
 import { loadConfig } from "../config";
-import { catalogAuthoringDatabaseSchemaSql } from "@chase-sets/catalog-authoring";
+import { catalogAuthoringSchemaSql } from "@chase-sets/catalog-authoring";
 import { createPgPool } from "@chase-sets/event-core/postgres";
 import { seedDatabase } from "../seed";
 
@@ -10,7 +10,7 @@ async function resetDatabase() {
   try {
     console.log("Resetting database schema...");
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-    await pool.query(catalogAuthoringDatabaseSchemaSql);
+    await pool.query(catalogAuthoringSchemaSql);
     console.log("Database schema recreated.");
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();

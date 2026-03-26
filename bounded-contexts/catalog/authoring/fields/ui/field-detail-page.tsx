@@ -9,9 +9,9 @@ import {
   Stack,
   TextInput,
 } from "@chase-sets/design-system";
-import { useToasts } from "../../support/ui/toasts";
-import { EntityDetailPage } from "../../support/ui/entity-detail-page";
-import { LifecycleControls, type Transition } from "../../support/ui/lifecycle-controls";
+import { useToasts } from "../../shell-support/ui/toasts";
+import { EntityDetailPage } from "../../shell-support/ui/entity-detail-page";
+import { LifecycleControls, type Transition } from "../../shell-support/ui/lifecycle-controls";
 import { useField, configureField, activateField, deprecateField, archiveField } from "./use-fields";
 
 function getTransitions(status: string): Transition[] {

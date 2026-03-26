@@ -21,7 +21,7 @@ export async function seedBlueprints(
     const blueprintId = createId("bpr") as BlueprintId;
     const streamId = `catalog.blueprint-${blueprintId}`;
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "CreateBlueprint",
       blueprintId,
       key: "raw-pokemon-card",
@@ -31,13 +31,13 @@ export async function seedBlueprints(
     });
 
     for (const compKey of ["base-card-info", "card-condition"] as const) {
-      await sendSeedCommand(services.blueprintHandler, streamId, {
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
         type: "AttachComponentToBlueprint",
         componentId: components[compKey],
       });
     }
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintFields",
       fieldRules: [
         { fieldId: fields["card-number"], required: true },
@@ -54,7 +54,7 @@ export async function seedBlueprints(
       "condition",
     ] as const;
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintDimensions",
       dimensionRules: rawDimKeys.map((dimKey) => {
         const dim = dimensions[dimKey];
@@ -66,12 +66,12 @@ export async function seedBlueprints(
       }),
     });
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintVersionRules",
       canonicalDimensionOrder: rawDimKeys.map((key) => dimensions[key].dimensionId),
     });
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "PublishBlueprint",
     });
 
@@ -83,7 +83,7 @@ export async function seedBlueprints(
     const blueprintId = createId("bpr") as BlueprintId;
     const streamId = `catalog.blueprint-${blueprintId}`;
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "CreateBlueprint",
       blueprintId,
       key: "graded-pokemon-card",
@@ -92,13 +92,13 @@ export async function seedBlueprints(
     });
 
     for (const compKey of ["base-card-info", "card-grading"] as const) {
-      await sendSeedCommand(services.blueprintHandler, streamId, {
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
         type: "AttachComponentToBlueprint",
         componentId: components[compKey],
       });
     }
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintFields",
       fieldRules: [
         { fieldId: fields["card-number"], required: true },
@@ -118,7 +118,7 @@ export async function seedBlueprints(
       "grade",
     ] as const;
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintDimensions",
       dimensionRules: gradedDimKeys.map((dimKey) => {
         const dim = dimensions[dimKey];
@@ -130,12 +130,12 @@ export async function seedBlueprints(
       }),
     });
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintVersionRules",
       canonicalDimensionOrder: gradedDimKeys.map((key) => dimensions[key].dimensionId),
     });
 
-    await sendSeedCommand(services.blueprintHandler, streamId, {
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "PublishBlueprint",
     });
 

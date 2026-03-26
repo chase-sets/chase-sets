@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../services";
+import type { CategoryServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../api";
 import type { CategoryId } from "../../ids";
-import { listCategories, getCategoryDetail } from "./queries";
 
-export function categoryRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv> {
+
+export function categoryRoutes(services: CategoryServices): Hono<CatalogAuthoringEnv> {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {
@@ -12,7 +12,7 @@ export function categoryRoutes(services: CatalogServices): Hono<CatalogAuthoring
     const context = c.get("context");
     const categoryId = body.categoryId as CategoryId;
 
-    const result = await services.categoryHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.category-${categoryId}`,
       command: {
         type: "CreateCategory",
@@ -34,7 +34,7 @@ export function categoryRoutes(services: CatalogServices): Hono<CatalogAuthoring
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.categoryHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.category-${categoryId}`,
       command: {
         type: "ReviseCategory",
@@ -54,7 +54,7 @@ export function categoryRoutes(services: CatalogServices): Hono<CatalogAuthoring
     const categoryId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.categoryHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.category-${categoryId}`,
       command: { type: "PublishCategory" },
       context,
@@ -67,7 +67,7 @@ export function categoryRoutes(services: CatalogServices): Hono<CatalogAuthoring
     const categoryId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.categoryHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.category-${categoryId}`,
       command: { type: "DeprecateCategory" },
       context,
@@ -80,7 +80,7 @@ export function categoryRoutes(services: CatalogServices): Hono<CatalogAuthoring
     const categoryId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.categoryHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.category-${categoryId}`,
       command: { type: "ArchiveCategory" },
       context,
@@ -91,12 +91,12 @@ export function categoryRoutes(services: CatalogServices): Hono<CatalogAuthoring
 
   app.get("/", async (c) => {
     const { search, status, limit, offset, parentCategoryId } = c.req.query();
-    const result = await listCategories(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, parentCategoryId });
+    const result = await services.listCategories({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, parentCategoryId });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
-    const category = await getCategoryDetail(services.db, c.req.param("id"));
+    const category = await services.getCategoryDetail(c.req.param("id"));
 
     if (!category) {
       return c.json({ error: "Category not found." }, 404);

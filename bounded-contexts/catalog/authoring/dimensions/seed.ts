@@ -149,7 +149,7 @@ export async function seedDimensions(
     const streamId = `catalog.dimension-${dimensionId}`;
     const choiceIds: Record<string, ChoiceId> = {};
 
-    await sendSeedCommand(services.dimensionHandler, streamId, {
+    await sendSeedCommand(services.dimensions.commandHandler, streamId, {
       type: "CreateDimension",
       dimensionId,
       key: def.key,
@@ -161,7 +161,7 @@ export async function seedDimensions(
       const choiceId = createId("chc") as ChoiceId;
       choiceIds[choice.code] = choiceId;
 
-      await sendSeedCommand(services.dimensionHandler, streamId, {
+      await sendSeedCommand(services.dimensions.commandHandler, streamId, {
         type: "AddChoice",
         choiceId,
         code: choice.code,
@@ -170,7 +170,7 @@ export async function seedDimensions(
       });
     }
 
-    await sendSeedCommand(services.dimensionHandler, streamId, {
+    await sendSeedCommand(services.dimensions.commandHandler, streamId, {
       type: "ActivateDimension",
     });
 

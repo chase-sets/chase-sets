@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../services";
+import type { FieldServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../api";
 import type { FieldId } from "../../ids";
-import { listFields, getField } from "./queries";
 
-export function fieldRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv> {
+
+export function fieldRoutes(services: FieldServices): Hono<CatalogAuthoringEnv> {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {
@@ -12,7 +12,7 @@ export function fieldRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv
     const context = c.get("context");
     const fieldId = body.fieldId as FieldId;
 
-    const result = await services.fieldHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.field-${fieldId}`,
       command: {
         type: "CreateField",
@@ -34,7 +34,7 @@ export function fieldRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.fieldHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.field-${fieldId}`,
       command: {
         type: "ConfigureField",
@@ -54,7 +54,7 @@ export function fieldRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv
     const fieldId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.fieldHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.field-${fieldId}`,
       command: { type: "ActivateField" },
       context,
@@ -67,7 +67,7 @@ export function fieldRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv
     const fieldId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.fieldHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.field-${fieldId}`,
       command: { type: "DeprecateField" },
       context,
@@ -80,7 +80,7 @@ export function fieldRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv
     const fieldId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.fieldHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.field-${fieldId}`,
       command: { type: "ArchiveField" },
       context,
@@ -91,13 +91,13 @@ export function fieldRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv
 
   app.get("/", async (c) => {
     const { search, status, limit, offset } = c.req.query();
-    const result = await listFields(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const result = await services.listFields({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
-    const field = await getField(services.db, c.req.param("id"));
+    const field = await services.getField(c.req.param("id"));
 
     if (!field) {
       return c.json({ error: "Field not found." }, 404);

@@ -14,17 +14,22 @@ import {
   decideDimension,
   evolveDimension,
 } from "./domain";
+import { getDimension, listDimensions } from "./queries";
 import { buildDimensionProjectionHandlers } from "./projection";
 
-export type DimensionRuntime = Readonly<{
-  dimensionHandler: CommandHandler<DimensionCommand, DimensionState, DimensionEvent>;
+export type DimensionServices = Readonly<{
+  commandHandler: CommandHandler<DimensionCommand, DimensionState, DimensionEvent>;
+  listDimensions: (
+    params?: Parameters<typeof listDimensions>[1],
+  ) => ReturnType<typeof listDimensions>;
+  getDimension: (dimensionId: string) => ReturnType<typeof getDimension>;
   projectors: readonly Projector[];
 }>;
 
 export function createDimensionRuntime(
   deps: CatalogRuntimeDeps,
-): DimensionRuntime {
-  const dimensionHandler = createCommandHandler({
+): DimensionServices {
+  const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
       codec: createPassthroughDomainEventCodec<DimensionEvent>(),
@@ -36,7 +41,9 @@ export function createDimensionRuntime(
   });
 
   return {
-    dimensionHandler,
+    commandHandler,
+    listDimensions: (params) => listDimensions(deps.db, params),
+    getDimension: (dimensionId) => getDimension(deps.db, dimensionId),
     projectors: [
       createProjector({
         projectorName: "catalog-dimension-projection",
@@ -47,4 +54,3 @@ export function createDimensionRuntime(
     ],
   };
 }
-

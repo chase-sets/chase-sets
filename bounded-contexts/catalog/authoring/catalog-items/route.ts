@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../services";
+import type { CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../api";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../ids";
-import { listCatalogItems, getCatalogItemDetail } from "./queries";
 
-export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv> {
+
+export function catalogItemRoutes(services: CatalogItemServices): Hono<CatalogAuthoringEnv> {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {
@@ -12,7 +12,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const context = c.get("context");
     const itemId = body.itemId as CatalogItemId;
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "CreateItem",
@@ -32,7 +32,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "AssignBlueprintToItem",
@@ -49,7 +49,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "SetItemFieldValue",
@@ -67,7 +67,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const body = await c.req.json().catch(() => ({}));
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "ClearItemFieldValue",
@@ -84,7 +84,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const itemId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "AssignItemToCategory",
@@ -100,7 +100,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const itemId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "RemoveItemFromCategory",
@@ -117,7 +117,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "PublishItem",
@@ -135,7 +135,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "ReviseItemMetadata",
@@ -154,7 +154,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "SetItemTags",
@@ -171,7 +171,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "SetItemImageUrls",
@@ -187,7 +187,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const itemId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: { type: "RetireItem" },
       context,
@@ -200,7 +200,7 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
     const itemId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.catalogItemHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: { type: "ArchiveItem" },
       context,
@@ -211,12 +211,12 @@ export function catalogItemRoutes(services: CatalogServices): Hono<CatalogAuthor
 
   app.get("/", async (c) => {
     const { search, status, limit, offset, blueprintId, tag } = c.req.query();
-    const result = await listCatalogItems(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, blueprintId, tag });
+    const result = await services.listCatalogItems({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, blueprintId, tag });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
-    const item = await getCatalogItemDetail(services.db, c.req.param("id"));
+    const item = await services.getCatalogItemDetail(c.req.param("id"));
 
     if (!item) {
       return c.json({ error: "Catalog item not found." }, 404);

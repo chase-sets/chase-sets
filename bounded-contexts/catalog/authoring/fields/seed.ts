@@ -66,7 +66,7 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
     const fieldId = createId("fld") as FieldId;
     const streamId = `catalog.field-${fieldId}`;
 
-    await sendSeedCommand(services.fieldHandler, streamId, {
+    await sendSeedCommand(services.fields.commandHandler, streamId, {
       type: "CreateField",
       fieldId,
       key: def.key,
@@ -76,7 +76,7 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
       behavior: def.behavior,
     });
 
-    await sendSeedCommand(services.fieldHandler, streamId, {
+    await sendSeedCommand(services.fields.commandHandler, streamId, {
       type: "ActivateField",
     });
 

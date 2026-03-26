@@ -1,7 +1,7 @@
-import { api } from "../../support/api/client";
+import { api } from "../../shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { CatalogItemDetail, CatalogItemListItem } from "./contracts";
-import { useFetch } from "../../support/ui/use-fetch";
+import { useFetch } from "../../shell-support/ui/use-fetch";
 
 export function useCatalogItemList(query: string) {
   return useFetch(() => api.get<ListResponse<CatalogItemListItem>>(`/items?${query}`), [query]);

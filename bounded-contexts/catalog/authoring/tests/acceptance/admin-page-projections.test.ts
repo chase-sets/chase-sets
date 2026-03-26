@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { catalogAuthoringDatabaseSchemaSql, createCatalogServices, type CatalogServices } from "./index";
-import { buildCatalogAuthoringTestApp, createCatalogAuthoringTestPool } from "./test-support";
+import { catalogAuthoringSchemaSql, createCatalogServices, type CatalogServices } from "../../index";
+import { buildCatalogAuthoringTestApp, createCatalogAuthoringTestPool } from "../../test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core/postgres/types";
 
@@ -26,7 +26,7 @@ let app: ReturnType<typeof buildCatalogAuthoringTestApp>;
 
 async function recreateSchema() {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(catalogAuthoringDatabaseSchemaSql);
+  await pool.query(catalogAuthoringSchemaSql);
 }
 
 async function drainProjectors() {
@@ -79,23 +79,23 @@ describe("Admin page projections", () => {
     const childCategoryId = "ctg_child";
     const itemId = "cat_charizard";
 
-    await sendCommand(services.dimensionHandler, `catalog.dimension-${dimensionId}`, {
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "CreateDimension",
       dimensionId,
       key: "condition",
       name: "Condition",
       description: "Card condition",
     });
-    await sendCommand(services.dimensionHandler, `catalog.dimension-${dimensionId}`, {
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "AddChoice",
       choiceId,
       code: "near-mint",
       labels: [{ locale: "en", value: "Near Mint" }],
       numericValue: null,
     });
-    await sendCommand(services.dimensionHandler, `catalog.dimension-${dimensionId}`, { type: "ActivateDimension" });
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, { type: "ActivateDimension" });
 
-    await sendCommand(services.fieldHandler, `catalog.field-${fieldId}`, {
+    await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, {
       type: "CreateField",
       fieldId,
       key: "card-name",
@@ -104,54 +104,54 @@ describe("Admin page projections", () => {
       valueType: "string",
       behavior: { filterable: true, searchable: true, sortable: true },
     });
-    await sendCommand(services.fieldHandler, `catalog.field-${fieldId}`, { type: "ActivateField" });
+    await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, { type: "ActivateField" });
 
-    await sendCommand(services.componentHandler, `catalog.component-${componentId}`, {
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "CreateComponent",
       componentId,
       key: "base-card-info",
       name: "Base Card Info",
       description: "Core fields",
     });
-    await sendCommand(services.componentHandler, `catalog.component-${componentId}`, {
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "AddFieldRuleToComponent",
       fieldId,
       required: true,
     });
-    await sendCommand(services.componentHandler, `catalog.component-${componentId}`, {
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "AddDimensionRuleToComponent",
       dimensionId,
       required: true,
       allowedChoiceIds: [choiceId],
     });
-    await sendCommand(services.componentHandler, `catalog.component-${componentId}`, { type: "ActivateComponent" });
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, { type: "ActivateComponent" });
 
-    await sendCommand(services.blueprintHandler, `catalog.blueprint-${blueprintId}`, {
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "CreateBlueprint",
       blueprintId,
       key: "raw-pokemon-card",
       name: "Raw Pokemon Card",
       description: "Raw card template",
     });
-    await sendCommand(services.blueprintHandler, `catalog.blueprint-${blueprintId}`, {
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "AttachComponentToBlueprint",
       componentId,
     });
-    await sendCommand(services.blueprintHandler, `catalog.blueprint-${blueprintId}`, {
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "SetBlueprintFields",
       fieldRules: [{ fieldId, required: true }],
     });
-    await sendCommand(services.blueprintHandler, `catalog.blueprint-${blueprintId}`, {
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "SetBlueprintDimensions",
       dimensionRules: [{ dimensionId, required: true, allowedChoiceIds: [choiceId] }],
     });
-    await sendCommand(services.blueprintHandler, `catalog.blueprint-${blueprintId}`, {
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "SetBlueprintVersionRules",
       canonicalDimensionOrder: [dimensionId],
     });
-    await sendCommand(services.blueprintHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
 
-    await sendCommand(services.categoryHandler, `catalog.category-${rootCategoryId}`, {
+    await sendCommand(services.categories.commandHandler, `catalog.category-${rootCategoryId}`, {
       type: "CreateCategory",
       categoryId: rootCategoryId,
       key: "pokemon-tcg",
@@ -160,9 +160,9 @@ describe("Admin page projections", () => {
       parentCategoryId: undefined,
       displayOrder: 0,
     });
-    await sendCommand(services.categoryHandler, `catalog.category-${rootCategoryId}`, { type: "PublishCategory" });
+    await sendCommand(services.categories.commandHandler, `catalog.category-${rootCategoryId}`, { type: "PublishCategory" });
 
-    await sendCommand(services.categoryHandler, `catalog.category-${childCategoryId}`, {
+    await sendCommand(services.categories.commandHandler, `catalog.category-${childCategoryId}`, {
       type: "CreateCategory",
       categoryId: childCategoryId,
       key: "gen-1",
@@ -171,33 +171,33 @@ describe("Admin page projections", () => {
       parentCategoryId: rootCategoryId,
       displayOrder: 1,
     });
-    await sendCommand(services.categoryHandler, `catalog.category-${childCategoryId}`, { type: "PublishCategory" });
+    await sendCommand(services.categories.commandHandler, `catalog.category-${childCategoryId}`, { type: "PublishCategory" });
 
-    await sendCommand(services.catalogItemHandler, `catalog.item-${itemId}`, {
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "CreateItem",
       itemId,
       title: "Charizard",
       subtitle: "Base Set",
       description: "A classic Charizard",
     });
-    await sendCommand(services.catalogItemHandler, `catalog.item-${itemId}`, {
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "AssignBlueprintToItem",
       blueprintId,
     });
-    await sendCommand(services.catalogItemHandler, `catalog.item-${itemId}`, {
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "SetItemFieldValue",
       fieldId,
       value: "Charizard",
     });
-    await sendCommand(services.catalogItemHandler, `catalog.item-${itemId}`, {
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "AssignItemToCategory",
       categoryId: childCategoryId,
     });
-    await sendCommand(services.catalogItemHandler, `catalog.item-${itemId}`, {
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "SetItemTags",
       tags: ["featured", "vintage"],
     });
-    await sendCommand(services.catalogItemHandler, `catalog.item-${itemId}`, {
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "PublishItem",
       blueprintIsActive: true,
       requiredFieldIds: [fieldId],
@@ -257,7 +257,7 @@ describe("Admin page projections", () => {
     const missingItemResolver = await app.fetch(new Request(`http://catalog.test/api/catalog/items/${itemId}/resolve-names`, { headers }));
     expect(missingItemResolver.status).toBe(404);
 
-    await sendCommand(services.fieldHandler, `catalog.field-${fieldId}`, {
+    await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, {
       type: "ConfigureField",
       key: "card-name",
       name: "Card Title",
@@ -265,20 +265,20 @@ describe("Admin page projections", () => {
       valueType: "string",
       behavior: { filterable: true, searchable: true, sortable: true },
     });
-    await sendCommand(services.dimensionHandler, `catalog.dimension-${dimensionId}`, {
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "ReviseDimension",
       key: "condition",
       name: "Card Condition",
       description: "Card condition",
     });
-    await sendCommand(services.dimensionHandler, `catalog.dimension-${dimensionId}`, {
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "ReviseChoice",
       choiceId,
       code: "mint",
       labels: [{ locale: "en", value: "Mint" }],
       numericValue: null,
     });
-    await sendCommand(services.componentHandler, `catalog.component-${componentId}`, {
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "ConfigureComponentRules",
       key: "base-card-info",
       name: "Base Card Info V2",
@@ -286,13 +286,13 @@ describe("Admin page projections", () => {
       fieldRules: [{ fieldId, required: true }],
       dimensionRules: [{ dimensionId, required: true, allowedChoiceIds: [choiceId] }],
     });
-    await sendCommand(services.blueprintHandler, `catalog.blueprint-${blueprintId}`, {
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "ReviseBlueprint",
       key: "raw-pokemon-card",
       name: "Raw Pokemon Card V2",
       description: "Raw card template",
     });
-    await sendCommand(services.categoryHandler, `catalog.category-${rootCategoryId}`, {
+    await sendCommand(services.categories.commandHandler, `catalog.category-${rootCategoryId}`, {
       type: "ReviseCategory",
       key: "pokemon-tcg",
       name: "Pokemon Catalog",
@@ -300,7 +300,7 @@ describe("Admin page projections", () => {
       parentCategoryId: undefined,
       displayOrder: 0,
     });
-    await sendCommand(services.categoryHandler, `catalog.category-${childCategoryId}`, {
+    await sendCommand(services.categories.commandHandler, `catalog.category-${childCategoryId}`, {
       type: "ReviseCategory",
       key: "gen-1",
       name: "Generation I Singles",

@@ -1,7 +1,7 @@
-import { api } from "../../support/api/client";
+import { api } from "../../shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { Dimension, DimensionDetail } from "./contracts";
-import { useFetch } from "../../support/ui/use-fetch";
+import { useFetch } from "../../shell-support/ui/use-fetch";
 
 export function useDimensionList(query: string) {
   return useFetch(() => api.get<ListResponse<Dimension>>(`/dimensions?${query}`), [query]);

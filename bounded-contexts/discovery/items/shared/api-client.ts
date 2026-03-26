@@ -39,4 +39,3 @@ async function apiGet<T>(path: string): Promise<T> {
 export const discoveryApi = {
   get: <T>(path: string) => apiGet<T>(path),
 };
-

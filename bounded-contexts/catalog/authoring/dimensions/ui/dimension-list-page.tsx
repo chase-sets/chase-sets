@@ -8,8 +8,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { useToasts } from "../../support/ui/toasts";
-import { EntityListPage } from "../../support/ui/entity-list-page";
+import { useToasts } from "../../shell-support/ui/toasts";
+import { EntityListPage } from "../../shell-support/ui/entity-list-page";
 import { useDimensionList, createDimension } from "./use-dimensions";
 import type { Dimension } from "./contracts";
 

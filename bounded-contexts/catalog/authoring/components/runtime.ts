@@ -14,18 +14,25 @@ import {
   decideComponent,
   evolveComponent,
 } from "./domain";
+import { getComponentDetail, listComponents } from "./queries";
 import { buildCatalogAdminComponentProjectionHandlers } from "./admin-projection";
 import { buildComponentProjectionHandlers } from "./projection";
 
-export type ComponentRuntime = Readonly<{
-  componentHandler: CommandHandler<ComponentCommand, ComponentState, ComponentEvent>;
+export type ComponentServices = Readonly<{
+  commandHandler: CommandHandler<ComponentCommand, ComponentState, ComponentEvent>;
+  listComponents: (
+    params?: Parameters<typeof listComponents>[1],
+  ) => ReturnType<typeof listComponents>;
+  getComponentDetail: (
+    componentId: string,
+  ) => ReturnType<typeof getComponentDetail>;
   projectors: readonly Projector[];
 }>;
 
 export function createComponentRuntime(
   deps: CatalogRuntimeDeps,
-): ComponentRuntime {
-  const componentHandler = createCommandHandler({
+): ComponentServices {
+  const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
       codec: createPassthroughDomainEventCodec<ComponentEvent>(),
@@ -37,7 +44,9 @@ export function createComponentRuntime(
   });
 
   return {
-    componentHandler,
+    commandHandler,
+    listComponents: (params) => listComponents(deps.db, params),
+    getComponentDetail: (componentId) => getComponentDetail(deps.db, componentId),
     projectors: [
       createProjector({
         projectorName: "catalog-component-projection",
@@ -54,4 +63,3 @@ export function createComponentRuntime(
     ],
   };
 }
-

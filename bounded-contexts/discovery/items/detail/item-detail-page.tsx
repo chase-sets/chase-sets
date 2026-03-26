@@ -14,13 +14,13 @@ import {
   PageSection,
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
-import { discoveryApi } from "../../support/api/client";
-import type { DiscoveryItemDetail } from "./contracts";
+import { discoveryApi } from "../shared/api-client";
+import type { DiscoveryItemDetail } from "../shared/contracts";
+import { useFetch } from "../shared/use-fetch";
 import { VersionSelector } from "./version-selector";
-import { useFetch } from "../../support/ui/use-fetch";
 
 function formatFieldValue(value: unknown): string {
-  if (value === null || value === undefined) return "\u2014";
+  if (value === null || value === undefined) return "-";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
@@ -171,9 +171,3 @@ export function ItemDetailPage({ id }: { id: string }) {
     </Stagger>
   );
 }
-
-
-
-
-
-

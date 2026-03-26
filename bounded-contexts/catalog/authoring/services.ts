@@ -13,12 +13,12 @@ import { createDimensionRuntime } from "./dimensions/runtime";
 import { createFieldRuntime } from "./fields/runtime";
 
 export type CatalogServices = Readonly<{
-  dimensionHandler: ReturnType<typeof createDimensionRuntime>["dimensionHandler"];
-  fieldHandler: ReturnType<typeof createFieldRuntime>["fieldHandler"];
-  componentHandler: ReturnType<typeof createComponentRuntime>["componentHandler"];
-  blueprintHandler: ReturnType<typeof createBlueprintRuntime>["blueprintHandler"];
-  categoryHandler: ReturnType<typeof createCategoryRuntime>["categoryHandler"];
-  catalogItemHandler: ReturnType<typeof createCatalogItemRuntime>["catalogItemHandler"];
+  dimensions: ReturnType<typeof createDimensionRuntime>;
+  fields: ReturnType<typeof createFieldRuntime>;
+  components: ReturnType<typeof createComponentRuntime>;
+  blueprints: ReturnType<typeof createBlueprintRuntime>;
+  categories: ReturnType<typeof createCategoryRuntime>;
+  items: ReturnType<typeof createCatalogItemRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -35,25 +35,24 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
   const components = createComponentRuntime(deps);
   const blueprints = createBlueprintRuntime(deps);
   const categories = createCategoryRuntime(deps);
-  const catalogItems = createCatalogItemRuntime(deps);
+  const items = createCatalogItemRuntime(deps);
 
   return {
-    dimensionHandler: dimensions.dimensionHandler,
-    fieldHandler: fields.fieldHandler,
-    componentHandler: components.componentHandler,
-    blueprintHandler: blueprints.blueprintHandler,
-    categoryHandler: categories.categoryHandler,
-    catalogItemHandler: catalogItems.catalogItemHandler,
+    dimensions,
+    fields,
+    components,
+    blueprints,
+    categories,
+    items,
     projectors: [
       ...dimensions.projectors,
       ...fields.projectors,
       ...components.projectors,
       ...blueprints.projectors,
       ...categories.projectors,
-      ...catalogItems.projectors,
+      ...items.projectors,
     ],
     pool,
     db,
   };
 }
-

@@ -1,7 +1,7 @@
-import { api } from "../../support/api/client";
+import { api } from "../../shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { Field } from "./contracts";
-import { useFetch } from "../../support/ui/use-fetch";
+import { useFetch } from "../../shell-support/ui/use-fetch";
 
 export function useFieldList(query: string) {
   return useFetch(() => api.get<ListResponse<Field>>(`/fields?${query}`), [query]);

@@ -13,13 +13,13 @@ import {
   Inline,
   Text,
 } from "@chase-sets/design-system";
-import { discoveryApi } from "../../support/api/client";
 import type { CategoryListResponse } from "../../categories/ui/contracts";
-import type { DiscoverySearchResponse } from "./contracts";
+import { discoveryApi } from "../shared/api-client";
+import type { DiscoverySearchResponse } from "../shared/contracts";
+import { useFetch } from "../shared/use-fetch";
 import { ItemCard } from "./item-card";
 import { SearchFilters } from "./search-filters";
-import { useDebounce } from "../use-debounce";
-import { useFetch } from "../../support/ui/use-fetch";
+import { useDebounce } from "./use-debounce";
 
 const PAGE_SIZE = 24;
 
@@ -66,7 +66,10 @@ export function SearchPage() {
         <SearchFilters
           categories={categoriesData?.items ?? []}
           selectedCategory={category}
-          onCategoryChange={(name) => { setCategory(name); setPage(1); }}
+          onCategoryChange={(name) => {
+            setCategory(name);
+            setPage(1);
+          }}
         />
       </div>
 
@@ -76,7 +79,10 @@ export function SearchPage() {
             hideLabel
             placeholder="Search catalog items..."
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
           />
           <Select
             hideLabel
@@ -129,10 +135,3 @@ export function SearchPage() {
     </div>
   );
 }
-
-
-
-
-
-
-

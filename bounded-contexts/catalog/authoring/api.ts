@@ -17,13 +17,12 @@ export type CatalogAuthoringEnv = {
 export function buildCatalogAuthoringApi(services: CatalogServices): Hono<CatalogAuthoringEnv> {
   const app = new Hono<CatalogAuthoringEnv>();
 
-  app.route("/dimensions", dimensionRoutes(services));
-  app.route("/fields", fieldRoutes(services));
-  app.route("/components", componentRoutes(services));
-  app.route("/blueprints", blueprintRoutes(services));
-  app.route("/categories", categoryRoutes(services));
-  app.route("/items", catalogItemRoutes(services));
+  app.route("/dimensions", dimensionRoutes(services.dimensions));
+  app.route("/fields", fieldRoutes(services.fields));
+  app.route("/components", componentRoutes(services.components));
+  app.route("/blueprints", blueprintRoutes(services.blueprints));
+  app.route("/categories", categoryRoutes(services.categories));
+  app.route("/items", catalogItemRoutes(services.items));
 
   return app;
 }
-

@@ -5,44 +5,87 @@ import path from "node:path";
 const repoRoot = process.cwd();
 const roots = ["bounded-contexts", "deployables"];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const ignoredDirectories = new Set(["node_modules", ".git", "dist"]);
 const violations = [];
 const forbiddenPaths = [
-  "bounded-contexts/catalog/authoring/shared",
-  "bounded-contexts/catalog/authoring/ui",
-  "bounded-contexts/catalog/authoring/shell/ui",
-  "bounded-contexts/discovery/shared",
-  "bounded-contexts/discovery/ui",
-  "bounded-contexts/discovery/search",
-  "bounded-contexts/discovery/item-detail",
-  "bounded-contexts/catalog/authoring/api/projections/queries.ts",
-  "bounded-contexts/catalog/authoring/api/projections/schema.sql",
-  "bounded-contexts/catalog/authoring/runtime.ts",
-  "bounded-contexts/catalog/authoring/ui/index.tsx",
-  "bounded-contexts/discovery/ui/app.tsx",
-  "bounded-contexts/discovery/ui/router.ts",
-  "bounded-contexts/discovery/schema.sql",
-  "deployables/catalog-admin/src/router.ts",
-  "deployables/marketplace/src/router.ts",
+  "bounded-contexts/catalog/authoring/api",
+  "bounded-contexts/catalog/authoring/support",
+  "bounded-contexts/catalog/authoring/database-schema.ts",
+  "bounded-contexts/discovery/support",
+  "bounded-contexts/discovery/__tests__",
+  "bounded-contexts/discovery/items/ui",
+  "bounded-contexts/discovery/items/use-debounce.ts",
+  "deployables/catalog-api/src/infrastructure",
+  "deployables/catalog-api/src/routes",
+  "deployables/marketplace-api/src/infrastructure",
+  "deployables/marketplace-api/src/projections",
+  "deployables/marketplace-api/src/routes",
+  "deployables/catalog-admin/src/__tests__",
+  "deployables/marketplace/src/__tests__",
 ];
+const implementedContextRoots = new Map([
+  [
+    "bounded-contexts/catalog/authoring",
+    {
+      allowedDirs: new Set([
+        "blueprints",
+        "catalog-items",
+        "categories",
+        "components",
+        "dimensions",
+        "fields",
+        "projection-support",
+        "shell",
+        "shell-support",
+        "tests",
+      ]),
+      allowedFiles: new Set([
+        "api.ts",
+        "index.ts",
+        "runtime-support.ts",
+        "schema.ts",
+        "seed-support.ts",
+        "seed.ts",
+        "services.ts",
+        "test-helpers.ts",
+        "test-support.ts",
+      ]),
+    },
+  ],
+  [
+    "bounded-contexts/discovery",
+    {
+      allowedDirs: new Set(["categories", "items", "shell", "tests"]),
+      allowedFiles: new Set([
+        "api.ts",
+        "GLOSSARY.md",
+        "index.ts",
+        "README.md",
+        "runtime-support.ts",
+        "schema.ts",
+        "services.ts",
+      ]),
+    },
+  ],
+]);
+const sliceRouteFiles = new Set([
+  "bounded-contexts/catalog/authoring/blueprints/route.ts",
+  "bounded-contexts/catalog/authoring/catalog-items/route.ts",
+  "bounded-contexts/catalog/authoring/categories/route.ts",
+  "bounded-contexts/catalog/authoring/components/route.ts",
+  "bounded-contexts/catalog/authoring/dimensions/route.ts",
+  "bounded-contexts/catalog/authoring/fields/route.ts",
+  "bounded-contexts/discovery/categories/route.ts",
+  "bounded-contexts/discovery/items/detail/route.ts",
+  "bounded-contexts/discovery/items/search/route.ts",
+]);
 
-async function walk(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
-
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...await walk(fullPath));
-      continue;
-    }
-    files.push(fullPath);
-  }
-
-  return files;
+function normalizeRelative(filePath) {
+  return path.relative(repoRoot, filePath).replaceAll("\\", "/");
 }
 
 function addViolation(file, message) {
-  violations.push(`${path.relative(repoRoot, file)}: ${message}`);
+  violations.push(`${normalizeRelative(file)}: ${message}`);
 }
 
 function addPathViolation(relativePath, message) {
@@ -60,9 +103,39 @@ function isImplementedContextFile(relativeFile) {
   );
 }
 
-function checkImport(file, specifier) {
+function isArchitectureDirectory(relativeDir) {
+  return (
+    relativeDir.startsWith("bounded-contexts/") ||
+    /^deployables\/[^/]+\/src(?:\/|$)/.test(relativeDir)
+  );
+}
+
+async function walk(dir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = [];
+  const directories = [dir];
+
+  for (const entry of entries) {
+    if (entry.isDirectory() && ignoredDirectories.has(entry.name)) {
+      continue;
+    }
+
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const nested = await walk(fullPath);
+      files.push(...nested.files);
+      directories.push(...nested.directories);
+      continue;
+    }
+    files.push(fullPath);
+  }
+
+  return { files, directories };
+}
+
+function checkImport(file, specifier, content) {
   const normalized = specifier.replaceAll("\\", "/");
-  const relativeFile = path.relative(repoRoot, file).replaceAll("\\", "/");
+  const relativeFile = normalizeRelative(file);
 
   if (relativeFile.startsWith("bounded-contexts/") && normalized.includes("deployables/")) {
     addViolation(file, `bounded contexts must not import deployables (${specifier})`);
@@ -100,6 +173,14 @@ function checkImport(file, specifier) {
   if (!isShellFile && !isContextRootEntrypoint && (normalized.includes("/shell/") || normalized.endsWith("/shell"))) {
     addViolation(file, `non-shell context modules must not depend on shell internals (${specifier})`);
   }
+
+  if (sliceRouteFiles.has(relativeFile) && (normalized === "../services" || normalized.endsWith("/services"))) {
+    addViolation(file, `slice routes must depend on slice-local services (${specifier})`);
+  }
+
+  if (sliceRouteFiles.has(relativeFile) && content.includes("services.db")) {
+    addViolation(file, "slice routes must not reach through context db handles");
+  }
 }
 
 function extractImportSpecifiers(content) {
@@ -125,9 +206,46 @@ for (const forbiddenPath of forbiddenPaths) {
   }
 }
 
+for (const [contextRoot, rule] of implementedContextRoots) {
+  const rootPath = path.join(repoRoot, contextRoot);
+  const entries = await readdir(rootPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const allowed = entry.isDirectory()
+      ? rule.allowedDirs.has(entry.name)
+      : rule.allowedFiles.has(entry.name);
+
+    if (!allowed) {
+      addPathViolation(
+        `${contextRoot}/${entry.name}`,
+        "implemented context root contains an unexpected entry",
+      );
+    }
+  }
+
+  for (const forbiddenName of ["support", "shared"]) {
+    if (existsSync(path.join(rootPath, forbiddenName))) {
+      addPathViolation(`${contextRoot}/${forbiddenName}`, "generic root support folders are not allowed");
+    }
+  }
+}
+
 for (const root of roots) {
   const rootPath = path.join(repoRoot, root);
-  const files = await walk(rootPath);
+  const { files, directories } = await walk(rootPath);
+
+  for (const directory of directories) {
+    const relativeDir = normalizeRelative(directory);
+    if (!isArchitectureDirectory(relativeDir)) {
+      continue;
+    }
+
+    const entries = await readdir(directory, { withFileTypes: true });
+    const visibleEntries = entries.filter((entry) => !ignoredDirectories.has(entry.name));
+    if (visibleEntries.length === 0) {
+      addPathViolation(relativeDir, "empty architecture folder should not exist");
+    }
+  }
 
   for (const file of files) {
     if (isTmpFile(file)) {
@@ -139,13 +257,14 @@ for (const root of roots) {
     }
 
     const content = await readFile(file, "utf8");
+    const relativeFile = normalizeRelative(file);
 
-    if (file.includes(`${path.sep}bounded-contexts${path.sep}discovery${path.sep}`) && content.includes("marketplace_")) {
+    if (relativeFile.startsWith("bounded-contexts/discovery/") && content.includes("marketplace_")) {
       addViolation(file, "discovery should use discovery-owned read-model names, not marketplace_* tables");
     }
 
     for (const specifier of extractImportSpecifiers(content)) {
-      checkImport(file, specifier);
+      checkImport(file, specifier, content);
     }
   }
 }
@@ -159,4 +278,3 @@ if (violations.length > 0) {
 }
 
 console.log("Structure check passed.");
-

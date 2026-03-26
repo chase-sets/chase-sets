@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../services";
+import type { ComponentServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../api";
 import type { ComponentId, FieldId, DimensionId, ChoiceId } from "../../ids";
-import { listComponents, getComponentDetail } from "./queries";
 
-export function componentRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv> {
+
+export function componentRoutes(services: ComponentServices): Hono<CatalogAuthoringEnv> {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {
@@ -12,7 +12,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const context = c.get("context");
     const componentId = body.componentId as ComponentId;
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "CreateComponent",
@@ -32,7 +32,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "AddFieldRuleToComponent",
@@ -49,7 +49,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const componentId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "RemoveFieldRuleFromComponent",
@@ -66,7 +66,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "AddDimensionRuleToComponent",
@@ -84,7 +84,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const componentId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "RemoveDimensionRuleFromComponent",
@@ -101,7 +101,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: {
         type: "ConfigureComponentRules",
@@ -121,7 +121,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const componentId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: { type: "ActivateComponent" },
       context,
@@ -134,7 +134,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const componentId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: { type: "DeprecateComponent" },
       context,
@@ -147,7 +147,7 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const componentId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.componentHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.component-${componentId}`,
       command: { type: "ArchiveComponent" },
       context,
@@ -158,13 +158,13 @@ export function componentRoutes(services: CatalogServices): Hono<CatalogAuthorin
 
   app.get("/", async (c) => {
     const { search, status, limit, offset } = c.req.query();
-    const result = await listComponents(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const result = await services.listComponents({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
-    const component = await getComponentDetail(services.db, c.req.param("id"));
+    const component = await services.getComponentDetail(c.req.param("id"));
 
     if (!component) {
       return c.json({ error: "Component not found." }, 404);

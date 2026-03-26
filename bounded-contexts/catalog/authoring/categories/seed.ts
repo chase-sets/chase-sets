@@ -19,7 +19,7 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
     const categoryId = createId("ctg") as CategoryId;
     const streamId = `catalog.category-${categoryId}`;
 
-    await sendSeedCommand(services.categoryHandler, streamId, {
+    await sendSeedCommand(services.categories.commandHandler, streamId, {
       type: "CreateCategory",
       categoryId,
       key,
@@ -29,7 +29,7 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
       displayOrder: displayOrder ?? 0,
     });
 
-    await sendSeedCommand(services.categoryHandler, streamId, {
+    await sendSeedCommand(services.categories.commandHandler, streamId, {
       type: "PublishCategory",
     });
 

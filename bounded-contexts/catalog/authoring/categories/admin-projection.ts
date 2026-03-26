@@ -1,7 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
-import { extractIdFromStreamId } from "../support/projections/extract-id-from-stream";
-import { loadNameMap } from "../support/projections/read-model-support";
+import { extractIdFromStreamId } from "../projection-support/extract-id-from-stream";
+import { loadNameMap } from "../projection-support/read-model-support";
 
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 

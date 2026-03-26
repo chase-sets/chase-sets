@@ -14,18 +14,25 @@ import {
   decideCategory,
   evolveCategory,
 } from "./domain";
+import { getCategoryDetail, listCategories } from "./queries";
 import { buildCatalogAdminCategoryProjectionHandlers } from "./admin-projection";
 import { buildCategoryProjectionHandlers } from "./projection";
 
-export type CategoryRuntime = Readonly<{
-  categoryHandler: CommandHandler<CategoryCommand, CategoryState, CategoryEvent>;
+export type CategoryServices = Readonly<{
+  commandHandler: CommandHandler<CategoryCommand, CategoryState, CategoryEvent>;
+  listCategories: (
+    params?: Parameters<typeof listCategories>[1],
+  ) => ReturnType<typeof listCategories>;
+  getCategoryDetail: (
+    categoryId: string,
+  ) => ReturnType<typeof getCategoryDetail>;
   projectors: readonly Projector[];
 }>;
 
 export function createCategoryRuntime(
   deps: CatalogRuntimeDeps,
-): CategoryRuntime {
-  const categoryHandler = createCommandHandler({
+): CategoryServices {
+  const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
       codec: createPassthroughDomainEventCodec<CategoryEvent>(),
@@ -37,7 +44,9 @@ export function createCategoryRuntime(
   });
 
   return {
-    categoryHandler,
+    commandHandler,
+    listCategories: (params) => listCategories(deps.db, params),
+    getCategoryDetail: (categoryId) => getCategoryDetail(deps.db, categoryId),
     projectors: [
       createProjector({
         projectorName: "catalog-category-projection",
@@ -54,4 +63,3 @@ export function createCategoryRuntime(
     ],
   };
 }
-

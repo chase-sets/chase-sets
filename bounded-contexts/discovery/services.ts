@@ -6,11 +6,11 @@ import {
   createDiscoveryCategoryRuntime,
   type DiscoveryCategoryServices,
 } from "./categories/runtime";
-import { createDiscoveryItemRuntime, type DiscoveryItemServices } from "./items/runtime";
+import { createDiscoveryItemRuntime, type DiscoveryItemsServices } from "./items/runtime";
 
 export type DiscoveryServices = Readonly<{
   categories: DiscoveryCategoryServices;
-  items: DiscoveryItemServices;
+  items: DiscoveryItemsServices;
   projectors: readonly Projector[];
 }>;
 
@@ -28,4 +28,3 @@ export function createDiscoveryServices(pool: PgTransactionalPool): DiscoverySer
     projectors: [...items.projectors, ...categories.projectors],
   };
 }
-

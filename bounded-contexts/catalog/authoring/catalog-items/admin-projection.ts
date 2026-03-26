@@ -1,12 +1,12 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
-import { extractIdFromStreamId } from "../support/projections/extract-id-from-stream";
+import { extractIdFromStreamId } from "../projection-support/extract-id-from-stream";
 import {
   asArray,
   asStringArray,
   type FieldValue,
   loadNameMap,
-} from "../support/projections/read-model-support";
+} from "../projection-support/read-model-support";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";

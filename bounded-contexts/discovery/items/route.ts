@@ -1,47 +1,13 @@
 import { Hono } from "hono";
-import type { DiscoveryItemServices } from "./runtime";
+import type { DiscoveryItemsServices } from "./runtime";
+import { discoveryItemDetailRoutes } from "./detail/route";
+import { discoveryItemSearchRoutes } from "./search/route";
 
-export function discoveryItemRoutes(services: DiscoveryItemServices): Hono {
+export function discoveryItemRoutes(services: DiscoveryItemsServices): Hono {
   const app = new Hono();
 
-  app.get("/", async (c) => {
-    const search = c.req.query("search");
-    const category = c.req.query("category");
-    const tag = c.req.query("tag");
-    const blueprintId = c.req.query("blueprintId");
-    const sort = c.req.query("sort");
-    const status = c.req.query("status");
-    const limit = c.req.query("limit");
-    const offset = c.req.query("offset");
-
-    const result = await services.searchItems({
-      search: search || undefined,
-      category: category || undefined,
-      tag: tag || undefined,
-      blueprintId: blueprintId || undefined,
-      sort: sort || undefined,
-      status: status || undefined,
-      limit: limit ? Number.parseInt(limit, 10) : undefined,
-      offset: offset ? Number.parseInt(offset, 10) : undefined,
-    });
-
-    return c.json({
-      items: result.items,
-      total: result.total,
-      count: result.items.length,
-    });
-  });
-
-  app.get("/:id", async (c) => {
-    const item = await services.getItemDetail(c.req.param("id"));
-
-    if (!item) {
-      return c.json({ error: "Item not found." }, 404);
-    }
-
-    return c.json(item);
-  });
+  app.route("/", discoveryItemSearchRoutes(services.search));
+  app.route("/", discoveryItemDetailRoutes(services.detail));
 
   return app;
 }
-

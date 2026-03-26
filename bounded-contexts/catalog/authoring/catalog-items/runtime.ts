@@ -14,22 +14,29 @@ import {
   decideCatalogItem,
   evolveCatalogItem,
 } from "./domain";
+import { getCatalogItemDetail, listCatalogItems } from "./queries";
 import { buildCatalogAdminCatalogItemProjectionHandlers } from "./admin-projection";
 import { buildCatalogItemProjectionHandlers } from "./projection";
 
-export type CatalogItemRuntime = Readonly<{
-  catalogItemHandler: CommandHandler<
+export type CatalogItemServices = Readonly<{
+  commandHandler: CommandHandler<
     CatalogItemCommand,
     CatalogItemState,
     CatalogItemEvent
   >;
+  listCatalogItems: (
+    params?: Parameters<typeof listCatalogItems>[1],
+  ) => ReturnType<typeof listCatalogItems>;
+  getCatalogItemDetail: (
+    itemId: string,
+  ) => ReturnType<typeof getCatalogItemDetail>;
   projectors: readonly Projector[];
 }>;
 
 export function createCatalogItemRuntime(
   deps: CatalogRuntimeDeps,
-): CatalogItemRuntime {
-  const catalogItemHandler = createCommandHandler({
+): CatalogItemServices {
+  const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
       codec: createPassthroughDomainEventCodec<CatalogItemEvent>(),
@@ -41,7 +48,9 @@ export function createCatalogItemRuntime(
   });
 
   return {
-    catalogItemHandler,
+    commandHandler,
+    listCatalogItems: (params) => listCatalogItems(deps.db, params),
+    getCatalogItemDetail: (itemId) => getCatalogItemDetail(deps.db, itemId),
     projectors: [
       createProjector({
         projectorName: "catalog-item-projection",
@@ -58,4 +67,3 @@ export function createCatalogItemRuntime(
     ],
   };
 }
-

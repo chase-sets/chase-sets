@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../services";
+import type { DimensionServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../api";
 import type { DimensionId, ChoiceId } from "../../ids";
-import { listDimensions, getDimension } from "./queries";
 
-export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv> {
+
+export function dimensionRoutes(services: DimensionServices): Hono<CatalogAuthoringEnv> {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {
@@ -12,7 +12,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const context = c.get("context");
     const dimensionId = body.dimensionId as DimensionId;
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
         type: "CreateDimension",
@@ -32,7 +32,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
         type: "ReviseDimension",
@@ -51,7 +51,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
         type: "AddChoice",
@@ -71,7 +71,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
         type: "ReviseChoice",
@@ -91,7 +91,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
         type: "ReorderChoices",
@@ -107,7 +107,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const dimensionId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
         type: "DeprecateChoice",
@@ -123,7 +123,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const dimensionId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
         type: "ReactivateChoice",
@@ -139,7 +139,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const dimensionId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: { type: "ActivateDimension" },
       context,
@@ -152,7 +152,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const dimensionId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: { type: "DeprecateDimension" },
       context,
@@ -165,7 +165,7 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const dimensionId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.dimensionHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: { type: "ArchiveDimension" },
       context,
@@ -176,13 +176,13 @@ export function dimensionRoutes(services: CatalogServices): Hono<CatalogAuthorin
 
   app.get("/", async (c) => {
     const { search, status, limit, offset } = c.req.query();
-    const result = await listDimensions(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const result = await services.listDimensions({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
-    const dimension = await getDimension(services.db, c.req.param("id"));
+    const dimension = await services.getDimension(c.req.param("id"));
 
     if (!dimension) {
       return c.json({ error: "Dimension not found." }, 404);

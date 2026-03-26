@@ -6,7 +6,7 @@ import { catalogComponentSchemaSql } from "./components/schema";
 import { catalogDimensionSchemaSql } from "./dimensions/schema";
 import { catalogFieldSchemaSql } from "./fields/schema";
 
-export const catalogAuthoringDatabaseSchemaSql = [
+export const catalogAuthoringSchemaSql = [
   eventCorePostgresSchemaSql,
   catalogDimensionSchemaSql,
   catalogFieldSchemaSql,
@@ -15,4 +15,3 @@ export const catalogAuthoringDatabaseSchemaSql = [
   catalogCategorySchemaSql,
   catalogCatalogItemSchemaSql,
 ].join("\n\n");
-

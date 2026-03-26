@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import type { CatalogServices } from "../services";
+import type { BlueprintServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../api";
 import type { BlueprintId, ComponentId } from "../../ids";
-import { listBlueprints, getBlueprintDetail } from "./queries";
 
-export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthoringEnv> {
+
+export function blueprintRoutes(services: BlueprintServices): Hono<CatalogAuthoringEnv> {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {
@@ -12,7 +12,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const context = c.get("context");
     const blueprintId = body.blueprintId as BlueprintId;
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "CreateBlueprint",
@@ -32,7 +32,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "ReviseBlueprint",
@@ -50,7 +50,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const blueprintId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "AttachComponentToBlueprint",
@@ -66,7 +66,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const blueprintId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "DetachComponentFromBlueprint",
@@ -83,7 +83,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "SetBlueprintFields",
@@ -100,7 +100,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "SetBlueprintDimensions",
@@ -117,7 +117,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const body = await c.req.json();
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
         type: "SetBlueprintVersionRules",
@@ -133,7 +133,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const blueprintId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: { type: "PublishBlueprint" },
       context,
@@ -146,7 +146,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const blueprintId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: { type: "DeprecateBlueprint" },
       context,
@@ -159,7 +159,7 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
     const blueprintId = c.req.param("id");
     const context = c.get("context");
 
-    const result = await services.blueprintHandler({
+    const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: { type: "ArchiveBlueprint" },
       context,
@@ -170,13 +170,13 @@ export function blueprintRoutes(services: CatalogServices): Hono<CatalogAuthorin
 
   app.get("/", async (c) => {
     const { search, status, limit, offset } = c.req.query();
-    const result = await listBlueprints(services.db, { search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const result = await services.listBlueprints({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
-    const blueprint = await getBlueprintDetail(services.db, c.req.param("id"));
+    const blueprint = await services.getBlueprintDetail(c.req.param("id"));
 
     if (!blueprint) {
       return c.json({ error: "Blueprint not found." }, 404);
