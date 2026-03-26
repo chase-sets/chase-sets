@@ -65,8 +65,8 @@ function formatFieldValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function CatalogItemDetailPage({ id }: { id: string }) {
-  const { data, loading, error, refresh } = useCatalogItem(id);
+export function CatalogItemDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useCatalogItem>[1] }) {
+  const { data, loading, error, refresh } = useCatalogItem(id, initialData);
   const { addToast } = useToasts();
 
   // Blueprint assignment
@@ -230,7 +230,7 @@ export function CatalogItemDetailPage({ id }: { id: string }) {
       <EntityDetailPage
         title={data?.title ?? "Catalog Item"}
         breadcrumbs={[
-          { label: "Catalog Items", href: "#/catalog-items" },
+          { label: "Catalog Items", href: "/catalog-items" },
           { label: data?.title ?? id },
         ]}
         actions={

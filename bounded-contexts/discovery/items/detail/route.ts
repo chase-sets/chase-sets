@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { DiscoveryItemDetailServices } from "./runtime";
 
-export function discoveryItemDetailRoutes(services: DiscoveryItemDetailServices): Hono {
+export function discoveryItemDetailRoutes(services: DiscoveryItemDetailServices) {
   const app = new Hono();
 
   app.get("/:id", async (c) => {

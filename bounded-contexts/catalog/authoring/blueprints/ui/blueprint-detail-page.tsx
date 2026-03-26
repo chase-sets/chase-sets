@@ -65,8 +65,8 @@ interface EditDimensionRule {
   allowedChoiceIds: string;
 }
 
-export function BlueprintDetailPage({ id }: { id: string }) {
-  const { data, loading, error, refresh } = useBlueprint(id);
+export function BlueprintDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useBlueprint>[1] }) {
+  const { data, loading, error, refresh } = useBlueprint(id, initialData);
   const { addToast } = useToasts();
   const [showAttachComponent, setShowAttachComponent] = useState(false);
   const [componentId, setComponentId] = useState("");
@@ -189,7 +189,7 @@ export function BlueprintDetailPage({ id }: { id: string }) {
       <EntityDetailPage
         title={data?.name ?? "Blueprint"}
         breadcrumbs={[
-          { label: "Blueprints", href: "#/blueprints" },
+          { label: "Blueprints", href: "/blueprints" },
           { label: data?.name ?? id },
         ]}
         actions={

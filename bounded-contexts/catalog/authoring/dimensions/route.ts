@@ -4,7 +4,7 @@ import type { CatalogAuthoringEnv } from "../api";
 import type { DimensionId, ChoiceId } from "../../ids";
 
 
-export function dimensionRoutes(services: DimensionServices): Hono<CatalogAuthoringEnv> {
+export function dimensionRoutes(services: DimensionServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {

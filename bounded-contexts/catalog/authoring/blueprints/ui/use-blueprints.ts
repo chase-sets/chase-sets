@@ -3,52 +3,52 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { Blueprint, BlueprintDetail } from "./contracts";
 import { useFetch } from "../../shell-support/ui/use-fetch";
 
-export function useBlueprintList(query: string) {
-  return useFetch(() => api.get<ListResponse<Blueprint>>(`/blueprints?${query}`), [query]);
+export function useBlueprintList(query: string, initialData?: ListResponse<Blueprint> | null) {
+  return useFetch(() => api.listBlueprints<ListResponse<Blueprint>>(query), [query], initialData);
 }
 
-export function useBlueprint(id: string) {
-  return useFetch(() => api.get<BlueprintDetail>(`/blueprints/${id}`), [id]);
+export function useBlueprint(id: string, initialData?: BlueprintDetail | null) {
+  return useFetch(() => api.getBlueprint<BlueprintDetail>(id), [id], initialData);
 }
 
 export function createBlueprint(body: { blueprintId: string; key: string; name: string; description?: string }) {
-  return api.post<CommandResponse>("/blueprints", body);
+  return api.createBlueprint<CommandResponse>(body);
 }
 
 export function reviseBlueprint(id: string, body: { key: string; name: string; description?: string }) {
-  return api.put<CommandResponse>(`/blueprints/${id}`, body);
+  return api.reviseBlueprint<CommandResponse>(id, body);
 }
 
 export function attachComponent(id: string, componentId: string) {
-  return api.post<CommandResponse>(`/blueprints/${id}/components/${componentId}`);
+  return api.attachComponent<CommandResponse>(id, componentId);
 }
 
 export function detachComponent(id: string, componentId: string) {
-  return api.del<CommandResponse>(`/blueprints/${id}/components/${componentId}`);
+  return api.detachComponent<CommandResponse>(id, componentId);
 }
 
 export function setBlueprintFields(id: string, fieldRules: { fieldId: string; required: boolean }[]) {
-  return api.put<CommandResponse>(`/blueprints/${id}/fields`, { fieldRules });
+  return api.setBlueprintFields<CommandResponse>(id, fieldRules);
 }
 
 export function setBlueprintDimensions(id: string, dimensionRules: { dimensionId: string; required: boolean; allowedChoiceIds: string[] }[]) {
-  return api.put<CommandResponse>(`/blueprints/${id}/dimensions`, { dimensionRules });
+  return api.setBlueprintDimensions<CommandResponse>(id, dimensionRules);
 }
 
 export function setBlueprintVersionRules(id: string, canonicalDimensionOrder: string[]) {
-  return api.put<CommandResponse>(`/blueprints/${id}/version-rules`, { canonicalDimensionOrder });
+  return api.setBlueprintVersionRules<CommandResponse>(id, canonicalDimensionOrder);
 }
 
 export function publishBlueprint(id: string) {
-  return api.post<CommandResponse>(`/blueprints/${id}/publish`);
+  return api.publishBlueprint<CommandResponse>(id);
 }
 
 export function deprecateBlueprint(id: string) {
-  return api.post<CommandResponse>(`/blueprints/${id}/deprecate`);
+  return api.deprecateBlueprint<CommandResponse>(id);
 }
 
 export function archiveBlueprint(id: string) {
-  return api.post<CommandResponse>(`/blueprints/${id}/archive`);
+  return api.archiveBlueprint<CommandResponse>(id);
 }
 
 

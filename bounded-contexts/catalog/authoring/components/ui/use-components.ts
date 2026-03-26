@@ -3,16 +3,16 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { Component, ComponentDetail } from "./contracts";
 import { useFetch } from "../../shell-support/ui/use-fetch";
 
-export function useComponentList(query: string) {
-  return useFetch(() => api.get<ListResponse<Component>>(`/components?${query}`), [query]);
+export function useComponentList(query: string, initialData?: ListResponse<Component> | null) {
+  return useFetch(() => api.listComponents<ListResponse<Component>>(query), [query], initialData);
 }
 
-export function useComponent(id: string) {
-  return useFetch(() => api.get<ComponentDetail>(`/components/${id}`), [id]);
+export function useComponent(id: string, initialData?: ComponentDetail | null) {
+  return useFetch(() => api.getComponent<ComponentDetail>(id), [id], initialData);
 }
 
 export function createComponent(body: { componentId: string; key: string; name: string; description?: string }) {
-  return api.post<CommandResponse>("/components", body);
+  return api.createComponent<CommandResponse>(body);
 }
 
 export function configureComponent(id: string, body: {
@@ -22,35 +22,35 @@ export function configureComponent(id: string, body: {
   fieldRules: { fieldId: string; required: boolean }[];
   dimensionRules: { dimensionId: string; required: boolean; allowedChoiceIds: string[] }[];
 }) {
-  return api.put<CommandResponse>(`/components/${id}`, body);
+  return api.reviseComponent<CommandResponse>(id, body);
 }
 
 export function addFieldRule(id: string, body: { fieldId: string; required: boolean }) {
-  return api.post<CommandResponse>(`/components/${id}/field-rules`, body);
+  return api.addFieldRule<CommandResponse>(id, body);
 }
 
 export function removeFieldRule(id: string, fieldId: string) {
-  return api.del<CommandResponse>(`/components/${id}/field-rules/${fieldId}`);
+  return api.removeFieldRule<CommandResponse>(id, fieldId);
 }
 
 export function addDimensionRule(id: string, body: { dimensionId: string; required: boolean; allowedChoiceIds?: string[] }) {
-  return api.post<CommandResponse>(`/components/${id}/dimension-rules`, body);
+  return api.addDimensionRule<CommandResponse>(id, body);
 }
 
 export function removeDimensionRule(id: string, dimensionId: string) {
-  return api.del<CommandResponse>(`/components/${id}/dimension-rules/${dimensionId}`);
+  return api.removeDimensionRule<CommandResponse>(id, dimensionId);
 }
 
 export function activateComponent(id: string) {
-  return api.post<CommandResponse>(`/components/${id}/activate`);
+  return api.activateComponent<CommandResponse>(id);
 }
 
 export function deprecateComponent(id: string) {
-  return api.post<CommandResponse>(`/components/${id}/deprecate`);
+  return api.deprecateComponent<CommandResponse>(id);
 }
 
 export function archiveComponent(id: string) {
-  return api.post<CommandResponse>(`/components/${id}/archive`);
+  return api.archiveComponent<CommandResponse>(id);
 }
 
 

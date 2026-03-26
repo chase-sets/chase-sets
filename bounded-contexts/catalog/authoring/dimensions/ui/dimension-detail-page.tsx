@@ -62,8 +62,8 @@ interface LabelEntry {
   value: string;
 }
 
-export function DimensionDetailPage({ id }: { id: string }) {
-  const { data, loading, error, refresh } = useDimension(id);
+export function DimensionDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useDimension>[1] }) {
+  const { data, loading, error, refresh } = useDimension(id, initialData);
   const { addToast } = useToasts();
 
   // Edit dimension
@@ -221,7 +221,7 @@ export function DimensionDetailPage({ id }: { id: string }) {
       <EntityDetailPage
         title={data?.name ?? "Dimension"}
         breadcrumbs={[
-          { label: "Dimensions", href: "#/dimensions" },
+          { label: "Dimensions", href: "/dimensions" },
           { label: data?.name ?? id },
         ]}
         actions={

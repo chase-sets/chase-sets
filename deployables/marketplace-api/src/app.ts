@@ -3,7 +3,7 @@ import { buildDiscoveryApi, type DiscoveryServices } from "@chase-sets/discovery
 import { createHealthRoutes } from "@chase-sets/http/health";
 import { errorHandler } from "./middleware/error-handler";
 
-export function buildMarketplaceApp(services: DiscoveryServices): Hono {
+export function buildMarketplaceApp(services: DiscoveryServices) {
   const app = new Hono();
 
   app.onError(errorHandler);

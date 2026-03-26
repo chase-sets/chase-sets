@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Breadcrumbs,
   ImageGallery,
   KeyValueList,
   DetailPanel,
-  LoadingSpinner,
   Banner,
   Reveal,
   Stack,
@@ -14,61 +13,79 @@ import {
   PageSection,
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
-import { discoveryApi } from "../client-support/api-client";
 import type { DiscoveryItemDetail } from "../client-support/contracts";
-import { useFetch } from "../client-support/use-fetch";
 import { VersionSelector } from "./version-selector";
 
 function formatFieldValue(value: unknown): string {
-  if (value === null || value === undefined) return "-";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return String(value);
   }
+
   return JSON.stringify(value);
 }
 
-export function ItemDetailPage({ id }: { id: string }) {
-  const { data, loading, error } = useFetch<DiscoveryItemDetail>(
-    () => discoveryApi.get(`/marketplace/items/${id}`),
-    [id],
-  );
-
+export function ItemDetailPage({
+  data,
+  notFound = false,
+  error = null,
+}: {
+  data: DiscoveryItemDetail | null;
+  notFound?: boolean;
+  error?: string | null;
+}) {
   const [selections, setSelections] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (data?.version_schema) {
-      const initial: Record<string, string> = {};
-      for (const dim of data.version_schema.dimensions) {
-        if (dim.allowedChoices.length > 0) {
-          initial[dim.dimensionId] = dim.allowedChoices[0].choiceId;
-        }
-      }
-      setSelections(initial);
+    if (!data?.version_schema) {
+      setSelections({});
+      return;
     }
-  }, [data]);
 
-  if (loading) {
-    return <LoadingSpinner label="Loading item..." />;
-  }
+    const initial: Record<string, string> = {};
+    for (const dim of data.version_schema.dimensions) {
+      if (dim.allowedChoices.length > 0) {
+        initial[dim.dimensionId] = dim.allowedChoices[0].choiceId;
+      }
+    }
+    setSelections(initial);
+  }, [data]);
 
   if (error) {
     return <Banner tone="danger" title="Error" description={error} />;
   }
 
   if (!data) {
-    return <Banner tone="danger" title="Not found" description="This item could not be found." />;
+    return (
+      <Banner
+        tone="danger"
+        title={notFound ? "Not found" : "Error"}
+        description={
+          notFound
+            ? "This item could not be found."
+            : "This item is not available right now."
+        }
+      />
+    );
   }
 
-  const images = data.image_urls.map((url, i) => ({
+  const images = data.image_urls.map((url, index) => ({
     src: url,
-    alt: `${data.title} image ${i + 1}`,
+    alt: `${data.title} image ${index + 1}`,
   }));
 
   return (
     <Stagger>
       <Breadcrumbs
         items={[
-          { label: "Search", href: "#/search" },
+          { label: "Search", href: "/search" },
           { label: data.title },
         ]}
       />
@@ -86,10 +103,7 @@ export function ItemDetailPage({ id }: { id: string }) {
           </Reveal>
 
           <Reveal preset="lift">
-            <PageHeader
-              title={data.title}
-              description={data.subtitle}
-            />
+            <PageHeader title={data.title} description={data.subtitle} />
           </Reveal>
 
           {data.description ? (
@@ -106,8 +120,11 @@ export function ItemDetailPage({ id }: { id: string }) {
                 <VersionSelector
                   schema={data.version_schema}
                   selections={selections}
-                  onSelectionChange={(dimId, choiceId) =>
-                    setSelections((prev) => ({ ...prev, [dimId]: choiceId }))
+                  onSelectionChange={(dimensionId, choiceId) =>
+                    setSelections((current) => ({
+                      ...current,
+                      [dimensionId]: choiceId,
+                    }))
                   }
                 />
               </PageSection>
@@ -118,9 +135,9 @@ export function ItemDetailPage({ id }: { id: string }) {
             <Reveal preset="lift">
               <PageSection title="Details">
                 <KeyValueList
-                  items={data.field_values.map((fv) => ({
-                    key: fv.fieldName,
-                    value: formatFieldValue(fv.value),
+                  items={data.field_values.map((fieldValue) => ({
+                    key: fieldValue.fieldName,
+                    value: formatFieldValue(fieldValue.value),
                   }))}
                 />
               </PageSection>
@@ -131,38 +148,54 @@ export function ItemDetailPage({ id }: { id: string }) {
         <Reveal preset="slideRight">
           <DetailPanel title="Info">
             <Stack gap={3}>
-              {data.blueprint && (
+              {data.blueprint ? (
                 <div>
-                  <Text size="sm" weight="semibold">Blueprint</Text>
-                  <Text size="sm" tone="secondary">{data.blueprint.name}</Text>
+                  <Text size="sm" weight="semibold">
+                    Blueprint
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    {data.blueprint.name}
+                  </Text>
                 </div>
-              )}
+              ) : null}
 
-              {data.categories.length > 0 && (
+              {data.categories.length > 0 ? (
                 <div>
-                  <Text size="sm" weight="semibold">Categories</Text>
+                  <Text size="sm" weight="semibold">
+                    Categories
+                  </Text>
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {data.categories.map((cat) => (
-                      <Badge key={cat.categoryId} tone="accent">{cat.name}</Badge>
+                    {data.categories.map((category) => (
+                      <Badge key={category.categoryId} tone="accent">
+                        {category.name}
+                      </Badge>
                     ))}
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              {data.tags.length > 0 && (
+              {data.tags.length > 0 ? (
                 <div>
-                  <Text size="sm" weight="semibold">Tags</Text>
+                  <Text size="sm" weight="semibold">
+                    Tags
+                  </Text>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {data.tags.map((tag) => (
-                      <Badge key={tag} tone="neutral">{tag}</Badge>
+                      <Badge key={tag} tone="neutral">
+                        {tag}
+                      </Badge>
                     ))}
                   </div>
                 </div>
-              )}
+              ) : null}
 
               <div>
-                <Text size="sm" weight="semibold">Last Updated</Text>
-                <Text size="sm" tone="secondary">{data.updated_at}</Text>
+                <Text size="sm" weight="semibold">
+                  Last Updated
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {data.updated_at}
+                </Text>
               </div>
             </Stack>
           </DetailPanel>

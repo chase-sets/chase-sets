@@ -14,7 +14,7 @@ export type CatalogAuthoringEnv = {
   };
 };
 
-export function buildCatalogAuthoringApi(services: CatalogServices): Hono<CatalogAuthoringEnv> {
+export function buildCatalogAuthoringApi(services: CatalogServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.route("/dimensions", dimensionRoutes(services.dimensions));

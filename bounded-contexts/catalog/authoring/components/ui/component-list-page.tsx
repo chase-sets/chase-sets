@@ -26,7 +26,7 @@ const statusOptions = [
   { label: "Archived", value: "archived" },
 ];
 
-export function ComponentListPage() {
+export function ComponentListPage({ initialData }: { initialData?: Parameters<typeof useComponentList>[1] }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -40,7 +40,7 @@ export function ComponentListPage() {
     return params.toString();
   }, [search, statusFilter, page]);
 
-  const { data, loading, error, refresh } = useComponentList(query);
+  const { data, loading, error, refresh } = useComponentList(query, initialData);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
   const [key, setKey] = useState("");
@@ -69,7 +69,7 @@ export function ComponentListPage() {
         error={error}
         columns={columns}
         getRowId={(row) => row.component_id}
-        getHref={(row) => `#/components/${row.component_id}`}
+        getHref={(row) => `/components/${row.component_id}`}
         search={search}
         onSearchChange={(v) => { setSearch(v); setPage(0); }}
         statusFilter={statusFilter}

@@ -26,7 +26,7 @@ const statusOptions = [
   { label: "Archived", value: "archived" },
 ];
 
-export function DimensionListPage() {
+export function DimensionListPage({ initialData }: { initialData?: Parameters<typeof useDimensionList>[1] }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -40,7 +40,7 @@ export function DimensionListPage() {
     return params.toString();
   }, [search, statusFilter, page]);
 
-  const { data, loading, error, refresh } = useDimensionList(query);
+  const { data, loading, error, refresh } = useDimensionList(query, initialData);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
   const [key, setKey] = useState("");
@@ -69,7 +69,7 @@ export function DimensionListPage() {
         error={error}
         columns={columns}
         getRowId={(row) => row.dimension_id}
-        getHref={(row) => `#/dimensions/${row.dimension_id}`}
+        getHref={(row) => `/dimensions/${row.dimension_id}`}
         search={search}
         onSearchChange={(v) => { setSearch(v); setPage(0); }}
         statusFilter={statusFilter}

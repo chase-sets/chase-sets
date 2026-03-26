@@ -59,7 +59,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "../../bounded-contexts/catalog/authoring/shell/**/*.test.ts", "../../bounded-contexts/catalog/authoring/shell/**/*.test.tsx"],
+    include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
     exclude: ["dist/**", "node_modules/**"],
     css: true
   }

@@ -7,5 +7,5 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  window.location.hash = "";
+  window.history.replaceState({}, "", "/");
 });

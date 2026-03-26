@@ -4,7 +4,7 @@ import type { CatalogAuthoringEnv } from "../api";
 import type { FieldId } from "../../ids";
 
 
-export function fieldRoutes(services: FieldServices): Hono<CatalogAuthoringEnv> {
+export function fieldRoutes(services: FieldServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {

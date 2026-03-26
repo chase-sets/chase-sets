@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { DiscoveryCategoryServices } from "./runtime";
 
-export function discoveryCategoryRoutes(services: DiscoveryCategoryServices): Hono {
+export function discoveryCategoryRoutes(services: DiscoveryCategoryServices) {
   const app = new Hono();
 
   app.get("/", async (c) => {

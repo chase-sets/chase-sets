@@ -3,12 +3,12 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { CategoryDetail, CategoryListItem } from "./contracts";
 import { useFetch } from "../../shell-support/ui/use-fetch";
 
-export function useCategoryList(query: string) {
-  return useFetch(() => api.get<ListResponse<CategoryListItem>>(`/categories?${query}`), [query]);
+export function useCategoryList(query: string, initialData?: ListResponse<CategoryListItem> | null) {
+  return useFetch(() => api.listCategories<ListResponse<CategoryListItem>>(query), [query], initialData);
 }
 
-export function useCategory(id: string) {
-  return useFetch(() => api.get<CategoryDetail>(`/categories/${id}`), [id]);
+export function useCategory(id: string, initialData?: CategoryDetail | null) {
+  return useFetch(() => api.getCategory<CategoryDetail>(id), [id], initialData);
 }
 
 export function createCategory(body: {
@@ -19,7 +19,7 @@ export function createCategory(body: {
   parentCategoryId?: string;
   displayOrder?: number;
 }) {
-  return api.post<CommandResponse>("/categories", body);
+  return api.createCategory<CommandResponse>(body);
 }
 
 export function reviseCategory(id: string, body: {
@@ -29,19 +29,19 @@ export function reviseCategory(id: string, body: {
   parentCategoryId?: string | null;
   displayOrder?: number;
 }) {
-  return api.put<CommandResponse>(`/categories/${id}`, body);
+  return api.reviseCategory<CommandResponse>(id, body);
 }
 
 export function publishCategory(id: string) {
-  return api.post<CommandResponse>(`/categories/${id}/publish`);
+  return api.publishCategory<CommandResponse>(id);
 }
 
 export function deprecateCategory(id: string) {
-  return api.post<CommandResponse>(`/categories/${id}/deprecate`);
+  return api.deprecateCategory<CommandResponse>(id);
 }
 
 export function archiveCategory(id: string) {
-  return api.post<CommandResponse>(`/categories/${id}/archive`);
+  return api.archiveCategory<CommandResponse>(id);
 }
 
 

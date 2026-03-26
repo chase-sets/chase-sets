@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import {
   SearchInput,
   Select,
@@ -13,10 +13,8 @@ import {
   Inline,
   Text,
 } from "@chase-sets/design-system";
-import type { CategoryListResponse } from "../../categories/ui/contracts";
-import { discoveryApi } from "../client-support/api-client";
+import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchResponse } from "../client-support/contracts";
-import { useFetch } from "../client-support/use-fetch";
 import { ItemCard } from "./item-card";
 import { SearchFilters } from "./search-filters";
 import { useDebounce } from "./use-debounce";
@@ -30,33 +28,47 @@ const sortOptions = [
   { label: "Newest", value: "newest" },
 ];
 
-export function SearchPage() {
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("");
-  const [sort, setSort] = useState("relevance");
-  const [page, setPage] = useState(1);
+export interface SearchPageProps {
+  search: string;
+  category: string;
+  sort: string;
+  page: number;
+  data: DiscoverySearchResponse | null;
+  categories: DiscoveryCategoryItem[];
+  loading?: boolean;
+  error?: string | null;
+  onSearchChange: (value: string) => void;
+  onCategoryChange: (value: string) => void;
+  onSortChange: (value: string) => void;
+  onPageChange: (page: number) => void;
+}
 
-  const debouncedSearch = useDebounce(search, 300);
+export function SearchPage({
+  search,
+  category,
+  sort,
+  page,
+  data,
+  categories,
+  loading = false,
+  error = null,
+  onSearchChange,
+  onCategoryChange,
+  onSortChange,
+  onPageChange,
+}: SearchPageProps) {
+  const [searchInput, setSearchInput] = useState(search);
+  const debouncedSearch = useDebounce(searchInput, 300);
 
-  const query = useMemo(() => {
-    const params = new URLSearchParams();
-    if (debouncedSearch) params.set("search", debouncedSearch);
-    if (category) params.set("category", category);
-    params.set("sort", sort);
-    params.set("limit", String(PAGE_SIZE));
-    params.set("offset", String((page - 1) * PAGE_SIZE));
-    return params.toString();
-  }, [debouncedSearch, category, sort, page]);
+  useEffect(() => {
+    setSearchInput(search);
+  }, [search]);
 
-  const { data, loading, error } = useFetch<DiscoverySearchResponse>(
-    () => discoveryApi.get(`/marketplace/items?${query}`),
-    [query],
-  );
-
-  const { data: categoriesData } = useFetch<CategoryListResponse>(
-    () => discoveryApi.get("/marketplace/categories"),
-    [],
-  );
+  useEffect(() => {
+    if (debouncedSearch !== search) {
+      onSearchChange(debouncedSearch);
+    }
+  }, [debouncedSearch, onSearchChange, search]);
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
 
@@ -64,11 +76,11 @@ export function SearchPage() {
     <div className="grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)]">
       <div className="hidden lg:block">
         <SearchFilters
-          categories={categoriesData?.items ?? []}
+          categories={categories}
           selectedCategory={category}
           onCategoryChange={(name) => {
-            setCategory(name);
-            setPage(1);
+            onCategoryChange(name);
+            onPageChange(1);
           }}
         />
       </div>
@@ -78,18 +90,18 @@ export function SearchPage() {
           <SearchInput
             hideLabel
             placeholder="Search catalog items..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
           <Select
             hideLabel
             label="Sort"
             items={sortOptions}
             value={sort}
-            onValueChange={setSort}
+            onValueChange={(value) => {
+              onSortChange(value);
+              onPageChange(1);
+            }}
           />
         </FilterBar>
 
@@ -107,7 +119,11 @@ export function SearchPage() {
           ) : data && data.items.length === 0 ? (
             <EmptyState
               title="No items found"
-              description={search || category ? "Try adjusting your search or filters." : "No catalog items are available yet."}
+              description={
+                search || category
+                  ? "Try adjusting your search or filters."
+                  : "No catalog items are available yet."
+              }
               icon="search"
             />
           ) : data ? (
@@ -115,7 +131,7 @@ export function SearchPage() {
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {data.items.map((item) => (
                   <Reveal key={item.item_id} preset="lift">
-                    <ItemCard item={item} />
+                    <ItemCard item={item} href={`/items/${item.item_id}`} />
                   </Reveal>
                 ))}
               </div>
@@ -124,7 +140,7 @@ export function SearchPage() {
                   <Pagination
                     page={page}
                     totalPages={totalPages}
-                    onPageChange={setPage}
+                    onPageChange={onPageChange}
                   />
                 </Inline>
               ) : null}

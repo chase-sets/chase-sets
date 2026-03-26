@@ -4,7 +4,7 @@ import type { CatalogAuthoringEnv } from "../api";
 import type { BlueprintId, ComponentId } from "../../ids";
 
 
-export function blueprintRoutes(services: BlueprintServices): Hono<CatalogAuthoringEnv> {
+export function blueprintRoutes(services: BlueprintServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {

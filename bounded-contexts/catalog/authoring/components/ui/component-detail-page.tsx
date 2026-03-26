@@ -52,8 +52,8 @@ interface DimensionRule {
   allowedChoices: { choiceId: string; code: string }[];
 }
 
-export function ComponentDetailPage({ id }: { id: string }) {
-  const { data, loading, error, refresh } = useComponent(id);
+export function ComponentDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useComponent>[1] }) {
+  const { data, loading, error, refresh } = useComponent(id, initialData);
   const { addToast } = useToasts();
 
   // Add field rule
@@ -186,7 +186,7 @@ export function ComponentDetailPage({ id }: { id: string }) {
       <EntityDetailPage
         title={data?.name ?? "Component"}
         breadcrumbs={[
-          { label: "Components", href: "#/components" },
+          { label: "Components", href: "/components" },
           { label: data?.name ?? id },
         ]}
         actions={

@@ -26,7 +26,7 @@ const statusOptions = [
   { label: "Archived", value: "archived" },
 ];
 
-export function BlueprintListPage() {
+export function BlueprintListPage({ initialData }: { initialData?: Parameters<typeof useBlueprintList>[1] }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -40,7 +40,7 @@ export function BlueprintListPage() {
     return params.toString();
   }, [search, statusFilter, page]);
 
-  const { data, loading, error, refresh } = useBlueprintList(query);
+  const { data, loading, error, refresh } = useBlueprintList(query, initialData);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
   const [key, setKey] = useState("");
@@ -69,7 +69,7 @@ export function BlueprintListPage() {
         error={error}
         columns={columns}
         getRowId={(row) => row.blueprint_id}
-        getHref={(row) => `#/blueprints/${row.blueprint_id}`}
+        getHref={(row) => `/blueprints/${row.blueprint_id}`}
         search={search}
         onSearchChange={(v) => { setSearch(v); setPage(0); }}
         statusFilter={statusFilter}

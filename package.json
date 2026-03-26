@@ -1,47 +1,52 @@
 {
-    "name":  "chase-sets",
-    "private":  true,
-    "type":  "module",
-    "workspaces":  [
-                       "bounded-contexts/*",
-                       "bounded-contexts/*/*",
-                       "contracts/*",
-                       "infrastructure/*",
-                       "packages/*",
-                       "deployables/*"
-                   ],
-    "scripts":  {
-                    "dev:showcase":  "npm run dev --workspace @chase-sets/design-system-showcase",
-                    "test:design-system":  "npm run test --workspace @chase-sets/design-system",
-                    "typecheck":  "npm run typecheck --workspace @chase-sets/design-system \u0026\u0026 npm run typecheck --workspace @chase-sets/design-system-showcase",
-                    "verify:design-system-contracts":  "npm run verify:source --workspace @chase-sets/design-system-showcase",
-                    "dev:catalog-api":  "npm run dev --workspace @chase-sets/catalog-api",
-                    "test:catalog":  "npm run test --workspace @chase-sets/catalog-api",
-                    "dev:catalog-admin":  "docker compose -f deployables/catalog-api/docker-compose.yml up -d \u0026\u0026 npm run dev --workspace @chase-sets/catalog-api \u003e /dev/null 2\u003e\u00261 \u0026 npm run dev --workspace @chase-sets/catalog-admin",
-                    "seed:catalog":  "npm run seed --workspace @chase-sets/catalog-api",
-                    "reseed:catalog":  "npm run reseed --workspace @chase-sets/catalog-api",
-                    "dev:marketplace-api":  "npm run dev --workspace @chase-sets/marketplace-api",
-                    "dev:marketplace":  "npm run dev --workspace @chase-sets/marketplace",
-                    "dev:marketplace-full":  "docker compose -f deployables/marketplace-api/docker-compose.yml up -d \u0026\u0026 npm run dev --workspace @chase-sets/marketplace-api \u003e /dev/null 2\u003e\u00261 \u0026 npm run dev --workspace @chase-sets/marketplace",
-                    "test:marketplace":  "npm run test --workspace @chase-sets/marketplace-api",
-                    "check:structure":  "node ./scripts/check-structure.mjs"
-                },
-    "devDependencies":  {
-                            "@tailwindcss/vite":  "^4.2.1",
-                            "@testing-library/react":  "^16.3.2",
-                            "@testing-library/user-event":  "^14.6.1",
-                            "@types/react":  "^19.2.14",
-                            "@types/react-dom":  "^19.2.3",
-                            "@vitejs/plugin-react":  "^5.1.4",
-                            "jsdom":  "^28.1.0",
-                            "react":  "^19.2.4",
-                            "react-dom":  "^19.2.4",
-                            "tailwindcss":  "^4.2.1",
-                            "typescript":  "^5.9.3",
-                            "vite":  "^7.3.1",
-                            "vitest":  "^4.0.18"
-                        },
-    "dependencies":  {
-                         "ulid":  "^3.0.2"
-                     }
+    "name": "chase-sets",
+    "private": true,
+    "type": "module",
+    "workspaces": [
+        "bounded-contexts/*",
+        "bounded-contexts/*/*",
+        "contracts/*",
+        "infrastructure/*",
+        "packages/*",
+        "deployables/*"
+    ],
+    "scripts": {
+        "dev:showcase": "npm run dev --workspace @chase-sets/design-system-showcase",
+        "test:design-system": "npm run test --workspace @chase-sets/design-system",
+        "typecheck": "npm run typecheck --workspace @chase-sets/design-system && npm run typecheck --workspace @chase-sets/design-system-showcase",
+        "verify:design-system-contracts": "npm run verify:source --workspace @chase-sets/design-system-showcase",
+        "dev:catalog-api": "npm run dev --workspace @chase-sets/catalog-api",
+        "test:catalog": "npm run test --workspace @chase-sets/catalog-api",
+        "dev:catalog-admin": "docker compose -f deployables/catalog-api/docker-compose.yml up -d && npm run dev --workspace @chase-sets/catalog-api > /dev/null 2>&1 & npm run dev --workspace @chase-sets/catalog-admin",
+        "seed:catalog": "npm run seed --workspace @chase-sets/catalog-api",
+        "reseed:catalog": "npm run reseed --workspace @chase-sets/catalog-api",
+        "dev:marketplace-api": "npm run dev --workspace @chase-sets/marketplace-api",
+        "dev:marketplace": "npm run dev --workspace @chase-sets/marketplace",
+        "dev:marketplace-full": "docker compose -f deployables/marketplace-api/docker-compose.yml up -d && npm run dev --workspace @chase-sets/marketplace-api > /dev/null 2>&1 & npm run dev --workspace @chase-sets/marketplace",
+        "test:marketplace": "npm run test --workspace @chase-sets/marketplace-api",
+        "check:structure": "node ./scripts/check-structure.mjs"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.2.1",
+        "@testing-library/react": "^16.3.2",
+        "@testing-library/user-event": "^14.6.1",
+        "@types/react": "^19.2.14",
+        "@types/react-dom": "^19.2.3",
+        "@vitejs/plugin-react": "^5.1.4",
+        "jsdom": "^28.1.0",
+        "react": "^19.2.4",
+        "react-dom": "^19.2.4",
+        "tailwindcss": "^4.2.1",
+        "typescript": "^5.9.3",
+        "vite": "^7.3.1",
+        "vitest": "^4.0.18"
+    },
+    "dependencies": {
+        "@react-router/dev": "^7.13.2",
+        "@react-router/node": "^7.13.2",
+        "@react-router/serve": "^7.13.2",
+        "isbot": "^5.1.36",
+        "react-router": "^7.13.2",
+        "ulid": "^3.0.2"
+    }
 }

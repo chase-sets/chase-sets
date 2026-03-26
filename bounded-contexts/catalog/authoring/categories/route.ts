@@ -4,7 +4,7 @@ import type { CatalogAuthoringEnv } from "../api";
 import type { CategoryId } from "../../ids";
 
 
-export function categoryRoutes(services: CategoryServices): Hono<CatalogAuthoringEnv> {
+export function categoryRoutes(services: CategoryServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {

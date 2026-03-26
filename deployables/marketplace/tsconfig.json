@@ -4,6 +4,7 @@
     "types": ["vite/client"]
   },
   "include": [
+    "app",
     "src",
     "../../bounded-contexts/discovery/**/*.ts",
     "../../bounded-contexts/discovery/**/*.tsx"

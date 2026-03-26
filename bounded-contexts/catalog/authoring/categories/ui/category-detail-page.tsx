@@ -31,8 +31,8 @@ function getTransitions(status: string): Transition[] {
   }
 }
 
-export function CategoryDetailPage({ id }: { id: string }) {
-  const { data, loading, error, refresh } = useCategory(id);
+export function CategoryDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useCategory>[1] }) {
+  const { data, loading, error, refresh } = useCategory(id, initialData);
   const { addToast } = useToasts();
   const [editing, setEditing] = useState(false);
   const [editKey, setEditKey] = useState("");
@@ -81,7 +81,7 @@ export function CategoryDetailPage({ id }: { id: string }) {
       <EntityDetailPage
         title={data?.name ?? "Category"}
         breadcrumbs={[
-          { label: "Categories", href: "#/categories" },
+          { label: "Categories", href: "/categories" },
           { label: data?.name ?? id },
         ]}
         actions={

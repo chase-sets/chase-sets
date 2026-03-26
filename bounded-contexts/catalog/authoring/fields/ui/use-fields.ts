@@ -3,12 +3,12 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { Field } from "./contracts";
 import { useFetch } from "../../shell-support/ui/use-fetch";
 
-export function useFieldList(query: string) {
-  return useFetch(() => api.get<ListResponse<Field>>(`/fields?${query}`), [query]);
+export function useFieldList(query: string, initialData?: ListResponse<Field> | null) {
+  return useFetch(() => api.listFields<ListResponse<Field>>(query), [query], initialData);
 }
 
-export function useField(id: string) {
-  return useFetch(() => api.get<Field>(`/fields/${id}`), [id]);
+export function useField(id: string, initialData?: Field | null) {
+  return useFetch(() => api.getField<Field>(id), [id], initialData);
 }
 
 export function createField(body: {
@@ -19,7 +19,7 @@ export function createField(body: {
   valueType: string;
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 }) {
-  return api.post<CommandResponse>("/fields", body);
+  return api.createField<CommandResponse>(body);
 }
 
 export function configureField(id: string, body: {
@@ -29,19 +29,19 @@ export function configureField(id: string, body: {
   valueType: string;
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 }) {
-  return api.put<CommandResponse>(`/fields/${id}`, body);
+  return api.reviseField<CommandResponse>(id, body);
 }
 
 export function activateField(id: string) {
-  return api.post<CommandResponse>(`/fields/${id}/activate`);
+  return api.activateField<CommandResponse>(id);
 }
 
 export function deprecateField(id: string) {
-  return api.post<CommandResponse>(`/fields/${id}/deprecate`);
+  return api.deprecateField<CommandResponse>(id);
 }
 
 export function archiveField(id: string) {
-  return api.post<CommandResponse>(`/fields/${id}/archive`);
+  return api.archiveField<CommandResponse>(id);
 }
 
 

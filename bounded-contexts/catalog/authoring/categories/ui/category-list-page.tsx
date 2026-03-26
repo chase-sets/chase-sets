@@ -31,7 +31,7 @@ const statusOptions = [
   { label: "Archived", value: "archived" },
 ];
 
-export function CategoryListPage() {
+export function CategoryListPage({ initialData }: { initialData?: Parameters<typeof useCategoryList>[1] }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -45,7 +45,7 @@ export function CategoryListPage() {
     return params.toString();
   }, [search, statusFilter, page]);
 
-  const { data, loading, error, refresh } = useCategoryList(query);
+  const { data, loading, error, refresh } = useCategoryList(query, initialData);
   const columns = useMemo(() => buildColumns(), []);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
@@ -86,7 +86,7 @@ export function CategoryListPage() {
         error={error}
         columns={columns}
         getRowId={(row) => row.category_id}
-        getHref={(row) => `#/categories/${row.category_id}`}
+        getHref={(row) => `/categories/${row.category_id}`}
         search={search}
         onSearchChange={(v) => { setSearch(v); setPage(0); }}
         statusFilter={statusFilter}

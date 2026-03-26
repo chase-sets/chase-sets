@@ -34,8 +34,8 @@ const valueTypeOptions = [
   { value: "date", label: "Date" },
 ];
 
-export function FieldDetailPage({ id }: { id: string }) {
-  const { data, loading, error, refresh } = useField(id);
+export function FieldDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useField>[1] }) {
+  const { data, loading, error, refresh } = useField(id, initialData);
   const { addToast } = useToasts();
   const [editing, setEditing] = useState(false);
   const [editKey, setEditKey] = useState("");
@@ -88,7 +88,7 @@ export function FieldDetailPage({ id }: { id: string }) {
       <EntityDetailPage
         title={data?.name ?? "Field"}
         breadcrumbs={[
-          { label: "Fields", href: "#/fields" },
+          { label: "Fields", href: "/fields" },
           { label: data?.name ?? id },
         ]}
         actions={

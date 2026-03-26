@@ -7,15 +7,24 @@ interface UseFetchResult<T> {
   refresh: () => void;
 }
 
-export function useFetch<T>(fetcher: () => Promise<T>, deps: unknown[] = []): UseFetchResult<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+export function useFetch<T>(
+  fetcher: () => Promise<T>,
+  deps: unknown[] = [],
+  initialData?: T | null,
+): UseFetchResult<T> {
+  const hasInitialData = initialData !== undefined;
+  const [data, setData] = useState<T | null>(initialData ?? null);
+  const [loading, setLoading] = useState(!hasInitialData);
   const [error, setError] = useState<string | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
 
   const refresh = useCallback(() => setRefreshCount((c) => c + 1), []);
 
   useEffect(() => {
+    if (hasInitialData && refreshCount === 0) {
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -37,7 +46,7 @@ export function useFetch<T>(fetcher: () => Promise<T>, deps: unknown[] = []): Us
     return () => {
       cancelled = true;
     };
-  }, [refreshCount, ...deps]);
+  }, [hasInitialData, refreshCount, ...deps]);
 
   return { data, loading, error, refresh };
 }
