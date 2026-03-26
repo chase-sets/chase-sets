@@ -31,6 +31,40 @@ The following rules apply to every context in this directory:
 4. Shared contracts are limited to primitives, typed IDs, and integration-event schemas.
 5. Discovery may project browse-oriented read models from upstream contexts without taking ownership of the underlying transactional truth.
 
+## Data Ownership And Structure
+
+Each implemented bounded context is the canonical home for its own:
+
+- data model
+- schema composition
+- projections and read models
+- persistence orchestration
+- seeds and test support
+
+Shared top-level `infrastructure/` is reserved for reusable technical adapters only.
+
+Examples of shared infrastructure:
+
+- a Postgres pool factory
+- a generic event-store adapter
+- a projection checkpoint adapter
+- a shared queue or search client
+
+Examples of bounded-context-owned data plumbing:
+
+- context schema assembly
+- projector fanout
+- read-model queries
+- projection table naming
+- seed orchestration
+
+Inside a bounded context, avoid generic folder names such as `infrastructure`, `shared`, and `support`.
+
+Prefer:
+
+- slice-local files when behavior belongs to one slice
+- purpose-specific names such as `projection-support`, `shell-support`, `seed-support`, `read-models`, `projections`, `persistence`, or `integration` when context-local code is reused across slices
+
 ## Canonical Ownership
 
 These marketplace nouns are already fixed to a single owner:

@@ -6,7 +6,7 @@ import {
   Inline,
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
-import type { DiscoverySearchItem } from "../shared/contracts";
+import type { DiscoverySearchItem } from "../client-support/contracts";
 
 function navigate(path: string) {
   window.location.hash = path;

@@ -142,6 +142,11 @@ const boundedContextPackages = ["@chase-sets/catalog-authoring", "@chase-sets/di
 const contractPackages = ["@chase-sets/event-core", "@chase-sets/http", "@chase-sets/primitives"];
 const infrastructurePackages = ["@chase-sets/event-core-postgres"];
 const workspacePackages = ["@chase-sets/design-system"];
+const forbiddenBoundedContextDirectoryNames = new Set([
+  "infrastructure",
+  "shared",
+  "support",
+]);
 const sliceRouteFiles = new Set([
   "bounded-contexts/catalog/authoring/blueprints/route.ts",
   "bounded-contexts/catalog/authoring/catalog-items/route.ts",
@@ -222,6 +227,28 @@ function isWorkspacePackageSpecifier(specifier) {
   );
 }
 
+function getBoundedContextSegment(relativeFile) {
+  const parts = relativeFile.split("/");
+  return parts[1] ?? null;
+}
+
+function getBoundedContextRoot(relativeFile) {
+  const parts = relativeFile.split("/");
+  if (parts[0] !== "bounded-contexts" || parts.length < 2) {
+    return null;
+  }
+
+  if (parts[1] === "catalog" && parts[2] === "authoring") {
+    return "bounded-contexts/catalog/authoring";
+  }
+
+  if (parts[1] === "discovery") {
+    return "bounded-contexts/discovery";
+  }
+
+  return `bounded-contexts/${parts[1]}`;
+}
+
 async function walk(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
@@ -248,9 +275,39 @@ async function walk(dir) {
 function checkImport(file, specifier, content) {
   const normalized = specifier.replaceAll("\\", "/");
   const relativeFile = normalizeRelative(file);
+  const importerContextRoot = getBoundedContextRoot(relativeFile);
 
   if (relativeFile.startsWith("bounded-contexts/") && isDeployableSpecifier(normalized)) {
     addViolation(file, `bounded contexts must not import deployables (${specifier})`);
+  }
+
+  if (
+    importerContextRoot !== null &&
+    boundedContextPackages.some(
+      (packageName) =>
+        matchesPackageSpecifier(normalized, packageName) && normalized !== packageName,
+    )
+  ) {
+    addViolation(
+      file,
+      `bounded contexts must not import another bounded context's internals (${specifier})`,
+    );
+  }
+
+  if (
+    importerContextRoot !== null &&
+    normalized.includes("bounded-contexts/")
+  ) {
+    const referencedContextRoot = getBoundedContextRoot(normalized);
+    if (
+      referencedContextRoot !== null &&
+      referencedContextRoot !== importerContextRoot
+    ) {
+      addViolation(
+        file,
+        `bounded contexts must not import another bounded context's internals (${specifier})`,
+      );
+    }
   }
 
   if (
@@ -423,6 +480,17 @@ for (const root of roots) {
 
   for (const directory of directories) {
     const relativeDir = normalizeRelative(directory);
+
+    if (relativeDir.startsWith("bounded-contexts/")) {
+      const directoryName = path.basename(directory);
+      if (forbiddenBoundedContextDirectoryNames.has(directoryName)) {
+        addPathViolation(
+          relativeDir,
+          "bounded contexts must use purpose-specific folder names instead of generic infrastructure/shared/support directories",
+        );
+      }
+    }
+
     if (!isArchitectureDirectory(relativeDir)) {
       continue;
     }

@@ -49,6 +49,12 @@ Discovery terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 3. Search, filters, and item detail stay in one vertical slice so browse behavior is evolved together.
 4. Discovery may preserve marketplace-branded public routes while still owning the implementation.
 
+## Structure Notes
+
+- `items/detail` and `items/search` keep their own slice-local runtime, projection, schema, query, route, and UI files.
+- Shared item-page client helpers stay inside Discovery because they are discovery-owned browse behavior, not shared infrastructure.
+- Context-local reusable code should use purpose-specific names such as `client-support` rather than generic `shared` or `support`.
+
 ## Open Extraction Candidates
 
 - Personalized recommendations can be extracted later if discovery evolves beyond shared browse behavior into account-specific ranking or merchandising workflows.

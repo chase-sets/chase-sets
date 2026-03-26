@@ -14,9 +14,9 @@ import {
   PageSection,
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
-import { discoveryApi } from "../shared/api-client";
-import type { DiscoveryItemDetail } from "../shared/contracts";
-import { useFetch } from "../shared/use-fetch";
+import { discoveryApi } from "../client-support/api-client";
+import type { DiscoveryItemDetail } from "../client-support/contracts";
+import { useFetch } from "../client-support/use-fetch";
 import { VersionSelector } from "./version-selector";
 
 function formatFieldValue(value: unknown): string {

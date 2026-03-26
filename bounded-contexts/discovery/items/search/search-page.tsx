@@ -14,9 +14,9 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { CategoryListResponse } from "../../categories/ui/contracts";
-import { discoveryApi } from "../shared/api-client";
-import type { DiscoverySearchResponse } from "../shared/contracts";
-import { useFetch } from "../shared/use-fetch";
+import { discoveryApi } from "../client-support/api-client";
+import type { DiscoverySearchResponse } from "../client-support/contracts";
+import { useFetch } from "../client-support/use-fetch";
 import { ItemCard } from "./item-card";
 import { SearchFilters } from "./search-filters";
 import { useDebounce } from "./use-debounce";
