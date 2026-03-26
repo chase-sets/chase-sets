@@ -7,3 +7,4 @@ export { catalogAuthoringDatabaseSchemaSql } from "./database-schema";
 export { seedCatalogDatabase } from "./seed";
 export { CatalogAdminApp } from "./shell";
 export type { CatalogAdminRoute } from "./shell";
+

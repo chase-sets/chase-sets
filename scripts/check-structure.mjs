@@ -7,6 +7,13 @@ const roots = ["bounded-contexts", "deployables"];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const violations = [];
 const forbiddenPaths = [
+  "bounded-contexts/catalog/authoring/shared",
+  "bounded-contexts/catalog/authoring/ui",
+  "bounded-contexts/catalog/authoring/shell/ui",
+  "bounded-contexts/discovery/shared",
+  "bounded-contexts/discovery/ui",
+  "bounded-contexts/discovery/search",
+  "bounded-contexts/discovery/item-detail",
   "bounded-contexts/catalog/authoring/api/projections/queries.ts",
   "bounded-contexts/catalog/authoring/api/projections/schema.sql",
   "bounded-contexts/catalog/authoring/runtime.ts",
@@ -46,6 +53,13 @@ function isTmpFile(file) {
   return /\.tmp($|\.)|\.(ts|tsx|json)\.tmp$/i.test(path.basename(file));
 }
 
+function isImplementedContextFile(relativeFile) {
+  return (
+    relativeFile.startsWith("bounded-contexts/catalog/authoring/") ||
+    relativeFile.startsWith("bounded-contexts/discovery/")
+  );
+}
+
 function checkImport(file, specifier) {
   const normalized = specifier.replaceAll("\\", "/");
   const relativeFile = path.relative(repoRoot, file).replaceAll("\\", "/");
@@ -62,27 +76,29 @@ function checkImport(file, specifier) {
     addViolation(file, `catalog public modules must not import authoring internals (${specifier})`);
   }
 
-  if (!relativeFile.startsWith("deployables/")) {
+  if (relativeFile.startsWith("deployables/")) {
+    if (normalized.includes("bounded-contexts/") || normalized.includes("contracts/")) {
+      addViolation(file, `deployables must use module aliases, not filesystem boundary imports (${specifier})`);
+    }
+
+    if (
+      normalized.startsWith("@chase-sets/catalog-authoring/") ||
+      normalized.startsWith("@chase-sets/discovery/")
+    ) {
+      addViolation(file, `deployables must use bounded-context entrypoints, not deep imports (${specifier})`);
+    }
+
     return;
   }
 
-  const allowed = new Set([
-    "../../../bounded-contexts/catalog/authoring",
-    "../../../bounded-contexts/discovery",
-    "../../../../bounded-contexts/catalog/authoring",
-    "../../../../bounded-contexts/discovery",
-    "../../../contracts/event-core/projector-runner",
-    "../../../../contracts/event-core/projector-runner",
-  ]);
-
-  if (normalized.includes("bounded-contexts/catalog/authoring/") || normalized.includes("bounded-contexts/discovery/")) {
-    if (!allowed.has(normalized)) {
-      addViolation(file, `deployables must use bounded-context entrypoints, not deep imports (${specifier})`);
-    }
+  if (!isImplementedContextFile(relativeFile)) {
+    return;
   }
 
-  if (normalized.includes("bounded-contexts/catalog/") && !normalized.includes("bounded-contexts/catalog/authoring")) {
-    addViolation(file, `deployables must not import catalog internals directly (${specifier})`);
+  const isShellFile = relativeFile.includes("/shell/");
+  const isContextRootEntrypoint = /bounded-contexts\/[^/]+(?:\/authoring)?\/index\.ts$/.test(relativeFile);
+  if (!isShellFile && !isContextRootEntrypoint && (normalized.includes("/shell/") || normalized.endsWith("/shell"))) {
+    addViolation(file, `non-shell context modules must not depend on shell internals (${specifier})`);
   }
 }
 
@@ -143,3 +159,4 @@ if (violations.length > 0) {
 }
 
 console.log("Structure check passed.");
+

@@ -1,4 +1,4 @@
-import { createId } from "../../../../contracts/primitives/typed-ids";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogServices } from "../services";
 import type { BlueprintId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
@@ -145,5 +145,6 @@ export async function seedBlueprints(
 
   return result;
 }
+
 
 

@@ -1,11 +1,11 @@
-import type { Projector } from "../../../contracts/event-core/projector";
-import type { EventStoreContext } from "../../../contracts/event-core/storage";
-import { createId } from "../../../contracts/primitives/typed-ids";
+import type { Projector } from "@chase-sets/event-core/projector";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import type {
   AccountId,
   TenantId,
   UserId,
-} from "../../../contracts/primitives/typed-ids";
+} from "@chase-sets/primitives/typed-ids";
 
 export const seedContext: EventStoreContext = {
   tenantId: createId("tnt") as TenantId,

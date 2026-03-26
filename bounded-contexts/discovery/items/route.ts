@@ -1,8 +1,7 @@
 import { Hono } from "hono";
-import type { DiscoveryServices } from "../services";
-import { searchDiscoveryItems } from "./queries";
+import type { DiscoveryItemServices } from "./runtime";
 
-export function discoverySearchRoutes(services: DiscoveryServices): Hono {
+export function discoveryItemRoutes(services: DiscoveryItemServices): Hono {
   const app = new Hono();
 
   app.get("/", async (c) => {
@@ -15,7 +14,7 @@ export function discoverySearchRoutes(services: DiscoveryServices): Hono {
     const limit = c.req.query("limit");
     const offset = c.req.query("offset");
 
-    const result = await searchDiscoveryItems(services.db, {
+    const result = await services.searchItems({
       search: search || undefined,
       category: category || undefined,
       tag: tag || undefined,
@@ -26,7 +25,21 @@ export function discoverySearchRoutes(services: DiscoveryServices): Hono {
       offset: offset ? Number.parseInt(offset, 10) : undefined,
     });
 
-    return c.json(result);
+    return c.json({
+      items: result.items,
+      total: result.total,
+      count: result.items.length,
+    });
+  });
+
+  app.get("/:id", async (c) => {
+    const item = await services.getItemDetail(c.req.param("id"));
+
+    if (!item) {
+      return c.json({ error: "Item not found." }, 404);
+    }
+
+    return c.json(item);
   });
 
   return app;

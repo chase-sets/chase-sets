@@ -1,12 +1,12 @@
 import { serve } from "@hono/node-server";
-import { startProjectorPolling } from "../../../contracts/event-core/projector-runner";
-import { createDiscoveryServices } from "../../../bounded-contexts/discovery";
+import { createDiscoveryServices } from "@chase-sets/discovery";
+import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
+import { createPgPool } from "@chase-sets/event-core/postgres";
 import { loadConfig } from "./config";
-import { createPool } from "./infrastructure/postgres";
 import { buildMarketplaceApp } from "./app";
 
 const config = loadConfig();
-const pool = createPool(config.databaseUrl);
+const pool = createPgPool(config.databaseUrl);
 const services = createDiscoveryServices(pool);
 const app = buildMarketplaceApp(services);
 

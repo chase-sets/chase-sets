@@ -1,10 +1,10 @@
-import { createPassthroughDomainEventCodec } from "../../../../contracts/event-core/codec";
-import { createAggregateRepository } from "../../../../contracts/event-core/aggregate-repository";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import {
   createCommandHandler,
   type CommandHandler,
-} from "../../../../contracts/event-core/command-handler";
-import { createProjector, type Projector } from "../../../../contracts/event-core/projector";
+} from "@chase-sets/event-core/command-handler";
+import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../runtime-support";
 import {
   type BlueprintState,
@@ -54,3 +54,4 @@ export function createBlueprintRuntime(
     ],
   };
 }
+

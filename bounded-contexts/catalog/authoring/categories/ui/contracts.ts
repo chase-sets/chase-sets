@@ -15,3 +15,4 @@ export interface CategoryListItem {
 }
 
 export interface CategoryDetail extends CategoryListItem {}
+

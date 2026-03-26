@@ -1,4 +1,4 @@
-import type { PgQueryable } from "../../../contracts/event-core/postgres/types";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 import { normalizeSimpleSearchText } from "./normalization";
 
 export type DiscoverySearchParams = {
@@ -120,4 +120,6 @@ export async function searchDiscoveryItems(
     total: Number.parseInt(countResult.rows[0].count, 10),
   };
 }
+
+
 

@@ -145,3 +145,4 @@ export function EntityListPage<T>({
     </Page>
   );
 }
+

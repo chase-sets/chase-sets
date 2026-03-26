@@ -1,4 +1,4 @@
-import { createId } from "../../../../../contracts/primitives/typed-ids";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import {
   Button,
@@ -10,8 +10,8 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { useToasts } from "../../shell/ui/toasts";
-import { EntityListPage } from "../../shell/ui/entity-list-page";
+import { useToasts } from "../../support/ui/toasts";
+import { EntityListPage } from "../../support/ui/entity-list-page";
 import { useFieldList, createField } from "./use-fields";
 import type { Field } from "./contracts";
 
@@ -119,6 +119,8 @@ export function FieldListPage() {
     </>
   );
 }
+
+
 
 
 

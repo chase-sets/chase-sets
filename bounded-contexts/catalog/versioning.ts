@@ -1,5 +1,5 @@
 import { assert } from "./common";
-import type { Branded } from "../../contracts/primitives/brand";
+import type { Branded } from "@chase-sets/primitives/brand";
 import type {
   CatalogItemId,
   ChoiceId,
@@ -184,3 +184,4 @@ function hasExactDimensionSet(
 
   return remaining.size === 0;
 }
+

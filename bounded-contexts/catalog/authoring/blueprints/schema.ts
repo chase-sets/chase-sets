@@ -23,3 +23,4 @@ CREATE TABLE IF NOT EXISTS catalog_admin_blueprint_detail_pages (
   canonical_dimension_order jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );`;
+

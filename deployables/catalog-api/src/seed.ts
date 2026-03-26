@@ -1,11 +1,11 @@
 import { fileURLToPath } from "node:url";
-import { seedCatalogDatabase } from "../../../bounded-contexts/catalog/authoring";
+import { seedCatalogDatabase } from "@chase-sets/catalog-authoring";
+import { createPgPool } from "@chase-sets/event-core/postgres";
 import { loadConfig } from "./config";
-import { createPool } from "./infrastructure/postgres";
 
 export async function seedDatabase() {
   const config = loadConfig();
-  const pool = createPool(config.databaseUrl);
+  const pool = createPgPool(config.databaseUrl);
   await seedCatalogDatabase(pool);
 }
 

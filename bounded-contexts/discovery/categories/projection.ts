@@ -1,5 +1,5 @@
-import type { ProjectorHandlerMap } from "../../../contracts/event-core/projector";
-import type { PgQueryable } from "../../../contracts/event-core/postgres/types";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const ITEM_STREAM_PREFIX = "catalog.item-";
@@ -320,3 +320,4 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
     },
   };
 }
+

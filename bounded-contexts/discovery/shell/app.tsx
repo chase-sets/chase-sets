@@ -6,8 +6,8 @@ import {
   type ColorMode,
   ViewTransition,
 } from "@chase-sets/design-system";
-import { ItemDetailPage } from "../item-detail/ui/item-detail-page";
-import { SearchPage } from "../search/ui/search-page";
+import { ItemDetailPage } from "../items/ui/item-detail-page";
+import { SearchPage } from "../items/ui/search-page";
 import { marketplaceBottomNavItems, marketplaceTopNavItems } from "./nav";
 import { useMarketplaceRouter } from "./router";
 
@@ -34,3 +34,4 @@ export function MarketplaceApp() {
     </ChaseRoot>
   );
 }
+

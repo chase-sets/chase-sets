@@ -37,3 +37,4 @@ CREATE TABLE IF NOT EXISTS discovery_categories (
 
 CREATE INDEX IF NOT EXISTS discovery_categories_status_idx ON discovery_categories (status);
 CREATE INDEX IF NOT EXISTS discovery_categories_parent_idx ON discovery_categories (parent_category_id);`;
+

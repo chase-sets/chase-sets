@@ -1,6 +1,6 @@
 import type { Context, Next } from "hono";
-import type { EventStoreContext } from "../../../../contracts/event-core/storage";
-import type { TenantId, UserId, AccountId, CorrelationId, CausationId, CommandId } from "../../../../contracts/primitives/typed-ids";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { TenantId, UserId, AccountId, CorrelationId, CausationId, CommandId } from "@chase-sets/primitives/typed-ids";
 
 const TENANT_HEADER = "x-tenant-id";
 const USER_HEADER = "x-user-id";

@@ -163,3 +163,4 @@ describe("Component aggregate", () => {
     });
   });
 });
+

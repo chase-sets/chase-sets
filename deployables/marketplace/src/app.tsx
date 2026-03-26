@@ -1,1 +1,1 @@
-export { MarketplaceApp as App } from "../../../bounded-contexts/discovery";
+export { MarketplaceApp as App } from "@chase-sets/discovery";

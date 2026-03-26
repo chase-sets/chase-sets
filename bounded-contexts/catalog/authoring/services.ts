@@ -1,10 +1,10 @@
-import { createPostgresEventStore } from "../../../contracts/event-core/postgres/event-store";
-import { createPostgresProjectionStore } from "../../../contracts/event-core/postgres/projection-store";
+import { createPostgresEventStore } from "@chase-sets/event-core/postgres/event-store";
+import { createPostgresProjectionStore } from "@chase-sets/event-core/postgres/projection-store";
 import type {
   PgTransactionalPool,
   PgQueryable,
-} from "../../../contracts/event-core/postgres/types";
-import type { Projector } from "../../../contracts/event-core/projector";
+} from "@chase-sets/event-core/postgres/types";
+import type { Projector } from "@chase-sets/event-core/projector";
 import { createBlueprintRuntime } from "./blueprints/runtime";
 import { createCatalogItemRuntime } from "./catalog-items/runtime";
 import { createCategoryRuntime } from "./categories/runtime";
@@ -56,3 +56,4 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
     db,
   };
 }
+

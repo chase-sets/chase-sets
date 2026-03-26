@@ -1,4 +1,4 @@
-import { createId } from "../../../../../contracts/primitives/typed-ids";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import {
   Button,
@@ -12,9 +12,9 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
-import { useToasts } from "../../shell/ui/toasts";
-import { EntityDetailPage } from "../../shell/ui/entity-detail-page";
-import { LifecycleControls, type Transition } from "../../shell/ui/lifecycle-controls";
+import { useToasts } from "../../support/ui/toasts";
+import { EntityDetailPage } from "../../support/ui/entity-detail-page";
+import { LifecycleControls, type Transition } from "../../support/ui/lifecycle-controls";
 import {
   useDimension,
   reviseDimension,
@@ -362,6 +362,8 @@ export function DimensionDetailPage({ id }: { id: string }) {
     </>
   );
 }
+
+
 
 
 

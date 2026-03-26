@@ -6,15 +6,14 @@ import {
   createDiscoveryServices,
   discoveryProjectionSchemaSql,
   rebuildDiscoverySearchIndex,
-  type DiscoveryServices,
 } from "..";
 import {
   createCatalogServices,
   catalogAuthoringDatabaseSchemaSql,
   type CatalogServices,
-} from "../../catalog/authoring";
-import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
-import type { EventStoreContext } from "../../../contracts/event-core/storage";
+} from "@chase-sets/catalog-authoring";
+import type { PgTransactionalPool } from "@chase-sets/event-core/postgres/types";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
 
@@ -28,7 +27,7 @@ const context: EventStoreContext = {
 
 let pool: PgTransactionalPool;
 let catalogServices: CatalogServices;
-let discoveryServices: DiscoveryServices;
+let discoveryServices: ReturnType<typeof createDiscoveryServices>;
 let app: Hono;
 
 function createPool(connectionString: string): PgTransactionalPool {
@@ -229,11 +228,15 @@ describe("marketplace search", () => {
   it("can rebuild the search index idempotently", async () => {
     await pool.query(`INSERT INTO discovery_search_catalog_items (item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
 
-    await rebuildDiscoverySearchIndex(discoveryServices.db);
-    await rebuildDiscoverySearchIndex(discoveryServices.db);
+    await rebuildDiscoverySearchIndex(pool);
+    await rebuildDiscoverySearchIndex(pool);
 
     const result = await pool.query(`SELECT COUNT(*) AS count FROM discovery_search_items WHERE item_id = 'cat_test'`);
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });
+
+
+
+
 

@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { CatalogDomainError } from "../../../../bounded-contexts/catalog/authoring";
+import { CatalogDomainError } from "@chase-sets/catalog-authoring";
 
 type EventStoreErrorLike = Readonly<{
   code: string;

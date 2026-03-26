@@ -18,8 +18,29 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
+      "@chase-sets/catalog-authoring": [
+        "./bounded-contexts/catalog/authoring/index.ts"
+      ],
+      "@chase-sets/discovery": [
+        "./bounded-contexts/discovery/index.ts"
+      ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
+      ],
+      "@chase-sets/design-system/styles.css": [
+        "./packages/design-system/src/styles/tailwind.css"
+      ],
+      "@chase-sets/event-core": [
+        "./contracts/event-core/index.ts"
+      ],
+      "@chase-sets/event-core/*": [
+        "./contracts/event-core/*"
+      ],
+      "@chase-sets/http/*": [
+        "./contracts/http/*"
+      ],
+      "@chase-sets/primitives/*": [
+        "./contracts/primitives/*"
       ]
     }
   }

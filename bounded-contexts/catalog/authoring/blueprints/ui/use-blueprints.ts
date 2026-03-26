@@ -1,5 +1,5 @@
 import { api } from "../../support/api/client";
-import type { CommandResponse, ListResponse } from "../../../../../contracts/http/responses";
+import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { Blueprint, BlueprintDetail } from "./contracts";
 import { useFetch } from "../../support/ui/use-fetch";
 
@@ -50,6 +50,7 @@ export function deprecateBlueprint(id: string) {
 export function archiveBlueprint(id: string) {
   return api.post<CommandResponse>(`/blueprints/${id}/archive`);
 }
+
 
 
 

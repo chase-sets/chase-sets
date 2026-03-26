@@ -1,5 +1,5 @@
 import { api } from "../../support/api/client";
-import type { CommandResponse, ListResponse } from "../../../../../contracts/http/responses";
+import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { Component, ComponentDetail } from "./contracts";
 import { useFetch } from "../../support/ui/use-fetch";
 
@@ -52,6 +52,7 @@ export function deprecateComponent(id: string) {
 export function archiveComponent(id: string) {
   return api.post<CommandResponse>(`/components/${id}/archive`);
 }
+
 
 
 

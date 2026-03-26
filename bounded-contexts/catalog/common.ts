@@ -1,4 +1,4 @@
-import type { JsonValue } from "../../contracts/primitives/json";
+import type { JsonValue } from "@chase-sets/primitives/json";
 
 export type CatalogLifecycleStatus =
   | "draft"
@@ -112,3 +112,4 @@ export function toSortedUniqueList<T extends string>(
 ): T[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
+

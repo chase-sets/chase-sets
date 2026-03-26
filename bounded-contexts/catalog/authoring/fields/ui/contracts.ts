@@ -10,3 +10,4 @@ export interface Field {
   sortable: boolean;
   updated_at: string;
 }
+

@@ -2,7 +2,7 @@ import type {
   AggregateDecider,
   AggregateEvolver,
   DomainEvent,
-} from "../../../../contracts/event-core";
+} from "@chase-sets/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -240,4 +240,5 @@ export const evolveCategory: AggregateEvolver<CategoryState, CategoryEvent> = (
 function requireCreatedCategory(state: CategoryState): void {
   assert(state.id !== null, "Category must be created first.");
 }
+
 

@@ -51,3 +51,4 @@ function getSnapshot() {
 export function useMarketplaceRouter(): MarketplaceRoute {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+

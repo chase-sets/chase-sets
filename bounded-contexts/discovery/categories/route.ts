@@ -1,20 +1,19 @@
 import { Hono } from "hono";
-import type { DiscoveryServices } from "../services";
-import { listDiscoveryCategories } from "./queries";
+import type { DiscoveryCategoryServices } from "./runtime";
 
-export function discoveryCategoryRoutes(services: DiscoveryServices): Hono {
+export function discoveryCategoryRoutes(services: DiscoveryCategoryServices): Hono {
   const app = new Hono();
 
   app.get("/", async (c) => {
     const parentCategoryId = c.req.query("parentCategoryId");
     const status = c.req.query("status");
 
-    const categories = await listDiscoveryCategories(services.db, {
+    const categories = await services.listCategories({
       parentCategoryId: parentCategoryId || undefined,
       status: status || undefined,
     });
 
-    return c.json({ items: categories });
+    return c.json({ items: categories, total: categories.length, count: categories.length });
   });
 
   return app;

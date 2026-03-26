@@ -7,3 +7,4 @@ export const marketplaceTopNavItems: NavigationItem[] = [
 export const marketplaceBottomNavItems: NavigationItem[] = [
   { key: "search", label: "Browse", icon: "search", href: "#/search" },
 ];
+

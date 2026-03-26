@@ -15,3 +15,4 @@ export interface CategoryListResponse {
   total: number;
   count: number;
 }
+

@@ -23,6 +23,29 @@ export default defineConfig({
           currentDir,
           "../../packages/design-system/src/index.ts"
         )
+      },
+      {
+        find: "@chase-sets/catalog-authoring",
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/catalog/authoring/index.ts"
+        )
+      },
+      {
+        find: /^@chase-sets\/event-core$/,
+        replacement: resolve(currentDir, "../../contracts/event-core/index.ts")
+      },
+      {
+        find: /^@chase-sets\/event-core\/(.*)$/,
+        replacement: `${resolve(currentDir, "../../contracts/event-core")}/$1`
+      },
+      {
+        find: /^@chase-sets\/http\/(.*)$/,
+        replacement: `${resolve(currentDir, "../../contracts/http")}/$1`
+      },
+      {
+        find: /^@chase-sets\/primitives\/(.*)$/,
+        replacement: `${resolve(currentDir, "../../contracts/primitives")}/$1`
       }
     ]
   },

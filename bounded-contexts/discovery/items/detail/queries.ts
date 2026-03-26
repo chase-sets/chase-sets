@@ -1,4 +1,4 @@
-import type { PgQueryable } from "../../../contracts/event-core/postgres/types";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 
 export type DiscoveryItemDetailRow = Readonly<{
   item_id: string;
@@ -27,4 +27,6 @@ export async function getDiscoveryItemDetail(
 
   return result.rows[0] ?? null;
 }
+
+
 

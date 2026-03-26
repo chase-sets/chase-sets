@@ -1,5 +1,5 @@
-import type { ProjectorHandlerMap } from "../../../contracts/event-core/projector";
-import type { PgQueryable } from "../../../contracts/event-core/postgres/types";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -693,3 +693,5 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
   };
 }
+
+

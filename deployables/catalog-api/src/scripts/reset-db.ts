@@ -1,11 +1,11 @@
 import { loadConfig } from "../config";
-import { catalogAuthoringDatabaseSchemaSql } from "../../../../bounded-contexts/catalog/authoring";
-import { createPool } from "../infrastructure/postgres";
+import { catalogAuthoringDatabaseSchemaSql } from "@chase-sets/catalog-authoring";
+import { createPgPool } from "@chase-sets/event-core/postgres";
 import { seedDatabase } from "../seed";
 
 async function resetDatabase() {
   const config = loadConfig();
-  const pool = createPool(config.databaseUrl);
+  const pool = createPgPool(config.databaseUrl);
 
   try {
     console.log("Resetting database schema...");

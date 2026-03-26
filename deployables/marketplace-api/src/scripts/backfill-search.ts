@@ -1,10 +1,10 @@
-import { rebuildDiscoverySearchIndex } from "../../../../bounded-contexts/discovery";
+import { rebuildDiscoverySearchIndex } from "@chase-sets/discovery";
+import { createPgPool } from "@chase-sets/event-core/postgres";
 import { loadConfig } from "../config";
-import { createPool } from "../infrastructure/postgres";
 
 async function main() {
   const config = loadConfig();
-  const pool = createPool(config.databaseUrl);
+  const pool = createPgPool(config.databaseUrl);
 
   try {
     await rebuildDiscoverySearchIndex(pool);

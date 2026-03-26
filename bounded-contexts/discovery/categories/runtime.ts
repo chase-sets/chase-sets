@@ -1,16 +1,28 @@
-import { createProjector, type Projector } from "../../../contracts/event-core/projector";
+import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { DiscoveryRuntimeDeps } from "../runtime-support";
+import { listDiscoveryCategories, type DiscoveryCategoryRow } from "./queries";
 import { buildDiscoveryCategoryProjectionHandlers } from "./projection";
 
-export function createCategoryProjectors(
+export type DiscoveryCategoryServices = Readonly<{
+  listCategories: (
+    params?: { parentCategoryId?: string; status?: string },
+  ) => Promise<DiscoveryCategoryRow[]>;
+  projectors: readonly Projector[];
+}>;
+
+export function createDiscoveryCategoryRuntime(
   deps: DiscoveryRuntimeDeps,
-): readonly Projector[] {
-  return [
-    createProjector({
-      projectorName: "discovery-category-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
-      handlers: buildDiscoveryCategoryProjectionHandlers(deps.db),
-    }),
-  ];
+): DiscoveryCategoryServices {
+  return {
+    listCategories: (params = {}) => listDiscoveryCategories(deps.db, params),
+    projectors: [
+      createProjector({
+        projectorName: "discovery-category-projection",
+        eventStore: deps.eventStore,
+        checkpointStore: deps.checkpointStore,
+        handlers: buildDiscoveryCategoryProjectionHandlers(deps.db),
+      }),
+    ],
+  };
 }
+

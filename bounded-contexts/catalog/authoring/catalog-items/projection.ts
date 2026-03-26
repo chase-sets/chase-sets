@@ -1,5 +1,5 @@
-import type { ProjectorHandlerMap } from "../../../../contracts/event-core/projector";
-import type { PgQueryable } from "../../../../contracts/event-core/postgres/types";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 import { extractIdFromStreamId } from "../support/projections/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.item-";
@@ -151,5 +151,6 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
     },
   };
 }
+
 
 

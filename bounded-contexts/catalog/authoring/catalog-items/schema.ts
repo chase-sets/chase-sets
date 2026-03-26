@@ -46,3 +46,4 @@ CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_title_idx
   ON catalog_admin_catalog_item_list_pages USING gin (to_tsvector('simple', title || ' ' || COALESCE(subtitle, '')));
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_tags_idx
   ON catalog_admin_catalog_item_list_pages USING gin (tags);`;
+

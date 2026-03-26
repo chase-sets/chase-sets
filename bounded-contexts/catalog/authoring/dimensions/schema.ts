@@ -17,3 +17,4 @@ CREATE TABLE IF NOT EXISTS catalog_dimension_choices (
   status text NOT NULL DEFAULT 'active',
   PRIMARY KEY (dimension_id, choice_id)
 );`;
+

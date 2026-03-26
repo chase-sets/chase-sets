@@ -1,4 +1,4 @@
-import { foldEvents, type AggregateEvolver, type DomainEvent } from "../../../contracts/event-core/domain";
+import { foldEvents, type AggregateEvolver, type DomainEvent } from "@chase-sets/event-core/domain";
 import { CatalogDomainError } from "../common";
 
 export function givenEvents<State, Event extends DomainEvent>(
@@ -42,4 +42,5 @@ export function expectDomainError(
     }
   }
 }
+
 

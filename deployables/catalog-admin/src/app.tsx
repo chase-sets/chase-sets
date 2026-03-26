@@ -1,1 +1,1 @@
-export { CatalogAdminApp as App } from "../../../bounded-contexts/catalog/authoring";
+export { CatalogAdminApp as App } from "@chase-sets/catalog-authoring";

@@ -1,4 +1,4 @@
-import type { PgQueryable } from "../../../../../contracts/event-core/postgres/types";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 
 export type FieldRule = Readonly<{ fieldId: string; required: boolean }>;
 
@@ -52,3 +52,4 @@ export async function loadChoiceCodeMap(
 
   return new Map(result.rows.map((row) => [row.choice_id, row.code]));
 }
+

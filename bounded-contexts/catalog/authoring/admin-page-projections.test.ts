@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { catalogAuthoringDatabaseSchemaSql, createCatalogServices, type CatalogServices } from "./index";
 import { buildCatalogAuthoringTestApp, createCatalogAuthoringTestPool } from "./test-support";
-import type { EventStoreContext } from "../../../contracts/event-core/storage";
-import type { PgTransactionalPool } from "../../../contracts/event-core/postgres/types";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgTransactionalPool } from "@chase-sets/event-core/postgres/types";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
 
@@ -341,3 +341,4 @@ describe("Admin page projections", () => {
     expect(updatedItemDetail.json.categories[0].name).toBe("Generation I Singles");
   });
 });
+

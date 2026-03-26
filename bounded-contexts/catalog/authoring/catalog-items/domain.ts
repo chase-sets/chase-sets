@@ -2,7 +2,7 @@ import type {
   AggregateDecider,
   AggregateEvolver,
   DomainEvent,
-} from "../../../../contracts/event-core";
+} from "@chase-sets/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -546,4 +546,5 @@ function normalizeRequiredFieldIds(
 
   return normalized;
 }
+
 

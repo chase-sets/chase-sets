@@ -1,4 +1,4 @@
-import type { TypedUlid } from "../../contracts/primitives/typed-ids";
+import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
 
 export type CatalogItemId = TypedUlid<"cat">;
 
@@ -18,3 +18,4 @@ export type SelectionEntry = Readonly<{
   dimensionId: DimensionId;
   choiceId: ChoiceId;
 }>;
+

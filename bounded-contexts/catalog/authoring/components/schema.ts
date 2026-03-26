@@ -19,3 +19,4 @@ CREATE TABLE IF NOT EXISTS catalog_admin_component_detail_pages (
   dimension_rules jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );`;
+

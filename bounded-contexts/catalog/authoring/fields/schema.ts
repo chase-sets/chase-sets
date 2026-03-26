@@ -10,3 +10,4 @@ export const catalogFieldSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_fields 
   sortable boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now()
 );`;
+

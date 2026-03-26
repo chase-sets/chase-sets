@@ -47,3 +47,4 @@ function getSnapshot() {
 export function useCatalogAdminRouter(): CatalogAdminRoute {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+

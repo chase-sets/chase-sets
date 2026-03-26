@@ -22,3 +22,4 @@ export function useFetch<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
 
   return { data, loading, error, refresh: load };
 }
+

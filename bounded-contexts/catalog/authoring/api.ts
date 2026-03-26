@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { EventStoreContext } from "../../../contracts/event-core/storage";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogServices } from "./services";
 import { blueprintRoutes } from "./blueprints/route";
 import { catalogItemRoutes } from "./catalog-items/route";
@@ -26,3 +26,4 @@ export function buildCatalogAuthoringApi(services: CatalogServices): Hono<Catalo
 
   return app;
 }
+

@@ -1,6 +1,6 @@
 import { assert } from "./common";
 import type { CatalogItemState } from "./authoring/catalog-items/domain";
-import type { DomainEvent } from "../../contracts/event-core";
+import type { DomainEvent } from "@chase-sets/event-core";
 import type { CatalogValue } from "./common";
 import type {
   CatalogVersionDescriptor,
@@ -113,3 +113,4 @@ export function createCatalogItemArchivedEvent(
     data: snapshot,
   };
 }
+

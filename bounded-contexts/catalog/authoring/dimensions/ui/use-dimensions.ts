@@ -1,5 +1,5 @@
 import { api } from "../../support/api/client";
-import type { CommandResponse, ListResponse } from "../../../../../contracts/http/responses";
+import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { Dimension, DimensionDetail } from "./contracts";
 import { useFetch } from "../../support/ui/use-fetch";
 
@@ -50,6 +50,7 @@ export function reactivateChoice(dimensionId: string, choiceId: string) {
 export function reorderChoices(dimensionId: string, choiceIds: string[]) {
   return api.put<CommandResponse>(`/dimensions/${dimensionId}/choices/order`, { choiceIds });
 }
+
 
 
 

@@ -1,5 +1,5 @@
-import type { ProjectorHandlerMap } from "../../../../contracts/event-core/projector";
-import type { PgQueryable } from "../../../../contracts/event-core/postgres/types";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 import { extractIdFromStreamId } from "../support/projections/extract-id-from-stream";
 import {
   asArray,
@@ -301,4 +301,5 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     },
   };
 }
+
 

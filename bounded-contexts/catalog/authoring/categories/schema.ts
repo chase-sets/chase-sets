@@ -39,3 +39,4 @@ CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_parent_idx
   ON catalog_admin_category_list_pages (parent_category_id);
 CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_key_name_idx
   ON catalog_admin_category_list_pages USING gin (to_tsvector('simple', key || ' ' || name));`;
+

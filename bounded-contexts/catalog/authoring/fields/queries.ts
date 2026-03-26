@@ -1,4 +1,4 @@
-import type { PgQueryable } from "../../../../contracts/event-core/postgres/types";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 import {
   buildFilteredQuery,
   executeListQuery,
@@ -35,4 +35,5 @@ export async function getField(db: PgQueryable, fieldId: string) {
 
   return result.rows[0] ?? null;
 }
+
 

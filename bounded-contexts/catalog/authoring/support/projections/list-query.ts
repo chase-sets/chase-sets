@@ -1,4 +1,4 @@
-import type { PgQueryable } from "../../../../../contracts/event-core/postgres/types";
+import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
 
 export type ListParams = {
   search?: string;
@@ -64,3 +64,4 @@ export async function executeListQuery<T>(
     total: Number.parseInt(countResult.rows[0].count, 10),
   };
 }
+

@@ -24,3 +24,4 @@ export interface CatalogItemDetail {
   image_urls: string[];
   updated_at: string;
 }
+

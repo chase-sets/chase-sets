@@ -1,20 +1,24 @@
 import { describe, expect, it } from "vitest";
+import type { DiscoveryServices } from "@chase-sets/discovery";
 import { buildMarketplaceApp } from "../src/app";
-import type { DiscoveryServices } from "../../../bounded-contexts/discovery";
+
+const services: DiscoveryServices = {
+  items: {
+    searchItems: async () => ({ items: [], total: 0 }),
+    getItemDetail: async () => null,
+    rebuildSearchIndex: async () => {},
+    projectors: [],
+  },
+  categories: {
+    listCategories: async () => [],
+    projectors: [],
+  },
+  projectors: [],
+};
 
 describe("marketplace api host app", () => {
   it("mounts health and the discovery API under /api/marketplace", async () => {
-    const app = buildMarketplaceApp({
-      db: {
-        query: async (sql: string) => {
-          if (sql.includes("COUNT(*)")) {
-            return { rows: [{ count: "0" }] };
-          }
-
-          return { rows: [] };
-        },
-      },
-    } as DiscoveryServices);
+    const app = buildMarketplaceApp(services);
 
     const healthResponse = await app.fetch(new Request("http://marketplace.test/health"));
     expect(healthResponse.status).toBe(200);

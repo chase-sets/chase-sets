@@ -8,3 +8,4 @@ export const catalogAdminNavItems: NavigationItem[] = [
   { key: "categories", label: "Categories", icon: "filter" },
   { key: "catalog-items", label: "Catalog Items", icon: "dashboard" },
 ];
+

@@ -66,3 +66,4 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   version_schema jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );`;
+
