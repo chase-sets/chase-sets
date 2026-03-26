@@ -34,13 +34,16 @@
         "./contracts/event-core/index.ts"
       ],
       "@chase-sets/event-core/*": [
-        "./contracts/event-core/*"
+        "./contracts/event-core/*.ts"
+      ],
+      "@chase-sets/event-core-postgres": [
+        "./infrastructure/event-core-postgres/index.ts"
       ],
       "@chase-sets/http/*": [
-        "./contracts/http/*"
+        "./contracts/http/*.ts"
       ],
       "@chase-sets/primitives/*": [
-        "./contracts/primitives/*"
+        "./contracts/primitives/*.ts"
       ]
     }
   }

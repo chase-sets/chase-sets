@@ -12,7 +12,7 @@ import {
   catalogAuthoringSchemaSql,
   type CatalogServices,
 } from "@chase-sets/catalog-authoring";
-import type { PgTransactionalPool } from "@chase-sets/event-core/postgres/types";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";

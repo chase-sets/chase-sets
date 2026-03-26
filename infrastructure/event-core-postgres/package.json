@@ -1,0 +1,16 @@
+{
+  "name": "@chase-sets/event-core-postgres",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/event-core": "0.1.0",
+    "@chase-sets/primitives": "0.1.0",
+    "pg": "^8.20.0"
+  }
+}

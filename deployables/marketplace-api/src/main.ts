@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { createDiscoveryServices } from "@chase-sets/discovery";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
-import { createPgPool } from "@chase-sets/event-core/postgres";
+import { createPgPool } from "@chase-sets/event-core-postgres";
 import { loadConfig } from "./config";
 import { buildMarketplaceApp } from "./app";
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { catalogAuthoringSchemaSql, createCatalogServices, type CatalogServices } from "../../index";
 import { buildCatalogAuthoringTestApp, createCatalogAuthoringTestPool } from "../../test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgTransactionalPool } from "@chase-sets/event-core/postgres/types";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
 

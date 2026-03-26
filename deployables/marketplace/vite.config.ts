@@ -32,6 +32,13 @@ export default defineConfig({
         )
       },
       {
+        find: "@chase-sets/event-core-postgres",
+        replacement: resolve(
+          currentDir,
+          "../../infrastructure/event-core-postgres/index.ts"
+        )
+      },
+      {
         find: /^@chase-sets\/event-core$/,
         replacement: resolve(currentDir, "../../contracts/event-core/index.ts")
       },

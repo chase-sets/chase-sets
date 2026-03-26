@@ -10,7 +10,7 @@ This module provides a function-first event core for DDD + CQRS + event sourcing
 - `codec.ts`: mapping between domain events and persisted records.
 - `event-store.ts`: storage abstraction.
 - `projector.ts`: read-model projection loop.
-- `postgres/`: Postgres adapter implementation (`event-store.ts`, `projection-store.ts`, `types.ts`, `schema.sql`).
+- Postgres adapter implementation lives in `infrastructure/event-core-postgres/`.
 
 ## Domain Event Rule
 
@@ -41,19 +41,19 @@ import {
   ZERO_GLOBAL_POSITION,
   parseGlobalPosition,
   compareGlobalPosition,
-} from "../contracts/event-core";
+} from "@chase-sets/event-core";
 ```
 
 ## Postgres Setup
 
-Apply `postgres/schema.sql` before using Postgres adapters.
+Apply `infrastructure/event-core-postgres/schema.sql` before using Postgres adapters.
 
 ## Import Surface
 
 Core contracts and composition helpers:
 
 ```ts
-import { createCommandHandler, createProjector } from "../contracts/event-core";
+import { createCommandHandler, createProjector } from "@chase-sets/event-core";
 ```
 
 Postgres adapters:
@@ -62,5 +62,5 @@ Postgres adapters:
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
-} from "../contracts/event-core/postgres";
+} from "@chase-sets/event-core-postgres";
 ```

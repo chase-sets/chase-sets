@@ -1,4 +1,4 @@
-import type { PgTransactionalPool } from "@chase-sets/event-core/postgres/types";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices } from "./services";
 import { seedBlueprints } from "./blueprints/seed";
 import { seedCatalogItems } from "./catalog-items/seed";

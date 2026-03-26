@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+
 const prohibitedLayoutTagPattern = /<(div|section|main|header|footer|aside|article|nav)\b/g;
 const classNamePattern = /\bclassName\s*=/g;
 const stylesheetImportPattern =

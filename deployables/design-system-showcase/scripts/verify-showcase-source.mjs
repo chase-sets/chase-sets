@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { collectShowcaseSourceViolations } from "./showcase-source-contract.mjs";
+import { collectShowcaseSourceViolations } from "../../../packages/design-system/scripts/showcase-source-contract.mjs";
 
 async function main() {
   const findings = await collectShowcaseSourceViolations(

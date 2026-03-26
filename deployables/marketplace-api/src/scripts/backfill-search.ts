@@ -1,5 +1,5 @@
 import { rebuildDiscoverySearchIndex } from "@chase-sets/discovery";
-import { createPgPool } from "@chase-sets/event-core/postgres";
+import { createPgPool } from "@chase-sets/event-core-postgres";
 import { loadConfig } from "../config";
 
 async function main() {

@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeSimpleSearchText } from "./normalization";
 
 export type DiscoverySearchParams = {

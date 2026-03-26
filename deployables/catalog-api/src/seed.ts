@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { seedCatalogDatabase } from "@chase-sets/catalog-authoring";
-import { createPgPool } from "@chase-sets/event-core/postgres";
+import { createPgPool } from "@chase-sets/event-core-postgres";
 import { loadConfig } from "./config";
 
 export async function seedDatabase() {

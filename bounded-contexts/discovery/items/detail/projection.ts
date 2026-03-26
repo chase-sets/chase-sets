@@ -1,5 +1,5 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";

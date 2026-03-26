@@ -1,7 +1,7 @@
-import { createPostgresEventStore } from "@chase-sets/event-core/postgres/event-store";
-import { createPostgresProjectionStore } from "@chase-sets/event-core/postgres/projection-store";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core/postgres/types";
+import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createDiscoveryCategoryRuntime,
   type DiscoveryCategoryServices,

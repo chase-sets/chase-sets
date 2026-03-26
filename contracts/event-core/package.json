@@ -1,0 +1,11 @@
+{
+  "name": "@chase-sets/event-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  },
+  "types": "./index.ts"
+}

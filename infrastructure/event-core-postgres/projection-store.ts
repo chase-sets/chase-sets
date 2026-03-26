@@ -1,14 +1,12 @@
-import { nowIsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
-import type { IsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
-import type { ProjectionCheckpointStore } from "../projector";
-import type {
-  GlobalPosition,
-} from "../storage";
+import { nowIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
+import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import {
   ZERO_GLOBAL_POSITION,
   globalPositionFromBigInt,
   parseGlobalPosition,
-} from "../storage";
+} from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 

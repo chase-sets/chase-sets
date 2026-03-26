@@ -3,6 +3,10 @@
     "private":  true,
     "type":  "module",
     "workspaces":  [
+                       "bounded-contexts/*",
+                       "bounded-contexts/*/*",
+                       "contracts/*",
+                       "infrastructure/*",
                        "packages/*",
                        "deployables/*"
                    ],

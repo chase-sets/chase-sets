@@ -3,9 +3,19 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const repoRoot = process.cwd();
-const roots = ["bounded-contexts", "deployables"];
+const roots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const ignoredDirectories = new Set(["node_modules", ".git", "dist"]);
+const allowedTopLevelDirectories = new Set([
+  "bounded-contexts",
+  "contracts",
+  "deployables",
+  "docs",
+  "infrastructure",
+  "node_modules",
+  "packages",
+  "scripts",
+]);
 const violations = [];
 const forbiddenPaths = [
   "bounded-contexts/catalog/authoring/api",
@@ -15,6 +25,7 @@ const forbiddenPaths = [
   "bounded-contexts/discovery/__tests__",
   "bounded-contexts/discovery/items/ui",
   "bounded-contexts/discovery/items/use-debounce.ts",
+  "contracts/event-core/postgres",
   "deployables/catalog-api/src/infrastructure",
   "deployables/catalog-api/src/routes",
   "deployables/marketplace-api/src/infrastructure",
@@ -23,7 +34,7 @@ const forbiddenPaths = [
   "deployables/catalog-admin/src/__tests__",
   "deployables/marketplace/src/__tests__",
 ];
-const implementedContextRoots = new Map([
+const implementedRootRules = new Map([
   [
     "bounded-contexts/catalog/authoring",
     {
@@ -42,6 +53,7 @@ const implementedContextRoots = new Map([
       allowedFiles: new Set([
         "api.ts",
         "index.ts",
+        "package.json",
         "runtime-support.ts",
         "schema.ts",
         "seed-support.ts",
@@ -60,6 +72,7 @@ const implementedContextRoots = new Map([
         "api.ts",
         "GLOSSARY.md",
         "index.ts",
+        "package.json",
         "README.md",
         "runtime-support.ts",
         "schema.ts",
@@ -67,7 +80,68 @@ const implementedContextRoots = new Map([
       ]),
     },
   ],
+  [
+    "contracts/event-core",
+    {
+      allowedDirs: new Set([]),
+      allowedFiles: new Set([
+        "aggregate-repository.ts",
+        "codec.ts",
+        "command-handler.ts",
+        "domain.ts",
+        "event-store.ts",
+        "index.ts",
+        "package.json",
+        "projector-runner.ts",
+        "projector.ts",
+        "README.md",
+        "storage.ts",
+        "transport.ts",
+      ]),
+    },
+  ],
+  [
+    "contracts/http",
+    {
+      allowedDirs: new Set([]),
+      allowedFiles: new Set(["health.ts", "package.json", "responses.ts"]),
+    },
+  ],
+  [
+    "contracts/primitives",
+    {
+      allowedDirs: new Set([]),
+      allowedFiles: new Set([
+        "brand.ts",
+        "iso-utc-timestamp.ts",
+        "json.ts",
+        "package.json",
+        "typed-ids.ts",
+      ]),
+    },
+  ],
+  [
+    "infrastructure/event-core-postgres",
+    {
+      allowedDirs: new Set([]),
+      allowedFiles: new Set([
+        "event-store.ts",
+        "index.ts",
+        "package.json",
+        "pool.ts",
+        "projection-store.ts",
+        "schema.sql",
+        "schema.ts",
+        "sql-identifier.ts",
+        "types.ts",
+      ]),
+    },
+  ],
 ]);
+const boundedContextPackages = ["@chase-sets/catalog-authoring", "@chase-sets/discovery"];
+const contractPackages = ["@chase-sets/event-core", "@chase-sets/http", "@chase-sets/primitives"];
+const infrastructurePackages = ["@chase-sets/event-core-postgres"];
+const workspacePackages = ["@chase-sets/design-system"];
 const sliceRouteFiles = new Set([
   "bounded-contexts/catalog/authoring/blueprints/route.ts",
   "bounded-contexts/catalog/authoring/catalog-items/route.ts",
@@ -106,7 +180,45 @@ function isImplementedContextFile(relativeFile) {
 function isArchitectureDirectory(relativeDir) {
   return (
     relativeDir.startsWith("bounded-contexts/") ||
+    relativeDir.startsWith("contracts/") ||
+    relativeDir.startsWith("infrastructure/") ||
+    relativeDir.startsWith("packages/") ||
     /^deployables\/[^/]+\/src(?:\/|$)/.test(relativeDir)
+  );
+}
+
+function matchesPackageSpecifier(specifier, packageName) {
+  return specifier === packageName || specifier.startsWith(`${packageName}/`);
+}
+
+function isBoundedContextSpecifier(specifier) {
+  return (
+    specifier.includes("bounded-contexts/") ||
+    boundedContextPackages.some((packageName) =>
+      matchesPackageSpecifier(specifier, packageName),
+    )
+  );
+}
+
+function isDeployableSpecifier(specifier) {
+  return specifier.includes("deployables/");
+}
+
+function isInfrastructureSpecifier(specifier) {
+  return (
+    specifier.includes("infrastructure/") ||
+    infrastructurePackages.some((packageName) =>
+      matchesPackageSpecifier(specifier, packageName),
+    )
+  );
+}
+
+function isWorkspacePackageSpecifier(specifier) {
+  return (
+    specifier.includes("packages/") ||
+    workspacePackages.some((packageName) =>
+      matchesPackageSpecifier(specifier, packageName),
+    )
   );
 }
 
@@ -137,7 +249,7 @@ function checkImport(file, specifier, content) {
   const normalized = specifier.replaceAll("\\", "/");
   const relativeFile = normalizeRelative(file);
 
-  if (relativeFile.startsWith("bounded-contexts/") && normalized.includes("deployables/")) {
+  if (relativeFile.startsWith("bounded-contexts/") && isDeployableSpecifier(normalized)) {
     addViolation(file, `bounded contexts must not import deployables (${specifier})`);
   }
 
@@ -149,16 +261,77 @@ function checkImport(file, specifier, content) {
     addViolation(file, `catalog public modules must not import authoring internals (${specifier})`);
   }
 
+  if (relativeFile.startsWith("contracts/")) {
+    if (
+      isBoundedContextSpecifier(normalized) ||
+      isDeployableSpecifier(normalized) ||
+      isInfrastructureSpecifier(normalized) ||
+      isWorkspacePackageSpecifier(normalized)
+    ) {
+      addViolation(
+        file,
+        `contracts must stay pure and must not depend on app, context, infrastructure, or package code (${specifier})`,
+      );
+    }
+  }
+
+  if (relativeFile.startsWith("infrastructure/")) {
+    if (
+      isBoundedContextSpecifier(normalized) ||
+      isDeployableSpecifier(normalized) ||
+      isWorkspacePackageSpecifier(normalized)
+    ) {
+      addViolation(
+        file,
+        `infrastructure must not depend on bounded contexts, deployables, or reusable packages (${specifier})`,
+      );
+    }
+  }
+
+  if (relativeFile.startsWith("packages/")) {
+    if (
+      isBoundedContextSpecifier(normalized) ||
+      isDeployableSpecifier(normalized) ||
+      isInfrastructureSpecifier(normalized)
+    ) {
+      addViolation(
+        file,
+        `packages must not depend on bounded contexts, deployables, or infrastructure (${specifier})`,
+      );
+    }
+  }
+
   if (relativeFile.startsWith("deployables/")) {
-    if (normalized.includes("bounded-contexts/") || normalized.includes("contracts/")) {
-      addViolation(file, `deployables must use module aliases, not filesystem boundary imports (${specifier})`);
+    if (
+      normalized.includes("bounded-contexts/") ||
+      normalized.includes("contracts/") ||
+      normalized.includes("infrastructure/")
+    ) {
+      addViolation(
+        file,
+        `deployables must use package imports, not filesystem boundary imports (${specifier})`,
+      );
     }
 
     if (
-      normalized.startsWith("@chase-sets/catalog-authoring/") ||
-      normalized.startsWith("@chase-sets/discovery/")
+      boundedContextPackages.some(
+        (packageName) =>
+          matchesPackageSpecifier(normalized, packageName) && normalized !== packageName,
+      )
     ) {
       addViolation(file, `deployables must use bounded-context entrypoints, not deep imports (${specifier})`);
+    }
+
+    if (
+      infrastructurePackages.some(
+        (packageName) =>
+          matchesPackageSpecifier(normalized, packageName) && normalized !== packageName,
+      )
+    ) {
+      addViolation(
+        file,
+        `deployables must use infrastructure package entrypoints, not deep imports (${specifier})`,
+      );
     }
 
     return;
@@ -200,15 +373,29 @@ function extractImportSpecifiers(content) {
   return specifiers;
 }
 
+const topLevelEntries = await readdir(repoRoot, { withFileTypes: true });
+for (const entry of topLevelEntries) {
+  if (!entry.isDirectory()) {
+    continue;
+  }
+
+  if (entry.name.startsWith(".")) {
+    continue;
+  }
+
+  if (!allowedTopLevelDirectories.has(entry.name)) {
+    addPathViolation(entry.name, "top-level directory is not allowed; add an explicit rule first");
+  }
+}
+
 for (const forbiddenPath of forbiddenPaths) {
   if (existsSync(path.join(repoRoot, forbiddenPath))) {
     addPathViolation(forbiddenPath, "stale structure artifact should not exist");
   }
 }
 
-for (const [contextRoot, rule] of implementedContextRoots) {
-  const rootPath = path.join(repoRoot, contextRoot);
-  const entries = await readdir(rootPath, { withFileTypes: true });
+for (const [rootPath, rule] of implementedRootRules) {
+  const entries = await readdir(path.join(repoRoot, rootPath), { withFileTypes: true });
 
   for (const entry of entries) {
     const allowed = entry.isDirectory()
@@ -217,15 +404,15 @@ for (const [contextRoot, rule] of implementedContextRoots) {
 
     if (!allowed) {
       addPathViolation(
-        `${contextRoot}/${entry.name}`,
-        "implemented context root contains an unexpected entry",
+        `${rootPath}/${entry.name}`,
+        "implemented root contains an unexpected entry",
       );
     }
   }
 
   for (const forbiddenName of ["support", "shared"]) {
-    if (existsSync(path.join(rootPath, forbiddenName))) {
-      addPathViolation(`${contextRoot}/${forbiddenName}`, "generic root support folders are not allowed");
+    if (existsSync(path.join(repoRoot, rootPath, forbiddenName))) {
+      addPathViolation(`${rootPath}/${forbiddenName}`, "generic support folders are not allowed");
     }
   }
 }

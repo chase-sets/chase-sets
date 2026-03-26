@@ -1,9 +1,9 @@
-import { createPostgresEventStore } from "@chase-sets/event-core/postgres/event-store";
-import { createPostgresProjectionStore } from "@chase-sets/event-core/postgres/projection-store";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type {
   PgTransactionalPool,
   PgQueryable,
-} from "@chase-sets/event-core/postgres/types";
+} from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createBlueprintRuntime } from "./blueprints/runtime";
 import { createCatalogItemRuntime } from "./catalog-items/runtime";

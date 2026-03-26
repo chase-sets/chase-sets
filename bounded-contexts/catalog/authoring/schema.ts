@@ -1,4 +1,4 @@
-import { eventCorePostgresSchemaSql } from "@chase-sets/event-core/postgres/schema";
+import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { catalogBlueprintSchemaSql } from "./blueprints/schema";
 import { catalogCatalogItemSchemaSql } from "./catalog-items/schema";
 import { catalogCategorySchemaSql } from "./categories/schema";

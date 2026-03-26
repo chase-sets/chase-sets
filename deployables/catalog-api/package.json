@@ -13,6 +13,11 @@
     "reseed": "tsx --env-file=.env src/scripts/reset-db.ts"
   },
   "dependencies": {
+    "@chase-sets/catalog-authoring": "0.1.0",
+    "@chase-sets/event-core": "0.1.0",
+    "@chase-sets/event-core-postgres": "0.1.0",
+    "@chase-sets/http": "0.1.0",
+    "@chase-sets/primitives": "0.1.0",
     "hono": "^4.12.5",
     "@hono/node-server": "^1.19.11",
     "pg": "^8.20.0"

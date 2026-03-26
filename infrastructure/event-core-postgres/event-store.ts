@@ -1,18 +1,18 @@
-import { nowIsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
-import type { IsoUtcTimestamp } from "../../primitives/iso-utc-timestamp";
-import type { JsonObject } from "../../primitives/json";
-import { createId } from "../../primitives/typed-ids";
-import type { EventId } from "../../primitives/typed-ids";
+import { nowIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import type { JsonObject } from "@chase-sets/primitives/json";
+import { createId } from "@chase-sets/primitives/typed-ids";
+import type { EventId } from "@chase-sets/primitives/typed-ids";
 import {
   createEventStoreError,
   EventStoreError,
   type EventStore,
-} from "../event-store";
+} from "@chase-sets/event-core/event-store";
 import {
   ZERO_GLOBAL_POSITION,
   globalPositionFromBigInt,
   parseGlobalPosition,
-} from "../storage";
+} from "@chase-sets/event-core/storage";
 import type {
   AppendToStreamInput,
   EventRecordToStore,
@@ -21,7 +21,7 @@ import type {
   ReadAllInput,
   ReadStreamInput,
   StoredEvent,
-} from "../storage";
+} from "@chase-sets/event-core/storage";
 import type { PgPoolClient, PgTransactionalPool } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 

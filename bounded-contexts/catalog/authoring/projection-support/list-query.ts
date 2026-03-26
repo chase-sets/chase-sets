@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core/postgres/types";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export type ListParams = {
   search?: string;

@@ -12,6 +12,11 @@
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {
+    "@chase-sets/catalog-authoring": "0.1.0",
+    "@chase-sets/discovery": "0.1.0",
+    "@chase-sets/event-core": "0.1.0",
+    "@chase-sets/event-core-postgres": "0.1.0",
+    "@chase-sets/http": "0.1.0",
     "hono": "^4.12.5",
     "@hono/node-server": "^1.19.11",
     "pg": "^8.20.0"

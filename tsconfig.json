@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "bounded-contexts/**/*.ts",
+    "bounded-contexts/**/*.tsx",
+    "contracts/**/*.ts",
+    "contracts/**/*.tsx",
+    "infrastructure/**/*.ts",
+    "infrastructure/**/*.tsx"
+  ],
+  "exclude": [
+    "bounded-contexts/**/*.tmp.*"
+  ]
+}

@@ -1,6 +1,6 @@
 import { loadConfig } from "../config";
 import { catalogAuthoringSchemaSql } from "@chase-sets/catalog-authoring";
-import { createPgPool } from "@chase-sets/event-core/postgres";
+import { createPgPool } from "@chase-sets/event-core-postgres";
 import { seedDatabase } from "../seed";
 
 async function resetDatabase() {

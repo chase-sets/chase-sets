@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { collectShowcaseSourceViolations } from "../../../../deployables/design-system-showcase/scripts/showcase-source-contract.mjs";
+import { collectShowcaseSourceViolations } from "../../scripts/showcase-source-contract.mjs";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const designSystemPackageJsonPath = resolve(currentDir, "../../package.json");
