@@ -1,7 +1,9 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { DimensionDetailPage } from "../../../../bounded-contexts/catalog/authoring/dimensions/ui/dimension-detail-page";
-import type { DimensionDetail } from "../../../../bounded-contexts/catalog/authoring/dimensions/ui/contracts";
+import {
+  DimensionDetailPage,
+  type DimensionDetail,
+} from "@chase-sets/catalog-authoring/web";
 import { createCatalogServerApiClient } from "../api.server";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {

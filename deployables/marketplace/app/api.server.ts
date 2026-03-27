@@ -1,4 +1,4 @@
-import { createDiscoveryApiClient } from "../../../bounded-contexts/discovery/items/client-support/api-client";
+import { createDiscoveryApiClient } from "@chase-sets/discovery/web";
 
 export function getMarketplaceApiBaseUrl(request: Request) {
   const url = new URL(request.url);

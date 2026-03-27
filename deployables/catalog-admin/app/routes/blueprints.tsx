@@ -1,7 +1,9 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { BlueprintListPage } from "../../../../bounded-contexts/catalog/authoring/blueprints/ui/blueprint-list-page";
-import type { Blueprint } from "../../../../bounded-contexts/catalog/authoring/blueprints/ui/contracts";
+import {
+  BlueprintListPage,
+  type Blueprint,
+} from "@chase-sets/catalog-authoring/web";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createCatalogServerApiClient } from "../api.server";
 

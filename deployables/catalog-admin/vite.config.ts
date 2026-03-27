@@ -25,7 +25,14 @@ export default defineConfig({
         )
       },
       {
-        find: "@chase-sets/catalog-authoring",
+        find: /^@chase-sets\/catalog-authoring\/web$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/catalog/authoring/web.ts"
+        )
+      },
+      {
+        find: /^@chase-sets\/catalog-authoring$/,
         replacement: resolve(
           currentDir,
           "../../bounded-contexts/catalog/authoring/index.ts"

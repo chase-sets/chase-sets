@@ -21,8 +21,14 @@
       "@chase-sets/catalog-authoring": [
         "./bounded-contexts/catalog/authoring/index.ts"
       ],
+      "@chase-sets/catalog-authoring/web": [
+        "./bounded-contexts/catalog/authoring/web.ts"
+      ],
       "@chase-sets/discovery": [
         "./bounded-contexts/discovery/index.ts"
+      ],
+      "@chase-sets/discovery/web": [
+        "./bounded-contexts/discovery/web.ts"
       ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"

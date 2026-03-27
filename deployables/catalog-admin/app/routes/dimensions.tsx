@@ -1,7 +1,9 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { DimensionListPage } from "../../../../bounded-contexts/catalog/authoring/dimensions/ui/dimension-list-page";
-import type { Dimension } from "../../../../bounded-contexts/catalog/authoring/dimensions/ui/contracts";
+import {
+  DimensionListPage,
+  type Dimension,
+} from "@chase-sets/catalog-authoring/web";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createCatalogServerApiClient } from "../api.server";
 

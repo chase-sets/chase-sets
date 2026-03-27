@@ -1,7 +1,6 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { FieldDetailPage } from "../../../../bounded-contexts/catalog/authoring/fields/ui/field-detail-page";
-import type { Field } from "../../../../bounded-contexts/catalog/authoring/fields/ui/contracts";
+import { FieldDetailPage, type Field } from "@chase-sets/catalog-authoring/web";
 import { createCatalogServerApiClient } from "../api.server";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {

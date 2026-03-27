@@ -12,6 +12,7 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
+import { buildCanonicalUrl } from "./seo";
 
 export function loader({ request }: LoaderFunctionArgs) {
   return {
@@ -22,10 +23,11 @@ export function loader({ request }: LoaderFunctionArgs) {
 export function Layout({ children }: { children: ReactNode }) {
   const { origin } = useLoaderData<typeof loader>();
   const location = useLocation();
-  const canonicalUrl = new URL(
-    `${location.pathname}${location.search}`,
+  const canonicalUrl = buildCanonicalUrl({
     origin,
-  ).toString();
+    pathname: location.pathname,
+    search: location.search,
+  });
 
   return (
     <html lang="en">

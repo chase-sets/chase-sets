@@ -1,7 +1,9 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { BlueprintDetailPage } from "../../../../bounded-contexts/catalog/authoring/blueprints/ui/blueprint-detail-page";
-import type { BlueprintDetail } from "../../../../bounded-contexts/catalog/authoring/blueprints/ui/contracts";
+import {
+  BlueprintDetailPage,
+  type BlueprintDetail,
+} from "@chase-sets/catalog-authoring/web";
 import { createCatalogServerApiClient } from "../api.server";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {

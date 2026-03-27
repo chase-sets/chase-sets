@@ -1,7 +1,9 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { CategoryDetailPage } from "../../../../bounded-contexts/catalog/authoring/categories/ui/category-detail-page";
-import type { CategoryDetail } from "../../../../bounded-contexts/catalog/authoring/categories/ui/contracts";
+import {
+  CategoryDetailPage,
+  type CategoryDetail,
+} from "@chase-sets/catalog-authoring/web";
 import { createCatalogServerApiClient } from "../api.server";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {

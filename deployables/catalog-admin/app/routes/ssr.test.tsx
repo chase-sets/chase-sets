@@ -1,9 +1,13 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { CatalogAdminLayout } from "../../../../bounded-contexts/catalog/authoring/shell/layout";
-import { DimensionDetailPage } from "../../../../bounded-contexts/catalog/authoring/dimensions/ui/dimension-detail-page";
-import { DimensionListPage } from "../../../../bounded-contexts/catalog/authoring/dimensions/ui/dimension-list-page";
-import { loader as dimensionsLoader } from "./dimensions";
+import {
+  CatalogAdminLayout,
+  DimensionDetailPage,
+  DimensionListPage,
+} from "@chase-sets/catalog-authoring/web";
+import { buildCanonicalUrl } from "../root";
+import { loader as dimensionDetailLoader } from "./dimensions-detail";
+import { loader as dimensionsLoader, meta as dimensionsMeta } from "./dimensions";
 
 describe("catalog admin SSR routes", () => {
   it("renders a list page into HTML before hydration", () => {
@@ -92,5 +96,53 @@ describe("catalog admin SSR routes", () => {
     } as never);
 
     expect(result.items).toEqual([]);
+  });
+
+  it("builds canonical URLs for admin pages", () => {
+    expect(
+      buildCanonicalUrl({
+        origin: "https://admin.example",
+        pathname: "/dimensions",
+        search: "",
+      }),
+    ).toBe("https://admin.example/dimensions");
+  });
+
+  it("returns list route metadata", () => {
+    expect(dimensionsMeta({} as never)).toEqual([{ title: "Dimensions | Catalog Admin" }]);
+  });
+
+  it("loads the dimension detail through the catalog API", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              dimension_id: "dim_1",
+              key: "size",
+              name: "Size",
+              description: "Card size",
+              status: "active",
+              updated_at: "2026-03-26T00:00:00.000Z",
+              choices: [],
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        ),
+      ),
+    );
+
+    const result = await dimensionDetailLoader({
+      request: new Request("http://localhost/dimensions/dim_1"),
+      params: { id: "dim_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.id).toBe("dim_1");
+    expect(result.data?.name).toBe("Size");
   });
 });

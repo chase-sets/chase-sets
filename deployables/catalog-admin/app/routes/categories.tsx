@@ -1,7 +1,9 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { CategoryListPage } from "../../../../bounded-contexts/catalog/authoring/categories/ui/category-list-page";
-import type { CategoryListItem } from "../../../../bounded-contexts/catalog/authoring/categories/ui/contracts";
+import {
+  CategoryListPage,
+  type CategoryListItem,
+} from "@chase-sets/catalog-authoring/web";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createCatalogServerApiClient } from "../api.server";
 

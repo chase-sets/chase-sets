@@ -1,4 +1,4 @@
-import { createCatalogApiClient } from "../../../bounded-contexts/catalog/authoring/shell-support/api/client";
+import { createCatalogApiClient } from "@chase-sets/catalog-authoring/web";
 
 export function getCatalogApiBaseUrl(request: Request) {
   const url = new URL(request.url);

@@ -1,5 +1,5 @@
 import { Outlet, useLocation } from "react-router";
-import { CatalogAdminLayout } from "../../../../bounded-contexts/catalog/authoring/shell/layout";
+import { CatalogAdminLayout } from "@chase-sets/catalog-authoring/web";
 
 function resolveActiveKey(pathname: string) {
   const segment = pathname.split("/").filter(Boolean)[0];

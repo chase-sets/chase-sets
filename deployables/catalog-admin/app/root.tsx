@@ -19,13 +19,26 @@ export function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
+export function buildCanonicalUrl({
+  origin,
+  pathname,
+  search = "",
+}: {
+  origin: string;
+  pathname: string;
+  search?: string;
+}) {
+  return new URL(`${pathname}${search}`, origin).toString();
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const { origin } = useLoaderData<typeof loader>();
   const location = useLocation();
-  const canonicalUrl = new URL(
-    `${location.pathname}${location.search}`,
+  const canonicalUrl = buildCanonicalUrl({
     origin,
-  ).toString();
+    pathname: location.pathname,
+    search: location.search,
+  });
 
   return (
     <html lang="en">

@@ -4,8 +4,9 @@ import {
   useNavigation,
   useSearchParams,
 } from "react-router";
-import { SearchPage } from "../../../../bounded-contexts/discovery/items/search/search-page";
+import { SearchPage } from "@chase-sets/discovery/web";
 import { createMarketplaceServerApiClient } from "../api.server";
+import { buildMarketplaceMeta } from "../seo";
 
 const PAGE_SIZE = 24;
 
@@ -61,14 +62,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
     ? `Search "${data.search}" | Marketplace`
     : "Marketplace Search";
 
-  return [
-    { title },
-    {
-      name: "description",
-      content:
-        "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.",
-    },
-  ];
+  return buildMarketplaceMeta({ title });
 };
 
 export default function MarketplaceSearchRoute() {

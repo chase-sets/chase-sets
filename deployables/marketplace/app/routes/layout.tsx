@@ -1,5 +1,5 @@
 import { Outlet } from "react-router";
-import { DiscoveryShellLayout } from "../../../../bounded-contexts/discovery/shell/layout";
+import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 
 export default function MarketplaceLayoutRoute() {
   return (

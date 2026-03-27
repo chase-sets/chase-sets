@@ -5,7 +5,7 @@ import path from "node:path";
 const repoRoot = process.cwd();
 const roots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
-const ignoredDirectories = new Set(["node_modules", ".git", "dist"]);
+const ignoredDirectories = new Set(["node_modules", ".git", "dist", "build"]);
 const allowedTopLevelDirectories = new Set([
   "bounded-contexts",
   "contracts",
@@ -61,6 +61,7 @@ const implementedRootRules = new Map([
         "services.ts",
         "test-helpers.ts",
         "test-support.ts",
+        "web.ts",
       ]),
     },
   ],
@@ -77,6 +78,7 @@ const implementedRootRules = new Map([
         "runtime-support.ts",
         "schema.ts",
         "services.ts",
+        "web.ts",
       ]),
     },
   ],
@@ -194,6 +196,13 @@ function isArchitectureDirectory(relativeDir) {
 
 function matchesPackageSpecifier(specifier, packageName) {
   return specifier === packageName || specifier.startsWith(`${packageName}/`);
+}
+
+function isAllowedDeployableBoundedContextImport(specifier) {
+  return (
+    specifier === "@chase-sets/catalog-authoring/web" ||
+    specifier === "@chase-sets/discovery/web"
+  );
 }
 
 function isBoundedContextSpecifier(specifier) {
@@ -373,7 +382,9 @@ function checkImport(file, specifier, content) {
     if (
       boundedContextPackages.some(
         (packageName) =>
-          matchesPackageSpecifier(normalized, packageName) && normalized !== packageName,
+          matchesPackageSpecifier(normalized, packageName) &&
+          normalized !== packageName &&
+          !isAllowedDeployableBoundedContextImport(normalized),
       )
     ) {
       addViolation(file, `deployables must use bounded-context entrypoints, not deep imports (${specifier})`);
@@ -399,7 +410,7 @@ function checkImport(file, specifier, content) {
   }
 
   const isShellFile = relativeFile.includes("/shell/");
-  const isContextRootEntrypoint = /bounded-contexts\/[^/]+(?:\/authoring)?\/index\.ts$/.test(relativeFile);
+  const isContextRootEntrypoint = /bounded-contexts\/[^/]+(?:\/authoring)?\/(index|web)\.ts$/.test(relativeFile);
   if (!isShellFile && !isContextRootEntrypoint && (normalized.includes("/shell/") || normalized.endsWith("/shell"))) {
     addViolation(file, `non-shell context modules must not depend on shell internals (${specifier})`);
   }
@@ -429,6 +440,25 @@ function extractImportSpecifiers(content) {
 
   return specifiers;
 }
+
+const forbiddenSourcePatterns = [
+  {
+    regex: /location\.hash/,
+    message: "hash-based routing is not allowed",
+  },
+  {
+    regex: /#\//,
+    message: "hash-style routes are not allowed",
+  },
+  {
+    regex: /hashchange/i,
+    message: "hashchange listeners are not allowed",
+  },
+  {
+    regex: /fetch\(\s*["']\/api/,
+    message: "use typed API clients instead of raw /api fetch calls",
+  },
+];
 
 const topLevelEntries = await readdir(repoRoot, { withFileTypes: true });
 for (const entry of topLevelEntries) {
@@ -516,6 +546,14 @@ for (const root of roots) {
 
     if (relativeFile.startsWith("bounded-contexts/discovery/") && content.includes("marketplace_")) {
       addViolation(file, "discovery should use discovery-owned read-model names, not marketplace_* tables");
+    }
+
+    if (relativeFile.startsWith("deployables/") || relativeFile.startsWith("bounded-contexts/")) {
+      for (const pattern of forbiddenSourcePatterns) {
+        if (pattern.regex.test(content)) {
+          addViolation(file, pattern.message);
+        }
+      }
     }
 
     for (const specifier of extractImportSpecifiers(content)) {

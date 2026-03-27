@@ -13,7 +13,11 @@
     "scripts": {
         "dev:showcase": "npm run dev --workspace @chase-sets/design-system-showcase",
         "test:design-system": "npm run test --workspace @chase-sets/design-system",
-        "typecheck": "npm run typecheck --workspace @chase-sets/design-system && npm run typecheck --workspace @chase-sets/design-system-showcase",
+        "test:showcase": "npm run test --workspace @chase-sets/design-system-showcase",
+        "typecheck": "npm run typecheck --workspace @chase-sets/design-system && npm run typecheck --workspace @chase-sets/catalog-api && npm run typecheck --workspace @chase-sets/marketplace-api && npm run typecheck --workspace @chase-sets/marketplace && npm run typecheck --workspace @chase-sets/catalog-admin && npm run typecheck --workspace @chase-sets/design-system-showcase",
+        "test": "npm run test --workspace @chase-sets/design-system && npm run test --workspace @chase-sets/catalog-api && npm run test --workspace @chase-sets/marketplace-api && npm run test --workspace @chase-sets/marketplace && npm run test --workspace @chase-sets/catalog-admin",
+        "build": "npm run build --workspace @chase-sets/marketplace && npm run build --workspace @chase-sets/catalog-admin && npm run build --workspace @chase-sets/design-system-showcase",
+        "verify": "npm run check:structure && npm run typecheck && npm run test && npm run build",
         "verify:design-system-contracts": "npm run verify:source --workspace @chase-sets/design-system-showcase",
         "dev:catalog-api": "npm run dev --workspace @chase-sets/catalog-api",
         "test:catalog": "npm run test --workspace @chase-sets/catalog-api",

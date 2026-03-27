@@ -25,7 +25,14 @@ export default defineConfig({
         )
       },
       {
-        find: "@chase-sets/discovery",
+        find: /^@chase-sets\/discovery\/web$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/discovery/web.ts"
+        )
+      },
+      {
+        find: /^@chase-sets\/discovery$/,
         replacement: resolve(
           currentDir,
           "../../bounded-contexts/discovery/index.ts"

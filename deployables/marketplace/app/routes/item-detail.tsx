@@ -1,7 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { ItemDetailPage } from "../../../../bounded-contexts/discovery/items/detail/item-detail-page";
+import { ItemDetailPage } from "@chase-sets/discovery/web";
 import { createMarketplaceServerApiClient } from "../api.server";
+import { buildMarketplaceMeta } from "../seo";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createMarketplaceServerApiClient(request);
@@ -38,10 +39,12 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
     ? data.item.description
     : "View marketplace item details for Chase Sets.";
 
-  return [
-    { title },
-    { name: "description", content: description },
-  ];
+  return buildMarketplaceMeta({
+    title,
+    description,
+    imageUrl: data?.item?.image_urls[0],
+    type: data?.item ? "product" : "website",
+  });
 };
 
 export default function MarketplaceItemDetailRoute() {
