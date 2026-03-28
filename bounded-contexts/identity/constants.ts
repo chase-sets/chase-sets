@@ -8,6 +8,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
   owner: [
     "accounts.manage",
     "accounts.view",
+    "catalog.manage",
+    "catalog.view",
     "memberships.manage",
     "memberships.view",
     "inventory.manage",
@@ -18,6 +20,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
   ],
   manager: [
     "accounts.view",
+    "catalog.manage",
+    "catalog.view",
     "memberships.manage",
     "memberships.view",
     "inventory.manage",

@@ -16,15 +16,36 @@ export type ConsentRow = Readonly<{
   updated_at: string;
 }>;
 
+export type ConsentListParams = ListParams &
+  Readonly<{
+    userId?: string;
+    accountId?: string;
+  }>;
+
 export async function listConsents(
   db: PgQueryable,
-  params: ListParams = {},
+  params: ConsentListParams = {},
 ) {
+  const extraConditions: string[] = [];
+  const extraValues: unknown[] = [];
+
+  if (params.userId) {
+    extraConditions.push(`user_id = $${extraValues.length + 1}`);
+    extraValues.push(params.userId);
+  }
+
+  if (params.accountId) {
+    extraConditions.push(`account_id = $${extraValues.length + 1}`);
+    extraValues.push(params.accountId);
+  }
+
   const query = buildFilteredQuery(
     "identity_consents",
     params,
     ["policy_key", "policy_version", "subject_type"],
     "recorded_at DESC",
+    extraConditions,
+    extraValues,
   );
   return executeListQuery<ConsentRow>(db, query.countSql, query.listSql, query.values);
 }

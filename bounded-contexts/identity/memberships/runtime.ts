@@ -16,6 +16,7 @@ import {
 } from "./domain";
 import {
   getMembership,
+  getActiveMembershipForUserAccount,
   listMemberships,
   listMembershipsForUser,
 } from "./queries";
@@ -31,6 +32,10 @@ export type MembershipServices = Readonly<{
     params?: Parameters<typeof listMemberships>[1],
   ) => ReturnType<typeof listMemberships>;
   getMembership: (membershipId: string) => ReturnType<typeof getMembership>;
+  getActiveMembershipForUserAccount: (
+    userId: string,
+    accountId: string,
+  ) => ReturnType<typeof getActiveMembershipForUserAccount>;
   listMembershipsForUser: (
     userId: string,
   ) => ReturnType<typeof listMembershipsForUser>;
@@ -55,6 +60,8 @@ export function createMembershipRuntime(
     commandHandler,
     listMemberships: (params) => listMemberships(deps.db, params),
     getMembership: (membershipId) => getMembership(deps.db, membershipId),
+    getActiveMembershipForUserAccount: (userId, accountId) =>
+      getActiveMembershipForUserAccount(deps.db, userId, accountId),
     listMembershipsForUser: (userId) => listMembershipsForUser(deps.db, userId),
     projectors: [
       createProjector({

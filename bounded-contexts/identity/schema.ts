@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS identity_session_tokens (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS identity_account_selection_tokens (
+  token_id text PRIMARY KEY,
+  user_id text NOT NULL,
+  authentication_method text NOT NULL,
+  token_hash text NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS identity_api_key_secrets (
   api_key_id text PRIMARY KEY,
   user_id text NOT NULL,

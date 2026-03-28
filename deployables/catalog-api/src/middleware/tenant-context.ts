@@ -1,48 +1,49 @@
 import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { TenantId, UserId, AccountId, CorrelationId, CausationId, CommandId } from "@chase-sets/primitives/typed-ids";
-
-const TENANT_HEADER = "x-tenant-id";
-const USER_HEADER = "x-user-id";
-const ACCOUNT_HEADER = "x-account-id";
-const CORRELATION_HEADER = "x-correlation-id";
-const CAUSATION_HEADER = "x-causation-id";
-const COMMAND_HEADER = "x-command-id";
+import {
+  createActorEventStoreContext,
+  hasPermission,
+  type ResolvedActor,
+} from "@chase-sets/identity/server";
 
 export type TenantContextEnv = {
   Variables: {
     context: EventStoreContext;
+    actor: ResolvedActor;
   };
 };
 
-export async function tenantContextMiddleware(
-  c: Context<TenantContextEnv>,
-  next: Next,
-): Promise<Response | void> {
-  const tenantId = c.req.header(TENANT_HEADER);
-  const userId = c.req.header(USER_HEADER);
-  const accountId = c.req.header(ACCOUNT_HEADER);
+export type CatalogActorResolver = (
+  request: Request,
+) => Promise<ResolvedActor | null>;
 
-  if (!tenantId || !userId || !accountId) {
-    return c.json(
-      { error: "Missing required headers: X-Tenant-Id, X-User-Id, X-Account-Id" },
-      401,
-    );
+function getRequiredPermission(method: string) {
+  switch (method.toUpperCase()) {
+    case "GET":
+    case "HEAD":
+      return "catalog.view" as const;
+    default:
+      return "catalog.manage" as const;
   }
+}
 
-  const context: EventStoreContext = {
-    tenantId: tenantId as TenantId,
-    audit: {
-      performedByUserId: userId as UserId,
-      forAccountId: accountId as AccountId,
-    },
-    trace: {
-      correlationId: (c.req.header(CORRELATION_HEADER) as CorrelationId) || undefined,
-      causationId: (c.req.header(CAUSATION_HEADER) as CausationId) || undefined,
-      commandId: (c.req.header(COMMAND_HEADER) as CommandId) || undefined,
-    },
+export function createCatalogAuthMiddleware(resolveActor: CatalogActorResolver) {
+  return async function catalogAuthMiddleware(
+    c: Context<TenantContextEnv>,
+    next: Next,
+  ): Promise<Response | void> {
+    const actor = await resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "Authentication required." }, 401);
+    }
+
+    const requiredPermission = getRequiredPermission(c.req.method);
+    if (!hasPermission(actor, requiredPermission)) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    c.set("actor", actor);
+    c.set("context", createActorEventStoreContext(actor));
+    await next();
   };
-
-  c.set("context", context);
-  await next();
 }

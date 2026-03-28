@@ -33,6 +33,9 @@
       "@chase-sets/identity": [
         "./bounded-contexts/identity/index.ts"
       ],
+      "@chase-sets/identity/server": [
+        "./bounded-contexts/identity/server.ts"
+      ],
       "@chase-sets/identity/web": [
         "./bounded-contexts/identity/web.ts"
       ],

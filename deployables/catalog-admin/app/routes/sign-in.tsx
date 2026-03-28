@@ -1,16 +1,14 @@
 import type { ActionFunctionArgs, MetaFunction } from "react-router";
 import { useActionData } from "react-router";
 import { SignInPage } from "@chase-sets/identity/web";
-import { createMarketplaceIdentityApiClient } from "../api.server";
+import { createIdentityServerApiClient } from "../api.server";
 import { completeAuthentication } from "../auth.server";
-import { buildMarketplaceMeta } from "../seo";
 
-export const meta: MetaFunction = () =>
-  buildMarketplaceMeta({ title: "Sign In | Marketplace" });
+export const meta: MetaFunction = () => [{ title: "Sign In | Catalog Admin" }];
 
 export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
-  const api = createMarketplaceIdentityApiClient(request);
+  const api = createIdentityServerApiClient(request);
   const result = await api.signInWithPassword<{
     requiresAccountSelection?: boolean;
     selectionToken?: string;
@@ -20,13 +18,10 @@ export async function action({ request }: ActionFunctionArgs) {
     password: formData.get("password"),
   });
 
-  return completeAuthentication(request, result, {
-    defaultSuccessPath: "/account",
-    accountSelectionPath: "/account/select",
-  });
+  return completeAuthentication(request, result);
 }
 
-export default function MarketplaceSignInRoute() {
+export default function CatalogAdminSignInRoute() {
   const actionData = useActionData<typeof action>();
   return <SignInPage errorMessage={actionData?.error ?? null} />;
 }

@@ -6,6 +6,7 @@
   "dependencies": {
     "@chase-sets/catalog-authoring": "0.1.0",
     "@chase-sets/design-system": "0.1.0",
+    "@chase-sets/identity": "0.1.0",
     "@react-router/node": "7.13.2",
     "@react-router/serve": "7.13.2",
     "react": "^19.2.4",

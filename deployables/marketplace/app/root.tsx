@@ -13,9 +13,11 @@ import {
   useRouteError,
 } from "react-router";
 import { buildCanonicalUrl } from "./seo";
+import { resolveMarketplaceActor } from "./auth.server";
 
-export function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: LoaderFunctionArgs) {
   return {
+    actor: await resolveMarketplaceActor(request),
     origin: new URL(request.url).origin,
   };
 }

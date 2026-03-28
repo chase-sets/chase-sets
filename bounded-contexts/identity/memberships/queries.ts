@@ -46,3 +46,20 @@ export async function listMembershipsForUser(db: PgQueryable, userId: string) {
   );
   return result.rows;
 }
+
+export async function getActiveMembershipForUserAccount(
+  db: PgQueryable,
+  userId: string,
+  accountId: string,
+) {
+  const result = await db.query<MembershipRow>(
+    `SELECT * FROM identity_memberships
+     WHERE user_id = $1
+       AND account_id = $2
+       AND status = 'active'
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [userId, accountId],
+  );
+  return result.rows[0] ?? null;
+}

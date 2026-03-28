@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../api";
+import { hasPermission } from "../server";
 import type { AccountServices } from "./runtime";
 
 export function accountRoutes(services: AccountServices) {
@@ -71,7 +72,14 @@ export function accountRoutes(services: AccountServices) {
   });
 
   app.get("/", async (c) => {
+    const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
+    if (actor && !hasPermission(actor, "accounts.manage")) {
+      const account = await services.getAccount(actor.accountId);
+      const items = account ? [account] : [];
+      return c.json({ items, total: items.length, count: items.length });
+    }
+
     const result = await services.listAccounts({
       search,
       status,
@@ -82,7 +90,13 @@ export function accountRoutes(services: AccountServices) {
   });
 
   app.get("/:id", async (c) => {
-    const account = await services.getAccount(c.req.param("id"));
+    const actor = c.var.actor;
+    const accountId = c.req.param("id");
+    if (actor && !hasPermission(actor, "accounts.manage") && actor.accountId !== accountId) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    const account = await services.getAccount(accountId);
     if (!account) {
       return c.json({ error: "Account not found." }, 404);
     }

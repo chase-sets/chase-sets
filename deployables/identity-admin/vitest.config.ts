@@ -18,6 +18,10 @@ export default defineConfig({
         replacement: resolve(currentDir, "../../packages/design-system/src/index.ts"),
       },
       {
+        find: /^@chase-sets\/identity\/server$/,
+        replacement: resolve(currentDir, "../../bounded-contexts/identity/server.ts"),
+      },
+      {
         find: /^@chase-sets\/identity\/web$/,
         replacement: resolve(currentDir, "../../bounded-contexts/identity/web.ts"),
       },

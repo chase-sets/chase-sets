@@ -16,6 +16,7 @@ export function buildIdentityTestApp(
   const app = new Hono<IdentityApiEnv>();
   app.use("/api/identity/*", async (c, next) => {
     c.set("context", context);
+    c.set("actor", null);
     await next();
   });
   app.route("/api/identity", buildIdentityApi(services));

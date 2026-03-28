@@ -14,13 +14,16 @@ import {
   type ConsentEvent,
   type ConsentState,
 } from "./domain";
-import { listConsents } from "./queries";
+import {
+  listConsents,
+  type ConsentListParams,
+} from "./queries";
 import { buildConsentProjectionHandlers } from "./projection";
 
 export type ConsentServices = Readonly<{
   commandHandler: CommandHandler<ConsentCommand, ConsentState, ConsentEvent>;
   listConsents: (
-    params?: Parameters<typeof listConsents>[1],
+    params?: ConsentListParams,
   ) => ReturnType<typeof listConsents>;
   projectors: readonly Projector[];
 }>;

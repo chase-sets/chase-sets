@@ -2,28 +2,15 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { AccountProfilePage, type Account } from "@chase-sets/identity/web";
 import { createMarketplaceIdentityApiClient } from "../api.server";
+import { requireMarketplaceActor } from "../auth.server";
 import { buildMarketplaceMeta } from "../seo";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const url = new URL(request.url);
-  const accountId = url.searchParams.get("accountId");
-
-  if (!accountId) {
-    return {
-      account: {
-        account_id: "acc_placeholder",
-        name: "No account selected",
-        display_name: "No account selected",
-        account_type: "personal",
-        status: "inactive",
-        updated_at: new Date().toISOString(),
-      } satisfies Account,
-    };
-  }
+  const actor = await requireMarketplaceActor(request, "accounts.view");
 
   const api = createMarketplaceIdentityApiClient(request);
   return {
-    account: await api.getAccount<Account>(accountId),
+    account: await api.getAccount<Account>(actor.accountId),
   };
 }
 

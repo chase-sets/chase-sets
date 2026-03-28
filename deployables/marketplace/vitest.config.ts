@@ -38,6 +38,13 @@ export default defineConfig({
         )
       },
       {
+        find: /^@chase-sets\/identity\/server$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/identity/server.ts"
+        )
+      },
+      {
         find: /^@chase-sets\/identity\/web$/,
         replacement: resolve(
           currentDir,

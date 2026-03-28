@@ -12,9 +12,11 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
+import { resolveCatalogAdminActor } from "./auth.server";
 
-export function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: LoaderFunctionArgs) {
   return {
+    actor: await resolveCatalogAdminActor(request),
     origin: new URL(request.url).origin,
   };
 }

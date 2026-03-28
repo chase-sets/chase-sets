@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../api";
+import { hasPermission } from "../server";
 import type { UserServices } from "./runtime";
 
 export function userRoutes(services: UserServices) {
@@ -102,7 +103,14 @@ export function userRoutes(services: UserServices) {
   });
 
   app.get("/", async (c) => {
+    const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
+    if (actor && !hasPermission(actor, "security.manage")) {
+      const user = await services.getUser(actor.userId);
+      const items = user ? [user] : [];
+      return c.json({ items, total: items.length, count: items.length });
+    }
+
     const result = await services.listUsers({
       search,
       status,
@@ -113,7 +121,13 @@ export function userRoutes(services: UserServices) {
   });
 
   app.get("/:id", async (c) => {
-    const user = await services.getUser(c.req.param("id"));
+    const actor = c.var.actor;
+    const userId = c.req.param("id");
+    if (actor && !hasPermission(actor, "security.manage") && actor.userId !== userId) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    const user = await services.getUser(userId);
     if (!user) {
       return c.json({ error: "User not found." }, 404);
     }

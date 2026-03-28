@@ -12,10 +12,13 @@ import type {
 } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
+  consumeAccountSelectionToken,
   getApiKeySecretByPrefix,
+  getAccountSelectionTokenByHash,
   getPasswordCredentialByUserId,
   getPasskeyCredentialByExternalId,
   insertChallenge,
+  insertAccountSelectionToken,
   insertMagicLinkToken,
   upsertApiKeySecret,
   upsertPasskeyCredential,
@@ -29,8 +32,17 @@ import {
   IDENTITY_BOOTSTRAP_TENANT_ID,
   IDENTITY_BOOTSTRAP_USER_ID,
 } from "./constants";
-import { normalizeEmail, type RoleKey } from "./common";
+import {
+  assert,
+  normalizeEmail,
+  type PermissionKey,
+  type RoleKey,
+} from "./common";
 import type { IdentityServices } from "./services";
+import {
+  hasPermission,
+  type ResolvedActor,
+} from "./server";
 import { accountRoutes } from "./accounts/route";
 import { userRoutes } from "./users/route";
 import { membershipRoutes } from "./memberships/route";
@@ -42,6 +54,7 @@ import { consentRoutes } from "./consents/route";
 export type IdentityApiEnv = {
   Variables: {
     context: EventStoreContext;
+    actor: ResolvedActor | null;
   };
 };
 
@@ -69,6 +82,14 @@ function getRequiredContext(c: Context<IdentityApiEnv>) {
     throw new Error("Missing identity request context.");
   }
   return context;
+}
+
+function getRequiredActor(c: Context<IdentityApiEnv>) {
+  const actor = c.var.actor;
+  if (!actor) {
+    throw new Error("Missing identity actor.");
+  }
+  return actor;
 }
 
 async function drainProjectors(services: IdentityServices) {
@@ -182,6 +203,78 @@ async function resolveMemberships(services: IdentityServices, userId: string) {
   return memberships.filter((membership) => membership.status === "active");
 }
 
+async function createPendingAccountSelection(
+  services: IdentityServices,
+  params: Readonly<{
+    userId: string;
+    authenticationMethod: "password" | "magic-link" | "passkey";
+  }>,
+) {
+  const tokenId = createId("cmd");
+  const selectionToken = services.auth.issueOpaqueToken("acct");
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 10).toISOString();
+
+  await insertAccountSelectionToken(services.db, {
+    tokenId,
+    userId: params.userId,
+    authenticationMethod: params.authenticationMethod,
+    tokenHash: services.auth.hashSecret(selectionToken),
+    expiresAt,
+  });
+
+  return {
+    selectionToken,
+    expiresAt,
+  };
+}
+
+async function toInteractiveAuthResponse(
+  services: IdentityServices,
+  params: Readonly<{
+    userId: string;
+    authenticationMethod: "password" | "magic-link" | "passkey";
+    sessionResult: Awaited<ReturnType<typeof startSessionForUser>>;
+  }>,
+) {
+  if (!params.sessionResult.requiresAccountSelection) {
+    return params.sessionResult;
+  }
+
+  const selection = await createPendingAccountSelection(services, {
+    userId: params.userId,
+    authenticationMethod: params.authenticationMethod,
+  });
+
+  return {
+    ...params.sessionResult,
+    selectionToken: selection.selectionToken,
+    selectionExpiresAt: selection.expiresAt,
+  };
+}
+
+function requirePermission(
+  readPermission: PermissionKey,
+  writePermission = readPermission,
+) {
+  return async (c: Context<IdentityApiEnv>, next: () => Promise<void>) => {
+    const actor = c.var.actor;
+    if (!actor) {
+      return c.json({ error: "Authentication required." }, 401);
+    }
+
+    const requiredPermission =
+      c.req.method === "GET" || c.req.method === "HEAD"
+        ? readPermission
+        : writePermission;
+
+    if (!hasPermission(actor, requiredPermission)) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    await next();
+  };
+}
+
 async function startSessionForUser(
   services: IdentityServices,
   params: Readonly<{
@@ -213,6 +306,10 @@ async function startSessionForUser(
   }
 
   const availableAccountIds = memberships.map((membership) => membership.account_id);
+  assert(
+    availableAccountIds.includes(selectedAccountId),
+    "Selected account is not available for this user.",
+  );
   const sessionId = createId("ses") as SessionId;
   const sessionToken = services.auth.issueOpaqueToken("session");
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString();
@@ -284,11 +381,16 @@ export function buildIdentityApi(services: IdentityServices) {
       authenticationMethod: body.password ? "password" : "magic-link",
       context,
     });
+    const authResponse = await toInteractiveAuthResponse(services, {
+      userId: identity.userId,
+      authenticationMethod: body.password ? "password" : "magic-link",
+      sessionResult,
+    });
 
     return c.json({
       userId: identity.userId,
       accountId: identity.accountId,
-      ...sessionResult,
+      ...authResponse,
     }, 201);
   });
 
@@ -313,10 +415,15 @@ export function buildIdentityApi(services: IdentityServices) {
       authenticationMethod: "password",
       context: getBootstrapContext(c),
     });
+    const authResponse = await toInteractiveAuthResponse(services, {
+      userId: user.user_id,
+      authenticationMethod: "password",
+      sessionResult,
+    });
 
     return c.json({
       userId: user.user_id,
-      ...sessionResult,
+      ...authResponse,
     });
   });
 
@@ -367,9 +474,70 @@ export function buildIdentityApi(services: IdentityServices) {
       authenticationMethod: "magic-link",
       context,
     });
+    const authResponse = await toInteractiveAuthResponse(services, {
+      userId: user!.user_id,
+      authenticationMethod: "magic-link",
+      sessionResult,
+    });
 
     return c.json({
       userId: user!.user_id,
+      ...authResponse,
+    });
+  });
+
+  auth.post("/account-selection/resolve", async (c) => {
+    const body = await c.req.json();
+    const selectionToken = String(body.selectionToken ?? "");
+    const selection = await getAccountSelectionTokenByHash(
+      services.db,
+      services.auth.hashSecret(selectionToken),
+    );
+
+    if (!selection) {
+      return c.json({ error: "Account selection is invalid or has expired." }, 401);
+    }
+
+    const memberships = await resolveMemberships(services, selection.user_id);
+    return c.json({
+      userId: selection.user_id,
+      memberships: memberships.map((membership) => ({
+        membershipId: membership.membership_id,
+        accountId: membership.account_id,
+        roleKey: membership.role_key,
+        status: membership.status,
+      })),
+    });
+  });
+
+  auth.post("/account-selection/complete", async (c) => {
+    const body = await c.req.json();
+    const selectionToken = String(body.selectionToken ?? "");
+    const selection = await consumeAccountSelectionToken(
+      services.db,
+      services.auth.hashSecret(selectionToken),
+    );
+
+    if (!selection) {
+      return c.json({ error: "Account selection is invalid or has expired." }, 401);
+    }
+
+    const sessionResult = await startSessionForUser(services, {
+      userId: selection.user_id,
+      accountId: body.accountId,
+      authenticationMethod: selection.authentication_method as
+        | "password"
+        | "magic-link"
+        | "passkey",
+      context: getBootstrapContext(c),
+    });
+
+    if (sessionResult.requiresAccountSelection) {
+      return c.json({ error: "Account selection could not be completed." }, 400);
+    }
+
+    return c.json({
+      userId: selection.user_id,
       ...sessionResult,
     });
   });
@@ -402,8 +570,11 @@ export function buildIdentityApi(services: IdentityServices) {
       return c.json({ error: "Passkey challenge is invalid or expired." }, 401);
     }
 
+    const actor = getRequiredActor(c);
     const context = getRequiredContext(c);
-    const userId = (body.userId ?? challenge.user_id) as UserId | undefined;
+    const userId = (body.userId ?? challenge.user_id ?? actor.userId) as
+      | UserId
+      | undefined;
     if (!userId) {
       return c.json({ error: "Passkey registration requires a user." }, 400);
     }
@@ -471,10 +642,15 @@ export function buildIdentityApi(services: IdentityServices) {
       authenticationMethod: "passkey",
       context: getBootstrapContext(c),
     });
+    const authResponse = await toInteractiveAuthResponse(services, {
+      userId: passkey.user_id,
+      authenticationMethod: "passkey",
+      sessionResult,
+    });
 
     return c.json({
       userId: passkey.user_id,
-      ...sessionResult,
+      ...authResponse,
     });
   });
 
@@ -525,14 +701,41 @@ export function buildIdentityApi(services: IdentityServices) {
       authenticationMethod: body.password ? "password" : "magic-link",
       context,
     });
+    const authResponse = await toInteractiveAuthResponse(services, {
+      userId: user!.user_id,
+      authenticationMethod: body.password ? "password" : "magic-link",
+      sessionResult,
+    });
 
     return c.json({
       invitationId: body.invitationId,
       membershipId,
       userId: user!.user_id,
-      ...sessionResult,
+      ...authResponse,
     });
   });
+
+  auth.get("/session", async (c) => {
+    const actor = c.var.actor;
+    if (!actor) {
+      return c.json({ error: "Authentication required." }, 401);
+    }
+
+    return c.json({ actor });
+  });
+
+  app.use("/accounts", requirePermission("accounts.view", "accounts.manage"));
+  app.use("/accounts/*", requirePermission("accounts.view", "accounts.manage"));
+  app.use("/users", requirePermission("security.manage"));
+  app.use("/users/*", requirePermission("security.manage"));
+  app.use("/memberships", requirePermission("memberships.view", "memberships.manage"));
+  app.use("/memberships/*", requirePermission("memberships.view", "memberships.manage"));
+  app.use("/invitations", requirePermission("memberships.manage"));
+  app.use("/invitations/*", requirePermission("memberships.manage"));
+  app.use("/sessions", requirePermission("security.manage"));
+  app.use("/sessions/*", requirePermission("security.manage"));
+  app.use("/api-keys", requirePermission("security.manage"));
+  app.use("/api-keys/*", requirePermission("security.manage"));
 
   app.route("/accounts", accountRoutes(services.accounts));
   app.route("/users", userRoutes(services.users));

@@ -25,6 +25,8 @@ export type RoleKey = "owner" | "manager" | "fulfillment" | "viewer";
 export type PermissionKey =
   | "accounts.manage"
   | "accounts.view"
+  | "catalog.manage"
+  | "catalog.view"
   | "memberships.manage"
   | "memberships.view"
   | "inventory.manage"

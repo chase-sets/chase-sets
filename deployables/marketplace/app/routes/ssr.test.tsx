@@ -245,8 +245,32 @@ describe("marketplace SSR routes", () => {
   it("loads account detail through the identity API", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
-        Promise.resolve(
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/identity/auth/session")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                actor: {
+                  sessionId: "ses_1",
+                  tenantId: "tnt_identity",
+                  userId: "usr_1",
+                  accountId: "acc_1",
+                  membershipId: "mbr_1",
+                  roleKey: "owner",
+                  permissions: ["accounts.view"],
+                },
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+
+        return Promise.resolve(
           new Response(
             JSON.stringify({
               account_id: "acc_1",
@@ -261,12 +285,12 @@ describe("marketplace SSR routes", () => {
               headers: { "Content-Type": "application/json" },
             },
           ),
-        ),
-      ),
+        );
+      }),
     );
 
     const result = await accountLoader({
-      request: new Request("http://localhost/account?accountId=acc_1"),
+      request: new Request("http://localhost/account"),
       params: {},
       context: undefined,
     } as never);

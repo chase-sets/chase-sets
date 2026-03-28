@@ -21,6 +21,8 @@ export class ApiError extends Error {
 export interface CatalogApiClientOptions {
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
+  headers?: HeadersInit | (() => HeadersInit);
+  credentials?: RequestCredentials;
 }
 
 function queryFromString(query: string) {
@@ -36,20 +38,25 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function getDevHeaders() {
-  return {
-    "X-Tenant-Id": "tenant_dev",
-    "X-User-Id": "user_dev",
-    "X-Account-Id": "account_dev",
-  };
+function resolveHeaders(
+  headers?: HeadersInit | (() => HeadersInit),
+) {
+  return typeof headers === "function" ? headers() : headers;
 }
 
 export function createCatalogApiClient({
   baseUrl = DEFAULT_BASE_URL,
   fetch = globalThis.fetch,
+  headers: initialHeaders,
+  credentials = "include",
 }: CatalogApiClientOptions = {}) {
-  const client = hc<CatalogAuthoringApiApp>(baseUrl, { fetch }) as any;
-  const headers = getDevHeaders();
+  const configuredFetch: typeof globalThis.fetch = (input, init = {}) =>
+    fetch(input, {
+      ...init,
+      credentials: init.credentials ?? credentials,
+    });
+  const client = hc<CatalogAuthoringApiApp>(baseUrl, { fetch: configuredFetch }) as any;
+  const headers = resolveHeaders(initialHeaders);
 
   return {
     async listDimensions<T>(query: string): Promise<T> {

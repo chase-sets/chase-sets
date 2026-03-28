@@ -11,7 +11,7 @@ describe("identity api host app", () => {
       db: {
         query: async () => ({ rows: [], rowCount: 0 }),
       },
-    } as IdentityServices);
+    } as unknown as IdentityServices);
 
     const healthResponse = await app.fetch(new Request("http://identity.test/health"));
     expect(healthResponse.status).toBe(200);

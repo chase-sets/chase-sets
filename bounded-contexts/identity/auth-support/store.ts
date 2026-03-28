@@ -254,6 +254,83 @@ export async function getSessionByTokenHash(
   return result.rows[0] ?? null;
 }
 
+export async function insertAccountSelectionToken(
+  db: PgQueryable,
+  params: Readonly<{
+    tokenId: string;
+    userId: string;
+    authenticationMethod: string;
+    tokenHash: string;
+    expiresAt: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO identity_account_selection_tokens (
+       token_id,
+       user_id,
+       authentication_method,
+       token_hash,
+       expires_at,
+       created_at
+     )
+     VALUES ($1, $2, $3, $4, $5, now())`,
+    [
+      params.tokenId,
+      params.userId,
+      params.authenticationMethod,
+      params.tokenHash,
+      params.expiresAt,
+    ],
+  );
+}
+
+export async function getAccountSelectionTokenByHash(
+  db: PgQueryable,
+  tokenHash: string,
+) {
+  const result = await db.query<{
+    token_id: string;
+    user_id: string;
+    authentication_method: string;
+    token_hash: string;
+    expires_at: string;
+    consumed_at: string | null;
+  }>(
+    `SELECT token_id, user_id, authentication_method, token_hash, expires_at, consumed_at
+     FROM identity_account_selection_tokens
+     WHERE token_hash = $1
+       AND consumed_at IS NULL
+       AND expires_at > now()`,
+    [tokenHash],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function consumeAccountSelectionToken(
+  db: PgQueryable,
+  tokenHash: string,
+) {
+  const result = await db.query<{
+    token_id: string;
+    user_id: string;
+    authentication_method: string;
+    token_hash: string;
+    expires_at: string;
+    consumed_at: string | null;
+  }>(
+    `UPDATE identity_account_selection_tokens
+     SET consumed_at = now()
+     WHERE token_hash = $1
+       AND consumed_at IS NULL
+       AND expires_at > now()
+     RETURNING token_id, user_id, authentication_method, token_hash, expires_at, consumed_at`,
+    [tokenHash],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 export async function upsertApiKeySecret(
   db: PgQueryable,
   params: Readonly<{

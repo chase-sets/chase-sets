@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { MembershipId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../api";
+import { hasPermission } from "../server";
 import type { MembershipServices } from "./runtime";
 
 export function membershipRoutes(services: MembershipServices) {
@@ -55,9 +56,13 @@ export function membershipRoutes(services: MembershipServices) {
   });
 
   app.get("/", async (c) => {
+    const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     const result = await services.listMemberships({
-      search,
+      search:
+        actor && !hasPermission(actor, "memberships.manage")
+          ? actor.userId
+          : search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
@@ -69,6 +74,14 @@ export function membershipRoutes(services: MembershipServices) {
     const membership = await services.getMembership(c.req.param("id"));
     if (!membership) {
       return c.json({ error: "Membership not found." }, 404);
+    }
+    const actor = c.var.actor;
+    if (
+      actor &&
+      !hasPermission(actor, "memberships.manage") &&
+      membership.user_id !== actor.userId
+    ) {
+      return c.json({ error: "Forbidden." }, 403);
     }
     return c.json(membership);
   });

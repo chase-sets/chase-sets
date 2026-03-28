@@ -13,6 +13,10 @@ export function AuthFormPage({
   description,
   fields,
   ctaLabel,
+  action,
+  method = "post",
+  hiddenFields,
+  errorMessage,
   onSubmit,
 }: {
   title: string;
@@ -20,11 +24,18 @@ export function AuthFormPage({
   fields: readonly {
     key: string;
     label: string;
+    name?: string;
     type?: "text" | "email" | "password";
     value?: string;
+    defaultValue?: string;
+    required?: boolean;
     onChange?: (value: string) => void;
   }[];
   ctaLabel: string;
+  action?: string;
+  method?: "get" | "post";
+  hiddenFields?: readonly { name: string; value: string }[];
+  errorMessage?: string | null;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -36,26 +47,46 @@ export function AuthFormPage({
         <Text tone="secondary">{description}</Text>
       </Stack>
       <Card>
-        <form onSubmit={onSubmit}>
+        <form action={action} method={method} onSubmit={onSubmit}>
           <Stack gap={3}>
+            {hiddenFields?.map((field) => (
+              <input
+                key={field.name}
+                type="hidden"
+                name={field.name}
+                value={field.value}
+                readOnly
+              />
+            ))}
             {fields.map((field) =>
               field.type === "password" ? (
                 <PasswordInput
                   key={field.key}
                   label={field.label}
+                  name={field.name ?? field.key}
                   value={field.value}
+                  defaultValue={field.defaultValue}
+                  required={field.required}
                   onChange={(event) => field.onChange?.(event.target.value)}
                 />
               ) : (
                 <TextInput
                   key={field.key}
                   label={field.label}
+                  name={field.name ?? field.key}
                   type={field.type}
                   value={field.value}
+                  defaultValue={field.defaultValue}
+                  required={field.required}
                   onChange={(event) => field.onChange?.(event.target.value)}
                 />
               ),
             )}
+            {errorMessage ? (
+              <div role="alert">
+                <Text>{errorMessage}</Text>
+              </div>
+            ) : null}
             <Button type="submit">{ctaLabel}</Button>
           </Stack>
         </form>
@@ -82,8 +113,11 @@ export function CustomerSummaryPage({
         <Text tone="secondary">{description}</Text>
       </Stack>
       {sections.map((section) => (
-        <Card key={section.title} title={section.title}>
-          <Text tone="secondary">{section.body}</Text>
+        <Card key={section.title}>
+          <Stack gap={2}>
+            <Text weight="semibold">{section.title}</Text>
+            <Text tone="secondary">{section.body}</Text>
+          </Stack>
         </Card>
       ))}
     </Stack>
