@@ -6,10 +6,17 @@ import {
   ItemDetailPage,
   SearchPage,
 } from "@chase-sets/discovery/web";
+import {
+  AccountProfilePage,
+  SignInPage,
+  type Account,
+} from "@chase-sets/identity/web";
 import { buildCanonicalUrl } from "../seo";
+import { loader as accountLoader } from "./account";
 import { loader as itemLoader, meta as itemMeta } from "./item-detail";
 import { loader as robotsLoader } from "./robots";
 import { loader as searchLoader, meta as searchMeta } from "./search";
+import { meta as signInMeta } from "./sign-in";
 import { loader as sitemapLoader } from "./sitemap";
 
 describe("marketplace SSR routes", () => {
@@ -80,6 +87,35 @@ describe("marketplace SSR routes", () => {
 
     expect(html).toContain("Charizard ex");
     expect(html).toContain("Server rendered detail page.");
+  });
+
+  it("renders identity entry content into HTML before hydration", () => {
+    const html = renderToString(
+      <DiscoveryShellLayout activeKey="search">
+        <SignInPage />
+      </DiscoveryShellLayout>,
+    );
+
+    expect(html).toContain("Sign In");
+  });
+
+  it("renders account profile content into HTML before hydration", () => {
+    const html = renderToString(
+      <DiscoveryShellLayout activeKey="search">
+        <AccountProfilePage
+          account={{
+            account_id: "acc_1",
+            name: "North Store LLC",
+            display_name: "North Store",
+            account_type: "business",
+            status: "active",
+            updated_at: "2026-03-26T00:00:00.000Z",
+          }}
+        />
+      </DiscoveryShellLayout>,
+    );
+
+    expect(html).toContain("North Store");
   });
 
   it("loads discovery data through the marketplace API", async () => {
@@ -206,6 +242,38 @@ describe("marketplace SSR routes", () => {
     expect(result.item?.title).toBe("Charizard ex");
   });
 
+  it("loads account detail through the identity API", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              account_id: "acc_1",
+              name: "North Store LLC",
+              display_name: "North Store",
+              account_type: "business",
+              status: "active",
+              updated_at: "2026-03-26T00:00:00.000Z",
+            } satisfies Account),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        ),
+      ),
+    );
+
+    const result = await accountLoader({
+      request: new Request("http://localhost/account?accountId=acc_1"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.account.display_name).toBe("North Store");
+  });
+
   it("serves robots.txt from the marketplace app", async () => {
     const response = robotsLoader({
       request: new Request("https://marketplace.example/robots.txt"),
@@ -229,6 +297,12 @@ describe("marketplace SSR routes", () => {
     expect(response.headers.get("Content-Type")).toContain("application/xml");
     await expect(response.text()).resolves.toContain(
       "<loc>https://marketplace.example/search</loc>",
+    );
+  });
+
+  it("returns sign-in route SEO metadata", () => {
+    expect(signInMeta({} as never)).toEqual(
+      expect.arrayContaining([{ title: "Sign In | Marketplace" }]),
     );
   });
 });

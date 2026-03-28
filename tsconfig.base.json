@@ -30,6 +30,12 @@
       "@chase-sets/discovery/web": [
         "./bounded-contexts/discovery/web.ts"
       ],
+      "@chase-sets/identity": [
+        "./bounded-contexts/identity/index.ts"
+      ],
+      "@chase-sets/identity/web": [
+        "./bounded-contexts/identity/web.ts"
+      ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
       ],

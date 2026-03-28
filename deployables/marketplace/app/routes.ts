@@ -12,5 +12,12 @@ export default [
     index("routes/index.tsx"),
     route("search", "routes/search.tsx"),
     route("items/:id", "routes/item-detail.tsx"),
+    route("sign-in", "routes/sign-in.tsx"),
+    route("register", "routes/register.tsx"),
+    route("account/select", "routes/account-select.tsx"),
+    route("account", "routes/account.tsx"),
+    route("account/team", "routes/account-team.tsx"),
+    route("account/security", "routes/account-security.tsx"),
+    route("account/consents", "routes/account-consents.tsx"),
   ]),
 ] satisfies RouteConfig;

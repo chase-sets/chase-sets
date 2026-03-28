@@ -83,6 +83,42 @@ const implementedRootRules = new Map([
     },
   ],
   [
+    "bounded-contexts/identity",
+    {
+      allowedDirs: new Set([
+        "accounts",
+        "api-keys",
+        "auth-support",
+        "consents",
+        "customer",
+        "invitations",
+        "memberships",
+        "projection-support",
+        "read-model-support",
+        "sessions",
+        "shell",
+        "shell-support",
+        "tests",
+        "users",
+      ]),
+      allowedFiles: new Set([
+        "README.md",
+        "GLOSSARY.md",
+        "api.ts",
+        "common.ts",
+        "constants.ts",
+        "index.ts",
+        "package.json",
+        "runtime-support.ts",
+        "schema.ts",
+        "seed.ts",
+        "services.ts",
+        "test-support.ts",
+        "web.ts",
+      ]),
+    },
+  ],
+  [
     "contracts/event-core",
     {
       allowedDirs: new Set([]),
@@ -140,7 +176,7 @@ const implementedRootRules = new Map([
     },
   ],
 ]);
-const boundedContextPackages = ["@chase-sets/catalog-authoring", "@chase-sets/discovery"];
+const boundedContextPackages = ["@chase-sets/catalog-authoring", "@chase-sets/discovery", "@chase-sets/identity"];
 const contractPackages = ["@chase-sets/event-core", "@chase-sets/http", "@chase-sets/primitives"];
 const infrastructurePackages = ["@chase-sets/event-core-postgres"];
 const workspacePackages = ["@chase-sets/design-system"];
@@ -199,11 +235,12 @@ function matchesPackageSpecifier(specifier, packageName) {
 }
 
 function isAllowedDeployableBoundedContextImport(specifier) {
-  return (
-    specifier === "@chase-sets/catalog-authoring/web" ||
-    specifier === "@chase-sets/discovery/web"
-  );
-}
+    return (
+      specifier === "@chase-sets/catalog-authoring/web" ||
+      specifier === "@chase-sets/discovery/web" ||
+      specifier === "@chase-sets/identity/web"
+    );
+  }
 
 function isBoundedContextSpecifier(specifier) {
   return (
@@ -253,6 +290,10 @@ function getBoundedContextRoot(relativeFile) {
 
   if (parts[1] === "discovery") {
     return "bounded-contexts/discovery";
+  }
+
+  if (parts[1] === "identity") {
+    return "bounded-contexts/identity";
   }
 
   return `bounded-contexts/${parts[1]}`;

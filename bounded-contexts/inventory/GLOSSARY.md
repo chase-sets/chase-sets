@@ -2,31 +2,42 @@
 
 This glossary defines the canonical terminology for the Inventory bounded context.
 
-## Inventory Lot
+## Inventory Record
 
-An **Inventory Lot** is a seller-owned stock record for a specific catalog item, condition assessment, and quantity.
+An **Inventory Record** is a seller's stock for one specific catalog item variant, condition, and storage location.
 
 Notes:
 
-- Inventory lots are private to the seller account.
-- Inventory lots are referenced by Marketplace but not owned there.
+- Every inventory record belongs to exactly one seller account.
+- Every inventory record belongs to exactly one storage location.
+- Marketplace may reference inventory availability, but Inventory owns the stock truth.
 
-## Availability
+## Total Quantity
 
-**Availability** is the quantity in an inventory lot that is sellable after reservations are applied.
+**Total Quantity** is the number of units recorded in an inventory record before active holds are applied.
 
-## Reservation
+## Available Quantity
 
-A **Reservation** is a temporary hold against available inventory created by checkout or other in-progress commerce flows.
+**Available Quantity** is the number of units in an inventory record that can still be sold after active holds are applied.
+
+## Hold
+
+A **Hold** is a temporary block against available stock while checkout or another in-progress commerce flow completes.
 
 ## Storage Location
 
-A **Storage Location** is the physical or logical place where a seller stores inventory.
+A **Storage Location** is a seller-defined place where stock is stored.
 
-## Ingestion Batch
+Notes:
 
-An **Ingestion Batch** is a bulk import workflow that creates or updates inventory lots.
+- A seller account may have more than one storage location.
+- A storage location may be as broad as a room or as granular as a bin, shelf, or aisle.
+- Each storage location maps to exactly one ship-from location.
 
-## Cost Basis
+## Import
 
-**Cost Basis** is the seller-owned acquisition cost data associated with inventory.
+An **Import** is a bulk inventory upload that creates or updates inventory records.
+
+## Acquisition Cost
+
+**Acquisition Cost** is the seller's recorded cost to acquire stock in inventory.

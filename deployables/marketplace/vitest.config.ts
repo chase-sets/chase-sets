@@ -38,6 +38,20 @@ export default defineConfig({
         )
       },
       {
+        find: /^@chase-sets\/identity\/web$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/identity/web.ts"
+        )
+      },
+      {
+        find: /^@chase-sets\/identity$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/identity/index.ts"
+        )
+      },
+      {
         find: "@chase-sets/event-core-postgres",
         replacement: resolve(
           currentDir,

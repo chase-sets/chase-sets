@@ -2,17 +2,17 @@
 
 ## Purpose
 
-Inventory owns seller-held stock and its operational availability.
+Inventory owns seller-held stock, its storage structure, its ship-from location mapping, and its operational availability.
 
 ## Owns
 
-- Inventory lots
+- Inventory lots tied to storage locations
 - Quantities on hand
 - Seller-specific condition assessments
 - Acquisition cost and cost basis
-- Storage locations
+- Storage locations and their ship-from location mapping
 - Reservation state
-- Bulk ingestion workflows
+- Bulk stock import workflows
 
 ## Does Not Own
 
@@ -29,7 +29,7 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 - Inventory Lot
 - Reservation
-- Ingestion Batch
+- Import Batch
 
 ## Incoming Dependencies
 
@@ -48,9 +48,12 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 1. Inventory is private seller state.
 2. Every inventory lot belongs to exactly one seller account.
-3. Inventory availability must be derived from on-hand quantity minus active reservations.
-4. A listing can only be created from inventory that is available for sale.
+3. Every inventory lot belongs to exactly one storage location.
+4. Every storage location maps to exactly one ship-from location.
+5. Inventory availability must be derived from on-hand quantity minus active reservations.
+6. A listing can only be created from inventory that is available for sale.
+7. Reserved stock must preserve the ship-from location derived from its storage location so downstream shipping prices can use a single shipment origin.
 
 ## Open Extraction Candidates
 
-- Warehouse operations can be extracted later if multi-location fulfillment becomes materially more complex.
+- Warehouse topology and location-based fulfillment orchestration can be extracted later if multi-location fulfillment becomes materially more complex.
