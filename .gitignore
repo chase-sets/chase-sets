@@ -2,3 +2,6 @@ node_modules/
 dist/
 build/
 .env
+!deployables/catalog-api/.env
+!deployables/identity-api/.env
+!deployables/marketplace-api/.env

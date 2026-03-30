@@ -12,40 +12,36 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool) {
   const services = createCatalogServices(pool);
 
   try {
-    try {
-      const existing = await services.db.query(
-        "SELECT COUNT(*) FROM catalog_dimensions",
-      );
-      if (Number(existing.rows[0].count) > 0) {
-        console.log("Catalog already contains data. Skipping seed.");
-        return;
-      }
-    } catch {
-      // Table may not exist yet. Proceed with seeding.
-    }
-
-    console.log("Starting Pokemon TCG seed...\n");
-
-    const [dimensions, fields] = await Promise.all([
-      seedDimensions(services),
-      seedFields(services),
-    ]);
-
-    const components = await seedComponents(services, dimensions, fields);
-    const blueprints = await seedBlueprints(
-      services,
-      components,
-      dimensions,
-      fields,
+    const existing = await services.db.query(
+      "SELECT COUNT(*) FROM catalog_dimensions",
     );
-    const categories = await seedCategories(services);
-    await seedCatalogItems(services, blueprints, fields, categories);
-    await drainProjectors("catalog", services.projectors);
-
-    console.log("\nSeed complete!");
-  } finally {
-    await (pool as unknown as { end: () => Promise<void> }).end();
+    if (Number(existing.rows[0].count) > 0) {
+      console.log("Catalog already contains data. Skipping seed.");
+      return;
+    }
+  } catch {
+    // Table may not exist yet. Proceed with seeding.
   }
+
+  console.log("Starting Pokemon TCG seed...\n");
+
+  const [dimensions, fields] = await Promise.all([
+    seedDimensions(services),
+    seedFields(services),
+  ]);
+
+  const components = await seedComponents(services, dimensions, fields);
+  const blueprints = await seedBlueprints(
+    services,
+    components,
+    dimensions,
+    fields,
+  );
+  const categories = await seedCategories(services);
+  await seedCatalogItems(services, blueprints, fields, categories);
+  await drainProjectors("catalog", services.projectors);
+
+  console.log("\nSeed complete!");
 }
 
 

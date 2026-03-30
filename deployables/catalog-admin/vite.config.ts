@@ -85,6 +85,16 @@ export default defineConfig({
     ]
   },
   server: {
-    port: 5174
+    port: 5174,
+    proxy: {
+      "/api/catalog": {
+        target: "http://localhost:3100",
+        changeOrigin: true,
+      },
+      "/api/identity": {
+        target: "http://localhost:3102",
+        changeOrigin: true,
+      },
+    },
   }
 });

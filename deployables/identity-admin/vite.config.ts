@@ -54,5 +54,11 @@ export default defineConfig({
   },
   server: {
     port: 5176,
+    proxy: {
+      "/api/identity": {
+        target: "http://localhost:3102",
+        changeOrigin: true,
+      },
+    },
   },
 });

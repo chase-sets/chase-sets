@@ -85,6 +85,16 @@ export default defineConfig({
     ]
   },
   server: {
-    port: 5175
+    port: 5175,
+    proxy: {
+      "/api/marketplace": {
+        target: "http://localhost:3200",
+        changeOrigin: true,
+      },
+      "/api/identity": {
+        target: "http://localhost:3102",
+        changeOrigin: true,
+      },
+    },
   }
 });

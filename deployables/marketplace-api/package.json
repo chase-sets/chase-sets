@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "bootstrap": "tsx --env-file=.env src/bootstrap.ts",
     "dev": "tsx watch --env-file=.env src/main.ts",
     "start": "tsx --env-file=.env src/main.ts",
     "backfill:search": "tsx --env-file=.env src/scripts/backfill-search.ts",
