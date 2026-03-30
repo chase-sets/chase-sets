@@ -5,7 +5,11 @@ const config: Config = {
     "./packages/design-system/src/**/*.{ts,tsx}",
     "./deployables/design-system-showcase/src/**/*.{ts,tsx}",
     "./deployables/design-system-showcase/index.html",
-    "./deployables/marketplace/src/**/*.{ts,tsx}"
+    "./deployables/marketplace/src/**/*.{ts,tsx}",
+    "./deployables/catalog-admin/src/**/*.{ts,tsx}",
+    "./deployables/catalog-admin/app/**/*.{ts,tsx}",
+    "./deployables/identity-admin/src/**/*.{ts,tsx}",
+    "./deployables/identity-admin/app/**/*.{ts,tsx}"
   ],
   theme: {
     extend: {

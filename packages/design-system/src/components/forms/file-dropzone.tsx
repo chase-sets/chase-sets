@@ -1,0 +1,88 @@
+import { useId, useState } from "react";
+import { Icon } from "../../icons";
+import { cx } from "../../utils/cx";
+import { FieldChrome, type BaseInputProps } from "./shared";
+
+export interface FileDropzoneProps extends BaseInputProps {
+  id?: string;
+  accept?: string;
+  multiple?: boolean;
+  onFilesChange?: (files: FileList | null) => void;
+  dropLabel?: string;
+  browseLabel?: string;
+}
+
+export function FileDropzone({
+  id,
+  label,
+  description,
+  error,
+  required,
+  hideLabel,
+  accept,
+  multiple = false,
+  onFilesChange,
+  dropLabel = "Drop files here",
+  browseLabel = "or choose from your device"
+}: FileDropzoneProps) {
+  const fallbackId = useId();
+  const inputId = id ?? fallbackId;
+  const [dragging, setDragging] = useState(false);
+
+  function handleDragOver(event: React.DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragging(true);
+  }
+
+  function handleDragLeave(event: React.DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragging(false);
+  }
+
+  function handleDrop(event: React.DragEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragging(false);
+    onFilesChange?.(event.dataTransfer.files);
+  }
+
+  return (
+    <FieldChrome
+      label={label}
+      description={description}
+      error={error}
+      required={required}
+      hideLabel={hideLabel}
+      htmlFor={inputId}
+    >
+      <label
+        htmlFor={inputId}
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={cx(
+          "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-tokenLg border border-dashed bg-background px-4 py-8 text-center transition",
+          dragging ? "border-accent bg-elevated" : "border-muted"
+        )}
+      >
+        <Icon name="package" size="lg" tone="accent" />
+        <div className="space-y-1">
+          <div className="text-sm font-semibold text-foreground">{dropLabel}</div>
+          <div className="text-xs text-secondary">{browseLabel}</div>
+        </div>
+        <input
+          id={inputId}
+          accept={accept}
+          multiple={multiple}
+          required={required}
+          type="file"
+          className="sr-only"
+          onChange={(event) => onFilesChange?.(event.target.files)}
+        />
+      </label>
+    </FieldChrome>
+  );
+}

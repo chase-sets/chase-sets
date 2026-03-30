@@ -42,7 +42,13 @@
       "Bash(grep -r \"framer-motion\\\\|from ''motion''\\\\|import.*motion\\\\|gsap\\\\|react-spring\" /d/Users/ToddS/Source/Repos/chase-sets --include=\"*.json\" --include=\"*.tsx\" --include=\"*.ts\")",
       "Bash(xargs grep -l \"^import.*from.*design-system\")",
       "Bash(netstat -ano)",
-      "Bash(taskkill //PID 3968 //F)"
+      "Bash(taskkill //PID 3968 //F)",
+      "Bash(grep -r \"^export\" /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/components/*.tsx)",
+      "Bash(grep -r \"^export\" /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/patterns/*.tsx)",
+      "Bash(grep -h \"^export \\(function|const|interface\\)\" /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/components/*.tsx)",
+      "Bash(grep -oh \"^export \\(function|const\\)\" /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/components/*.tsx)",
+      "Bash(ls -d d:/Users/ToddS/Source/Repos/chase-sets/deployables/*/)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

@@ -26,9 +26,10 @@ export type JustifyValue =
 export type TextAlignValue = "left" | "center" | "right";
 export type DirectionValue = "row" | "column";
 
+type BreakpointKey = "base" | "sm" | "md" | "lg" | "xl" | "2xl";
 type BreakpointClassMap<T extends string | number> = Record<
   `${T}`,
-  Record<"base" | "sm" | "md" | "lg" | "xl" | "2xl", string>
+  Record<BreakpointKey, string>
 >;
 
 export interface SystemProps {
@@ -39,27 +40,19 @@ export interface SystemProps {
   textAlign?: TextAlignValue;
 }
 
-const spaceClasses: Record<`${SpaceToken}`, string> = {
-  "0": "0",
-  "1": "1",
-  "2": "2",
-  "3": "3",
-  "4": "4",
-  "5": "5",
-  "6": "6",
-  "7": "7",
-  "8": "8",
-  "9": "9",
-  "10": "10",
-  "11": "11",
-  "12": "12"
-};
+const breakpoints: BreakpointKey[] = ["base", "sm", "md", "lg", "xl", "2xl"];
 
 const textAlignClasses: Record<TextAlignValue, string> = {
   left: "text-left",
   center: "text-center",
   right: "text-right"
 };
+
+/* ------------------------------------------------------------------
+ * Tailwind scans source files statically for class names. Every
+ * responsive class MUST appear as a full literal string — never
+ * assembled via interpolation — or the CSS will not be generated.
+ * ----------------------------------------------------------------*/
 
 const directionClasses: BreakpointClassMap<DirectionValue> = {
   row: {
@@ -193,15 +186,6 @@ const columnsClasses: BreakpointClassMap<1 | 2 | 3 | 4> = {
   }
 };
 
-const responsiveOrder: Array<"base" | "sm" | "md" | "lg" | "xl" | "2xl"> = [
-  "base",
-  "sm",
-  "md",
-  "lg",
-  "xl",
-  "2xl"
-];
-
 export function resolveSpaceClass(
   prefix: "p" | "px" | "py" | "m" | "mx" | "my" | "gap",
   value?: SpaceToken
@@ -210,7 +194,7 @@ export function resolveSpaceClass(
     return "";
   }
 
-  return `${prefix}-${spaceClasses[String(value) as `${SpaceToken}`]}`;
+  return `${prefix}-${value}`;
 }
 
 export function resolveTextAlignClass(value?: TextAlignValue): string {
@@ -231,7 +215,7 @@ export function resolveResponsiveClass<T extends string | number>(
 
   const output: string[] = [];
 
-  for (const key of responsiveOrder) {
+  for (const key of breakpoints) {
     const resolved = value[key];
 
     if (resolved !== undefined) {

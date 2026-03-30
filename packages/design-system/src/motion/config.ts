@@ -31,7 +31,7 @@ export interface ChaseMotionSettings {
   interactiveLift: number;
 }
 
-export function parseDurationSeconds(value: string | undefined, fallbackMs: number): number {
+function parseDurationSeconds(value: string | undefined, fallbackMs: number): number {
   if (!value) {
     return fallbackMs / 1000;
   }
@@ -54,7 +54,7 @@ export function parseDurationSeconds(value: string | undefined, fallbackMs: numb
   return number / 1000;
 }
 
-export function parseEase(value: string | undefined): MotionEase {
+function parseEase(value: string | undefined): MotionEase {
   const match = value?.match(/cubic-bezier\(([^)]+)\)/i);
 
   if (!match) {
