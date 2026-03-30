@@ -19,7 +19,14 @@ interface FieldFrameProps
 export { type FieldFrameProps };
 
 export const controlClass =
-  "focus-ring touch-target w-full rounded-tokenMd border border-border bg-elevated px-4 py-3 text-sm text-foreground shadow-tokenSm placeholder:text-secondary transition disabled:cursor-not-allowed disabled:opacity-60";
+  "focus-ring touch-target w-full rounded-tokenMd border border-border bg-elevated px-4 py-3 text-sm text-foreground shadow-tokenSm placeholder:text-secondary transition duration-150 disabled:cursor-not-allowed disabled:opacity-60";
+
+export const controlErrorClass =
+  "border-danger focus-visible:ring-danger/30";
+
+export function fieldHintId(inputId: string | undefined): string | undefined {
+  return inputId ? `${inputId}-hint` : undefined;
+}
 
 export function FieldChrome({
   label,
@@ -31,6 +38,8 @@ export function FieldChrome({
   children,
   ...rest
 }: FieldFrameProps) {
+  const hintId = fieldHintId(htmlFor);
+
   return (
     <div {...rest} className="space-y-2">
       {label ? (
@@ -47,9 +56,9 @@ export function FieldChrome({
       ) : null}
       {children}
       {error ? (
-        <div className="text-xs font-medium text-danger">{error}</div>
+        <div id={hintId} role="alert" className="text-xs font-medium text-danger">{error}</div>
       ) : description ? (
-        <div className="text-xs text-secondary">{description}</div>
+        <div id={hintId} className="text-xs text-secondary">{description}</div>
       ) : null}
     </div>
   );

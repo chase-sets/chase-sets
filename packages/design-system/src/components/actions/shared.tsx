@@ -6,19 +6,25 @@ export type ButtonSize = "sm" | "md" | "lg";
 
 export const buttonToneClasses: Record<ButtonTone, string> = {
   primary:
-    "border-transparent bg-accent text-accent-contrast hover:brightness-110",
+    "border-transparent bg-accent text-accent-contrast hover:bg-accent-hover",
   secondary:
     "border-border bg-elevated text-foreground hover:border-accent hover:text-accent",
   ghost:
     "border-transparent bg-transparent text-secondary hover:border-border hover:bg-background hover:text-foreground",
   danger:
-    "border-transparent bg-danger text-inverse hover:brightness-110"
+    "border-transparent bg-danger text-inverse hover:bg-danger-hover"
 };
 
 export const buttonSizeClasses: Record<ButtonSize, string> = {
-  sm: "min-h-10 px-3 text-sm",
-  md: "touch-target px-4 text-sm",
+  sm: "min-h-8 px-3 text-xs",
+  md: "min-h-10 px-4 text-sm",
   lg: "min-h-12 px-5 text-base"
+};
+
+export const buttonCompactSizeClasses: Record<ButtonSize, string> = {
+  sm: "min-h-7 px-2.5 text-xs",
+  md: "min-h-8 px-3 text-sm",
+  lg: "min-h-10 px-4 text-sm"
 };
 
 export const buttonBaseClass =

@@ -1,6 +1,6 @@
 import { useId, type TextareaHTMLAttributes } from "react";
 import { cx } from "../../utils/cx";
-import { FieldChrome, controlClass, type BaseInputProps } from "./shared";
+import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface TextareaProps
   extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className" | "style">,
@@ -33,7 +33,9 @@ export function Textarea({
         id={inputId}
         required={required}
         rows={rows}
-        className={cx(controlClass, "min-h-28 resize-y")}
+        aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+        aria-invalid={!!error || undefined}
+        className={cx(controlClass, !!error && controlErrorClass, "min-h-28 resize-y")}
       />
     </FieldChrome>
   );

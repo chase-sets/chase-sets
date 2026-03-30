@@ -78,6 +78,22 @@ export const layoutWidthClasses: Record<LayoutWidth, string> = {
   full: "max-w-none"
 };
 
+/**
+ * Named sidebar widths for use in grid layouts.
+ * - nav: primary navigation sidebar (admin side nav)
+ * - filter: secondary filter/browse sidebar (marketplace)
+ * - detail: auxiliary detail/info panel
+ * - summary: checkout order summary panel
+ */
+export const sidebarWidthClasses = {
+  nav: "16rem",
+  filter: "18rem",
+  detail: "22rem",
+  summary: "24rem",
+} as const;
+
+export type SidebarWidth = keyof typeof sidebarWidthClasses;
+
 export function Container({
   children,
   width = "full",

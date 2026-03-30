@@ -28,7 +28,9 @@ const config: Config = {
         warning: "var(--color-warning)",
         danger: "var(--color-danger)",
         info: "var(--color-info)",
-        focus: "var(--color-focus-ring)"
+        focus: "var(--color-focus-ring)",
+        "accent-hover": "var(--color-accent-hover)",
+        "danger-hover": "var(--color-danger-hover)"
       },
       fontFamily: {
         display: ["var(--font-display)", "ui-sans-serif", "system-ui"],

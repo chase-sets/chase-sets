@@ -48,7 +48,14 @@
       "Bash(grep -h \"^export \\(function|const|interface\\)\" /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/components/*.tsx)",
       "Bash(grep -oh \"^export \\(function|const\\)\" /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system/src/components/*.tsx)",
       "Bash(ls -d d:/Users/ToddS/Source/Repos/chase-sets/deployables/*/)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(find /d/Users/ToddS/Source/Repos/chase-sets/packages/design-system -type f -name *.ts -o -name *.tsx -o -name *.json -o -name *.css -o -name *.scss)",
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
+      "Bash(grep -E \"web.*\\\\.\\(tsx?\\)$\")",
+      "Bash(find /d/Users/ToddS/Source/Repos/chase-sets/packages -type f -name *.css -o -name *.scss)",
+      "Bash(find /d/Users/ToddS/Source/Repos/chase-sets -name *.module.css -o -name postcss.config.* -o -name .postcssrc*)",
+      "Bash(grep -E \"\\\\.\\(tsx?\\)$\")",
+      "Bash(grep -E \"web.*\\\\.\\(tsx\\)$\")"
     ]
   }
 }

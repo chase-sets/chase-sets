@@ -1,5 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { Icon, type IconName } from "../../icons";
+import { useDensity } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { EmptyState } from "../feedback";
 
@@ -25,7 +26,11 @@ export interface DataTableProps<T>
   onSortChange?: (key: string, direction: "asc" | "desc") => void;
   selectedKeys?: Set<string>;
   onSelectionChange?: (keys: Set<string>) => void;
+  loading?: boolean;
+  loadingRows?: number;
 }
+
+const skeletonWidths = ["w-3/4", "w-1/2", "w-2/3", "w-5/6", "w-2/5"] as const;
 
 export function DataTable<T>({
   rows,
@@ -39,9 +44,14 @@ export function DataTable<T>({
   onSortChange,
   selectedKeys,
   onSelectionChange,
+  loading = false,
+  loadingRows = 5,
   ...rest
 }: DataTableProps<T>) {
-  if (rows.length === 0) {
+  const density = useDensity();
+  const cellPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
+  const headPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
+  if (!loading && rows.length === 0) {
     return (
       <EmptyState
         title={emptyTitle}
@@ -103,7 +113,7 @@ export function DataTable<T>({
         <thead>
           <tr className="border-b border-muted bg-background">
             {selectable ? (
-              <th className="w-12 px-4 py-3">
+              <th className={cx("w-12", headPad)}>
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -117,7 +127,7 @@ export function DataTable<T>({
               <th
                 key={column.key}
                 className={cx(
-                  "px-4 py-3 font-semibold text-foreground",
+                  headPad, "font-semibold text-foreground",
                   column.align === "right" && "text-right"
                 )}
               >
@@ -138,43 +148,60 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => {
-            const rowId = getRowId ? getRowId(row, index) : String(index);
-            const isSelected = selectable && selectedKeys.has(rowId);
+          {loading
+            ? Array.from({ length: loadingRows }, (_, i) => (
+                <tr key={`skeleton-${i}`} className="border-b border-muted last:border-b-0">
+                  {selectable ? <td className={cx("w-12", cellPad)} /> : null}
+                  {columns.map((column, colIndex) => (
+                    <td key={column.key} className={cellPad}>
+                      <div
+                        aria-hidden="true"
+                        className={cx(
+                          "h-4 animate-pulse rounded-tokenSm bg-muted",
+                          skeletonWidths[(i + colIndex) % skeletonWidths.length]
+                        )}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            : rows.map((row, index) => {
+                const rowId = getRowId ? getRowId(row, index) : String(index);
+                const isSelected = selectable && selectedKeys.has(rowId);
 
-            return (
-              <tr
-                key={rowId}
-                className={cx(
-                  "border-b border-muted last:border-b-0",
-                  isSelected && "bg-background"
-                )}
-              >
-                {selectable ? (
-                  <td className="w-12 px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleSelectRow(rowId)}
-                      aria-label={`Select row ${rowId}`}
-                      className="h-4 w-4 rounded border-border accent-accent"
-                    />
-                  </td>
-                ) : null}
-                {columns.map((column) => (
-                  <td
-                    key={column.key}
+                return (
+                  <tr
+                    key={rowId}
                     className={cx(
-                      "px-4 py-3 text-secondary",
-                      column.align === "right" && "text-right"
+                      "border-b border-muted transition-colors last:border-b-0",
+                      isSelected ? "bg-background" : "hover:bg-background/60"
                     )}
                   >
-                    {column.cell(row)}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
+                    {selectable ? (
+                      <td className={cx("w-12", cellPad)}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleSelectRow(rowId)}
+                          aria-label={`Select row ${rowId}`}
+                          className="h-4 w-4 rounded border-border accent-accent"
+                        />
+                      </td>
+                    ) : null}
+                    {columns.map((column) => (
+                      <td
+                        key={column.key}
+                        className={cx(
+                          cellPad, "text-foreground",
+                          column.align === "right" && "text-right"
+                        )}
+                      >
+                        {column.cell(row)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
         </tbody>
       </table>
     </div>
@@ -182,31 +209,50 @@ export function DataTable<T>({
 
   const cards = (
     <div role="list" className="space-y-3 md:hidden">
-      {rows.map((row, rowIndex) => (
-        <div
-          key={getRowId ? getRowId(row, rowIndex) : String(rowIndex)}
-          role="listitem"
-          className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
-        >
-          <div className="space-y-3">
-            {columns.map((column) => (
-              <div key={column.key} className="flex items-start justify-between gap-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                  {column.mobileLabel ?? column.header}
-                </div>
-                <div
-                  className={cx(
-                    "max-w-[60%] text-right text-sm text-foreground",
-                    column.align === "left" && "text-left"
-                  )}
-                >
-                  {column.cell(row)}
-                </div>
+      {loading
+        ? Array.from({ length: loadingRows }, (_, i) => (
+            <div key={`skeleton-card-${i}`} className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm">
+              <div className="space-y-3">
+                {columns.map((column, colIndex) => (
+                  <div key={column.key} className="flex items-start justify-between gap-4">
+                    <div className="h-3 w-16 animate-pulse rounded-tokenSm bg-muted" aria-hidden="true" />
+                    <div
+                      aria-hidden="true"
+                      className={cx(
+                        "h-4 animate-pulse rounded-tokenSm bg-muted",
+                        skeletonWidths[(i + colIndex) % skeletonWidths.length]
+                      )}
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      ))}
+            </div>
+          ))
+        : rows.map((row, rowIndex) => (
+            <div
+              key={getRowId ? getRowId(row, rowIndex) : String(rowIndex)}
+              role="listitem"
+              className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
+            >
+              <div className="space-y-3">
+                {columns.map((column) => (
+                  <div key={column.key} className="flex items-start justify-between gap-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                      {column.mobileLabel ?? column.header}
+                    </div>
+                    <div
+                      className={cx(
+                        "max-w-[60%] text-right text-sm text-foreground",
+                        column.align === "left" && "text-left"
+                      )}
+                    >
+                      {column.cell(row)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
     </div>
   );
 

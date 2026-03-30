@@ -3,7 +3,7 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
-import { FieldChrome, controlClass, type BaseInputProps } from "./shared";
+import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
 export interface ComboboxProps extends BaseInputProps {
@@ -53,8 +53,11 @@ export function Combobox({
           aria-expanded={open}
           aria-controls={listboxId}
           aria-haspopup="listbox"
+          aria-describedby={(error || description) ? fieldHintId(triggerId) : undefined}
+          aria-invalid={!!error || undefined}
           className={cx(
             controlClass,
+            !!error && controlErrorClass,
             "inline-flex items-center justify-between gap-2 text-left"
           )}
         >

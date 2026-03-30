@@ -14,11 +14,11 @@ export const toneClasses: Record<Tone, string> = {
 
 export const softToneClasses: Record<Tone, string> = {
   neutral: "border-muted bg-background text-secondary",
-  accent: "border-accent bg-background text-accent",
-  success: "border-success bg-background text-success",
-  warning: "border-warning bg-background text-warning",
-  danger: "border-danger bg-background text-danger",
-  info: "border-info bg-background text-info"
+  accent: "border-accent/40 bg-accent/8 text-accent",
+  success: "border-success/40 bg-success/8 text-success",
+  warning: "border-warning/40 bg-warning/8 text-warning",
+  danger: "border-danger/40 bg-danger/8 text-danger",
+  info: "border-info/40 bg-info/8 text-info"
 };
 
 export function toneIcon(tone: Tone): IconName {

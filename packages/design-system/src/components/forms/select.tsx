@@ -3,7 +3,7 @@ import * as SelectPrimitive from "@radix-ui/react-select";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
-import { FieldChrome, controlClass, type BaseInputProps } from "./shared";
+import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface SelectItem {
   value: string;
@@ -55,8 +55,11 @@ export function Select({
       >
         <SelectPrimitive.Trigger
           id={fallbackId}
+          aria-describedby={(error || description) ? fieldHintId(fallbackId) : undefined}
+          aria-invalid={!!error || undefined}
           className={cx(
             controlClass,
+            !!error && controlErrorClass,
             "inline-flex items-center justify-between gap-2 text-left"
           )}
         >

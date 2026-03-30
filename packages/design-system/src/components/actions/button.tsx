@@ -8,27 +8,43 @@ import { forwardRef } from "react";
 import { motion } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
-import { useChaseMotion } from "../../theme/provider";
+import { useChaseMotion, useDensity } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import type { ButtonTone, ButtonSize } from "./shared";
 import {
   buttonBaseClass,
   buttonToneClasses,
   buttonSizeClasses,
+  buttonCompactSizeClasses,
   resolveInteractiveMotion
 } from "./shared";
+
+function iconTone(tone: ButtonTone): "inverse" | "accent" {
+  return tone === "primary" || tone === "danger" ? "inverse" : "accent";
+}
 
 function renderLeadingIcon(icon: IconName | undefined, tone: ButtonTone): ReactNode {
   if (!icon) {
     return null;
   }
 
+  return <Icon name={icon} size="sm" tone={iconTone(tone)} />;
+}
+
+function ButtonSpinner({ tone }: { tone: ButtonTone }) {
+  const color = tone === "primary" || tone === "danger"
+    ? "border-t-accent-contrast border-accent-contrast/30"
+    : "border-t-accent border-accent/30";
+
   return (
-    <Icon
-      name={icon}
-      size="sm"
-      tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
-    />
+    <span
+      aria-hidden="true"
+      className={cx(
+        "absolute inset-0 flex items-center justify-center",
+      )}
+    >
+      <span className={cx("h-4 w-4 animate-spin rounded-full border-2", color)} />
+    </span>
   );
 }
 
@@ -37,6 +53,7 @@ export interface ButtonProps
   tone?: ButtonTone;
   size?: ButtonSize;
   block?: boolean;
+  loading?: boolean;
   leadingIcon?: IconName;
   trailingIcon?: IconName;
 }
@@ -47,43 +64,47 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     tone = "primary",
     size = "md",
     block = false,
+    loading = false,
     leadingIcon,
     trailingIcon,
     type = "button",
+    disabled,
     ...rest
   },
   ref
 ) {
   const motionSettings = useChaseMotion();
+  const density = useDensity();
+  const sizeClasses = density === "compact" ? buttonCompactSizeClasses : buttonSizeClasses;
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
     motionSettings.interactiveScale,
     motionSettings.interactiveLift
   );
   const nativeProps = rest as unknown as Record<string, unknown>;
+  const isDisabled = disabled || loading;
 
   return (
     <motion.button
       {...nativeProps}
       ref={ref}
       type={type}
-      {...interactiveMotion}
+      disabled={isDisabled}
+      aria-busy={loading || undefined}
+      {...(isDisabled ? undefined : interactiveMotion)}
       className={cx(
         buttonBaseClass,
         buttonToneClasses[tone],
-        buttonSizeClasses[size],
+        sizeClasses[size],
         block && "w-full"
       )}
     >
-      {renderLeadingIcon(leadingIcon, tone)}
-      <span>{children}</span>
-      {trailingIcon ? (
-        <Icon
-          name={trailingIcon}
-          size="sm"
-          tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
-        />
-      ) : null}
+      {loading ? <ButtonSpinner tone={tone} /> : null}
+      <span className={cx("inline-flex items-center gap-2", loading && "invisible")}>
+        {renderLeadingIcon(leadingIcon, tone)}
+        <span>{children}</span>
+        {trailingIcon ? <Icon name={trailingIcon} size="sm" tone={iconTone(tone)} /> : null}
+      </span>
     </motion.button>
   );
 });
@@ -109,6 +130,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     ref
   ) {
     const motionSettings = useChaseMotion();
+    const density = useDensity();
+    const sizeClasses = density === "compact" ? buttonCompactSizeClasses : buttonSizeClasses;
     const interactiveMotion = resolveInteractiveMotion(
       motionSettings.reducedMotion,
       motionSettings.interactiveScale,
@@ -126,15 +149,11 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         className={cx(
           buttonBaseClass,
           buttonToneClasses[tone],
-          buttonSizeClasses[size],
+          sizeClasses[size],
           "px-0"
         )}
       >
-        <Icon
-          name={icon}
-          size="sm"
-          tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
-        />
+        <Icon name={icon} size="sm" tone={iconTone(tone)} />
       </motion.button>
     );
   }
@@ -184,13 +203,7 @@ export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(
       >
         {renderLeadingIcon(leadingIcon, tone)}
         <span>{children}</span>
-        {trailingIcon ? (
-          <Icon
-            name={trailingIcon}
-            size="sm"
-            tone={tone === "primary" || tone === "danger" ? "inverse" : "accent"}
-          />
-        ) : null}
+        {trailingIcon ? <Icon name={trailingIcon} size="sm" tone={iconTone(tone)} /> : null}
       </motion.a>
     );
   }

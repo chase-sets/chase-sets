@@ -246,7 +246,9 @@ export function AdminShell({
         )}
       >
         <div className="hidden lg:block">
-          <SideNav items={navItems} activeKey={activeKey} />
+          <div className="sticky top-24 self-start">
+            <SideNav items={navItems} activeKey={activeKey} />
+          </div>
         </div>
         <div className="space-y-6">{children}</div>
       </main>

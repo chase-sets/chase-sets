@@ -1,7 +1,7 @@
 import { useId, type InputHTMLAttributes } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { FieldChrome, controlClass, type BaseInputProps } from "./shared";
+import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface TextInputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "style" | "size">,
@@ -29,7 +29,7 @@ export function TextInput({
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
-      <input {...rest} id={inputId} required={required} type={type} className={controlClass} />
+      <input {...rest} id={inputId} required={required} type={type} aria-describedby={(error || description) ? fieldHintId(inputId) : undefined} aria-invalid={!!error || undefined} className={cx(controlClass, !!error && controlErrorClass)} />
     </FieldChrome>
   );
 }
@@ -76,7 +76,9 @@ export function CurrencyInput({
           required={required}
           type="number"
           inputMode="decimal"
-          className={cx(controlClass, "pl-8")}
+          aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+          aria-invalid={!!error || undefined}
+          className={cx(controlClass, !!error && controlErrorClass, "pl-8")}
         />
       </div>
     </FieldChrome>
@@ -115,7 +117,9 @@ export function SearchInput({
           id={inputId}
           required={required}
           type="search"
-          className={cx(controlClass, "pl-10")}
+          aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+          aria-invalid={!!error || undefined}
+          className={cx(controlClass, !!error && controlErrorClass, "pl-10")}
         />
       </div>
     </FieldChrome>

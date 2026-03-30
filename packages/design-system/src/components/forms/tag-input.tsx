@@ -1,7 +1,7 @@
 import { useId, useState, type KeyboardEvent } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { FieldChrome, controlClass, type BaseInputProps } from "./shared";
+import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface TagInputProps extends BaseInputProps {
   values: string[];
@@ -55,7 +55,7 @@ export function TagInput({
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
-      <div className={cx(controlClass, "flex flex-wrap gap-2 px-3 py-2")}>
+      <div className={cx(controlClass, !!error && controlErrorClass, "flex flex-wrap gap-2 px-3 py-2")}>
         {values.map((tag) => (
           <span
             key={tag}
@@ -79,6 +79,8 @@ export function TagInput({
           onKeyDown={handleKeyDown}
           onBlur={() => addTag(input)}
           placeholder={values.length === 0 ? placeholder : undefined}
+          aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+          aria-invalid={!!error || undefined}
           className="min-w-20 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-secondary"
         />
       </div>

@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { useDensity } from "../../theme/provider";
 
 export interface TableProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -13,6 +14,9 @@ export function Table({
   caption,
   ...rest
 }: TableProps) {
+  const density = useDensity();
+  const cellPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
+
   return (
     <div
       {...rest}
@@ -23,7 +27,7 @@ export function Table({
         <thead>
           <tr className="border-b border-muted bg-background">
             {columns.map((column, index) => (
-              <th key={index} className="px-4 py-3 font-semibold text-foreground">
+              <th key={index} className={`${cellPad} font-semibold text-foreground`}>
                 {column}
               </th>
             ))}
@@ -31,9 +35,9 @@ export function Table({
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
-            <tr key={rowIndex} className="border-b border-muted last:border-b-0">
+            <tr key={rowIndex} className="border-b border-muted transition-colors hover:bg-background/60 last:border-b-0">
               {row.map((cell, cellIndex) => (
-                <td key={cellIndex} className="px-4 py-3 text-secondary">
+                <td key={cellIndex} className={`${cellPad} text-foreground`}>
                   {cell}
                 </td>
               ))}

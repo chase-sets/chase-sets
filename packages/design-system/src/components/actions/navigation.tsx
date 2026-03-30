@@ -162,7 +162,7 @@ export function TopNav({
   return (
     <nav
       {...rest}
-      className="sticky top-0 z-sticky border-b border-muted bg-elevated px-4 py-3 shadow-tokenSm"
+      className="sticky top-0 z-sticky border-b border-muted bg-elevated/95 px-4 py-3 shadow-tokenSm backdrop-blur-md"
     >
       <div
         className={cx(
@@ -235,7 +235,7 @@ export function BottomNav({
   return (
     <nav
       {...rest}
-      className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-elevated px-3 py-2 shadow-tokenLg md:hidden"
+      className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-elevated/95 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-md md:hidden"
     >
       <LayoutGroup id={groupId}>
         <div className={cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width])}>
