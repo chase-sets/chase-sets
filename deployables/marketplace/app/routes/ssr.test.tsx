@@ -13,6 +13,8 @@ import {
 } from "@chase-sets/identity/web";
 import { buildCanonicalUrl } from "../seo";
 import { loader as accountLoader } from "./account";
+import { loader as chromeDevtoolsLoader } from "./chrome-devtools";
+import { loader as faviconLoader } from "./favicon";
 import { loader as itemLoader, meta as itemMeta } from "./item-detail";
 import { loader as robotsLoader } from "./robots";
 import { loader as searchLoader, meta as searchMeta } from "./search";
@@ -309,6 +311,30 @@ describe("marketplace SSR routes", () => {
     await expect(response.text()).resolves.toContain(
       "Sitemap: https://marketplace.example/sitemap.xml",
     );
+  });
+
+  it("serves a favicon from the marketplace app", async () => {
+    const response = faviconLoader({
+      request: new Request("https://marketplace.example/favicon.ico"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response.headers.get("Content-Type")).toContain("image/svg+xml");
+    await expect(response.text()).resolves.toContain("<svg");
+  });
+
+  it("absorbs the chrome devtools probe", () => {
+    const response = chromeDevtoolsLoader({
+      request: new Request(
+        "https://marketplace.example/.well-known/appspecific/com.chrome.devtools.json",
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("serves a minimal sitemap from the marketplace app", async () => {

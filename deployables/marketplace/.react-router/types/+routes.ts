@@ -14,6 +14,12 @@ type Pages = {
   "/": {
     params: {};
   };
+  "/favicon.ico": {
+    params: {};
+  };
+  "/.well-known/appspecific/com.chrome.devtools.json": {
+    params: {};
+  };
   "/robots.txt": {
     params: {};
   };
@@ -54,7 +60,15 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/team" | "/account/security" | "/account/consents";
+  };
+  "routes/favicon.ts": {
+    id: "routes/favicon";
+    page: "/favicon.ico";
+  };
+  "routes/chrome-devtools.ts": {
+    id: "routes/chrome-devtools";
+    page: "/.well-known/appspecific/com.chrome.devtools.json";
   };
   "routes/robots.ts": {
     id: "routes/robots";
@@ -112,6 +126,8 @@ type RouteFiles = {
 
 type RouteModules = {
   "root": typeof import("./app/root.tsx");
+  "routes/favicon": typeof import("./app/routes/favicon.ts");
+  "routes/chrome-devtools": typeof import("./app/routes/chrome-devtools.ts");
   "routes/robots": typeof import("./app/routes/robots.ts");
   "routes/sitemap": typeof import("./app/routes/sitemap.ts");
   "routes/layout": typeof import("./app/routes/layout.tsx");

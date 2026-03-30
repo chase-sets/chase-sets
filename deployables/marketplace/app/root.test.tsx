@@ -47,6 +47,7 @@ describe("marketplace root layout", () => {
     expect(html).toContain(
       `href="${window.location.origin}/search?search=charizard"`,
     );
+    expect(html).toContain('rel="icon" href="/favicon.ico"');
     expect(html).toContain("Marketplace Search");
   });
 
