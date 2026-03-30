@@ -40,7 +40,9 @@
       "Bash(npm run seed:catalog)",
       "Bash(docker exec catalog-api-postgres-1 psql -U catalog -d catalog -c \"SELECT item_id, title, status, blueprint_name FROM marketplace_search_items;\")",
       "Bash(grep -r \"framer-motion\\\\|from ''motion''\\\\|import.*motion\\\\|gsap\\\\|react-spring\" /d/Users/ToddS/Source/Repos/chase-sets --include=\"*.json\" --include=\"*.tsx\" --include=\"*.ts\")",
-      "Bash(xargs grep -l \"^import.*from.*design-system\")"
+      "Bash(xargs grep -l \"^import.*from.*design-system\")",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //PID 3968 //F)"
     ]
   }
 }

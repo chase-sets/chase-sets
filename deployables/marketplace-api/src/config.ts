@@ -12,6 +12,6 @@ export function loadConfig(): MarketplaceApiConfig {
 
   return {
     databaseUrl,
-    port: Number(process.env.PORT ?? 3200),
+    port: Number(process.env.PORT ?? 6182),
   };
 }

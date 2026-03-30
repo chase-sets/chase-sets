@@ -19,6 +19,6 @@ export function loadConfig(): CatalogApiConfig {
   return {
     databaseUrl,
     identityApiBaseUrl,
-    port: Number(process.env.PORT ?? 3100),
+    port: Number(process.env.PORT ?? 6180),
   };
 }

@@ -85,14 +85,15 @@ export default defineConfig({
     ]
   },
   server: {
-    port: 5175,
+    port: 6173,
+    strictPort: true,
     proxy: {
       "/api/marketplace": {
-        target: "http://localhost:3200",
+        target: "http://localhost:6182",
         changeOrigin: true,
       },
       "/api/identity": {
-        target: "http://localhost:3102",
+        target: "http://localhost:6181",
         changeOrigin: true,
       },
     },

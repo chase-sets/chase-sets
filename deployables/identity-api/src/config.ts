@@ -12,6 +12,6 @@ export function loadConfig(): IdentityApiConfig {
 
   return {
     databaseUrl,
-    port: Number(process.env.PORT ?? 3102),
+    port: Number(process.env.PORT ?? 6181),
   };
 }

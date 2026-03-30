@@ -24,7 +24,7 @@ const processes = [
     workspace: "@chase-sets/identity-api",
     env: {
       DATABASE_URL: databaseUrl,
-      PORT: "3102",
+      PORT: "6181",
     },
   },
   {
@@ -32,8 +32,8 @@ const processes = [
     workspace: "@chase-sets/catalog-api",
     env: {
       DATABASE_URL: databaseUrl,
-      IDENTITY_API_BASE_URL: "http://localhost:3102",
-      PORT: "3100",
+      IDENTITY_API_BASE_URL: "http://localhost:6181",
+      PORT: "6180",
     },
   },
   {
@@ -41,7 +41,7 @@ const processes = [
     workspace: "@chase-sets/marketplace-api",
     env: {
       DATABASE_URL: databaseUrl,
-      PORT: "3200",
+      PORT: "6182",
     },
   },
   {
@@ -176,13 +176,14 @@ async function runBootstrap() {
 function printDevUrls() {
   console.log("");
   console.log("Local dev system");
-  console.log("  Showcase:        http://localhost:5173");
-  console.log("  Catalog Admin:   http://localhost:5174");
-  console.log("  Marketplace:     http://localhost:5175");
-  console.log("  Identity Admin:  http://localhost:5176");
-  console.log("  Catalog API:     http://localhost:3100");
-  console.log("  Identity API:    http://localhost:3102");
-  console.log("  Marketplace API: http://localhost:3200");
+  console.log("  Dev Portal:      http://localhost:6170");
+  console.log("  Showcase:        http://localhost:6171");
+  console.log("  Catalog Admin:   http://localhost:6172");
+  console.log("  Marketplace:     http://localhost:6173");
+  console.log("  Identity Admin:  http://localhost:6174");
+  console.log("  Catalog API:     http://localhost:6180");
+  console.log("  Identity API:    http://localhost:6181");
+  console.log("  Marketplace API: http://localhost:6182");
   console.log("");
 }
 
@@ -220,6 +221,13 @@ async function runDev() {
 
   process.once("SIGINT", () => shutdown("SIGINT", 0));
   process.once("SIGTERM", () => shutdown("SIGTERM", 0));
+
+  const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
+  const portal = spawnCommand("node", [portalScript], {
+    env: { PORT: "6170" },
+    prefix: "portal",
+  });
+  children.push(portal);
 
   for (const definition of processes) {
     const invocation = buildNpmInvocation([
