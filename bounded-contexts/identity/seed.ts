@@ -2,6 +2,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { createIdentityServices } from "./services";
 import { createBootstrapContext } from "./api";
+import { upsertPasswordCredential } from "./auth-support/store";
 
 export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const services = createIdentityServices(pool);
@@ -10,6 +11,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const accountId = createId("acc");
   const membershipId = createId("mbr");
   const consentId = createId("cns");
+  const credentialId = createId("crd");
 
   await services.accounts.commandHandler({
     streamId: `identity.account-${accountId}`,
@@ -61,5 +63,29 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
       recordedAt: new Date().toISOString(),
     },
     context,
+  });
+
+  await services.users.commandHandler({
+    streamId: `identity.user-${userId}`,
+    command: {
+      type: "EnableAuthMethod",
+      authMethod: "password",
+    },
+    context,
+  });
+
+  await services.users.commandHandler({
+    streamId: `identity.user-${userId}`,
+    command: {
+      type: "AttachPasswordCredential",
+      credentialId,
+    },
+    context,
+  });
+
+  await upsertPasswordCredential(services.db, {
+    credentialId,
+    userId,
+    secretHash: services.auth.hashSecret("demo1234"),
   });
 }
