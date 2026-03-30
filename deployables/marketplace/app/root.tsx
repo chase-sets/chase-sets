@@ -23,8 +23,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { origin } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>() as
+    | Awaited<ReturnType<typeof loader>>
+    | undefined;
   const location = useLocation();
+  const origin =
+    data?.origin ??
+    (typeof window === "undefined" ? "http://localhost" : window.location.origin);
   const canonicalUrl = buildCanonicalUrl({
     origin,
     pathname: location.pathname,
