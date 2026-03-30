@@ -24,6 +24,16 @@ function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
 }
 
+function resolveIdentityApiUrl(baseUrl: string, path: string) {
+  const normalizedPath = path.replace(/^\/+/, "");
+
+  if (/\/api\/identity\/?$/i.test(baseUrl)) {
+    return new URL(normalizedPath, normalizeBaseUrl(baseUrl));
+  }
+
+  return new URL(`api/identity/${normalizedPath}`, normalizeBaseUrl(baseUrl));
+}
+
 function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
     return new Map<string, string>();
@@ -266,7 +276,7 @@ export async function resolveActorFromIdentityApi(options: Readonly<{
   fetch?: typeof globalThis.fetch;
 }>): Promise<ResolvedActor | null> {
   const response = await (options.fetch ?? globalThis.fetch)(
-    new URL("auth/session", normalizeBaseUrl(options.identityApiBaseUrl)),
+    resolveIdentityApiUrl(options.identityApiBaseUrl, "auth/session"),
     {
       headers: createForwardedAuthHeaders(options.request),
       credentials: "include",

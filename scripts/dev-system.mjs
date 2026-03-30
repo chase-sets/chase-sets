@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import net from "node:net";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +19,7 @@ const processes = [
     name: "showcase",
     workspace: "@chase-sets/design-system-showcase",
     env: {},
+    port: 6171,
   },
   {
     name: "identity-api",
@@ -26,6 +28,7 @@ const processes = [
       DATABASE_URL: databaseUrl,
       PORT: "6181",
     },
+    port: 6181,
   },
   {
     name: "catalog-api",
@@ -35,6 +38,7 @@ const processes = [
       IDENTITY_API_BASE_URL: "http://localhost:6181",
       PORT: "6180",
     },
+    port: 6180,
   },
   {
     name: "marketplace-api",
@@ -43,21 +47,25 @@ const processes = [
       DATABASE_URL: databaseUrl,
       PORT: "6182",
     },
+    port: 6182,
   },
   {
     name: "catalog-admin",
     workspace: "@chase-sets/catalog-admin",
     env: {},
+    port: 6172,
   },
   {
     name: "marketplace",
     workspace: "@chase-sets/marketplace",
     env: {},
+    port: 6173,
   },
   {
     name: "identity-admin",
     workspace: "@chase-sets/identity-admin",
     env: {},
+    port: 6174,
   },
 ];
 
@@ -127,6 +135,95 @@ function buildNpmInvocation(args) {
     command: "npm",
     args,
   };
+}
+
+function isPortInUseError(error) {
+  return (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error.code === "EADDRINUSE" || error.code === "EACCES")
+  );
+}
+
+function isConnectionRefusedError(error) {
+  return (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error.code === "ECONNREFUSED" ||
+      error.code === "EHOSTUNREACH" ||
+      error.code === "ETIMEDOUT")
+  );
+}
+
+function canConnectToPort(port, host) {
+  return new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.once("error", (error) => {
+      socket.destroy();
+
+      if (isConnectionRefusedError(error)) {
+        resolve(false);
+        return;
+      }
+
+      reject(error);
+    });
+
+    socket.setTimeout(500, () => {
+      socket.destroy();
+      resolve(false);
+    });
+
+    socket.connect(port, host);
+  });
+}
+
+async function hasExistingListener(port) {
+  const hosts = ["127.0.0.1", "::1", "localhost"];
+
+  for (const host of hosts) {
+    if (await canConnectToPort(port, host)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isPortAvailable(port) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.once("error", (error) => {
+      if (isPortInUseError(error)) {
+        resolve(false);
+        return;
+      }
+
+      reject(error);
+    });
+
+    server.once("listening", () => {
+      server.close((closeError) => {
+        if (closeError) {
+          reject(closeError);
+          return;
+        }
+
+        resolve(true);
+      });
+    });
+
+    server.listen(port);
+  });
 }
 
 function runCommand(command, args, options = {}) {
@@ -222,14 +319,30 @@ async function runDev() {
   process.once("SIGINT", () => shutdown("SIGINT", 0));
   process.once("SIGTERM", () => shutdown("SIGTERM", 0));
 
-  const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
-  const portal = spawnCommand("node", [portalScript], {
-    env: { PORT: "6170" },
-    prefix: "portal",
-  });
-  children.push(portal);
+  if (!(await hasExistingListener(6170)) && await isPortAvailable(6170)) {
+    const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
+    const portal = spawnCommand("node", [portalScript], {
+      env: { PORT: "6170" },
+      prefix: "portal",
+    });
+    children.push(portal);
+  } else {
+    prefixedConsole("dev", "Skipping portal because port 6170 is already in use.");
+  }
 
   for (const definition of processes) {
+    if (
+      definition.port &&
+      ((await hasExistingListener(definition.port)) ||
+        !(await isPortAvailable(definition.port)))
+    ) {
+      prefixedConsole(
+        "dev",
+        `Skipping ${definition.name} because port ${definition.port} is already in use.`,
+      );
+      continue;
+    }
+
     const invocation = buildNpmInvocation([
       "run",
       "dev",
@@ -258,6 +371,13 @@ async function runDev() {
     });
 
     children.push(child);
+  }
+
+  if (children.length === 0) {
+    prefixedConsole(
+      "dev",
+      "All local dev services are already running. Reusing the existing stack.",
+    );
   }
 }
 
