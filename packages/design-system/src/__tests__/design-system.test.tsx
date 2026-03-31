@@ -14,6 +14,7 @@ import {
   OrderSummary,
   Page,
   SearchResultsLayout,
+  SplitPane,
   Wizard
 } from "../patterns/app-shells";
 import { Container, SkipLink } from "../primitives/layout";
@@ -387,6 +388,22 @@ describe("design system", () => {
     expect(markup).toContain("lg:grid-cols-[18rem_minmax(0,1fr)]");
   });
 
+  it("renders split panes with named rail widths and optional sticky rails", () => {
+    const markup = renderToString(
+      <SplitPane
+        primary={<div>Primary content</div>}
+        secondary={<div>Secondary rail</div>}
+        secondaryWidth="summary"
+        secondarySticky
+      />
+    );
+
+    expect(markup).toContain("Primary content");
+    expect(markup).toContain("Secondary rail");
+    expect(markup).toContain("lg:grid-cols-[minmax(0,1fr)_24rem]");
+    expect(markup).toContain("lg:sticky lg:top-24 lg:self-start");
+  });
+
   it("renders marketplace content without a reserved desktop rail when the sidebar is omitted", () => {
     const markup = renderToString(
       <ChaseRoot>
@@ -559,6 +576,32 @@ describe("design system", () => {
 
     expect(markup).toContain("Front");
     expect(markup).toContain("Back");
+  });
+
+  it("renders ImageGallery empty states inside the gallery frame", () => {
+    const markup = renderToString(
+      <ImageGallery
+        images={[]}
+        emptyState={<div>Gallery placeholder</div>}
+      />
+    );
+
+    expect(markup).toContain("Gallery placeholder");
+    expect(markup).toContain("modern-surface");
+    expect(markup).toContain("flex items-center justify-center");
+  });
+
+  it("renders ImageGallery with desktop height constraints when configured", () => {
+    const markup = renderToString(
+      <ImageGallery
+        images={[{ src: "/img1.jpg", alt: "Front" }]}
+        maxHeightClassName="lg:[--gallery-max-height:min(70vh,34rem)]"
+      />
+    );
+
+    expect(markup).toContain("lg:[--gallery-max-height:min(70vh,34rem)]");
+    expect(markup).toContain("lg:h-[var(--gallery-max-height)]");
+    expect(markup).toContain("lg:w-[min(100%,calc(var(--gallery-max-height)*var(--gallery-aspect-ratio)))]");
   });
 
   it("renders CopyButton with label", () => {

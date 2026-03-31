@@ -80,7 +80,23 @@ describe("marketplace SSR routes", () => {
             categories: [{ categoryId: "cat-1", name: "Pokemon" }],
             tags: ["Fire"],
             image_urls: [],
-            version_schema: null,
+            version_schema: {
+              canonicalDimensionOrder: [
+                { dimensionId: "form", dimensionName: "Form" }
+              ],
+              dimensions: [
+                {
+                  dimensionId: "form",
+                  dimensionName: "Form",
+                  required: true,
+                  appliesWhen: [],
+                  allowedChoices: [
+                    { choiceId: "raw", code: "raw", labels: [{ locale: "en-US", value: "Raw" }] },
+                    { choiceId: "graded", code: "graded", labels: [{ locale: "en-US", value: "Graded" }] }
+                  ]
+                }
+              ]
+            },
             updated_at: "2026-03-26T00:00:00.000Z",
           }}
         />
@@ -89,6 +105,8 @@ describe("marketplace SSR routes", () => {
 
     expect(html).toContain("Charizard ex");
     expect(html).toContain("Server rendered detail page.");
+    expect(html).toContain("Choose Version");
+    expect(html).toContain("Selected Version");
   });
 
   it("renders identity entry content into HTML before hydration", () => {

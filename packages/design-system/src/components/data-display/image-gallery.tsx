@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { HTMLAttributes } from "react";
+import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../utils/cx";
 
 export interface GalleryImage {
@@ -11,23 +11,78 @@ export interface ImageGalleryProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   images: GalleryImage[];
   aspectRatio?: string;
+  emptyState?: ReactNode;
+  maxHeightClassName?: string;
+}
+
+function parseAspectRatio(value: string): number {
+  const parts = value.split("/");
+
+  if (parts.length === 2) {
+    const width = Number(parts[0]);
+    const height = Number(parts[1]);
+
+    if (width > 0 && height > 0) {
+      return width / height;
+    }
+  }
+
+  const numeric = Number(value);
+
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
 }
 
 export function ImageGallery({
   images,
   aspectRatio = "3/4",
+  emptyState,
+  maxHeightClassName,
   ...rest
 }: ImageGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const active = images[activeIndex];
+  const galleryStyle = {
+    aspectRatio,
+    "--gallery-aspect-ratio": String(parseAspectRatio(aspectRatio)),
+  } as CSSProperties;
+  const constrainedFrameClasses = maxHeightClassName
+    ? cx(
+        maxHeightClassName,
+        "lg:h-[var(--gallery-max-height)]",
+        "lg:w-[min(100%,calc(var(--gallery-max-height)*var(--gallery-aspect-ratio)))]",
+        "lg:max-w-full",
+      )
+    : "";
+  const frameClassName = cx(
+    "modern-surface overflow-hidden rounded-tokenLg border border-muted",
+    constrainedFrameClasses,
+  );
 
-  if (images.length === 0) return null;
+  if (images.length === 0) {
+    if (!emptyState) {
+      return null;
+    }
+
+    return (
+      <div {...rest} className="space-y-3">
+        <div
+          className={cx(
+            frameClassName,
+            "flex items-center justify-center p-6 shadow-tokenSm",
+          )}
+          style={galleryStyle}
+        >
+          {emptyState}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div {...rest} className="space-y-3">
       <div
-        className="modern-surface overflow-hidden rounded-tokenLg border border-muted"
-        style={{ aspectRatio }}
+        className={frameClassName}
+        style={galleryStyle}
       >
         {active ? (
           <img

@@ -11,7 +11,12 @@ import {
   type PageStepperItem
 } from "../components/actions";
 import { useChaseMotion } from "../theme/provider";
-import { SkipLink, layoutWidthClasses, type LayoutWidth } from "../primitives/layout";
+import {
+  SkipLink,
+  layoutWidthClasses,
+  type LayoutWidth,
+  type SidebarWidth
+} from "../primitives/layout";
 import { cx } from "../utils/cx";
 import {
   Card,
@@ -116,20 +121,36 @@ export interface SplitPaneProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   primary: ReactNode;
   secondary: ReactNode;
+  secondaryWidth?: SidebarWidth;
+  secondarySticky?: boolean;
 }
+
+const splitPaneWidthClasses: Record<SidebarWidth, string> = {
+  nav: "lg:grid-cols-[minmax(0,1fr)_16rem]",
+  filter: "lg:grid-cols-[minmax(0,1fr)_18rem]",
+  detail: "lg:grid-cols-[minmax(0,1fr)_22rem]",
+  summary: "lg:grid-cols-[minmax(0,1fr)_24rem]"
+};
 
 export function SplitPane({
   primary,
   secondary,
+  secondaryWidth = "detail",
+  secondarySticky = false,
   ...rest
 }: SplitPaneProps) {
   return (
     <div
       {...rest}
-      className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]"
+      className={cx(
+        "grid gap-6",
+        splitPaneWidthClasses[secondaryWidth]
+      )}
     >
       <div>{primary}</div>
-      <div>{secondary}</div>
+      <div className={cx(secondarySticky && "lg:sticky lg:top-24 lg:self-start")}>
+        {secondary}
+      </div>
     </div>
   );
 }

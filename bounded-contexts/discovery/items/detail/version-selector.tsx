@@ -4,28 +4,16 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type {
-  VersionDimension,
-  VersionSchema,
-} from "../client-support/contracts";
+import type { VersionSchema } from "../client-support/contracts";
+import {
+  getChoiceLabel,
+  getOrderedActiveDimensions,
+} from "./versioning";
 
 interface VersionSelectorProps {
   schema: VersionSchema;
   selections: Record<string, string>;
   onSelectionChange: (dimensionId: string, choiceId: string) => void;
-}
-
-function isDimensionActive(
-  dimension: VersionDimension,
-  selections: Record<string, string>,
-): boolean {
-  return dimension.appliesWhen.every((clause) => {
-    const selectedChoiceId = selections[clause.dimensionId];
-    return (
-      selectedChoiceId !== undefined &&
-      clause.choiceIds.includes(selectedChoiceId)
-    );
-  });
 }
 
 export function VersionSelector({
@@ -37,21 +25,12 @@ export function VersionSelector({
     return null;
   }
 
-  const orderedDimensions = schema.canonicalDimensionOrder.map((order) =>
-    schema.dimensions.find((d) => d.dimensionId === order.dimensionId)
-  ).filter((d): d is NonNullable<typeof d> => d !== undefined)
-    .filter((dimension) => isDimensionActive(dimension, selections));
+  const orderedDimensions = getOrderedActiveDimensions(schema, selections);
 
   return (
     <Stack gap={4}>
       {orderedDimensions.map((dimension) => {
         const selected = selections[dimension.dimensionId] ?? "";
-        const choiceLabel = (choice: typeof dimension.allowedChoices[0]) => {
-          if (choice.labels && choice.labels.length > 0) {
-            return choice.labels[0].value;
-          }
-          return choice.code;
-        };
 
         if (dimension.allowedChoices.length <= 5) {
           return (
@@ -60,7 +39,7 @@ export function VersionSelector({
               <SegmentedControl
                 items={dimension.allowedChoices.map((choice) => ({
                   value: choice.choiceId,
-                  label: choiceLabel(choice),
+                  label: getChoiceLabel(choice),
                 }))}
                 value={selected}
                 onValueChange={(value) =>
@@ -77,7 +56,7 @@ export function VersionSelector({
             label={dimension.dimensionName}
             items={dimension.allowedChoices.map((choice) => ({
               value: choice.choiceId,
-              label: choiceLabel(choice),
+              label: getChoiceLabel(choice),
             }))}
             value={selected}
             onValueChange={(value) =>
