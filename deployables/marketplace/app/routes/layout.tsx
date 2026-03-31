@@ -18,6 +18,10 @@ function hasPermission(actor: MarketplaceActor, permission: string) {
 }
 
 function getActiveKey(pathname: string) {
+  if (pathname.startsWith("/account/listings")) {
+    return "listings";
+  }
+
   if (pathname.startsWith("/account/inventory")) {
     return "inventory";
   }
@@ -59,6 +63,15 @@ function getShellNavItems(actor: MarketplaceActor) {
       label: "Inventory",
       icon: "package",
       href: "/account/inventory",
+    });
+  }
+
+  if (hasPermission(actor, "listings.view")) {
+    topNavItems.push({
+      key: "listings",
+      label: "Listings",
+      icon: "package",
+      href: "/account/listings",
     });
   }
 

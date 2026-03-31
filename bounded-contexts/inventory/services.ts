@@ -4,11 +4,13 @@ import type {
   PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
+import { createInventoryCatalogItemRuntime } from "./catalog-items/runtime";
 import { createInventoryHoldRuntime } from "./holds/runtime";
 import { createInventoryRecordRuntime } from "./records/runtime";
 import { createStorageLocationRuntime } from "./storage-locations/runtime";
 
 export type InventoryServices = Readonly<{
+  catalogItems: ReturnType<typeof createInventoryCatalogItemRuntime>;
   storageLocations: ReturnType<typeof createStorageLocationRuntime>;
   records: ReturnType<typeof createInventoryRecordRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
@@ -23,15 +25,18 @@ export function createInventoryServices(pool: PgTransactionalPool): InventorySer
   const db = pool as PgQueryable;
   const deps = { eventStore, checkpointStore, db } as const;
 
+  const catalogItems = createInventoryCatalogItemRuntime(deps);
   const storageLocations = createStorageLocationRuntime(deps);
-  const records = createInventoryRecordRuntime(deps);
+  const records = createInventoryRecordRuntime(deps, catalogItems);
   const holds = createInventoryHoldRuntime(deps);
 
   return {
+    catalogItems,
     storageLocations,
     records,
     holds,
     projectors: [
+      ...catalogItems.projectors,
       ...storageLocations.projectors,
       ...records.projectors,
       ...holds.projectors,

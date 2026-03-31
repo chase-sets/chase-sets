@@ -10,6 +10,7 @@ export function buildInventoryRecordProjectionHandlers(
         recordId,
         accountId,
         catalogItemId,
+        versionSelection,
         condition,
         storageLocationId,
         totalQuantity,
@@ -18,6 +19,7 @@ export function buildInventoryRecordProjectionHandlers(
         recordId: string;
         accountId: string;
         catalogItemId: string;
+        versionSelection: unknown;
         condition: string;
         storageLocationId: string;
         totalQuantity: number;
@@ -29,6 +31,7 @@ export function buildInventoryRecordProjectionHandlers(
            record_id,
            account_id,
            catalog_item_id,
+           version_selection,
            condition,
            storage_location_id,
            total_quantity,
@@ -36,19 +39,21 @@ export function buildInventoryRecordProjectionHandlers(
            created_at,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
          ON CONFLICT (record_id) DO UPDATE
          SET account_id = $2,
              catalog_item_id = $3,
-             condition = $4,
-             storage_location_id = $5,
-             total_quantity = $6,
-             acquisition_cost_amount = $7,
-             updated_at = $8`,
+             version_selection = $4,
+             condition = $5,
+             storage_location_id = $6,
+             total_quantity = $7,
+             acquisition_cost_amount = $8,
+             updated_at = $9`,
         [
           recordId,
           accountId,
           catalogItemId,
+          JSON.stringify(Array.isArray(versionSelection) ? versionSelection : []),
           condition,
           storageLocationId,
           totalQuantity,

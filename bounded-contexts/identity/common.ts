@@ -31,6 +31,8 @@ export type PermissionKey =
   | "memberships.view"
   | "inventory.manage"
   | "inventory.view"
+  | "listings.manage"
+  | "listings.view"
   | "orders.manage"
   | "orders.view"
   | "security.manage";

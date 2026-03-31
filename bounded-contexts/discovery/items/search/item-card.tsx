@@ -56,6 +56,18 @@ export function ItemCard({
               ))}
             </Inline>
           )}
+          {item.market_summary ? (
+            <Stack gap={1}>
+              <Text size="sm" weight="semibold">
+                From ${item.market_summary.lowest_price_amount ?? "-"}
+              </Text>
+              <Text size="sm" tone="secondary">
+                {item.market_summary.active_listing_count} listing
+                {item.market_summary.active_listing_count === 1 ? "" : "s"} •{" "}
+                {item.market_summary.total_visible_quantity} visible
+              </Text>
+            </Stack>
+          ) : null}
         </Stack>
       </Card>
     </Link>

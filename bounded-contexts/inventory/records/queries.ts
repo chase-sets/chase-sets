@@ -1,5 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { InventoryHoldRow } from "../holds/queries";
+import {
+  summarizeVersionSelection,
+  type InventoryVersionSchema,
+  type InventoryVersionSelectionEntry,
+} from "../catalog-items/versioning";
 
 export type InventoryRecordListRow = Readonly<{
   record_id: string;
@@ -7,6 +12,8 @@ export type InventoryRecordListRow = Readonly<{
   catalog_item_id: string;
   item_title: string | null;
   item_subtitle: string | null;
+  version_selection: readonly InventoryVersionSelectionEntry[];
+  version_summary: string | null;
   condition: string;
   storage_location_id: string;
   storage_location_name: string;
@@ -28,6 +35,7 @@ type BaseInventoryRecordRow = Readonly<{
   record_id: string;
   account_id: string;
   catalog_item_id: string;
+  version_selection: unknown;
   condition: string;
   storage_location_id: string;
   storage_location_name: string;
@@ -44,6 +52,7 @@ type CatalogItemSummaryRow = Readonly<{
   item_id: string;
   title: string;
   subtitle: string | null;
+  version_schema: unknown;
 }>;
 
 async function loadCatalogItemSummaries(
@@ -55,7 +64,7 @@ async function loadCatalogItemSummaries(
   }
 
   const tableResult = await db.query<{ table_name: string | null }>(
-    `SELECT to_regclass('public.catalog_items') AS table_name`,
+    `SELECT to_regclass('public.inventory_catalog_items') AS table_name`,
   );
 
   if (!tableResult.rows[0]?.table_name) {
@@ -63,8 +72,8 @@ async function loadCatalogItemSummaries(
   }
 
   const result = await db.query<CatalogItemSummaryRow>(
-    `SELECT item_id, title, subtitle
-     FROM catalog_items
+    `SELECT item_id, title, subtitle, version_schema
+     FROM inventory_catalog_items
      WHERE item_id = ANY($1::text[])`,
     [catalogItemIds],
   );
@@ -78,10 +87,22 @@ function enrichInventoryRecordRows(
 ): InventoryRecordListRow[] {
   return rows.map((row) => {
     const catalogItem = catalogItems.get(row.catalog_item_id);
+    const versionSelection = Array.isArray(row.version_selection)
+      ? (row.version_selection as InventoryVersionSelectionEntry[])
+      : [];
+    const versionSchema =
+      typeof catalogItem?.version_schema === "object" &&
+      catalogItem.version_schema !== null
+        ? (catalogItem.version_schema as InventoryVersionSchema)
+        : null;
+
     return {
       ...row,
       item_title: catalogItem?.title ?? null,
       item_subtitle: catalogItem?.subtitle ?? null,
+      version_selection: versionSelection,
+      version_summary:
+        summarizeVersionSelection(versionSchema, versionSelection) || null,
     };
   });
 }
@@ -109,6 +130,7 @@ export async function listInventoryRecords(
          record.record_id,
          record.account_id,
          record.catalog_item_id,
+         record.version_selection,
          record.condition,
          record.storage_location_id,
          location.name AS storage_location_name,
@@ -159,6 +181,7 @@ export async function getInventoryRecord(
        record.record_id,
        record.account_id,
        record.catalog_item_id,
+       record.version_selection,
        record.condition,
        record.storage_location_id,
        location.name AS storage_location_name,

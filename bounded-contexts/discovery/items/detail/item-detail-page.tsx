@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Breadcrumbs,
+  Card,
   Container,
   Grid,
   Heading,
@@ -9,6 +10,7 @@ import {
   Inline,
   KeyValueList,
   Banner,
+  EmptyState,
   Reveal,
   SplitPane,
   Stack,
@@ -20,6 +22,7 @@ import {
 import { Badge } from "@chase-sets/design-system";
 import type {
   DiscoveryItemDetail,
+  DiscoveryMarketListing,
 } from "../client-support/contracts";
 import { VersionSelector } from "./version-selector";
 import {
@@ -59,6 +62,19 @@ function formatUpdatedAt(value: string): string {
     hour12: true,
     timeZone: "UTC",
   }).format(date)} UTC`;
+}
+
+function formatMoney(value: string | null): string {
+  return value ? `$${value}` : "Unavailable";
+}
+
+function matchesSelectedVersion(
+  listing: DiscoveryMarketListing,
+  selections: Record<string, string>,
+) {
+  return listing.version_selection.every(
+    (entry) => selections[entry.dimensionId] === entry.choiceId,
+  );
 }
 
 export function ItemDetailPage({
@@ -108,6 +124,9 @@ export function ItemDetailPage({
   const selectedVersion = data.version_schema
     ? summarizeSelections(data.version_schema, selections)
     : [];
+  const visibleListings = data.market_listings.filter((listing) =>
+    data.version_schema ? matchesSelectedVersion(listing, selections) : true,
+  );
   const metadataItems = [
     ...(data.tags.length > 0
       ? [
@@ -190,11 +209,11 @@ export function ItemDetailPage({
                                 ...current,
                                 [dimensionId]: choiceId,
                               }),
-                          )
-                        }
-                      />
-                    </div>
-                  ) : null}
+                            )
+                          }
+                        />
+                      </div>
+                    ) : null}
 
                     <Grid columns={{ base: 1, xl: 2 }} gap={4}>
                       {selectedVersion.length > 0 ? (
@@ -220,6 +239,41 @@ export function ItemDetailPage({
                         </div>
                       ) : null}
                     </Grid>
+
+                    {data.market_summary ? (
+                      <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                        <Card>
+                          <Stack gap={1}>
+                            <Text size="sm" tone="secondary">
+                              Lowest Price
+                            </Text>
+                            <Text weight="semibold">
+                              {formatMoney(data.market_summary.lowest_price_amount)}
+                            </Text>
+                          </Stack>
+                        </Card>
+                        <Card>
+                          <Stack gap={1}>
+                            <Text size="sm" tone="secondary">
+                              Active Listings
+                            </Text>
+                            <Text weight="semibold">
+                              {data.market_summary.active_listing_count}
+                            </Text>
+                          </Stack>
+                        </Card>
+                        <Card>
+                          <Stack gap={1}>
+                            <Text size="sm" tone="secondary">
+                              Visible Quantity
+                            </Text>
+                            <Text weight="semibold">
+                              {data.market_summary.total_visible_quantity}
+                            </Text>
+                          </Stack>
+                        </Card>
+                      </Grid>
+                    ) : null}
                   </Stack>
                 </Surface>
               </Stack>
@@ -258,6 +312,57 @@ export function ItemDetailPage({
               </PageSection>
             </Reveal>
           ) : null}
+
+          <Reveal preset="lift">
+            <PageSection title="Listings">
+              <Stack gap={3}>
+                {visibleListings.length > 0 ? (
+                  visibleListings.map((listing) => (
+                    <Card key={listing.listing_id}>
+                      <Grid columns={{ base: 1, md: 4 }} gap={3}>
+                        <Stack gap={1}>
+                          <Text weight="semibold">
+                            {formatMoney(listing.price_amount)}
+                          </Text>
+                          <Text size="sm" tone="secondary">
+                            {listing.seller_display_name ?? "Seller"}
+                          </Text>
+                        </Stack>
+                        <Stack gap={1}>
+                          <Text size="sm" tone="secondary">
+                            Condition
+                          </Text>
+                          <Text>{listing.condition}</Text>
+                        </Stack>
+                        <Stack gap={1}>
+                          <Text size="sm" tone="secondary">
+                            Visible Quantity
+                          </Text>
+                          <Text>{listing.visible_quantity}</Text>
+                        </Stack>
+                        <Stack gap={1}>
+                          <Text size="sm" tone="secondary">
+                            Version
+                          </Text>
+                          <Text>{listing.version_summary ?? "Standard"}</Text>
+                        </Stack>
+                      </Grid>
+                    </Card>
+                  ))
+                ) : (
+                  <EmptyState
+                    title="No active listings"
+                    description={
+                      data.market_listings.length > 0
+                        ? "No active listings match the selected version."
+                        : "Sellers have not published inventory for this item yet."
+                    }
+                    icon="package"
+                  />
+                )}
+              </Stack>
+            </PageSection>
+          </Reveal>
 
           {data.field_values.length > 0 ? (
             <Reveal preset="lift">

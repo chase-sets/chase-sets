@@ -99,8 +99,10 @@ describe("inventory api", () => {
   });
 
   beforeEach(async () => {
-    await recreateSchema(pool);
-  });
+    await recreateCrossContextSchema(pool);
+    await seedCatalogDatabase(pool);
+    await drainProjectors(services.catalogItems.projectors);
+  }, 30_000);
 
   afterAll(async () => {
     await (pool as unknown as { end: () => Promise<void> }).end();
@@ -123,7 +125,13 @@ describe("inventory api", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        catalogItemId: "cat_charizard",
+        catalogItemId: catalogSeedIds.items.charizardBaseSet,
+        versionSelection: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+          },
+        ],
         condition: "NM",
         storageLocationId: locationBody.id,
         totalQuantity: 10,
@@ -153,6 +161,7 @@ describe("inventory api", () => {
     const listBody = await listResponse.json();
     expect(listBody.items).toHaveLength(1);
     expect(listBody.items[0]).toMatchObject({
+      version_summary: "Form: Raw",
       total_quantity: 10,
       held_quantity: 3,
       available_quantity: 7,
@@ -203,7 +212,13 @@ describe("inventory api", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        catalogItemId: "cat_iono",
+        catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
+        versionSelection: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+          },
+        ],
         condition: "LP",
         storageLocationId: locationBody.id,
         totalQuantity: 5,
@@ -298,7 +313,13 @@ describe("inventory api", () => {
     await services.records.createRecord(
       {
         accountId: "acc_other" as never,
-        catalogItemId: "cat_other",
+        catalogItemId: catalogSeedIds.items.charizardBaseSet,
+        versionSelection: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+          },
+        ],
         condition: "NM",
         storageLocationId: location.storageLocationId,
         totalQuantity: 2,

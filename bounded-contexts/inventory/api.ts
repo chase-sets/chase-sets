@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { InventoryServices } from "./services";
+import { inventoryCatalogItemRoutes } from "./catalog-items/route";
 import { inventoryHoldRoutes } from "./holds/route";
 import { inventoryRecordRoutes } from "./records/route";
 import { inventoryStorageLocationRoutes } from "./storage-locations/route";
@@ -59,6 +60,10 @@ export function buildInventoryApi(services: InventoryServices) {
     }
   });
 
+  app.route(
+    "/catalog-items",
+    inventoryCatalogItemRoutes(services.catalogItems),
+  );
   app.route(
     "/storage-locations",
     inventoryStorageLocationRoutes(services.storageLocations),

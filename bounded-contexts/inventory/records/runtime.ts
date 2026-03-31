@@ -8,6 +8,12 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
+import type { InventoryCatalogItemServices } from "../catalog-items/runtime";
+import {
+  parseVersionSelectionInput,
+  validateVersionSelection,
+  type InventoryVersionSelectionEntry,
+} from "../catalog-items/versioning";
 import type { InventoryRuntimeDeps } from "../runtime-support";
 import { InventoryDomainError } from "../common";
 import { getStorageLocation } from "../storage-locations/queries";
@@ -32,6 +38,7 @@ export type InventoryRecordServices = Readonly<{
     params: Readonly<{
       accountId: AccountId;
       catalogItemId: string;
+      versionSelection: readonly InventoryVersionSelectionEntry[];
       condition: string;
       storageLocationId: string;
       totalQuantity: number;
@@ -60,6 +67,7 @@ export type InventoryRecordServices = Readonly<{
 
 export function createInventoryRecordRuntime(
   deps: InventoryRuntimeDeps,
+  catalogItems: InventoryCatalogItemServices,
 ): InventoryRecordServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -91,6 +99,22 @@ export function createInventoryRecordRuntime(
         );
       }
 
+      const catalogItem = await catalogItems.getCatalogItem(params.catalogItemId);
+      if (!catalogItem) {
+        throw new InventoryDomainError("Catalog item not found.");
+      }
+
+      if (catalogItem.status !== "active") {
+        throw new InventoryDomainError(
+          "Inventory records may only reference active catalog items.",
+        );
+      }
+
+      const versionSelection = validateVersionSelection(
+        catalogItem.version_schema,
+        parseVersionSelectionInput(params.versionSelection),
+      );
+
       const recordId = createId("inv") as InventoryRecordId;
       const result = await commandHandler({
         streamId: `inventory.record-${recordId}`,
@@ -99,6 +123,7 @@ export function createInventoryRecordRuntime(
           recordId,
           accountId: params.accountId,
           catalogItemId: params.catalogItemId,
+          versionSelection,
           condition: params.condition,
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,

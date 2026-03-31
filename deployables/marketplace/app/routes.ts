@@ -24,6 +24,8 @@ export default [
     route("account/inventory", "routes/account-inventory.tsx"),
     route("account/inventory/records/:recordId", "routes/account-inventory-record.tsx"),
     route("account/inventory/locations", "routes/account-inventory-locations.tsx"),
+    route("account/listings", "routes/account-listings.tsx"),
+    route("account/listings/:listingId", "routes/account-listing.tsx"),
     route("account/team", "routes/account-team.tsx"),
     route("account/security", "routes/account-security.tsx"),
     route("account/consents", "routes/account-consents.tsx"),

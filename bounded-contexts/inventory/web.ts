@@ -1,10 +1,12 @@
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
+import type { InventoryCatalogItemSnapshot } from "./catalog-items/queries";
 
 export { InventoryRecordListPage } from "./records/ui/inventory-record-list-page";
 export { InventoryRecordDetailPage } from "./records/ui/inventory-record-detail-page";
 export { StorageLocationPage } from "./storage-locations/ui/storage-location-page";
+export type { InventoryCatalogItemSnapshot } from "./catalog-items/queries";
 export type {
   InventoryRecordDetail,
   InventoryRecordListItem,
@@ -81,6 +83,14 @@ export function createInventoryApiClient({
     async getRecord(id: string): Promise<InventoryRecordDetail> {
       return parseJsonResponse(
         await client.records[":id"].$get({ param: { id }, header: headers }),
+      );
+    },
+    async getCatalogItem(id: string): Promise<InventoryCatalogItemSnapshot> {
+      return parseJsonResponse(
+        await client["catalog-items"][":id"].$get({
+          param: { id },
+          header: headers,
+        }),
       );
     },
     async createRecord(body: Record<string, unknown>) {

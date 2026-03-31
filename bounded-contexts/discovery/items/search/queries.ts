@@ -25,8 +25,61 @@ export type DiscoverySearchItemRow = Readonly<{
   category_names: unknown;
   tags: unknown;
   image_urls: unknown;
+  market_summary: Readonly<{
+    lowest_price_amount: string | null;
+    active_listing_count: number;
+    total_visible_quantity: number;
+  }> | null;
   updated_at: string;
 }>;
+
+type BaseDiscoverySearchItemRow = Omit<DiscoverySearchItemRow, "market_summary">;
+
+async function marketplaceListingsAvailable(db: PgQueryable) {
+  const result = await db.query<{ exists: string | null }>(
+    "SELECT to_regclass('public.marketplace_listing_pages')::text AS exists",
+  );
+
+  return Boolean(result.rows[0]?.exists);
+}
+
+async function getMarketSummariesForItems(
+  db: PgQueryable,
+  itemIds: readonly string[],
+) {
+  if (itemIds.length === 0 || !(await marketplaceListingsAvailable(db))) {
+    return new Map<string, DiscoverySearchItemRow["market_summary"]>();
+  }
+
+  const result = await db.query<{
+    catalog_item_id: string;
+    lowest_price_amount: string | null;
+    active_listing_count: number;
+    total_visible_quantity: number;
+  }>(
+    `SELECT
+       catalog_item_id,
+       MIN(price_amount)::text AS lowest_price_amount,
+       COUNT(*)::integer AS active_listing_count,
+       COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
+     FROM marketplace_listing_pages
+     WHERE status = 'active'
+       AND catalog_item_id = ANY($1::text[])
+     GROUP BY catalog_item_id`,
+    [itemIds],
+  );
+
+  return new Map(
+    result.rows.map((row) => [
+      row.catalog_item_id,
+      {
+        lowest_price_amount: row.lowest_price_amount,
+        active_listing_count: row.active_listing_count,
+        total_visible_quantity: row.total_visible_quantity,
+      },
+    ]),
+  );
+}
 
 export async function searchDiscoveryItems(
   db: PgQueryable,
@@ -112,11 +165,19 @@ export async function searchDiscoveryItems(
 
   const [countResult, listResult] = await Promise.all([
     db.query<{ count: string }>(countSql, values),
-    db.query<DiscoverySearchItemRow>(listSql, values),
+    db.query<BaseDiscoverySearchItemRow>(listSql, values),
   ]);
 
+  const marketSummaries = await getMarketSummariesForItems(
+    db,
+    listResult.rows.map((row) => row.item_id),
+  );
+
   return {
-    items: listResult.rows,
+    items: listResult.rows.map((row) => ({
+      ...row,
+      market_summary: marketSummaries.get(row.item_id) ?? null,
+    })),
     total: Number.parseInt(countResult.rows[0].count, 10),
   };
 }

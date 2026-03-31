@@ -73,6 +73,20 @@ export default defineConfig({
         )
       },
       {
+        find: /^@chase-sets\/marketplace-context\/web$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/marketplace/web.ts"
+        )
+      },
+      {
+        find: /^@chase-sets\/marketplace-context$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/marketplace/index.ts"
+        )
+      },
+      {
         find: "@chase-sets/event-core-postgres",
         replacement: resolve(
           currentDir,

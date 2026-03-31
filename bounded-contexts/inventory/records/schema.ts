@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS inventory_records (
   record_id text PRIMARY KEY,
   account_id text NOT NULL,
   catalog_item_id text NOT NULL,
+  version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
   condition text NOT NULL,
   storage_location_id text NOT NULL REFERENCES inventory_storage_locations(storage_location_id),
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),

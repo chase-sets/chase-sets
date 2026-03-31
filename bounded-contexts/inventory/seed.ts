@@ -25,6 +25,7 @@ type StorageLocationSeed = Readonly<{
 type InventoryRecordSeed = Readonly<{
   recordId: SeedInventoryRecordId;
   catalogItemId: SeedCatalogItemId;
+  versionSelection: readonly { dimensionId: string; choiceId: string }[];
   condition: string;
   storageLocationId: SeedStorageLocationId;
   totalQuantity: number;
@@ -59,6 +60,12 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.charizardBaseSetNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    versionSelection: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+      },
+    ],
     condition: "NM",
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 3,
@@ -67,6 +74,12 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.pikachuJungleLightlyPlayed,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
+    versionSelection: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+      },
+    ],
     condition: "LP",
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 8,
@@ -75,6 +88,12 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.lugiaNeoGenesisNearMint,
     catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
+    versionSelection: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+      },
+    ],
     condition: "NM",
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 2,
@@ -83,6 +102,12 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.pikachuPrismaticEvolutionsNearMint,
     catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
+    versionSelection: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+      },
+    ],
     condition: "NM",
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 12,
@@ -91,6 +116,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.prismaticEvolutionsBoosterPack,
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+    versionSelection: [],
     condition: "Sealed",
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 24,
@@ -99,6 +125,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.surgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
+    versionSelection: [],
     condition: "Sealed",
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 6,
@@ -107,6 +134,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.twilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    versionSelection: [],
     condition: "Sealed",
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 4,
@@ -149,6 +177,8 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
 
   console.log("Starting inventory development seed...\n");
 
+  await drainProjectors("inventory-catalog", services.catalogItems.projectors);
+
   for (const location of storageLocations) {
     const streamId = `inventory.storage-location-${location.storageLocationId}`;
 
@@ -172,6 +202,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       recordId: record.recordId,
       accountId: demoIdentitySeedIds.accountId,
       catalogItemId: record.catalogItemId,
+      versionSelection: record.versionSelection,
       condition: record.condition,
       storageLocationId: record.storageLocationId,
       totalQuantity: record.totalQuantity,

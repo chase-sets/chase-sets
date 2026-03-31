@@ -50,6 +50,11 @@ export function InventoryRecordDetailPage({
             <Text>
               <strong>Catalog item:</strong> {record.catalog_item_id}
             </Text>
+            {record.version_summary ? (
+              <Text>
+                <strong>Version:</strong> {record.version_summary}
+              </Text>
+            ) : null}
             <Text>
               <strong>Condition:</strong>{" "}
               <ConditionBadge condition={record.condition as never} />

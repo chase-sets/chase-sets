@@ -9,6 +9,7 @@ export interface DiscoverySearchItem {
   category_names: string[];
   tags: string[];
   image_urls: string[];
+  market_summary: DiscoveryMarketSummary | null;
   updated_at: string;
 }
 
@@ -64,5 +65,34 @@ export interface DiscoveryItemDetail {
   tags: string[];
   image_urls: string[];
   version_schema: VersionSchema | null;
+  market_summary: DiscoveryMarketSummary | null;
+  market_listings: DiscoveryMarketListing[];
+  updated_at: string;
+}
+
+export interface DiscoveryMarketSummary {
+  lowest_price_amount: string | null;
+  active_listing_count: number;
+  total_visible_quantity: number;
+}
+
+export interface DiscoveryMarketListing {
+  listing_id: string;
+  account_id: string;
+  inventory_record_id: string;
+  catalog_item_id: string;
+  item_title: string | null;
+  item_subtitle: string | null;
+  version_selection: readonly { dimensionId: string; choiceId: string }[];
+  version_summary: string | null;
+  condition: string;
+  storage_location_name: string | null;
+  ship_from_code: string | null;
+  price_amount: string;
+  quantity_cap: number;
+  status: string;
+  seller_display_name: string | null;
+  visible_quantity: number;
+  created_at: string;
   updated_at: string;
 }

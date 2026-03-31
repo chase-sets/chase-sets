@@ -17,6 +17,8 @@ export type InventoryRecordListItem = Readonly<{
   catalog_item_id: string;
   item_title: string | null;
   item_subtitle: string | null;
+  version_selection: readonly { dimensionId: string; choiceId: string }[];
+  version_summary: string | null;
   condition: string;
   storage_location_id: string;
   storage_location_name: string;

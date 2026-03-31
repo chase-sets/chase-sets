@@ -29,18 +29,19 @@ describe("marketplace route layout", () => {
 
   it("shows inventory access in the shell for signed-in actors", () => {
     mockUseLocation.mockReturnValue({
-      pathname: "/account/inventory",
+      pathname: "/account/listings",
       search: "",
     });
     mockUseRouteLoaderData.mockReturnValue({
       actor: {
-        permissions: ["accounts.view", "inventory.view"],
+        permissions: ["accounts.view", "inventory.view", "listings.view"],
       },
     });
 
     const html = renderToString(<MarketplaceLayoutRoute />);
 
     expect(html).toContain('href="/account/inventory"');
+    expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account"');
     expect(html).not.toContain('href="/sign-in"');
   });

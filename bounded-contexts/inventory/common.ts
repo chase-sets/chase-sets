@@ -12,7 +12,7 @@ export class InventoryDomainError extends Error {
   }
 }
 
-export function assert(condition: boolean, message: string): asserts condition {
+export function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new InventoryDomainError(message);
   }

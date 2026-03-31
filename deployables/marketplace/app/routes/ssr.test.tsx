@@ -43,12 +43,17 @@ describe("marketplace SSR routes", () => {
                   blueprint_id: "bp-1",
                   blueprint_name: "Pokemon Card",
                   status: "active",
-                  category_names: ["Pokemon"],
-                  tags: ["Fire"],
-                  image_urls: [],
-                  updated_at: "2026-03-26T00:00:00.000Z",
+                category_names: ["Pokemon"],
+                tags: ["Fire"],
+                image_urls: [],
+                market_summary: {
+                  lowest_price_amount: "24.99",
+                  active_listing_count: 1,
+                  total_visible_quantity: 1,
                 },
-              ],
+                updated_at: "2026-03-26T00:00:00.000Z",
+              },
+            ],
             }}
             categories={[]}
             onSearchChange={() => undefined}
@@ -80,6 +85,12 @@ describe("marketplace SSR routes", () => {
             categories: [{ categoryId: "cat-1", name: "Pokemon" }],
             tags: ["Fire"],
             image_urls: [],
+            market_summary: {
+              lowest_price_amount: "24.99",
+              active_listing_count: 1,
+              total_visible_quantity: 1,
+            },
+            market_listings: [],
             version_schema: {
               canonicalDimensionOrder: [
                 { dimensionId: "form", dimensionName: "Form" }
@@ -240,6 +251,8 @@ describe("marketplace SSR routes", () => {
               categories: [],
               tags: [],
               image_urls: [],
+              market_summary: null,
+              market_listings: [],
               version_schema: null,
               updated_at: "2026-03-26T00:00:00.000Z",
             }),

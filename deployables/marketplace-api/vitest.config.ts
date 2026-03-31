@@ -12,6 +12,22 @@ export default defineConfig({
         replacement: resolve(currentDir, "../../bounded-contexts/discovery/index.ts"),
       },
       {
+        find: /^@chase-sets\/identity\/server$/,
+        replacement: resolve(currentDir, "../../bounded-contexts/identity/server.ts"),
+      },
+      {
+        find: "@chase-sets/identity",
+        replacement: resolve(currentDir, "../../bounded-contexts/identity/index.ts"),
+      },
+      {
+        find: /^@chase-sets\/marketplace-context\/web$/,
+        replacement: resolve(currentDir, "../../bounded-contexts/marketplace/web.ts"),
+      },
+      {
+        find: "@chase-sets/marketplace-context",
+        replacement: resolve(currentDir, "../../bounded-contexts/marketplace/index.ts"),
+      },
+      {
         find: "@chase-sets/catalog-authoring",
         replacement: resolve(currentDir, "../../bounded-contexts/catalog/authoring/index.ts"),
       },

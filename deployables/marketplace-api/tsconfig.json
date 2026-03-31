@@ -8,10 +8,13 @@
     "src",
     "../../contracts/**/*.ts",
     "../../bounded-contexts/catalog/**/*.ts",
-    "../../bounded-contexts/discovery/**/*.ts"
+    "../../bounded-contexts/discovery/**/*.ts",
+    "../../bounded-contexts/marketplace/**/*.ts"
   ],
   "exclude": [
     "../../bounded-contexts/**/*.tmp.*",
+    "../../bounded-contexts/**/*.test.ts",
+    "../../bounded-contexts/**/*.test.tsx",
     "../../bounded-contexts/discovery/api/**/*.ts"
   ]
 }

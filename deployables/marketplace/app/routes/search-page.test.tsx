@@ -30,6 +30,11 @@ describe("SearchPage", () => {
                 category_names: ["Pokemon"],
                 tags: ["fire"],
                 image_urls: [],
+                market_summary: {
+                  lowest_price_amount: "24.99",
+                  active_listing_count: 2,
+                  total_visible_quantity: 3,
+                },
                 updated_at: "2026-03-31T00:00:00.000Z",
               },
             ],

@@ -1,5 +1,13 @@
-import { createDiscoveryServices, discoverySchemaSql } from "@chase-sets/discovery";
+import {
+  createDiscoveryServices,
+  discoverySchemaSql,
+} from "@chase-sets/discovery";
 import { createPgPool } from "@chase-sets/event-core-postgres";
+import {
+  createMarketplaceServices,
+  marketplaceSchemaSql,
+  seedMarketplaceDatabase,
+} from "@chase-sets/marketplace-context";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { loadConfig } from "./config";
 
@@ -52,14 +60,32 @@ async function bootstrap() {
 
   try {
     await waitForDatabase(pool, "Marketplace");
-    await pool.query(discoverySchemaSql);
+    await pool.query([discoverySchemaSql, marketplaceSchemaSql].join("\n\n"));
 
-    const services = createDiscoveryServices(pool);
-    await drainProjectors("Marketplace", services.projectors);
+    const eventCount = await countEvents(pool, "marketplace.");
+    if (eventCount === 0) {
+      await seedMarketplaceDatabase(pool);
+    }
+
+    const discovery = createDiscoveryServices(pool);
+    const marketplace = createMarketplaceServices(pool);
+    await drainProjectors("Marketplace", [
+      ...discovery.projectors,
+      ...marketplace.projectors,
+    ]);
     console.log("Marketplace bootstrap complete.");
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();
   }
+}
+
+async function countEvents(pool: ReturnType<typeof createPgPool>, prefix: string) {
+  const result = await pool.query(
+    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
+    [`${prefix}%`],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 void bootstrap().catch((error) => {

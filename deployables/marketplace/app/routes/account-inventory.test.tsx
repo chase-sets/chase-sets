@@ -26,6 +26,8 @@ describe("marketplace inventory routes", () => {
               catalog_item_id: "cat_charizard",
               item_title: "Charizard ex",
               item_subtitle: "199/165",
+              version_selection: [{ dimensionId: "dim_form", choiceId: "raw" }],
+              version_summary: "Form: Raw",
               condition: "NM",
               storage_location_id: "loc_1",
               storage_location_name: "North shelf",
@@ -127,6 +129,7 @@ describe("marketplace inventory routes", () => {
     const form = new URLSearchParams();
     form.set("intent", "create-record");
     form.set("catalogItemId", "cat_1");
+    form.set("versionSelection", "[]");
     form.set("condition", "NM");
     form.set("storageLocationId", "loc_1");
     form.set("totalQuantity", "3");
@@ -173,6 +176,8 @@ describe("marketplace inventory routes", () => {
             catalog_item_id: "cat_charizard",
             item_title: "Charizard ex",
             item_subtitle: null,
+            version_selection: [{ dimensionId: "dim_form", choiceId: "raw" }],
+            version_summary: "Form: Raw",
             condition: "NM",
             storage_location_id: "loc_1",
             storage_location_name: "North shelf",

@@ -4,6 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
+import type { InventoryVersionSelectionEntry } from "../catalog-items/versioning";
 import {
   assert,
   assertNever,
@@ -16,6 +17,7 @@ export type InventoryRecordState = Readonly<{
   id: InventoryRecordId | null;
   accountId: AccountId | null;
   catalogItemId: string | null;
+  versionSelection: readonly InventoryVersionSelectionEntry[];
   condition: string;
   storageLocationId: string | null;
   totalQuantity: number;
@@ -26,6 +28,7 @@ export const initialInventoryRecordState: InventoryRecordState = {
   id: null,
   accountId: null,
   catalogItemId: null,
+  versionSelection: [],
   condition: "",
   storageLocationId: null,
   totalQuantity: 0,
@@ -37,6 +40,7 @@ export type CreateInventoryRecordCommand = Readonly<{
   recordId: InventoryRecordId;
   accountId: AccountId;
   catalogItemId: string;
+  versionSelection?: readonly InventoryVersionSelectionEntry[];
   condition: string;
   storageLocationId: string;
   totalQuantity: number;
@@ -59,6 +63,7 @@ export type InventoryRecordCreatedEvent = DomainEvent<
     recordId: InventoryRecordId;
     accountId: AccountId;
     catalogItemId: string;
+    versionSelection: InventoryVersionSelectionEntry[];
     condition: string;
     storageLocationId: string;
     totalQuantity: number;
@@ -98,6 +103,10 @@ export const decideInventoryRecord: AggregateDecider<
             recordId: command.recordId,
             accountId: command.accountId,
             catalogItemId: normalizeLabel(command.catalogItemId),
+            versionSelection: (command.versionSelection ?? []).map((entry) => ({
+              dimensionId: normalizeLabel(entry.dimensionId),
+              choiceId: normalizeLabel(entry.choiceId),
+            })),
             condition: normalizeLabel(command.condition),
             storageLocationId: normalizeLabel(command.storageLocationId),
             totalQuantity: command.totalQuantity,
@@ -141,6 +150,7 @@ export const evolveInventoryRecord: AggregateEvolver<
         id: event.data.recordId,
         accountId: event.data.accountId,
         catalogItemId: event.data.catalogItemId,
+        versionSelection: event.data.versionSelection,
         condition: event.data.condition,
         storageLocationId: event.data.storageLocationId,
         totalQuantity: event.data.totalQuantity,

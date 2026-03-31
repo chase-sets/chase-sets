@@ -57,6 +57,14 @@ type Pages = {
   "/account/inventory/locations": {
     params: {};
   };
+  "/account/listings": {
+    params: {};
+  };
+  "/account/listings/:listingId": {
+    params: {
+      "listingId": string;
+    };
+  };
   "/account/team": {
     params: {};
   };
@@ -71,7 +79,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/listings" | "/account/listings/:listingId" | "/account/team" | "/account/security" | "/account/consents";
   };
   "routes/favicon.ts": {
     id: "routes/favicon";
@@ -91,7 +99,7 @@ type RouteFiles = {
   };
   "routes/layout.tsx": {
     id: "routes/layout";
-    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/listings" | "/account/listings/:listingId" | "/account/team" | "/account/security" | "/account/consents";
   };
   "routes/index.tsx": {
     id: "routes/index";
@@ -133,6 +141,14 @@ type RouteFiles = {
     id: "routes/account-inventory-locations";
     page: "/account/inventory/locations";
   };
+  "routes/account-listings.tsx": {
+    id: "routes/account-listings";
+    page: "/account/listings";
+  };
+  "routes/account-listing.tsx": {
+    id: "routes/account-listing";
+    page: "/account/listings/:listingId";
+  };
   "routes/account-team.tsx": {
     id: "routes/account-team";
     page: "/account/team";
@@ -164,6 +180,8 @@ type RouteModules = {
   "routes/account-inventory": typeof import("./app/routes/account-inventory.tsx");
   "routes/account-inventory-record": typeof import("./app/routes/account-inventory-record.tsx");
   "routes/account-inventory-locations": typeof import("./app/routes/account-inventory-locations.tsx");
+  "routes/account-listings": typeof import("./app/routes/account-listings.tsx");
+  "routes/account-listing": typeof import("./app/routes/account-listing.tsx");
   "routes/account-team": typeof import("./app/routes/account-team.tsx");
   "routes/account-security": typeof import("./app/routes/account-security.tsx");
   "routes/account-consents": typeof import("./app/routes/account-consents.tsx");

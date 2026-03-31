@@ -23,6 +23,33 @@ function buildItemDetail(
     categories: [{ categoryId: "cat-1", name: "Pokemon TCG" }],
     tags: ["base-set", "charizard", "holo"],
     image_urls: [],
+    market_summary: {
+      lowest_price_amount: "399.99",
+      active_listing_count: 2,
+      total_visible_quantity: 3,
+    },
+    market_listings: [
+      {
+        listing_id: "lst_1",
+        account_id: "acc_1",
+        inventory_record_id: "inv_1",
+        catalog_item_id: "item-1",
+        item_title: "Charizard",
+        item_subtitle: "Base Set 4/102 Holo Rare",
+        version_selection: [{ dimensionId: "form", choiceId: "raw" }],
+        version_summary: "Form: Raw",
+        condition: "NM",
+        storage_location_name: "Vault annex",
+        ship_from_code: "CHI-ANNEX-2",
+        price_amount: "399.99",
+        quantity_cap: 2,
+        status: "active",
+        seller_display_name: "Demo Seller",
+        visible_quantity: 2,
+        created_at: "2026-03-31T14:54:27.781Z",
+        updated_at: "2026-03-31T14:54:27.781Z",
+      },
+    ],
     version_schema: {
       canonicalDimensionOrder: [
         { dimensionId: "form", dimensionName: "Form" },
@@ -130,5 +157,66 @@ describe("marketplace item detail page", () => {
     expect(screen.getByText("base-set")).toBeTruthy();
     expect(screen.getByText(/Mar 31, 2026/)).toBeTruthy();
     expect(screen.queryByText("2026-03-31T14:54:27.781Z")).toBeNull();
+  });
+
+  it("filters visible listings from the selected version", () => {
+    renderItemDetail(
+      buildItemDetail({
+        market_listings: [
+          {
+            listing_id: "lst_raw",
+            account_id: "acc_1",
+            inventory_record_id: "inv_1",
+            catalog_item_id: "item-1",
+            item_title: "Charizard",
+            item_subtitle: "Base Set 4/102 Holo Rare",
+            version_selection: [{ dimensionId: "form", choiceId: "raw" }],
+            version_summary: "Form: Raw",
+            condition: "NM",
+            storage_location_name: "Vault annex",
+            ship_from_code: "CHI-ANNEX-2",
+            price_amount: "399.99",
+            quantity_cap: 1,
+            status: "active",
+            seller_display_name: "Raw Seller",
+            visible_quantity: 1,
+            created_at: "2026-03-31T14:54:27.781Z",
+            updated_at: "2026-03-31T14:54:27.781Z",
+          },
+          {
+            listing_id: "lst_graded",
+            account_id: "acc_1",
+            inventory_record_id: "inv_2",
+            catalog_item_id: "item-1",
+            item_title: "Charizard",
+            item_subtitle: "Base Set 4/102 Holo Rare",
+            version_selection: [
+              { dimensionId: "form", choiceId: "graded" },
+              { dimensionId: "grading-company", choiceId: "ace" },
+              { dimensionId: "grade", choiceId: "10" },
+            ],
+            version_summary: "Form: Graded | Grading Company: ACE | Grade: Pristine 10",
+            condition: "NM",
+            storage_location_name: "Vault annex",
+            ship_from_code: "CHI-ANNEX-2",
+            price_amount: "1499.99",
+            quantity_cap: 1,
+            status: "active",
+            seller_display_name: "Graded Seller",
+            visible_quantity: 1,
+            created_at: "2026-03-31T14:54:27.781Z",
+            updated_at: "2026-03-31T14:54:27.781Z",
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Raw Seller")).toBeTruthy();
+    expect(screen.queryByText("Graded Seller")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Graded" }));
+
+    expect(screen.getByText("Graded Seller")).toBeTruthy();
+    expect(screen.queryByText("Raw Seller")).toBeNull();
   });
 });
