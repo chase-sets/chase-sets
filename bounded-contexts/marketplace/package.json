@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "vitest run --config ./vitest.config.mjs"
+  },
   "exports": {
     ".": "./index.ts",
     "./web": "./web.ts"
@@ -16,5 +19,8 @@
     "@chase-sets/http": "0.1.0",
     "@chase-sets/primitives": "0.1.0",
     "hono": "^4.12.5"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
   }
 }

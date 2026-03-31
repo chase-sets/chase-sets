@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { ItemDetailPage } from "@chase-sets/discovery/web";
+import { MarketplaceOfferSubmissionSection } from "@chase-sets/marketplace-context/web";
 import type { DiscoveryItemDetail } from "@chase-sets/discovery/web";
 
 function buildItemDetail(
@@ -218,5 +219,35 @@ describe("marketplace item detail page", () => {
 
     expect(screen.getByText("Graded Seller")).toBeTruthy();
     expect(screen.queryByText("Raw Seller")).toBeNull();
+  });
+
+  it("binds the offer submission section to the selected version", () => {
+    render(
+      <ChaseRoot>
+        <ItemDetailPage
+          data={buildItemDetail()}
+          renderAfterListings={(context) => (
+            <MarketplaceOfferSubmissionSection
+              catalogItemId={context.itemId}
+              itemTitle={context.itemTitle}
+              versionSelection={context.selectedVersionSelection}
+              versionSummary={context.selectedVersionSummary}
+              visibleListingCount={context.visibleListings.length}
+            />
+          )}
+        />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByText("Make An Offer")).toBeTruthy();
+    expect(screen.getAllByText("Form: Raw").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Graded" }));
+
+    expect(
+      screen.getAllByText(
+        "Form: Graded | Grading Company: ACE | Grade: Pristine 10",
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });

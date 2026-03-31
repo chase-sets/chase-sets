@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Breadcrumbs,
   Card,
@@ -26,9 +26,19 @@ import type {
 } from "../client-support/contracts";
 import { VersionSelector } from "./version-selector";
 import {
+  getOrderedActiveDimensions,
   normalizeSelectionsForSchema,
   summarizeSelections,
 } from "./versioning";
+
+export type ItemDetailMarketplaceSectionContext = Readonly<{
+  itemId: string;
+  itemTitle: string;
+  itemSubtitle: string | null;
+  selectedVersionSelection: readonly { dimensionId: string; choiceId: string }[];
+  selectedVersionSummary: string | null;
+  visibleListings: readonly DiscoveryMarketListing[];
+}>;
 
 function formatFieldValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -81,10 +91,12 @@ export function ItemDetailPage({
   data,
   notFound = false,
   error = null,
+  renderAfterListings,
 }: {
   data: DiscoveryItemDetail | null;
   notFound?: boolean;
   error?: string | null;
+  renderAfterListings?: (context: ItemDetailMarketplaceSectionContext) => ReactNode;
 }) {
   const [selections, setSelections] = useState<Record<string, string>>(() =>
     data?.version_schema ? normalizeSelectionsForSchema(data.version_schema, {}) : {},
@@ -124,6 +136,32 @@ export function ItemDetailPage({
   const selectedVersion = data.version_schema
     ? summarizeSelections(data.version_schema, selections)
     : [];
+  const selectedVersionSelection = data.version_schema
+    ? getOrderedActiveDimensions(data.version_schema, selections)
+        .map((dimension) => {
+          const choiceId = selections[dimension.dimensionId];
+
+          if (!choiceId) {
+            return null;
+          }
+
+          return {
+            dimensionId: dimension.dimensionId,
+            choiceId,
+          };
+        })
+        .filter(
+          (
+            selection,
+          ): selection is { dimensionId: string; choiceId: string } => selection !== null,
+        )
+    : [];
+  const selectedVersionSummary =
+    selectedVersion.length > 0
+      ? selectedVersion
+          .map((selection) => `${selection.dimensionName}: ${selection.choiceLabel}`)
+          .join(" | ")
+      : null;
   const visibleListings = data.market_listings.filter((listing) =>
     data.version_schema ? matchesSelectedVersion(listing, selections) : true,
   );
@@ -363,6 +401,17 @@ export function ItemDetailPage({
               </Stack>
             </PageSection>
           </Reveal>
+
+          {renderAfterListings
+            ? renderAfterListings({
+                itemId: data.item_id,
+                itemTitle: data.title,
+                itemSubtitle: data.subtitle,
+                selectedVersionSelection,
+                selectedVersionSummary,
+                visibleListings,
+              })
+            : null}
 
           {data.field_values.length > 0 ? (
             <Reveal preset="lift">

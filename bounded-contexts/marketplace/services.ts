@@ -6,9 +6,11 @@ import {
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createMarketplaceListingRuntime } from "./listings/runtime";
+import { createMarketplaceOfferRuntime } from "./offers/runtime";
 
 export type MarketplaceServices = Readonly<{
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
+  offers: ReturnType<typeof createMarketplaceOfferRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -22,10 +24,12 @@ export function createMarketplaceServices(
   const db = pool as PgQueryable;
   const deps = { eventStore, checkpointStore, db } as const;
   const listings = createMarketplaceListingRuntime(deps);
+  const offers = createMarketplaceOfferRuntime(deps);
 
   return {
     listings,
-    projectors: [...listings.projectors],
+    offers,
+    projectors: [...listings.projectors, ...offers.projectors],
     pool,
     db,
   };

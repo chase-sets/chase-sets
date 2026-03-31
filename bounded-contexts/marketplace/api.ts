@@ -2,7 +2,14 @@ import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/identity/server";
 import type { MarketplaceServices } from "./services";
-import { createPublicListingRoutes, createSellerRoutes } from "./listings/route";
+import {
+  createPublicListingRoutes,
+  createSellerRoutes as createSellerListingRoutes,
+} from "./listings/route";
+import {
+  createBuyerOfferRoutes,
+  createSellerOfferRoutes,
+} from "./offers/route";
 
 export type MarketplaceApiEnv = {
   Variables: {
@@ -35,7 +42,9 @@ export function buildMarketplaceApi(services: MarketplaceServices) {
     }
   });
 
-  app.route("/seller", createSellerRoutes(services.listings));
+  app.route("/buyer", createBuyerOfferRoutes(services.offers));
+  app.route("/seller", createSellerListingRoutes(services.listings));
+  app.route("/seller", createSellerOfferRoutes(services.offers));
   app.route("/", createPublicListingRoutes(services.listings));
 
   return app;

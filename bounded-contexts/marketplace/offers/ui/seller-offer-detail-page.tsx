@@ -1,0 +1,74 @@
+import {
+  Badge,
+  Card,
+  LinkButton,
+  Page,
+  PageHeader,
+  PageSection,
+  Stack,
+  Text,
+} from "@chase-sets/design-system";
+import type { MarketplaceSellerOfferDetail } from "./contracts";
+
+function statusTone(status: string) {
+  switch (status) {
+    case "submitted":
+      return "accent";
+    default:
+      return "neutral";
+  }
+}
+
+function formatMoney(amount: string) {
+  return `$${amount}`;
+}
+
+export function MarketplaceSellerOfferDetailPage({
+  offer,
+  errorMessage,
+}: {
+  offer: MarketplaceSellerOfferDetail;
+  errorMessage?: string | null;
+}) {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow="Seller"
+        title={offer.item_title}
+        description="Review marketplace-wide buyer demand that matches your active supply."
+        actions={
+          <LinkButton href="/account/market-offers" tone="secondary">
+            Back to market offers
+          </LinkButton>
+        }
+      />
+
+      {errorMessage ? (
+        <Card>
+          <Text>{errorMessage}</Text>
+        </Card>
+      ) : null}
+
+      <PageSection title="Offer Overview">
+        <Card>
+          <Stack gap={2}>
+            {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
+            {offer.version_summary ? (
+              <Text size="sm" tone="secondary">
+                {offer.version_summary}
+              </Text>
+            ) : null}
+            <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
+            <Text>Buyer: {offer.buyer_display_name ?? offer.buyer_account_id}</Text>
+            <Text>Offer price: {formatMoney(offer.price_amount)}</Text>
+            <Text>Quantity requested: {offer.quantity_requested}</Text>
+            <Text>
+              This view is read-only in v1. Seller responses stay out of scope until the
+              negotiation workflow is implemented.
+            </Text>
+          </Stack>
+        </Card>
+      </PageSection>
+    </Page>
+  );
+}

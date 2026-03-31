@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiscoveryServices } from "@chase-sets/discovery";
 import type { MarketplaceServices } from "@chase-sets/marketplace-context";
+import type { ResolvedActor } from "@chase-sets/identity/server";
 import { buildMarketplaceApp } from "../src/app";
 
 const services: DiscoveryServices = {
@@ -41,6 +42,15 @@ const marketplaceServices: MarketplaceServices = {
     }),
     listItemListings: async () => [],
     getInventoryRecordSupply: async () => null,
+    projectors: [],
+  },
+  offers: {
+    commandHandler: async () => ({ version: 1 }),
+    submitOffer: async () => ({ offerId: "off_1" as never, version: 1 }),
+    listBuyerOffers: async () => ({ items: [], total: 0 }),
+    getBuyerOffer: async () => null,
+    listSellerVisibleOffers: async () => ({ items: [], total: 0 }),
+    getSellerVisibleOffer: async () => null,
     projectors: [],
   },
   projectors: [],
@@ -141,5 +151,45 @@ describe("marketplace api host app", () => {
       active_listing_count: 0,
       total_visible_quantity: 0,
     });
+  });
+
+  it("mounts buyer offer routes under the marketplace API", async () => {
+    const app = buildMarketplaceApp(
+      {
+        discovery: services,
+        marketplace: marketplaceServices,
+      },
+      {
+        resolveActor: async () =>
+          ({
+            sessionId: "ses_1",
+            tenantId: "tnt_identity",
+            userId: "usr_1",
+            accountId: "acc_1",
+            membershipId: "mbr_1",
+            roleKey: "owner",
+            permissions: ["offers.view", "offers.manage"],
+          }) satisfies ResolvedActor,
+      },
+    );
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/api/marketplace/buyer/offers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          catalogItemId: "cat_1",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          versionSelection: [],
+          versionSummary: null,
+          priceAmount: "10.00",
+          quantityRequested: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ id: "off_1", version: 1 });
   });
 });

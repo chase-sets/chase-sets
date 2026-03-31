@@ -34,7 +34,12 @@ describe("marketplace route layout", () => {
     });
     mockUseRouteLoaderData.mockReturnValue({
       actor: {
-        permissions: ["accounts.view", "inventory.view", "listings.view"],
+        permissions: [
+          "accounts.view",
+          "inventory.view",
+          "listings.view",
+          "offers.view",
+        ],
       },
     });
 
@@ -42,6 +47,8 @@ describe("marketplace route layout", () => {
 
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/listings"');
+    expect(html).toContain('href="/account/market-offers"');
+    expect(html).toContain('href="/account/offers"');
     expect(html).toContain('href="/account"');
     expect(html).not.toContain('href="/sign-in"');
   });

@@ -5,7 +5,7 @@ import {
   inventorySeedIds,
   marketplaceReservedSeedIds,
 } from "@chase-sets/dev-seeds";
-import type { ListingId } from "@chase-sets/primitives/typed-ids";
+import type { ListingId, OfferId } from "@chase-sets/primitives/typed-ids";
 import { createMarketplaceServices } from "./services";
 
 type ListingSeed = Readonly<{
@@ -14,6 +14,17 @@ type ListingSeed = Readonly<{
   catalogItemId: string;
   priceAmount: string;
   quantityCap: number;
+}>;
+
+type OfferSeed = Readonly<{
+  offerId: OfferId;
+  catalogItemId: string;
+  itemTitle: string;
+  itemSubtitle: string | null;
+  versionSelection: readonly { dimensionId: string; choiceId: string }[];
+  versionSummary: string | null;
+  priceAmount: string;
+  quantityRequested: number;
 }>;
 
 const listings: readonly ListingSeed[] = [
@@ -30,6 +41,24 @@ const listings: readonly ListingSeed[] = [
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "21.50",
     quantityCap: 3,
+  },
+];
+
+const offers: readonly OfferSeed[] = [
+  {
+    offerId: marketplaceReservedSeedIds.offers.charizardBaseSetNearMint,
+    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    itemTitle: "Charizard",
+    itemSubtitle: "Base Set 4/102 Holo Rare",
+    versionSelection: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+      },
+    ],
+    versionSummary: "Form: Raw",
+    priceAmount: "350.00",
+    quantityRequested: 1,
   },
 ];
 
@@ -108,6 +137,25 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
     await services.listings.commandHandler({
       streamId: `marketplace.listing-${listing.listingId}`,
       command: { type: "PublishListing" },
+      context,
+    });
+  }
+
+  for (const offer of offers) {
+    await services.offers.commandHandler({
+      streamId: `marketplace.offer-${offer.offerId}`,
+      command: {
+        type: "SubmitOffer",
+        offerId: offer.offerId,
+        buyerAccountId: demoIdentitySeedIds.accountId,
+        catalogItemId: offer.catalogItemId,
+        itemTitle: offer.itemTitle,
+        itemSubtitle: offer.itemSubtitle,
+        versionSelection: offer.versionSelection,
+        versionSummary: offer.versionSummary,
+        priceAmount: offer.priceAmount,
+        quantityRequested: offer.quantityRequested,
+      },
       context,
     });
   }

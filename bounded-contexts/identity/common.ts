@@ -33,6 +33,8 @@ export type PermissionKey =
   | "inventory.view"
   | "listings.manage"
   | "listings.view"
+  | "offers.manage"
+  | "offers.view"
   | "orders.manage"
   | "orders.view"
   | "security.manage";

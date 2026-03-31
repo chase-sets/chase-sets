@@ -15,12 +15,13 @@ Notes:
 
 ## Offer
 
-An **Offer** is a buyer-proposed purchase for a specific item, price, and quantity submitted against market supply.
+An **Offer** is a buyer-proposed purchase for a specific item version, price, and quantity submitted as marketplace-wide demand.
 
 Notes:
 
 - Offers are owned by Marketplace.
-- Accepted offers trigger order creation in Ordering.
+- In v1, offers are not tied to a specific seller, listing, or inventory record.
+- Sellers can review offers only when they have matching active listings.
 
 ## Listing Status
 
@@ -41,11 +42,6 @@ Examples:
 Examples:
 
 - Submitted
-- Countered
-- Accepted
-- Declined
-- Expired
-- Withdrawn
 
 ## Commerce Commitment Request
 

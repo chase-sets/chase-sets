@@ -18,6 +18,14 @@ function hasPermission(actor: MarketplaceActor, permission: string) {
 }
 
 function getActiveKey(pathname: string) {
+  if (pathname.startsWith("/account/market-offers")) {
+    return "market-offers";
+  }
+
+  if (pathname.startsWith("/account/offers")) {
+    return "offers";
+  }
+
   if (pathname.startsWith("/account/listings")) {
     return "listings";
   }
@@ -72,6 +80,24 @@ function getShellNavItems(actor: MarketplaceActor) {
       label: "Listings",
       icon: "package",
       href: "/account/listings",
+    });
+  }
+
+  if (hasPermission(actor, "offers.view") && hasPermission(actor, "listings.view")) {
+    topNavItems.push({
+      key: "market-offers",
+      label: "Market Offers",
+      icon: "package",
+      href: "/account/market-offers",
+    });
+  }
+
+  if (hasPermission(actor, "offers.view")) {
+    topNavItems.push({
+      key: "offers",
+      label: "Offers",
+      icon: "package",
+      href: "/account/offers",
     });
   }
 

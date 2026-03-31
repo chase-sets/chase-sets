@@ -4,6 +4,11 @@ import type { buildMarketplaceApi } from "./api";
 
 export { MarketplaceListingListPage } from "./listings/ui/listing-list-page";
 export { MarketplaceListingDetailPage } from "./listings/ui/listing-detail-page";
+export { MarketplaceBuyerOfferListPage } from "./offers/ui/buyer-offer-list-page";
+export { MarketplaceBuyerOfferDetailPage } from "./offers/ui/buyer-offer-detail-page";
+export { MarketplaceSellerOfferListPage } from "./offers/ui/seller-offer-list-page";
+export { MarketplaceSellerOfferDetailPage } from "./offers/ui/seller-offer-detail-page";
+export { MarketplaceOfferSubmissionSection } from "./offers/ui/offer-submission-section";
 export type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
@@ -11,6 +16,12 @@ export type {
   MarketplaceListingListItem,
   MarketplaceMarketSummary,
 } from "./listings/ui/contracts";
+export type {
+  MarketplaceBuyerOfferDetail,
+  MarketplaceOfferListItem,
+  MarketplaceSellerOfferDetail,
+  MarketplaceSellerOfferListItem,
+} from "./offers/ui/contracts";
 
 import type {
   MarketplaceItemListing,
@@ -18,6 +29,12 @@ import type {
   MarketplaceListingListItem,
   MarketplaceMarketSummary,
 } from "./listings/ui/contracts";
+import type {
+  MarketplaceBuyerOfferDetail,
+  MarketplaceOfferListItem,
+  MarketplaceSellerOfferDetail,
+  MarketplaceSellerOfferListItem,
+} from "./offers/ui/contracts";
 import type {
   DiscoveryItemDetail,
   DiscoverySearchResponse,
@@ -189,6 +206,50 @@ export function createMarketplaceApiClient({
         await client.seller.listings[":id"].withdraw.$post({
           param: { id },
           json: {},
+          header: headers,
+        }),
+      );
+    },
+    async listBuyerOffers(
+      query = "",
+    ): Promise<ListResponse<MarketplaceOfferListItem>> {
+      return parseJsonResponse(
+        await client.buyer.offers.$get({
+          query: queryFromString(query),
+          header: headers,
+        }),
+      );
+    },
+    async getBuyerOffer(id: string): Promise<MarketplaceBuyerOfferDetail> {
+      return parseJsonResponse(
+        await client.buyer.offers[":id"].$get({
+          param: { id },
+          header: headers,
+        }),
+      );
+    },
+    async createBuyerOffer(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.buyer.offers.$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async listSellerOffers(
+      query = "",
+    ): Promise<ListResponse<MarketplaceSellerOfferListItem>> {
+      return parseJsonResponse(
+        await client.seller.offers.$get({
+          query: queryFromString(query),
+          header: headers,
+        }),
+      );
+    },
+    async getSellerOffer(id: string): Promise<MarketplaceSellerOfferDetail> {
+      return parseJsonResponse(
+        await client.seller.offers[":id"].$get({
+          param: { id },
           header: headers,
         }),
       );

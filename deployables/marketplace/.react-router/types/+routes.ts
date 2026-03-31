@@ -57,12 +57,28 @@ type Pages = {
   "/account/inventory/locations": {
     params: {};
   };
+  "/account/offers": {
+    params: {};
+  };
+  "/account/offers/:offerId": {
+    params: {
+      "offerId": string;
+    };
+  };
   "/account/listings": {
     params: {};
   };
   "/account/listings/:listingId": {
     params: {
       "listingId": string;
+    };
+  };
+  "/account/market-offers": {
+    params: {};
+  };
+  "/account/market-offers/:offerId": {
+    params: {
+      "offerId": string;
     };
   };
   "/account/team": {
@@ -79,7 +95,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/listings" | "/account/listings/:listingId" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/listings" | "/account/listings/:listingId" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents";
   };
   "routes/favicon.ts": {
     id: "routes/favicon";
@@ -99,7 +115,7 @@ type RouteFiles = {
   };
   "routes/layout.tsx": {
     id: "routes/layout";
-    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/listings" | "/account/listings/:listingId" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/listings" | "/account/listings/:listingId" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents";
   };
   "routes/index.tsx": {
     id: "routes/index";
@@ -141,6 +157,14 @@ type RouteFiles = {
     id: "routes/account-inventory-locations";
     page: "/account/inventory/locations";
   };
+  "routes/account-offers.tsx": {
+    id: "routes/account-offers";
+    page: "/account/offers";
+  };
+  "routes/account-offer.tsx": {
+    id: "routes/account-offer";
+    page: "/account/offers/:offerId";
+  };
   "routes/account-listings.tsx": {
     id: "routes/account-listings";
     page: "/account/listings";
@@ -148,6 +172,14 @@ type RouteFiles = {
   "routes/account-listing.tsx": {
     id: "routes/account-listing";
     page: "/account/listings/:listingId";
+  };
+  "routes/account-market-offers.tsx": {
+    id: "routes/account-market-offers";
+    page: "/account/market-offers";
+  };
+  "routes/account-market-offer.tsx": {
+    id: "routes/account-market-offer";
+    page: "/account/market-offers/:offerId";
   };
   "routes/account-team.tsx": {
     id: "routes/account-team";
@@ -180,8 +212,12 @@ type RouteModules = {
   "routes/account-inventory": typeof import("./app/routes/account-inventory.tsx");
   "routes/account-inventory-record": typeof import("./app/routes/account-inventory-record.tsx");
   "routes/account-inventory-locations": typeof import("./app/routes/account-inventory-locations.tsx");
+  "routes/account-offers": typeof import("./app/routes/account-offers.tsx");
+  "routes/account-offer": typeof import("./app/routes/account-offer.tsx");
   "routes/account-listings": typeof import("./app/routes/account-listings.tsx");
   "routes/account-listing": typeof import("./app/routes/account-listing.tsx");
+  "routes/account-market-offers": typeof import("./app/routes/account-market-offers.tsx");
+  "routes/account-market-offer": typeof import("./app/routes/account-market-offer.tsx");
   "routes/account-team": typeof import("./app/routes/account-team.tsx");
   "routes/account-security": typeof import("./app/routes/account-security.tsx");
   "routes/account-consents": typeof import("./app/routes/account-consents.tsx");
