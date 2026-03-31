@@ -18,9 +18,18 @@ type DimensionDef = {
 
 const dimensionDefs: DimensionDef[] = [
   {
+    key: "form",
+    name: "Form",
+    description: "How the card is offered as a sellable version",
+    choices: [
+      { code: "raw", label: "Raw" },
+      { code: "graded", label: "Graded" },
+    ],
+  },
+  {
     key: "condition",
     name: "Condition",
-    description: "Physical condition of a raw (ungraded) card",
+    description: "Physical condition of a raw, ungraded card",
     choices: [
       { code: "mint", label: "Mint" },
       { code: "near-mint", label: "Near Mint" },
@@ -62,73 +71,6 @@ const dimensionDefs: DimensionDef[] = [
       { code: "good-3", label: "Good 3", numericValue: 3 },
       { code: "good-2", label: "Good 2", numericValue: 2 },
       { code: "poor-1", label: "Poor 1", numericValue: 1 },
-    ],
-  },
-  {
-    key: "pokemon-set",
-    name: "Pokemon Set",
-    description: "The expansion set the card belongs to",
-    choices: [
-      { code: "base-set", label: "Base Set" },
-      { code: "jungle", label: "Jungle" },
-      { code: "fossil", label: "Fossil" },
-      { code: "team-rocket", label: "Team Rocket" },
-      { code: "gym-heroes", label: "Gym Heroes" },
-      { code: "gym-challenge", label: "Gym Challenge" },
-      { code: "neo-genesis", label: "Neo Genesis" },
-      { code: "neo-discovery", label: "Neo Discovery" },
-      { code: "neo-revelation", label: "Neo Revelation" },
-      { code: "neo-destiny", label: "Neo Destiny" },
-      { code: "legendary-collection", label: "Legendary Collection" },
-      { code: "expedition", label: "Expedition" },
-      { code: "aquapolis", label: "Aquapolis" },
-      { code: "skyridge", label: "Skyridge" },
-      { code: "scarlet-violet", label: "Scarlet & Violet" },
-      { code: "paldea-evolved", label: "Paldea Evolved" },
-      { code: "obsidian-flames", label: "Obsidian Flames" },
-      { code: "pokemon-151", label: "151" },
-      { code: "paradox-rift", label: "Paradox Rift" },
-      { code: "temporal-forces", label: "Temporal Forces" },
-      { code: "twilight-masquerade", label: "Twilight Masquerade" },
-      { code: "shrouded-fable", label: "Shrouded Fable" },
-      { code: "stellar-crown", label: "Stellar Crown" },
-      { code: "surging-sparks", label: "Surging Sparks" },
-      { code: "prismatic-evolutions", label: "Prismatic Evolutions" },
-    ],
-  },
-  {
-    key: "rarity",
-    name: "Rarity",
-    description: "Card rarity classification",
-    choices: [
-      { code: "common", label: "Common" },
-      { code: "uncommon", label: "Uncommon" },
-      { code: "rare", label: "Rare" },
-      { code: "holo-rare", label: "Holo Rare" },
-      { code: "reverse-holo", label: "Reverse Holo" },
-      { code: "ultra-rare", label: "Ultra Rare" },
-      { code: "secret-rare", label: "Secret Rare" },
-      { code: "illustration-rare", label: "Illustration Rare" },
-      { code: "special-illustration-rare", label: "Special Illustration Rare" },
-      { code: "hyper-rare", label: "Hyper Rare" },
-      { code: "gold-star", label: "Gold Star" },
-      { code: "first-edition", label: "1st Edition" },
-    ],
-  },
-  {
-    key: "language",
-    name: "Language",
-    description: "The language the card is printed in",
-    choices: [
-      { code: "en", label: "English" },
-      { code: "ja", label: "Japanese" },
-      { code: "ko", label: "Korean" },
-      { code: "zh", label: "Chinese" },
-      { code: "fr", label: "French" },
-      { code: "de", label: "German" },
-      { code: "es", label: "Spanish" },
-      { code: "it", label: "Italian" },
-      { code: "pt", label: "Portuguese" },
     ],
   },
 ];
@@ -182,6 +124,3 @@ export async function seedDimensions(
 
   return result;
 }
-
-
-

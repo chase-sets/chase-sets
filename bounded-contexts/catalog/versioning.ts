@@ -19,10 +19,16 @@ export type CatalogVersionDescriptor = Readonly<{
   selection: CatalogSelectionEntry[];
 }>;
 
+export type CatalogVersionApplicabilityClause = Readonly<{
+  dimensionId: string;
+  choiceIds: string[];
+}>;
+
 export type CatalogVersionDimension = Readonly<{
   dimensionId: string;
   required: boolean;
   allowedChoiceIds: string[];
+  appliesWhen: CatalogVersionApplicabilityClause[];
 }>;
 
 export type CatalogVersionSchema = Readonly<{
@@ -34,6 +40,12 @@ export type CatalogVersionDimensionRule = Readonly<{
   dimensionId: DimensionId;
   required: boolean;
   allowedChoiceIds: readonly ChoiceId[];
+  appliesWhen?: readonly CatalogVersionDimensionApplicabilityClause[];
+}>;
+
+export type CatalogVersionDimensionApplicabilityClause = Readonly<{
+  dimensionId: DimensionId;
+  choiceIds: readonly ChoiceId[];
 }>;
 
 export type VersionableBlueprint = Readonly<{
@@ -64,7 +76,16 @@ export function resolveCatalogVersion(
   );
 
   for (const dimensionRule of input.blueprint.dimensionRules) {
+    const isActive = isDimensionRuleActive(dimensionRule, selectionByDimension);
     const selectedChoiceId = selectionByDimension.get(dimensionRule.dimensionId);
+
+    if (!isActive) {
+      assert(
+        selectedChoiceId === undefined,
+        "Selections cannot include inactive dimensions.",
+      );
+      continue;
+    }
 
     if (selectedChoiceId === undefined) {
       assert(
@@ -131,6 +152,10 @@ export function toCatalogVersionSchema(
       dimensionId: String(rule.dimensionId),
       required: rule.required,
       allowedChoiceIds: rule.allowedChoiceIds.map((choiceId) => String(choiceId)),
+      appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
+        dimensionId: String(clause.dimensionId),
+        choiceIds: clause.choiceIds.map((choiceId) => String(choiceId)),
+      })),
     })),
   };
 }
@@ -183,5 +208,18 @@ function hasExactDimensionSet(
   }
 
   return remaining.size === 0;
+}
+
+function isDimensionRuleActive(
+  rule: CatalogVersionDimensionRule,
+  selectionByDimension: ReadonlyMap<DimensionId, ChoiceId>,
+): boolean {
+  return (rule.appliesWhen ?? []).every((clause) => {
+    const selectedChoiceId = selectionByDimension.get(clause.dimensionId);
+    return (
+      selectedChoiceId !== undefined &&
+      clause.choiceIds.includes(selectedChoiceId)
+    );
+  });
 }
 

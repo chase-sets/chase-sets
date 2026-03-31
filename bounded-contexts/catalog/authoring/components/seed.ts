@@ -22,16 +22,19 @@ export async function seedComponents(
     await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "CreateComponent",
       componentId,
-      key: "base-card-info",
-      name: "Base Card Info",
-      description: "Core card identification fields and dimensions",
+      key: "single-card-identity",
+      name: "Single Card Identity",
+      description: "Descriptive fields for a specific printed Pokemon card",
     });
 
     for (const [fieldKey, required] of [
       ["card-number", true],
       ["card-name", true],
+      ["set-name", true],
+      ["rarity", true],
+      ["language", true],
       ["artist", false],
-      ["year-printed", false],
+      ["release-year", false],
     ] as const) {
       await sendSeedCommand(services.components.commandHandler, streamId, {
         type: "AddFieldRuleToComponent",
@@ -40,13 +43,60 @@ export async function seedComponents(
       });
     }
 
-    for (const dimKey of ["pokemon-set", "rarity", "language"] as const) {
-      const dim = dimensions[dimKey];
+    await sendSeedCommand(services.components.commandHandler, streamId, {
+      type: "ActivateComponent",
+    });
+
+    result["single-card-identity"] = componentId;
+    console.log('  Component "Single Card Identity" created');
+  }
+
+  {
+    const componentId = createId("cmp") as ComponentId;
+    const streamId = `catalog.component-${componentId}`;
+    const formDimension = dimensions.form;
+
+    await sendSeedCommand(services.components.commandHandler, streamId, {
+      type: "CreateComponent",
+      componentId,
+      key: "single-card-versioning",
+      name: "Single Card Versioning",
+      description: "Version-forming rules for raw and graded card variants",
+    });
+
+    await sendSeedCommand(services.components.commandHandler, streamId, {
+      type: "AddDimensionRuleToComponent",
+      dimensionId: formDimension.dimensionId,
+      required: true,
+      allowedChoiceIds: Object.values(formDimension.choiceIds),
+    });
+
+    await sendSeedCommand(services.components.commandHandler, streamId, {
+      type: "AddDimensionRuleToComponent",
+      dimensionId: dimensions.condition.dimensionId,
+      required: true,
+      allowedChoiceIds: Object.values(dimensions.condition.choiceIds),
+      appliesWhen: [
+        {
+          dimensionId: formDimension.dimensionId,
+          choiceIds: [formDimension.choiceIds.raw],
+        },
+      ],
+    });
+
+    for (const dimKey of ["grading-company", "grade"] as const) {
+      const dimension = dimensions[dimKey];
       await sendSeedCommand(services.components.commandHandler, streamId, {
         type: "AddDimensionRuleToComponent",
-        dimensionId: dim.dimensionId,
+        dimensionId: dimension.dimensionId,
         required: true,
-        allowedChoiceIds: Object.values(dim.choiceIds),
+        allowedChoiceIds: Object.values(dimension.choiceIds),
+        appliesWhen: [
+          {
+            dimensionId: formDimension.dimensionId,
+            choiceIds: [formDimension.choiceIds.graded],
+          },
+        ],
       });
     }
 
@@ -54,8 +104,8 @@ export async function seedComponents(
       type: "ActivateComponent",
     });
 
-    result["base-card-info"] = componentId;
-    console.log('  Component "Base Card Info" created');
+    result["single-card-versioning"] = componentId;
+    console.log('  Component "Single Card Versioning" created');
   }
 
   {
@@ -65,42 +115,16 @@ export async function seedComponents(
     await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "CreateComponent",
       componentId,
-      key: "card-condition",
-      name: "Card Condition",
-      description: "Physical condition assessment for raw cards",
-    });
-
-    const dim = dimensions.condition;
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "AddDimensionRuleToComponent",
-      dimensionId: dim.dimensionId,
-      required: true,
-      allowedChoiceIds: Object.values(dim.choiceIds),
-    });
-
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "ActivateComponent",
-    });
-
-    result["card-condition"] = componentId;
-    console.log('  Component "Card Condition" created');
-  }
-
-  {
-    const componentId = createId("cmp") as ComponentId;
-    const streamId = `catalog.component-${componentId}`;
-
-    await sendSeedCommand(services.components.commandHandler, streamId, {
-      type: "CreateComponent",
-      componentId,
-      key: "card-grading",
-      name: "Card Grading",
-      description: "Professional grading information for graded cards",
+      key: "sealed-product-identity",
+      name: "Sealed Product Identity",
+      description: "Descriptive fields for Pokemon sealed products",
     });
 
     for (const [fieldKey, required] of [
-      ["cert-number", false],
-      ["pop-count", false],
+      ["set-name", true],
+      ["language", true],
+      ["release-year", false],
+      ["pack-count", true],
     ] as const) {
       await sendSeedCommand(services.components.commandHandler, streamId, {
         type: "AddFieldRuleToComponent",
@@ -109,26 +133,13 @@ export async function seedComponents(
       });
     }
 
-    for (const dimKey of ["grading-company", "grade"] as const) {
-      const dim = dimensions[dimKey];
-      await sendSeedCommand(services.components.commandHandler, streamId, {
-        type: "AddDimensionRuleToComponent",
-        dimensionId: dim.dimensionId,
-        required: true,
-        allowedChoiceIds: Object.values(dim.choiceIds),
-      });
-    }
-
     await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "ActivateComponent",
     });
 
-    result["card-grading"] = componentId;
-    console.log('  Component "Card Grading" created');
+    result["sealed-product-identity"] = componentId;
+    console.log('  Component "Sealed Product Identity" created');
   }
 
   return result;
 }
-
-
-

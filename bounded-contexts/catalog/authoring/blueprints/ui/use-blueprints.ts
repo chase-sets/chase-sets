@@ -31,7 +31,7 @@ export function setBlueprintFields(id: string, fieldRules: { fieldId: string; re
   return api.setBlueprintFields<CommandResponse>(id, fieldRules);
 }
 
-export function setBlueprintDimensions(id: string, dimensionRules: { dimensionId: string; required: boolean; allowedChoiceIds: string[] }[]) {
+export function setBlueprintDimensions(id: string, dimensionRules: { dimensionId: string; required: boolean; allowedChoiceIds: string[]; appliesWhen: Array<{ dimensionId: string; choiceIds: string[] }> }[]) {
   return api.setBlueprintDimensions<CommandResponse>(id, dimensionRules);
 }
 
@@ -50,6 +50,7 @@ export function deprecateBlueprint(id: string) {
 export function archiveBlueprint(id: string) {
   return api.archiveBlueprint<CommandResponse>(id);
 }
+
 
 
 

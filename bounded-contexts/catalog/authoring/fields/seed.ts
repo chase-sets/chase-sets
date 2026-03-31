@@ -15,14 +15,35 @@ const fieldDefs: FieldDef[] = [
   {
     key: "card-number",
     name: "Card Number",
-    description: "The card number within its set (e.g., 4/102)",
+    description: "The card number within its set (for example 4/102)",
     valueType: "string",
     behavior: { filterable: true, searchable: false, sortable: true },
   },
   {
     key: "card-name",
     name: "Card Name",
-    description: "The name of the Pokemon or card",
+    description: "The printed name of the card",
+    valueType: "string",
+    behavior: { filterable: true, searchable: true, sortable: true },
+  },
+  {
+    key: "set-name",
+    name: "Set Name",
+    description: "The expansion set or product line the item belongs to",
+    valueType: "string",
+    behavior: { filterable: true, searchable: true, sortable: true },
+  },
+  {
+    key: "rarity",
+    name: "Rarity",
+    description: "The printed rarity classification for a single card",
+    valueType: "string",
+    behavior: { filterable: true, searchable: true, sortable: true },
+  },
+  {
+    key: "language",
+    name: "Language",
+    description: "The language the item is printed in",
     valueType: "string",
     behavior: { filterable: true, searchable: true, sortable: true },
   },
@@ -34,23 +55,16 @@ const fieldDefs: FieldDef[] = [
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
-    key: "year-printed",
-    name: "Year Printed",
-    description: "The year the card was printed",
+    key: "release-year",
+    name: "Release Year",
+    description: "The year the card or product was released",
     valueType: "number",
     behavior: { filterable: true, searchable: false, sortable: true },
   },
   {
-    key: "cert-number",
-    name: "Certification Number",
-    description: "The grading company certification number",
-    valueType: "string",
-    behavior: { filterable: true, searchable: true, sortable: false },
-  },
-  {
-    key: "pop-count",
-    name: "Population Count",
-    description: "Number of cards graded at this level by the grading company",
+    key: "pack-count",
+    name: "Pack Count",
+    description: "Number of booster packs included in a sealed product",
     valueType: "number",
     behavior: { filterable: true, searchable: false, sortable: true },
   },
@@ -86,6 +100,3 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
 
   return result;
 }
-
-
-

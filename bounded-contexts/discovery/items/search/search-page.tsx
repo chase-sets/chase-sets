@@ -78,10 +78,7 @@ export function SearchPage({
         <SearchFilters
           categories={categories}
           selectedCategory={category}
-          onCategoryChange={(name) => {
-            onCategoryChange(name);
-            onPageChange(1);
-          }}
+          onCategoryChange={onCategoryChange}
         />
       </div>
 
@@ -98,10 +95,7 @@ export function SearchPage({
             label="Sort"
             items={sortOptions}
             value={sort}
-            onValueChange={(value) => {
-              onSortChange(value);
-              onPageChange(1);
-            }}
+            onValueChange={onSortChange}
           />
         </FilterBar>
 

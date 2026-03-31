@@ -26,6 +26,50 @@ import {
   removeDimensionRule,
 } from "./use-components";
 
+function formatApplicability(
+  clauses: Array<{
+    dimensionName?: string;
+    dimensionId: string;
+    choices?: { code: string }[];
+    choiceIds?: string[];
+  }>,
+): string {
+  if (clauses.length === 0) {
+    return "Always";
+  }
+
+  return clauses
+    .map((clause) => {
+      const choices =
+        clause.choices && clause.choices.length > 0
+          ? clause.choices.map((choice) => choice.code).join(" | ")
+          : (clause.choiceIds ?? []).join(" | ");
+      return `${clause.dimensionName ?? clause.dimensionId} = ${choices}`;
+    })
+    .join(", ");
+}
+
+
+function parseApplicabilityClauses(
+  value: string,
+): Array<{ dimensionId: string; choiceIds: string[] }> {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [dimensionId, choiceIds = ""] = entry.split("=");
+      return {
+        dimensionId: dimensionId.trim(),
+        choiceIds: choiceIds
+          .split("|")
+          .map((choiceId) => choiceId.trim())
+          .filter(Boolean),
+      };
+    })
+    .filter((clause) => clause.dimensionId.length > 0 && clause.choiceIds.length > 0);
+}
+
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
@@ -50,6 +94,12 @@ interface DimensionRule {
   dimensionName: string;
   required: boolean;
   allowedChoices: { choiceId: string; code: string }[];
+  appliesWhen: Array<{
+    dimensionId: string;
+    dimensionName: string;
+    choiceIds: string[];
+    choices: { choiceId: string; code: string }[];
+  }>;
 }
 
 export function ComponentDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useComponent>[1] }) {
@@ -66,6 +116,7 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
   const [dimensionId, setDimensionId] = useState("");
   const [dimRequired, setDimRequired] = useState(false);
   const [dimAllowedChoiceIds, setDimAllowedChoiceIds] = useState("");
+  const [dimAppliesWhen, setDimAppliesWhen] = useState("");
 
   // Edit component metadata
   const [editing, setEditing] = useState(false);
@@ -106,6 +157,10 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
         dimensionId: rule.dimensionId,
         required: rule.required,
         allowedChoiceIds: rule.allowedChoices.map((choice) => choice.choiceId),
+        appliesWhen: rule.appliesWhen.map((clause) => ({
+          dimensionId: clause.dimensionId,
+          choiceIds: clause.choiceIds,
+        })),
       })),
     });
     addToast("Component updated", "success");
@@ -134,12 +189,14 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
       dimensionId,
       required: dimRequired,
       allowedChoiceIds: allowedChoiceIds.length > 0 ? allowedChoiceIds : undefined,
+      appliesWhen: parseApplicabilityClauses(dimAppliesWhen),
     });
     addToast("Dimension rule added", "success");
     setShowAddDimension(false);
     setDimensionId("");
     setDimRequired(false);
     setDimAllowedChoiceIds("");
+    setDimAppliesWhen("");
     refresh();
   }
 
@@ -171,6 +228,11 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
       key: "allowedChoices",
       header: "Allowed Choices",
       cell: (row) => row.allowedChoices.length > 0 ? row.allowedChoices.map((choice) => choice.code).join(", ") : "All",
+    },
+    {
+      key: "appliesWhen",
+      header: "Applies When",
+      cell: (row) => formatApplicability(row.appliesWhen),
     },
     {
       key: "actions",
@@ -295,11 +357,18 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
             value={dimAllowedChoiceIds}
             onChange={(e) => setDimAllowedChoiceIds(e.target.value)}
           />
+          <TextInput
+            label="Applies When (dimensionId=choiceId|choiceId, comma-separated)"
+            value={dimAppliesWhen}
+            onChange={(e) => setDimAppliesWhen(e.target.value)}
+          />
         </Stack>
       </Dialog>
     </>
   );
 }
+
+
 
 
 

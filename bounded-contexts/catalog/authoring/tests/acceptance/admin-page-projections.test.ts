@@ -340,5 +340,128 @@ describe("Admin page projections", () => {
     expect(updatedItemDetail.json.field_values[0].fieldName).toBe("Card Title");
     expect(updatedItemDetail.json.categories[0].name).toBe("Generation I Singles");
   });
-});
 
+  it("includes conditional applicability in component and blueprint DTOs", async () => {
+    const formDimensionId = "dim_form";
+    const formRawChoiceId = "chc_form_raw";
+    const conditionDimensionId = "dim_condition";
+    const conditionChoiceId = "chc_condition_nm";
+    const componentId = "cmp_single_card_versioning";
+    const blueprintId = "bpr_card_single";
+
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, {
+      type: "CreateDimension",
+      dimensionId: formDimensionId,
+      key: "form",
+      name: "Form",
+      description: "Card form",
+    });
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, {
+      type: "AddChoice",
+      choiceId: formRawChoiceId,
+      code: "raw",
+      labels: [{ locale: "en", value: "Raw" }],
+      numericValue: null,
+    });
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, { type: "ActivateDimension" });
+
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, {
+      type: "CreateDimension",
+      dimensionId: conditionDimensionId,
+      key: "condition",
+      name: "Condition",
+      description: "Card condition",
+    });
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, {
+      type: "AddChoice",
+      choiceId: conditionChoiceId,
+      code: "near-mint",
+      labels: [{ locale: "en", value: "Near Mint" }],
+      numericValue: null,
+    });
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, { type: "ActivateDimension" });
+
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
+      type: "CreateComponent",
+      componentId,
+      key: "single-card-versioning",
+      name: "Single Card Versioning",
+      description: "Version rules",
+    });
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
+      type: "AddDimensionRuleToComponent",
+      dimensionId: formDimensionId,
+      required: true,
+      allowedChoiceIds: [formRawChoiceId],
+    });
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
+      type: "AddDimensionRuleToComponent",
+      dimensionId: conditionDimensionId,
+      required: true,
+      allowedChoiceIds: [conditionChoiceId],
+      appliesWhen: [{ dimensionId: formDimensionId, choiceIds: [formRawChoiceId] }],
+    });
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, { type: "ActivateComponent" });
+
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId,
+      key: "pokemon-card-single",
+      name: "Pokemon Card Single",
+      description: "Card blueprint",
+    });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "AttachComponentToBlueprint",
+      componentId,
+    });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "SetBlueprintDimensions",
+      dimensionRules: [
+        { dimensionId: formDimensionId, required: true, allowedChoiceIds: [formRawChoiceId] },
+        {
+          dimensionId: conditionDimensionId,
+          required: true,
+          allowedChoiceIds: [conditionChoiceId],
+          appliesWhen: [{ dimensionId: formDimensionId, choiceIds: [formRawChoiceId] }],
+        },
+      ],
+    });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "SetBlueprintVersionRules",
+      canonicalDimensionOrder: [formDimensionId, conditionDimensionId],
+    });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
+
+    await drainProjectors();
+
+    const componentDetail = await getJson(`/api/catalog/components/${componentId}`);
+    expect(componentDetail.response.status).toBe(200);
+    const componentConditionRule = componentDetail.json.dimension_rules.find(
+      (rule: { dimensionId: string }) => rule.dimensionId === conditionDimensionId,
+    );
+    expect(componentConditionRule.appliesWhen[0]).toMatchObject({
+      dimensionId: formDimensionId,
+      dimensionName: "Form",
+      choiceIds: [formRawChoiceId],
+    });
+    expect(componentConditionRule.appliesWhen[0].choices[0]).toMatchObject({
+      choiceId: formRawChoiceId,
+      code: "raw",
+    });
+
+    const blueprintDetail = await getJson(`/api/catalog/blueprints/${blueprintId}`);
+    expect(blueprintDetail.response.status).toBe(200);
+    const blueprintConditionRule = blueprintDetail.json.dimension_rules.find(
+      (rule: { dimensionId: string }) => rule.dimensionId === conditionDimensionId,
+    );
+    expect(blueprintConditionRule.appliesWhen[0]).toMatchObject({
+      dimensionId: formDimensionId,
+      dimensionName: "Form",
+      choiceIds: [formRawChoiceId],
+    });
+    expect(blueprintConditionRule.appliesWhen[0].choices[0]).toMatchObject({
+      choiceId: formRawChoiceId,
+      code: "raw",
+    });
+  });
+});

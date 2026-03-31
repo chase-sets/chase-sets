@@ -20,17 +20,18 @@ export async function seedBlueprints(
   {
     const blueprintId = createId("bpr") as BlueprintId;
     const streamId = `catalog.blueprint-${blueprintId}`;
+    const formDimension = dimensions.form;
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "CreateBlueprint",
       blueprintId,
-      key: "raw-pokemon-card",
-      name: "Raw Pokemon Card",
+      key: "pokemon-card-single",
+      name: "Pokemon Card Single",
       description:
-        "Template for ungraded Pokemon trading cards assessed by condition",
+        "Template for a specific printed Pokemon card with raw and graded sellable versions",
     });
 
-    for (const compKey of ["base-card-info", "card-condition"] as const) {
+    for (const compKey of ["single-card-identity", "single-card-versioning"] as const) {
       await sendSeedCommand(services.blueprints.commandHandler, streamId, {
         type: "AttachComponentToBlueprint",
         componentId: components[compKey],
@@ -42,41 +43,74 @@ export async function seedBlueprints(
       fieldRules: [
         { fieldId: fields["card-number"], required: true },
         { fieldId: fields["card-name"], required: true },
+        { fieldId: fields["set-name"], required: true },
+        { fieldId: fields.rarity, required: true },
+        { fieldId: fields.language, required: true },
         { fieldId: fields.artist, required: false },
-        { fieldId: fields["year-printed"], required: false },
+        { fieldId: fields["release-year"], required: false },
       ],
     });
 
-    const rawDimKeys = [
-      "pokemon-set",
-      "rarity",
-      "language",
-      "condition",
-    ] as const;
-
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintDimensions",
-      dimensionRules: rawDimKeys.map((dimKey) => {
-        const dim = dimensions[dimKey];
-        return {
-          dimensionId: dim.dimensionId,
+      dimensionRules: [
+        {
+          dimensionId: formDimension.dimensionId,
           required: true,
-          allowedChoiceIds: Object.values(dim.choiceIds),
-        };
-      }),
+          allowedChoiceIds: Object.values(formDimension.choiceIds),
+        },
+        {
+          dimensionId: dimensions.condition.dimensionId,
+          required: true,
+          allowedChoiceIds: Object.values(dimensions.condition.choiceIds),
+          appliesWhen: [
+            {
+              dimensionId: formDimension.dimensionId,
+              choiceIds: [formDimension.choiceIds.raw],
+            },
+          ],
+        },
+        {
+          dimensionId: dimensions["grading-company"].dimensionId,
+          required: true,
+          allowedChoiceIds: Object.values(dimensions["grading-company"].choiceIds),
+          appliesWhen: [
+            {
+              dimensionId: formDimension.dimensionId,
+              choiceIds: [formDimension.choiceIds.graded],
+            },
+          ],
+        },
+        {
+          dimensionId: dimensions.grade.dimensionId,
+          required: true,
+          allowedChoiceIds: Object.values(dimensions.grade.choiceIds),
+          appliesWhen: [
+            {
+              dimensionId: formDimension.dimensionId,
+              choiceIds: [formDimension.choiceIds.graded],
+            },
+          ],
+        },
+      ],
     });
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintVersionRules",
-      canonicalDimensionOrder: rawDimKeys.map((key) => dimensions[key].dimensionId),
+      canonicalDimensionOrder: [
+        formDimension.dimensionId,
+        dimensions.condition.dimensionId,
+        dimensions["grading-company"].dimensionId,
+        dimensions.grade.dimensionId,
+      ],
     });
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "PublishBlueprint",
     });
 
-    result["raw-pokemon-card"] = blueprintId;
-    console.log('  Blueprint "Raw Pokemon Card" created and published');
+    result["pokemon-card-single"] = blueprintId;
+    console.log('  Blueprint "Pokemon Card Single" created and published');
   }
 
   {
@@ -86,65 +120,44 @@ export async function seedBlueprints(
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "CreateBlueprint",
       blueprintId,
-      key: "graded-pokemon-card",
-      name: "Graded Pokemon Card",
-      description: "Template for professionally graded Pokemon trading cards",
+      key: "pokemon-sealed-product",
+      name: "Pokemon Sealed Product",
+      description:
+        "Template for Pokemon sealed products such as booster packs, booster boxes, and elite trainer boxes",
     });
 
-    for (const compKey of ["base-card-info", "card-grading"] as const) {
-      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
-        type: "AttachComponentToBlueprint",
-        componentId: components[compKey],
-      });
-    }
+    await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+      type: "AttachComponentToBlueprint",
+      componentId: components["sealed-product-identity"],
+    });
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintFields",
       fieldRules: [
-        { fieldId: fields["card-number"], required: true },
-        { fieldId: fields["card-name"], required: true },
-        { fieldId: fields.artist, required: false },
-        { fieldId: fields["year-printed"], required: false },
-        { fieldId: fields["cert-number"], required: false },
-        { fieldId: fields["pop-count"], required: false },
+        { fieldId: fields["set-name"], required: true },
+        { fieldId: fields.language, required: true },
+        { fieldId: fields["release-year"], required: false },
+        { fieldId: fields["pack-count"], required: true },
       ],
     });
 
-    const gradedDimKeys = [
-      "pokemon-set",
-      "rarity",
-      "language",
-      "grading-company",
-      "grade",
-    ] as const;
-
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintDimensions",
-      dimensionRules: gradedDimKeys.map((dimKey) => {
-        const dim = dimensions[dimKey];
-        return {
-          dimensionId: dim.dimensionId,
-          required: true,
-          allowedChoiceIds: Object.values(dim.choiceIds),
-        };
-      }),
+      dimensionRules: [],
     });
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintVersionRules",
-      canonicalDimensionOrder: gradedDimKeys.map((key) => dimensions[key].dimensionId),
+      canonicalDimensionOrder: [],
     });
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "PublishBlueprint",
     });
 
-    result["graded-pokemon-card"] = blueprintId;
-    console.log('  Blueprint "Graded Pokemon Card" created and published');
+    result["pokemon-sealed-product"] = blueprintId;
+    console.log('  Blueprint "Pokemon Sealed Product" created and published');
   }
 
   return result;
 }
-
-
-

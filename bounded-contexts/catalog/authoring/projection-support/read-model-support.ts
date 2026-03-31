@@ -6,6 +6,12 @@ export type DimensionRule = Readonly<{
   dimensionId: string;
   required: boolean;
   allowedChoiceIds?: string[];
+  appliesWhen?: ApplicabilityClause[];
+}>;
+
+export type ApplicabilityClause = Readonly<{
+  dimensionId: string;
+  choiceIds?: string[];
 }>;
 
 export type FieldValue = Readonly<{ fieldId: string; value: unknown }>;

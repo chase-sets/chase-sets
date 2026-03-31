@@ -13,7 +13,11 @@ import {
   PageSection,
 } from "@chase-sets/design-system";
 import { Badge } from "@chase-sets/design-system";
-import type { DiscoveryItemDetail } from "../client-support/contracts";
+import type {
+  DiscoveryItemDetail,
+  VersionDimension,
+  VersionSchema,
+} from "../client-support/contracts";
 import { VersionSelector } from "./version-selector";
 
 function formatFieldValue(value: unknown): string {
@@ -30,6 +34,56 @@ function formatFieldValue(value: unknown): string {
   }
 
   return JSON.stringify(value);
+}
+
+function isDimensionActive(
+  dimension: VersionDimension,
+  selections: Record<string, string>,
+): boolean {
+  return dimension.appliesWhen.every((clause) => {
+    const selectedChoiceId = selections[clause.dimensionId];
+    return (
+      selectedChoiceId !== undefined &&
+      clause.choiceIds.includes(selectedChoiceId)
+    );
+  });
+}
+
+function normalizeSelectionsForSchema(
+  schema: VersionSchema,
+  selections: Record<string, string>,
+): Record<string, string> {
+  const nextSelections = { ...selections };
+  const orderedDimensions = schema.canonicalDimensionOrder
+    .map((order) =>
+      schema.dimensions.find((dimension) => dimension.dimensionId === order.dimensionId),
+    )
+    .filter((dimension): dimension is VersionDimension => dimension !== undefined);
+
+  for (const dimension of orderedDimensions) {
+    const active = isDimensionActive(dimension, nextSelections);
+
+    if (!active) {
+      delete nextSelections[dimension.dimensionId];
+      continue;
+    }
+
+    const allowedChoiceIds = dimension.allowedChoices.map((choice) => choice.choiceId);
+    const selectedChoiceId = nextSelections[dimension.dimensionId];
+
+    if (selectedChoiceId !== undefined && allowedChoiceIds.includes(selectedChoiceId)) {
+      continue;
+    }
+
+    if (dimension.required && allowedChoiceIds.length > 0) {
+      nextSelections[dimension.dimensionId] = allowedChoiceIds[0];
+      continue;
+    }
+
+    delete nextSelections[dimension.dimensionId];
+  }
+
+  return nextSelections;
 }
 
 export function ItemDetailPage({
@@ -49,13 +103,7 @@ export function ItemDetailPage({
       return;
     }
 
-    const initial: Record<string, string> = {};
-    for (const dim of data.version_schema.dimensions) {
-      if (dim.allowedChoices.length > 0) {
-        initial[dim.dimensionId] = dim.allowedChoices[0].choiceId;
-      }
-    }
-    setSelections(initial);
+    setSelections(normalizeSelectionsForSchema(data.version_schema, {}));
   }, [data]);
 
   if (error) {
@@ -121,10 +169,12 @@ export function ItemDetailPage({
                   schema={data.version_schema}
                   selections={selections}
                   onSelectionChange={(dimensionId, choiceId) =>
-                    setSelections((current) => ({
-                      ...current,
-                      [dimensionId]: choiceId,
-                    }))
+                    setSelections((current) =>
+                      normalizeSelectionsForSchema(data.version_schema!, {
+                        ...current,
+                        [dimensionId]: choiceId,
+                      }),
+                    )
                   }
                 />
               </PageSection>

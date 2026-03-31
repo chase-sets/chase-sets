@@ -4,6 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2] ?? "dev";
+const target = process.argv[3] ?? "all";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const dockerComposeArgs = ["compose", "-f", "docker-compose.dev.yml"];
 const databaseUrl = "postgresql://catalog:catalog@localhost:5432/catalog";
@@ -68,6 +69,25 @@ const processes = [
     port: 6174,
   },
 ];
+
+const devTargets = {
+  all: processes.map(({ name }) => name),
+  "catalog-admin": ["identity-api", "catalog-api", "catalog-admin"],
+  "identity-admin": ["identity-api", "identity-admin"],
+  "marketplace-full": ["identity-api", "marketplace-api", "marketplace"],
+};
+
+function resolveProcessesForTarget(targetName) {
+  const processNames = devTargets[targetName];
+
+  if (!processNames) {
+    throw new Error(
+      `Unknown dev target "${targetName}". Use one of: ${Object.keys(devTargets).join(", ")}.`,
+    );
+  }
+
+  return processes.filter((definition) => processNames.includes(definition.name));
+}
 
 function prefixedConsole(prefix, message) {
   const lines = message.replace(/\r/g, "").split("\n");
@@ -270,23 +290,31 @@ async function runBootstrap() {
   }
 }
 
-function printDevUrls() {
+function printDevUrls(targetName, selectedProcesses, includePortal = false) {
   console.log("");
-  console.log("Local dev system");
-  console.log("  Dev Portal:      http://localhost:6170");
-  console.log("  Showcase:        http://localhost:6171");
-  console.log("  Catalog Admin:   http://localhost:6172");
-  console.log("  Marketplace:     http://localhost:6173");
-  console.log("  Identity Admin:  http://localhost:6174");
-  console.log("  Catalog API:     http://localhost:6180");
-  console.log("  Identity API:    http://localhost:6181");
-  console.log("  Marketplace API: http://localhost:6182");
+  console.log(
+    targetName === "all"
+      ? "Local dev system"
+      : `Local dev stack: ${targetName}`,
+  );
+
+  if (includePortal) {
+    console.log("  Dev Portal:      http://localhost:6170");
+  }
+
+  for (const definition of selectedProcesses) {
+    console.log(
+      `  ${definition.name.padEnd(16)} http://localhost:${definition.port}`,
+    );
+  }
+
   console.log("");
 }
 
-async function runDev() {
+async function runDev(targetName = "all") {
   await runBootstrap();
-  printDevUrls();
+  const selectedProcesses = resolveProcessesForTarget(targetName);
+  printDevUrls(targetName, selectedProcesses, targetName === "all");
 
   const children = [];
   let shuttingDown = false;
@@ -319,18 +347,20 @@ async function runDev() {
   process.once("SIGINT", () => shutdown("SIGINT", 0));
   process.once("SIGTERM", () => shutdown("SIGTERM", 0));
 
-  if (!(await hasExistingListener(6170)) && await isPortAvailable(6170)) {
-    const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
-    const portal = spawnCommand("node", [portalScript], {
-      env: { PORT: "6170" },
-      prefix: "portal",
-    });
-    children.push(portal);
-  } else {
-    prefixedConsole("dev", "Skipping portal because port 6170 is already in use.");
+  if (targetName === "all") {
+    if (!(await hasExistingListener(6170)) && await isPortAvailable(6170)) {
+      const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
+      const portal = spawnCommand("node", [portalScript], {
+        env: { PORT: "6170" },
+        prefix: "portal",
+      });
+      children.push(portal);
+    } else {
+      prefixedConsole("dev", "Skipping portal because port 6170 is already in use.");
+    }
   }
 
-  for (const definition of processes) {
+  for (const definition of selectedProcesses) {
     if (
       definition.port &&
       ((await hasExistingListener(definition.port)) ||
@@ -390,7 +420,7 @@ async function runDown() {
 
 try {
   if (mode === "dev") {
-    await runDev();
+    await runDev(target);
   } else if (mode === "bootstrap") {
     await runBootstrap();
   } else if (mode === "down") {

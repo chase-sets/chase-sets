@@ -12,6 +12,7 @@ type DimensionRule = Readonly<{
   dimensionId: string;
   required: boolean;
   allowedChoiceIds?: string[];
+  appliesWhen?: Array<{ dimensionId: string; choiceIds?: string[] }>;
 }>;
 
 type ItemDetailCatalogItemRow = Readonly<{
@@ -90,8 +91,15 @@ async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise
 
   const dimensionRules = asArray<DimensionRule>(blueprint.dimension_rules);
   const canonicalDimensionOrder = asStringArray(blueprint.canonical_dimension_order);
-  const dimensionIds = [...new Set([...dimensionRules.map((rule) => rule.dimensionId), ...canonicalDimensionOrder])];
-  const choiceIds = dimensionRules.flatMap((rule) => rule.allowedChoiceIds ?? []);
+  const dimensionIds = [...new Set([
+    ...dimensionRules.map((rule) => rule.dimensionId),
+    ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
+    ...canonicalDimensionOrder,
+  ])];
+  const choiceIds = dimensionRules.flatMap((rule) => [
+    ...(rule.allowedChoiceIds ?? []),
+    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.choiceIds ?? []),
+  ]);
 
   const [dimensionNames, choiceRows] = await Promise.all([
     loadNameMap(
@@ -122,6 +130,10 @@ async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise
       dimensionId: rule.dimensionId,
       dimensionName: dimensionNames.get(rule.dimensionId) ?? rule.dimensionId,
       required: rule.required,
+      appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
+        dimensionId: clause.dimensionId,
+        choiceIds: clause.choiceIds ?? [],
+      })),
       allowedChoices: (rule.allowedChoiceIds ?? []).map((choiceId) => {
         const detail = choiceMap.get(choiceId);
         return {
@@ -693,5 +705,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
   };
 }
+
+
 
 

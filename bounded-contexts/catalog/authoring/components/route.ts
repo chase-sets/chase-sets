@@ -73,6 +73,7 @@ export function componentRoutes(services: ComponentServices) {
         dimensionId: body.dimensionId as DimensionId,
         required: body.required,
         allowedChoiceIds: body.allowedChoiceIds as ChoiceId[] | undefined,
+        appliesWhen: body.appliesWhen,
       },
       context,
     });
@@ -175,6 +176,8 @@ export function componentRoutes(services: ComponentServices) {
 
   return app;
 }
+
+
 
 
 

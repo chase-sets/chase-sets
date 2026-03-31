@@ -87,13 +87,42 @@ describe("Component aggregate", () => {
       expect(events[0].type).toBe("catalog.component.dimension-rule-added");
     });
 
+    it("normalizes conditional applicability on dimension rules", () => {
+      const events = decide(decideComponent, createdState(), {
+        type: "AddDimensionRuleToComponent" as const,
+        dimensionId: dimA,
+        required: true,
+        appliesWhen: [{ dimensionId: "dim_b" as DimensionId, choiceIds: ["chc_b" as ChoiceId, "chc_a" as ChoiceId, "chc_b" as ChoiceId] }],
+      });
+
+      expect(events[0]).toMatchObject({
+        type: "catalog.component.dimension-rule-added",
+        data: {
+          dimensionId: dimA,
+          appliesWhen: [{ dimensionId: "dim_b", choiceIds: ["chc_a", "chc_b"] }],
+        },
+      });
+    });
+
+    it("rejects self-referential applicability on dimension rules", () => {
+      expectDomainError(
+        () => decide(decideComponent, createdState(), {
+          type: "AddDimensionRuleToComponent" as const,
+          dimensionId: dimA,
+          required: true,
+          appliesWhen: [{ dimensionId: dimA, choiceIds: ["chc_a" as ChoiceId] }],
+        }),
+        "Dimension rules cannot depend on their own dimension.",
+      );
+    });
+
     it("configures component rules", () => {
       const events = decide(decideComponent, createdState(), {
         type: "ConfigureComponentRules" as const,
         key: "base-v2",
         name: "Base V2",
         fieldRules: [{ fieldId: fieldA, required: true }],
-        dimensionRules: [{ dimensionId: dimA, required: true, allowedChoiceIds: [] as ChoiceId[] }],
+        dimensionRules: [{ dimensionId: dimA, required: true, allowedChoiceIds: [] as ChoiceId[], appliesWhen: [] }],
       });
 
       expect(events[0].type).toBe("catalog.component.rules-configured");
@@ -163,4 +192,5 @@ describe("Component aggregate", () => {
     });
   });
 });
+
 

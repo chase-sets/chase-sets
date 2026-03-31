@@ -39,14 +39,52 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
   await createCategory(
     "pokemon-tcg",
     "Pokemon TCG",
-    "Pokemon Trading Card Game",
+    "Pokemon Trading Card Game catalog",
+  );
+
+  await createCategory(
+    "singles",
+    "Singles",
+    "Individual Pokemon cards",
+    "pokemon-tcg",
+    0,
+  );
+
+  await createCategory(
+    "sealed-products",
+    "Sealed Products",
+    "Pokemon booster packs, booster boxes, and boxed sealed products",
+    "pokemon-tcg",
+    1,
+  );
+
+  await createCategory(
+    "booster-packs",
+    "Booster Packs",
+    "Single sealed booster packs",
+    "sealed-products",
+    0,
+  );
+  await createCategory(
+    "booster-boxes",
+    "Booster Boxes",
+    "Factory sealed booster boxes",
+    "sealed-products",
+    1,
+  );
+  await createCategory(
+    "elite-trainer-boxes",
+    "Elite Trainer Boxes",
+    "Sealed Elite Trainer Box products",
+    "sealed-products",
+    2,
   );
 
   await createCategory(
     "by-generation",
     "By Generation",
-    "Cards organized by Pokemon generation",
-    "pokemon-tcg",
+    "Singles organized by Pokemon generation",
+    "singles",
     0,
   );
   const generations = [
@@ -64,7 +102,7 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
     await createCategory(
       generations[index][0],
       generations[index][1],
-      `${generations[index][1]} Pokemon cards`,
+      `${generations[index][1]} Pokemon singles`,
       "by-generation",
       index,
     );
@@ -73,8 +111,8 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
   await createCategory(
     "by-type",
     "By Type",
-    "Cards organized by Pokemon type",
-    "pokemon-tcg",
+    "Singles organized by Pokemon type",
+    "singles",
     1,
   );
   const types = [
@@ -96,7 +134,7 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
     await createCategory(
       key,
       types[index],
-      `${types[index]} type Pokemon cards`,
+      `${types[index]} type Pokemon singles`,
       "by-type",
       index,
     );
@@ -105,21 +143,18 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
   await createCategory(
     "trainer-cards",
     "Trainer Cards",
-    "Trainer, Supporter, and Stadium cards",
-    "pokemon-tcg",
+    "Trainer, Supporter, and Stadium singles",
+    "singles",
     2,
   );
   await createCategory(
     "energy-cards",
     "Energy Cards",
-    "Basic and Special Energy cards",
-    "pokemon-tcg",
+    "Basic and Special Energy singles",
+    "singles",
     3,
   );
 
   console.log(`  ${Object.keys(result).length} categories created`);
   return result;
 }
-
-
-

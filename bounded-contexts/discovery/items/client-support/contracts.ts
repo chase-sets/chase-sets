@@ -18,10 +18,16 @@ export interface DiscoverySearchResponse {
   count: number;
 }
 
+export interface VersionApplicabilityClause {
+  dimensionId: string;
+  choiceIds: string[];
+}
+
 export interface VersionDimension {
   dimensionId: string;
   dimensionName: string;
   required: boolean;
+  appliesWhen: VersionApplicabilityClause[];
   allowedChoices: Array<{
     choiceId: string;
     code: string;
@@ -60,4 +66,3 @@ export interface DiscoveryItemDetail {
   version_schema: VersionSchema | null;
   updated_at: string;
 }
-

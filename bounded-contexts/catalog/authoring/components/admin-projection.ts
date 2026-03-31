@@ -43,8 +43,14 @@ export async function refreshCatalogAdminComponentDetailPage(
   const fieldRules = asArray<FieldRule>(component.field_rules);
   const dimensionRules = asArray<DimensionRule>(component.dimension_rules);
   const fieldIds = fieldRules.map((rule) => rule.fieldId);
-  const dimensionIds = dimensionRules.map((rule) => rule.dimensionId);
-  const choiceIds = dimensionRules.flatMap((rule) => rule.allowedChoiceIds ?? []);
+  const dimensionIds = [...new Set([
+    ...dimensionRules.map((rule) => rule.dimensionId),
+    ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
+  ])];
+  const choiceIds = dimensionRules.flatMap((rule) => [
+    ...(rule.allowedChoiceIds ?? []),
+    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.choiceIds ?? []),
+  ]);
 
   const [fieldNames, dimensionNames, choiceCodes] = await Promise.all([
     loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds),
@@ -65,6 +71,15 @@ export async function refreshCatalogAdminComponentDetailPage(
     allowedChoices: (rule.allowedChoiceIds ?? []).map((choiceId) => ({
       choiceId,
       code: choiceCodes.get(choiceId) ?? choiceId,
+    })),
+    appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
+      dimensionId: clause.dimensionId,
+      dimensionName: dimensionNames.get(clause.dimensionId) ?? clause.dimensionId,
+      choiceIds: clause.choiceIds ?? [],
+      choices: (clause.choiceIds ?? []).map((choiceId) => ({
+        choiceId,
+        code: choiceCodes.get(choiceId) ?? choiceId,
+      })),
     })),
   }));
 
@@ -111,8 +126,19 @@ async function findComponentIdsByField(db: PgQueryable, fieldId: string): Promis
 
 async function findComponentIdsByDimension(db: PgQueryable, dimensionId: string): Promise<string[]> {
   const result = await db.query<{ component_id: string }>(
-    `SELECT component_id FROM catalog_components WHERE dimension_rules @> $1::jsonb`,
-    [JSON.stringify([{ dimensionId }])],
+    `SELECT component_id
+     FROM catalog_components
+     WHERE dimension_rules @> $1::jsonb
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(dimension_rules) AS rule
+          WHERE EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause
+            WHERE clause->>'dimensionId' = $2
+          )
+        )`,
+    [JSON.stringify([{ dimensionId }]), dimensionId],
   );
 
   return result.rows.map((row) => row.component_id);
@@ -126,6 +152,11 @@ async function findComponentIdsByChoice(db: PgQueryable, choiceId: string): Prom
        SELECT 1
        FROM jsonb_array_elements(dimension_rules) AS rule
        WHERE (rule->'allowedChoiceIds') @> to_jsonb(ARRAY[$1]::text[])
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause
+            WHERE (clause->'choiceIds') @> to_jsonb(ARRAY[$1]::text[])
+          )
      )`,
     [choiceId],
   );
@@ -227,5 +258,7 @@ export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): P
     },
   };
 }
+
+
 
 

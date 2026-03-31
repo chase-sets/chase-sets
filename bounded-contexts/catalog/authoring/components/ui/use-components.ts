@@ -20,7 +20,7 @@ export function configureComponent(id: string, body: {
   name: string;
   description?: string;
   fieldRules: { fieldId: string; required: boolean }[];
-  dimensionRules: { dimensionId: string; required: boolean; allowedChoiceIds: string[] }[];
+  dimensionRules: { dimensionId: string; required: boolean; allowedChoiceIds: string[]; appliesWhen: Array<{ dimensionId: string; choiceIds: string[] }> }[];
 }) {
   return api.reviseComponent<CommandResponse>(id, body);
 }
@@ -33,7 +33,7 @@ export function removeFieldRule(id: string, fieldId: string) {
   return api.removeFieldRule<CommandResponse>(id, fieldId);
 }
 
-export function addDimensionRule(id: string, body: { dimensionId: string; required: boolean; allowedChoiceIds?: string[] }) {
+export function addDimensionRule(id: string, body: { dimensionId: string; required: boolean; allowedChoiceIds?: string[]; appliesWhen?: Array<{ dimensionId: string; choiceIds: string[] }> }) {
   return api.addDimensionRule<CommandResponse>(id, body);
 }
 
@@ -52,6 +52,7 @@ export function deprecateComponent(id: string) {
 export function archiveComponent(id: string) {
   return api.archiveComponent<CommandResponse>(id);
 }
+
 
 
 

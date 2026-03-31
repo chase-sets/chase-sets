@@ -4,12 +4,28 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { VersionSchema } from "../client-support/contracts";
+import type {
+  VersionDimension,
+  VersionSchema,
+} from "../client-support/contracts";
 
 interface VersionSelectorProps {
   schema: VersionSchema;
   selections: Record<string, string>;
   onSelectionChange: (dimensionId: string, choiceId: string) => void;
+}
+
+function isDimensionActive(
+  dimension: VersionDimension,
+  selections: Record<string, string>,
+): boolean {
+  return dimension.appliesWhen.every((clause) => {
+    const selectedChoiceId = selections[clause.dimensionId];
+    return (
+      selectedChoiceId !== undefined &&
+      clause.choiceIds.includes(selectedChoiceId)
+    );
+  });
 }
 
 export function VersionSelector({
@@ -23,7 +39,8 @@ export function VersionSelector({
 
   const orderedDimensions = schema.canonicalDimensionOrder.map((order) =>
     schema.dimensions.find((d) => d.dimensionId === order.dimensionId)
-  ).filter((d): d is NonNullable<typeof d> => d !== undefined);
+  ).filter((d): d is NonNullable<typeof d> => d !== undefined)
+    .filter((dimension) => isDimensionActive(dimension, selections));
 
   return (
     <Stack gap={4}>

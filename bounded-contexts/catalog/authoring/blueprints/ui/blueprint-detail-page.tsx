@@ -28,6 +28,57 @@ import {
   archiveBlueprint,
 } from "./use-blueprints";
 
+function formatApplicability(
+  clauses: Array<{
+    dimensionName?: string;
+    dimensionId: string;
+    choices?: { code: string }[];
+    choiceIds?: string[];
+  }>,
+): string {
+  if (clauses.length === 0) {
+    return "Always";
+  }
+
+  return clauses
+    .map((clause) => {
+      const choices =
+        clause.choices && clause.choices.length > 0
+          ? clause.choices.map((choice) => choice.code).join(" | ")
+          : (clause.choiceIds ?? []).join(" | ");
+      return `${clause.dimensionName ?? clause.dimensionId} = ${choices}`;
+    })
+    .join(", ");
+}
+
+function serializeApplicabilityClauses(
+  clauses: Array<{ dimensionId: string; choiceIds?: string[] }>,
+): string {
+  return clauses
+    .map((clause) => `${clause.dimensionId}=${(clause.choiceIds ?? []).join("|")}`)
+    .join(", ");
+}
+
+function parseApplicabilityClauses(
+  value: string,
+): Array<{ dimensionId: string; choiceIds: string[] }> {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [dimensionId, choiceIds = ""] = entry.split("=");
+      return {
+        dimensionId: dimensionId.trim(),
+        choiceIds: choiceIds
+          .split("|")
+          .map((choiceId) => choiceId.trim())
+          .filter(Boolean),
+      };
+    })
+    .filter((clause) => clause.dimensionId.length > 0 && clause.choiceIds.length > 0);
+}
+
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
@@ -52,6 +103,12 @@ interface DimensionRule {
   dimensionName: string;
   required: boolean;
   allowedChoices: { choiceId: string; code: string }[];
+  appliesWhen: Array<{
+    dimensionId: string;
+    dimensionName: string;
+    choiceIds: string[];
+    choices: { choiceId: string; code: string }[];
+  }>;
 }
 
 interface EditFieldRule {
@@ -63,6 +120,7 @@ interface EditDimensionRule {
   dimensionId: string;
   required: boolean;
   allowedChoiceIds: string;
+  appliesWhen: string;
 }
 
 export function BlueprintDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useBlueprint>[1] }) {
@@ -159,8 +217,9 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
             dimensionId: r.dimensionId,
             required: r.required,
             allowedChoiceIds: r.allowedChoices.map((choice) => choice.choiceId).join(", "),
+            appliesWhen: serializeApplicabilityClauses(r.appliesWhen),
           }))
-        : [{ dimensionId: "", required: false, allowedChoiceIds: "" }],
+        : [{ dimensionId: "", required: false, allowedChoiceIds: "", appliesWhen: "" }],
     );
     setShowSetDimRules(true);
   }
@@ -172,6 +231,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
         dimensionId: r.dimensionId,
         required: r.required,
         allowedChoiceIds: r.allowedChoiceIds.split(",").map((s) => s.trim()).filter(Boolean),
+        appliesWhen: parseApplicabilityClauses(r.appliesWhen),
       }));
     await setBlueprintDimensions(id, rules);
     addToast("Dimension rules set", "success");
@@ -287,6 +347,11 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                       key: "allowedChoices",
                       header: "Allowed Choices",
                       cell: (row) => row.allowedChoices.length > 0 ? row.allowedChoices.map((choice) => choice.code).join(", ") : "All",
+                    },
+                    {
+                      key: "appliesWhen",
+                      header: "Applies When",
+                      cell: (row) => formatApplicability(row.appliesWhen),
                     },
                   ] as DataColumn<DimensionRule>[]}
                   getRowId={(row) => row.dimensionId}
@@ -427,10 +492,17 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                   setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, allowedChoiceIds: e.target.value } : r)))
                 }
               />
+              <TextInput
+                label="Applies When (dimensionId=choiceId|choiceId, comma-separated)"
+                value={rule.appliesWhen}
+                onChange={(e) =>
+                  setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, appliesWhen: e.target.value } : r)))
+                }
+              />
             </Stack>
           ))}
           <Inline>
-            <Button size="sm" tone="secondary" onClick={() => setEditDimRules((prev) => [...prev, { dimensionId: "", required: false, allowedChoiceIds: "" }])}>
+            <Button size="sm" tone="secondary" onClick={() => setEditDimRules((prev) => [...prev, { dimensionId: "", required: false, allowedChoiceIds: "", appliesWhen: "" }])}>
               Add Rule
             </Button>
           </Inline>
@@ -439,6 +511,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
+
 
 
 

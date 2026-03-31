@@ -1,6 +1,6 @@
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogServices } from "../services";
-import type { CatalogItemId } from "../../ids";
+import type { CatalogItemId, FieldId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
 import type { BlueprintIds } from "../blueprints/seed";
 import type { CategoryIds } from "../categories/seed";
@@ -14,7 +14,20 @@ export async function seedCatalogItems(
 ): Promise<void> {
   console.log("Seeding catalog items...");
 
-  const requiredFieldIds = [fields["card-number"], fields["card-name"]];
+  const requiredFieldIdsByBlueprint: Record<string, readonly FieldId[]> = {
+    "pokemon-card-single": [
+      fields["card-number"],
+      fields["card-name"],
+      fields["set-name"],
+      fields.rarity,
+      fields.language,
+    ],
+    "pokemon-sealed-product": [
+      fields["set-name"],
+      fields.language,
+      fields["pack-count"],
+    ],
+  };
 
   type ItemDef = {
     title: string;
@@ -28,83 +41,121 @@ export async function seedCatalogItems(
 
   const items: ItemDef[] = [
     {
-      title: "Charizard - Base Set 4/102",
-      subtitle: "Holo Rare - Near Mint",
+      title: "Charizard",
+      subtitle: "Base Set 4/102 Holo Rare",
       description:
-        "The iconic Base Set Charizard, one of the most sought-after Pokemon cards ever printed. Features the Fire Spin attack and stunning holographic artwork by Mitsuhiro Arita.",
-      blueprintKey: "raw-pokemon-card",
+        "The iconic Base Set Charizard, seeded as a single catalog item whose sellable versions vary by form, condition, and grade.",
+      blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "4/102"],
         ["card-name", "Charizard"],
+        ["set-name", "Base Set"],
+        ["rarity", "Holo Rare"],
+        ["language", "English"],
         ["artist", "Mitsuhiro Arita"],
-        ["year-printed", 1999],
+        ["release-year", 1999],
       ],
-      categoryKeys: ["pokemon-tcg", "gen-1", "fire"],
-      tags: ["charizard", "base-set", "holo", "vintage"],
+      categoryKeys: ["pokemon-tcg", "singles", "gen-1", "fire"],
+      tags: ["base-set", "charizard", "holo", "vintage"],
     },
     {
-      title: "Charizard - Base Set 4/102 PSA 10",
-      subtitle: "Gem Mint - PSA Graded",
+      title: "Pikachu",
+      subtitle: "Jungle 60/64 Common",
       description:
-        "A PSA Gem Mint 10 graded Base Set Charizard. The highest grade achievable, representing perfect centering, corners, edges, and surface.",
-      blueprintKey: "graded-pokemon-card",
-      fieldValues: [
-        ["card-number", "4/102"],
-        ["card-name", "Charizard"],
-        ["artist", "Mitsuhiro Arita"],
-        ["year-printed", 1999],
-        ["cert-number", "10234567"],
-        ["pop-count", 122],
-      ],
-      categoryKeys: ["pokemon-tcg", "gen-1", "fire"],
-      tags: ["charizard", "base-set", "psa-10", "graded", "vintage"],
-    },
-    {
-      title: "Pikachu - Jungle 60/64",
-      subtitle: "Common - Near Mint",
-      description:
-        "A charming Pikachu from the Jungle expansion set, featuring artwork by Kagemaru Himeno. A classic collectible from the early days of the Pokemon TCG.",
-      blueprintKey: "raw-pokemon-card",
+        "A classic Jungle Pikachu seeded as one catalog item instead of separate raw and graded items.",
+      blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "60/64"],
         ["card-name", "Pikachu"],
+        ["set-name", "Jungle"],
+        ["rarity", "Common"],
+        ["language", "English"],
         ["artist", "Kagemaru Himeno"],
-        ["year-printed", 1999],
+        ["release-year", 1999],
       ],
-      categoryKeys: ["pokemon-tcg", "gen-1", "electric"],
-      tags: ["pikachu", "jungle", "vintage"],
+      categoryKeys: ["pokemon-tcg", "singles", "gen-1", "electric"],
+      tags: ["jungle", "pikachu", "vintage"],
     },
     {
-      title: "Lugia - Neo Genesis 9/111 BGS 9.5",
-      subtitle: "Gem Mint - BGS Graded",
+      title: "Lugia",
+      subtitle: "Neo Genesis 9/111 Holo Rare",
       description:
-        "A BGS 9.5 Gem Mint graded Lugia from Neo Genesis. One of the most valuable Generation II era cards, featuring Hironobu Yoshida's legendary artwork.",
-      blueprintKey: "graded-pokemon-card",
+        "A Neo Genesis Lugia single whose raw and graded variants resolve from the same catalog item.",
+      blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "9/111"],
         ["card-name", "Lugia"],
+        ["set-name", "Neo Genesis"],
+        ["rarity", "Holo Rare"],
+        ["language", "English"],
         ["artist", "Hironobu Yoshida"],
-        ["year-printed", 2000],
-        ["cert-number", "BGS87654321"],
-        ["pop-count", 45],
+        ["release-year", 2000],
       ],
-      categoryKeys: ["pokemon-tcg", "gen-2", "psychic"],
-      tags: ["lugia", "neo-genesis", "graded", "vintage"],
+      categoryKeys: ["pokemon-tcg", "singles", "gen-2", "psychic"],
+      tags: ["lugia", "neo-genesis", "vintage"],
     },
     {
-      title: "Pikachu - Prismatic Evolutions 025",
-      subtitle: "Illustration Rare - Near Mint",
+      title: "Pikachu",
+      subtitle: "Prismatic Evolutions 025 Illustration Rare",
       description:
-        "A stunning Illustration Rare Pikachu from the modern Prismatic Evolutions set, showcasing Ryuta Fuse's vibrant artwork in the latest Scarlet & Violet era.",
-      blueprintKey: "raw-pokemon-card",
+        "A modern Pikachu single from Prismatic Evolutions with form-driven versioning instead of duplicated raw and graded catalog entries.",
+      blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "025"],
         ["card-name", "Pikachu"],
+        ["set-name", "Prismatic Evolutions"],
+        ["rarity", "Illustration Rare"],
+        ["language", "English"],
         ["artist", "Ryuta Fuse"],
-        ["year-printed", 2025],
+        ["release-year", 2025],
       ],
-      categoryKeys: ["pokemon-tcg", "gen-9", "electric"],
-      tags: ["pikachu", "prismatic-evolutions", "modern"],
+      categoryKeys: ["pokemon-tcg", "singles", "gen-9", "electric"],
+      tags: ["modern", "pikachu", "prismatic-evolutions"],
+    },
+    {
+      title: "Prismatic Evolutions Booster Pack",
+      subtitle: "Sealed booster pack",
+      description:
+        "A single sealed booster pack from the Prismatic Evolutions set.",
+      blueprintKey: "pokemon-sealed-product",
+      fieldValues: [
+        ["set-name", "Prismatic Evolutions"],
+        ["language", "English"],
+        ["release-year", 2025],
+        ["pack-count", 1],
+      ],
+      categoryKeys: ["pokemon-tcg", "sealed-products", "booster-packs"],
+      tags: ["booster-pack", "prismatic-evolutions", "sealed"],
+    },
+    {
+      title: "Surging Sparks Booster Box",
+      subtitle: "Sealed booster box",
+      description:
+        "A factory sealed Surging Sparks booster box containing 36 packs.",
+      blueprintKey: "pokemon-sealed-product",
+      fieldValues: [
+        ["set-name", "Surging Sparks"],
+        ["language", "English"],
+        ["release-year", 2024],
+        ["pack-count", 36],
+      ],
+      categoryKeys: ["pokemon-tcg", "sealed-products", "booster-boxes"],
+      tags: ["booster-box", "sealed", "surging-sparks"],
+    },
+    {
+      title: "Twilight Masquerade Elite Trainer Box",
+      subtitle: "Sealed Elite Trainer Box",
+      description:
+        "A sealed Twilight Masquerade Elite Trainer Box with nine booster packs and accessories.",
+      blueprintKey: "pokemon-sealed-product",
+      fieldValues: [
+        ["set-name", "Twilight Masquerade"],
+        ["language", "English"],
+        ["release-year", 2024],
+        ["pack-count", 9],
+      ],
+      categoryKeys: ["pokemon-tcg", "sealed-products", "elite-trainer-boxes"],
+      tags: ["elite-trainer-box", "sealed", "twilight-masquerade"],
     },
   ];
 
@@ -148,12 +199,10 @@ export async function seedCatalogItems(
     await sendSeedCommand(services.items.commandHandler, streamId, {
       type: "PublishItem",
       blueprintIsActive: true,
-      requiredFieldIds,
+      requiredFieldIds: requiredFieldIdsByBlueprint[item.blueprintKey],
     });
 
     console.log(`  Item "${item.title}" created and published`);
   }
 }
-
-
 

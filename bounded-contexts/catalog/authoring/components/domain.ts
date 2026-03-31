@@ -19,10 +19,16 @@ export type ComponentFieldRule = Readonly<{
   required: boolean;
 }>;
 
+export type ComponentDimensionApplicabilityClause = Readonly<{
+  dimensionId: DimensionId;
+  choiceIds: ChoiceId[];
+}>;
+
 export type ComponentDimensionRule = Readonly<{
   dimensionId: DimensionId;
   required: boolean;
   allowedChoiceIds: ChoiceId[];
+  appliesWhen?: ComponentDimensionApplicabilityClause[];
 }>;
 
 export type ComponentState = Readonly<{
@@ -69,6 +75,7 @@ export type AddDimensionRuleToComponentCommand = Readonly<{
   dimensionId: DimensionId;
   required: boolean;
   allowedChoiceIds?: readonly ChoiceId[];
+  appliesWhen?: readonly ComponentDimensionApplicabilityClause[];
 }>;
 
 export type RemoveDimensionRuleFromComponentCommand = Readonly<{
@@ -251,6 +258,7 @@ export const decideComponent: AggregateDecider<
             dimensionId: command.dimensionId,
             required: command.required,
             allowedChoiceIds: [...(command.allowedChoiceIds ?? [])],
+            appliesWhen: [...(command.appliesWhen ?? [])],
           }),
         },
       ];
@@ -427,10 +435,16 @@ function normalizeFieldRules(
 function normalizeDimensionRule(
   rule: ComponentDimensionRule,
 ): ComponentDimensionRule {
+  const appliesWhen = normalizeDimensionApplicability(
+    rule.dimensionId,
+    rule.appliesWhen,
+  );
+
   return {
     dimensionId: rule.dimensionId,
     required: rule.required,
     allowedChoiceIds: toSortedUniqueList(rule.allowedChoiceIds),
+    appliesWhen,
   };
 }
 
@@ -449,5 +463,34 @@ function normalizeDimensionRules(
     left.dimensionId.localeCompare(right.dimensionId),
   );
 }
+
+function normalizeDimensionApplicability(
+  dimensionId: DimensionId,
+  clauses?: readonly ComponentDimensionApplicabilityClause[],
+): ComponentDimensionApplicabilityClause[] {
+  const normalized = (clauses ?? []).map((clause) => {
+    assert(
+      clause.dimensionId !== dimensionId,
+      "Dimension rules cannot depend on their own dimension.",
+    );
+
+    return {
+      dimensionId: clause.dimensionId,
+      choiceIds: toSortedUniqueList(clause.choiceIds),
+    };
+  });
+
+  ensureUniqueBy(
+    normalized,
+    (clause) => clause.dimensionId,
+    "Dimension rule applicability must be unique per referenced dimension.",
+  );
+
+  return normalized.sort((left, right) =>
+    left.dimensionId.localeCompare(right.dimensionId),
+  );
+}
+
+
 
 

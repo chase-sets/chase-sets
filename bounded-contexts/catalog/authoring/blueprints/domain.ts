@@ -26,10 +26,16 @@ export type BlueprintFieldRule = Readonly<{
   required: boolean;
 }>;
 
+export type BlueprintDimensionApplicabilityClause = Readonly<{
+  dimensionId: DimensionId;
+  choiceIds: ChoiceId[];
+}>;
+
 export type BlueprintDimensionRule = Readonly<{
   dimensionId: DimensionId;
   required: boolean;
   allowedChoiceIds: ChoiceId[];
+  appliesWhen?: BlueprintDimensionApplicabilityClause[];
 }>;
 
 export type BlueprintState = Readonly<{
@@ -469,10 +475,16 @@ function normalizeFieldRules(
 function normalizeDimensionRule(
   rule: BlueprintDimensionRule,
 ): BlueprintDimensionRule {
+  const appliesWhen = normalizeDimensionApplicability(
+    rule.dimensionId,
+    rule.appliesWhen,
+  );
+
   return {
     dimensionId: rule.dimensionId,
     required: rule.required,
     allowedChoiceIds: toSortedUniqueList(rule.allowedChoiceIds),
+    appliesWhen,
   };
 }
 
@@ -491,5 +503,34 @@ function normalizeDimensionRules(
     left.dimensionId.localeCompare(right.dimensionId),
   );
 }
+
+function normalizeDimensionApplicability(
+  dimensionId: DimensionId,
+  clauses?: readonly BlueprintDimensionApplicabilityClause[],
+): BlueprintDimensionApplicabilityClause[] {
+  const normalized = (clauses ?? []).map((clause) => {
+    assert(
+      clause.dimensionId !== dimensionId,
+      "Dimension rules cannot depend on their own dimension.",
+    );
+
+    return {
+      dimensionId: clause.dimensionId,
+      choiceIds: toSortedUniqueList(clause.choiceIds),
+    };
+  });
+
+  ensureUniqueBy(
+    normalized,
+    (clause) => clause.dimensionId,
+    "Dimension rule applicability must be unique per referenced dimension.",
+  );
+
+  return normalized.sort((left, right) =>
+    left.dimensionId.localeCompare(right.dimensionId),
+  );
+}
+
+
 
 

@@ -8,14 +8,13 @@ export function discoveryCategoryRoutes(services: DiscoveryCategoryServices) {
     const parentCategoryId = c.req.query("parentCategoryId");
     const status = c.req.query("status");
 
-    const categories = await services.listCategories({
+    const categories = (await services.listCategories({
       parentCategoryId: parentCategoryId || undefined,
       status: status || undefined,
-    });
+    })).filter((category) => category.item_count > 0);
 
     return c.json({ items: categories, total: categories.length, count: categories.length });
   });
 
   return app;
 }
-

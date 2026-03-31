@@ -225,6 +225,231 @@ describe("marketplace search", () => {
     expect(categoryBody.items[0].item_count).toBe(1);
   });
 
+  it("projects conditional version rules and sealed products into item detail payloads", async () => {
+    const ids = {
+      categoryId: "cat_pokemon",
+      formDimensionId: "dim_form",
+      formRawChoiceId: "chc_form_raw",
+      conditionDimensionId: "dim_condition",
+      conditionChoiceId: "chc_condition_nm",
+      cardBlueprintId: "bpr_card_single",
+      sealedBlueprintId: "bpr_sealed",
+      nameFieldId: "fld_name",
+      setFieldId: "fld_set",
+      packCountFieldId: "fld_pack_count",
+      cardItemId: "cat_charizard",
+      sealedItemId: "cat_etb",
+    };
+
+    await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${ids.categoryId}`, {
+      type: "CreateCategory",
+      categoryId: ids.categoryId as never,
+      key: "pokemon",
+      name: "Pokemon",
+      description: "Pokemon items",
+      displayOrder: 0,
+    });
+    await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${ids.categoryId}`, {
+      type: "PublishCategory",
+    });
+
+    for (const field of [
+      { fieldId: ids.nameFieldId, key: "card-name", name: "Card Name", valueType: "string" as const },
+      { fieldId: ids.setFieldId, key: "set-name", name: "Set Name", valueType: "string" as const },
+      { fieldId: ids.packCountFieldId, key: "pack-count", name: "Pack Count", valueType: "number" as const },
+    ]) {
+      await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${field.fieldId}`, {
+        type: "CreateField",
+        fieldId: field.fieldId as never,
+        key: field.key,
+        name: field.name,
+        description: field.name,
+        valueType: field.valueType,
+        behavior: { filterable: true, searchable: true, sortable: true },
+      });
+      await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${field.fieldId}`, {
+        type: "ActivateField",
+      });
+    }
+
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.formDimensionId}`, {
+      type: "CreateDimension",
+      dimensionId: ids.formDimensionId as never,
+      key: "form",
+      name: "Form",
+      description: "Card form",
+    });
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.formDimensionId}`, {
+      type: "AddChoice",
+      choiceId: ids.formRawChoiceId as never,
+      code: "raw",
+      labels: [{ locale: "en", value: "Raw" }],
+      numericValue: null,
+    });
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.formDimensionId}`, {
+      type: "ActivateDimension",
+    });
+
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
+      type: "CreateDimension",
+      dimensionId: ids.conditionDimensionId as never,
+      key: "condition",
+      name: "Condition",
+      description: "Card condition",
+    });
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
+      type: "AddChoice",
+      choiceId: ids.conditionChoiceId as never,
+      code: "near-mint",
+      labels: [{ locale: "en", value: "Near Mint" }],
+      numericValue: null,
+    });
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
+      type: "ActivateDimension",
+    });
+
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId: ids.cardBlueprintId as never,
+      key: "pokemon-card-single",
+      name: "Pokemon Card Single",
+      description: "Single card blueprint",
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
+      type: "SetBlueprintFields",
+      fieldRules: [
+        { fieldId: ids.nameFieldId as never, required: true },
+        { fieldId: ids.setFieldId as never, required: true },
+      ],
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
+      type: "SetBlueprintDimensions",
+      dimensionRules: [
+        { dimensionId: ids.formDimensionId as never, required: true, allowedChoiceIds: [ids.formRawChoiceId as never] },
+        {
+          dimensionId: ids.conditionDimensionId as never,
+          required: true,
+          allowedChoiceIds: [ids.conditionChoiceId as never],
+          appliesWhen: [{ dimensionId: ids.formDimensionId as never, choiceIds: [ids.formRawChoiceId as never] }],
+        },
+      ],
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
+      type: "SetBlueprintVersionRules",
+      canonicalDimensionOrder: [ids.formDimensionId as never, ids.conditionDimensionId as never],
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
+      type: "PublishBlueprint",
+    });
+
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.sealedBlueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId: ids.sealedBlueprintId as never,
+      key: "pokemon-sealed-product",
+      name: "Pokemon Sealed Product",
+      description: "Sealed product blueprint",
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.sealedBlueprintId}`, {
+      type: "SetBlueprintFields",
+      fieldRules: [
+        { fieldId: ids.setFieldId as never, required: true },
+        { fieldId: ids.packCountFieldId as never, required: true },
+      ],
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.sealedBlueprintId}`, {
+      type: "SetBlueprintDimensions",
+      dimensionRules: [],
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.sealedBlueprintId}`, {
+      type: "SetBlueprintVersionRules",
+      canonicalDimensionOrder: [],
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.sealedBlueprintId}`, {
+      type: "PublishBlueprint",
+    });
+
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
+      type: "CreateItem",
+      itemId: ids.cardItemId as never,
+      title: "Charizard",
+      subtitle: "Base Set 4/102",
+      description: "Classic single",
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
+      type: "AssignBlueprintToItem",
+      blueprintId: ids.cardBlueprintId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
+      type: "SetItemFieldValue",
+      fieldId: ids.nameFieldId as never,
+      value: "Charizard",
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
+      type: "SetItemFieldValue",
+      fieldId: ids.setFieldId as never,
+      value: "Base Set",
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
+      type: "AssignItemToCategory",
+      categoryId: ids.categoryId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
+      type: "PublishItem",
+      blueprintIsActive: true,
+      requiredFieldIds: [ids.nameFieldId as never, ids.setFieldId as never],
+    });
+
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
+      type: "CreateItem",
+      itemId: ids.sealedItemId as never,
+      title: "Twilight Masquerade ETB",
+      subtitle: "Sealed product",
+      description: "Sealed product",
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
+      type: "AssignBlueprintToItem",
+      blueprintId: ids.sealedBlueprintId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
+      type: "SetItemFieldValue",
+      fieldId: ids.setFieldId as never,
+      value: "Twilight Masquerade",
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
+      type: "SetItemFieldValue",
+      fieldId: ids.packCountFieldId as never,
+      value: 9,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
+      type: "AssignItemToCategory",
+      categoryId: ids.categoryId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
+      type: "PublishItem",
+      blueprintIsActive: true,
+      requiredFieldIds: [ids.setFieldId as never, ids.packCountFieldId as never],
+    });
+
+    await drainProjectors();
+
+    const cardResponse = await app.request(`/api/marketplace/items/${ids.cardItemId}`);
+    expect(cardResponse.status).toBe(200);
+    const cardBody = await cardResponse.json();
+    expect(
+      cardBody.version_schema.dimensions.find((dimension: { dimensionId: string }) => dimension.dimensionId === ids.conditionDimensionId),
+    ).toMatchObject({
+      appliesWhen: [{ dimensionId: ids.formDimensionId, choiceIds: [ids.formRawChoiceId] }],
+    });
+
+    const sealedResponse = await app.request(`/api/marketplace/items/${ids.sealedItemId}`);
+    expect(sealedResponse.status).toBe(200);
+    const sealedBody = await sealedResponse.json();
+    expect(sealedBody.version_schema).toMatchObject({
+      canonicalDimensionOrder: [],
+      dimensions: [],
+    });
+  });
+
   it("can rebuild the search index idempotently", async () => {
     await pool.query(`INSERT INTO discovery_search_catalog_items (item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
 
@@ -235,8 +460,3 @@ describe("marketplace search", () => {
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });
-
-
-
-
-

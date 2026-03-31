@@ -76,44 +76,46 @@ export default function MarketplaceSearchRoute() {
     sort?: string;
     page?: number;
   }) {
-    const next = new URLSearchParams(searchParams);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
 
-    if (nextValues.search !== undefined) {
-      if (nextValues.search) {
-        next.set("search", nextValues.search);
-      } else {
-        next.delete("search");
-      }
-      next.delete("page");
-    }
-
-    if (nextValues.category !== undefined) {
-      if (nextValues.category) {
-        next.set("category", nextValues.category);
-      } else {
-        next.delete("category");
-      }
-      next.delete("page");
-    }
-
-    if (nextValues.sort !== undefined) {
-      if (nextValues.sort && nextValues.sort !== "relevance") {
-        next.set("sort", nextValues.sort);
-      } else {
-        next.delete("sort");
-      }
-      next.delete("page");
-    }
-
-    if (nextValues.page !== undefined) {
-      if (nextValues.page > 1) {
-        next.set("page", String(nextValues.page));
-      } else {
+      if (nextValues.search !== undefined) {
+        if (nextValues.search) {
+          next.set("search", nextValues.search);
+        } else {
+          next.delete("search");
+        }
         next.delete("page");
       }
-    }
 
-    setSearchParams(next, { preventScrollReset: true });
+      if (nextValues.category !== undefined) {
+        if (nextValues.category) {
+          next.set("category", nextValues.category);
+        } else {
+          next.delete("category");
+        }
+        next.delete("page");
+      }
+
+      if (nextValues.sort !== undefined) {
+        if (nextValues.sort && nextValues.sort !== "relevance") {
+          next.set("sort", nextValues.sort);
+        } else {
+          next.delete("sort");
+        }
+        next.delete("page");
+      }
+
+      if (nextValues.page !== undefined) {
+        if (nextValues.page > 1) {
+          next.set("page", String(nextValues.page));
+        } else {
+          next.delete("page");
+        }
+      }
+
+      return next;
+    }, { preventScrollReset: true });
   }
 
   return (
