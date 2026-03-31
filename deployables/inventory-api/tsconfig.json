@@ -1,13 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["vite/client"]
+    "types": ["node"]
   },
   "include": [
-    "app",
-    "src",
-    "../../bounded-contexts/discovery/**/*.ts",
-    "../../bounded-contexts/discovery/**/*.tsx",
+    "src/**/*",
+    "__tests__/**/*",
+    "vitest.config.ts",
     "../../bounded-contexts/inventory/**/*.ts",
     "../../bounded-contexts/inventory/**/*.tsx"
   ]

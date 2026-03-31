@@ -59,6 +59,20 @@ export default defineConfig({
         )
       },
       {
+        find: /^@chase-sets\/inventory\/web$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/inventory/web.ts"
+        )
+      },
+      {
+        find: /^@chase-sets\/inventory$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/inventory/index.ts"
+        )
+      },
+      {
         find: "@chase-sets/event-core-postgres",
         replacement: resolve(
           currentDir,

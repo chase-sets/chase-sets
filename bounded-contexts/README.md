@@ -84,7 +84,7 @@ Shared IDs in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/type
 
 - `AccountId`
 - `UserId`
-- `InventoryLotId`
+- `InventoryRecordId`
 - `ListingId`
 - `OfferId`
 - `OrderId`

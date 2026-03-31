@@ -1,5 +1,6 @@
 import { createDiscoveryApiClient } from "@chase-sets/discovery/web";
 import { createIdentityApiClient } from "@chase-sets/identity/web";
+import { createInventoryApiClient } from "@chase-sets/inventory/web";
 import { createForwardedAuthFetch } from "@chase-sets/identity/server";
 
 export function getMarketplaceApiBaseUrl(request: Request) {
@@ -22,6 +23,18 @@ export function getIdentityApiBaseUrl(request: Request) {
 export function createMarketplaceIdentityApiClient(request: Request) {
   return createIdentityApiClient({
     baseUrl: getIdentityApiBaseUrl(request),
+    fetch: createForwardedAuthFetch(request),
+  });
+}
+
+export function getInventoryApiBaseUrl(request: Request) {
+  const url = new URL(request.url);
+  return `${url.origin}/api/inventory`;
+}
+
+export function createMarketplaceInventoryApiClient(request: Request) {
+  return createInventoryApiClient({
+    baseUrl: getInventoryApiBaseUrl(request),
     fetch: createForwardedAuthFetch(request),
   });
 }

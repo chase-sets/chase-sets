@@ -6,6 +6,7 @@ Fulfillment owns the physical execution of shipping and delivery.
 
 ## Owns
 
+- Ship-from Locations
 - Shipment
 - Package assembly state
 - Shipping method selection

@@ -4,7 +4,7 @@ This glossary defines the canonical terminology for the Inventory bounded contex
 
 ## Inventory Record
 
-An **Inventory Record** is a seller's stock for one specific catalog item variant, condition, and storage location.
+An **Inventory Record** is a seller's stock for one specific catalog item, condition, and storage location.
 
 Notes:
 

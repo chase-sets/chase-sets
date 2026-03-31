@@ -6,12 +6,12 @@ Inventory owns seller-held stock, its storage structure, its ship-from location 
 
 ## Owns
 
-- Inventory lots tied to storage locations
+- Inventory records tied to storage locations
 - Quantities on hand
 - Seller-specific condition assessments
 - Acquisition cost and cost basis
 - Storage locations and their ship-from location mapping
-- Reservation state
+- Hold state
 - Bulk stock import workflows
 
 ## Does Not Own
@@ -27,8 +27,8 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Core Aggregates and Process Managers
 
-- Inventory Lot
-- Reservation
+- Inventory Record
+- Hold
 - Import Batch
 
 ## Incoming Dependencies
@@ -38,19 +38,19 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Outgoing Integration Events
 
-- `InventoryLotCreated`
+- `InventoryRecordCreated`
 - `InventoryAvailabilityChanged`
-- `InventoryReserved`
+- `InventoryHeld`
 - `InventoryReleased`
-- `InventoryLotAdjusted`
+- `InventoryRecordAdjusted`
 
 ## Invariants
 
 1. Inventory is private seller state.
-2. Every inventory lot belongs to exactly one seller account.
-3. Every inventory lot belongs to exactly one storage location.
+2. Every inventory record belongs to exactly one seller account.
+3. Every inventory record belongs to exactly one storage location.
 4. Every storage location maps to exactly one ship-from location.
-5. Inventory availability must be derived from on-hand quantity minus active reservations.
+5. Inventory availability must be derived from total quantity minus active holds.
 6. A listing can only be created from inventory that is available for sale.
 7. Reserved stock must preserve the ship-from location derived from its storage location so downstream shipping prices can use a single shipment origin.
 

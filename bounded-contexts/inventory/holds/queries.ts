@@ -1,0 +1,40 @@
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+export type InventoryHoldRow = Readonly<{
+  hold_id: string;
+  account_id: string;
+  record_id: string;
+  quantity: number;
+  reason: string;
+  notes: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  released_at: string | null;
+}>;
+
+export async function getInventoryHold(
+  db: PgQueryable,
+  holdId: string,
+  accountId: string,
+) {
+  const result = await db.query<InventoryHoldRow>(
+    `SELECT
+       hold_id,
+       account_id,
+       record_id,
+       quantity,
+       reason,
+       notes,
+       status,
+       created_at,
+       updated_at,
+       released_at
+     FROM inventory_holds
+     WHERE hold_id = $1
+       AND account_id = $2`,
+    [holdId, accountId],
+  );
+
+  return result.rows[0] ?? null;
+}

@@ -111,9 +111,29 @@ const implementedRootRules = new Map([
         "package.json",
         "runtime-support.ts",
         "schema.ts",
+        "server.test.ts",
+        "server.ts",
         "seed.ts",
         "services.ts",
         "test-support.ts",
+        "web.ts",
+      ]),
+    },
+  ],
+  [
+    "bounded-contexts/inventory",
+    {
+      allowedDirs: new Set(["holds", "records", "storage-locations", "tests"]),
+      allowedFiles: new Set([
+        "README.md",
+        "GLOSSARY.md",
+        "api.ts",
+        "common.ts",
+        "index.ts",
+        "package.json",
+        "runtime-support.ts",
+        "schema.ts",
+        "services.ts",
         "web.ts",
       ]),
     },
@@ -176,7 +196,7 @@ const implementedRootRules = new Map([
     },
   ],
 ]);
-const boundedContextPackages = ["@chase-sets/catalog-authoring", "@chase-sets/discovery", "@chase-sets/identity"];
+const boundedContextPackages = ["@chase-sets/catalog-authoring", "@chase-sets/discovery", "@chase-sets/identity", "@chase-sets/inventory"];
 const contractPackages = ["@chase-sets/event-core", "@chase-sets/http", "@chase-sets/primitives"];
 const infrastructurePackages = ["@chase-sets/event-core-postgres"];
 const workspacePackages = ["@chase-sets/design-system"];
@@ -238,7 +258,9 @@ function isAllowedDeployableBoundedContextImport(specifier) {
     return (
       specifier === "@chase-sets/catalog-authoring/web" ||
       specifier === "@chase-sets/discovery/web" ||
-      specifier === "@chase-sets/identity/web"
+      specifier === "@chase-sets/identity/server" ||
+      specifier === "@chase-sets/identity/web" ||
+      specifier === "@chase-sets/inventory/web"
     );
   }
 

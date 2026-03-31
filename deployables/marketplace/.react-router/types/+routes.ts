@@ -46,6 +46,17 @@ type Pages = {
   "/account": {
     params: {};
   };
+  "/account/inventory": {
+    params: {};
+  };
+  "/account/inventory/records/:recordId": {
+    params: {
+      "recordId": string;
+    };
+  };
+  "/account/inventory/locations": {
+    params: {};
+  };
   "/account/team": {
     params: {};
   };
@@ -60,7 +71,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/team" | "/account/security" | "/account/consents";
   };
   "routes/favicon.ts": {
     id: "routes/favicon";
@@ -80,7 +91,7 @@ type RouteFiles = {
   };
   "routes/layout.tsx": {
     id: "routes/layout";
-    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/team" | "/account/security" | "/account/consents";
   };
   "routes/index.tsx": {
     id: "routes/index";
@@ -110,6 +121,18 @@ type RouteFiles = {
     id: "routes/account";
     page: "/account";
   };
+  "routes/account-inventory.tsx": {
+    id: "routes/account-inventory";
+    page: "/account/inventory";
+  };
+  "routes/account-inventory-record.tsx": {
+    id: "routes/account-inventory-record";
+    page: "/account/inventory/records/:recordId";
+  };
+  "routes/account-inventory-locations.tsx": {
+    id: "routes/account-inventory-locations";
+    page: "/account/inventory/locations";
+  };
   "routes/account-team.tsx": {
     id: "routes/account-team";
     page: "/account/team";
@@ -138,6 +161,9 @@ type RouteModules = {
   "routes/register": typeof import("./app/routes/register.tsx");
   "routes/account-select": typeof import("./app/routes/account-select.tsx");
   "routes/account": typeof import("./app/routes/account.tsx");
+  "routes/account-inventory": typeof import("./app/routes/account-inventory.tsx");
+  "routes/account-inventory-record": typeof import("./app/routes/account-inventory-record.tsx");
+  "routes/account-inventory-locations": typeof import("./app/routes/account-inventory-locations.tsx");
   "routes/account-team": typeof import("./app/routes/account-team.tsx");
   "routes/account-security": typeof import("./app/routes/account-security.tsx");
   "routes/account-consents": typeof import("./app/routes/account-consents.tsx");

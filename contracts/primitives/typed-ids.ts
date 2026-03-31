@@ -22,7 +22,7 @@ export type AccountId = TypedUlid<"acc">;
 
 export type UserId = TypedUlid<"usr">;
 
-export type InventoryLotId = TypedUlid<"lot">;
+export type InventoryRecordId = TypedUlid<"inv">;
 
 export type ListingId = TypedUlid<"lst">;
 
@@ -44,7 +44,7 @@ export type MembershipId = TypedUlid<"mbr">;
 
 export type RoleId = TypedUlid<"rol">;
 
-export type InvitationId = TypedUlid<"inv">;
+export type InvitationId = TypedUlid<"ivt">;
 
 export type ConsentId = TypedUlid<"cns">;
 
