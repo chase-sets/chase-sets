@@ -429,6 +429,14 @@ async function runDown() {
   });
 }
 
+async function runRefresh() {
+  prefixedConsole("dev", "Destroying shared Postgres data...");
+  await runCommand("docker", [...dockerComposeArgs, "down", "-v"], {
+    prefix: "docker",
+  });
+  await runBootstrap();
+}
+
 try {
   if (mode === "dev") {
     await runDev(target);
@@ -436,8 +444,10 @@ try {
     await runBootstrap();
   } else if (mode === "down") {
     await runDown();
+  } else if (mode === "refresh") {
+    await runRefresh();
   } else {
-    console.error(`Unknown mode "${mode}". Use dev, bootstrap, or down.`);
+    console.error(`Unknown mode "${mode}". Use dev, bootstrap, down, or refresh.`);
     process.exitCode = 1;
   }
 } catch (error) {

@@ -4,4 +4,5 @@ build/
 .env
 !deployables/catalog-api/.env
 !deployables/identity-api/.env
+!deployables/inventory-api/.env
 !deployables/marketplace-api/.env
