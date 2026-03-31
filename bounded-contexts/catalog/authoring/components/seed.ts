@@ -1,4 +1,4 @@
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { catalogSeedIds } from "@chase-sets/dev-seeds";
 import type { CatalogServices } from "../services";
 import type { ComponentId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
@@ -16,7 +16,7 @@ export async function seedComponents(
   const result: ComponentIds = {};
 
   {
-    const componentId = createId("cmp") as ComponentId;
+    const componentId = catalogSeedIds.components.singleCardIdentity as ComponentId;
     const streamId = `catalog.component-${componentId}`;
 
     await sendSeedCommand(services.components.commandHandler, streamId, {
@@ -52,7 +52,7 @@ export async function seedComponents(
   }
 
   {
-    const componentId = createId("cmp") as ComponentId;
+    const componentId = catalogSeedIds.components.singleCardVersioning as ComponentId;
     const streamId = `catalog.component-${componentId}`;
     const formDimension = dimensions.form;
 
@@ -109,7 +109,7 @@ export async function seedComponents(
   }
 
   {
-    const componentId = createId("cmp") as ComponentId;
+    const componentId = catalogSeedIds.components.sealedProductIdentity as ComponentId;
     const streamId = `catalog.component-${componentId}`;
 
     await sendSeedCommand(services.components.commandHandler, streamId, {

@@ -32,6 +32,7 @@
         "seed:identity": "npm run seed --workspace @chase-sets/identity-api",
         "dev:marketplace-api": "npm run dev --workspace @chase-sets/marketplace-api",
         "dev:inventory-api": "npm run dev --workspace @chase-sets/inventory-api",
+        "seed:inventory": "npm run seed --workspace @chase-sets/inventory-api",
         "dev:marketplace": "npm run dev --workspace @chase-sets/marketplace",
         "dev:marketplace-full": "node ./scripts/dev-system.mjs dev marketplace-full",
         "test:marketplace": "npm run test --workspace @chase-sets/marketplace-api",

@@ -96,6 +96,11 @@ export default defineConfig({
         target: "http://localhost:6181",
         changeOrigin: true,
       },
+      "/api/inventory": {
+        target: "http://localhost:6183",
+        changeOrigin: true,
+      },
     },
   }
 });
+

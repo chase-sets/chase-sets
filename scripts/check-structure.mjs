@@ -133,9 +133,18 @@ const implementedRootRules = new Map([
         "package.json",
         "runtime-support.ts",
         "schema.ts",
+        "seed-support.ts",
+        "seed.ts",
         "services.ts",
         "web.ts",
       ]),
+    },
+  ],
+  [
+    "contracts/dev-seeds",
+    {
+      allowedDirs: new Set([]),
+      allowedFiles: new Set(["index.ts", "package.json"]),
     },
   ],
   [
@@ -197,7 +206,12 @@ const implementedRootRules = new Map([
   ],
 ]);
 const boundedContextPackages = ["@chase-sets/catalog-authoring", "@chase-sets/discovery", "@chase-sets/identity", "@chase-sets/inventory"];
-const contractPackages = ["@chase-sets/event-core", "@chase-sets/http", "@chase-sets/primitives"];
+const contractPackages = [
+  "@chase-sets/dev-seeds",
+  "@chase-sets/event-core",
+  "@chase-sets/http",
+  "@chase-sets/primitives",
+];
 const infrastructurePackages = ["@chase-sets/event-core-postgres"];
 const workspacePackages = ["@chase-sets/design-system"];
 const forbiddenBoundedContextDirectoryNames = new Set([

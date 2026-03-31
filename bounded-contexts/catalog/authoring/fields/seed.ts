@@ -1,10 +1,11 @@
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { catalogSeedIds } from "@chase-sets/dev-seeds";
 import type { CatalogServices } from "../services";
 import type { FieldId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
 
 type FieldDef = {
   key: string;
+  fieldId: FieldId;
   name: string;
   description: string;
   valueType: "string" | "number" | "boolean" | "date" | "json";
@@ -14,6 +15,7 @@ type FieldDef = {
 const fieldDefs: FieldDef[] = [
   {
     key: "card-number",
+    fieldId: catalogSeedIds.fields.cardNumber as FieldId,
     name: "Card Number",
     description: "The card number within its set (for example 4/102)",
     valueType: "string",
@@ -21,6 +23,7 @@ const fieldDefs: FieldDef[] = [
   },
   {
     key: "card-name",
+    fieldId: catalogSeedIds.fields.cardName as FieldId,
     name: "Card Name",
     description: "The printed name of the card",
     valueType: "string",
@@ -28,6 +31,7 @@ const fieldDefs: FieldDef[] = [
   },
   {
     key: "set-name",
+    fieldId: catalogSeedIds.fields.setName as FieldId,
     name: "Set Name",
     description: "The expansion set or product line the item belongs to",
     valueType: "string",
@@ -35,6 +39,7 @@ const fieldDefs: FieldDef[] = [
   },
   {
     key: "rarity",
+    fieldId: catalogSeedIds.fields.rarity as FieldId,
     name: "Rarity",
     description: "The printed rarity classification for a single card",
     valueType: "string",
@@ -42,6 +47,7 @@ const fieldDefs: FieldDef[] = [
   },
   {
     key: "language",
+    fieldId: catalogSeedIds.fields.language as FieldId,
     name: "Language",
     description: "The language the item is printed in",
     valueType: "string",
@@ -49,6 +55,7 @@ const fieldDefs: FieldDef[] = [
   },
   {
     key: "artist",
+    fieldId: catalogSeedIds.fields.artist as FieldId,
     name: "Artist",
     description: "The illustrator of the card",
     valueType: "string",
@@ -56,6 +63,7 @@ const fieldDefs: FieldDef[] = [
   },
   {
     key: "release-year",
+    fieldId: catalogSeedIds.fields.releaseYear as FieldId,
     name: "Release Year",
     description: "The year the card or product was released",
     valueType: "number",
@@ -63,6 +71,7 @@ const fieldDefs: FieldDef[] = [
   },
   {
     key: "pack-count",
+    fieldId: catalogSeedIds.fields.packCount as FieldId,
     name: "Pack Count",
     description: "Number of booster packs included in a sealed product",
     valueType: "number",
@@ -77,12 +86,11 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
   const result: FieldIds = {};
 
   for (const def of fieldDefs) {
-    const fieldId = createId("fld") as FieldId;
-    const streamId = `catalog.field-${fieldId}`;
+    const streamId = `catalog.field-${def.fieldId}`;
 
     await sendSeedCommand(services.fields.commandHandler, streamId, {
       type: "CreateField",
-      fieldId,
+      fieldId: def.fieldId,
       key: def.key,
       name: def.name,
       description: def.description,
@@ -94,7 +102,7 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
       type: "ActivateField",
     });
 
-    result[def.key] = fieldId;
+    result[def.key] = def.fieldId;
     console.log(`  Field "${def.name}" created`);
   }
 

@@ -4,11 +4,25 @@ import { Hono } from "hono";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
+  catalogSeedIds,
+  demoIdentitySeedIds,
+  inventorySeedIds,
+} from "@chase-sets/dev-seeds";
+import {
+  catalogAuthoringSchemaSql,
+  seedCatalogDatabase,
+} from "@chase-sets/catalog-authoring";
+import {
+  identitySchemaSql,
+  seedIdentityDatabase,
+} from "@chase-sets/identity";
+import {
   InventoryDomainError,
   type InventoryApiEnv,
   buildInventoryApi,
   createInventoryServices,
   inventorySchemaSql,
+  seedInventoryDatabase,
 } from "../..";
 
 const databaseUrl =
@@ -31,6 +45,13 @@ async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query(inventorySchemaSql);
 }
 
+async function recreateCrossContextSchema(pool: PgTransactionalPool) {
+  await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
+  await pool.query(identitySchemaSql);
+  await pool.query(catalogAuthoringSchemaSql);
+  await pool.query(inventorySchemaSql);
+}
+
 async function drainProjectors(projectors: readonly { runOnce: () => Promise<{ processed: number }> }[]) {
   for (const projector of projectors) {
     let processed = 0;
@@ -38,6 +59,15 @@ async function drainProjectors(projectors: readonly { runOnce: () => Promise<{ p
       processed = (await projector.runOnce()).processed;
     } while (processed > 0);
   }
+}
+
+async function countEvents(pool: PgTransactionalPool, prefix: string) {
+  const result = await pool.query(
+    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
+    [`${prefix}%`],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 describe("inventory api", () => {
@@ -281,4 +311,84 @@ describe("inventory api", () => {
     const listBody = await listResponse.json();
     expect(listBody.items).toHaveLength(0);
   });
+
+  it("creates deterministic cross-context seed data and stays idempotent", async () => {
+    await recreateCrossContextSchema(pool);
+
+    await seedIdentityDatabase(pool);
+    await seedCatalogDatabase(pool);
+    await seedInventoryDatabase(pool);
+
+    const seededServices = createInventoryServices(pool);
+    const records = await seededServices.records.listRecords({
+      accountId: demoIdentitySeedIds.accountId,
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(records.total).toBe(Object.keys(inventorySeedIds.records).length);
+    expect(new Set(records.items.map((item) => item.account_id))).toEqual(
+      new Set([demoIdentitySeedIds.accountId]),
+    );
+    expect(new Set(records.items.map((item) => item.catalog_item_id))).toEqual(
+      new Set(Object.values(catalogSeedIds.items)),
+    );
+
+    const charizardRecord = await seededServices.records.getRecord(
+      inventorySeedIds.records.charizardBaseSetNearMint,
+      demoIdentitySeedIds.accountId,
+    );
+    expect(charizardRecord).toMatchObject({
+      record_id: inventorySeedIds.records.charizardBaseSetNearMint,
+      catalog_item_id: catalogSeedIds.items.charizardBaseSet,
+      item_title: "Charizard",
+      item_subtitle: "Base Set 4/102 Holo Rare",
+      held_quantity: 1,
+      available_quantity: 2,
+    });
+    expect(charizardRecord?.holds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hold_id: inventorySeedIds.holds.charizardCheckout,
+          status: "active",
+        }),
+      ]),
+    );
+
+    const pikachuRecord = await seededServices.records.getRecord(
+      inventorySeedIds.records.pikachuJungleLightlyPlayed,
+      demoIdentitySeedIds.accountId,
+    );
+    expect(pikachuRecord).toMatchObject({
+      record_id: inventorySeedIds.records.pikachuJungleLightlyPlayed,
+      catalog_item_id: catalogSeedIds.items.pikachuJungle,
+      item_title: "Pikachu",
+      item_subtitle: "Jungle 60/64 Common",
+      held_quantity: 0,
+      available_quantity: 8,
+    });
+    expect(pikachuRecord?.holds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hold_id: inventorySeedIds.holds.pikachuPackingReleased,
+          status: "released",
+        }),
+      ]),
+    );
+
+    const eventCountBefore = await countEvents(pool, "inventory.");
+    await seedInventoryDatabase(pool);
+    const eventCountAfter = await countEvents(pool, "inventory.");
+    expect(eventCountAfter).toBe(eventCountBefore);
+
+    const storageLocations = await seededServices.storageLocations.listStorageLocations({
+      accountId: demoIdentitySeedIds.accountId,
+    });
+    expect(storageLocations.map((location) => location.storage_location_id).sort()).toEqual(
+      Object.values(inventorySeedIds.storageLocations).sort(),
+    );
+  }, 15000);
 });
+
+
+

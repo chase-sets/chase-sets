@@ -8,6 +8,14 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: "@chase-sets/catalog-authoring",
+        replacement: resolve(currentDir, "../../bounded-contexts/catalog/authoring/index.ts"),
+      },
+      {
+        find: "@chase-sets/dev-seeds",
+        replacement: resolve(currentDir, "../../contracts/dev-seeds/index.ts"),
+      },
+      {
         find: "@chase-sets/identity/server",
         replacement: resolve(currentDir, "../../bounded-contexts/identity/server.ts"),
       },

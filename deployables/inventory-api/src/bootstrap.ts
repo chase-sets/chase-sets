@@ -3,6 +3,7 @@ import type { Projector } from "@chase-sets/event-core/projector";
 import {
   createInventoryServices,
   inventorySchemaSql,
+  seedInventoryDatabase,
 } from "@chase-sets/inventory";
 import { loadConfig } from "./config";
 
@@ -34,6 +35,15 @@ async function waitForDatabase(
   }
 }
 
+async function countEvents(pool: ReturnType<typeof createPgPool>, prefix: string) {
+  const result = await pool.query(
+    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
+    [`${prefix}%`],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 async function drainProjectors(label: string, projectors: readonly Projector[]) {
   let processed = 0;
 
@@ -56,6 +66,15 @@ async function bootstrap() {
   try {
     await waitForDatabase(pool, "Inventory");
     await pool.query(inventorySchemaSql);
+
+    const eventCount = await countEvents(pool, "inventory.");
+
+    if (eventCount === 0) {
+      console.log("Seeding inventory data...");
+      await seedInventoryDatabase(pool);
+    } else {
+      console.log("Inventory events already exist. Skipping seed.");
+    }
 
     const services = createInventoryServices(pool);
     await drainProjectors("Inventory", services.projectors);

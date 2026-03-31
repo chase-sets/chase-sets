@@ -12,6 +12,7 @@ const databaseUrl = "postgresql://catalog:catalog@localhost:5432/catalog";
 const bootstrapWorkspaces = [
   "@chase-sets/identity-api",
   "@chase-sets/catalog-api",
+  "@chase-sets/inventory-api",
   "@chase-sets/marketplace-api",
 ];
 
@@ -51,6 +52,16 @@ const processes = [
     port: 6182,
   },
   {
+    name: "inventory-api",
+    workspace: "@chase-sets/inventory-api",
+    env: {
+      DATABASE_URL: databaseUrl,
+      IDENTITY_API_BASE_URL: "http://localhost:6181",
+      PORT: "6183",
+    },
+    port: 6183,
+  },
+  {
     name: "catalog-admin",
     workspace: "@chase-sets/catalog-admin",
     env: {},
@@ -74,7 +85,7 @@ const devTargets = {
   all: processes.map(({ name }) => name),
   "catalog-admin": ["identity-api", "catalog-api", "catalog-admin"],
   "identity-admin": ["identity-api", "identity-admin"],
-  "marketplace-full": ["identity-api", "marketplace-api", "marketplace"],
+  "marketplace-full": ["identity-api", "marketplace-api", "inventory-api", "marketplace"],
 };
 
 function resolveProcessesForTarget(targetName) {
@@ -434,3 +445,4 @@ try {
   console.error(message);
   process.exitCode = 1;
 }
+

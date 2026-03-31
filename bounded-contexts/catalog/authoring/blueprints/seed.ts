@@ -1,4 +1,4 @@
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { catalogSeedIds } from "@chase-sets/dev-seeds";
 import type { CatalogServices } from "../services";
 import type { BlueprintId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
@@ -18,7 +18,7 @@ export async function seedBlueprints(
   const result: BlueprintIds = {};
 
   {
-    const blueprintId = createId("bpr") as BlueprintId;
+    const blueprintId = catalogSeedIds.blueprints.pokemonCardSingle as BlueprintId;
     const streamId = `catalog.blueprint-${blueprintId}`;
     const formDimension = dimensions.form;
 
@@ -114,7 +114,8 @@ export async function seedBlueprints(
   }
 
   {
-    const blueprintId = createId("bpr") as BlueprintId;
+    const blueprintId =
+      catalogSeedIds.blueprints.pokemonSealedProduct as BlueprintId;
     const streamId = `catalog.blueprint-${blueprintId}`;
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {

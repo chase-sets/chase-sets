@@ -19,6 +19,7 @@ export function loadConfig(): InventoryApiConfig {
   return {
     databaseUrl,
     identityApiBaseUrl,
-    port: Number(process.env.PORT ?? 6280),
+    port: Number(process.env.PORT ?? 6183),
   };
 }
+

@@ -1,4 +1,4 @@
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { catalogSeedIds } from "@chase-sets/dev-seeds";
 import type { CatalogServices } from "../services";
 import type { CatalogItemId, FieldId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
@@ -30,6 +30,7 @@ export async function seedCatalogItems(
   };
 
   type ItemDef = {
+    itemId: CatalogItemId;
     title: string;
     subtitle: string;
     description: string;
@@ -41,6 +42,7 @@ export async function seedCatalogItems(
 
   const items: ItemDef[] = [
     {
+      itemId: catalogSeedIds.items.charizardBaseSet as CatalogItemId,
       title: "Charizard",
       subtitle: "Base Set 4/102 Holo Rare",
       description:
@@ -59,6 +61,7 @@ export async function seedCatalogItems(
       tags: ["base-set", "charizard", "holo", "vintage"],
     },
     {
+      itemId: catalogSeedIds.items.pikachuJungle as CatalogItemId,
       title: "Pikachu",
       subtitle: "Jungle 60/64 Common",
       description:
@@ -77,6 +80,7 @@ export async function seedCatalogItems(
       tags: ["jungle", "pikachu", "vintage"],
     },
     {
+      itemId: catalogSeedIds.items.lugiaNeoGenesis as CatalogItemId,
       title: "Lugia",
       subtitle: "Neo Genesis 9/111 Holo Rare",
       description:
@@ -95,6 +99,7 @@ export async function seedCatalogItems(
       tags: ["lugia", "neo-genesis", "vintage"],
     },
     {
+      itemId: catalogSeedIds.items.pikachuPrismaticEvolutions as CatalogItemId,
       title: "Pikachu",
       subtitle: "Prismatic Evolutions 025 Illustration Rare",
       description:
@@ -113,6 +118,7 @@ export async function seedCatalogItems(
       tags: ["modern", "pikachu", "prismatic-evolutions"],
     },
     {
+      itemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack as CatalogItemId,
       title: "Prismatic Evolutions Booster Pack",
       subtitle: "Sealed booster pack",
       description:
@@ -128,6 +134,7 @@ export async function seedCatalogItems(
       tags: ["booster-pack", "prismatic-evolutions", "sealed"],
     },
     {
+      itemId: catalogSeedIds.items.surgingSparksBoosterBox as CatalogItemId,
       title: "Surging Sparks Booster Box",
       subtitle: "Sealed booster box",
       description:
@@ -143,6 +150,7 @@ export async function seedCatalogItems(
       tags: ["booster-box", "sealed", "surging-sparks"],
     },
     {
+      itemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox as CatalogItemId,
       title: "Twilight Masquerade Elite Trainer Box",
       subtitle: "Sealed Elite Trainer Box",
       description:
@@ -160,12 +168,11 @@ export async function seedCatalogItems(
   ];
 
   for (const item of items) {
-    const itemId = createId("cat") as CatalogItemId;
-    const streamId = `catalog.item-${itemId}`;
+    const streamId = `catalog.item-${item.itemId}`;
 
     await sendSeedCommand(services.items.commandHandler, streamId, {
       type: "CreateItem",
-      itemId,
+      itemId: item.itemId,
       title: item.title,
       subtitle: item.subtitle,
       description: item.description,
@@ -205,4 +212,3 @@ export async function seedCatalogItems(
     console.log(`  Item "${item.title}" created and published`);
   }
 }
-

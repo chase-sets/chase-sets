@@ -1,5 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { demoIdentitySeedIds } from "@chase-sets/dev-seeds";
 import { createIdentityServices } from "./services";
 import { createBootstrapContext } from "./api";
 import { upsertPasswordCredential } from "./auth-support/store";
@@ -7,11 +7,13 @@ import { upsertPasswordCredential } from "./auth-support/store";
 export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const services = createIdentityServices(pool);
   const context = createBootstrapContext();
-  const userId = createId("usr");
-  const accountId = createId("acc");
-  const membershipId = createId("mbr");
-  const consentId = createId("cns");
-  const credentialId = createId("crd");
+  const {
+    accountId,
+    consentId,
+    credentialId,
+    membershipId,
+    userId,
+  } = demoIdentitySeedIds;
 
   await services.accounts.commandHandler({
     streamId: `identity.account-${accountId}`,
