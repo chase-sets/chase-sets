@@ -16,6 +16,7 @@ import {
 import {
   createOrderingServices,
   orderingSchemaSql,
+  seedOrderingDatabase,
 } from "@chase-sets/ordering";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { loadConfig } from "./config";
@@ -82,6 +83,11 @@ async function bootstrap() {
     const eventCount = await countEvents(pool, "marketplace.");
     if (eventCount === 0) {
       await seedMarketplaceDatabase(pool);
+    }
+
+    const orderingEventCount = await countEvents(pool, "ordering.");
+    if (orderingEventCount === 0) {
+      await seedOrderingDatabase(pool);
     }
 
     const discovery = createDiscoveryServices(pool);
