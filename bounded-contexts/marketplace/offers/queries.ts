@@ -11,6 +11,8 @@ export type MarketplaceOfferListRow = Readonly<{
   price_amount: string;
   quantity_requested: number;
   status: string;
+  accepted_seller_account_id: string | null;
+  accepted_at: string | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -31,6 +33,8 @@ type MarketplaceOfferPageRow = Readonly<{
   price_amount: string;
   quantity_requested: number;
   status: string;
+  accepted_seller_account_id: string | null;
+  accepted_at: string | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -45,14 +49,23 @@ function mapOfferRow(row: MarketplaceOfferPageRow): MarketplaceOfferListRow {
 }
 
 const sellerVisibilitySql = `
-EXISTS (
-  SELECT 1
-  FROM marketplace_listing_pages AS listing
-  WHERE listing.account_id = $1
-    AND listing.status = 'active'
-    AND listing.catalog_item_id = offer.catalog_item_id
-    AND listing.version_selection @> offer.version_selection
-    AND offer.version_selection @> listing.version_selection
+(
+  (
+    offer.status = 'submitted'
+    AND EXISTS (
+      SELECT 1
+      FROM marketplace_listing_pages AS listing
+      WHERE listing.account_id = $1
+        AND listing.status = 'active'
+        AND listing.catalog_item_id = offer.catalog_item_id
+        AND listing.version_selection @> offer.version_selection
+        AND offer.version_selection @> listing.version_selection
+    )
+  )
+  OR (
+    offer.status = 'accepted'
+    AND offer.accepted_seller_account_id = $1
+  )
 )`;
 
 export async function listBuyerOffers(

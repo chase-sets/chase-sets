@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest";
+import {
+  decideOrderingCart,
+  evolveOrderingCart,
+  initialOrderingCartState,
+} from "./domain";
+
+describe("ordering cart domain", () => {
+  it("adds, updates, removes, and clears cart lines on checkout", () => {
+    const added = decideOrderingCart(initialOrderingCartState, {
+      type: "AddCartLine",
+      buyerAccountId: "acc_buyer" as never,
+      lineId: "cli_1" as never,
+      catalogItemId: "cat_1",
+      itemTitle: "Charizard",
+      itemSubtitle: "Base Set",
+      versionSelection: [{ dimensionId: "form", choiceId: "raw" }],
+      versionSummary: "Form: Raw",
+      quantity: 1,
+    });
+    const addedState = added.reduce(evolveOrderingCart, initialOrderingCartState);
+    const updated = decideOrderingCart(addedState, {
+      type: "SetCartLineQuantity",
+      lineId: "cli_1" as never,
+      quantity: 2,
+    });
+    const updatedState = updated.reduce(evolveOrderingCart, addedState);
+
+    expect(updatedState.lines).toHaveLength(1);
+    expect(updatedState.lines[0]?.quantity).toBe(2);
+
+    const removed = decideOrderingCart(updatedState, {
+      type: "RemoveCartLine",
+      lineId: "cli_1" as never,
+    });
+    const removedState = removed.reduce(evolveOrderingCart, updatedState);
+    expect(removedState.lines).toHaveLength(0);
+
+    const repopulated = decideOrderingCart(removedState, {
+      type: "AddCartLine",
+      buyerAccountId: "acc_buyer" as never,
+      lineId: "cli_2" as never,
+      catalogItemId: "cat_1",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      versionSelection: [],
+      versionSummary: null,
+      quantity: 1,
+    }).reduce(evolveOrderingCart, removedState);
+
+    const checkedOut = decideOrderingCart(repopulated, {
+      type: "CheckoutCart",
+      checkedOutAt: "2026-03-31T00:00:00.000Z",
+    }).reduce(evolveOrderingCart, repopulated);
+
+    expect(checkedOut.lines).toEqual([]);
+    expect(checkedOut.lastCheckedOutAt).toBe("2026-03-31T00:00:00.000Z");
+  });
+
+  it("rejects invalid cart line operations", () => {
+    expect(() =>
+      decideOrderingCart(initialOrderingCartState, {
+        type: "AddCartLine",
+        buyerAccountId: "acc_buyer" as never,
+        lineId: "cli_1" as never,
+        catalogItemId: "cat_1",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        versionSelection: [],
+        versionSummary: null,
+        quantity: 0,
+      }),
+    ).toThrow("Cart quantity must be a positive whole number.");
+
+    expect(() =>
+      decideOrderingCart(initialOrderingCartState, {
+        type: "CheckoutCart",
+        checkedOutAt: "2026-03-31T00:00:00.000Z",
+      }),
+    ).toThrow("Cart has not been initialized.");
+  });
+});

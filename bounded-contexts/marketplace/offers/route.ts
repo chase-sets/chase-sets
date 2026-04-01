@@ -182,5 +182,35 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
     return c.json(offer);
   });
 
+  app.post("/offers/:id/accept", async (c) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: "Authentication context missing." }, 401);
+    }
+
+    try {
+      const result = await services.acceptOffer(
+        {
+          offerId: c.req.param("id") as never,
+          sellerAccountId: access.actor.accountId as never,
+        },
+        context,
+      );
+
+      return c.json({ id: result.offerId, version: result.version }, 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
   return app;
 }

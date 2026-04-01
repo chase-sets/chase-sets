@@ -39,6 +39,8 @@ describe("marketplace route layout", () => {
           "inventory.view",
           "listings.view",
           "offers.view",
+          "orders.view",
+          "orders.manage",
         ],
       },
     });
@@ -46,9 +48,12 @@ describe("marketplace route layout", () => {
     const html = renderToString(<MarketplaceLayoutRoute />);
 
     expect(html).toContain('href="/account/inventory"');
+    expect(html).toContain('href="/account/cart"');
     expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account/market-offers"');
     expect(html).toContain('href="/account/offers"');
+    expect(html).toContain('href="/account/orders"');
+    expect(html).toContain('href="/account/sales"');
     expect(html).toContain('href="/account"');
     expect(html).not.toContain('href="/sign-in"');
   });

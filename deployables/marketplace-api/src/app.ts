@@ -7,6 +7,11 @@ import {
   buildMarketplaceApi,
   type MarketplaceServices,
 } from "@chase-sets/marketplace-context";
+import type { InventoryServices } from "@chase-sets/inventory";
+import {
+  buildOrderingApi,
+  type OrderingServices,
+} from "@chase-sets/ordering";
 import { createHealthRoutes } from "@chase-sets/http/health";
 import {
   createMarketplaceAuthMiddleware,
@@ -22,11 +27,30 @@ export type BuildMarketplaceAppOptions = Readonly<{
 export function buildMarketplaceApp(
   services: Readonly<{
     discovery: DiscoveryServices;
+    inventory: InventoryServices;
     marketplace: MarketplaceServices;
+    ordering: OrderingServices;
   }>,
   options: BuildMarketplaceAppOptions = {},
 ) {
   const app = new Hono<TenantContextEnv>();
+
+  async function drainProjectors() {
+    let processed = 0;
+
+    do {
+      processed = 0;
+
+      for (const projector of [
+        ...services.inventory.projectors,
+        ...services.marketplace.projectors,
+        ...services.ordering.projectors,
+      ]) {
+        const result = await projector.runOnce();
+        processed += result.processed;
+      }
+    } while (processed > 0);
+  }
 
   app.onError(errorHandler);
   app.route("/health", createHealthRoutes());
@@ -34,8 +58,16 @@ export function buildMarketplaceApp(
     "/api/marketplace/*",
     createMarketplaceAuthMiddleware(options.resolveActor ?? (async () => null)),
   );
+  app.use("/api/marketplace/*", async (c, next) => {
+    await next();
+
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      await drainProjectors();
+    }
+  });
   app.route("/api/marketplace", buildDiscoveryApi(services.discovery));
   app.route("/api/marketplace", buildMarketplaceApi(services.marketplace));
+  app.route("/api/marketplace", buildOrderingApi(services.ordering));
 
   return app;
 }

@@ -1,5 +1,9 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type {
+  ActionFunctionArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   ApiError as MarketplaceApiError,
   MarketplaceSellerOfferDetailPage,
@@ -30,15 +34,42 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 }
 
+export async function action({ request, params }: ActionFunctionArgs) {
+  const actor = await requireMarketplaceActor(request, "offers.manage");
+  if (!actor.permissions.includes("listings.view")) {
+    throw new Response("Forbidden.", { status: 403 });
+  }
+
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "");
+  const api = createMarketplaceServerApiClient(request);
+
+  try {
+    if (intent === "accept-offer") {
+      await api.acceptSellerOffer(params.offerId!);
+      return redirect("/account/sales");
+    }
+
+    return null;
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Request failed.",
+    };
+  }
+}
+
 export const meta: MetaFunction = () =>
   buildMarketplaceMeta({ title: "Market Offer | Marketplace" });
 
 export default function MarketplaceAccountMarketOfferRoute() {
   const data = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
 
   return (
     <MarketplaceSellerOfferDetailPage
       offer={data.offer as MarketplaceSellerOfferDetail}
+      canAccept
+      errorMessage={actionData?.error ?? null}
     />
   );
 }

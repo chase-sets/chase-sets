@@ -91,4 +91,28 @@ describe("marketplace offer domain", () => {
       }),
     ).toThrow("Offer has already been submitted.");
   });
+
+  it("accepts a submitted offer once and records the seller", () => {
+    const submittedState = decideMarketplaceOffer(initialMarketplaceOfferState, {
+      type: "SubmitOffer",
+      offerId: "off_test" as never,
+      buyerAccountId: "acc_buyer" as never,
+      catalogItemId: "cat_charizard",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      versionSelection: [],
+      versionSummary: null,
+      priceAmount: "10.00",
+      quantityRequested: 1,
+    }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
+
+    const acceptedState = decideMarketplaceOffer(submittedState, {
+      type: "AcceptOffer",
+      sellerAccountId: "acc_seller" as never,
+      acceptedAt: "2026-03-31T00:00:00.000Z",
+    }).reduce(evolveMarketplaceOffer, submittedState);
+
+    expect(acceptedState.status).toBe("accepted");
+    expect(acceptedState.acceptedSellerAccountId).toBe("acc_seller");
+  });
 });

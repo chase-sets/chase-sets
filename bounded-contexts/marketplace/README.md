@@ -46,12 +46,13 @@ Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `ListingUpdated`
 - `ListingWithdrawn`
 - `OfferSubmitted`
+- `OfferAccepted`
 
 ## Invariants
 
 1. Listings and Offers share the same negotiation boundary and stay in one context.
 2. Marketplace may expose sellable quantity but does not own inventory truth.
-3. Submitted offers remain marketplace-wide demand until a later workflow decides how to respond.
+3. Submitted offers remain marketplace-wide demand until a seller accepts one.
 4. Buyer and Seller are account roles, not Marketplace-specific entities.
 
 ## Open Extraction Candidates

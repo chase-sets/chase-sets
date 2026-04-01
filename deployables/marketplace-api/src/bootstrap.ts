@@ -8,6 +8,15 @@ import {
   marketplaceSchemaSql,
   seedMarketplaceDatabase,
 } from "@chase-sets/marketplace-context";
+import { identitySchemaSql } from "@chase-sets/identity";
+import {
+  createInventoryServices,
+  inventorySchemaSql,
+} from "@chase-sets/inventory";
+import {
+  createOrderingServices,
+  orderingSchemaSql,
+} from "@chase-sets/ordering";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { loadConfig } from "./config";
 
@@ -60,7 +69,15 @@ async function bootstrap() {
 
   try {
     await waitForDatabase(pool, "Marketplace");
-    await pool.query([discoverySchemaSql, marketplaceSchemaSql].join("\n\n"));
+    await pool.query(
+      [
+        identitySchemaSql,
+        inventorySchemaSql,
+        discoverySchemaSql,
+        marketplaceSchemaSql,
+        orderingSchemaSql,
+      ].join("\n\n"),
+    );
 
     const eventCount = await countEvents(pool, "marketplace.");
     if (eventCount === 0) {
@@ -68,10 +85,45 @@ async function bootstrap() {
     }
 
     const discovery = createDiscoveryServices(pool);
+    const inventory = createInventoryServices(pool);
     const marketplace = createMarketplaceServices(pool);
+    const ordering = createOrderingServices(pool, {
+      inventoryReservations: {
+        createReservation: async ({ sellerAccountId, inventoryRecordId, quantity, reason, notes, context }) => {
+          const result = await inventory.holds.createHold(
+            {
+              accountId: sellerAccountId,
+              recordId: inventoryRecordId,
+              quantity,
+              reason,
+              notes,
+            },
+            context as never,
+          );
+
+          return {
+            holdId: result.holdId,
+            inventoryRecordId,
+            sellerAccountId,
+            quantity,
+          };
+        },
+        releaseReservation: async ({ sellerAccountId, holdId, context }) => {
+          await inventory.holds.releaseHold(
+            {
+              accountId: sellerAccountId,
+              holdId,
+            },
+            context as never,
+          );
+        },
+      },
+    });
     await drainProjectors("Marketplace", [
+      ...inventory.projectors,
       ...discovery.projectors,
       ...marketplace.projectors,
+      ...ordering.projectors,
     ]);
     console.log("Marketplace bootstrap complete.");
   } finally {

@@ -69,7 +69,7 @@ function normalizeVersionSelection(
   return normalized;
 }
 
-export type OfferStatus = "draft" | "submitted";
+export type OfferStatus = "draft" | "submitted" | "accepted";
 
 export type MarketplaceOfferState = Readonly<{
   offerId: OfferId | null;
@@ -82,6 +82,8 @@ export type MarketplaceOfferState = Readonly<{
   priceAmount: string | null;
   quantityRequested: number;
   status: OfferStatus;
+  acceptedSellerAccountId: AccountId | null;
+  acceptedAt: string | null;
 }>;
 
 export const initialMarketplaceOfferState: MarketplaceOfferState = {
@@ -95,6 +97,8 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   priceAmount: null,
   quantityRequested: 0,
   status: "draft",
+  acceptedSellerAccountId: null,
+  acceptedAt: null,
 };
 
 export type SubmitOfferCommand = Readonly<{
@@ -110,7 +114,13 @@ export type SubmitOfferCommand = Readonly<{
   quantityRequested: number;
 }>;
 
-export type MarketplaceOfferCommand = SubmitOfferCommand;
+export type AcceptOfferCommand = Readonly<{
+  type: "AcceptOffer";
+  sellerAccountId: AccountId;
+  acceptedAt: string;
+}>;
+
+export type MarketplaceOfferCommand = SubmitOfferCommand | AcceptOfferCommand;
 
 export type OfferSubmittedEvent = DomainEvent<
   "marketplace.offer.submitted",
@@ -127,44 +137,87 @@ export type OfferSubmittedEvent = DomainEvent<
   }>
 >;
 
-export type MarketplaceOfferEvent = OfferSubmittedEvent;
+export type OfferAcceptedEvent = DomainEvent<
+  "marketplace.offer.accepted",
+  Readonly<{
+    offerId: OfferId;
+    buyerAccountId: AccountId;
+    sellerAccountId: AccountId;
+    catalogItemId: string;
+    itemTitle: string;
+    itemSubtitle: string | null;
+    versionSelection: { dimensionId: string; choiceId: string }[];
+    versionSummary: string | null;
+    priceAmount: string;
+    quantityRequested: number;
+    acceptedAt: string;
+  }>
+>;
+
+export type MarketplaceOfferEvent = OfferSubmittedEvent | OfferAcceptedEvent;
 
 export const decideMarketplaceOffer: AggregateDecider<
   MarketplaceOfferState,
   MarketplaceOfferCommand,
   MarketplaceOfferEvent
 > = (state, command) => {
-  if (command.type === "SubmitOffer") {
-    assert(state.offerId === null, "Offer has already been submitted.");
+  switch (command.type) {
+    case "SubmitOffer":
+      assert(state.offerId === null, "Offer has already been submitted.");
 
-    return [
-      {
-        type: "marketplace.offer.submitted",
-        data: {
-          offerId: command.offerId,
-          buyerAccountId: command.buyerAccountId,
-          catalogItemId: normalizeRequiredText(
-            command.catalogItemId,
-            "Offer must reference a catalog item.",
-          ),
-          itemTitle: normalizeRequiredText(
-            command.itemTitle,
-            "Offer must include an item title snapshot.",
-          ),
-          itemSubtitle: normalizeOptionalText(command.itemSubtitle),
-          versionSelection: normalizeVersionSelection(command.versionSelection),
-          versionSummary: normalizeOptionalText(command.versionSummary),
-          priceAmount: normalizeMoneyAmount(command.priceAmount),
-          quantityRequested: ensurePositiveInteger(
-            command.quantityRequested,
-            "Offer quantity requested must be a positive whole number.",
-          ),
+      return [
+        {
+          type: "marketplace.offer.submitted",
+          data: {
+            offerId: command.offerId,
+            buyerAccountId: command.buyerAccountId,
+            catalogItemId: normalizeRequiredText(
+              command.catalogItemId,
+              "Offer must reference a catalog item.",
+            ),
+            itemTitle: normalizeRequiredText(
+              command.itemTitle,
+              "Offer must include an item title snapshot.",
+            ),
+            itemSubtitle: normalizeOptionalText(command.itemSubtitle),
+            versionSelection: normalizeVersionSelection(command.versionSelection),
+            versionSummary: normalizeOptionalText(command.versionSummary),
+            priceAmount: normalizeMoneyAmount(command.priceAmount),
+            quantityRequested: ensurePositiveInteger(
+              command.quantityRequested,
+              "Offer quantity requested must be a positive whole number.",
+            ),
+          },
         },
-      },
-    ];
-  }
+      ];
+    case "AcceptOffer":
+      assert(state.offerId !== null, "Offer must be submitted first.");
+      assert(state.status === "submitted", "Only submitted offers can be accepted.");
 
-  throw new Error(`Unhandled marketplace offer command: ${JSON.stringify(command)}`);
+      return [
+        {
+          type: "marketplace.offer.accepted",
+          data: {
+            offerId: state.offerId,
+            buyerAccountId: state.buyerAccountId!,
+            sellerAccountId: command.sellerAccountId,
+            catalogItemId: state.catalogItemId!,
+            itemTitle: state.itemTitle!,
+            itemSubtitle: state.itemSubtitle,
+            versionSelection: [...state.versionSelection],
+            versionSummary: state.versionSummary,
+            priceAmount: state.priceAmount!,
+            quantityRequested: state.quantityRequested,
+            acceptedAt: normalizeRequiredText(
+              command.acceptedAt,
+              "Offer acceptance must record a timestamp.",
+            ),
+          },
+        },
+      ];
+    default:
+      throw new Error(`Unhandled marketplace offer command: ${JSON.stringify(command)}`);
+  }
 };
 
 export const evolveMarketplaceOffer: AggregateEvolver<
@@ -183,6 +236,17 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       priceAmount: event.data.priceAmount,
       quantityRequested: event.data.quantityRequested,
       status: "submitted",
+      acceptedSellerAccountId: null,
+      acceptedAt: null,
+    };
+  }
+
+  if (event.type === "marketplace.offer.accepted") {
+    return {
+      ...state,
+      status: "accepted",
+      acceptedSellerAccountId: event.data.sellerAccountId,
+      acceptedAt: event.data.acceptedAt,
     };
   }
 

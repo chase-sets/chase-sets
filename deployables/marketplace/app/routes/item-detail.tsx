@@ -9,7 +9,14 @@ import {
   ApiError as MarketplaceApiError,
   MarketplaceOfferSubmissionSection,
 } from "@chase-sets/marketplace-context/web";
-import { createMarketplaceServerApiClient } from "../api.server";
+import {
+  ApiError as OrderingApiError,
+  OrderingAddToCartSection,
+} from "@chase-sets/ordering/web";
+import {
+  createMarketplaceOrderingApiClient,
+  createMarketplaceServerApiClient,
+} from "../api.server";
 import { requireMarketplaceActor } from "../auth.server";
 import { buildMarketplaceMeta } from "../seo";
 
@@ -65,13 +72,14 @@ function parseVersionSelection(value: FormDataEntryValue | null) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-  await requireMarketplaceActor(request, "offers.manage");
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createMarketplaceServerApiClient(request);
+  const orderingApi = createMarketplaceOrderingApiClient(request);
 
   try {
     if (intent === "submit-offer") {
+      await requireMarketplaceActor(request, "offers.manage");
       const item = await api.getItemDetail(params.id!);
 
       await api.createBuyerOffer({
@@ -87,9 +95,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return redirect("/account/offers");
     }
 
+    if (intent === "add-to-cart") {
+      await requireMarketplaceActor(request, "orders.manage");
+      const item = await api.getItemDetail(params.id!);
+
+      await orderingApi.addCartLine({
+        catalogItemId: item.item_id,
+        itemTitle: item.title,
+        itemSubtitle: item.subtitle,
+        versionSelection: parseVersionSelection(formData.get("versionSelection")),
+        versionSummary: String(formData.get("versionSummary") ?? "") || null,
+        quantity: Number(formData.get("quantity") ?? 0),
+      });
+
+      return redirect("/account/cart");
+    }
+
     return null;
   } catch (error) {
-    if (error instanceof MarketplaceApiError) {
+    if (error instanceof MarketplaceApiError || error instanceof OrderingApiError) {
       return {
         error: error.message,
       };
@@ -128,14 +152,24 @@ export default function MarketplaceItemDetailRoute() {
       renderAfterListings={
         data.item
           ? (context) => (
-              <MarketplaceOfferSubmissionSection
-                catalogItemId={context.itemId}
-                itemTitle={context.itemTitle}
-                versionSelection={context.selectedVersionSelection}
-                versionSummary={context.selectedVersionSummary}
-                visibleListingCount={context.visibleListings.length}
-                errorMessage={actionData?.error ?? null}
-              />
+              <>
+                <OrderingAddToCartSection
+                  catalogItemId={context.itemId}
+                  itemTitle={context.itemTitle}
+                  versionSelection={context.selectedVersionSelection}
+                  versionSummary={context.selectedVersionSummary}
+                  visibleListingCount={context.visibleListings.length}
+                  errorMessage={actionData?.error ?? null}
+                />
+                <MarketplaceOfferSubmissionSection
+                  catalogItemId={context.itemId}
+                  itemTitle={context.itemTitle}
+                  versionSelection={context.selectedVersionSelection}
+                  versionSummary={context.selectedVersionSummary}
+                  visibleListingCount={context.visibleListings.length}
+                  errorMessage={actionData?.error ?? null}
+                />
+              </>
             )
           : undefined
       }

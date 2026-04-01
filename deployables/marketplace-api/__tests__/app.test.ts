@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DiscoveryServices } from "@chase-sets/discovery";
+import type { InventoryServices } from "@chase-sets/inventory";
 import type { MarketplaceServices } from "@chase-sets/marketplace-context";
+import type { OrderingServices } from "@chase-sets/ordering";
 import type { ResolvedActor } from "@chase-sets/identity/server";
 import { buildMarketplaceApp } from "../src/app";
 
@@ -47,6 +49,7 @@ const marketplaceServices: MarketplaceServices = {
   offers: {
     commandHandler: async () => ({ version: 1 }),
     submitOffer: async () => ({ offerId: "off_1" as never, version: 1 }),
+    acceptOffer: async () => ({ offerId: "off_1" as never, version: 2 }),
     listBuyerOffers: async () => ({ items: [], total: 0 }),
     getBuyerOffer: async () => null,
     listSellerVisibleOffers: async () => ({ items: [], total: 0 }),
@@ -58,11 +61,56 @@ const marketplaceServices: MarketplaceServices = {
   db: {} as never,
 };
 
+const inventoryServices: InventoryServices = {
+  catalogItems: { getCatalogItemSnapshot: async () => null, projectors: [] } as never,
+  storageLocations: {} as never,
+  records: {} as never,
+  holds: {
+    commandHandler: async () => ({ version: 1 }),
+    createHold: async () => ({ holdId: "hld_1" as never, version: 1 }),
+    releaseHold: async () => ({ holdId: "hld_1", version: 2 }),
+    getHold: async () => null,
+    projectors: [],
+  },
+  projectors: [],
+  pool: {} as never,
+  db: {} as never,
+};
+
+const orderingServices: OrderingServices = {
+  cart: {
+    commandHandler: async () => ({ version: 1 }),
+    addLine: async () => ({ lineId: "cli_1" as never, version: 1 }),
+    setLineQuantity: async () => ({ lineId: "cli_1" as never, version: 2 }),
+    removeLine: async () => ({ lineId: "cli_1" as never, version: 3 }),
+    checkout: async () => ({ version: 4 }),
+    listCartLines: async () => [],
+    projectors: [],
+  },
+  orders: {
+    commandHandler: async () => ({ version: 1 }),
+    checkoutCart: async () => ({ orderIds: ["ord_1" as never] }),
+    createOrdersFromAcceptedOffer: async () => ({ orderIds: ["ord_1" as never] }),
+    cancelBuyerOrder: async () => ({ orderId: "ord_1", version: 2 }),
+    cancelSellerOrder: async () => ({ orderId: "ord_1", version: 2 }),
+    listBuyerOrders: async () => ({ items: [], total: 0 }),
+    getBuyerOrder: async () => null,
+    listSellerOrders: async () => ({ items: [], total: 0 }),
+    getSellerOrder: async () => null,
+    projectors: [],
+  },
+  projectors: [],
+  pool: {} as never,
+  db: {} as never,
+};
+
 describe("marketplace api host app", () => {
   it("mounts health and the discovery API under /api/marketplace", async () => {
     const app = buildMarketplaceApp({
       discovery: services,
+      inventory: inventoryServices,
       marketplace: marketplaceServices,
+      ordering: orderingServices,
     });
 
     const healthResponse = await app.fetch(new Request("http://marketplace.test/health"));
@@ -109,7 +157,9 @@ describe("marketplace api host app", () => {
           ],
         },
       },
+      inventory: inventoryServices,
       marketplace: marketplaceServices,
+      ordering: orderingServices,
     });
 
     const response = await app.fetch(new Request("http://marketplace.test/api/marketplace/categories"));
@@ -138,7 +188,9 @@ describe("marketplace api host app", () => {
   it("mounts public listing routes under the marketplace API", async () => {
     const app = buildMarketplaceApp({
       discovery: services,
+      inventory: inventoryServices,
       marketplace: marketplaceServices,
+      ordering: orderingServices,
     });
 
     const response = await app.fetch(
@@ -157,7 +209,9 @@ describe("marketplace api host app", () => {
     const app = buildMarketplaceApp(
       {
         discovery: services,
+        inventory: inventoryServices,
         marketplace: marketplaceServices,
+        ordering: orderingServices,
       },
       {
         resolveActor: async () =>
@@ -191,5 +245,39 @@ describe("marketplace api host app", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({ id: "off_1", version: 1 });
+  });
+
+  it("mounts buyer cart checkout routes under the marketplace API", async () => {
+    const app = buildMarketplaceApp(
+      {
+        discovery: services,
+        inventory: inventoryServices,
+        marketplace: marketplaceServices,
+        ordering: orderingServices,
+      },
+      {
+        resolveActor: async () =>
+          ({
+            sessionId: "ses_1",
+            tenantId: "tnt_identity",
+            userId: "usr_1",
+            accountId: "acc_1",
+            membershipId: "mbr_1",
+            roleKey: "owner",
+            permissions: ["orders.view", "orders.manage"],
+          }) satisfies ResolvedActor,
+      },
+    );
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/api/marketplace/buyer/cart/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingOption: "standard" }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ orderIds: ["ord_1"] });
   });
 });

@@ -26,6 +26,18 @@ function getActiveKey(pathname: string) {
     return "offers";
   }
 
+  if (pathname.startsWith("/account/orders")) {
+    return "orders";
+  }
+
+  if (pathname.startsWith("/account/sales")) {
+    return "sales";
+  }
+
+  if (pathname.startsWith("/account/cart")) {
+    return "cart";
+  }
+
   if (pathname.startsWith("/account/listings")) {
     return "listings";
   }
@@ -74,6 +86,15 @@ function getShellNavItems(actor: MarketplaceActor) {
     });
   }
 
+  if (hasPermission(actor, "orders.manage")) {
+    topNavItems.push({
+      key: "cart",
+      label: "Cart",
+      icon: "cart",
+      href: "/account/cart",
+    });
+  }
+
   if (hasPermission(actor, "listings.view")) {
     topNavItems.push({
       key: "listings",
@@ -98,6 +119,24 @@ function getShellNavItems(actor: MarketplaceActor) {
       label: "Offers",
       icon: "package",
       href: "/account/offers",
+    });
+  }
+
+  if (hasPermission(actor, "orders.view")) {
+    topNavItems.push({
+      key: "orders",
+      label: "Orders",
+      icon: "cart",
+      href: "/account/orders",
+    });
+  }
+
+  if (hasPermission(actor, "orders.view") && hasPermission(actor, "listings.view")) {
+    topNavItems.push({
+      key: "sales",
+      label: "Sales",
+      icon: "package",
+      href: "/account/sales",
     });
   }
 

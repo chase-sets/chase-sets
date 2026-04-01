@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_pages (
   price_amount numeric(12,2) NOT NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   status text NOT NULL DEFAULT 'submitted',
+  accepted_seller_account_id text NULL,
+  accepted_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

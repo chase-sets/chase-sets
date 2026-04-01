@@ -39,6 +39,7 @@ function buildApp(options: Readonly<{
 
 function createServices(): MarketplaceOfferServices {
   const submitOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 1 }));
+  const acceptOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 2 }));
   const listBuyerOffers = vi.fn(async () => ({ items: [], total: 0 }));
   const getBuyerOffer = vi.fn(async () => null);
   const listSellerVisibleOffers = vi.fn(async () => ({ items: [], total: 0 }));
@@ -47,6 +48,7 @@ function createServices(): MarketplaceOfferServices {
   return {
     commandHandler: vi.fn(async () => ({ version: 1 })),
     submitOffer,
+    acceptOffer,
     listBuyerOffers,
     getBuyerOffer,
     listSellerVisibleOffers,
@@ -134,6 +136,8 @@ describe("marketplace offer routes", () => {
       price_amount: "350.00",
       quantity_requested: 1,
       status: "submitted",
+      accepted_seller_account_id: null,
+      accepted_at: null,
       buyer_display_name: "Buyer One",
       created_at: "2026-03-31T00:00:00.000Z",
       updated_at: "2026-03-31T00:00:00.000Z",
@@ -162,5 +166,39 @@ describe("marketplace offer routes", () => {
       buyer_display_name: "Buyer One",
     });
     expect(services.getSellerVisibleOffer).toHaveBeenCalledWith("off_1", "acc_seller");
+  });
+
+  it("accepts a seller-visible offer", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/seller/offers/off_1/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ id: "off_1", version: 2 });
+    expect(services.acceptOffer).toHaveBeenCalledWith(
+      {
+        offerId: "off_1",
+        sellerAccountId: "acc_seller",
+      },
+      expect.any(Object),
+    );
   });
 });

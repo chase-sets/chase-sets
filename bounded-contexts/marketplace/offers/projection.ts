@@ -30,10 +30,12 @@ export function buildMarketplaceOfferProjectionHandlers(
           price_amount,
           quantity_requested,
           status,
+          accepted_seller_account_id,
+          accepted_at,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, 'submitted', $10, $10
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, 'submitted', NULL, NULL, $10, $10
         )
         ON CONFLICT (offer_id) DO UPDATE SET
           buyer_account_id = EXCLUDED.buyer_account_id,
@@ -45,6 +47,8 @@ export function buildMarketplaceOfferProjectionHandlers(
           price_amount = EXCLUDED.price_amount,
           quantity_requested = EXCLUDED.quantity_requested,
           status = EXCLUDED.status,
+          accepted_seller_account_id = EXCLUDED.accepted_seller_account_id,
+          accepted_at = EXCLUDED.accepted_at,
           updated_at = EXCLUDED.updated_at`,
         [
           data.offerId,
@@ -58,6 +62,23 @@ export function buildMarketplaceOfferProjectionHandlers(
           data.quantityRequested,
           event.timing.recordedAt,
         ],
+      );
+    },
+    "marketplace.offer.accepted": async (event) => {
+      const data = event.data as {
+        offerId: string;
+        sellerAccountId: string;
+        acceptedAt: string;
+      };
+
+      await db.query(
+        `UPDATE marketplace_offer_pages
+         SET status = 'accepted',
+             accepted_seller_account_id = $2,
+             accepted_at = $3,
+             updated_at = $3
+         WHERE offer_id = $1`,
+        [data.offerId, data.sellerAccountId, data.acceptedAt],
       );
     },
   };

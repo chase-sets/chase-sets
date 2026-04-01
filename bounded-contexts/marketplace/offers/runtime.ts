@@ -44,6 +44,13 @@ export type MarketplaceOfferServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ offerId: OfferId; version: number }>;
+  acceptOffer: (
+    params: Readonly<{
+      offerId: OfferId;
+      sellerAccountId: AccountId;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ offerId: OfferId; version: number }>;
   listBuyerOffers: (
     params: Parameters<typeof listBuyerOffers>[1],
   ) => ReturnType<typeof listBuyerOffers>;
@@ -97,6 +104,29 @@ export function createMarketplaceOfferRuntime(
       });
 
       return { offerId, version: result.version };
+    },
+    acceptOffer: async (params, context) => {
+      const offer = await getSellerVisibleOffer(
+        deps.db,
+        params.offerId,
+        params.sellerAccountId,
+      );
+
+      if (!offer) {
+        throw new Error("Offer not found.");
+      }
+
+      const result = await commandHandler({
+        streamId: `marketplace.offer-${params.offerId}`,
+        command: {
+          type: "AcceptOffer",
+          sellerAccountId: params.sellerAccountId,
+          acceptedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { offerId: params.offerId, version: result.version };
     },
     listBuyerOffers: (params) => listBuyerOffers(deps.db, params),
     getBuyerOffer: (offerId, buyerAccountId) =>

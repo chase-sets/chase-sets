@@ -254,6 +254,15 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async acceptSellerOffer(id: string) {
+      return parseJsonResponse(
+        await client.seller.offers[":id"].accept.$post({
+          param: { id },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
   };
 }
 

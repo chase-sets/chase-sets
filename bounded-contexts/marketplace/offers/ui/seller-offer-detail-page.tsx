@@ -1,5 +1,6 @@
 import {
   Badge,
+  Button,
   Card,
   LinkButton,
   Page,
@@ -25,9 +26,11 @@ function formatMoney(amount: string) {
 
 export function MarketplaceSellerOfferDetailPage({
   offer,
+  canAccept = false,
   errorMessage,
 }: {
   offer: MarketplaceSellerOfferDetail;
+  canAccept?: boolean;
   errorMessage?: string | null;
 }) {
   return (
@@ -62,10 +65,19 @@ export function MarketplaceSellerOfferDetailPage({
             <Text>Buyer: {offer.buyer_display_name ?? offer.buyer_account_id}</Text>
             <Text>Offer price: {formatMoney(offer.price_amount)}</Text>
             <Text>Quantity requested: {offer.quantity_requested}</Text>
-            <Text>
-              This view is read-only in v1. Seller responses stay out of scope until the
-              negotiation workflow is implemented.
-            </Text>
+            {canAccept && offer.status === "submitted" ? (
+              <form method="post">
+                <Button type="submit" name="intent" value="accept-offer">
+                  Accept offer
+                </Button>
+              </form>
+            ) : (
+              <Text>
+                {offer.status === "accepted"
+                  ? "This offer has already been accepted and converted into an order."
+                  : "This view is read-only in v1."}
+              </Text>
+            )}
           </Stack>
         </Card>
       </PageSection>

@@ -22,6 +22,7 @@ Notes:
 - Offers are owned by Marketplace.
 - In v1, offers are not tied to a specific seller, listing, or inventory record.
 - Sellers can review offers only when they have matching active listings.
+- When accepted, an offer becomes a seller-specific commitment input for Ordering.
 
 ## Listing Status
 
@@ -42,7 +43,12 @@ Examples:
 Examples:
 
 - Submitted
+- Accepted
 
 ## Commerce Commitment Request
 
 A **Commerce Commitment Request** is the integration fact emitted when Marketplace determines an accepted purchase should become an order.
+
+## Offer Acceptance
+
+**Offer Acceptance** is the seller action that ends marketplace-wide demand visibility for an offer and emits the fact Ordering uses to create an order.
