@@ -41,11 +41,12 @@ export const catalogSeedIds = {
     condition: {
       dimensionId: "dim_seed_condition" as SeedDimensionId,
       choiceIds: {
+        pristine: "chc_seed_condition_pristine" as SeedChoiceId,
         mint: "chc_seed_condition_mint" as SeedChoiceId,
         nearMint: "chc_seed_condition_near_mint" as SeedChoiceId,
-        lightlyPlayed: "chc_seed_condition_lightly_played" as SeedChoiceId,
-        moderatelyPlayed: "chc_seed_condition_moderately_played" as SeedChoiceId,
-        heavilyPlayed: "chc_seed_condition_heavily_played" as SeedChoiceId,
+        excellent: "chc_seed_condition_excellent" as SeedChoiceId,
+        good: "chc_seed_condition_good" as SeedChoiceId,
+        poor: "chc_seed_condition_poor" as SeedChoiceId,
         damaged: "chc_seed_condition_damaged" as SeedChoiceId,
       },
     },

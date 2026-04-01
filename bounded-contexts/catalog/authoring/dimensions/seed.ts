@@ -8,6 +8,12 @@ type DimensionChoiceDef = {
   code: string;
   label: string;
   numericValue?: number;
+  guideline?: Readonly<{
+    summary: string;
+    typicalCharacteristics?: readonly string[];
+    possibleIssues?: readonly string[];
+    verificationRequirements?: readonly string[];
+  }>;
 };
 
 type DimensionDef = {
@@ -41,38 +47,127 @@ const dimensionDefs: DimensionDef[] = [
     key: "condition",
     dimensionId: catalogSeedIds.dimensions.condition.dimensionId as DimensionId,
     name: "Condition",
-    description: "Physical condition of a raw, ungraded card",
+    description: "Conditioning guideline for a raw, ungraded card",
     choices: [
+      {
+        choiceId: catalogSeedIds.dimensions.condition.choiceIds.pristine as ChoiceId,
+        code: "pristine",
+        label: "Pristine",
+        guideline: {
+          summary:
+            "No visible flaws to the naked eye under normal inspection. Card remains flawless when tilted under strong light. No noticeable centering issues.",
+          typicalCharacteristics: [
+            "Perfect corners and edges",
+            "No scratches, dents, or whitening",
+            "Centering within roughly 55/45 or better",
+          ],
+          verificationRequirements: [
+            "Front straight on photo required",
+            "Back straight on photo required",
+            "Front under light photo required",
+            "Back under light photo required",
+          ],
+        },
+      },
       {
         choiceId: catalogSeedIds.dimensions.condition.choiceIds.mint as ChoiceId,
         code: "mint",
         label: "Mint",
+        guideline: {
+          summary:
+            "Card appears flawless under normal viewing conditions. Extremely minor imperfections may exist but require deliberate angled lighting to detect.",
+          possibleIssues: [
+            "One faint hairline surface scratch under tilted light",
+            "Tiny corner speck or edge nick",
+            "Slight centering imperfection 60/40 or better",
+          ],
+          verificationRequirements: [
+            "Front straight on photo required",
+            "Back straight on photo required",
+          ],
+        },
       },
       {
         choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint as ChoiceId,
         code: "near-mint",
         label: "Near Mint",
+        guideline: {
+          summary:
+            "Card appears clean and well preserved at first glance. Minor imperfections may be visible on close inspection.",
+          possibleIssues: [
+            "Small corner whitening",
+            "Minor edge wear",
+            "Light surface scratches or print lines",
+            "Slight centering imbalance 70/30 or better",
+            "Often equivalent to pack-fresh condition.",
+          ],
+        },
       },
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.lightlyPlayed as ChoiceId,
-        code: "lightly-played",
-        label: "Lightly Played",
+        choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent as ChoiceId,
+        code: "excellent",
+        label: "Excellent",
+        guideline: {
+          summary: "Noticeable wear but the card still presents well overall.",
+          possibleIssues: [
+            "Multiple small edge chips",
+            "Moderate corner wear",
+            "Surface scratching visible under normal light",
+            "Minor surface scuffing",
+            "Card still looks good in a binder or display.",
+          ],
+        },
       },
       {
-        choiceId:
-          catalogSeedIds.dimensions.condition.choiceIds.moderatelyPlayed as ChoiceId,
-        code: "moderately-played",
-        label: "Moderately Played",
+        choiceId: catalogSeedIds.dimensions.condition.choiceIds.good as ChoiceId,
+        code: "good",
+        label: "Good",
+        guideline: {
+          summary:
+            "Clear wear is visible across multiple areas of the card but the card remains visually complete and structurally intact.",
+          possibleIssues: [
+            "Heavier corner rounding",
+            "Edge wear across multiple sides",
+            "Surface scratches or scuffing",
+            "Minor indentations or pressure marks",
+            "Still fully intact and collectible.",
+          ],
+        },
       },
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.heavilyPlayed as ChoiceId,
-        code: "heavily-played",
-        label: "Heavily Played",
+        choiceId: catalogSeedIds.dimensions.condition.choiceIds.poor as ChoiceId,
+        code: "poor",
+        label: "Poor",
+        guideline: {
+          summary:
+            "Significant visible wear across much of the card, though the card remains structurally intact.",
+          possibleIssues: [
+            "Heavy corner rounding",
+            "Major edge wear",
+            "Surface scuffs or scratches across large areas",
+            "Multiple dents or impressions",
+            "Card remains identifiable and collectible but clearly worn.",
+          ],
+        },
       },
       {
         choiceId: catalogSeedIds.dimensions.condition.choiceIds.damaged as ChoiceId,
         code: "damaged",
         label: "Damaged",
+        guideline: {
+          summary:
+            "Card has structural damage but remains identifiable and authentic.",
+          possibleIssues: [
+            "Creases or folds",
+            "Tears",
+            "Water damage or staining",
+            "Peeling layers or severe dents",
+          ],
+          verificationRequirements: [
+            "Front straight on photo required",
+            "Back straight on photo required",
+          ],
+        },
       },
     ],
   },
