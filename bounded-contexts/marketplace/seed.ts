@@ -27,6 +27,13 @@ type OfferSeed = Readonly<{
   quantityRequested: number;
 }>;
 
+const rawVersionSelection = [
+  {
+    dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+    choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+  },
+] as const;
+
 const listings: readonly ListingSeed[] = [
   {
     listingId: marketplaceReservedSeedIds.listings.charizardBaseSetNearMint,
@@ -50,15 +57,70 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
-    versionSelection: [
-      {
-        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
-      },
-    ],
+    versionSelection: rawVersionSelection,
     versionSummary: "Form: Raw",
     priceAmount: "350.00",
     quantityRequested: 1,
+  },
+  {
+    offerId: marketplaceReservedSeedIds.offers.charizardBaseSetPlayset,
+    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    itemTitle: "Charizard",
+    itemSubtitle: "Base Set 4/102 Holo Rare",
+    versionSelection: rawVersionSelection,
+    versionSummary: "Form: Raw",
+    priceAmount: "325.00",
+    quantityRequested: 2,
+  },
+  {
+    offerId: marketplaceReservedSeedIds.offers.pikachuJungleCollectorLot,
+    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    itemTitle: "Pikachu",
+    itemSubtitle: "Jungle 60/64 Common",
+    versionSelection: rawVersionSelection,
+    versionSummary: "Form: Raw",
+    priceAmount: "18.25",
+    quantityRequested: 4,
+  },
+  {
+    offerId: marketplaceReservedSeedIds.offers.lugiaNeoGenesisCollector,
+    catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
+    itemTitle: "Lugia",
+    itemSubtitle: "Neo Genesis 9/111 Holo Rare",
+    versionSelection: rawVersionSelection,
+    versionSummary: "Form: Raw",
+    priceAmount: "215.00",
+    quantityRequested: 1,
+  },
+  {
+    offerId: marketplaceReservedSeedIds.offers.pikachuPrismaticEvolutionsModern,
+    catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
+    itemTitle: "Pikachu",
+    itemSubtitle: "Prismatic Evolutions 025 Illustration Rare",
+    versionSelection: rawVersionSelection,
+    versionSummary: "Form: Raw",
+    priceAmount: "14.50",
+    quantityRequested: 3,
+  },
+  {
+    offerId: marketplaceReservedSeedIds.offers.prismaticEvolutionsBoosterPackLot,
+    catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+    itemTitle: "Prismatic Evolutions Booster Pack",
+    itemSubtitle: "Sealed booster pack",
+    versionSelection: [],
+    versionSummary: null,
+    priceAmount: "5.25",
+    quantityRequested: 10,
+  },
+  {
+    offerId: marketplaceReservedSeedIds.offers.surgingSparksBoosterBoxRestock,
+    catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
+    itemTitle: "Surging Sparks Booster Box",
+    itemSubtitle: "Sealed booster box",
+    versionSelection: [],
+    versionSummary: null,
+    priceAmount: "128.00",
+    quantityRequested: 2,
   },
 ];
 

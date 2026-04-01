@@ -176,6 +176,12 @@ export const marketplaceReservedSeedIds = {
   },
   offers: {
     charizardBaseSetNearMint: "off_seed_charizard_base_set_nm" as OfferId,
+    charizardBaseSetPlayset: "off_seed_charizard_base_set_playset" as OfferId,
+    pikachuJungleCollectorLot: "off_seed_pikachu_jungle_collector_lot" as OfferId,
+    lugiaNeoGenesisCollector: "off_seed_lugia_neo_genesis_collector" as OfferId,
+    pikachuPrismaticEvolutionsModern: "off_seed_pikachu_prismatic_modern" as OfferId,
+    prismaticEvolutionsBoosterPackLot: "off_seed_prismatic_pack_lot" as OfferId,
+    surgingSparksBoosterBoxRestock: "off_seed_surging_sparks_restock" as OfferId,
   },
 } as const;
 
