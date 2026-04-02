@@ -66,6 +66,20 @@ export default defineConfig({
         )
       },
       {
+        find: /^@chase-sets\/reputation\/web$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/reputation/web.ts"
+        )
+      },
+      {
+        find: /^@chase-sets\/reputation$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/reputation/index.ts"
+        )
+      },
+      {
         find: /^@chase-sets\/identity$/,
         replacement: resolve(
           currentDir,

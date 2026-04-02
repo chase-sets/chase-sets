@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Card,
   EmptyState,
@@ -20,10 +21,12 @@ export function ReputationAccountPage({
   accountLabel,
   summary,
   reviews,
+  actions,
 }: {
   accountLabel: string;
   summary: ReputationAccountSummary;
   reviews: readonly ReputationReviewListItem[];
+  actions?: ReactNode;
 }) {
   return (
     <Page>
@@ -31,6 +34,7 @@ export function ReputationAccountPage({
         eyebrow="Reputation"
         title={accountLabel}
         description="Canonical post-transaction feedback and rating summary."
+        actions={actions}
       />
 
       <PageSection title="Summary">

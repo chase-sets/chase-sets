@@ -41,6 +41,7 @@ describe("marketplace route layout", () => {
           "inventory.view",
           "listings.view",
           "offers.view",
+          "reputation.view",
           "orders.view",
           "orders.manage",
         ],
@@ -55,6 +56,7 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/market-offers"');
     expect(html).toContain('href="/account/offers"');
     expect(html).toContain('href="/account/shipments"');
+    expect(html).toContain('href="/account/reputation"');
     expect(html).toContain('href="/account/orders"');
     expect(html).toContain('href="/account/fulfillment"');
     expect(html).toContain('href="/account/sales"');

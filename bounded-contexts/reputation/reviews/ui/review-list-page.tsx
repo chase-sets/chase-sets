@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Badge,
   Card,
@@ -22,6 +23,7 @@ export function ReputationReviewListPage({
   emptyDescription,
   reviewDetailBasePath,
   reviews,
+  actions,
 }: {
   title: string;
   eyebrow: string;
@@ -29,6 +31,7 @@ export function ReputationReviewListPage({
   emptyDescription: string;
   reviewDetailBasePath: string;
   reviews: readonly ReputationReviewListItem[];
+  actions?: ReactNode;
 }) {
   return (
     <Page>
@@ -36,6 +39,7 @@ export function ReputationReviewListPage({
         eyebrow={eyebrow}
         title={title}
         description="Track written feedback, current visibility, and commercial counterparties."
+        actions={actions}
       />
 
       <PageSection title="Reviews">

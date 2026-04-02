@@ -30,6 +30,10 @@ function getActiveKey(pathname: string) {
     return "shipments";
   }
 
+  if (pathname.startsWith("/account/reputation") || pathname.startsWith("/account/reviews")) {
+    return "reputation";
+  }
+
   if (pathname.startsWith("/account/fulfillment")) {
     return "fulfillment";
   }
@@ -136,6 +140,15 @@ function getShellNavItems(actor: MarketplaceActor) {
       label: "Shipments",
       icon: "package",
       href: "/account/shipments",
+    });
+  }
+
+  if (hasPermission(actor, "reputation.view")) {
+    topNavItems.push({
+      key: "reputation",
+      label: "Reputation",
+      icon: "star",
+      href: "/account/reputation",
     });
   }
 
