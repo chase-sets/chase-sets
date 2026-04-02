@@ -25,6 +25,10 @@ import {
   buildReputationApi,
   type ReputationServices,
 } from "@chase-sets/reputation";
+import {
+  buildSettlementApi,
+  type SettlementServices,
+} from "@chase-sets/settlement";
 import { createHealthRoutes } from "@chase-sets/http/health";
 import {
   createMarketplaceAuthMiddleware,
@@ -46,6 +50,7 @@ export function buildMarketplaceApp(
     ordering: OrderingServices;
     payments: PaymentsServices;
     reputation: ReputationServices;
+    settlement: SettlementServices;
   }>,
   options: BuildMarketplaceAppOptions = {},
 ) {
@@ -58,12 +63,14 @@ export function buildMarketplaceApp(
       processed = 0;
 
       for (const projector of [
+        ...services.discovery.projectors,
         ...services.inventory.projectors,
         ...services.marketplace.projectors,
         ...services.payments.projectors,
         ...services.fulfillment.projectors,
         ...services.ordering.projectors,
         ...services.reputation.projectors,
+        ...services.settlement.projectors,
       ]) {
         const result = await projector.runOnce();
         processed += result.processed;
@@ -91,12 +98,24 @@ export function buildMarketplaceApp(
       await drainProjectors();
     }
   });
+  app.use(
+    "/api/settlement/*",
+    createMarketplaceAuthMiddleware(options.resolveActor ?? (async () => null)),
+  );
+  app.use("/api/settlement/*", async (c, next) => {
+    await next();
+
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      await drainProjectors();
+    }
+  });
   app.route("/api/marketplace", buildDiscoveryApi(services.discovery));
   app.route("/api/marketplace", buildMarketplaceApi(services.marketplace));
   app.route("/api/marketplace", buildOrderingApi(services.ordering));
   app.route("/api/marketplace", buildFulfillmentApi(services.fulfillment));
   app.route("/api/marketplace", buildPaymentsApi(services.payments.payments));
   app.route("/api/marketplace", buildReputationApi(services.reputation));
+  app.route("/api/settlement", buildSettlementApi(services.settlement));
   app.route("/api/payments/stripe", createStripeWebhookRoutes(services.payments.payments));
 
   return app;

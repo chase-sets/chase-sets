@@ -1,9 +1,9 @@
 import { rebuildDiscoverySearchIndex } from "@chase-sets/discovery";
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import { loadConfig } from "../config";
+import { loadBootstrapConfig } from "../config";
 
 async function main() {
-  const config = loadConfig();
+  const config = loadBootstrapConfig();
   const pool = createPgPool(config.databaseUrl);
 
   try {

@@ -1,7 +1,7 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   catalogSeedIds,
-  demoIdentitySeedIds,
+  identitySeedIds,
   inventorySeedIds,
   marketplaceReservedSeedIds,
 } from "@chase-sets/dev-seeds";
@@ -18,6 +18,7 @@ type ListingSeed = Readonly<{
   catalogItemId: string;
   priceAmount: string;
   quantityCap: number;
+  finalStatus: "draft" | "active" | "paused" | "withdrawn";
 }>;
 
 type OfferSeed = Readonly<{
@@ -60,6 +61,7 @@ const listings: readonly ListingSeed[] = [
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     priceAmount: "399.99",
     quantityCap: 2,
+    finalStatus: "active",
   },
   {
     listingId: marketplaceReservedSeedIds.listings.pikachuJungleLightlyPlayed,
@@ -67,6 +69,31 @@ const listings: readonly ListingSeed[] = [
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "21.50",
     quantityCap: 3,
+    finalStatus: "active",
+  },
+  {
+    listingId: marketplaceReservedSeedIds.listings.lugiaNeoGenesisDraft,
+    inventoryRecordId: inventorySeedIds.records.lugiaNeoGenesisNearMint,
+    catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
+    priceAmount: "229.00",
+    quantityCap: 1,
+    finalStatus: "draft",
+  },
+  {
+    listingId: marketplaceReservedSeedIds.listings.prismaticEvolutionsPaused,
+    inventoryRecordId: inventorySeedIds.records.pikachuPrismaticEvolutionsNearMint,
+    catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
+    priceAmount: "16.25",
+    quantityCap: 4,
+    finalStatus: "paused",
+  },
+  {
+    listingId: marketplaceReservedSeedIds.listings.surgingSparksWithdrawn,
+    inventoryRecordId: inventorySeedIds.records.surgingSparksBoosterBox,
+    catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
+    priceAmount: "132.00",
+    quantityCap: 1,
+    finalStatus: "withdrawn",
   },
 ];
 
@@ -141,6 +168,16 @@ const offers: readonly OfferSeed[] = [
     priceAmount: "128.00",
     quantityRequested: 2,
   },
+  {
+    offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
+    catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    itemTitle: "Twilight Masquerade Elite Trainer Box",
+    itemSubtitle: "Sealed elite trainer box",
+    versionSelection: [],
+    versionSummary: null,
+    priceAmount: "44.00",
+    quantityRequested: 1,
+  },
 ];
 
 async function drainProjectors(projectors: ReturnType<typeof createMarketplaceServices>["projectors"]) {
@@ -180,11 +217,15 @@ async function getCatalogVersionKey(
 }
 
 function createSeedContext() {
+  return createSeedContextFor(identitySeedIds.seller.accountId, identitySeedIds.seller.userId);
+}
+
+function createSeedContextFor(accountId: string, userId: string) {
   return {
     tenantId: "tnt_identity" as never,
     audit: {
-      performedByUserId: demoIdentitySeedIds.userId,
-      forAccountId: demoIdentitySeedIds.accountId,
+      performedByUserId: userId as never,
+      forAccountId: accountId as never,
     },
   };
 }
@@ -206,11 +247,15 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
   }
 
   const context = createSeedContext();
+  const buyerContext = createSeedContextFor(
+    identitySeedIds.buyer.accountId,
+    identitySeedIds.buyer.userId,
+  );
 
   for (const listing of listings) {
     const supply = await services.listings.getInventoryRecordSupply(
       listing.inventoryRecordId,
-      demoIdentitySeedIds.accountId,
+      identitySeedIds.seller.accountId,
     );
 
     if (!supply) {
@@ -222,7 +267,7 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
       command: {
         type: "CreateListing",
         listingId: listing.listingId,
-        accountId: demoIdentitySeedIds.accountId,
+        accountId: identitySeedIds.seller.accountId,
         inventoryRecordId: supply.record_id,
         catalogItemId: supply.catalog_item_id,
         catalogVersionKey: supply.catalog_version_key as never,
@@ -238,11 +283,29 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
       context,
     });
 
-    await services.listings.commandHandler({
-      streamId: `marketplace.listing-${listing.listingId}`,
-      command: { type: "PublishListing" },
-      context,
-    });
+    if (listing.finalStatus !== "draft") {
+      await services.listings.commandHandler({
+        streamId: `marketplace.listing-${listing.listingId}`,
+        command: { type: "PublishListing" },
+        context,
+      });
+    }
+
+    if (listing.finalStatus === "paused") {
+      await services.listings.commandHandler({
+        streamId: `marketplace.listing-${listing.listingId}`,
+        command: { type: "PauseListing" },
+        context,
+      });
+    }
+
+    if (listing.finalStatus === "withdrawn") {
+      await services.listings.commandHandler({
+        streamId: `marketplace.listing-${listing.listingId}`,
+        command: { type: "WithdrawListing" },
+        context,
+      });
+    }
   }
 
   for (const offer of offers) {
@@ -251,7 +314,7 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
       command: {
         type: "SubmitOffer",
         offerId: offer.offerId,
-        buyerAccountId: demoIdentitySeedIds.accountId,
+        buyerAccountId: identitySeedIds.buyer.accountId,
         catalogItemId: offer.catalogItemId,
         catalogVersionKey: await getCatalogVersionKey(
           services,
@@ -265,7 +328,7 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
         priceAmount: offer.priceAmount,
         quantityRequested: offer.quantityRequested,
       },
-      context,
+      context: buyerContext,
     });
   }
 

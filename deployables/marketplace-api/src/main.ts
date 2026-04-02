@@ -12,6 +12,7 @@ import {
   createStripePaymentProcessorGateway,
 } from "@chase-sets/payments";
 import { createReputationServices } from "@chase-sets/reputation";
+import { createSettlementServices } from "@chase-sets/settlement";
 import { loadConfig } from "./config";
 import { buildMarketplaceApp } from "./app";
 
@@ -54,6 +55,7 @@ const ordering = createOrderingServices(pool, {
 });
 const fulfillment = createFulfillmentServices(pool);
 const reputation = createReputationServices(pool);
+const settlement = createSettlementServices(pool);
 const payments = createPaymentsServices(pool, {
   processorGateway: createStripePaymentProcessorGateway({
     secretKey: config.stripeSecretKey,
@@ -74,7 +76,7 @@ const payments = createPaymentsServices(pool, {
   },
 });
 const app = buildMarketplaceApp(
-  { discovery, fulfillment, inventory, marketplace, ordering, payments, reputation },
+  { discovery, fulfillment, inventory, marketplace, ordering, payments, reputation, settlement },
   {
     resolveActor: (request) =>
       resolveActorFromIdentityApi({
@@ -95,6 +97,7 @@ startProjectorPolling(
     ...fulfillment.projectors,
     ...ordering.projectors,
     ...reputation.projectors,
+    ...settlement.projectors,
   ],
   PROJECTION_INTERVAL_MS,
   (error) => {

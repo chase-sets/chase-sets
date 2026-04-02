@@ -24,6 +24,10 @@ export default defineConfig({
         replacement: resolve(currentDir, "../../bounded-contexts/reputation/index.ts"),
       },
       {
+        find: /^@chase-sets\/settlement$/,
+        replacement: resolve(currentDir, "../../bounded-contexts/settlement/index.ts"),
+      },
+      {
         find: "@chase-sets/identity",
         replacement: resolve(currentDir, "../../bounded-contexts/identity/index.ts"),
       },
@@ -67,5 +71,6 @@ export default defineConfig({
   test: {
     include: ["__tests__/**/*.test.ts", "../../bounded-contexts/discovery/tests/acceptance/**/*.test.ts"],
     exclude: ["dist/**", "node_modules/**"],
+    fileParallelism: false,
   },
 });

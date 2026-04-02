@@ -54,6 +54,12 @@ const storageLocations: readonly StorageLocationSeed[] = [
     description: "Vintage singles and sealed reserve stock",
     shipFromCode: "CHI-ANNEX-2",
   },
+  {
+    storageLocationId: inventorySeedIds.storageLocations.archivedOverflow,
+    name: "Archived overflow",
+    description: "Retired overflow storage kept for audit history",
+    shipFromCode: "CHI-OLD-9",
+  },
 ];
 
 const inventoryRecords: readonly InventoryRecordSeed[] = [
@@ -167,6 +173,13 @@ const inventoryHolds: readonly InventoryHoldSeed[] = [
     notes: "Batch wave complete",
     releasedAt: DEMO_RELEASED_AT,
   },
+  {
+    holdId: inventorySeedIds.holds.lugiaQualityControl,
+    recordId: inventorySeedIds.records.lugiaNeoGenesisNearMint,
+    quantity: 1,
+    reason: "Quality control",
+    notes: "Centering review in progress",
+  },
 ];
 
 export async function seedInventoryDatabase(pool: PgTransactionalPool) {
@@ -200,6 +213,18 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       shipFromCode: location.shipFromCode,
     });
 
+    if (location.storageLocationId === inventorySeedIds.storageLocations.archivedOverflow) {
+      await sendSeedCommand(services.storageLocations.commandHandler, streamId, {
+        type: "UpdateStorageLocation",
+        name: location.name,
+        description: location.description,
+        shipFromCode: location.shipFromCode,
+      });
+      await sendSeedCommand(services.storageLocations.commandHandler, streamId, {
+        type: "ArchiveStorageLocation",
+      });
+    }
+
     console.log(`  Storage location "${location.name}" created`);
   }
 
@@ -228,6 +253,19 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       totalQuantity: record.totalQuantity,
       acquisitionCostAmount: record.acquisitionCostAmount,
     });
+
+    if (record.recordId === inventorySeedIds.records.charizardBaseSetNearMint) {
+      await sendSeedCommand(services.records.commandHandler, streamId, {
+        type: "AdjustInventoryRecordQuantity",
+        quantityDelta: 1,
+        reason: "Cycle count increase",
+      });
+      await sendSeedCommand(services.records.commandHandler, streamId, {
+        type: "AdjustInventoryRecordQuantity",
+        quantityDelta: -1,
+        reason: "Reserve correction",
+      });
+    }
 
     console.log(`  Inventory record "${record.recordId}" created`);
   }

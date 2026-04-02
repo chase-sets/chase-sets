@@ -6,6 +6,7 @@ import type { MarketplaceServices } from "@chase-sets/marketplace-context";
 import type { OrderingServices } from "@chase-sets/ordering";
 import type { PaymentsServices } from "@chase-sets/payments";
 import type { ReputationServices } from "@chase-sets/reputation";
+import type { SettlementServices } from "@chase-sets/settlement";
 import type { ResolvedActor } from "@chase-sets/identity/server";
 import { buildMarketplaceApp } from "../src/app";
 
@@ -205,6 +206,38 @@ const reputationServices: ReputationServices = {
   db: {} as never,
 };
 
+const settlementServices: SettlementServices = {
+  wallets: {
+    commandHandler: async () => ({ version: 1, state: {} as never, newEvents: [], storedEvents: [] }),
+    getWallet: async () => ({
+      account_id: "acc_1",
+      currency_code: "usd",
+      pending_balance_amount: "0.00",
+      available_balance_amount: "0.00",
+      opened_at: "2026-04-02T00:00:00.000Z",
+      updated_at: "2026-04-02T00:00:00.000Z",
+    }),
+    listWalletEntries: async () => ({ items: [], total: 0 }),
+    ensureWallet: async () => {},
+    postEntry: async () => ({ accountId: "acc_1" as never, version: 1 }),
+    releasePendingEntry: async () => ({ accountId: "acc_1" as never, version: 2 }),
+    projectors: [],
+  },
+  payouts: {
+    commandHandler: async () => ({ version: 1, state: {} as never, newEvents: [], storedEvents: [] }),
+    listPayouts: async () => ({ items: [], total: 0 }),
+    getPayout: async () => null,
+    schedulePayout: async () => ({ payoutId: "pyo_1" as never, version: 1 }),
+    markPayoutInTransit: async () => ({ payoutId: "pyo_1", version: 2 }),
+    completePayout: async () => ({ payoutId: "pyo_1", version: 3 }),
+    failPayout: async () => ({ payoutId: "pyo_1", version: 4 }),
+    projectors: [],
+  },
+  projectors: [],
+  pool: {} as never,
+  db: {} as never,
+};
+
 describe("marketplace api host app", () => {
   it("mounts health and the discovery API under /api/marketplace", async () => {
     const app = buildMarketplaceApp({
@@ -215,6 +248,7 @@ describe("marketplace api host app", () => {
       ordering: orderingServices,
       payments: paymentsServices,
       reputation: reputationServices,
+      settlement: settlementServices,
     });
 
     const healthResponse = await app.fetch(new Request("http://marketplace.test/health"));
@@ -267,6 +301,7 @@ describe("marketplace api host app", () => {
       ordering: orderingServices,
       payments: paymentsServices,
       reputation: reputationServices,
+      settlement: settlementServices,
     });
 
     const response = await app.fetch(new Request("http://marketplace.test/api/marketplace/categories"));
@@ -301,6 +336,7 @@ describe("marketplace api host app", () => {
       ordering: orderingServices,
       payments: paymentsServices,
       reputation: reputationServices,
+      settlement: settlementServices,
     });
 
     const response = await app.fetch(
@@ -327,6 +363,7 @@ describe("marketplace api host app", () => {
         ordering: orderingServices,
         payments: paymentsServices,
         reputation: reputationServices,
+        settlement: settlementServices,
       },
       {
         resolveActor: async () =>
@@ -372,6 +409,7 @@ describe("marketplace api host app", () => {
         ordering: orderingServices,
         payments: paymentsServices,
         reputation: reputationServices,
+        settlement: settlementServices,
       },
       {
         resolveActor: async () =>
@@ -409,6 +447,7 @@ describe("marketplace api host app", () => {
         ordering: orderingServices,
         payments: paymentsServices,
         reputation: reputationServices,
+        settlement: settlementServices,
       },
       {
         resolveActor: async () =>
@@ -448,6 +487,7 @@ describe("marketplace api host app", () => {
       ordering: orderingServices,
       payments: paymentsServices,
       reputation: reputationServices,
+      settlement: settlementServices,
     });
 
     const response = await app.fetch(
@@ -472,6 +512,7 @@ describe("marketplace api host app", () => {
         ordering: orderingServices,
         payments: paymentsServices,
         reputation: reputationServices,
+        settlement: settlementServices,
       },
       {
         resolveActor: async () =>
@@ -508,6 +549,7 @@ describe("marketplace api host app", () => {
       ordering: orderingServices,
       payments: paymentsServices,
       reputation: reputationServices,
+      settlement: settlementServices,
     });
 
     const response = await app.fetch(
@@ -526,6 +568,44 @@ describe("marketplace api host app", () => {
       rating_4_count: 0,
       rating_5_count: 1,
       updated_at: "2026-04-02T00:00:00.000Z",
+    });
+  });
+
+  it("mounts settlement routes under the settlement API", async () => {
+    const app = buildMarketplaceApp(
+      {
+        discovery: services,
+        fulfillment: fulfillmentServices,
+        inventory: inventoryServices,
+        marketplace: marketplaceServices,
+        ordering: orderingServices,
+        payments: paymentsServices,
+        reputation: reputationServices,
+        settlement: settlementServices,
+      },
+      {
+        resolveActor: async () =>
+          ({
+            sessionId: "ses_1",
+            tenantId: "tnt_identity",
+            userId: "usr_1",
+            accountId: "acc_1",
+            membershipId: "mbr_1",
+            roleKey: "owner",
+            permissions: ["payouts.view", "payouts.manage"],
+          }) satisfies ResolvedActor,
+      },
+    );
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/api/settlement/payouts"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      total: 0,
+      count: 0,
     });
   });
 });

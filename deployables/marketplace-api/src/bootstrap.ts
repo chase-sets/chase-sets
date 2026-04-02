@@ -1,3 +1,4 @@
+import { catalogAuthoringSchemaSql } from "@chase-sets/catalog-authoring";
 import {
   createDiscoveryServices,
   discoverySchemaSql,
@@ -10,7 +11,6 @@ import {
 import {
   createMarketplaceServices,
   marketplaceSchemaSql,
-  seedMarketplaceDatabase,
 } from "@chase-sets/marketplace-context";
 import { identitySchemaSql } from "@chase-sets/identity";
 import {
@@ -20,19 +20,23 @@ import {
 import {
   createOrderingServices,
   orderingSchemaSql,
-  seedOrderingDatabase,
 } from "@chase-sets/ordering";
 import {
   createPaymentsServices,
-  createStripePaymentProcessorGateway,
+  createFakePaymentProcessorGateway,
   paymentsSchemaSql,
 } from "@chase-sets/payments";
 import {
   createReputationServices,
   reputationSchemaSql,
 } from "@chase-sets/reputation";
+import {
+  createSettlementServices,
+  settlementSchemaSql,
+} from "@chase-sets/settlement";
 import type { Projector } from "@chase-sets/event-core/projector";
-import { loadConfig } from "./config";
+import { loadBootstrapConfig } from "./config";
+import { seedMarketplaceStack } from "./seed-stack";
 
 const RETRY_DELAY_MS = 1_000;
 const MAX_RETRIES = 30;
@@ -78,13 +82,14 @@ async function drainProjectors(label: string, projectors: readonly Projector[]) 
 }
 
 async function bootstrap() {
-  const config = loadConfig();
+  const config = loadBootstrapConfig();
   const pool = createPgPool(config.databaseUrl);
 
   try {
     await waitForDatabase(pool, "Marketplace");
     await pool.query(
       [
+        catalogAuthoringSchemaSql,
         identitySchemaSql,
         inventorySchemaSql,
         discoverySchemaSql,
@@ -93,18 +98,10 @@ async function bootstrap() {
         fulfillmentSchemaSql,
         paymentsSchemaSql,
         reputationSchemaSql,
+        settlementSchemaSql,
       ].join("\n\n"),
     );
-
-    const eventCount = await countEvents(pool, "marketplace.");
-    if (eventCount === 0) {
-      await seedMarketplaceDatabase(pool);
-    }
-
-    const orderingEventCount = await countEvents(pool, "ordering.");
-    if (orderingEventCount === 0) {
-      await seedOrderingDatabase(pool);
-    }
+    await seedMarketplaceStack(pool);
 
     const discovery = createDiscoveryServices(pool);
     const inventory = createInventoryServices(pool);
@@ -144,12 +141,7 @@ async function bootstrap() {
     const fulfillment = createFulfillmentServices(pool);
     const reputation = createReputationServices(pool);
     const payments = createPaymentsServices(pool, {
-      processorGateway: createStripePaymentProcessorGateway({
-        secretKey: config.stripeSecretKey,
-        publishableKey: config.stripePublishableKey,
-        webhookSecret: config.stripeWebhookSecret,
-        apiBaseUrl: config.stripeApiBaseUrl,
-      }),
+      processorGateway: createFakePaymentProcessorGateway(),
       getOrderSnapshot: async (orderId, buyerAccountId) => {
         const order = await ordering.orders.getBuyerOrder(orderId, buyerAccountId);
         return order
@@ -162,6 +154,7 @@ async function bootstrap() {
           : null;
       },
     });
+    const settlement = createSettlementServices(pool);
     await drainProjectors("Marketplace", [
       ...inventory.projectors,
       ...discovery.projectors,
@@ -170,20 +163,12 @@ async function bootstrap() {
       ...fulfillment.projectors,
       ...ordering.projectors,
       ...reputation.projectors,
+      ...settlement.projectors,
     ]);
     console.log("Marketplace bootstrap complete.");
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();
   }
-}
-
-async function countEvents(pool: ReturnType<typeof createPgPool>, prefix: string) {
-  const result = await pool.query(
-    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
-    [`${prefix}%`],
-  );
-
-  return Number(result.rows[0]?.count ?? 0);
 }
 
 void bootstrap().catch((error) => {

@@ -5,7 +5,7 @@ import type {
 } from "@chase-sets/event-core-postgres";
 import {
   catalogSeedIds,
-  demoIdentitySeedIds,
+  identitySeedIds,
 } from "@chase-sets/dev-seeds";
 import { createInventoryServices } from "@chase-sets/inventory";
 import { createMarketplaceServices } from "@chase-sets/marketplace-context";
@@ -90,11 +90,15 @@ const acceptedOfferSeed = {
 } as const;
 
 function createSeedContext() {
+  return createSeedContextFor(identitySeedIds.seller.accountId, identitySeedIds.seller.userId);
+}
+
+function createSeedContextFor(accountId: AccountId, userId: string) {
   return {
     tenantId: "tnt_identity" as never,
     audit: {
-      performedByUserId: demoIdentitySeedIds.userId,
-      forAccountId: demoIdentitySeedIds.accountId,
+      performedByUserId: userId as never,
+      forAccountId: accountId,
     },
   };
 }
@@ -255,9 +259,14 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
   console.log("Starting ordering development seed...\n");
 
   const context = createSeedContext();
-  const buyerAccountId = demoIdentitySeedIds.accountId;
+  const sellerContext = context;
+  const buyerContext = createSeedContextFor(
+    identitySeedIds.buyer.accountId,
+    identitySeedIds.buyer.userId,
+  );
+  const buyerAccountId = identitySeedIds.buyer.accountId;
 
-  await addCartLines(ordering, inventory, buyerAccountId, checkoutCartLines, context);
+  await addCartLines(ordering, inventory, buyerAccountId, checkoutCartLines, buyerContext);
   await drainProjectors([
     ...inventory.projectors,
     ...marketplace.projectors,
@@ -268,7 +277,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
       buyerAccountId,
       shippingOption: "standard",
     },
-    context,
+    buyerContext,
   );
   await drainProjectors([
     ...inventory.projectors,
@@ -277,7 +286,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
   ]);
   console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
 
-  await addCartLines(ordering, inventory, buyerAccountId, cancelledCartLines, context);
+  await addCartLines(ordering, inventory, buyerAccountId, cancelledCartLines, buyerContext);
   await drainProjectors([
     ...inventory.projectors,
     ...marketplace.projectors,
@@ -288,7 +297,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
       buyerAccountId,
       shippingOption: "expedited",
     },
-    context,
+    buyerContext,
   );
   await drainProjectors([
     ...inventory.projectors,
@@ -306,7 +315,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
       orderId: cancelledOrderId,
       buyerAccountId,
     },
-    context,
+    buyerContext,
   );
   await drainProjectors([
     ...inventory.projectors,
@@ -335,7 +344,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
       priceAmount: acceptedOfferSeed.priceAmount,
       quantityRequested: acceptedOfferSeed.quantityRequested,
     },
-    context,
+    buyerContext,
   );
   await drainProjectors([
     ...inventory.projectors,
@@ -346,9 +355,9 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
   await marketplace.offers.acceptOffer(
     {
       offerId: acceptedOffer.offerId,
-      sellerAccountId: demoIdentitySeedIds.accountId,
+      sellerAccountId: identitySeedIds.seller.accountId,
     },
-    context,
+    sellerContext,
   );
   await drainProjectors([
     ...inventory.projectors,
@@ -365,7 +374,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
   }
   console.log(`  Accepted-offer order seeded (${acceptedOfferOrderId})`);
 
-  await addCartLines(ordering, inventory, buyerAccountId, activeCartLines, context);
+  await addCartLines(ordering, inventory, buyerAccountId, activeCartLines, buyerContext);
   await drainProjectors([
     ...inventory.projectors,
     ...marketplace.projectors,

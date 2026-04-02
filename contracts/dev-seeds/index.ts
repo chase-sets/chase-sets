@@ -1,11 +1,19 @@
 import type {
   AccountId,
+  ApiKeyId,
   ConsentId,
   CredentialId,
+  InvitationId,
+  LedgerEntryId,
   ListingId,
+  OrderId,
   MembershipId,
   OfferId,
+  PaymentId,
+  PayoutId,
+  SessionId,
   ShipmentId,
+  ReviewId,
   TypedUlid,
   UserId,
 } from "@chase-sets/primitives/typed-ids";
@@ -20,13 +28,54 @@ export type SeedCategoryId = TypedUlid<"ctg">;
 export type SeedStorageLocationId = TypedUlid<"loc">;
 export type SeedInventoryRecordId = TypedUlid<"inv">;
 export type SeedInventoryHoldId = TypedUlid<"hld">;
+export type SeedRefundId = TypedUlid<"rfd">;
+
+export const identitySeedIds = {
+  seller: {
+    accountId: "acc_seed_demo_account" as AccountId,
+    userId: "usr_seed_demo_user" as UserId,
+    membershipId: "mbr_seed_demo_membership" as MembershipId,
+    consentId: "cns_seed_demo_terms" as ConsentId,
+    credentialId: "crd_seed_demo_password" as CredentialId,
+    sessionId: "ses_seed_demo_session" as SessionId,
+    apiKeyId: "key_seed_demo_primary" as ApiKeyId,
+  },
+  buyer: {
+    accountId: "acc_seed_buyer_account" as AccountId,
+    userId: "usr_seed_buyer_user" as UserId,
+    membershipId: "mbr_seed_buyer_membership" as MembershipId,
+    consentId: "cns_seed_buyer_terms" as ConsentId,
+    credentialId: "crd_seed_buyer_password" as CredentialId,
+    sessionId: "ses_seed_buyer_session" as SessionId,
+  },
+  support: {
+    accountId: "acc_seed_support_account" as AccountId,
+    userId: "usr_seed_support_user" as UserId,
+    membershipId: "mbr_seed_support_membership" as MembershipId,
+    invitationId: "ivt_seed_support_accept" as InvitationId,
+    sessionId: "ses_seed_support_session" as SessionId,
+  },
+  suspended: {
+    accountId: "acc_seed_suspended_account" as AccountId,
+    userId: "usr_seed_suspended_user" as UserId,
+    membershipId: "mbr_seed_suspended_membership" as MembershipId,
+  },
+  invitations: {
+    declined: "ivt_seed_declined" as InvitationId,
+    cancelled: "ivt_seed_cancelled" as InvitationId,
+    expired: "ivt_seed_expired" as InvitationId,
+  },
+  apiKeys: {
+    rotatedRevoked: "key_seed_rotated_revoked" as ApiKeyId,
+  },
+} as const;
 
 export const demoIdentitySeedIds = {
-  accountId: "acc_seed_demo_account" as AccountId,
-  userId: "usr_seed_demo_user" as UserId,
-  membershipId: "mbr_seed_demo_membership" as MembershipId,
-  consentId: "cns_seed_demo_terms" as ConsentId,
-  credentialId: "crd_seed_demo_password" as CredentialId,
+  accountId: identitySeedIds.seller.accountId,
+  userId: identitySeedIds.seller.userId,
+  membershipId: identitySeedIds.seller.membershipId,
+  consentId: identitySeedIds.seller.consentId,
+  credentialId: identitySeedIds.seller.credentialId,
 } as const;
 
 export const catalogSeedIds = {
@@ -150,6 +199,7 @@ export const inventorySeedIds = {
   storageLocations: {
     northShelf: "loc_seed_north_shelf" as SeedStorageLocationId,
     vaultAnnex: "loc_seed_vault_annex" as SeedStorageLocationId,
+    archivedOverflow: "loc_seed_archived_overflow" as SeedStorageLocationId,
   },
   records: {
     charizardBaseSetNearMint: "inv_seed_charizard_base_set_nm" as SeedInventoryRecordId,
@@ -167,6 +217,7 @@ export const inventorySeedIds = {
   holds: {
     charizardCheckout: "hld_seed_charizard_checkout" as SeedInventoryHoldId,
     pikachuPackingReleased: "hld_seed_pikachu_packing_released" as SeedInventoryHoldId,
+    lugiaQualityControl: "hld_seed_lugia_quality_control" as SeedInventoryHoldId,
   },
 } as const;
 
@@ -174,6 +225,9 @@ export const marketplaceReservedSeedIds = {
   listings: {
     charizardBaseSetNearMint: "lst_seed_charizard_base_set_nm" as ListingId,
     pikachuJungleLightlyPlayed: "lst_seed_pikachu_jungle_lp" as ListingId,
+    lugiaNeoGenesisDraft: "lst_seed_lugia_neo_genesis_draft" as ListingId,
+    prismaticEvolutionsPaused: "lst_seed_prismatic_evolutions_paused" as ListingId,
+    surgingSparksWithdrawn: "lst_seed_surging_sparks_withdrawn" as ListingId,
   },
   offers: {
     charizardBaseSetNearMint: "off_seed_charizard_base_set_nm" as OfferId,
@@ -183,11 +237,59 @@ export const marketplaceReservedSeedIds = {
     pikachuPrismaticEvolutionsModern: "off_seed_pikachu_prismatic_modern" as OfferId,
     prismaticEvolutionsBoosterPackLot: "off_seed_prismatic_pack_lot" as OfferId,
     surgingSparksBoosterBoxRestock: "off_seed_surging_sparks_restock" as OfferId,
+    twilightMasqueradeEliteTrainerSubmitted: "off_seed_twilight_masquerade_etb" as OfferId,
+  },
+} as const;
+
+export const orderingReservedSeedIds = {
+  orders: {
+    checkoutPending: "ord_seed_checkout_pending" as OrderId,
+    cancelled: "ord_seed_cancelled" as OrderId,
+    acceptedOfferReady: "ord_seed_offer_ready" as OrderId,
+  },
+} as const;
+
+export const paymentsReservedSeedIds = {
+  payments: {
+    checkoutPending: "pay_seed_checkout_pending" as PaymentId,
+    acceptedOfferCaptured: "pay_seed_offer_captured" as PaymentId,
+    failedModernCheckout: "pay_seed_failed_modern_checkout" as PaymentId,
+    cancelledVintageCheckout: "pay_seed_cancelled_vintage_checkout" as PaymentId,
+  },
+  refunds: {
+    acceptedOfferIssued: "rfd_seed_offer_issued" as SeedRefundId,
+    acceptedOfferFailed: "rfd_seed_offer_failed" as SeedRefundId,
   },
 } as const;
 
 export const fulfillmentReservedSeedIds = {
   shipments: {
     demoCharizardShipment: "shp_seed_demo_charizard" as ShipmentId,
+    awaitingLabel: "shp_seed_awaiting_label" as ShipmentId,
+    labelAttached: "shp_seed_label_attached" as ShipmentId,
+    dispatchedShipment: "shp_seed_dispatched" as ShipmentId,
+    exceptionShipment: "shp_seed_exception" as ShipmentId,
+    returnedShipment: "shp_seed_returned" as ShipmentId,
+  },
+} as const;
+
+export const reputationReservedSeedIds = {
+  reviews: {
+    buyerToSellerActive: "rev_seed_buyer_to_seller_active" as ReviewId,
+    sellerToBuyerWithdrawn: "rev_seed_seller_to_buyer_withdrawn" as ReviewId,
+  },
+} as const;
+
+export const settlementReservedSeedIds = {
+  ledgerEntries: {
+    pendingSaleCredit: "led_seed_pending_sale_credit" as LedgerEntryId,
+    availableAdjustmentCredit: "led_seed_available_adjustment_credit" as LedgerEntryId,
+    payoutDebitCompleted: "led_seed_payout_debit_completed" as LedgerEntryId,
+    payoutDebitFailed: "led_seed_payout_debit_failed" as LedgerEntryId,
+    payoutReversalFailed: "led_seed_payout_reversal_failed" as LedgerEntryId,
+  },
+  payouts: {
+    completed: "pyo_seed_completed" as PayoutId,
+    failed: "pyo_seed_failed" as PayoutId,
   },
 } as const;

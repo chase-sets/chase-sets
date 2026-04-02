@@ -413,6 +413,7 @@ describe("inventory api", () => {
 
     const storageLocations = await seededServices.storageLocations.listStorageLocations({
       accountId: demoIdentitySeedIds.accountId,
+      includeArchived: true,
     });
     expect(storageLocations.map((location) => location.storage_location_id).sort()).toEqual(
       Object.values(inventorySeedIds.storageLocations).sort(),
