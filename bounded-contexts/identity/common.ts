@@ -39,6 +39,8 @@ export type PermissionKey =
   | "offers.view"
   | "orders.manage"
   | "orders.view"
+  | "payouts.manage"
+  | "payouts.view"
   | "security.manage";
 export type EmptyEventData = Readonly<Record<string, never>>;
 export type IdentityValue = JsonValue;

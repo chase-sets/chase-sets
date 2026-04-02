@@ -51,6 +51,12 @@
       "@chase-sets/identity/web": [
         "./bounded-contexts/identity/web.ts"
       ],
+      "@chase-sets/settlement": [
+        "./bounded-contexts/settlement/index.ts"
+      ],
+      "@chase-sets/settlement/web": [
+        "./bounded-contexts/settlement/web.ts"
+      ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
       ],
