@@ -5,6 +5,7 @@ import type { InventoryServices } from "@chase-sets/inventory";
 import type { MarketplaceServices } from "@chase-sets/marketplace-context";
 import type { OrderingServices } from "@chase-sets/ordering";
 import type { PaymentsServices } from "@chase-sets/payments";
+import type { ReputationServices } from "@chase-sets/reputation";
 import type { ResolvedActor } from "@chase-sets/identity/server";
 import { buildMarketplaceApp } from "../src/app";
 
@@ -170,6 +171,40 @@ const paymentsServices: PaymentsServices = {
   db: {} as never,
 };
 
+const reputationServices: ReputationServices = {
+  reviews: {
+    commandHandler: async () => ({
+      version: 1,
+      state: {} as never,
+      newEvents: [],
+      storedEvents: [],
+    }),
+    submitReview: async () => ({ reviewId: "rev_1", version: 1 }),
+    updateReview: async () => ({ reviewId: "rev_1", version: 2 }),
+    withdrawReview: async () => ({ reviewId: "rev_1", version: 3 }),
+    listPublicAccountReviews: async () => ({ items: [], total: 0 }),
+    listWrittenReviews: async () => ({ items: [], total: 0 }),
+    listReceivedReviews: async () => ({ items: [], total: 0 }),
+    getAccountReview: async () => null,
+    getPublicAccountSummary: async () => ({
+      account_id: "acc_1",
+      account_display_name: "Account One",
+      average_rating: "5.00",
+      review_count: 1,
+      rating_1_count: 0,
+      rating_2_count: 0,
+      rating_3_count: 0,
+      rating_4_count: 0,
+      rating_5_count: 1,
+      updated_at: "2026-04-02T00:00:00.000Z",
+    }),
+    projectors: [],
+  },
+  projectors: [],
+  pool: {} as never,
+  db: {} as never,
+};
+
 describe("marketplace api host app", () => {
   it("mounts health and the discovery API under /api/marketplace", async () => {
     const app = buildMarketplaceApp({
@@ -179,6 +214,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      reputation: reputationServices,
     });
 
     const healthResponse = await app.fetch(new Request("http://marketplace.test/health"));
@@ -230,6 +266,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      reputation: reputationServices,
     });
 
     const response = await app.fetch(new Request("http://marketplace.test/api/marketplace/categories"));
@@ -263,6 +300,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      reputation: reputationServices,
     });
 
     const response = await app.fetch(
@@ -288,6 +326,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        reputation: reputationServices,
       },
       {
         resolveActor: async () =>
@@ -332,6 +371,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        reputation: reputationServices,
       },
       {
         resolveActor: async () =>
@@ -368,6 +408,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        reputation: reputationServices,
       },
       {
         resolveActor: async () =>
@@ -406,6 +447,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      reputation: reputationServices,
     });
 
     const response = await app.fetch(
@@ -429,6 +471,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        reputation: reputationServices,
       },
       {
         resolveActor: async () =>
@@ -453,6 +496,36 @@ describe("marketplace api host app", () => {
       items: [],
       total: 0,
       count: 0,
+    });
+  });
+
+  it("mounts public reputation routes under the marketplace API", async () => {
+    const app = buildMarketplaceApp({
+      discovery: services,
+      fulfillment: fulfillmentServices,
+      inventory: inventoryServices,
+      marketplace: marketplaceServices,
+      ordering: orderingServices,
+      payments: paymentsServices,
+      reputation: reputationServices,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/api/marketplace/accounts/acc_1/reputation"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      account_id: "acc_1",
+      account_display_name: "Account One",
+      average_rating: "5.00",
+      review_count: 1,
+      rating_1_count: 0,
+      rating_2_count: 0,
+      rating_3_count: 0,
+      rating_4_count: 0,
+      rating_5_count: 1,
+      updated_at: "2026-04-02T00:00:00.000Z",
     });
   });
 });

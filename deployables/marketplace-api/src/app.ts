@@ -21,6 +21,10 @@ import {
   createStripeWebhookRoutes,
   type PaymentsServices,
 } from "@chase-sets/payments";
+import {
+  buildReputationApi,
+  type ReputationServices,
+} from "@chase-sets/reputation";
 import { createHealthRoutes } from "@chase-sets/http/health";
 import {
   createMarketplaceAuthMiddleware,
@@ -41,6 +45,7 @@ export function buildMarketplaceApp(
     marketplace: MarketplaceServices;
     ordering: OrderingServices;
     payments: PaymentsServices;
+    reputation: ReputationServices;
   }>,
   options: BuildMarketplaceAppOptions = {},
 ) {
@@ -58,6 +63,7 @@ export function buildMarketplaceApp(
         ...services.payments.projectors,
         ...services.fulfillment.projectors,
         ...services.ordering.projectors,
+        ...services.reputation.projectors,
       ]) {
         const result = await projector.runOnce();
         processed += result.processed;
@@ -90,6 +96,7 @@ export function buildMarketplaceApp(
   app.route("/api/marketplace", buildOrderingApi(services.ordering));
   app.route("/api/marketplace", buildFulfillmentApi(services.fulfillment));
   app.route("/api/marketplace", buildPaymentsApi(services.payments.payments));
+  app.route("/api/marketplace", buildReputationApi(services.reputation));
   app.route("/api/payments/stripe", createStripeWebhookRoutes(services.payments.payments));
 
   return app;

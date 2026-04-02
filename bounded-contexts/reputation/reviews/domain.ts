@@ -1,0 +1,225 @@
+import type {
+  AggregateDecider,
+  AggregateEvolver,
+  DomainEvent,
+} from "@chase-sets/event-core";
+import type {
+  AccountId,
+  OrderId,
+  ReviewId,
+} from "@chase-sets/primitives/typed-ids";
+import {
+  assert,
+  assertNever,
+  ensureIsoTimestamp,
+  normalizeFeedback,
+  normalizeRating,
+  normalizeReviewRole,
+  normalizeReviewStatus,
+  type ReviewRole,
+  type ReviewStatus,
+} from "../common";
+
+export type ReputationReviewState = Readonly<{
+  reviewId: ReviewId | null;
+  orderId: OrderId | null;
+  authorAccountId: AccountId | null;
+  subjectAccountId: AccountId | null;
+  authorRole: ReviewRole | null;
+  rating: number | null;
+  feedback: string | null;
+  status: ReviewStatus | null;
+  submittedAt: string | null;
+  updatedAt: string | null;
+  withdrawnAt: string | null;
+}>;
+
+export const initialReputationReviewState: ReputationReviewState = {
+  reviewId: null,
+  orderId: null,
+  authorAccountId: null,
+  subjectAccountId: null,
+  authorRole: null,
+  rating: null,
+  feedback: null,
+  status: null,
+  submittedAt: null,
+  updatedAt: null,
+  withdrawnAt: null,
+};
+
+export type SubmitReviewCommand = Readonly<{
+  type: "SubmitReview";
+  reviewId: ReviewId;
+  orderId: OrderId;
+  authorAccountId: AccountId;
+  subjectAccountId: AccountId;
+  authorRole: ReviewRole;
+  rating: number;
+  feedback?: string | null;
+  submittedAt: string;
+}>;
+
+export type UpdateReviewCommand = Readonly<{
+  type: "UpdateReview";
+  rating: number;
+  feedback?: string | null;
+  updatedAt: string;
+}>;
+
+export type WithdrawReviewCommand = Readonly<{
+  type: "WithdrawReview";
+  withdrawnAt: string;
+}>;
+
+export type ReputationReviewCommand =
+  | SubmitReviewCommand
+  | UpdateReviewCommand
+  | WithdrawReviewCommand;
+
+export type ReviewSubmittedEvent = DomainEvent<
+  "reputation.review.submitted",
+  Readonly<{
+    reviewId: ReviewId;
+    orderId: OrderId;
+    authorAccountId: AccountId;
+    subjectAccountId: AccountId;
+    authorRole: ReviewRole;
+    rating: number;
+    feedback: string | null;
+    submittedAt: string;
+  }>
+>;
+
+export type ReviewUpdatedEvent = DomainEvent<
+  "reputation.review.updated",
+  Readonly<{
+    reviewId: ReviewId;
+    rating: number;
+    feedback: string | null;
+    updatedAt: string;
+  }>
+>;
+
+export type ReviewWithdrawnEvent = DomainEvent<
+  "reputation.review.withdrawn",
+  Readonly<{
+    reviewId: ReviewId;
+    withdrawnAt: string;
+  }>
+>;
+
+export type ReputationReviewEvent =
+  | ReviewSubmittedEvent
+  | ReviewUpdatedEvent
+  | ReviewWithdrawnEvent;
+
+export const decideReputationReview: AggregateDecider<
+  ReputationReviewState,
+  ReputationReviewCommand,
+  ReputationReviewEvent
+> = (state, command) => {
+  switch (command.type) {
+    case "SubmitReview":
+      assert(state.reviewId === null, "Review has already been submitted.");
+      assert(
+        command.authorAccountId !== command.subjectAccountId,
+        "Accounts cannot review themselves.",
+      );
+
+      return [
+        {
+          type: "reputation.review.submitted",
+          data: {
+            reviewId: command.reviewId,
+            orderId: command.orderId,
+            authorAccountId: command.authorAccountId,
+            subjectAccountId: command.subjectAccountId,
+            authorRole: normalizeReviewRole(command.authorRole),
+            rating: normalizeRating(command.rating),
+            feedback: normalizeFeedback(command.feedback),
+            submittedAt: ensureIsoTimestamp(
+              command.submittedAt,
+              "Review submission must record a timestamp.",
+            ),
+          },
+        },
+      ];
+    case "UpdateReview":
+      assert(state.reviewId !== null, "Review must be submitted first.");
+      assert(state.status === "active", "Only active reviews can be updated.");
+
+      return [
+        {
+          type: "reputation.review.updated",
+          data: {
+            reviewId: state.reviewId,
+            rating: normalizeRating(command.rating),
+            feedback: normalizeFeedback(command.feedback),
+            updatedAt: ensureIsoTimestamp(
+              command.updatedAt,
+              "Review update must record a timestamp.",
+            ),
+          },
+        },
+      ];
+    case "WithdrawReview":
+      assert(state.reviewId !== null, "Review must be submitted first.");
+      if (state.status === "withdrawn") {
+        return [];
+      }
+
+      return [
+        {
+          type: "reputation.review.withdrawn",
+          data: {
+            reviewId: state.reviewId,
+            withdrawnAt: ensureIsoTimestamp(
+              command.withdrawnAt,
+              "Review withdrawal must record a timestamp.",
+            ),
+          },
+        },
+      ];
+    default:
+      return assertNever(command);
+  }
+};
+
+export const evolveReputationReview: AggregateEvolver<
+  ReputationReviewState,
+  ReputationReviewEvent
+> = (state, event) => {
+  switch (event.type) {
+    case "reputation.review.submitted":
+      return {
+        reviewId: event.data.reviewId,
+        orderId: event.data.orderId,
+        authorAccountId: event.data.authorAccountId,
+        subjectAccountId: event.data.subjectAccountId,
+        authorRole: normalizeReviewRole(event.data.authorRole),
+        rating: normalizeRating(event.data.rating),
+        feedback: normalizeFeedback(event.data.feedback),
+        status: "active",
+        submittedAt: event.data.submittedAt,
+        updatedAt: event.data.submittedAt,
+        withdrawnAt: null,
+      };
+    case "reputation.review.updated":
+      return {
+        ...state,
+        rating: normalizeRating(event.data.rating),
+        feedback: normalizeFeedback(event.data.feedback),
+        updatedAt: event.data.updatedAt,
+      };
+    case "reputation.review.withdrawn":
+      return {
+        ...state,
+        status: normalizeReviewStatus("withdrawn"),
+        withdrawnAt: event.data.withdrawnAt,
+        updatedAt: event.data.withdrawnAt,
+      };
+    default:
+      return assertNever(event);
+  }
+};

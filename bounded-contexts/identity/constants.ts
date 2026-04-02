@@ -24,6 +24,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "orders.view",
     "payouts.manage",
     "payouts.view",
+    "reputation.manage",
+    "reputation.view",
     "security.manage",
   ],
   manager: [
@@ -44,6 +46,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "orders.view",
     "payouts.manage",
     "payouts.view",
+    "reputation.manage",
+    "reputation.view",
   ],
   fulfillment: [
     "accounts.view",
@@ -54,6 +58,7 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "listings.view",
     "offers.view",
     "orders.view",
+    "reputation.view",
   ],
   viewer: [
     "accounts.view",
@@ -64,5 +69,6 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "offers.view",
     "orders.view",
     "payouts.view",
+    "reputation.view",
   ],
 };

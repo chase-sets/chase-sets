@@ -51,6 +51,12 @@
       "@chase-sets/identity/web": [
         "./bounded-contexts/identity/web.ts"
       ],
+      "@chase-sets/reputation": [
+        "./bounded-contexts/reputation/index.ts"
+      ],
+      "@chase-sets/reputation/web": [
+        "./bounded-contexts/reputation/web.ts"
+      ],
       "@chase-sets/settlement": [
         "./bounded-contexts/settlement/index.ts"
       ],

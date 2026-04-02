@@ -27,6 +27,10 @@ import {
   createStripePaymentProcessorGateway,
   paymentsSchemaSql,
 } from "@chase-sets/payments";
+import {
+  createReputationServices,
+  reputationSchemaSql,
+} from "@chase-sets/reputation";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { loadConfig } from "./config";
 
@@ -88,6 +92,7 @@ async function bootstrap() {
         orderingSchemaSql,
         fulfillmentSchemaSql,
         paymentsSchemaSql,
+        reputationSchemaSql,
       ].join("\n\n"),
     );
 
@@ -137,6 +142,7 @@ async function bootstrap() {
       },
     });
     const fulfillment = createFulfillmentServices(pool);
+    const reputation = createReputationServices(pool);
     const payments = createPaymentsServices(pool, {
       processorGateway: createStripePaymentProcessorGateway({
         secretKey: config.stripeSecretKey,
@@ -163,6 +169,7 @@ async function bootstrap() {
       ...payments.projectors,
       ...fulfillment.projectors,
       ...ordering.projectors,
+      ...reputation.projectors,
     ]);
     console.log("Marketplace bootstrap complete.");
   } finally {
