@@ -13,6 +13,7 @@
   "dependencies": {
     "@chase-sets/design-system": "0.1.0",
     "@chase-sets/discovery": "0.1.0",
+    "@chase-sets/fulfillment": "0.1.0",
     "@chase-sets/identity": "0.1.0",
     "@chase-sets/inventory": "0.1.0",
     "@chase-sets/marketplace-context": "0.1.0",

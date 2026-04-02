@@ -4,6 +4,10 @@ import {
 } from "@chase-sets/discovery";
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import {
+  createFulfillmentServices,
+  fulfillmentSchemaSql,
+} from "@chase-sets/fulfillment";
+import {
   createMarketplaceServices,
   marketplaceSchemaSql,
   seedMarketplaceDatabase,
@@ -82,6 +86,7 @@ async function bootstrap() {
         discoverySchemaSql,
         marketplaceSchemaSql,
         orderingSchemaSql,
+        fulfillmentSchemaSql,
         paymentsSchemaSql,
       ].join("\n\n"),
     );
@@ -131,6 +136,7 @@ async function bootstrap() {
         },
       },
     });
+    const fulfillment = createFulfillmentServices(pool);
     const payments = createPaymentsServices(pool, {
       processorGateway: createStripePaymentProcessorGateway({
         secretKey: config.stripeSecretKey,
@@ -155,6 +161,7 @@ async function bootstrap() {
       ...discovery.projectors,
       ...marketplace.projectors,
       ...payments.projectors,
+      ...fulfillment.projectors,
       ...ordering.projectors,
     ]);
     console.log("Marketplace bootstrap complete.");

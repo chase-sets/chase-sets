@@ -4,6 +4,10 @@ import {
   type DiscoveryServices,
 } from "@chase-sets/discovery";
 import {
+  buildFulfillmentApi,
+  type FulfillmentServices,
+} from "@chase-sets/fulfillment";
+import {
   buildMarketplaceApi,
   type MarketplaceServices,
 } from "@chase-sets/marketplace-context";
@@ -32,6 +36,7 @@ export type BuildMarketplaceAppOptions = Readonly<{
 export function buildMarketplaceApp(
   services: Readonly<{
     discovery: DiscoveryServices;
+    fulfillment: FulfillmentServices;
     inventory: InventoryServices;
     marketplace: MarketplaceServices;
     ordering: OrderingServices;
@@ -51,6 +56,7 @@ export function buildMarketplaceApp(
         ...services.inventory.projectors,
         ...services.marketplace.projectors,
         ...services.payments.projectors,
+        ...services.fulfillment.projectors,
         ...services.ordering.projectors,
       ]) {
         const result = await projector.runOnce();
@@ -82,6 +88,7 @@ export function buildMarketplaceApp(
   app.route("/api/marketplace", buildDiscoveryApi(services.discovery));
   app.route("/api/marketplace", buildMarketplaceApi(services.marketplace));
   app.route("/api/marketplace", buildOrderingApi(services.ordering));
+  app.route("/api/marketplace", buildFulfillmentApi(services.fulfillment));
   app.route("/api/marketplace", buildPaymentsApi(services.payments.payments));
   app.route("/api/payments/stripe", createStripeWebhookRoutes(services.payments.payments));
 

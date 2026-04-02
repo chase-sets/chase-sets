@@ -45,6 +45,20 @@ export default defineConfig({
         )
       },
       {
+        find: /^@chase-sets\/fulfillment\/web$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/fulfillment/web.ts"
+        )
+      },
+      {
+        find: /^@chase-sets\/fulfillment$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/fulfillment/index.ts"
+        )
+      },
+      {
         find: /^@chase-sets\/identity\/web$/,
         replacement: resolve(
           currentDir,

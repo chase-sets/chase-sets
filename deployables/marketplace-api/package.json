@@ -17,6 +17,7 @@
     "@chase-sets/discovery": "0.1.0",
     "@chase-sets/event-core": "0.1.0",
     "@chase-sets/event-core-postgres": "0.1.0",
+    "@chase-sets/fulfillment": "0.1.0",
     "@chase-sets/http": "0.1.0",
     "@chase-sets/identity": "0.1.0",
     "@chase-sets/inventory": "0.1.0",

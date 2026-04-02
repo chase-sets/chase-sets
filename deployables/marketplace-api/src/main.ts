@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { createDiscoveryServices } from "@chase-sets/discovery";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
+import { createFulfillmentServices } from "@chase-sets/fulfillment";
 import { resolveActorFromIdentityApi } from "@chase-sets/identity/server";
 import { createInventoryServices } from "@chase-sets/inventory";
 import { createMarketplaceServices } from "@chase-sets/marketplace-context";
@@ -50,6 +51,7 @@ const ordering = createOrderingServices(pool, {
     },
   },
 });
+const fulfillment = createFulfillmentServices(pool);
 const payments = createPaymentsServices(pool, {
   processorGateway: createStripePaymentProcessorGateway({
     secretKey: config.stripeSecretKey,
@@ -70,7 +72,7 @@ const payments = createPaymentsServices(pool, {
   },
 });
 const app = buildMarketplaceApp(
-  { discovery, inventory, marketplace, ordering, payments },
+  { discovery, fulfillment, inventory, marketplace, ordering, payments },
   {
     resolveActor: (request) =>
       resolveActorFromIdentityApi({
@@ -88,6 +90,7 @@ startProjectorPolling(
     ...inventory.projectors,
     ...marketplace.projectors,
     ...payments.projectors,
+    ...fulfillment.projectors,
     ...ordering.projectors,
   ],
   PROJECTION_INTERVAL_MS,

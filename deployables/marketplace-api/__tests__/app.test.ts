@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DiscoveryServices } from "@chase-sets/discovery";
+import type { FulfillmentServices } from "@chase-sets/fulfillment";
 import type { InventoryServices } from "@chase-sets/inventory";
 import type { MarketplaceServices } from "@chase-sets/marketplace-context";
 import type { OrderingServices } from "@chase-sets/ordering";
@@ -78,6 +79,31 @@ const inventoryServices: InventoryServices = {
   db: {} as never,
 };
 
+const fulfillmentServices: FulfillmentServices = {
+  shipments: {
+    commandHandler: async () => ({
+      version: 1,
+      state: {} as never,
+      newEvents: [],
+      storedEvents: [],
+    }),
+    packShipment: async () => ({ shipmentId: "shp_1", version: 2 }),
+    attachLabel: async () => ({ shipmentId: "shp_1", version: 3 }),
+    dispatchShipment: async () => ({ shipmentId: "shp_1", version: 4 }),
+    deliverShipment: async () => ({ shipmentId: "shp_1", version: 5 }),
+    returnShipment: async () => ({ shipmentId: "shp_1", version: 6 }),
+    raiseShipmentException: async () => ({ shipmentId: "shp_1", version: 7 }),
+    listBuyerShipments: async () => ({ items: [], total: 0 }),
+    getBuyerShipment: async () => null,
+    listSellerShipments: async () => ({ items: [], total: 0 }),
+    getSellerShipment: async () => null,
+    projectors: [],
+  },
+  projectors: [],
+  pool: {} as never,
+  db: {} as never,
+};
+
 const orderingServices: OrderingServices = {
   cart: {
     commandHandler: async () => ({ version: 1 }),
@@ -148,6 +174,7 @@ describe("marketplace api host app", () => {
   it("mounts health and the discovery API under /api/marketplace", async () => {
     const app = buildMarketplaceApp({
       discovery: services,
+      fulfillment: fulfillmentServices,
       inventory: inventoryServices,
       marketplace: marketplaceServices,
       ordering: orderingServices,
@@ -198,6 +225,7 @@ describe("marketplace api host app", () => {
           ],
         },
       },
+      fulfillment: fulfillmentServices,
       inventory: inventoryServices,
       marketplace: marketplaceServices,
       ordering: orderingServices,
@@ -230,6 +258,7 @@ describe("marketplace api host app", () => {
   it("mounts public listing routes under the marketplace API", async () => {
     const app = buildMarketplaceApp({
       discovery: services,
+      fulfillment: fulfillmentServices,
       inventory: inventoryServices,
       marketplace: marketplaceServices,
       ordering: orderingServices,
@@ -254,6 +283,7 @@ describe("marketplace api host app", () => {
     const app = buildMarketplaceApp(
       {
         discovery: services,
+        fulfillment: fulfillmentServices,
         inventory: inventoryServices,
         marketplace: marketplaceServices,
         ordering: orderingServices,
@@ -297,6 +327,7 @@ describe("marketplace api host app", () => {
     const app = buildMarketplaceApp(
       {
         discovery: services,
+        fulfillment: fulfillmentServices,
         inventory: inventoryServices,
         marketplace: marketplaceServices,
         ordering: orderingServices,
@@ -332,6 +363,7 @@ describe("marketplace api host app", () => {
     const app = buildMarketplaceApp(
       {
         discovery: services,
+        fulfillment: fulfillmentServices,
         inventory: inventoryServices,
         marketplace: marketplaceServices,
         ordering: orderingServices,
@@ -369,6 +401,7 @@ describe("marketplace api host app", () => {
   it("mounts Stripe webhook routes outside marketplace auth", async () => {
     const app = buildMarketplaceApp({
       discovery: services,
+      fulfillment: fulfillmentServices,
       inventory: inventoryServices,
       marketplace: marketplaceServices,
       ordering: orderingServices,
@@ -385,5 +418,41 @@ describe("marketplace api host app", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ received: true, ignored: false });
+  });
+
+  it("mounts fulfillment routes under the marketplace API", async () => {
+    const app = buildMarketplaceApp(
+      {
+        discovery: services,
+        fulfillment: fulfillmentServices,
+        inventory: inventoryServices,
+        marketplace: marketplaceServices,
+        ordering: orderingServices,
+        payments: paymentsServices,
+      },
+      {
+        resolveActor: async () =>
+          ({
+            sessionId: "ses_1",
+            tenantId: "tnt_identity",
+            userId: "usr_1",
+            accountId: "acc_1",
+            membershipId: "mbr_1",
+            roleKey: "owner",
+            permissions: ["fulfillment.view", "fulfillment.manage"],
+          }) satisfies ResolvedActor,
+      },
+    );
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/api/marketplace/seller/shipments"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      total: 0,
+      count: 0,
+    });
   });
 });

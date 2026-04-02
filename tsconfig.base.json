@@ -30,6 +30,12 @@
       "@chase-sets/discovery/web": [
         "./bounded-contexts/discovery/web.ts"
       ],
+      "@chase-sets/fulfillment": [
+        "./bounded-contexts/fulfillment/index.ts"
+      ],
+      "@chase-sets/fulfillment/web": [
+        "./bounded-contexts/fulfillment/web.ts"
+      ],
       "@chase-sets/marketplace-context": [
         "./bounded-contexts/marketplace/index.ts"
       ],

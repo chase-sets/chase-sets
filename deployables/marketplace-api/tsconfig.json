@@ -9,6 +9,7 @@
     "../../contracts/**/*.ts",
     "../../bounded-contexts/catalog/**/*.ts",
     "../../bounded-contexts/discovery/**/*.ts",
+    "../../bounded-contexts/fulfillment/**/*.ts",
     "../../bounded-contexts/marketplace/**/*.ts"
   ],
   "exclude": [

@@ -26,6 +26,14 @@ function getActiveKey(pathname: string) {
     return "offers";
   }
 
+  if (pathname.startsWith("/account/shipments")) {
+    return "shipments";
+  }
+
+  if (pathname.startsWith("/account/fulfillment")) {
+    return "fulfillment";
+  }
+
   if (pathname.startsWith("/account/orders")) {
     return "orders";
   }
@@ -122,12 +130,30 @@ function getShellNavItems(actor: MarketplaceActor) {
     });
   }
 
+  if (hasPermission(actor, "fulfillment.view")) {
+    topNavItems.push({
+      key: "shipments",
+      label: "Shipments",
+      icon: "package",
+      href: "/account/shipments",
+    });
+  }
+
   if (hasPermission(actor, "orders.view")) {
     topNavItems.push({
       key: "orders",
       label: "Orders",
       icon: "cart",
       href: "/account/orders",
+    });
+  }
+
+  if (hasPermission(actor, "fulfillment.view") && hasPermission(actor, "fulfillment.manage")) {
+    topNavItems.push({
+      key: "fulfillment",
+      label: "Fulfillment",
+      icon: "package",
+      href: "/account/fulfillment",
     });
   }
 

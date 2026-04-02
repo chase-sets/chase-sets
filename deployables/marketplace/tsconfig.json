@@ -8,6 +8,8 @@
     "src",
     "../../bounded-contexts/discovery/**/*.ts",
     "../../bounded-contexts/discovery/**/*.tsx",
+    "../../bounded-contexts/fulfillment/**/*.ts",
+    "../../bounded-contexts/fulfillment/**/*.tsx",
     "../../bounded-contexts/marketplace/**/*.ts",
     "../../bounded-contexts/marketplace/**/*.tsx",
     "../../bounded-contexts/inventory/**/*.ts",

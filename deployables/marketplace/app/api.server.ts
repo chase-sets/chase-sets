@@ -1,3 +1,4 @@
+import { createFulfillmentApiClient } from "@chase-sets/fulfillment/web";
 import { createIdentityApiClient } from "@chase-sets/identity/web";
 import { createInventoryApiClient } from "@chase-sets/inventory/web";
 import { createMarketplaceApiClient } from "@chase-sets/marketplace-context/web";
@@ -19,6 +20,13 @@ export function createMarketplaceServerApiClient(request: Request) {
 
 export function createMarketplaceOrderingApiClient(request: Request) {
   return createOrderingApiClient({
+    baseUrl: getMarketplaceApiBaseUrl(request),
+    fetch: createForwardedAuthFetch(request),
+  });
+}
+
+export function createMarketplaceFulfillmentApiClient(request: Request) {
+  return createFulfillmentApiClient({
     baseUrl: getMarketplaceApiBaseUrl(request),
     fetch: createForwardedAuthFetch(request),
   });

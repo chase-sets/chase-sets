@@ -36,6 +36,8 @@ describe("marketplace route layout", () => {
       actor: {
         permissions: [
           "accounts.view",
+          "fulfillment.view",
+          "fulfillment.manage",
           "inventory.view",
           "listings.view",
           "offers.view",
@@ -52,7 +54,9 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account/market-offers"');
     expect(html).toContain('href="/account/offers"');
+    expect(html).toContain('href="/account/shipments"');
     expect(html).toContain('href="/account/orders"');
+    expect(html).toContain('href="/account/fulfillment"');
     expect(html).toContain('href="/account/sales"');
     expect(html).toContain('href="/account"');
     expect(html).not.toContain('href="/sign-in"');
