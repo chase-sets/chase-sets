@@ -5,14 +5,17 @@ import type { buildReputationApi } from "./api";
 export { ReputationAccountPage } from "./reviews/ui/account-reputation-page";
 export { ReputationReviewListPage } from "./reviews/ui/review-list-page";
 export { ReputationReviewDetailPage } from "./reviews/ui/review-detail-page";
+export { ReputationReviewSubmissionPage } from "./reviews/ui/review-submission-page";
 export type {
   ReputationAccountSummary,
+  ReputationReviewOpportunity,
   ReputationReviewDetail,
   ReputationReviewListItem,
 } from "./reviews/ui/contracts";
 
 import type {
   ReputationAccountSummary,
+  ReputationReviewOpportunity,
   ReputationReviewDetail,
   ReputationReviewListItem,
 } from "./reviews/ui/contracts";
@@ -112,6 +115,16 @@ export function createReputationApiClient({
       return parseJsonResponse(
         await client.reviews[":id"].$get({
           param: { id: reviewId },
+          header: headers,
+        }),
+      );
+    },
+    async getOrderReviewOpportunity(
+      orderId: string,
+    ): Promise<ReputationReviewOpportunity> {
+      return parseJsonResponse(
+        await client.reviews.opportunities.orders[":orderId"].$get({
+          param: { orderId },
           header: headers,
         }),
       );

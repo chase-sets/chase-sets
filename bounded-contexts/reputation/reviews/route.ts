@@ -112,6 +112,23 @@ export function createAccountReviewRoutes(
     });
   });
 
+  app.get("/opportunities/orders/:orderId", async (c) => {
+    const access = requireReviewAccess(c, "reputation.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const opportunity = await services.getOrderReviewOpportunity(
+      c.req.param("orderId"),
+      access.actor.accountId,
+    );
+    if (!opportunity) {
+      return c.json({ error: "Review opportunity not found." }, 404);
+    }
+
+    return c.json(opportunity);
+  });
+
   app.get("/:id", async (c) => {
     const access = requireReviewAccess(c, "reputation.view");
     if (access.response) {

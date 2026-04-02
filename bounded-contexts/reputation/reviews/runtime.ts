@@ -22,6 +22,7 @@ import { buildReputationReviewProjectionHandlers } from "./projection";
 import {
   findActiveReviewForDirection,
   getAccountReview,
+  getOrderReviewOpportunity,
   getPublicAccountSummary,
   getReviewEligibility,
   listPublicAccountReviews,
@@ -91,6 +92,10 @@ export type ReputationReviewServices = Readonly<{
   getPublicAccountSummary: (
     accountId: string,
   ) => ReturnType<typeof getPublicAccountSummary>;
+  getOrderReviewOpportunity: (
+    orderId: string,
+    authorAccountId: string,
+  ) => ReturnType<typeof getOrderReviewOpportunity>;
   projectors: readonly Projector[];
 }>;
 
@@ -237,6 +242,8 @@ export function createReputationReviewRuntime(
       getAccountReview(deps.db, reviewId, accountId),
     getPublicAccountSummary: (accountId) =>
       getPublicAccountSummary(deps.db, accountId),
+    getOrderReviewOpportunity: (orderId, authorAccountId) =>
+      getOrderReviewOpportunity(deps.db, { orderId, authorAccountId }),
     projectors: [
       createProjector({
         projectorName: "reputation-review-projection",

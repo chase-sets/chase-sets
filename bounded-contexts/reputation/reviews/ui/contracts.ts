@@ -16,6 +16,15 @@ export interface ReputationReviewListItem {
 
 export interface ReputationReviewDetail extends ReputationReviewListItem {}
 
+export interface ReputationReviewOpportunity {
+  order_id: string;
+  subject_account_id: string;
+  subject_display_name: string | null;
+  author_role: string;
+  eligible_at: string;
+  active_review_id: string | null;
+}
+
 export interface ReputationAccountSummary {
   account_id: string;
   account_display_name: string | null;

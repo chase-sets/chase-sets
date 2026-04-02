@@ -50,6 +50,7 @@ function createServices(): ReputationReviewServices {
     listPublicAccountReviews: vi.fn(async () => ({ items: [], total: 0 })),
     listWrittenReviews: vi.fn(async () => ({ items: [], total: 0 })),
     listReceivedReviews: vi.fn(async () => ({ items: [], total: 0 })),
+    getOrderReviewOpportunity: vi.fn(async () => null),
     getAccountReview: vi.fn(async () => null),
     getPublicAccountSummary: vi.fn(async () => ({
       account_id: "acc_seller",
@@ -97,6 +98,73 @@ describe("reputation review routes", () => {
       authorAccountId: "acc_buyer",
       limit: 50,
       offset: 0,
+    });
+  });
+
+  it("returns a review opportunity for a verified order", async () => {
+    const services = createServices();
+    vi.mocked(services.getOrderReviewOpportunity).mockResolvedValue({
+      order_id: "ord_1",
+      subject_account_id: "acc_seller",
+      subject_display_name: "Seller",
+      author_role: "buyer",
+      eligible_at: "2026-04-02T00:00:00.000Z",
+      active_review_id: null,
+    });
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["reputation.view", "reputation.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://reputation.test/reviews/opportunities/orders/ord_1"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      order_id: "ord_1",
+      subject_account_id: "acc_seller",
+      subject_display_name: "Seller",
+      author_role: "buyer",
+      eligible_at: "2026-04-02T00:00:00.000Z",
+      active_review_id: null,
+    });
+    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith(
+      "ord_1",
+      "acc_buyer",
+    );
+  });
+
+  it("returns 404 when an order is not verified for review", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["reputation.view", "reputation.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://reputation.test/reviews/opportunities/orders/ord_2"),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "Review opportunity not found.",
     });
   });
 

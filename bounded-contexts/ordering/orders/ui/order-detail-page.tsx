@@ -9,6 +9,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
+import type { ReactNode } from "react";
 import type { OrderingOrderDetail } from "./contracts";
 
 function formatMoney(amount: string) {
@@ -32,12 +33,16 @@ export function OrderingOrderDetailPage({
   paymentHref,
   order,
   errorMessage,
+  supplementarySection,
+  supplementarySectionTitle = "Next steps",
 }: {
   role: "buyer" | "seller";
   backHref: string;
   paymentHref?: string | null;
   order: OrderingOrderDetail;
   errorMessage?: string | null;
+  supplementarySection?: ReactNode;
+  supplementarySectionTitle?: string;
 }) {
   const counterpartLabel =
     role === "buyer"
@@ -85,6 +90,12 @@ export function OrderingOrderDetailPage({
           </Stack>
         </Card>
       </PageSection>
+
+      {supplementarySection ? (
+        <PageSection title={supplementarySectionTitle}>
+          {supplementarySection}
+        </PageSection>
+      ) : null}
 
       <PageSection title="Lines">
         <Stack gap={3}>

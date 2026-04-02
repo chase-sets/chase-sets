@@ -39,6 +39,15 @@ export type ReviewEligibilityRow = Readonly<{
   eligible_at: string;
 }>;
 
+export type ReviewOpportunityRow = Readonly<{
+  order_id: string;
+  subject_account_id: string;
+  subject_display_name: string | null;
+  author_role: string;
+  eligible_at: string;
+  active_review_id: string | null;
+}>;
+
 const baseReviewSelect = `
   SELECT
     page.review_id,
@@ -228,6 +237,39 @@ export async function getReviewEligibility(
        AND author_account_id = $2
        AND subject_account_id = $3`,
     [params.orderId, params.authorAccountId, params.subjectAccountId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function getOrderReviewOpportunity(
+  db: PgQueryable,
+  params: Readonly<{
+    orderId: string;
+    authorAccountId: string;
+  }>,
+): Promise<ReviewOpportunityRow | null> {
+  const result = await db.query<ReviewOpportunityRow>(
+    `SELECT
+       eligibility.order_id,
+       eligibility.subject_account_id,
+       subject.display_name AS subject_display_name,
+       eligibility.author_role,
+       eligibility.eligible_at,
+       active.review_id AS active_review_id
+     FROM reputation_review_eligibility_pages AS eligibility
+     INNER JOIN ordering_order_pages AS ordering_page
+       ON ordering_page.order_id = eligibility.order_id
+     LEFT JOIN identity_accounts AS subject
+       ON subject.account_id = eligibility.subject_account_id
+     LEFT JOIN reputation_review_pages AS active
+       ON active.order_id = eligibility.order_id
+      AND active.author_account_id = eligibility.author_account_id
+      AND active.subject_account_id = eligibility.subject_account_id
+      AND active.status = 'active'
+     WHERE eligibility.order_id = $1
+       AND eligibility.author_account_id = $2`,
+    [params.orderId, params.authorAccountId],
   );
 
   return result.rows[0] ?? null;
