@@ -103,10 +103,10 @@ Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
 - Identity is upstream for user and account references.
 - Catalog is upstream for canonical item references.
 - Discovery depends on Catalog for canonical item, category, blueprint, and field facts used to build browse/search views.
-- Inventory depends on Identity and Catalog.
-- Marketplace depends on Identity, Catalog, and Inventory availability signals.
+- Inventory depends on Identity and Catalog sellable-unit structure.
+- Marketplace depends on Identity, Catalog sellable-unit identity, and Inventory availability signals.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
-- Ordering depends on Marketplace decisions and Identity account references.
+- Ordering depends on Marketplace sellable-unit commitments and Identity account references.
 - Fulfillment depends on Ordering.
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
@@ -124,9 +124,9 @@ Each context may define rich internal domain events, but only a small, stable in
 
 These scenarios should map cleanly to one owner per decision:
 
-1. Inventory owns bulk stock ingestion and sellable availability.
-2. Marketplace owns listing publication and offer negotiation.
-3. Ordering owns cart decomposition and order creation.
+1. Inventory owns bulk stock ingestion and seller stock for a resolved sellable unit.
+2. Marketplace owns listing publication and offer negotiation for sellable units.
+3. Ordering owns cart decomposition and order creation for committed sellable units.
 4. Fulfillment owns shipment state and tracking.
 5. Reputation owns post-transaction ratings, written feedback, and aggregate reputation summaries.
 6. Payments owns charge and refund execution.

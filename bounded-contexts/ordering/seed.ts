@@ -10,12 +10,31 @@ import {
 import { createInventoryServices } from "@chase-sets/inventory";
 import { createMarketplaceServices } from "@chase-sets/marketplace-context";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import {
+  resolveSellableUnitDescriptor,
+  type CatalogVersionSchema,
+} from "@chase-sets/sellable-units";
 import { createOrderingServices } from "./services";
 
-const rawVersionSelection = [
+const rawNearMintVersionSelection = [
   {
     dimensionId: catalogSeedIds.dimensions.form.dimensionId,
     choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+  },
+  {
+    dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+    choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+  },
+] as const;
+
+const rawExcellentVersionSelection = [
+  {
+    dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+    choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+  },
+  {
+    dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+    choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent,
   },
 ] as const;
 
@@ -24,8 +43,8 @@ const checkoutCartLines = [
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
-    versionSelection: rawVersionSelection,
-    versionSummary: "Form: Raw",
+    versionSelection: rawExcellentVersionSelection,
+    versionSummary: "Form: Raw | Condition: Excellent",
     quantity: 2,
   },
 ] as const;
@@ -35,8 +54,8 @@ const cancelledCartLines = [
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
-    versionSelection: rawVersionSelection,
-    versionSummary: "Form: Raw",
+    versionSelection: rawNearMintVersionSelection,
+    versionSummary: "Form: Raw | Condition: Near Mint",
     quantity: 1,
   },
 ] as const;
@@ -46,16 +65,16 @@ const activeCartLines = [
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
-    versionSelection: rawVersionSelection,
-    versionSummary: "Form: Raw",
+    versionSelection: rawNearMintVersionSelection,
+    versionSummary: "Form: Raw | Condition: Near Mint",
     quantity: 1,
   },
   {
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
-    versionSelection: rawVersionSelection,
-    versionSummary: "Form: Raw",
+    versionSelection: rawExcellentVersionSelection,
+    versionSummary: "Form: Raw | Condition: Excellent",
     quantity: 1,
   },
 ] as const;
@@ -64,8 +83,8 @@ const acceptedOfferSeed = {
   catalogItemId: catalogSeedIds.items.pikachuJungle,
   itemTitle: "Pikachu",
   itemSubtitle: "Jungle 60/64 Common",
-  versionSelection: rawVersionSelection,
-  versionSummary: "Form: Raw",
+  versionSelection: rawExcellentVersionSelection,
+  versionSummary: "Form: Raw | Condition: Excellent",
   priceAmount: "19.25",
   quantityRequested: 2,
 } as const;
@@ -118,15 +137,31 @@ async function countMarketplaceDependencies(db: PgQueryable) {
 
 async function addCartLines(
   services: ReturnType<typeof createOrderingServices>,
+  inventory: ReturnType<typeof createInventoryServices>,
   buyerAccountId: AccountId,
   lines: typeof checkoutCartLines | typeof cancelledCartLines | typeof activeCartLines,
   context: ReturnType<typeof createSeedContext>,
 ) {
   for (const line of lines) {
+    const catalogItem = await inventory.catalogItems.getCatalogItem(line.catalogItemId);
+    if (!catalogItem) {
+      throw new Error(`Catalog item ${line.catalogItemId} not found for ordering seed.`);
+    }
+
+    const sellableUnit = resolveSellableUnitDescriptor({
+      catalogItemId: line.catalogItemId,
+      versionSchema:
+        typeof catalogItem.version_schema === "object" && catalogItem.version_schema !== null
+          ? (catalogItem.version_schema as CatalogVersionSchema)
+          : null,
+      selection: line.versionSelection,
+    });
+
     await services.cart.addLine(
       {
         buyerAccountId,
         catalogItemId: line.catalogItemId,
+        catalogVersionKey: sellableUnit.catalogVersionKey,
         itemTitle: line.itemTitle,
         itemSubtitle: line.itemSubtitle,
         versionSelection: line.versionSelection,
@@ -222,7 +257,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
   const context = createSeedContext();
   const buyerAccountId = demoIdentitySeedIds.accountId;
 
-  await addCartLines(ordering, buyerAccountId, checkoutCartLines, context);
+  await addCartLines(ordering, inventory, buyerAccountId, checkoutCartLines, context);
   await drainProjectors([
     ...inventory.projectors,
     ...marketplace.projectors,
@@ -242,7 +277,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
   ]);
   console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
 
-  await addCartLines(ordering, buyerAccountId, cancelledCartLines, context);
+  await addCartLines(ordering, inventory, buyerAccountId, cancelledCartLines, context);
   await drainProjectors([
     ...inventory.projectors,
     ...marketplace.projectors,
@@ -284,6 +319,15 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
     {
       buyerAccountId,
       catalogItemId: acceptedOfferSeed.catalogItemId,
+      catalogVersionKey: resolveSellableUnitDescriptor({
+        catalogItemId: acceptedOfferSeed.catalogItemId,
+        versionSchema: (
+          (
+            await inventory.catalogItems.getCatalogItem(acceptedOfferSeed.catalogItemId)
+          )?.version_schema ?? null
+        ) as CatalogVersionSchema | null,
+        selection: acceptedOfferSeed.versionSelection,
+      }).catalogVersionKey,
       itemTitle: acceptedOfferSeed.itemTitle,
       itemSubtitle: acceptedOfferSeed.itemSubtitle,
       versionSelection: acceptedOfferSeed.versionSelection,
@@ -321,7 +365,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
   }
   console.log(`  Accepted-offer order seeded (${acceptedOfferOrderId})`);
 
-  await addCartLines(ordering, buyerAccountId, activeCartLines, context);
+  await addCartLines(ordering, inventory, buyerAccountId, activeCartLines, context);
   await drainProjectors([
     ...inventory.projectors,
     ...marketplace.projectors,

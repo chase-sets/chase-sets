@@ -19,6 +19,8 @@ function statusTone(status: string) {
   switch (status) {
     case "cancelled":
       return "danger";
+    case "ready-for-fulfillment":
+      return "success";
     default:
       return "accent";
   }
@@ -27,11 +29,13 @@ function statusTone(status: string) {
 export function OrderingOrderDetailPage({
   role,
   backHref,
+  paymentHref,
   order,
   errorMessage,
 }: {
   role: "buyer" | "seller";
   backHref: string;
+  paymentHref?: string | null;
   order: OrderingOrderDetail;
   errorMessage?: string | null;
 }) {
@@ -68,6 +72,9 @@ export function OrderingOrderDetailPage({
             <Text>Item subtotal: {formatMoney(order.item_subtotal_amount)}</Text>
             <Text>Shipping charge: {formatMoney(order.shipping_charge_amount)}</Text>
             <Text>Total: {formatMoney(order.total_amount)}</Text>
+            {order.status === "pending-payment" && paymentHref ? (
+              <LinkButton href={paymentHref}>Pay now</LinkButton>
+            ) : null}
             {order.status === "pending-payment" ? (
               <form method="post">
                 <Button type="submit" name="intent" value="cancel-order" tone="danger">
@@ -91,7 +98,7 @@ export function OrderingOrderDetailPage({
                   </Text>
                 ) : null}
                 <Text size="sm" tone="secondary">
-                  {line.version_summary ?? "Standard"} | Condition: {line.condition}
+                  {line.version_summary ?? "Standard"}
                 </Text>
                 <Text>
                   {line.quantity} x {formatMoney(line.unit_price_amount)} ={" "}

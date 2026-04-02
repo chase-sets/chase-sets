@@ -4,11 +4,11 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   account_id text NOT NULL,
   inventory_record_id text NOT NULL,
   catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
   item_title text NULL,
   item_subtitle text NULL,
   version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
   version_summary text NULL,
-  condition text NOT NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount numeric(12,2) NOT NULL,
@@ -23,6 +23,9 @@ CREATE INDEX IF NOT EXISTS marketplace_listing_pages_account_idx
 
 CREATE INDEX IF NOT EXISTS marketplace_listing_pages_item_idx
   ON marketplace_listing_pages (catalog_item_id, status, price_amount);
+
+CREATE INDEX IF NOT EXISTS marketplace_listing_pages_catalog_version_idx
+  ON marketplace_listing_pages (catalog_version_key, status, price_amount);
 
 CREATE INDEX IF NOT EXISTS marketplace_listing_pages_inventory_record_idx
   ON marketplace_listing_pages (inventory_record_id, status, updated_at DESC);

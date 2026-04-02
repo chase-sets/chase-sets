@@ -6,11 +6,12 @@ Browse, search, filters, and item detail terminology are owned by the Discovery 
 
 ## Listing
 
-A **Listing** is a seller-published offer to sell a specific catalog item at a defined price and quantity.
+A **Listing** is a seller-published offer to sell a specific sellable unit at a defined price and quantity.
 
 Notes:
 
 - Listings are owned by Marketplace.
+- Listings reference one `CatalogItemId`, one `CatalogVersionKey`, and one normalized selection snapshot.
 - Listings reference inventory availability but do not own stock truth.
 
 ## Offer
@@ -20,6 +21,7 @@ An **Offer** is a buyer-proposed purchase for a specific item version, price, an
 Notes:
 
 - Offers are owned by Marketplace.
+- Offers reference one `CatalogItemId`, one `CatalogVersionKey`, and one normalized selection snapshot.
 - In v1, offers are not tied to a specific seller, listing, or inventory record.
 - Sellers can review offers only when they have matching active listings.
 - When accepted, an offer becomes a seller-specific commitment input for Ordering.

@@ -12,6 +12,11 @@ import {
   buildOrderingApi,
   type OrderingServices,
 } from "@chase-sets/ordering";
+import {
+  buildPaymentsApi,
+  createStripeWebhookRoutes,
+  type PaymentsServices,
+} from "@chase-sets/payments";
 import { createHealthRoutes } from "@chase-sets/http/health";
 import {
   createMarketplaceAuthMiddleware,
@@ -30,6 +35,7 @@ export function buildMarketplaceApp(
     inventory: InventoryServices;
     marketplace: MarketplaceServices;
     ordering: OrderingServices;
+    payments: PaymentsServices;
   }>,
   options: BuildMarketplaceAppOptions = {},
 ) {
@@ -44,6 +50,7 @@ export function buildMarketplaceApp(
       for (const projector of [
         ...services.inventory.projectors,
         ...services.marketplace.projectors,
+        ...services.payments.projectors,
         ...services.ordering.projectors,
       ]) {
         const result = await projector.runOnce();
@@ -65,9 +72,18 @@ export function buildMarketplaceApp(
       await drainProjectors();
     }
   });
+  app.use("/api/payments/*", async (c, next) => {
+    await next();
+
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      await drainProjectors();
+    }
+  });
   app.route("/api/marketplace", buildDiscoveryApi(services.discovery));
   app.route("/api/marketplace", buildMarketplaceApi(services.marketplace));
   app.route("/api/marketplace", buildOrderingApi(services.ordering));
+  app.route("/api/marketplace", buildPaymentsApi(services.payments.payments));
+  app.route("/api/payments/stripe", createStripeWebhookRoutes(services.payments.payments));
 
   return app;
 }

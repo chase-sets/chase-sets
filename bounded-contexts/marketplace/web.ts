@@ -121,20 +121,20 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async getMarketSummary(itemId: string): Promise<MarketplaceMarketSummary> {
+    async getMarketSummary(catalogVersionKey: string): Promise<MarketplaceMarketSummary> {
       return parseJsonResponse(
-        await client.items[":id"]["market-summary"].$get({
-          param: { id: itemId },
+        await client["sellable-units"][":catalogVersionKey"]["market-summary"].$get({
+          param: { catalogVersionKey },
           header: headers,
         }),
       );
     },
     async listItemListings(
-      itemId: string,
+      catalogVersionKey: string,
     ): Promise<ListResponse<MarketplaceItemListing>> {
       return parseJsonResponse(
-        await client.items[":id"].listings.$get({
-          param: { id: itemId },
+        await client["sellable-units"][":catalogVersionKey"].listings.$get({
+          param: { catalogVersionKey },
           header: headers,
         }),
       );

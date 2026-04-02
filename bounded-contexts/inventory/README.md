@@ -4,11 +4,19 @@
 
 Inventory owns seller-held stock, its storage structure, its ship-from location mapping, and its operational availability.
 
+Inventory records do not target a bare catalog item. They target a resolved sellable unit:
+
+- `catalogItemId`
+- `catalogVersionKey`
+- normalized `versionSelection`
+
+If an item uses a `condition` dimension, that condition is chosen through the catalog version selection. Inventory does not maintain a separate seller-specific condition field.
+
 ## Owns
 
 - Inventory records tied to storage locations
 - Quantities on hand
-- Seller-specific condition assessments
+- Resolved sellable-unit stock
 - Acquisition cost and cost basis
 - Storage locations and their ship-from location mapping
 - Hold state
@@ -48,7 +56,7 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 1. Inventory is private seller state.
 2. Every inventory record belongs to exactly one seller account.
-3. Every inventory record belongs to exactly one storage location.
+3. Every inventory record belongs to exactly one resolved sellable unit and one storage location.
 4. Every storage location maps to exactly one ship-from location.
 5. Inventory availability must be derived from total quantity minus active holds.
 6. A listing can only be created from inventory that is available for sale.

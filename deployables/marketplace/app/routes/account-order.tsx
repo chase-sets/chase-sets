@@ -61,6 +61,11 @@ export default function MarketplaceAccountOrderRoute() {
     <OrderingOrderDetailPage
       role="buyer"
       backHref="/account/orders"
+      paymentHref={
+        data.order.status === "pending-payment"
+          ? `/account/payments/new?orderIds=${encodeURIComponent(data.order.order_id)}`
+          : null
+      }
       order={data.order as OrderingOrderDetail}
       errorMessage={actionData?.error ?? null}
     />

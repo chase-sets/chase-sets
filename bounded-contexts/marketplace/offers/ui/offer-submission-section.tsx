@@ -10,6 +10,7 @@ import {
 
 export function MarketplaceOfferSubmissionSection({
   catalogItemId,
+  catalogVersionKey,
   itemTitle,
   versionSelection,
   versionSummary,
@@ -17,6 +18,7 @@ export function MarketplaceOfferSubmissionSection({
   errorMessage,
 }: {
   catalogItemId: string;
+  catalogVersionKey: string;
   itemTitle: string;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
   versionSummary: string | null;
@@ -30,6 +32,7 @@ export function MarketplaceOfferSubmissionSection({
           <Stack gap={3}>
             <input type="hidden" name="intent" value="submit-offer" />
             <input type="hidden" name="catalogItemId" value={catalogItemId} />
+            <input type="hidden" name="catalogVersionKey" value={catalogVersionKey} />
             <input type="hidden" name="versionSelection" value={JSON.stringify(versionSelection)} />
             <input type="hidden" name="versionSummary" value={versionSummary ?? ""} />
             <Stack gap={1}>

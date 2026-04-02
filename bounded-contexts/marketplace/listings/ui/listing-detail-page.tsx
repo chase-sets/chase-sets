@@ -2,7 +2,6 @@ import {
   Badge,
   Button,
   Card,
-  ConditionBadge,
   LinkButton,
   Page,
   PageHeader,
@@ -68,7 +67,6 @@ export function MarketplaceListingDetailPage({
                 {listing.version_summary}
               </Text>
             ) : null}
-            <ConditionBadge condition={listing.condition as never} />
             <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
             <Text>Price: {formatMoney(listing.price_amount)}</Text>
             <Text>Quantity cap: {listing.quantity_cap}</Text>

@@ -79,6 +79,7 @@ describe("marketplace offer routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           catalogItemId: "cat_charizard",
+          catalogVersionKey: "cat_charizard::",
           itemTitle: "Charizard",
           itemSubtitle: "Base Set 4/102 Holo Rare",
           versionSelection: [{ dimensionId: "form", choiceId: "raw" }],
@@ -129,6 +130,7 @@ describe("marketplace offer routes", () => {
       offer_id: "off_1",
       buyer_account_id: "acc_buyer",
       catalog_item_id: "cat_charizard",
+      catalog_version_key: "cat_charizard::",
       item_title: "Charizard",
       item_subtitle: "Base Set 4/102 Holo Rare",
       version_selection: [{ dimensionId: "form", choiceId: "raw" }],

@@ -157,6 +157,11 @@ An Item:
 
 Items exist independently of condition, grading, or other selections.
 
+Notes:
+
+- A catalog item is the browse parent, not the commerce sellable unit.
+- Commerce flows resolve sellable units from `CatalogItemId + CatalogVersionKey + normalized Selection`.
+
 ---
 
 ## Selection
@@ -192,6 +197,7 @@ A Version:
 - Represents a concrete sellable configuration
 - Has deterministic identity derived from Item + Selection
 - Is computed rather than stored as a primary entity
+- Is the canonical sellable unit used by Inventory, Marketplace, and Ordering
 
 Version identity is based only on:
 

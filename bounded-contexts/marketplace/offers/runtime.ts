@@ -8,6 +8,10 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
+import {
+  resolveSellableUnitDescriptor,
+  type CatalogVersionSchema,
+} from "@chase-sets/sellable-units";
 import type { InventoryRuntimeDeps } from "../../inventory/runtime-support";
 import {
   decideMarketplaceOffer,
@@ -35,6 +39,7 @@ export type MarketplaceOfferServices = Readonly<{
     params: Readonly<{
       buyerAccountId: AccountId;
       catalogItemId: string;
+      catalogVersionKey: string;
       itemTitle: string;
       itemSubtitle: string | null;
       versionSelection: readonly { dimensionId: string; choiceId: string }[];
@@ -82,9 +87,49 @@ export function createMarketplaceOfferRuntime(
     decide: decideMarketplaceOffer,
   });
 
+  async function getCatalogItemSnapshot(catalogItemId: string) {
+    const result = await deps.db.query<{
+      item_id: string;
+      title: string;
+      subtitle: string | null;
+      status: string;
+      version_schema: unknown;
+    }>(
+      `SELECT item_id, title, subtitle, status, version_schema
+       FROM inventory_catalog_items
+       WHERE item_id = $1`,
+      [catalogItemId],
+    );
+
+    return result.rows[0] ?? null;
+  }
+
   return {
     commandHandler,
     submitOffer: async (params, context) => {
+      const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
+      if (!catalogItem) {
+        throw new Error("Catalog item not found.");
+      }
+
+      if (catalogItem.status !== "active") {
+        throw new Error("Offers may only reference active catalog items.");
+      }
+
+      const sellableUnit = resolveSellableUnitDescriptor({
+        catalogItemId: params.catalogItemId,
+        versionSchema:
+          typeof catalogItem.version_schema === "object" &&
+          catalogItem.version_schema !== null
+            ? (catalogItem.version_schema as CatalogVersionSchema)
+            : null,
+        selection: params.versionSelection,
+      });
+
+      if (params.catalogVersionKey.trim() !== sellableUnit.catalogVersionKey) {
+        throw new Error("Offer catalog version key does not match the selected version.");
+      }
+
       const offerId = createId("off") as OfferId;
       const result = await commandHandler({
         streamId: `marketplace.offer-${offerId}`,
@@ -93,9 +138,10 @@ export function createMarketplaceOfferRuntime(
           offerId,
           buyerAccountId: params.buyerAccountId,
           catalogItemId: params.catalogItemId,
+          catalogVersionKey: sellableUnit.catalogVersionKey,
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,
-          versionSelection: params.versionSelection,
+          versionSelection: sellableUnit.selection,
           versionSummary: params.versionSummary,
           priceAmount: params.priceAmount,
           quantityRequested: params.quantityRequested,

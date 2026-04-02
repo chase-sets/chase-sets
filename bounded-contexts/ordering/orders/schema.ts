@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS ordering_order_pages (
   status text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  cancelled_at timestamptz NULL
+  cancelled_at timestamptz NULL,
+  ready_for_fulfillment_at timestamptz NULL
 );
 
 CREATE INDEX IF NOT EXISTS ordering_order_pages_buyer_idx
@@ -30,11 +31,11 @@ CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   listing_id text NOT NULL,
   inventory_record_id text NOT NULL,
   catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
   item_title text NOT NULL,
   item_subtitle text NULL,
   version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
   version_summary text NULL,
-  condition text NOT NULL,
   unit_price_amount numeric(12,2) NOT NULL,
   quantity integer NOT NULL CHECK (quantity > 0),
   line_total_amount numeric(12,2) NOT NULL,
@@ -43,6 +44,9 @@ CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
 
 CREATE INDEX IF NOT EXISTS ordering_order_line_pages_order_idx
   ON ordering_order_line_pages (order_id, line_index ASC);
+
+CREATE INDEX IF NOT EXISTS ordering_order_line_pages_catalog_version_idx
+  ON ordering_order_line_pages (catalog_version_key);
 
 CREATE TABLE IF NOT EXISTS ordering_order_hold_pages (
   hold_id text PRIMARY KEY,

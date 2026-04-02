@@ -35,11 +35,14 @@ function buildItemDetail(
         account_id: "acc_1",
         inventory_record_id: "inv_1",
         catalog_item_id: "item-1",
+        catalog_version_key: "item-1::condition:near-mint|form:raw",
         item_title: "Charizard",
         item_subtitle: "Base Set 4/102 Holo Rare",
-        version_selection: [{ dimensionId: "form", choiceId: "raw" }],
-        version_summary: "Form: Raw",
-        condition: "NM",
+        version_selection: [
+          { dimensionId: "condition", choiceId: "near-mint" },
+          { dimensionId: "form", choiceId: "raw" },
+        ],
+        version_summary: "Form: Raw | Condition: Near Mint",
         storage_location_name: "Vault annex",
         ship_from_code: "CHI-ANNEX-2",
         price_amount: "399.99",
@@ -54,6 +57,7 @@ function buildItemDetail(
     version_schema: {
       canonicalDimensionOrder: [
         { dimensionId: "form", dimensionName: "Form" },
+        { dimensionId: "condition", dimensionName: "Condition" },
         { dimensionId: "grading-company", dimensionName: "Grading Company" },
         { dimensionId: "grade", dimensionName: "Grade" },
       ],
@@ -66,6 +70,24 @@ function buildItemDetail(
           allowedChoices: [
             { choiceId: "raw", code: "raw", labels: [{ locale: "en-US", value: "Raw" }] },
             { choiceId: "graded", code: "graded", labels: [{ locale: "en-US", value: "Graded" }] },
+          ],
+        },
+        {
+          dimensionId: "condition",
+          dimensionName: "Condition",
+          required: true,
+          appliesWhen: [],
+          allowedChoices: [
+            {
+              choiceId: "near-mint",
+              code: "NM",
+              labels: [{ locale: "en-US", value: "Near Mint" }],
+            },
+            {
+              choiceId: "excellent",
+              code: "EX",
+              labels: [{ locale: "en-US", value: "Excellent" }],
+            },
           ],
         },
         {
@@ -143,6 +165,7 @@ describe("marketplace item detail page", () => {
 
     expect(screen.getByText("Selected Version")).toBeTruthy();
     expect(screen.getAllByText("Raw").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Near Mint").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("tab", { name: "Graded" }));
 
@@ -169,11 +192,14 @@ describe("marketplace item detail page", () => {
             account_id: "acc_1",
             inventory_record_id: "inv_1",
             catalog_item_id: "item-1",
+            catalog_version_key: "item-1::condition:near-mint|form:raw",
             item_title: "Charizard",
             item_subtitle: "Base Set 4/102 Holo Rare",
-            version_selection: [{ dimensionId: "form", choiceId: "raw" }],
-            version_summary: "Form: Raw",
-            condition: "NM",
+            version_selection: [
+              { dimensionId: "condition", choiceId: "near-mint" },
+              { dimensionId: "form", choiceId: "raw" },
+            ],
+            version_summary: "Form: Raw | Condition: Near Mint",
             storage_location_name: "Vault annex",
             ship_from_code: "CHI-ANNEX-2",
             price_amount: "399.99",
@@ -189,15 +215,18 @@ describe("marketplace item detail page", () => {
             account_id: "acc_1",
             inventory_record_id: "inv_2",
             catalog_item_id: "item-1",
+            catalog_version_key:
+              "item-1::condition:near-mint|form:graded|grade:10|grading-company:ace",
             item_title: "Charizard",
             item_subtitle: "Base Set 4/102 Holo Rare",
             version_selection: [
+              { dimensionId: "condition", choiceId: "near-mint" },
               { dimensionId: "form", choiceId: "graded" },
               { dimensionId: "grading-company", choiceId: "ace" },
               { dimensionId: "grade", choiceId: "10" },
             ],
-            version_summary: "Form: Graded | Grading Company: ACE | Grade: Pristine 10",
-            condition: "NM",
+            version_summary:
+              "Form: Graded | Condition: Near Mint | Grading Company: ACE | Grade: Pristine 10",
             storage_location_name: "Vault annex",
             ship_from_code: "CHI-ANNEX-2",
             price_amount: "1499.99",
@@ -229,6 +258,7 @@ describe("marketplace item detail page", () => {
           renderAfterListings={(context) => (
             <MarketplaceOfferSubmissionSection
               catalogItemId={context.itemId}
+              catalogVersionKey={context.selectedCatalogVersionKey}
               itemTitle={context.itemTitle}
               versionSelection={context.selectedVersionSelection}
               versionSummary={context.selectedVersionSummary}
@@ -240,13 +270,15 @@ describe("marketplace item detail page", () => {
     );
 
     expect(screen.getByText("Make An Offer")).toBeTruthy();
-    expect(screen.getAllByText("Form: Raw").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Form: Raw | Condition: Near Mint").length,
+    ).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("tab", { name: "Graded" }));
 
     expect(
       screen.getAllByText(
-        "Form: Graded | Grading Company: ACE | Grade: Pristine 10",
+        "Form: Graded | Condition: Near Mint | Grading Company: ACE | Grade: Pristine 10",
       ).length,
     ).toBeGreaterThan(0);
   });

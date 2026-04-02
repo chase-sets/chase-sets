@@ -50,6 +50,7 @@ describe("marketplace offer routes", () => {
                 offer_id: "off_1",
                 buyer_account_id: "acc_1",
                 catalog_item_id: "cat_charizard",
+                catalog_version_key: "cat_charizard::",
                 item_title: "Charizard",
                 item_subtitle: null,
                 version_selection: [],
@@ -105,6 +106,7 @@ describe("marketplace offer routes", () => {
             offer_id: "off_1",
             buyer_account_id: "acc_1",
             catalog_item_id: "cat_charizard",
+            catalog_version_key: "cat_charizard::",
             item_title: "Charizard",
             item_subtitle: null,
             version_selection: [],
@@ -158,6 +160,7 @@ describe("marketplace offer routes", () => {
                 buyer_account_id: "acc_buyer",
                 buyer_display_name: "Buyer One",
                 catalog_item_id: "cat_charizard",
+                catalog_version_key: "cat_charizard::",
                 item_title: "Charizard",
                 item_subtitle: null,
                 version_selection: [],
@@ -213,6 +216,7 @@ describe("marketplace offer routes", () => {
             buyer_account_id: "acc_buyer",
             buyer_display_name: "Buyer One",
             catalog_item_id: "cat_charizard",
+            catalog_version_key: "cat_charizard::",
             item_title: "Charizard",
             item_subtitle: null,
             version_selection: [],
@@ -287,6 +291,7 @@ describe("marketplace offer routes", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "submit-offer");
+    form.set("catalogVersionKey", "item-1::");
     form.set("versionSelection", "[]");
     form.set("versionSummary", "");
     form.set("priceAmount", "350.00");

@@ -1,7 +1,6 @@
 import {
   Button,
   Card,
-  ConditionBadge,
   LinkButton,
   Page,
   PageHeader,
@@ -55,10 +54,6 @@ export function InventoryRecordDetailPage({
                 <strong>Version:</strong> {record.version_summary}
               </Text>
             ) : null}
-            <Text>
-              <strong>Condition:</strong>{" "}
-              <ConditionBadge condition={record.condition as never} />
-            </Text>
             <Text>
               <strong>Location:</strong> {record.storage_location_name} ({record.ship_from_code})
             </Text>

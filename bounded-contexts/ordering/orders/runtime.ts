@@ -11,6 +11,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
+import type { CatalogVersionKey } from "@chase-sets/sellable-units";
 import {
   OrderingDomainError,
   buildDemandSignature,
@@ -81,11 +82,11 @@ type SellerOrderDraft = Readonly<{
     listingId: string;
     inventoryRecordId: string;
     catalogItemId: string;
+    catalogVersionKey: CatalogVersionKey;
     itemTitle: string;
     itemSubtitle: string | null;
     versionSelection: { dimensionId: string; choiceId: string }[];
     versionSummary: string | null;
-    condition: string;
     unitPriceAmount: string;
     quantity: number;
     lineTotalAmount: string;
@@ -122,6 +123,7 @@ export type OrderingOrderServices = Readonly<{
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
       catalogItemId: string;
+      catalogVersionKey: CatalogVersionKey;
       itemTitle: string;
       itemSubtitle: string | null;
       versionSelection: { dimensionId: string; choiceId: string }[];
@@ -160,7 +162,7 @@ function groupDemands(cartLines: readonly OrderingCartLineRow[]) {
   const grouped = new Map<string, MarketplaceDemand & Readonly<{ quantity: number }>>();
 
   for (const line of cartLines) {
-    const key = buildDemandSignature(line.catalog_item_id, line.version_selection);
+    const key = buildDemandSignature(line.catalog_version_key);
     const existing = grouped.get(key);
 
     if (existing) {
@@ -170,6 +172,7 @@ function groupDemands(cartLines: readonly OrderingCartLineRow[]) {
 
     grouped.set(key, {
       catalogItemId: line.catalog_item_id,
+      catalogVersionKey: line.catalog_version_key as CatalogVersionKey,
       itemTitle: line.item_title,
       itemSubtitle: line.item_subtitle,
       versionSelection: line.version_selection,
@@ -265,11 +268,11 @@ function quotePlan(
         listingId: allocation.candidate.listingId,
         inventoryRecordId: allocation.candidate.inventoryRecordId,
         catalogItemId: allocation.candidate.catalogItemId,
+        catalogVersionKey: allocation.candidate.catalogVersionKey,
         itemTitle: allocation.candidate.itemTitle,
         itemSubtitle: allocation.candidate.itemSubtitle,
         versionSelection: [...allocation.candidate.versionSelection],
         versionSummary: allocation.candidate.versionSummary,
-        condition: allocation.candidate.condition,
         unitPriceAmount,
         quantity: allocation.quantity,
         lineTotalAmount,
@@ -466,6 +469,7 @@ export function createOrderingOrderRuntime(
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
       catalogItemId: string;
+      catalogVersionKey: CatalogVersionKey;
       itemTitle: string;
       itemSubtitle: string | null;
       versionSelection: { dimensionId: string; choiceId: string }[];
@@ -478,6 +482,7 @@ export function createOrderingOrderRuntime(
     const demandGroups: MarketplaceDemand[] = [
       {
         catalogItemId: params.catalogItemId,
+        catalogVersionKey: params.catalogVersionKey,
         itemTitle: params.itemTitle,
         itemSubtitle: params.itemSubtitle,
         versionSelection: params.versionSelection,
@@ -607,6 +612,7 @@ export function createOrderingOrderRuntime(
               buyerAccountId: AccountId;
               sellerAccountId: AccountId;
               catalogItemId: string;
+              catalogVersionKey: CatalogVersionKey;
               itemTitle: string;
               itemSubtitle: string | null;
               versionSelection: { dimensionId: string; choiceId: string }[];
@@ -620,6 +626,34 @@ export function createOrderingOrderRuntime(
               audit: event.audit,
               trace: event.trace,
             } as EventStoreContext);
+          },
+        },
+      }),
+      createProjector({
+        projectorName: "ordering-payment-capture",
+        eventStore: deps.eventStore,
+        checkpointStore: deps.checkpointStore,
+        handlers: {
+          "payments.payment-captured": async (event) => {
+            const data = event.data as {
+              orderIds: string[];
+              capturedAt: string;
+            };
+
+            for (const orderId of data.orderIds ?? []) {
+              await commandHandler({
+                streamId: `ordering.order-${orderId}`,
+                command: {
+                  type: "MarkReadyForFulfillment",
+                  readyForFulfillmentAt: data.capturedAt,
+                },
+                context: {
+                  tenantId: event.tenantId,
+                  audit: event.audit,
+                  trace: event.trace,
+                } as EventStoreContext,
+              });
+            }
           },
         },
       }),

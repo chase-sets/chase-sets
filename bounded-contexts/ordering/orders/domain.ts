@@ -4,6 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
+import type { CatalogVersionKey } from "@chase-sets/sellable-units";
 import {
   assert,
   assertNever,
@@ -25,11 +26,11 @@ export type OrderingOrderLine = Readonly<{
   listingId: string;
   inventoryRecordId: string;
   catalogItemId: string;
+  catalogVersionKey: CatalogVersionKey;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: VersionSelectionEntry[];
   versionSummary: string | null;
-  condition: string;
   unitPriceAmount: string;
   quantity: number;
   lineTotalAmount: string;
@@ -58,6 +59,7 @@ export type OrderingOrderState = Readonly<{
   inventoryReservations: OrderingInventoryReservation[];
   status: OrderStatus | null;
   cancelledAt: string | null;
+  readyForFulfillmentAt: string | null;
 }>;
 
 export const initialOrderingOrderState: OrderingOrderState = {
@@ -76,6 +78,7 @@ export const initialOrderingOrderState: OrderingOrderState = {
   inventoryReservations: [],
   status: null,
   cancelledAt: null,
+  readyForFulfillmentAt: null,
 };
 
 export type CreateOrderCommand = Readonly<{
@@ -100,7 +103,15 @@ export type CancelOrderCommand = Readonly<{
   cancelledAt: string;
 }>;
 
-export type OrderingOrderCommand = CreateOrderCommand | CancelOrderCommand;
+export type MarkReadyForFulfillmentCommand = Readonly<{
+  type: "MarkReadyForFulfillment";
+  readyForFulfillmentAt: string;
+}>;
+
+export type OrderingOrderCommand =
+  | CreateOrderCommand
+  | CancelOrderCommand
+  | MarkReadyForFulfillmentCommand;
 
 export type OrderCreatedEvent = DomainEvent<
   "ordering.order.created",
@@ -129,7 +140,18 @@ export type OrderCancelledEvent = DomainEvent<
   }>
 >;
 
-export type OrderingOrderEvent = OrderCreatedEvent | OrderCancelledEvent;
+export type OrderReadyForFulfillmentEvent = DomainEvent<
+  "ordering.order.ready-for-fulfillment-recorded",
+  Readonly<{
+    orderId: OrderId;
+    readyForFulfillmentAt: string;
+  }>
+>;
+
+export type OrderingOrderEvent =
+  | OrderCreatedEvent
+  | OrderCancelledEvent
+  | OrderReadyForFulfillmentEvent;
 
 function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
   assert(lines.length > 0, "Orders must include at least one line.");
@@ -144,6 +166,10 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
       line.catalogItemId,
       "Order lines must reference a catalog item.",
     ),
+    catalogVersionKey: normalizeRequiredText(
+      String(line.catalogVersionKey),
+      "Order lines must reference a catalog version key.",
+    ) as CatalogVersionKey,
     itemTitle: normalizeRequiredText(
       line.itemTitle,
       "Order lines must include an item title snapshot.",
@@ -151,7 +177,6 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
     versionSelection: normalizeVersionSelection(line.versionSelection),
     versionSummary: normalizeOptionalText(line.versionSummary),
-    condition: normalizeRequiredText(line.condition, "Order lines must include a condition."),
     unitPriceAmount: normalizeMoneyAmount(line.unitPriceAmount, {
       fieldName: "Unit price",
     }),
@@ -266,6 +291,27 @@ export const decideOrderingOrder: AggregateDecider<
           },
         },
       ];
+    case "MarkReadyForFulfillment":
+      assert(state.orderId !== null, "Order must be created first.");
+      if (state.status === "ready-for-fulfillment") {
+        return [];
+      }
+      assert(
+        state.status === "pending-payment",
+        "Only pending orders can become ready for fulfillment.",
+      );
+      return [
+        {
+          type: "ordering.order.ready-for-fulfillment-recorded",
+          data: {
+            orderId: state.orderId,
+            readyForFulfillmentAt: normalizeRequiredText(
+              command.readyForFulfillmentAt,
+              "Order readiness must record a timestamp.",
+            ),
+          },
+        },
+      ];
     default:
       return assertNever(command);
   }
@@ -293,12 +339,19 @@ export const evolveOrderingOrder: AggregateEvolver<
         inventoryReservations: event.data.inventoryReservations,
         status: "pending-payment",
         cancelledAt: null,
+        readyForFulfillmentAt: null,
       };
     case "ordering.order.cancelled":
       return {
         ...state,
         status: "cancelled",
         cancelledAt: event.data.cancelledAt,
+      };
+    case "ordering.order.ready-for-fulfillment-recorded":
+      return {
+        ...state,
+        status: "ready-for-fulfillment",
+        readyForFulfillmentAt: event.data.readyForFulfillmentAt,
       };
     default:
       return assertNever(event);

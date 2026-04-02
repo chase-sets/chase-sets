@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_pages (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
   catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
   item_title text NOT NULL,
   item_subtitle text NULL,
   version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -21,6 +22,9 @@ CREATE INDEX IF NOT EXISTS marketplace_offer_pages_buyer_account_idx
 
 CREATE INDEX IF NOT EXISTS marketplace_offer_pages_catalog_item_idx
   ON marketplace_offer_pages (catalog_item_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS marketplace_offer_pages_catalog_version_idx
+  ON marketplace_offer_pages (catalog_version_key, status, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS marketplace_offer_pages_version_selection_idx
   ON marketplace_offer_pages USING gin (version_selection);

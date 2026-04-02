@@ -1,0 +1,146 @@
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+export function buildPaymentProjectionHandlers(
+  db: PgQueryable,
+): ProjectorHandlerMap {
+  return {
+    "payments.payment-created": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        buyerAccountId: string;
+        orderIds: string[];
+        amount: string;
+        currencyCode: string;
+        processorName: string;
+        processorPaymentReference: string;
+        processorClientSecret: string | null;
+        processorStatus: string;
+        createdAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO payments_payment_pages (
+           payment_id,
+           buyer_account_id,
+           order_ids,
+           amount,
+           currency_code,
+           processor_name,
+           processor_payment_reference,
+           processor_client_secret,
+           processor_status,
+           status,
+           failure_code,
+           failure_message,
+           created_at,
+           updated_at,
+           captured_at,
+           failed_at,
+           cancelled_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending-confirmation', NULL, NULL, $10, $10, NULL, NULL, NULL
+         )
+         ON CONFLICT (payment_id) DO UPDATE
+         SET buyer_account_id = EXCLUDED.buyer_account_id,
+             order_ids = EXCLUDED.order_ids,
+             amount = EXCLUDED.amount,
+             currency_code = EXCLUDED.currency_code,
+             processor_name = EXCLUDED.processor_name,
+             processor_payment_reference = EXCLUDED.processor_payment_reference,
+             processor_client_secret = EXCLUDED.processor_client_secret,
+             processor_status = EXCLUDED.processor_status,
+             status = EXCLUDED.status,
+             updated_at = EXCLUDED.updated_at`,
+        [
+          data.paymentId,
+          data.buyerAccountId,
+          JSON.stringify(data.orderIds),
+          data.amount,
+          data.currencyCode,
+          data.processorName,
+          data.processorPaymentReference,
+          data.processorClientSecret,
+          data.processorStatus,
+          data.createdAt,
+        ],
+      );
+    },
+    "payments.payment-authorized": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        processorStatus: string;
+        authorizedAt: string;
+      };
+
+      await db.query(
+        `UPDATE payments_payment_pages
+         SET processor_status = $2,
+             updated_at = $3
+         WHERE payment_id = $1`,
+        [data.paymentId, data.processorStatus, data.authorizedAt],
+      );
+    },
+    "payments.payment-captured": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        processorStatus: string;
+        capturedAt: string;
+      };
+
+      await db.query(
+        `UPDATE payments_payment_pages
+         SET processor_status = $2,
+             status = 'captured',
+             failure_code = NULL,
+             failure_message = NULL,
+             captured_at = $3,
+             updated_at = $3
+         WHERE payment_id = $1`,
+        [data.paymentId, data.processorStatus, data.capturedAt],
+      );
+    },
+    "payments.payment-failed": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        processorStatus: string;
+        failureCode: string | null;
+        failureMessage: string | null;
+        failedAt: string;
+      };
+
+      await db.query(
+        `UPDATE payments_payment_pages
+         SET processor_status = $2,
+             status = 'failed',
+             failure_code = $3,
+             failure_message = $4,
+             failed_at = $5,
+             updated_at = $5
+         WHERE payment_id = $1`,
+        [
+          data.paymentId,
+          data.processorStatus,
+          data.failureCode,
+          data.failureMessage,
+          data.failedAt,
+        ],
+      );
+    },
+    "payments.payment-cancelled": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        cancelledAt: string;
+      };
+
+      await db.query(
+        `UPDATE payments_payment_pages
+         SET status = 'cancelled',
+             cancelled_at = $2,
+             updated_at = $2
+         WHERE payment_id = $1`,
+        [data.paymentId, data.cancelledAt],
+      );
+    },
+  };
+}

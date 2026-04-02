@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { CatalogVersionKey } from "@chase-sets/sellable-units";
 import {
   assert,
   buildDemandSignature,
@@ -13,6 +14,7 @@ import {
 
 export type MarketplaceDemand = Readonly<{
   catalogItemId: string;
+  catalogVersionKey: CatalogVersionKey;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: readonly VersionSelectionEntry[];
@@ -25,11 +27,11 @@ export type MarketplaceSupplyCandidate = Readonly<{
   sellerAccountId: AccountId;
   inventoryRecordId: string;
   catalogItemId: string;
+  catalogVersionKey: CatalogVersionKey;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: readonly VersionSelectionEntry[];
   versionSummary: string | null;
-  condition: string;
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
@@ -65,11 +67,11 @@ type SupplyCandidateRow = Readonly<{
   seller_account_id: string;
   inventory_record_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string | null;
   item_subtitle: string | null;
   version_selection: unknown;
   version_summary: string | null;
-  condition: string;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -84,11 +86,10 @@ export function createDatabaseMarketplaceSupplyResolver(
     async resolveCandidates(demand) {
       const normalizedSelection = normalizeVersionSelection(demand.versionSelection);
       const values: unknown[] = [
-        demand.catalogItemId.trim(),
-        JSON.stringify(normalizedSelection),
+        demand.catalogVersionKey.trim(),
       ];
       const sellerClause = demand.sellerAccountId
-        ? `AND listing.account_id = $3`
+        ? `AND listing.account_id = $2`
         : "";
 
       if (demand.sellerAccountId) {
@@ -101,11 +102,11 @@ export function createDatabaseMarketplaceSupplyResolver(
            listing.account_id AS seller_account_id,
            listing.inventory_record_id,
            listing.catalog_item_id,
+           listing.catalog_version_key,
            COALESCE(listing.item_title, catalog_item.title) AS item_title,
            COALESCE(listing.item_subtitle, catalog_item.subtitle) AS item_subtitle,
            listing.version_selection,
            listing.version_summary,
-           listing.condition,
            listing.storage_location_name,
            listing.ship_from_code,
            listing.price_amount::text AS price_amount,
@@ -130,9 +131,7 @@ export function createDatabaseMarketplaceSupplyResolver(
          ) AS active_holds
            ON active_holds.record_id = record.record_id
          WHERE listing.status = 'active'
-           AND listing.catalog_item_id = $1
-           AND listing.version_selection @> $2::jsonb
-           AND $2::jsonb @> listing.version_selection
+           AND listing.catalog_version_key = $1
            ${sellerClause}
          ORDER BY
            listing.price_amount ASC,
@@ -147,13 +146,13 @@ export function createDatabaseMarketplaceSupplyResolver(
           sellerAccountId: row.seller_account_id as AccountId,
           inventoryRecordId: row.inventory_record_id,
           catalogItemId: row.catalog_item_id,
+          catalogVersionKey: row.catalog_version_key as CatalogVersionKey,
           itemTitle: row.item_title ?? demand.itemTitle,
           itemSubtitle: normalizeOptionalText(row.item_subtitle ?? demand.itemSubtitle),
           versionSelection: Array.isArray(row.version_selection)
             ? normalizeVersionSelection(row.version_selection as VersionSelectionEntry[])
             : normalizedSelection,
           versionSummary: normalizeOptionalText(row.version_summary ?? demand.versionSummary),
-          condition: row.condition,
           storageLocationName: row.storage_location_name,
           shipFromCode: row.ship_from_code,
           priceAmount: normalizeMoneyAmount(row.price_amount, { fieldName: "Listing price" }),
@@ -233,9 +232,9 @@ export function tieBreakPlanKey(orderIds: readonly string[]) {
 }
 
 export function demandKeyForLine(
-  line: Pick<MarketplaceDemand, "catalogItemId" | "versionSelection">,
+  line: Pick<MarketplaceDemand, "catalogVersionKey">,
 ) {
-  return buildDemandSignature(line.catalogItemId, line.versionSelection);
+  return buildDemandSignature(line.catalogVersionKey);
 }
 
 export function assertSupplyAvailable(

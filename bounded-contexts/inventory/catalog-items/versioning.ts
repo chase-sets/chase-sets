@@ -1,68 +1,22 @@
+import {
+  type CatalogSelectionEntry,
+  type CatalogVersionChoice as InventoryVersionChoice,
+  type CatalogVersionDimension as InventoryVersionDimension,
+  type CatalogVersionSchema as InventoryVersionSchema,
+} from "@chase-sets/sellable-units";
 import { assert } from "../common";
 
-export type InventoryVersionApplicabilityClause = Readonly<{
-  dimensionId: string;
-  choiceIds: string[];
-}>;
-
-export type InventoryVersionChoice = Readonly<{
-  choiceId: string;
-  code: string;
-  labels?: Array<{ locale: string; value: string }>;
-}>;
-
-export type InventoryVersionDimension = Readonly<{
-  dimensionId: string;
-  dimensionName: string;
-  required: boolean;
-  appliesWhen: InventoryVersionApplicabilityClause[];
-  allowedChoices: InventoryVersionChoice[];
-}>;
-
-export type InventoryVersionSchema = Readonly<{
-  canonicalDimensionOrder: Array<{ dimensionId: string; dimensionName: string }>;
-  dimensions: InventoryVersionDimension[];
-}>;
-
-export type InventoryVersionSelectionEntry = Readonly<{
-  dimensionId: string;
-  choiceId: string;
-}>;
-
-function isConditionDimension(dimensionName: string): boolean {
-  return dimensionName.trim().toLowerCase() === "condition";
-}
+export type {
+  InventoryVersionChoice,
+  InventoryVersionDimension,
+  InventoryVersionSchema,
+};
+export type InventoryVersionSelectionEntry = CatalogSelectionEntry;
 
 export function toInventoryRecordVersionSchema(
   schema: InventoryVersionSchema | null,
 ): InventoryVersionSchema | null {
-  if (!schema) {
-    return null;
-  }
-
-  const omittedDimensionIds = new Set(
-    schema.dimensions
-      .filter((dimension) => isConditionDimension(dimension.dimensionName))
-      .map((dimension) => dimension.dimensionId),
-  );
-
-  if (omittedDimensionIds.size === 0) {
-    return schema;
-  }
-
-  return {
-    canonicalDimensionOrder: schema.canonicalDimensionOrder.filter(
-      (entry) => !omittedDimensionIds.has(entry.dimensionId),
-    ),
-    dimensions: schema.dimensions
-      .filter((dimension) => !omittedDimensionIds.has(dimension.dimensionId))
-      .map((dimension) => ({
-        ...dimension,
-        appliesWhen: dimension.appliesWhen.filter(
-          (clause) => !omittedDimensionIds.has(clause.dimensionId),
-        ),
-      })),
-  };
+  return schema;
 }
 
 export function getChoiceLabel(choice: InventoryVersionChoice): string {

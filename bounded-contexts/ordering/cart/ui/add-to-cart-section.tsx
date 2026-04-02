@@ -9,6 +9,7 @@ import {
 
 export function OrderingAddToCartSection({
   catalogItemId,
+  catalogVersionKey,
   itemTitle,
   versionSelection,
   versionSummary,
@@ -16,6 +17,7 @@ export function OrderingAddToCartSection({
   errorMessage,
 }: {
   catalogItemId: string;
+  catalogVersionKey: string;
   itemTitle: string;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
   versionSummary: string | null;
@@ -29,6 +31,7 @@ export function OrderingAddToCartSection({
           <Stack gap={3}>
             <input type="hidden" name="intent" value="add-to-cart" />
             <input type="hidden" name="catalogItemId" value={catalogItemId} />
+            <input type="hidden" name="catalogVersionKey" value={catalogVersionKey} />
             <input type="hidden" name="versionSelection" value={JSON.stringify(versionSelection)} />
             <input type="hidden" name="versionSummary" value={versionSummary ?? ""} />
             <Stack gap={1}>

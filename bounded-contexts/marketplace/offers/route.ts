@@ -115,6 +115,7 @@ export function createBuyerOfferRoutes(services: MarketplaceOfferServices) {
         {
           buyerAccountId: access.actor.accountId as never,
           catalogItemId: String(body.catalogItemId ?? ""),
+          catalogVersionKey: String(body.catalogVersionKey ?? ""),
           itemTitle: String(body.itemTitle ?? ""),
           itemSubtitle:
             body.itemSubtitle === null || body.itemSubtitle === undefined

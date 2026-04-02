@@ -26,11 +26,11 @@ describe("ordering order domain", () => {
           listingId: "lst_1",
           inventoryRecordId: "inv_1",
           catalogItemId: "cat_1",
+          catalogVersionKey: "cat_1::" as never,
           itemTitle: "Charizard",
           itemSubtitle: null,
           versionSelection: [],
           versionSummary: null,
-          condition: "NM",
           unitPriceAmount: "20.00",
           quantity: 1,
           lineTotalAmount: "20.00",
@@ -53,6 +53,55 @@ describe("ordering order domain", () => {
 
     expect(cancelled.status).toBe("cancelled");
     expect(cancelled.cancelledAt).toBe("2026-03-31T00:00:00.000Z");
+  });
+
+  it("marks a pending order ready for fulfillment after payment capture", () => {
+    const createdState = decideOrderingOrder(initialOrderingOrderState, {
+      type: "CreateOrder",
+      orderId: "ord_1" as never,
+      sourceType: "cart-checkout",
+      sourceReferenceId: null,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      itemSubtotalAmount: "20.00",
+      shippingBaseAmount: "4.99",
+      shippingDiscountAmount: "0.00",
+      shippingChargeAmount: "4.99",
+      totalAmount: "24.99",
+      lines: [
+        {
+          lineId: "oli_1" as never,
+          listingId: "lst_1",
+          inventoryRecordId: "inv_1",
+          catalogItemId: "cat_1",
+          catalogVersionKey: "cat_1::" as never,
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          versionSelection: [],
+          versionSummary: null,
+          unitPriceAmount: "20.00",
+          quantity: 1,
+          lineTotalAmount: "20.00",
+        },
+      ],
+      inventoryReservations: [
+        {
+          holdId: "hld_1",
+          inventoryRecordId: "inv_1",
+          sellerAccountId: "acc_seller",
+          quantity: 1,
+        },
+      ],
+    }).reduce(evolveOrderingOrder, initialOrderingOrderState);
+
+    const ready = decideOrderingOrder(createdState, {
+      type: "MarkReadyForFulfillment",
+      readyForFulfillmentAt: "2026-04-01T00:00:00.000Z",
+    }).reduce(evolveOrderingOrder, createdState);
+
+    expect(ready.status).toBe("ready-for-fulfillment");
+    expect(ready.readyForFulfillmentAt).toBe("2026-04-01T00:00:00.000Z");
   });
 
   it("rejects invalid order creation", () => {

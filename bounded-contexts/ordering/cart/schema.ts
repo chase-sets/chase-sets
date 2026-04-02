@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS ordering_cart_line_pages (
   buyer_account_id text NOT NULL,
   line_id text NOT NULL,
   catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
   item_title text NOT NULL,
   item_subtitle text NULL,
   version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -15,4 +16,7 @@ CREATE TABLE IF NOT EXISTS ordering_cart_line_pages (
 
 CREATE INDEX IF NOT EXISTS ordering_cart_line_pages_buyer_idx
   ON ordering_cart_line_pages (buyer_account_id, updated_at DESC, line_id ASC);
+
+CREATE INDEX IF NOT EXISTS ordering_cart_line_pages_catalog_version_idx
+  ON ordering_cart_line_pages (catalog_version_key);
 `;

@@ -35,6 +35,17 @@ Payments terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Ordering for commercial terms and order references
 - Fulfillment for issue signals that justify refunds
 
+## Runtime Configuration
+
+The marketplace API now depends on these Stripe-backed payment settings:
+
+- `STRIPE_SECRET_KEY`: server-side Stripe API key used to create and update payment intents.
+- `STRIPE_PUBLISHABLE_KEY`: buyer-facing Stripe key returned with payment intent client data.
+- `STRIPE_WEBHOOK_SECRET`: signing secret used to verify inbound Stripe webhook payloads.
+- `STRIPE_API_BASE_URL`: optional override for Stripe API calls in non-default environments or tests.
+
+Webhook callbacks are mounted by the marketplace API at `/api/payments/stripe/webhooks`. The buyer-facing payment routes stay under `/api/marketplace/buyer/payments`.
+
 ## Outgoing Integration Events
 
 - `PaymentAuthorized`

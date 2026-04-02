@@ -2,6 +2,7 @@ import { createIdentityApiClient } from "@chase-sets/identity/web";
 import { createInventoryApiClient } from "@chase-sets/inventory/web";
 import { createMarketplaceApiClient } from "@chase-sets/marketplace-context/web";
 import { createOrderingApiClient } from "@chase-sets/ordering/web";
+import { createPaymentsApiClient } from "@chase-sets/payments/web";
 import { createForwardedAuthFetch } from "@chase-sets/identity/server";
 
 export function getMarketplaceApiBaseUrl(request: Request) {
@@ -18,6 +19,13 @@ export function createMarketplaceServerApiClient(request: Request) {
 
 export function createMarketplaceOrderingApiClient(request: Request) {
   return createOrderingApiClient({
+    baseUrl: getMarketplaceApiBaseUrl(request),
+    fetch: createForwardedAuthFetch(request),
+  });
+}
+
+export function createMarketplacePaymentsApiClient(request: Request) {
+  return createPaymentsApiClient({
     baseUrl: getMarketplaceApiBaseUrl(request),
     fetch: createForwardedAuthFetch(request),
   });

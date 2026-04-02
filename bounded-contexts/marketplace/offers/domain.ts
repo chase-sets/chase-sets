@@ -4,6 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
+import type { CatalogVersionKey } from "@chase-sets/sellable-units";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -75,6 +76,7 @@ export type MarketplaceOfferState = Readonly<{
   offerId: OfferId | null;
   buyerAccountId: AccountId | null;
   catalogItemId: string | null;
+  catalogVersionKey: CatalogVersionKey | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
@@ -90,6 +92,7 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   offerId: null,
   buyerAccountId: null,
   catalogItemId: null,
+  catalogVersionKey: null,
   itemTitle: null,
   itemSubtitle: null,
   versionSelection: [],
@@ -106,6 +109,7 @@ export type SubmitOfferCommand = Readonly<{
   offerId: OfferId;
   buyerAccountId: AccountId;
   catalogItemId: string;
+  catalogVersionKey: CatalogVersionKey;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
@@ -128,6 +132,7 @@ export type OfferSubmittedEvent = DomainEvent<
     offerId: OfferId;
     buyerAccountId: AccountId;
     catalogItemId: string;
+    catalogVersionKey: CatalogVersionKey;
     itemTitle: string;
     itemSubtitle: string | null;
     versionSelection: { dimensionId: string; choiceId: string }[];
@@ -144,6 +149,7 @@ export type OfferAcceptedEvent = DomainEvent<
     buyerAccountId: AccountId;
     sellerAccountId: AccountId;
     catalogItemId: string;
+    catalogVersionKey: CatalogVersionKey;
     itemTitle: string;
     itemSubtitle: string | null;
     versionSelection: { dimensionId: string; choiceId: string }[];
@@ -175,6 +181,7 @@ export const decideMarketplaceOffer: AggregateDecider<
               command.catalogItemId,
               "Offer must reference a catalog item.",
             ),
+            catalogVersionKey: command.catalogVersionKey,
             itemTitle: normalizeRequiredText(
               command.itemTitle,
               "Offer must include an item title snapshot.",
@@ -202,6 +209,7 @@ export const decideMarketplaceOffer: AggregateDecider<
             buyerAccountId: state.buyerAccountId!,
             sellerAccountId: command.sellerAccountId,
             catalogItemId: state.catalogItemId!,
+            catalogVersionKey: state.catalogVersionKey!,
             itemTitle: state.itemTitle!,
             itemSubtitle: state.itemSubtitle,
             versionSelection: [...state.versionSelection],
@@ -229,6 +237,7 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       offerId: event.data.offerId,
       buyerAccountId: event.data.buyerAccountId,
       catalogItemId: event.data.catalogItemId,
+      catalogVersionKey: event.data.catalogVersionKey,
       itemTitle: event.data.itemTitle,
       itemSubtitle: event.data.itemSubtitle,
       versionSelection: event.data.versionSelection,

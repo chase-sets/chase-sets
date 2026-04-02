@@ -2,7 +2,6 @@ import {
   Badge,
   Button,
   Card,
-  ConditionBadge,
   DataTable,
   LinkButton,
   Page,
@@ -44,7 +43,6 @@ function inventoryLabel(record: MarketplaceListingInventoryRecordOption) {
     record.item_title ?? record.catalog_item_id,
     record.item_subtitle,
     record.version_summary,
-    record.condition,
     `${record.available_quantity} available`,
     record.storage_location_name,
   ].filter(Boolean);
@@ -147,11 +145,6 @@ export function MarketplaceListingListPage({
                   ) : null}
                 </Stack>
               ),
-            },
-            {
-              key: "condition",
-              header: "Condition",
-              cell: (row) => <ConditionBadge condition={row.condition as never} />,
             },
             {
               key: "price",

@@ -84,6 +84,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       await api.createBuyerOffer({
         catalogItemId: item.item_id,
+        catalogVersionKey: String(formData.get("catalogVersionKey") ?? ""),
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
         versionSelection: parseVersionSelection(formData.get("versionSelection")),
@@ -101,6 +102,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       await orderingApi.addCartLine({
         catalogItemId: item.item_id,
+        catalogVersionKey: String(formData.get("catalogVersionKey") ?? ""),
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
         versionSelection: parseVersionSelection(formData.get("versionSelection")),
@@ -155,6 +157,7 @@ export default function MarketplaceItemDetailRoute() {
               <>
                 <OrderingAddToCartSection
                   catalogItemId={context.itemId}
+                  catalogVersionKey={context.selectedCatalogVersionKey}
                   itemTitle={context.itemTitle}
                   versionSelection={context.selectedVersionSelection}
                   versionSummary={context.selectedVersionSummary}
@@ -163,6 +166,7 @@ export default function MarketplaceItemDetailRoute() {
                 />
                 <MarketplaceOfferSubmissionSection
                   catalogItemId={context.itemId}
+                  catalogVersionKey={context.selectedCatalogVersionKey}
                   itemTitle={context.itemTitle}
                   versionSelection={context.selectedVersionSelection}
                   versionSummary={context.selectedVersionSummary}

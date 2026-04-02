@@ -8,6 +8,7 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
+import { resolveSellableUnitDescriptor } from "@chase-sets/sellable-units";
 import type { InventoryCatalogItemServices } from "../catalog-items/runtime";
 import {
   parseVersionSelectionInput,
@@ -39,7 +40,6 @@ export type InventoryRecordServices = Readonly<{
       accountId: AccountId;
       catalogItemId: string;
       versionSelection: readonly InventoryVersionSelectionEntry[];
-      condition: string;
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
@@ -114,6 +114,11 @@ export function createInventoryRecordRuntime(
         catalogItem.version_schema,
         parseVersionSelectionInput(params.versionSelection),
       );
+      const sellableUnit = resolveSellableUnitDescriptor({
+        catalogItemId: params.catalogItemId,
+        versionSchema: catalogItem.version_schema,
+        selection: versionSelection,
+      });
 
       const recordId = createId("inv") as InventoryRecordId;
       const result = await commandHandler({
@@ -123,8 +128,8 @@ export function createInventoryRecordRuntime(
           recordId,
           accountId: params.accountId,
           catalogItemId: params.catalogItemId,
-          versionSelection,
-          condition: params.condition,
+          catalogVersionKey: sellableUnit.catalogVersionKey,
+          versionSelection: sellableUnit.selection,
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,

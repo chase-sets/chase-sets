@@ -4,6 +4,7 @@ export type MarketplaceOfferListRow = Readonly<{
   offer_id: string;
   buyer_account_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string;
   item_subtitle: string | null;
   version_selection: readonly { dimensionId: string; choiceId: string }[];
@@ -26,6 +27,7 @@ type MarketplaceOfferPageRow = Readonly<{
   offer_id: string;
   buyer_account_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string;
   item_subtitle: string | null;
   version_selection: unknown;
@@ -57,9 +59,7 @@ const sellerVisibilitySql = `
       FROM marketplace_listing_pages AS listing
       WHERE listing.account_id = $1
         AND listing.status = 'active'
-        AND listing.catalog_item_id = offer.catalog_item_id
-        AND listing.version_selection @> offer.version_selection
-        AND offer.version_selection @> listing.version_selection
+        AND listing.catalog_version_key = offer.catalog_version_key
     )
   )
   OR (

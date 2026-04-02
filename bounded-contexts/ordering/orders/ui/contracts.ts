@@ -16,6 +16,7 @@ export interface OrderingOrderListItem {
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
+  ready_for_fulfillment_at: string | null;
   line_count: number;
   total_quantity: number;
 }
@@ -25,11 +26,11 @@ export interface OrderingOrderLine {
   listing_id: string;
   inventory_record_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string;
   item_subtitle: string | null;
   version_selection: readonly { dimensionId: string; choiceId: string }[];
   version_summary: string | null;
-  condition: string;
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;

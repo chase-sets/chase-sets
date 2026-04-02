@@ -3,6 +3,7 @@ import type { DiscoveryServices } from "@chase-sets/discovery";
 import type { InventoryServices } from "@chase-sets/inventory";
 import type { MarketplaceServices } from "@chase-sets/marketplace-context";
 import type { OrderingServices } from "@chase-sets/ordering";
+import type { PaymentsServices } from "@chase-sets/payments";
 import type { ResolvedActor } from "@chase-sets/identity/server";
 import { buildMarketplaceApp } from "../src/app";
 
@@ -104,6 +105,45 @@ const orderingServices: OrderingServices = {
   db: {} as never,
 };
 
+const paymentsServices: PaymentsServices = {
+  payments: {
+    commandHandler: async () => ({ version: 1, state: {} as never, newEvents: [], storedEvents: [] }),
+    createBuyerPayment: async () => ({
+      payment_id: "pay_1",
+      buyer_account_id: "acc_1",
+      order_ids: ["ord_1"],
+      amount: "24.99",
+      currency_code: "usd",
+      processor_name: "stripe",
+      processor_payment_reference: "pi_1",
+      processor_client_secret: "pi_1_secret_1",
+      processor_status: "requires_payment_method",
+      status: "pending-confirmation",
+      failure_code: null,
+      failure_message: null,
+      created_at: "2026-04-01T00:00:00.000Z",
+      updated_at: "2026-04-01T00:00:00.000Z",
+      captured_at: null,
+      failed_at: null,
+      cancelled_at: null,
+      processor_publishable_key: "pk_test_123",
+    }),
+    getBuyerPayment: async () => null,
+    processWebhook: async () => ({ received: true, ignored: false }),
+    publicConfig: { processorName: "stripe", publishableKey: "pk_test_123" },
+    projectors: [],
+  },
+  refunds: {
+    commandHandler: async () => ({ version: 1, state: {} as never, newEvents: [], storedEvents: [] }),
+    issueRefund: async () => ({ refundId: "rfd_1" as never, version: 1 }),
+    projectors: [],
+  },
+  publicConfig: { processorName: "stripe", publishableKey: "pk_test_123" },
+  projectors: [],
+  pool: {} as never,
+  db: {} as never,
+};
+
 describe("marketplace api host app", () => {
   it("mounts health and the discovery API under /api/marketplace", async () => {
     const app = buildMarketplaceApp({
@@ -111,6 +151,7 @@ describe("marketplace api host app", () => {
       inventory: inventoryServices,
       marketplace: marketplaceServices,
       ordering: orderingServices,
+      payments: paymentsServices,
     });
 
     const healthResponse = await app.fetch(new Request("http://marketplace.test/health"));
@@ -160,6 +201,7 @@ describe("marketplace api host app", () => {
       inventory: inventoryServices,
       marketplace: marketplaceServices,
       ordering: orderingServices,
+      payments: paymentsServices,
     });
 
     const response = await app.fetch(new Request("http://marketplace.test/api/marketplace/categories"));
@@ -191,10 +233,13 @@ describe("marketplace api host app", () => {
       inventory: inventoryServices,
       marketplace: marketplaceServices,
       ordering: orderingServices,
+      payments: paymentsServices,
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/api/marketplace/items/item-1/market-summary"),
+      new Request(
+        "http://marketplace.test/api/marketplace/sellable-units/item-1::/market-summary",
+      ),
     );
 
     expect(response.status).toBe(200);
@@ -212,6 +257,7 @@ describe("marketplace api host app", () => {
         inventory: inventoryServices,
         marketplace: marketplaceServices,
         ordering: orderingServices,
+        payments: paymentsServices,
       },
       {
         resolveActor: async () =>
@@ -254,6 +300,7 @@ describe("marketplace api host app", () => {
         inventory: inventoryServices,
         marketplace: marketplaceServices,
         ordering: orderingServices,
+        payments: paymentsServices,
       },
       {
         resolveActor: async () =>
@@ -279,5 +326,64 @@ describe("marketplace api host app", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({ orderIds: ["ord_1"] });
+  });
+
+  it("mounts buyer payment routes under the marketplace API", async () => {
+    const app = buildMarketplaceApp(
+      {
+        discovery: services,
+        inventory: inventoryServices,
+        marketplace: marketplaceServices,
+        ordering: orderingServices,
+        payments: paymentsServices,
+      },
+      {
+        resolveActor: async () =>
+          ({
+            sessionId: "ses_1",
+            tenantId: "tnt_identity",
+            userId: "usr_1",
+            accountId: "acc_1",
+            membershipId: "mbr_1",
+            roleKey: "owner",
+            permissions: ["orders.view", "orders.manage"],
+          }) satisfies ResolvedActor,
+      },
+    );
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/api/marketplace/buyer/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: ["ord_1"] }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      payment_id: "pay_1",
+      order_ids: ["ord_1"],
+    });
+  });
+
+  it("mounts Stripe webhook routes outside marketplace auth", async () => {
+    const app = buildMarketplaceApp({
+      discovery: services,
+      inventory: inventoryServices,
+      marketplace: marketplaceServices,
+      ordering: orderingServices,
+      payments: paymentsServices,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/api/payments/stripe/webhooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "evt_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ received: true, ignored: false });
   });
 });

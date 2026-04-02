@@ -5,11 +5,11 @@ export type MarketplaceListingListRow = Readonly<{
   account_id: string;
   inventory_record_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string | null;
   item_subtitle: string | null;
   version_selection: readonly { dimensionId: string; choiceId: string }[];
   version_summary: string | null;
-  condition: string;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -36,11 +36,11 @@ type MarketplaceListingPageRow = Readonly<{
   account_id: string;
   inventory_record_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string | null;
   item_subtitle: string | null;
   version_selection: unknown;
   version_summary: string | null;
-  condition: string;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -54,11 +54,11 @@ export type MarketplaceInventoryRecordSupply = Readonly<{
   record_id: string;
   account_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string | null;
   item_subtitle: string | null;
   version_selection: readonly { dimensionId: string; choiceId: string }[];
   version_summary: string | null;
-  condition: string;
   storage_location_name: string;
   ship_from_code: string;
   available_quantity: number;
@@ -88,11 +88,11 @@ export async function getInventoryRecordSupply(
     record_id: string;
     account_id: string;
     catalog_item_id: string;
+    catalog_version_key: string;
     item_title: string | null;
     item_subtitle: string | null;
     version_selection: unknown;
     version_summary: string | null;
-    condition: string;
     storage_location_name: string;
     ship_from_code: string;
     available_quantity: number;
@@ -101,6 +101,7 @@ export async function getInventoryRecordSupply(
        record.record_id,
        record.account_id,
        record.catalog_item_id,
+       record.catalog_version_key,
        catalog_item.title AS item_title,
        catalog_item.subtitle AS item_subtitle,
        record.version_selection,
@@ -133,7 +134,6 @@ export async function getInventoryRecordSupply(
            )
          END
        ) AS version_summary,
-       record.condition,
        location.name AS storage_location_name,
        location.ship_from_code,
        record.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
@@ -257,7 +257,7 @@ export async function getSellerListing(
 
 export async function getMarketSummaryForItem(
   db: PgQueryable,
-  itemId: string,
+  catalogVersionKey: string,
 ): Promise<MarketplaceMarketSummaryRow> {
   const result = await db.query<{
     lowest_price_amount: string | null;
@@ -269,9 +269,9 @@ export async function getMarketSummaryForItem(
        COUNT(*)::text AS active_listing_count,
        COALESCE(SUM(quantity_cap), 0)::text AS total_visible_quantity
      FROM marketplace_listing_pages
-     WHERE catalog_item_id = $1
+     WHERE catalog_version_key = $1
        AND status = 'active'`,
-    [itemId],
+    [catalogVersionKey],
   );
 
   return {
@@ -283,7 +283,7 @@ export async function getMarketSummaryForItem(
 
 export async function listItemListings(
   db: PgQueryable,
-  itemId: string,
+  catalogVersionKey: string,
 ): Promise<MarketplaceItemListingRow[]> {
   const result = await db.query<
     MarketplaceListingPageRow & {
@@ -298,10 +298,10 @@ export async function listItemListings(
      FROM marketplace_listing_pages AS listing
      LEFT JOIN identity_accounts AS account
        ON account.account_id = listing.account_id
-     WHERE listing.catalog_item_id = $1
+     WHERE listing.catalog_version_key = $1
        AND listing.status = 'active'
      ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
-    [itemId],
+    [catalogVersionKey],
   );
 
   return result.rows.map((row) => ({

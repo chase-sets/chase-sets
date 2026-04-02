@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { resolveSellableUnitDescriptor } from "@chase-sets/sellable-units";
 import {
   Breadcrumbs,
   Card,
@@ -33,6 +34,7 @@ import {
 
 export type ItemDetailMarketplaceSectionContext = Readonly<{
   itemId: string;
+  selectedCatalogVersionKey: string;
   itemTitle: string;
   itemSubtitle: string | null;
   selectedVersionSelection: readonly { dimensionId: string; choiceId: string }[];
@@ -162,9 +164,32 @@ export function ItemDetailPage({
           .map((selection) => `${selection.dimensionName}: ${selection.choiceLabel}`)
           .join(" | ")
       : null;
+  const selectedCatalogVersionKey = resolveSellableUnitDescriptor({
+    catalogItemId: data.item_id,
+    versionSchema: data.version_schema,
+    selection: selectedVersionSelection,
+  }).catalogVersionKey;
   const visibleListings = data.market_listings.filter((listing) =>
     data.version_schema ? matchesSelectedVersion(listing, selections) : true,
   );
+  const selectedMarketSummary =
+    visibleListings.length > 0
+      ? {
+          lowest_price_amount: visibleListings.reduce<string | null>((lowest, listing) => {
+            if (lowest === null) {
+              return listing.price_amount;
+            }
+            return Number.parseFloat(listing.price_amount) < Number.parseFloat(lowest)
+              ? listing.price_amount
+              : lowest;
+          }, null),
+          active_listing_count: visibleListings.length,
+          total_visible_quantity: visibleListings.reduce(
+            (sum, listing) => sum + listing.visible_quantity,
+            0,
+          ),
+        }
+      : null;
   const metadataItems = [
     ...(data.tags.length > 0
       ? [
@@ -278,7 +303,7 @@ export function ItemDetailPage({
                       ) : null}
                     </Grid>
 
-                    {data.market_summary ? (
+                    {selectedMarketSummary ? (
                       <Grid columns={{ base: 1, md: 3 }} gap={3}>
                         <Card>
                           <Stack gap={1}>
@@ -286,7 +311,7 @@ export function ItemDetailPage({
                               Lowest Price
                             </Text>
                             <Text weight="semibold">
-                              {formatMoney(data.market_summary.lowest_price_amount)}
+                              {formatMoney(selectedMarketSummary.lowest_price_amount)}
                             </Text>
                           </Stack>
                         </Card>
@@ -296,7 +321,7 @@ export function ItemDetailPage({
                               Active Listings
                             </Text>
                             <Text weight="semibold">
-                              {data.market_summary.active_listing_count}
+                              {selectedMarketSummary.active_listing_count}
                             </Text>
                           </Stack>
                         </Card>
@@ -306,7 +331,7 @@ export function ItemDetailPage({
                               Visible Quantity
                             </Text>
                             <Text weight="semibold">
-                              {data.market_summary.total_visible_quantity}
+                              {selectedMarketSummary.total_visible_quantity}
                             </Text>
                           </Stack>
                         </Card>
@@ -368,12 +393,6 @@ export function ItemDetailPage({
                         </Stack>
                         <Stack gap={1}>
                           <Text size="sm" tone="secondary">
-                            Condition
-                          </Text>
-                          <Text>{listing.condition}</Text>
-                        </Stack>
-                        <Stack gap={1}>
-                          <Text size="sm" tone="secondary">
                             Visible Quantity
                           </Text>
                           <Text>{listing.visible_quantity}</Text>
@@ -405,6 +424,7 @@ export function ItemDetailPage({
           {renderAfterListings
             ? renderAfterListings({
                 itemId: data.item_id,
+                selectedCatalogVersionKey,
                 itemTitle: data.title,
                 itemSubtitle: data.subtitle,
                 selectedVersionSelection,

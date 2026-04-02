@@ -6,11 +6,11 @@ export type OrderingOrderLineRow = Readonly<{
   listing_id: string;
   inventory_record_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string;
   item_subtitle: string | null;
   version_selection: readonly VersionSelectionEntry[];
   version_summary: string | null;
-  condition: string;
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
@@ -44,6 +44,7 @@ export type OrderingOrderListRow = Readonly<{
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
+  ready_for_fulfillment_at: string | null;
   line_count: number;
   total_quantity: number;
 }>;
@@ -72,6 +73,7 @@ type BaseOrderPageRow = Readonly<{
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
+  ready_for_fulfillment_at: string | null;
   line_count: number;
   total_quantity: number;
 }>;
@@ -81,11 +83,11 @@ type OrderLinePageRow = Readonly<{
   listing_id: string;
   inventory_record_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string;
   item_subtitle: string | null;
   version_selection: unknown;
   version_summary: string | null;
-  condition: string;
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
@@ -110,6 +112,7 @@ const baseOrderSelect = `
     page.created_at,
     page.updated_at,
     page.cancelled_at,
+    page.ready_for_fulfillment_at,
     COALESCE(line_stats.line_count, 0) AS line_count,
     COALESCE(line_stats.total_quantity, 0) AS total_quantity
   FROM ordering_order_pages AS page
@@ -189,11 +192,11 @@ export async function getBuyerOrder(
          listing_id,
          inventory_record_id,
          catalog_item_id,
+         catalog_version_key,
          item_title,
          item_subtitle,
          version_selection,
          version_summary,
-         condition,
          unit_price_amount::text AS unit_price_amount,
          quantity,
          line_total_amount::text AS line_total_amount
@@ -277,11 +280,11 @@ export async function getSellerOrder(
          listing_id,
          inventory_record_id,
          catalog_item_id,
+         catalog_version_key,
          item_title,
          item_subtitle,
          version_selection,
          version_summary,
-         condition,
          unit_price_amount::text AS unit_price_amount,
          quantity,
          line_total_amount::text AS line_total_amount

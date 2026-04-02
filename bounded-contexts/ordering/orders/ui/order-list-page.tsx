@@ -19,6 +19,8 @@ function statusTone(status: string) {
   switch (status) {
     case "cancelled":
       return "danger";
+    case "ready-for-fulfillment":
+      return "success";
     default:
       return "accent";
   }

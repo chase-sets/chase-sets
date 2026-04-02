@@ -1,0 +1,13 @@
+{
+  "name": "@chase-sets/sellable-units",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/primitives": "0.1.0"
+  }
+}

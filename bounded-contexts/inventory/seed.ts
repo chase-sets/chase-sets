@@ -4,6 +4,7 @@ import {
   demoIdentitySeedIds,
   inventorySeedIds,
 } from "@chase-sets/dev-seeds";
+import { resolveSellableUnitDescriptor } from "@chase-sets/sellable-units";
 import type {
   SeedCatalogItemId,
   SeedInventoryHoldId,
@@ -26,7 +27,6 @@ type InventoryRecordSeed = Readonly<{
   recordId: SeedInventoryRecordId;
   catalogItemId: SeedCatalogItemId;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  condition: string;
   storageLocationId: SeedStorageLocationId;
   totalQuantity: number;
   acquisitionCostAmount: string;
@@ -65,8 +65,11 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
         choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
       },
+      {
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+      },
     ],
-    condition: "NM",
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 3,
     acquisitionCostAmount: "275.00",
@@ -79,8 +82,11 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
         choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
       },
+      {
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent,
+      },
     ],
-    condition: "LP",
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 8,
     acquisitionCostAmount: "12.50",
@@ -93,8 +99,11 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
         choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
       },
+      {
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+      },
     ],
-    condition: "NM",
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 2,
     acquisitionCostAmount: "180.00",
@@ -107,8 +116,11 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
         choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
       },
+      {
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+      },
     ],
-    condition: "NM",
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 12,
     acquisitionCostAmount: "8.25",
@@ -117,7 +129,6 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     recordId: inventorySeedIds.records.prismaticEvolutionsBoosterPack,
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
     versionSelection: [],
-    condition: "Sealed",
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 24,
     acquisitionCostAmount: "4.10",
@@ -126,7 +137,6 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     recordId: inventorySeedIds.records.surgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     versionSelection: [],
-    condition: "Sealed",
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 6,
     acquisitionCostAmount: "119.00",
@@ -135,7 +145,6 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     recordId: inventorySeedIds.records.twilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     versionSelection: [],
-    condition: "Sealed",
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 4,
     acquisitionCostAmount: "41.50",
@@ -196,14 +205,25 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
 
   for (const record of inventoryRecords) {
     const streamId = `inventory.record-${record.recordId}`;
+    const catalogItem = await services.catalogItems.getCatalogItem(record.catalogItemId);
+
+    if (!catalogItem) {
+      throw new Error(`Inventory seed could not load catalog item ${record.catalogItemId}.`);
+    }
+
+    const sellableUnit = resolveSellableUnitDescriptor({
+      catalogItemId: record.catalogItemId,
+      versionSchema: catalogItem.version_schema,
+      selection: record.versionSelection,
+    });
 
     await sendSeedCommand(services.records.commandHandler, streamId, {
       type: "CreateInventoryRecord",
       recordId: record.recordId,
       accountId: demoIdentitySeedIds.accountId,
       catalogItemId: record.catalogItemId,
-      versionSelection: record.versionSelection,
-      condition: record.condition,
+      catalogVersionKey: sellableUnit.catalogVersionKey,
+      versionSelection: sellableUnit.selection,
       storageLocationId: record.storageLocationId,
       totalQuantity: record.totalQuantity,
       acquisitionCostAmount: record.acquisitionCostAmount,

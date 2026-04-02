@@ -23,11 +23,11 @@ export function buildOrderingOrderProjectionHandlers(
           listingId: string;
           inventoryRecordId: string;
           catalogItemId: string;
+          catalogVersionKey: string;
           itemTitle: string;
           itemSubtitle: string | null;
           versionSelection: unknown;
           versionSummary: string | null;
-          condition: string;
           unitPriceAmount: string;
           quantity: number;
           lineTotalAmount: string;
@@ -56,9 +56,10 @@ export function buildOrderingOrderProjectionHandlers(
            status,
            created_at,
            updated_at,
-           cancelled_at
+           cancelled_at,
+           ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending-payment', $12, $12, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending-payment', $12, $12, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
@@ -72,7 +73,8 @@ export function buildOrderingOrderProjectionHandlers(
              shipping_charge_amount = EXCLUDED.shipping_charge_amount,
              total_amount = EXCLUDED.total_amount,
              status = EXCLUDED.status,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at,
+             ready_for_fulfillment_at = EXCLUDED.ready_for_fulfillment_at`,
         [
           data.orderId,
           data.sourceType,
@@ -101,11 +103,11 @@ export function buildOrderingOrderProjectionHandlers(
              listing_id,
              inventory_record_id,
              catalog_item_id,
+             catalog_version_key,
              item_title,
              item_subtitle,
              version_selection,
              version_summary,
-             condition,
              unit_price_amount,
              quantity,
              line_total_amount
@@ -119,11 +121,11 @@ export function buildOrderingOrderProjectionHandlers(
             line.listingId,
             line.inventoryRecordId,
             line.catalogItemId,
+            line.catalogVersionKey,
             line.itemTitle,
             line.itemSubtitle,
             JSON.stringify(Array.isArray(line.versionSelection) ? line.versionSelection : []),
             line.versionSummary,
-            line.condition,
             line.unitPriceAmount,
             line.quantity,
             line.lineTotalAmount,
@@ -182,6 +184,21 @@ export function buildOrderingOrderProjectionHandlers(
              released_at = $2
          WHERE order_id = $1`,
         [data.orderId, data.cancelledAt],
+      );
+    },
+    "ordering.order.ready-for-fulfillment-recorded": async (event) => {
+      const data = event.data as {
+        orderId: string;
+        readyForFulfillmentAt: string;
+      };
+
+      await db.query(
+        `UPDATE ordering_order_pages
+         SET status = 'ready-for-fulfillment',
+             ready_for_fulfillment_at = $2,
+             updated_at = $2
+         WHERE order_id = $1`,
+        [data.orderId, data.readyForFulfillmentAt],
       );
     },
   };

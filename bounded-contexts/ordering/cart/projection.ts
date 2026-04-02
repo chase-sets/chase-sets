@@ -10,6 +10,7 @@ export function buildOrderingCartProjectionHandlers(
         buyerAccountId: string;
         lineId: string;
         catalogItemId: string;
+        catalogVersionKey: string;
         itemTitle: string;
         itemSubtitle: string | null;
         versionSelection: unknown;
@@ -22,6 +23,7 @@ export function buildOrderingCartProjectionHandlers(
            buyer_account_id,
            line_id,
            catalog_item_id,
+           catalog_version_key,
            item_title,
            item_subtitle,
            version_selection,
@@ -29,9 +31,10 @@ export function buildOrderingCartProjectionHandlers(
            quantity,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
          ON CONFLICT (buyer_account_id, line_id) DO UPDATE
          SET catalog_item_id = EXCLUDED.catalog_item_id,
+             catalog_version_key = EXCLUDED.catalog_version_key,
              item_title = EXCLUDED.item_title,
              item_subtitle = EXCLUDED.item_subtitle,
              version_selection = EXCLUDED.version_selection,
@@ -42,6 +45,7 @@ export function buildOrderingCartProjectionHandlers(
           data.buyerAccountId,
           data.lineId,
           data.catalogItemId,
+          data.catalogVersionKey,
           data.itemTitle,
           data.itemSubtitle,
           JSON.stringify(Array.isArray(data.versionSelection) ? data.versionSelection : []),

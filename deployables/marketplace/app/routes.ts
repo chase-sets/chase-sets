@@ -29,6 +29,8 @@ export default [
     route("account/offers/:offerId", "routes/account-offer.tsx"),
     route("account/orders", "routes/account-orders.tsx"),
     route("account/orders/:orderId", "routes/account-order.tsx"),
+    route("account/payments/new", "routes/account-payment-new.tsx"),
+    route("account/payments/:paymentId", "routes/account-payment.tsx"),
     route("account/listings", "routes/account-listings.tsx"),
     route("account/listings/:listingId", "routes/account-listing.tsx"),
     route("account/sales", "routes/account-sales.tsx"),

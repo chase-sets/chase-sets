@@ -4,6 +4,14 @@
 
 Marketplace owns the buy and sell interaction layer before an order exists.
 
+Marketplace supply and demand are version-scoped. Listings and offers target sellable units, not bare catalog items:
+
+- `catalogItemId`
+- `catalogVersionKey`
+- normalized `versionSelection`
+
+If an item uses a `condition` dimension, that condition is part of the selected version dimensions. Marketplace does not carry a separate condition field.
+
 ## Owns
 
 - Listing lifecycle
@@ -37,7 +45,7 @@ Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Incoming Dependencies
 
 - Identity for buyer and seller account references
-- Catalog for canonical item references
+- Catalog for canonical item and sellable-unit references
 - Inventory for sellable availability signals
 
 ## Outgoing Integration Events
@@ -51,7 +59,7 @@ Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. Listings and Offers share the same negotiation boundary and stay in one context.
-2. Marketplace may expose sellable quantity but does not own inventory truth.
+2. Marketplace may expose sellable-unit quantity but does not own inventory truth.
 3. Submitted offers remain marketplace-wide demand until a seller accepts one.
 4. Buyer and Seller are account roles, not Marketplace-specific entities.
 

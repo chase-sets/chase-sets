@@ -131,8 +131,11 @@ describe("inventory api", () => {
             dimensionId: catalogSeedIds.dimensions.form.dimensionId,
             choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
           },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+          },
         ],
-        condition: "NM",
         storageLocationId: locationBody.id,
         totalQuantity: 10,
         acquisitionCostAmount: "4.50",
@@ -161,7 +164,7 @@ describe("inventory api", () => {
     const listBody = await listResponse.json();
     expect(listBody.items).toHaveLength(1);
     expect(listBody.items[0]).toMatchObject({
-      version_summary: "Form: Raw",
+      version_summary: "Form: Raw | Condition: Near Mint",
       total_quantity: 10,
       held_quantity: 3,
       available_quantity: 7,
@@ -218,8 +221,11 @@ describe("inventory api", () => {
             dimensionId: catalogSeedIds.dimensions.form.dimensionId,
             choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
           },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent,
+          },
         ],
-        condition: "LP",
         storageLocationId: locationBody.id,
         totalQuantity: 5,
       }),
@@ -319,8 +325,11 @@ describe("inventory api", () => {
             dimensionId: catalogSeedIds.dimensions.form.dimensionId,
             choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
           },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+          },
         ],
-        condition: "NM",
         storageLocationId: location.storageLocationId,
         totalQuantity: 2,
       },

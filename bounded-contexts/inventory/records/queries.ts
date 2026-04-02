@@ -10,11 +10,11 @@ export type InventoryRecordListRow = Readonly<{
   record_id: string;
   account_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string | null;
   item_subtitle: string | null;
   version_selection: readonly InventoryVersionSelectionEntry[];
   version_summary: string | null;
-  condition: string;
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
@@ -35,8 +35,8 @@ type BaseInventoryRecordRow = Readonly<{
   record_id: string;
   account_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   version_selection: unknown;
-  condition: string;
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
@@ -130,8 +130,8 @@ export async function listInventoryRecords(
          record.record_id,
          record.account_id,
          record.catalog_item_id,
+         record.catalog_version_key,
          record.version_selection,
-         record.condition,
          record.storage_location_id,
          location.name AS storage_location_name,
          location.ship_from_code,
@@ -181,8 +181,8 @@ export async function getInventoryRecord(
        record.record_id,
        record.account_id,
        record.catalog_item_id,
+       record.catalog_version_key,
        record.version_selection,
-       record.condition,
        record.storage_location_id,
        location.name AS storage_location_name,
        location.ship_from_code,

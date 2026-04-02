@@ -18,6 +18,11 @@ import {
   orderingSchemaSql,
   seedOrderingDatabase,
 } from "@chase-sets/ordering";
+import {
+  createPaymentsServices,
+  createStripePaymentProcessorGateway,
+  paymentsSchemaSql,
+} from "@chase-sets/payments";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { loadConfig } from "./config";
 
@@ -77,6 +82,7 @@ async function bootstrap() {
         discoverySchemaSql,
         marketplaceSchemaSql,
         orderingSchemaSql,
+        paymentsSchemaSql,
       ].join("\n\n"),
     );
 
@@ -125,10 +131,30 @@ async function bootstrap() {
         },
       },
     });
+    const payments = createPaymentsServices(pool, {
+      processorGateway: createStripePaymentProcessorGateway({
+        secretKey: config.stripeSecretKey,
+        publishableKey: config.stripePublishableKey,
+        webhookSecret: config.stripeWebhookSecret,
+        apiBaseUrl: config.stripeApiBaseUrl,
+      }),
+      getOrderSnapshot: async (orderId, buyerAccountId) => {
+        const order = await ordering.orders.getBuyerOrder(orderId, buyerAccountId);
+        return order
+          ? {
+              orderId: order.order_id as never,
+              buyerAccountId: order.buyer_account_id as never,
+              totalAmount: order.total_amount,
+              status: order.status,
+            }
+          : null;
+      },
+    });
     await drainProjectors("Marketplace", [
       ...inventory.projectors,
       ...discovery.projectors,
       ...marketplace.projectors,
+      ...payments.projectors,
       ...ordering.projectors,
     ]);
     console.log("Marketplace bootstrap complete.");

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   Card,
-  ConditionBadge,
   DataTable,
   LinkButton,
   Page,
@@ -234,7 +233,6 @@ export function InventoryRecordListPage({
                   {catalogLookupError}
                 </Text>
               ) : null}
-              <TextInput label="Condition" name="condition" required placeholder="NM" />
               <label>
                 <Stack gap={1}>
                   <Text weight="semibold">Storage location</Text>
@@ -300,11 +298,6 @@ export function InventoryRecordListPage({
                     </Stack>
                   ),
                 },
-            {
-              key: "condition",
-              header: "Condition",
-              cell: (row) => <ConditionBadge condition={row.condition as never} />,
-            },
             {
               key: "location",
               header: "Location",

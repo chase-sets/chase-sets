@@ -1,10 +1,11 @@
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
+import type { CatalogVersionKey } from "@chase-sets/sellable-units";
 
 export type CartLineId = TypedUlid<"cli">;
 export type OrderLineId = TypedUlid<"oli">;
 
 export type ShippingOption = "standard" | "expedited" | "priority";
-export type OrderStatus = "pending-payment" | "cancelled";
+export type OrderStatus = "pending-payment" | "ready-for-fulfillment" | "cancelled";
 export type OrderSourceType = "cart-checkout" | "offer-acceptance";
 
 export type VersionSelectionEntry = Readonly<{
@@ -106,13 +107,11 @@ export function normalizeVersionSelection(
   return normalized;
 }
 
-export function buildDemandSignature(
-  catalogItemId: string,
-  versionSelection: readonly VersionSelectionEntry[],
-) {
-  return `${catalogItemId.trim()}::${JSON.stringify(
-    normalizeVersionSelection(versionSelection),
-  )}`;
+export function buildDemandSignature(catalogVersionKey: string | CatalogVersionKey) {
+  return normalizeRequiredText(
+    String(catalogVersionKey),
+    "Catalog version key is required.",
+  );
 }
 
 export function normalizeShippingOption(value: string): ShippingOption {

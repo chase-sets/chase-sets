@@ -4,6 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
+import type { CatalogVersionKey } from "@chase-sets/sellable-units";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -34,11 +35,11 @@ export type MarketplaceListingState = Readonly<{
   accountId: AccountId | null;
   inventoryRecordId: string | null;
   catalogItemId: string | null;
+  catalogVersionKey: CatalogVersionKey | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
   versionSummary: string | null;
-  condition: string;
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string | null;
@@ -51,11 +52,11 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   accountId: null,
   inventoryRecordId: null,
   catalogItemId: null,
+  catalogVersionKey: null,
   itemTitle: null,
   itemSubtitle: null,
   versionSelection: [],
   versionSummary: null,
-  condition: "",
   storageLocationName: null,
   shipFromCode: null,
   priceAmount: null,
@@ -69,11 +70,11 @@ export type CreateListingCommand = Readonly<{
   accountId: AccountId;
   inventoryRecordId: string;
   catalogItemId: string;
+  catalogVersionKey: CatalogVersionKey;
   itemTitle: string | null;
   itemSubtitle: string | null;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
   versionSummary: string | null;
-  condition: string;
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
@@ -109,11 +110,11 @@ export type ListingCreatedEvent = DomainEvent<
     accountId: AccountId;
     inventoryRecordId: string;
     catalogItemId: string;
+    catalogVersionKey: CatalogVersionKey;
     itemTitle: string | null;
     itemSubtitle: string | null;
     versionSelection: { dimensionId: string; choiceId: string }[];
     versionSummary: string | null;
-    condition: string;
     storageLocationName: string | null;
     shipFromCode: string | null;
     priceAmount: string;
@@ -165,6 +166,7 @@ export const decideMarketplaceListing: AggregateDecider<
             accountId: command.accountId,
             inventoryRecordId: command.inventoryRecordId.trim(),
             catalogItemId: command.catalogItemId.trim(),
+            catalogVersionKey: command.catalogVersionKey,
             itemTitle: command.itemTitle?.trim() ?? null,
             itemSubtitle: command.itemSubtitle?.trim() ?? null,
             versionSelection: command.versionSelection.map((selection) => ({
@@ -172,7 +174,6 @@ export const decideMarketplaceListing: AggregateDecider<
               choiceId: selection.choiceId.trim(),
             })),
             versionSummary: command.versionSummary?.trim() ?? null,
-            condition: command.condition.trim(),
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
             priceAmount: normalizeMoneyAmount(command.priceAmount),
@@ -235,11 +236,11 @@ export const evolveMarketplaceListing: AggregateEvolver<
         accountId: event.data.accountId,
         inventoryRecordId: event.data.inventoryRecordId,
         catalogItemId: event.data.catalogItemId,
+        catalogVersionKey: event.data.catalogVersionKey,
         itemTitle: event.data.itemTitle,
         itemSubtitle: event.data.itemSubtitle,
         versionSelection: event.data.versionSelection,
         versionSummary: event.data.versionSummary,
-        condition: event.data.condition,
         storageLocationName: event.data.storageLocationName,
         shipFromCode: event.data.shipFromCode,
         priceAmount: event.data.priceAmount,

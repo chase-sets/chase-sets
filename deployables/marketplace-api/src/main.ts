@@ -6,6 +6,10 @@ import { resolveActorFromIdentityApi } from "@chase-sets/identity/server";
 import { createInventoryServices } from "@chase-sets/inventory";
 import { createMarketplaceServices } from "@chase-sets/marketplace-context";
 import { createOrderingServices } from "@chase-sets/ordering";
+import {
+  createPaymentsServices,
+  createStripePaymentProcessorGateway,
+} from "@chase-sets/payments";
 import { loadConfig } from "./config";
 import { buildMarketplaceApp } from "./app";
 
@@ -46,8 +50,27 @@ const ordering = createOrderingServices(pool, {
     },
   },
 });
+const payments = createPaymentsServices(pool, {
+  processorGateway: createStripePaymentProcessorGateway({
+    secretKey: config.stripeSecretKey,
+    publishableKey: config.stripePublishableKey,
+    webhookSecret: config.stripeWebhookSecret,
+    apiBaseUrl: config.stripeApiBaseUrl,
+  }),
+  getOrderSnapshot: async (orderId, buyerAccountId) => {
+    const order = await ordering.orders.getBuyerOrder(orderId, buyerAccountId);
+    return order
+      ? {
+          orderId: order.order_id as never,
+          buyerAccountId: order.buyer_account_id as never,
+          totalAmount: order.total_amount,
+          status: order.status,
+        }
+      : null;
+  },
+});
 const app = buildMarketplaceApp(
-  { discovery, inventory, marketplace, ordering },
+  { discovery, inventory, marketplace, ordering, payments },
   {
     resolveActor: (request) =>
       resolveActorFromIdentityApi({
@@ -64,6 +87,7 @@ startProjectorPolling(
     ...discovery.projectors,
     ...inventory.projectors,
     ...marketplace.projectors,
+    ...payments.projectors,
     ...ordering.projectors,
   ],
   PROJECTION_INTERVAL_MS,

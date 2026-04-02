@@ -61,9 +61,10 @@ export async function getInventoryCatalogItem(
 
   return {
     ...row,
-    version_schema:
+    version_schema: toInventoryRecordVersionSchema(
       typeof row.version_schema === "object" && row.version_schema !== null
-        ? toInventoryRecordVersionSchema(row.version_schema as InventoryVersionSchema)
+        ? (row.version_schema as InventoryVersionSchema)
         : null,
+    ),
   };
 }

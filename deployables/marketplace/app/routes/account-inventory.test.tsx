@@ -25,10 +25,14 @@ describe("marketplace inventory routes", () => {
               account_id: "acc_1",
               catalog_item_id: "cat_charizard",
               item_title: "Charizard ex",
+              catalog_version_key:
+                "cat_charizard::dim_condition:near_mint|dim_form:raw",
               item_subtitle: "199/165",
-              version_selection: [{ dimensionId: "dim_form", choiceId: "raw" }],
-              version_summary: "Form: Raw",
-              condition: "NM",
+              version_selection: [
+                { dimensionId: "dim_condition", choiceId: "near_mint" },
+                { dimensionId: "dim_form", choiceId: "raw" },
+              ],
+              version_summary: "Condition: Near Mint | Form: Raw",
               storage_location_id: "loc_1",
               storage_location_name: "North shelf",
               ship_from_code: "CHI-WH-1",
@@ -130,7 +134,6 @@ describe("marketplace inventory routes", () => {
     form.set("intent", "create-record");
     form.set("catalogItemId", "cat_1");
     form.set("versionSelection", "[]");
-    form.set("condition", "NM");
     form.set("storageLocationId", "loc_1");
     form.set("totalQuantity", "3");
 
@@ -174,11 +177,15 @@ describe("marketplace inventory routes", () => {
             record_id: "inv_1",
             account_id: "acc_1",
             catalog_item_id: "cat_charizard",
+            catalog_version_key:
+              "cat_charizard::dim_condition:near_mint|dim_form:raw",
             item_title: "Charizard ex",
             item_subtitle: null,
-            version_selection: [{ dimensionId: "dim_form", choiceId: "raw" }],
-            version_summary: "Form: Raw",
-            condition: "NM",
+            version_selection: [
+              { dimensionId: "dim_condition", choiceId: "near_mint" },
+              { dimensionId: "dim_form", choiceId: "raw" },
+            ],
+            version_summary: "Condition: Near Mint | Form: Raw",
             storage_location_id: "loc_1",
             storage_location_name: "North shelf",
             ship_from_code: "CHI-WH-1",

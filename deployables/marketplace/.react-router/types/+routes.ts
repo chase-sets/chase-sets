@@ -76,6 +76,14 @@ type Pages = {
       "orderId": string;
     };
   };
+  "/account/payments/new": {
+    params: {};
+  };
+  "/account/payments/:paymentId": {
+    params: {
+      "paymentId": string;
+    };
+  };
   "/account/listings": {
     params: {};
   };
@@ -114,7 +122,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/cart" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/orders" | "/account/orders/:orderId" | "/account/listings" | "/account/listings/:listingId" | "/account/sales" | "/account/sales/:orderId" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/cart" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/orders" | "/account/orders/:orderId" | "/account/payments/new" | "/account/payments/:paymentId" | "/account/listings" | "/account/listings/:listingId" | "/account/sales" | "/account/sales/:orderId" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents";
   };
   "routes/favicon.ts": {
     id: "routes/favicon";
@@ -134,7 +142,7 @@ type RouteFiles = {
   };
   "routes/layout.tsx": {
     id: "routes/layout";
-    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/cart" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/orders" | "/account/orders/:orderId" | "/account/listings" | "/account/listings/:listingId" | "/account/sales" | "/account/sales/:orderId" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/cart" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/orders" | "/account/orders/:orderId" | "/account/payments/new" | "/account/payments/:paymentId" | "/account/listings" | "/account/listings/:listingId" | "/account/sales" | "/account/sales/:orderId" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents";
   };
   "routes/index.tsx": {
     id: "routes/index";
@@ -196,6 +204,14 @@ type RouteFiles = {
     id: "routes/account-order";
     page: "/account/orders/:orderId";
   };
+  "routes/account-payment-new.tsx": {
+    id: "routes/account-payment-new";
+    page: "/account/payments/new";
+  };
+  "routes/account-payment.tsx": {
+    id: "routes/account-payment";
+    page: "/account/payments/:paymentId";
+  };
   "routes/account-listings.tsx": {
     id: "routes/account-listings";
     page: "/account/listings";
@@ -256,6 +272,8 @@ type RouteModules = {
   "routes/account-offer": typeof import("./app/routes/account-offer.tsx");
   "routes/account-orders": typeof import("./app/routes/account-orders.tsx");
   "routes/account-order": typeof import("./app/routes/account-order.tsx");
+  "routes/account-payment-new": typeof import("./app/routes/account-payment-new.tsx");
+  "routes/account-payment": typeof import("./app/routes/account-payment.tsx");
   "routes/account-listings": typeof import("./app/routes/account-listings.tsx");
   "routes/account-listing": typeof import("./app/routes/account-listing.tsx");
   "routes/account-sales": typeof import("./app/routes/account-sales.tsx");

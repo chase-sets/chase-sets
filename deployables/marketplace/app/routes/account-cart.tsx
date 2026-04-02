@@ -38,10 +38,12 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "checkout-cart") {
-      await api.checkoutCart({
+      const result = await api.checkoutCart({
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
-      });
-      return redirect("/account/orders");
+      }) as { orderIds: string[] };
+      return redirect(
+        `/account/payments/new?orderIds=${encodeURIComponent(result.orderIds.join(","))}&autostart=1`,
+      );
     }
 
     return null;

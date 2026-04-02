@@ -5,6 +5,7 @@ export type OrderingCartLineRow = Readonly<{
   buyer_account_id: string;
   line_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string;
   item_subtitle: string | null;
   version_selection: readonly VersionSelectionEntry[];
@@ -18,6 +19,7 @@ type CartLinePageRow = Readonly<{
   buyer_account_id: string;
   line_id: string;
   catalog_item_id: string;
+  catalog_version_key: string;
   item_title: string;
   item_subtitle: string | null;
   version_selection: unknown;
@@ -45,6 +47,7 @@ export async function listCartLines(
        buyer_account_id,
        line_id,
        catalog_item_id,
+       catalog_version_key,
        item_title,
        item_subtitle,
        version_selection,

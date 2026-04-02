@@ -40,14 +40,13 @@ export function inventoryRecordRoutes(
   app.post("/", async (c) => {
     const actor = c.get("actor");
     const body = await c.req.json();
-      const result = await records.createRecord(
-        {
-          accountId: actor.accountId as never,
-          catalogItemId: String(body.catalogItemId ?? ""),
-          versionSelection: body.versionSelection,
-          condition: String(body.condition ?? ""),
-          storageLocationId: String(body.storageLocationId ?? ""),
-          totalQuantity: Number(body.totalQuantity ?? 0),
+    const result = await records.createRecord(
+      {
+        accountId: actor.accountId as never,
+        catalogItemId: String(body.catalogItemId ?? ""),
+        versionSelection: body.versionSelection,
+        storageLocationId: String(body.storageLocationId ?? ""),
+        totalQuantity: Number(body.totalQuantity ?? 0),
         acquisitionCostAmount:
           body.acquisitionCostAmount === null ||
           typeof body.acquisitionCostAmount === "undefined" ||

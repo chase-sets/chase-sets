@@ -1,0 +1,103 @@
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+export type PaymentDetailRow = Readonly<{
+  payment_id: string;
+  buyer_account_id: string;
+  order_ids: readonly string[];
+  amount: string;
+  currency_code: string;
+  processor_name: string;
+  processor_payment_reference: string;
+  processor_client_secret: string | null;
+  processor_status: string;
+  status: string;
+  failure_code: string | null;
+  failure_message: string | null;
+  created_at: string;
+  updated_at: string;
+  captured_at: string | null;
+  failed_at: string | null;
+  cancelled_at: string | null;
+}>;
+
+type PaymentPageRow = Omit<PaymentDetailRow, "order_ids"> & Readonly<{
+  order_ids: unknown;
+}>;
+
+function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
+  return {
+    ...row,
+    amount: String(row.amount),
+    order_ids: Array.isArray(row.order_ids)
+      ? row.order_ids.filter((value): value is string => typeof value === "string")
+      : [],
+  };
+}
+
+const paymentSelect = `
+  SELECT
+    payment_id,
+    buyer_account_id,
+    order_ids,
+    amount::text AS amount,
+    currency_code,
+    processor_name,
+    processor_payment_reference,
+    processor_client_secret,
+    processor_status,
+    status,
+    failure_code,
+    failure_message,
+    created_at,
+    updated_at,
+    captured_at,
+    failed_at,
+    cancelled_at
+  FROM payments_payment_pages
+`;
+
+export async function getBuyerPayment(
+  db: PgQueryable,
+  paymentId: string,
+  buyerAccountId: string,
+): Promise<PaymentDetailRow | null> {
+  const result = await db.query<PaymentPageRow>(
+    `${paymentSelect}
+     WHERE payment_id = $1
+       AND buyer_account_id = $2`,
+    [paymentId, buyerAccountId],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPaymentRow(row) : null;
+}
+
+export async function getPaymentById(
+  db: PgQueryable,
+  paymentId: string,
+): Promise<PaymentDetailRow | null> {
+  const result = await db.query<PaymentPageRow>(
+    `${paymentSelect}
+     WHERE payment_id = $1`,
+    [paymentId],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPaymentRow(row) : null;
+}
+
+export async function getPaymentByProcessorReference(
+  db: PgQueryable,
+  processorName: string,
+  processorPaymentReference: string,
+): Promise<PaymentDetailRow | null> {
+  const result = await db.query<PaymentPageRow>(
+    `${paymentSelect}
+     WHERE processor_name = $1
+       AND processor_payment_reference = $2`,
+    [processorName, processorPaymentReference],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPaymentRow(row) : null;
+}

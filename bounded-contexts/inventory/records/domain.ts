@@ -4,6 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
+import type { CatalogVersionKey } from "@chase-sets/sellable-units";
 import type { InventoryVersionSelectionEntry } from "../catalog-items/versioning";
 import {
   assert,
@@ -17,8 +18,8 @@ export type InventoryRecordState = Readonly<{
   id: InventoryRecordId | null;
   accountId: AccountId | null;
   catalogItemId: string | null;
+  catalogVersionKey: CatalogVersionKey | null;
   versionSelection: readonly InventoryVersionSelectionEntry[];
-  condition: string;
   storageLocationId: string | null;
   totalQuantity: number;
   acquisitionCostAmount: string | null;
@@ -28,8 +29,8 @@ export const initialInventoryRecordState: InventoryRecordState = {
   id: null,
   accountId: null,
   catalogItemId: null,
+  catalogVersionKey: null,
   versionSelection: [],
-  condition: "",
   storageLocationId: null,
   totalQuantity: 0,
   acquisitionCostAmount: null,
@@ -40,8 +41,8 @@ export type CreateInventoryRecordCommand = Readonly<{
   recordId: InventoryRecordId;
   accountId: AccountId;
   catalogItemId: string;
+  catalogVersionKey: CatalogVersionKey;
   versionSelection?: readonly InventoryVersionSelectionEntry[];
-  condition: string;
   storageLocationId: string;
   totalQuantity: number;
   acquisitionCostAmount?: string | null;
@@ -63,8 +64,8 @@ export type InventoryRecordCreatedEvent = DomainEvent<
     recordId: InventoryRecordId;
     accountId: AccountId;
     catalogItemId: string;
+    catalogVersionKey: CatalogVersionKey;
     versionSelection: InventoryVersionSelectionEntry[];
-    condition: string;
     storageLocationId: string;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
@@ -103,11 +104,11 @@ export const decideInventoryRecord: AggregateDecider<
             recordId: command.recordId,
             accountId: command.accountId,
             catalogItemId: normalizeLabel(command.catalogItemId),
+            catalogVersionKey: command.catalogVersionKey,
             versionSelection: (command.versionSelection ?? []).map((entry) => ({
               dimensionId: normalizeLabel(entry.dimensionId),
               choiceId: normalizeLabel(entry.choiceId),
             })),
-            condition: normalizeLabel(command.condition),
             storageLocationId: normalizeLabel(command.storageLocationId),
             totalQuantity: command.totalQuantity,
             acquisitionCostAmount: command.acquisitionCostAmount ?? null,
@@ -150,8 +151,8 @@ export const evolveInventoryRecord: AggregateEvolver<
         id: event.data.recordId,
         accountId: event.data.accountId,
         catalogItemId: event.data.catalogItemId,
+        catalogVersionKey: event.data.catalogVersionKey,
         versionSelection: event.data.versionSelection,
-        condition: event.data.condition,
         storageLocationId: event.data.storageLocationId,
         totalQuantity: event.data.totalQuantity,
         acquisitionCostAmount: event.data.acquisitionCostAmount,
