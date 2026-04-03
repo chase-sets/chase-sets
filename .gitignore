@@ -2,7 +2,7 @@ node_modules/
 dist/
 build/
 .env
+.env.local
 !deployables/catalog-api/.env
 !deployables/identity-api/.env
 !deployables/inventory-api/.env
-!deployables/marketplace-api/.env

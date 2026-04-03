@@ -9,6 +9,7 @@ import { createMarketplaceServices } from "@chase-sets/marketplace-context";
 import { createOrderingServices } from "@chase-sets/ordering";
 import {
   createPaymentsServices,
+  createFakePaymentProcessorGateway,
   createStripePaymentProcessorGateway,
 } from "@chase-sets/payments";
 import { createReputationServices } from "@chase-sets/reputation";
@@ -56,13 +57,25 @@ const ordering = createOrderingServices(pool, {
 const fulfillment = createFulfillmentServices(pool);
 const reputation = createReputationServices(pool);
 const settlement = createSettlementServices(pool);
+
+const paymentProcessorGateway =
+  config.paymentProcessor.kind === "stripe"
+    ? createStripePaymentProcessorGateway({
+        secretKey: config.paymentProcessor.secretKey,
+        publishableKey: config.paymentProcessor.publishableKey,
+        webhookSecret: config.paymentProcessor.webhookSecret,
+        apiBaseUrl: config.paymentProcessor.apiBaseUrl,
+      })
+    : createFakePaymentProcessorGateway();
+
+if (config.paymentProcessor.kind === "fake") {
+  console.warn(
+    "Marketplace API is using the fake payment processor because Stripe env vars are incomplete. Set STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET to enable Stripe locally.",
+  );
+}
+
 const payments = createPaymentsServices(pool, {
-  processorGateway: createStripePaymentProcessorGateway({
-    secretKey: config.stripeSecretKey,
-    publishableKey: config.stripePublishableKey,
-    webhookSecret: config.stripeWebhookSecret,
-    apiBaseUrl: config.stripeApiBaseUrl,
-  }),
+  processorGateway: paymentProcessorGateway,
   getOrderSnapshot: async (orderId, buyerAccountId) => {
     const order = await ordering.orders.getBuyerOrder(orderId, buyerAccountId);
     return order

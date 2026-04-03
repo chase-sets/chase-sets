@@ -37,12 +37,16 @@ Payments terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Runtime Configuration
 
-The marketplace API now depends on these Stripe-backed payment settings:
+The marketplace API can run with either the real Stripe gateway or the fake local payment gateway.
+
+Stripe mode uses these settings:
 
 - `STRIPE_SECRET_KEY`: server-side Stripe API key used to create and update payment intents.
 - `STRIPE_PUBLISHABLE_KEY`: buyer-facing Stripe key returned with payment intent client data.
 - `STRIPE_WEBHOOK_SECRET`: signing secret used to verify inbound Stripe webhook payloads.
 - `STRIPE_API_BASE_URL`: optional override for Stripe API calls in non-default environments or tests.
+
+For local development, keep real Stripe values in `deployables/marketplace-api/.env.local` when you want to exercise real Stripe flows. If any of the required Stripe values are missing, the marketplace API falls back to the fake payment gateway so local startup still works without webhook forwarding. The marketplace API scripts load safe defaults from `deployables/marketplace-api/.env.example` and then apply `.env.local` if it exists, so secrets stay out of git.
 
 Webhook callbacks are mounted by the marketplace API at `/api/payments/stripe/webhooks`. The buyer-facing payment routes stay under `/api/marketplace/buyer/payments`.
 
