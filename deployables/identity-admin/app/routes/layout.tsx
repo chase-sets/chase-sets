@@ -1,5 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLocation } from "react-router";
+import { Button } from "@chase-sets/design-system";
 import { IdentityAdminLayout } from "@chase-sets/identity/web";
 import { requireIdentityAdminActor } from "../auth.server";
 
@@ -17,7 +18,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export default function IdentityAdminLayoutRoute() {
   const location = useLocation();
   return (
-    <IdentityAdminLayout activeKey={resolveActiveKey(location.pathname)}>
+    <IdentityAdminLayout
+      activeKey={resolveActiveKey(location.pathname)}
+      actions={
+        <form action="/sign-out" method="post">
+          <Button type="submit" tone="secondary">
+            Sign Out
+          </Button>
+        </form>
+      }
+    >
       <Outlet />
     </IdentityAdminLayout>
   );

@@ -18,6 +18,7 @@ export default [
     route("search", "routes/search.tsx"),
     route("items/:id", "routes/item-detail.tsx"),
     route("sign-in", "routes/sign-in.tsx"),
+    route("sign-out", "routes/sign-out.tsx"),
     route("register", "routes/register.tsx"),
     route("account/select", "routes/account-select.tsx"),
     route("account", "routes/account.tsx"),

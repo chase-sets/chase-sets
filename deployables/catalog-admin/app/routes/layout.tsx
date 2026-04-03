@@ -1,5 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLocation } from "react-router";
+import { Button } from "@chase-sets/design-system";
 import { CatalogAdminLayout } from "@chase-sets/catalog-authoring/web";
 import { requireCatalogAdminActor } from "../auth.server";
 
@@ -18,7 +19,16 @@ export default function CatalogAdminLayoutRoute() {
   const location = useLocation();
 
   return (
-    <CatalogAdminLayout activeKey={resolveActiveKey(location.pathname)}>
+    <CatalogAdminLayout
+      activeKey={resolveActiveKey(location.pathname)}
+      actions={
+        <form action="/sign-out" method="post">
+          <Button type="submit" tone="secondary">
+            Sign Out
+          </Button>
+        </form>
+      }
+    >
       <Outlet />
     </CatalogAdminLayout>
   );

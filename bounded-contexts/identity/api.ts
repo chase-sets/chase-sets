@@ -724,6 +724,26 @@ export function buildIdentityApi(services: IdentityServices) {
     return c.json({ actor });
   });
 
+  auth.post("/sign-out", async (c) => {
+    const actor = c.var.actor;
+    if (!actor) {
+      return c.json({ error: "Authentication required." }, 401);
+    }
+
+    const result = await services.sessions.commandHandler({
+      streamId: `identity.session-${actor.sessionId}`,
+      command: { type: "RevokeSession" },
+      context: getRequiredContext(c),
+    });
+    await drainProjectors(services);
+
+    return c.json({
+      id: actor.sessionId,
+      version: result.version,
+      status: result.state.status,
+    });
+  });
+
   app.use("/accounts", requirePermission("accounts.view", "accounts.manage"));
   app.use("/accounts/*", requirePermission("accounts.view", "accounts.manage"));
   app.use("/users", requirePermission("security.manage"));

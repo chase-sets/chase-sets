@@ -9,9 +9,11 @@ import { identityAdminNavItems } from "./nav";
 
 export function IdentityAdminLayout({
   activeKey,
+  actions,
   children,
 }: {
   activeKey: string;
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const [colorMode] = useState<ColorMode>("system");
@@ -22,6 +24,7 @@ export function IdentityAdminLayout({
         brand={<Text weight="semibold">Identity Admin</Text>}
         navItems={identityAdminNavItems}
         activeKey={activeKey}
+        actions={actions}
       >
         {children}
       </AdminShell>

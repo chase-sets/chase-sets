@@ -4,6 +4,7 @@ import {
   appendAccountSelectionCookie,
   appendIdentitySessionCookie,
   clearAccountSelectionCookie,
+  clearIdentitySessionCookie,
   hasPermission,
   readAccountSelectionToken,
   type ResolvedActor,
@@ -96,4 +97,19 @@ export function completeAuthentication(
 
   appendIdentitySessionCookie(headers, result.sessionToken, request);
   throw redirect(getReturnTo(request, "/accounts"), { headers });
+}
+
+export async function signOutIdentityAdmin(request: Request) {
+  const headers = new Headers();
+  clearAccountSelectionCookie(headers, request);
+  clearIdentitySessionCookie(headers, request);
+
+  try {
+    const api = createIdentityServerApiClient(request);
+    await api.signOutCurrentSession();
+  } catch {
+    // Clearing the local cookies is enough to end the browser session.
+  }
+
+  return redirect("/sign-in", { headers });
 }

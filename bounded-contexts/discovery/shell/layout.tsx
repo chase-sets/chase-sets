@@ -12,11 +12,13 @@ export function DiscoveryShellLayout({
   activeKey = "search",
   topNavItems = marketplaceTopNavItems,
   bottomNavItems = marketplaceBottomNavItems,
+  actions,
   children,
 }: {
   activeKey?: string;
   topNavItems?: NavigationItem[];
   bottomNavItems?: NavigationItem[];
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const [colorMode] = useState<ColorMode>("system");
@@ -28,6 +30,7 @@ export function DiscoveryShellLayout({
         topNavItems={topNavItems}
         bottomNavItems={bottomNavItems}
         activeKey={activeKey}
+        actions={actions}
       >
         {children}
       </MarketplaceShell>

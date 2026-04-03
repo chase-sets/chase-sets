@@ -4,6 +4,7 @@ import {
   appendAccountSelectionCookie,
   appendIdentitySessionCookie,
   clearAccountSelectionCookie,
+  clearIdentitySessionCookie,
   hasPermission,
   readAccountSelectionToken,
   type ResolvedActor,
@@ -103,4 +104,24 @@ export function completeAuthentication(
 
   appendIdentitySessionCookie(headers, result.sessionToken, request);
   throw redirect(getReturnTo(request, options.defaultSuccessPath), { headers });
+}
+
+export async function signOutMarketplaceActor(
+  request: Request,
+  options: Readonly<{
+    returnTo?: string;
+  }> = {},
+) {
+  const headers = new Headers();
+  clearAccountSelectionCookie(headers, request);
+  clearIdentitySessionCookie(headers, request);
+
+  try {
+    const api = createMarketplaceIdentityApiClient(request);
+    await api.signOutCurrentSession();
+  } catch {
+    // Clearing the local cookies is enough to end the browser session.
+  }
+
+  return redirect(options.returnTo ?? "/search", { headers });
 }

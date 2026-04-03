@@ -1,4 +1,5 @@
 import { Outlet, useLocation, useRouteLoaderData } from "react-router";
+import { Button } from "@chase-sets/design-system";
 import type { NavigationItem } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 
@@ -208,6 +209,15 @@ export default function MarketplaceLayoutRoute() {
       activeKey={getActiveKey(location.pathname)}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
+      actions={
+        rootData?.actor ? (
+          <form action="/sign-out" method="post">
+            <Button type="submit" tone="secondary">
+              Sign Out
+            </Button>
+          </form>
+        ) : null
+      }
     >
       <Outlet />
     </DiscoveryShellLayout>

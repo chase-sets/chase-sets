@@ -200,6 +200,13 @@ export function createIdentityApiClient({
         }),
       );
     },
+    async signOutCurrentSession<T>(): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.auth["sign-out"].$post({
+          header: headers,
+        }),
+      );
+    },
   };
 }
 

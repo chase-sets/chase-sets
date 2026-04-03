@@ -61,6 +61,7 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/fulfillment"');
     expect(html).toContain('href="/account/sales"');
     expect(html).toContain('href="/account"');
+    expect(html).toContain('action="/sign-out"');
     expect(html).not.toContain('href="/sign-in"');
   });
 
@@ -73,6 +74,7 @@ describe("marketplace route layout", () => {
 
     expect(html).toContain('href="/sign-in"');
     expect(html).toContain('href="/register"');
+    expect(html).not.toContain('action="/sign-out"');
     expect(html).not.toContain('href="/account/inventory"');
   });
 });

@@ -5,9 +5,11 @@ import { catalogAdminNavItems } from "./nav";
 
 export function CatalogAdminLayout({
   activeKey,
+  actions,
   children,
 }: {
   activeKey: string;
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const [colorMode] = useState<ColorMode>("system");
@@ -19,6 +21,7 @@ export function CatalogAdminLayout({
           brand={<Text weight="semibold">Catalog Admin</Text>}
           navItems={catalogAdminNavItems}
           activeKey={activeKey}
+          actions={actions}
         >
           {children}
         </AdminShell>

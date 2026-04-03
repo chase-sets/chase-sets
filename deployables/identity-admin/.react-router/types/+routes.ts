@@ -17,6 +17,9 @@ type Pages = {
   "/sign-in": {
     params: {};
   };
+  "/sign-out": {
+    params: {};
+  };
   "/account-select": {
     params: {};
   };
@@ -73,11 +76,15 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/sign-in" | "/account-select" | "/accounts" | "/accounts/:id" | "/users" | "/users/:id" | "/memberships" | "/memberships/:id" | "/invitations" | "/invitations/:id" | "/sessions" | "/sessions/:id" | "/api-keys" | "/api-keys/:id";
+    page: "/" | "/sign-in" | "/sign-out" | "/account-select" | "/accounts" | "/accounts/:id" | "/users" | "/users/:id" | "/memberships" | "/memberships/:id" | "/invitations" | "/invitations/:id" | "/sessions" | "/sessions/:id" | "/api-keys" | "/api-keys/:id";
   };
   "routes/sign-in.tsx": {
     id: "routes/sign-in";
     page: "/sign-in";
+  };
+  "routes/sign-out.tsx": {
+    id: "routes/sign-out";
+    page: "/sign-out";
   };
   "routes/account-select.tsx": {
     id: "routes/account-select";
@@ -144,6 +151,7 @@ type RouteFiles = {
 type RouteModules = {
   "root": typeof import("./app/root.tsx");
   "routes/sign-in": typeof import("./app/routes/sign-in.tsx");
+  "routes/sign-out": typeof import("./app/routes/sign-out.tsx");
   "routes/account-select": typeof import("./app/routes/account-select.tsx");
   "routes/layout": typeof import("./app/routes/layout.tsx");
   "routes/index": typeof import("./app/routes/index.tsx");

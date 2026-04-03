@@ -7,6 +7,7 @@ import {
 
 export default [
   route("sign-in", "routes/sign-in.tsx"),
+  route("sign-out", "routes/sign-out.tsx"),
   route("account-select", "routes/account-select.tsx"),
   layout("routes/layout.tsx", [
     index("routes/index.tsx"),
