@@ -50,6 +50,8 @@ For local development, keep real Stripe values in `deployables/marketplace-api/.
 
 Webhook callbacks are mounted by the marketplace API at `/api/payments/stripe/webhooks`. The buyer-facing payment routes stay under `/api/marketplace/buyer/payments`.
 
+When a dev target includes `marketplace-api`, `npm run dev` now starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/marketplace-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` into `deployables/marketplace-api/.env.local`, and then starts `marketplace-api` so the API comes up on the real Stripe gateway. You can still run `npm run stripe:listen` manually if you want the listener in a separate terminal.
+
 ## Outgoing Integration Events
 
 - `PaymentAuthorized`

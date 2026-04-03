@@ -15,6 +15,7 @@
         "dev:bootstrap": "node ./scripts/dev-system.mjs bootstrap",
         "dev:down": "node ./scripts/dev-system.mjs down",
         "dev:db:refresh": "node ./scripts/dev-system.mjs refresh",
+        "stripe:listen": "node ./scripts/stripe-cli.mjs listen",
         "dev:showcase": "npm run dev --workspace @chase-sets/design-system-showcase",
         "test:design-system": "npm run test --workspace @chase-sets/design-system",
         "test:showcase": "npm run test --workspace @chase-sets/design-system-showcase",

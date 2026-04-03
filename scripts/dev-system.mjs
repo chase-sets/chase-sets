@@ -1,13 +1,30 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import net from "node:net";
+import os from "node:os";
+import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2] ?? "dev";
 const target = process.argv[3] ?? "all";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
+const stripeCliScript = fileURLToPath(new URL("./stripe-cli.mjs", import.meta.url));
 const dockerComposeArgs = ["compose", "-f", "docker-compose.dev.yml"];
 const databaseUrl = "postgresql://catalog:catalog@localhost:5432/catalog";
+const marketplaceApiEnvExamplePath = path.join(
+  rootDir,
+  "deployables",
+  "marketplace-api",
+  ".env.example",
+);
+const marketplaceApiEnvLocalPath = path.join(
+  rootDir,
+  "deployables",
+  "marketplace-api",
+  ".env.local",
+);
+const stripeReadyTimeoutMs = 20_000;
 
 const bootstrapWorkspaces = [
   "@chase-sets/identity-api",
@@ -166,6 +183,84 @@ function buildNpmInvocation(args) {
     command: "npm",
     args,
   };
+}
+
+function parseEnvFile(content) {
+  const values = {};
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    values[key] = value;
+  }
+
+  return values;
+}
+
+function readEnvFile(filePath) {
+  if (!existsSync(filePath)) {
+    return {};
+  }
+
+  return parseEnvFile(readFileSync(filePath, "utf8"));
+}
+
+function resolveMarketplaceStripeConfig() {
+  const envExample = readEnvFile(marketplaceApiEnvExamplePath);
+  const envLocal = readEnvFile(marketplaceApiEnvLocalPath);
+
+  return {
+    secretKey:
+      process.env.STRIPE_SECRET_KEY ??
+      envLocal.STRIPE_SECRET_KEY ??
+      envExample.STRIPE_SECRET_KEY ??
+      "",
+    publishableKey:
+      process.env.STRIPE_PUBLISHABLE_KEY ??
+      envLocal.STRIPE_PUBLISHABLE_KEY ??
+      envExample.STRIPE_PUBLISHABLE_KEY ??
+      "",
+  };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForStripeReady(readyFilePath, child) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < stripeReadyTimeoutMs) {
+    if (child.exitCode !== null) {
+      throw new Error("Stripe listener exited before it reported a webhook secret.");
+    }
+
+    if (existsSync(readyFilePath)) {
+      const secret = readFileSync(readyFilePath, "utf8").trim();
+      if (secret.startsWith("whsec_")) {
+        return secret;
+      }
+    }
+
+    await sleep(200);
+  }
+
+  throw new Error(
+    `Stripe listener did not report a webhook secret within ${stripeReadyTimeoutMs / 1000} seconds.`,
+  );
 }
 
 function isPortInUseError(error) {
@@ -358,6 +453,76 @@ async function runDev(targetName = "all") {
   process.once("SIGINT", () => shutdown("SIGINT", 0));
   process.once("SIGTERM", () => shutdown("SIGTERM", 0));
 
+  const marketplaceApiDefinition = selectedProcesses.find(
+    (definition) => definition.name === "marketplace-api",
+  );
+  let shouldSkipManagedStripeStartup = false;
+
+  if (marketplaceApiDefinition) {
+    const marketplaceApiPortBusy =
+      (await hasExistingListener(marketplaceApiDefinition.port)) ||
+      !(await isPortAvailable(marketplaceApiDefinition.port));
+
+    if (marketplaceApiPortBusy) {
+      shouldSkipManagedStripeStartup = true;
+      prefixedConsole(
+        "dev",
+        "Skipping managed Stripe startup because marketplace-api is already running or port 6182 is unavailable.",
+      );
+    } else {
+      const stripeConfig = resolveMarketplaceStripeConfig();
+
+      if (stripeConfig.secretKey && stripeConfig.publishableKey) {
+        const readyFilePath = path.join(
+          os.tmpdir(),
+          `chase-sets-stripe-ready-${process.pid}-${Date.now()}.txt`,
+        );
+        const stripeListener = spawnCommand("node", [stripeCliScript, "listen"], {
+          env: {
+            STRIPE_READY_FILE: readyFilePath,
+          },
+          prefix: "stripe",
+        });
+
+        stripeListener.on("error", (error) => {
+          if (!shuttingDown) {
+            console.error(`[stripe] Failed to start: ${error.message}`);
+            shutdown("stripe", 1);
+          }
+        });
+
+        stripeListener.on("exit", (code) => {
+          if (!shuttingDown && code !== 0) {
+            console.error(
+              `[stripe] exited unexpectedly with code ${code ?? "unknown"}.`,
+            );
+            shutdown("stripe", code ?? 1);
+          }
+        });
+
+        children.push(stripeListener);
+
+        try {
+          await waitForStripeReady(readyFilePath, stripeListener);
+          prefixedConsole(
+            "dev",
+            "Stripe listener is ready. marketplace-api will start with the current webhook secret.",
+          );
+        } catch (error) {
+          if (!stripeListener.killed) {
+            stripeListener.kill("SIGTERM");
+          }
+          throw error;
+        }
+      } else {
+        prefixedConsole(
+          "dev",
+          "Stripe keys are incomplete in deployables/marketplace-api/.env.local, so marketplace-api will use the fake payment processor.",
+        );
+      }
+    }
+  }
+
   if (targetName === "all") {
     if (!(await hasExistingListener(6170)) && await isPortAvailable(6170)) {
       const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
@@ -372,6 +537,14 @@ async function runDev(targetName = "all") {
   }
 
   for (const definition of selectedProcesses) {
+    if (definition.name === "marketplace-api" && shouldSkipManagedStripeStartup) {
+      prefixedConsole(
+        "dev",
+        `Skipping ${definition.name} because port ${definition.port} is already in use.`,
+      );
+      continue;
+    }
+
     if (
       definition.port &&
       ((await hasExistingListener(definition.port)) ||
