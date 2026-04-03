@@ -50,5 +50,8 @@ export default [
     route("account/team", "routes/account-team.tsx"),
     route("account/security", "routes/account-security.tsx"),
     route("account/consents", "routes/account-consents.tsx"),
+    route("account/settlement", "routes/account-settlement.tsx"),
+    route("account/payouts", "routes/account-payouts.tsx"),
+    route("account/payouts/:payoutId", "routes/account-payout.tsx"),
   ]),
 ] satisfies RouteConfig;

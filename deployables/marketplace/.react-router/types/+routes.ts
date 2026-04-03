@@ -68,10 +68,37 @@ type Pages = {
       "offerId": string;
     };
   };
+  "/account/shipments": {
+    params: {};
+  };
+  "/account/shipments/:shipmentId": {
+    params: {
+      "shipmentId": string;
+    };
+  };
+  "/account/reputation": {
+    params: {};
+  };
+  "/account/reviews/written": {
+    params: {};
+  };
+  "/account/reviews/received": {
+    params: {};
+  };
+  "/account/reviews/:reviewId": {
+    params: {
+      "reviewId": string;
+    };
+  };
   "/account/orders": {
     params: {};
   };
   "/account/orders/:orderId": {
+    params: {
+      "orderId": string;
+    };
+  };
+  "/account/orders/:orderId/review": {
     params: {
       "orderId": string;
     };
@@ -92,10 +119,23 @@ type Pages = {
       "listingId": string;
     };
   };
+  "/account/fulfillment": {
+    params: {};
+  };
+  "/account/fulfillment/:shipmentId": {
+    params: {
+      "shipmentId": string;
+    };
+  };
   "/account/sales": {
     params: {};
   };
   "/account/sales/:orderId": {
+    params: {
+      "orderId": string;
+    };
+  };
+  "/account/sales/:orderId/review": {
     params: {
       "orderId": string;
     };
@@ -117,12 +157,23 @@ type Pages = {
   "/account/consents": {
     params: {};
   };
+  "/account/settlement": {
+    params: {};
+  };
+  "/account/payouts": {
+    params: {};
+  };
+  "/account/payouts/:payoutId": {
+    params: {
+      "payoutId": string;
+    };
+  };
 };
 
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/cart" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/orders" | "/account/orders/:orderId" | "/account/payments/new" | "/account/payments/:paymentId" | "/account/listings" | "/account/listings/:listingId" | "/account/sales" | "/account/sales/:orderId" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/cart" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/shipments" | "/account/shipments/:shipmentId" | "/account/reputation" | "/account/reviews/written" | "/account/reviews/received" | "/account/reviews/:reviewId" | "/account/orders" | "/account/orders/:orderId" | "/account/orders/:orderId/review" | "/account/payments/new" | "/account/payments/:paymentId" | "/account/listings" | "/account/listings/:listingId" | "/account/fulfillment" | "/account/fulfillment/:shipmentId" | "/account/sales" | "/account/sales/:orderId" | "/account/sales/:orderId/review" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents" | "/account/settlement" | "/account/payouts" | "/account/payouts/:payoutId";
   };
   "routes/favicon.ts": {
     id: "routes/favicon";
@@ -142,7 +193,7 @@ type RouteFiles = {
   };
   "routes/layout.tsx": {
     id: "routes/layout";
-    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/cart" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/orders" | "/account/orders/:orderId" | "/account/payments/new" | "/account/payments/:paymentId" | "/account/listings" | "/account/listings/:listingId" | "/account/sales" | "/account/sales/:orderId" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents";
+    page: "/" | "/search" | "/items/:id" | "/sign-in" | "/register" | "/account/select" | "/account" | "/account/cart" | "/account/inventory" | "/account/inventory/records/:recordId" | "/account/inventory/locations" | "/account/offers" | "/account/offers/:offerId" | "/account/shipments" | "/account/shipments/:shipmentId" | "/account/reputation" | "/account/reviews/written" | "/account/reviews/received" | "/account/reviews/:reviewId" | "/account/orders" | "/account/orders/:orderId" | "/account/orders/:orderId/review" | "/account/payments/new" | "/account/payments/:paymentId" | "/account/listings" | "/account/listings/:listingId" | "/account/fulfillment" | "/account/fulfillment/:shipmentId" | "/account/sales" | "/account/sales/:orderId" | "/account/sales/:orderId/review" | "/account/market-offers" | "/account/market-offers/:offerId" | "/account/team" | "/account/security" | "/account/consents" | "/account/settlement" | "/account/payouts" | "/account/payouts/:payoutId";
   };
   "routes/index.tsx": {
     id: "routes/index";
@@ -196,6 +247,30 @@ type RouteFiles = {
     id: "routes/account-offer";
     page: "/account/offers/:offerId";
   };
+  "routes/account-shipments.tsx": {
+    id: "routes/account-shipments";
+    page: "/account/shipments";
+  };
+  "routes/account-shipment.tsx": {
+    id: "routes/account-shipment";
+    page: "/account/shipments/:shipmentId";
+  };
+  "routes/account-reputation.tsx": {
+    id: "routes/account-reputation";
+    page: "/account/reputation";
+  };
+  "routes/account-written-reviews.tsx": {
+    id: "routes/account-written-reviews";
+    page: "/account/reviews/written";
+  };
+  "routes/account-received-reviews.tsx": {
+    id: "routes/account-received-reviews";
+    page: "/account/reviews/received";
+  };
+  "routes/account-review.tsx": {
+    id: "routes/account-review";
+    page: "/account/reviews/:reviewId";
+  };
   "routes/account-orders.tsx": {
     id: "routes/account-orders";
     page: "/account/orders";
@@ -203,6 +278,10 @@ type RouteFiles = {
   "routes/account-order.tsx": {
     id: "routes/account-order";
     page: "/account/orders/:orderId";
+  };
+  "routes/account-order-review.tsx": {
+    id: "routes/account-order-review";
+    page: "/account/orders/:orderId/review";
   };
   "routes/account-payment-new.tsx": {
     id: "routes/account-payment-new";
@@ -220,6 +299,14 @@ type RouteFiles = {
     id: "routes/account-listing";
     page: "/account/listings/:listingId";
   };
+  "routes/account-fulfillment.tsx": {
+    id: "routes/account-fulfillment";
+    page: "/account/fulfillment";
+  };
+  "routes/account-fulfillment-shipment.tsx": {
+    id: "routes/account-fulfillment-shipment";
+    page: "/account/fulfillment/:shipmentId";
+  };
   "routes/account-sales.tsx": {
     id: "routes/account-sales";
     page: "/account/sales";
@@ -227,6 +314,10 @@ type RouteFiles = {
   "routes/account-sale.tsx": {
     id: "routes/account-sale";
     page: "/account/sales/:orderId";
+  };
+  "routes/account-sale-review.tsx": {
+    id: "routes/account-sale-review";
+    page: "/account/sales/:orderId/review";
   };
   "routes/account-market-offers.tsx": {
     id: "routes/account-market-offers";
@@ -247,6 +338,18 @@ type RouteFiles = {
   "routes/account-consents.tsx": {
     id: "routes/account-consents";
     page: "/account/consents";
+  };
+  "routes/account-settlement.tsx": {
+    id: "routes/account-settlement";
+    page: "/account/settlement";
+  };
+  "routes/account-payouts.tsx": {
+    id: "routes/account-payouts";
+    page: "/account/payouts";
+  };
+  "routes/account-payout.tsx": {
+    id: "routes/account-payout";
+    page: "/account/payouts/:payoutId";
   };
 };
 
@@ -270,17 +373,30 @@ type RouteModules = {
   "routes/account-inventory-locations": typeof import("./app/routes/account-inventory-locations.tsx");
   "routes/account-offers": typeof import("./app/routes/account-offers.tsx");
   "routes/account-offer": typeof import("./app/routes/account-offer.tsx");
+  "routes/account-shipments": typeof import("./app/routes/account-shipments.tsx");
+  "routes/account-shipment": typeof import("./app/routes/account-shipment.tsx");
+  "routes/account-reputation": typeof import("./app/routes/account-reputation.tsx");
+  "routes/account-written-reviews": typeof import("./app/routes/account-written-reviews.tsx");
+  "routes/account-received-reviews": typeof import("./app/routes/account-received-reviews.tsx");
+  "routes/account-review": typeof import("./app/routes/account-review.tsx");
   "routes/account-orders": typeof import("./app/routes/account-orders.tsx");
   "routes/account-order": typeof import("./app/routes/account-order.tsx");
+  "routes/account-order-review": typeof import("./app/routes/account-order-review.tsx");
   "routes/account-payment-new": typeof import("./app/routes/account-payment-new.tsx");
   "routes/account-payment": typeof import("./app/routes/account-payment.tsx");
   "routes/account-listings": typeof import("./app/routes/account-listings.tsx");
   "routes/account-listing": typeof import("./app/routes/account-listing.tsx");
+  "routes/account-fulfillment": typeof import("./app/routes/account-fulfillment.tsx");
+  "routes/account-fulfillment-shipment": typeof import("./app/routes/account-fulfillment-shipment.tsx");
   "routes/account-sales": typeof import("./app/routes/account-sales.tsx");
   "routes/account-sale": typeof import("./app/routes/account-sale.tsx");
+  "routes/account-sale-review": typeof import("./app/routes/account-sale-review.tsx");
   "routes/account-market-offers": typeof import("./app/routes/account-market-offers.tsx");
   "routes/account-market-offer": typeof import("./app/routes/account-market-offer.tsx");
   "routes/account-team": typeof import("./app/routes/account-team.tsx");
   "routes/account-security": typeof import("./app/routes/account-security.tsx");
   "routes/account-consents": typeof import("./app/routes/account-consents.tsx");
+  "routes/account-settlement": typeof import("./app/routes/account-settlement.tsx");
+  "routes/account-payouts": typeof import("./app/routes/account-payouts.tsx");
+  "routes/account-payout": typeof import("./app/routes/account-payout.tsx");
 };

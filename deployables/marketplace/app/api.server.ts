@@ -5,6 +5,7 @@ import { createMarketplaceApiClient } from "@chase-sets/marketplace-context/web"
 import { createOrderingApiClient } from "@chase-sets/ordering/web";
 import { createPaymentsApiClient } from "@chase-sets/payments/web";
 import { createReputationApiClient } from "@chase-sets/reputation/web";
+import { createSettlementApiClient } from "@chase-sets/settlement/web";
 import { createForwardedAuthFetch } from "@chase-sets/identity/server";
 
 export function getMarketplaceApiBaseUrl(request: Request) {
@@ -67,6 +68,18 @@ export function getInventoryApiBaseUrl(request: Request) {
 export function createMarketplaceInventoryApiClient(request: Request) {
   return createInventoryApiClient({
     baseUrl: getInventoryApiBaseUrl(request),
+    fetch: createForwardedAuthFetch(request),
+  });
+}
+
+export function getSettlementApiBaseUrl(request: Request) {
+  const url = new URL(request.url);
+  return `${url.origin}/api/settlement`;
+}
+
+export function createMarketplaceSettlementApiClient(request: Request) {
+  return createSettlementApiClient({
+    baseUrl: getSettlementApiBaseUrl(request),
     fetch: createForwardedAuthFetch(request),
   });
 }

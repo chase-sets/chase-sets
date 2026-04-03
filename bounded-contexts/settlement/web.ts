@@ -127,4 +127,7 @@ export function createSettlementApiClient({
 
 export type { SettlementWalletRow, SettlementLedgerEntryRow } from "./wallets/queries";
 export type { SettlementPayoutRow } from "./payouts/queries";
+export { SettlementWalletPage } from "./wallets/ui/wallet-page";
+export { SettlementPayoutListPage } from "./payouts/ui/payout-list-page";
+export { SettlementPayoutDetailPage } from "./payouts/ui/payout-detail-page";
 export const settlementApi = createSettlementApiClient();

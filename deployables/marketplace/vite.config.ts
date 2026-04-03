@@ -74,6 +74,13 @@ export default defineConfig({
         )
       },
       {
+        find: /^@chase-sets\/settlement\/web$/,
+        replacement: resolve(
+          currentDir,
+          "../../bounded-contexts/settlement/web.ts"
+        )
+      },
+      {
         find: /^@chase-sets\/marketplace-context\/web$/,
         replacement: resolve(
           currentDir,
@@ -126,6 +133,10 @@ export default defineConfig({
       },
       "/api/inventory": {
         target: "http://localhost:6183",
+        changeOrigin: true,
+      },
+      "/api/settlement": {
+        target: "http://localhost:6182",
         changeOrigin: true,
       },
     },
