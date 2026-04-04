@@ -1,3 +1,4 @@
+export { default as contextManifest } from "./context.json";
 export { buildDiscoveryApi } from "./api";
 export { createDiscoveryServices } from "./services";
 export type { DiscoveryServices } from "./services";

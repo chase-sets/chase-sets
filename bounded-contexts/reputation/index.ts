@@ -1,4 +1,5 @@
 export { ReputationDomainError } from "./common";
+export { default as contextManifest } from "./context.json";
 export { buildReputationApi } from "./api";
 export type { ReputationApiEnv } from "./api";
 export { createReputationServices } from "./services";

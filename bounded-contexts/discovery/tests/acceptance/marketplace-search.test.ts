@@ -12,8 +12,8 @@ import {
   catalogAuthoringSchemaSql,
   type CatalogServices,
 } from "@chase-sets/catalog";
+import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import {
-  eventCorePostgresSchemaSql,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -39,14 +39,12 @@ function createPool(connectionString: string): PgTransactionalPool {
 
 async function recreateSchema() {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-
-  for (const schemaSql of [
-    eventCorePostgresSchemaSql,
-    catalogAuthoringSchemaSql,
-    discoverySchemaSql,
-  ]) {
-    await pool.query(schemaSql);
-  }
+  await pool.query(
+    composeSchemaSql([
+      { schemaSql: catalogAuthoringSchemaSql },
+      { schemaSql: discoverySchemaSql },
+    ]),
+  );
 }
 
 async function drainProjectors() {

@@ -28,17 +28,6 @@ function requiredPermissionForMethod(method: string) {
   }
 }
 
-async function drainProjectors(services: InventoryServices) {
-  let processed = 0;
-  do {
-    processed = 0;
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
-
 export function buildInventoryApi(services: InventoryServices) {
   const app = new Hono<InventoryApiEnv>();
 
@@ -54,10 +43,6 @@ export function buildInventoryApi(services: InventoryServices) {
     }
 
     await next();
-
-    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-      await drainProjectors(services);
-    }
   });
 
   app.route(

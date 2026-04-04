@@ -1,6 +1,17 @@
 import { Hono } from "hono";
-import { buildCatalogAuthoringApi, type CatalogServices } from "@chase-sets/catalog";
-import { createHealthRoutes } from "@chase-sets/http/health";
+import {
+  buildCatalogAuthoringApi,
+  contextManifest as catalogManifest,
+  type CatalogServices,
+} from "@chase-sets/catalog";
+import {
+  attachApiMountMiddleware,
+  attachWriteDrainMiddleware,
+  createResolvedApiMount,
+  drainProjectors,
+  mountApiRouters,
+} from "@chase-sets/bounded-context-runtime";
+import { createHealthRoutes } from "@chase-sets/http-host/health";
 import {
   createCatalogAuthMiddleware,
   type CatalogActorResolver,
@@ -17,16 +28,23 @@ export function buildCatalogApp(
   options: BuildCatalogAppOptions = {},
 ) {
   const app = new Hono<TenantContextEnv>();
+  const apiMount = createResolvedApiMount(
+    catalogManifest.contextName,
+    catalogManifest.apiMounts[0],
+    buildCatalogAuthoringApi(services),
+  );
 
   app.onError(errorHandler);
 
   app.route("/health", createHealthRoutes());
 
-  app.use(
-    "/api/catalog/*",
+  attachApiMountMiddleware(
+    app,
+    [apiMount.mountPath],
     createCatalogAuthMiddleware(options.resolveActor ?? (async () => null)),
   );
-  app.route("/api/catalog", buildCatalogAuthoringApi(services));
+  attachWriteDrainMiddleware(app, [apiMount], () => drainProjectors(services.projectors));
+  mountApiRouters(app, [apiMount]);
 
   return app;
 }

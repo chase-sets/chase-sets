@@ -1,3 +1,4 @@
+export { default as contextManifest } from "./context.json";
 export { buildMarketplaceApi } from "./api";
 export type { MarketplaceApiEnv } from "./api";
 export { createMarketplaceSupplyResolver } from "./integration";

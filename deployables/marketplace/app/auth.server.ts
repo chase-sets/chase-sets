@@ -1,15 +1,14 @@
 import { redirect } from "react-router";
+import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime";
 import { IdentityApiError } from "@chase-sets/identity/web";
 import {
-  appendAccountSelectionCookie,
-  appendIdentitySessionCookie,
-  clearAccountSelectionCookie,
-  clearIdentitySessionCookie,
+  completeBrowserAuthentication,
   hasPermission,
-  readAccountSelectionToken,
+  requireAccountSelectionTokenOrRedirect,
+  resolveActorFromIdentityApi,
+  signOutActorViaIdentityApi,
   type ResolvedActor,
 } from "@chase-sets/identity/server";
-import { createMarketplaceIdentityApiClient } from "./api.server";
 
 function buildCurrentPath(request: Request) {
   const url = new URL(request.url);
@@ -26,11 +25,11 @@ export function getReturnTo(request: Request, fallback: string) {
 }
 
 export async function resolveMarketplaceActor(request: Request) {
-  const api = createMarketplaceIdentityApiClient(request);
-
   try {
-    const response = await api.getCurrentActor<{ actor: ResolvedActor }>();
-    return response.actor;
+    return await resolveActorFromIdentityApi({
+      identityApiBaseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
+      request,
+    });
   } catch (error) {
     if (error instanceof IdentityApiError && error.status === 401) {
       return null;
@@ -59,14 +58,9 @@ export async function requireMarketplaceActor(
 }
 
 export function requireAccountSelectionToken(request: Request) {
-  const selectionToken = readAccountSelectionToken(request);
-  if (!selectionToken) {
-    throw redirect(
-      `/sign-in?returnTo=${encodeURIComponent(getReturnTo(request, "/account"))}`,
-    );
-  }
-
-  return selectionToken;
+  return requireAccountSelectionTokenOrRedirect(request, {
+    fallbackPath: "/account",
+  });
 }
 
 export function completeAuthentication(
@@ -81,29 +75,7 @@ export function completeAuthentication(
     accountSelectionPath: string;
   }>,
 ) {
-  const headers = new Headers();
-  clearAccountSelectionCookie(headers, request);
-
-  if (result.requiresAccountSelection) {
-    if (!result.selectionToken) {
-      return { error: "Account selection could not be started." };
-    }
-
-    appendAccountSelectionCookie(headers, result.selectionToken, request);
-    throw redirect(
-      `${options.accountSelectionPath}?returnTo=${encodeURIComponent(
-        getReturnTo(request, options.defaultSuccessPath),
-      )}`,
-      { headers },
-    );
-  }
-
-  if (!result.sessionToken) {
-    return { error: "Authentication did not return a session." };
-  }
-
-  appendIdentitySessionCookie(headers, result.sessionToken, request);
-  throw redirect(getReturnTo(request, options.defaultSuccessPath), { headers });
+  return completeBrowserAuthentication(request, result, options);
 }
 
 export async function signOutMarketplaceActor(
@@ -112,16 +84,7 @@ export async function signOutMarketplaceActor(
     returnTo?: string;
   }> = {},
 ) {
-  const headers = new Headers();
-  clearAccountSelectionCookie(headers, request);
-  clearIdentitySessionCookie(headers, request);
-
-  try {
-    const api = createMarketplaceIdentityApiClient(request);
-    await api.signOutCurrentSession();
-  } catch {
-    // Clearing the local cookies is enough to end the browser session.
-  }
-
-  return redirect(options.returnTo ?? "/search", { headers });
+  return signOutActorViaIdentityApi(request, {
+    returnTo: options.returnTo ?? "/search",
+  });
 }

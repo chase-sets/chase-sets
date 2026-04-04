@@ -6,14 +6,14 @@ const {
   mockUseLoaderData,
   mockUseActionData,
   mockUseNavigation,
-  mockRequireMarketplaceActor,
-  mockCreateMarketplaceReputationApiClient,
+  mockRequireActorFromIdentityApi,
+  mockCreateReputationRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
   mockUseNavigation: vi.fn(),
-  mockRequireMarketplaceActor: vi.fn(),
-  mockCreateMarketplaceReputationApiClient: vi.fn(),
+  mockRequireActorFromIdentityApi: vi.fn(),
+  mockCreateReputationRequestApiClient: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -27,13 +27,27 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../api.server", () => ({
-  createMarketplaceReputationApiClient: mockCreateMarketplaceReputationApiClient,
-}));
+vi.mock("@chase-sets/reputation/client", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/reputation/client")>(
+    "@chase-sets/reputation/client",
+  );
 
-vi.mock("../auth.server", () => ({
-  requireMarketplaceActor: mockRequireMarketplaceActor,
-}));
+  return {
+    ...actual,
+    createReputationRequestApiClient: mockCreateReputationRequestApiClient,
+  };
+});
+
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>(
+    "@chase-sets/identity/server",
+  );
+
+  return {
+    ...actual,
+    requireActorFromIdentityApi: mockRequireActorFromIdentityApi,
+  };
+});
 
 import MarketplaceAccountSaleReviewRoute, {
   action,
@@ -53,7 +67,7 @@ describe("marketplace account sale review route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
     mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockRequireMarketplaceActor.mockResolvedValue({
+    mockRequireActorFromIdentityApi.mockResolvedValue({
       accountId: "acc_seller",
       permissions: ["reputation.view", "reputation.manage"],
     });
@@ -66,7 +80,7 @@ describe("marketplace account sale review route", () => {
   it("loads the seller-side verified-order opportunity", async () => {
     const getOrderReviewOpportunity = vi.fn().mockResolvedValue(opportunity);
 
-    mockCreateMarketplaceReputationApiClient.mockReturnValue({
+    mockCreateReputationRequestApiClient.mockReturnValue({
       getOrderReviewOpportunity,
     });
 
@@ -83,7 +97,7 @@ describe("marketplace account sale review route", () => {
     const getOrderReviewOpportunity = vi.fn().mockResolvedValue(opportunity);
     const submitReview = vi.fn().mockResolvedValue({ id: "rev_2", version: 1 });
 
-    mockCreateMarketplaceReputationApiClient.mockReturnValue({
+    mockCreateReputationRequestApiClient.mockReturnValue({
       getOrderReviewOpportunity,
       submitReview,
     });

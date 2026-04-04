@@ -26,13 +26,52 @@
     "auth-support",
     "projection-support",
     "read-model-support",
+    "shell",
     "shell-support",
     "tests"
   ],
   "publicExports": [
     ".",
     "./client",
-    "./server"
+    "./routes/*",
+    "./server",
+    "./web"
   ],
-  "requiredPorts": []
+  "requiredPorts": [],
+  "apiMounts": [
+    {
+      "mountPath": "/api/identity",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": false
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "identity-admin",
+      "routes": [
+        { "routeId": "accounts", "routePath": "accounts", "fileExport": "./routes/admin/accounts", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "accounts-detail", "routePath": "accounts/:id", "fileExport": "./routes/admin/accounts-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "api-keys", "routePath": "api-keys", "fileExport": "./routes/admin/api-keys", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "api-keys-detail", "routePath": "api-keys/:id", "fileExport": "./routes/admin/api-keys-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "invitations", "routePath": "invitations", "fileExport": "./routes/admin/invitations", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "invitations-detail", "routePath": "invitations/:id", "fileExport": "./routes/admin/invitations-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "memberships", "routePath": "memberships", "fileExport": "./routes/admin/memberships", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "memberships-detail", "routePath": "memberships/:id", "fileExport": "./routes/admin/memberships-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "sessions", "routePath": "sessions", "fileExport": "./routes/admin/sessions", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "sessions-detail", "routePath": "sessions/:id", "fileExport": "./routes/admin/sessions-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "users", "routePath": "users", "fileExport": "./routes/admin/users", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "users-detail", "routePath": "users/:id", "fileExport": "./routes/admin/users-detail", "routeType": "route", "sourceContext": "identity" }
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "routes": [
+        { "routeId": "account", "routePath": "account", "fileExport": "./routes/marketplace/account", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "account-consents", "routePath": "account/consents", "fileExport": "./routes/marketplace/account-consents", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "account-security", "routePath": "account/security", "fileExport": "./routes/marketplace/account-security", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "account-team", "routePath": "account/team", "fileExport": "./routes/marketplace/account-team", "routeType": "route", "sourceContext": "identity" }
+      ]
+    }
+  ]
 }

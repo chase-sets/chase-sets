@@ -1,6 +1,17 @@
 import { Hono } from "hono";
-import { buildInventoryApi, type InventoryServices } from "@chase-sets/inventory";
-import { createHealthRoutes } from "@chase-sets/http/health";
+import {
+  buildInventoryApi,
+  contextManifest as inventoryManifest,
+  type InventoryServices,
+} from "@chase-sets/inventory";
+import {
+  attachApiMountMiddleware,
+  attachWriteDrainMiddleware,
+  createResolvedApiMount,
+  drainProjectors,
+  mountApiRouters,
+} from "@chase-sets/bounded-context-runtime";
+import { createHealthRoutes } from "@chase-sets/http-host/health";
 import {
   createInventoryAuthMiddleware,
   type InventoryActorResolver,
@@ -17,14 +28,21 @@ export function buildInventoryApp(
   options: BuildInventoryAppOptions = {},
 ) {
   const app = new Hono<TenantContextEnv>();
+  const apiMount = createResolvedApiMount(
+    inventoryManifest.contextName,
+    inventoryManifest.apiMounts[0],
+    buildInventoryApi(services),
+  );
 
   app.onError(errorHandler);
   app.route("/health", createHealthRoutes());
-  app.use(
-    "/api/inventory/*",
+  attachApiMountMiddleware(
+    app,
+    [apiMount.mountPath],
     createInventoryAuthMiddleware(options.resolveActor ?? (async () => null)),
   );
-  app.route("/api/inventory", buildInventoryApi(services));
+  attachWriteDrainMiddleware(app, [apiMount], () => drainProjectors(services.projectors));
+  mountApiRouters(app, [apiMount]);
 
   return app;
 }

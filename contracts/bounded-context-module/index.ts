@@ -8,6 +8,30 @@ export type BcProjector = Readonly<{
   runOnce(): Promise<Readonly<{ processed: number }>>;
 }>;
 
+export type BcRouteType = "route" | "index";
+
+export type BcRouteModule = Readonly<{
+  readonly routeId: string;
+  readonly routePath: string;
+  readonly fileExport: string;
+  readonly routeType: BcRouteType;
+  readonly sourceContext: string;
+}>;
+
+export type BcDeployableContribution = Readonly<{
+  readonly deployable: string;
+  readonly routes: readonly BcRouteModule[];
+}>;
+
+export type BcApiMountKind = "primary" | "additional";
+
+export type BcApiMount = Readonly<{
+  readonly mountPath: string;
+  readonly kind: BcApiMountKind;
+  readonly requiresAuth: boolean;
+  readonly drainProjectorsOnWrite: boolean;
+}>;
+
 export interface BcApiModule<
   TServices = unknown,
   TPool = unknown,
@@ -24,9 +48,3 @@ export interface BcApiModule<
   projectors(services: TServices): readonly TProjector[];
   seed?(pool: TPool): Promise<void>;
 }
-
-export type BcWebRouteModule = Readonly<{
-  readonly routeId: string;
-  readonly routePath: string;
-  readonly sourceContext: string;
-}>;

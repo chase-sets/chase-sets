@@ -113,7 +113,20 @@ export function buildOrderingOrderProjectionHandlers(
              line_total_amount
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-           )`,
+           )
+           ON CONFLICT (order_id, line_id) DO UPDATE
+           SET line_index = EXCLUDED.line_index,
+               listing_id = EXCLUDED.listing_id,
+               inventory_record_id = EXCLUDED.inventory_record_id,
+               catalog_item_id = EXCLUDED.catalog_item_id,
+               catalog_version_key = EXCLUDED.catalog_version_key,
+               item_title = EXCLUDED.item_title,
+               item_subtitle = EXCLUDED.item_subtitle,
+               version_selection = EXCLUDED.version_selection,
+               version_summary = EXCLUDED.version_summary,
+               unit_price_amount = EXCLUDED.unit_price_amount,
+               quantity = EXCLUDED.quantity,
+               line_total_amount = EXCLUDED.line_total_amount`,
           [
             data.orderId,
             line.lineId,

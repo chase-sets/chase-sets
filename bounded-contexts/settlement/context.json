@@ -17,7 +17,27 @@
   ],
   "publicExports": [
     ".",
-    "./client"
+    "./client",
+    "./routes/*",
+    "./web"
   ],
-  "requiredPorts": []
+  "requiredPorts": [],
+  "apiMounts": [
+    {
+      "mountPath": "/api/settlement",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace",
+      "routes": [
+        { "routeId": "account-payout", "routePath": "account/payouts/:payoutId", "fileExport": "./routes/marketplace/account-payout", "routeType": "route", "sourceContext": "settlement" },
+        { "routeId": "account-payouts", "routePath": "account/payouts", "fileExport": "./routes/marketplace/account-payouts", "routeType": "route", "sourceContext": "settlement" },
+        { "routeId": "account-settlement", "routePath": "account/settlement", "fileExport": "./routes/marketplace/account-settlement", "routeType": "route", "sourceContext": "settlement" }
+      ]
+    }
+  ]
 }

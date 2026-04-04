@@ -5,15 +5,15 @@ import { ChaseRoot } from "@chase-sets/design-system";
 const {
   mockUseLoaderData,
   mockUseActionData,
-  mockRequireMarketplaceActor,
-  mockCreateMarketplaceOrderingApiClient,
-  mockCreateMarketplaceReputationApiClient,
+  mockRequireActorFromIdentityApi,
+  mockCreateOrderingRequestApiClient,
+  mockCreateReputationRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
-  mockRequireMarketplaceActor: vi.fn(),
-  mockCreateMarketplaceOrderingApiClient: vi.fn(),
-  mockCreateMarketplaceReputationApiClient: vi.fn(),
+  mockRequireActorFromIdentityApi: vi.fn(),
+  mockCreateOrderingRequestApiClient: vi.fn(),
+  mockCreateReputationRequestApiClient: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -26,14 +26,38 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../api.server", () => ({
-  createMarketplaceOrderingApiClient: mockCreateMarketplaceOrderingApiClient,
-  createMarketplaceReputationApiClient: mockCreateMarketplaceReputationApiClient,
-}));
+vi.mock("@chase-sets/ordering/client", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/ordering/client")>(
+    "@chase-sets/ordering/client",
+  );
 
-vi.mock("../auth.server", () => ({
-  requireMarketplaceActor: mockRequireMarketplaceActor,
-}));
+  return {
+    ...actual,
+    createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
+  };
+});
+
+vi.mock("@chase-sets/reputation/client", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/reputation/client")>(
+    "@chase-sets/reputation/client",
+  );
+
+  return {
+    ...actual,
+    createReputationRequestApiClient: mockCreateReputationRequestApiClient,
+  };
+});
+
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>(
+    "@chase-sets/identity/server",
+  );
+
+  return {
+    ...actual,
+    requireActorFromIdentityApi: mockRequireActorFromIdentityApi,
+  };
+});
 
 import MarketplaceAccountSaleRoute, { loader } from "./account-sale";
 
@@ -65,7 +89,7 @@ const order = {
 describe("marketplace account sale route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
-    mockRequireMarketplaceActor.mockResolvedValue({
+    mockRequireActorFromIdentityApi.mockResolvedValue({
       accountId: "acc_seller",
       permissions: [
         "orders.view",
@@ -91,8 +115,8 @@ describe("marketplace account sale route", () => {
       active_review_id: null,
     });
 
-    mockCreateMarketplaceOrderingApiClient.mockReturnValue({ getSellerOrder });
-    mockCreateMarketplaceReputationApiClient.mockReturnValue({
+    mockCreateOrderingRequestApiClient.mockReturnValue({ getSellerOrder });
+    mockCreateReputationRequestApiClient.mockReturnValue({
       getOrderReviewOpportunity,
     });
 

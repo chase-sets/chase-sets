@@ -17,7 +17,7 @@ export default defineConfig({
       },
       {
         find: "@chase-sets/catalog",
-        replacement: resolve(currentDir, "../../bounded-contexts/catalog/authoring/index.ts"),
+        replacement: resolve(currentDir, "../../bounded-contexts/catalog/index.ts"),
       },
       {
         find: "@chase-sets/event-core-postgres",
@@ -25,6 +25,10 @@ export default defineConfig({
           currentDir,
           "../../infrastructure/event-core-postgres/index.ts"
         ),
+      },
+      {
+        find: /^@chase-sets\/http-host\/(.*)$/,
+        replacement: `${resolve(currentDir, "../../infrastructure/http-host")}/$1`,
       },
       {
         find: /^@chase-sets\/event-core$/,
@@ -50,6 +54,7 @@ export default defineConfig({
       "../../bounded-contexts/catalog/authoring/**/*.test.ts",
     ],
     exclude: ["dist/**", "node_modules/**"],
+    fileParallelism: false,
   },
 });
 

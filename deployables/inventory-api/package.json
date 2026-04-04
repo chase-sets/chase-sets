@@ -13,6 +13,7 @@
                     "seed":  "tsx --env-file=.env src/seed.ts"
                 },
     "dependencies":  {
+                         "@chase-sets/http-host":  "0.1.0",
                          "@chase-sets/event-core":  "0.1.0",
                          "@chase-sets/event-core-postgres":  "0.1.0",
                          "@chase-sets/http":  "0.1.0",

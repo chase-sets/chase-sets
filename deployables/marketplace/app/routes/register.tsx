@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs, MetaFunction } from "react-router";
 import { useActionData } from "react-router";
+import { createIdentityRequestApiClient } from "@chase-sets/identity/client";
 import { RegisterPage } from "@chase-sets/identity/web";
-import { createMarketplaceIdentityApiClient } from "../api.server";
 import { completeAuthentication } from "../auth.server";
 import { buildMarketplaceMeta } from "../seo";
 
@@ -10,7 +10,7 @@ export const meta: MetaFunction = () =>
 
 export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
-  const api = createMarketplaceIdentityApiClient(request);
+  const api = createIdentityRequestApiClient(request);
   const result = await api.register<{
     requiresAccountSelection?: boolean;
     selectionToken?: string;

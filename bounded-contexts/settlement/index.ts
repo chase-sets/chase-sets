@@ -1,4 +1,5 @@
 export { SettlementDomainError } from "./common";
+export { default as contextManifest } from "./context.json";
 export { buildSettlementApi } from "./api";
 export type { SettlementApiEnv } from "./api";
 export { createSettlementServices } from "./services";

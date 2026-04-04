@@ -15,7 +15,30 @@
   ],
   "publicExports": [
     ".",
-    "./client"
+    "./client",
+    "./routes/*",
+    "./web"
   ],
-  "requiredPorts": []
+  "requiredPorts": [],
+  "apiMounts": [
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace",
+      "routes": [
+        { "routeId": "account-order-review", "routePath": "account/orders/:orderId/review", "fileExport": "./routes/marketplace/account-order-review", "routeType": "route", "sourceContext": "reputation" },
+        { "routeId": "account-received-reviews", "routePath": "account/reviews/received", "fileExport": "./routes/marketplace/account-received-reviews", "routeType": "route", "sourceContext": "reputation" },
+        { "routeId": "account-reputation", "routePath": "account/reputation", "fileExport": "./routes/marketplace/account-reputation", "routeType": "route", "sourceContext": "reputation" },
+        { "routeId": "account-review", "routePath": "account/reviews/:reviewId", "fileExport": "./routes/marketplace/account-review", "routeType": "route", "sourceContext": "reputation" },
+        { "routeId": "account-sale-review", "routePath": "account/sales/:orderId/review", "fileExport": "./routes/marketplace/account-sale-review", "routeType": "route", "sourceContext": "reputation" },
+        { "routeId": "account-written-reviews", "routePath": "account/reviews/written", "fileExport": "./routes/marketplace/account-written-reviews", "routeType": "route", "sourceContext": "reputation" }
+      ]
+    }
+  ]
 }

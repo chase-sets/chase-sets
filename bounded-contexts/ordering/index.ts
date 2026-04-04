@@ -1,4 +1,5 @@
 export { OrderingDomainError } from "./common";
+export { default as contextManifest } from "./context.json";
 export { createOrderSnapshotReader } from "./integration";
 export type {
   InventoryReservationGateway,

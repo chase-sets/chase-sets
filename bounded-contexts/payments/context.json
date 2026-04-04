@@ -17,10 +17,34 @@
   "publicExports": [
     ".",
     "./client",
-    "./integration"
+    "./routes/*",
+    "./web"
   ],
   "requiredPorts": [
     "processorGateway",
     "getOrderSnapshot"
+  ],
+  "apiMounts": [
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    },
+    {
+      "mountPath": "/api/payments/stripe",
+      "kind": "additional",
+      "requiresAuth": false,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace",
+      "routes": [
+        { "routeId": "account-payment", "routePath": "account/payments/:paymentId", "fileExport": "./routes/marketplace/account-payment", "routeType": "route", "sourceContext": "payments" },
+        { "routeId": "account-payment-new", "routePath": "account/payments/new", "fileExport": "./routes/marketplace/account-payment-new", "routeType": "route", "sourceContext": "payments" }
+      ]
+    }
   ]
 }

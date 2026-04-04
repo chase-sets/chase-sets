@@ -1,66 +1,17 @@
 import { serve } from "@hono/node-server";
-import { createDiscoveryServices } from "@chase-sets/discovery";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import { createFulfillmentServices } from "@chase-sets/fulfillment";
 import { resolveActorFromIdentityApi } from "@chase-sets/identity/server";
-import { createInventoryServices } from "@chase-sets/inventory";
 import {
-  createMarketplaceServices,
-  createMarketplaceSupplyResolver,
-} from "@chase-sets/marketplace";
-import { createOrderingServices } from "@chase-sets/ordering";
-import {
-  createPaymentsServices,
   createFakePaymentProcessorGateway,
   createStripePaymentProcessorGateway,
 } from "@chase-sets/payments";
-import { createReputationServices } from "@chase-sets/reputation";
-import { createSettlementServices } from "@chase-sets/settlement";
 import { loadConfig } from "./config";
 import { buildMarketplaceApp } from "./app";
+import { composeMarketplaceApiStack } from "./stack";
 
 const config = loadConfig();
 const pool = createPgPool(config.databaseUrl);
-const discovery = createDiscoveryServices(pool);
-const inventory = createInventoryServices(pool);
-const marketplace = createMarketplaceServices(pool);
-const ordering = createOrderingServices(pool, {
-  supplyResolver: createMarketplaceSupplyResolver(marketplace),
-  inventoryReservations: {
-    createReservation: async ({ sellerAccountId, inventoryRecordId, quantity, reason, notes, context }) => {
-      const result = await inventory.holds.createHold(
-        {
-          accountId: sellerAccountId,
-          recordId: inventoryRecordId,
-          quantity,
-          reason,
-          notes,
-        },
-        context as never,
-      );
-
-      return {
-        holdId: result.holdId,
-        inventoryRecordId,
-        sellerAccountId,
-        quantity,
-      };
-    },
-    releaseReservation: async ({ sellerAccountId, holdId, context }) => {
-      await inventory.holds.releaseHold(
-        {
-          accountId: sellerAccountId,
-          holdId,
-        },
-        context as never,
-      );
-    },
-  },
-});
-const fulfillment = createFulfillmentServices(pool);
-const reputation = createReputationServices(pool);
-const settlement = createSettlementServices(pool);
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -78,22 +29,11 @@ if (config.paymentProcessor.kind === "fake") {
   );
 }
 
-const payments = createPaymentsServices(pool, {
+const { services } = composeMarketplaceApiStack(pool, {
   processorGateway: paymentProcessorGateway,
-  getOrderSnapshot: async (orderId, buyerAccountId) => {
-    const order = await ordering.orders.getBuyerOrder(orderId, buyerAccountId);
-    return order
-      ? {
-          orderId: order.order_id as never,
-          buyerAccountId: order.buyer_account_id as never,
-          totalAmount: order.total_amount,
-          status: order.status,
-        }
-      : null;
-  },
 });
 const app = buildMarketplaceApp(
-  { discovery, fulfillment, inventory, marketplace, ordering, payments, reputation, settlement },
+  services,
   {
     resolveActor: (request) =>
       resolveActorFromIdentityApi({
@@ -104,18 +44,19 @@ const app = buildMarketplaceApp(
 );
 
 const PROJECTION_INTERVAL_MS = 1_000;
+const projectors = [
+  ...services.discovery.projectors,
+  ...services.inventory.projectors,
+  ...services.marketplace.projectors,
+  ...services.payments.projectors,
+  ...services.fulfillment.projectors,
+  ...services.ordering.projectors,
+  ...services.reputation.projectors,
+  ...services.settlement.projectors,
+];
 
 startProjectorPolling(
-  [
-    ...discovery.projectors,
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...payments.projectors,
-    ...fulfillment.projectors,
-    ...ordering.projectors,
-    ...reputation.projectors,
-    ...settlement.projectors,
-  ],
+  projectors,
   PROJECTION_INTERVAL_MS,
   (error) => {
     console.error("Projection error:", error);
@@ -125,4 +66,3 @@ startProjectorPolling(
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Marketplace API listening on port ${info.port}`);
 });
-

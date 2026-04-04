@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
+import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogAuthoringSchemaSql, seedCatalogDatabase } from "@chase-sets/catalog";
 import { identitySchemaSql, seedIdentityDatabase } from "@chase-sets/identity";
@@ -19,15 +20,15 @@ function createPool(connectionString: string): PgTransactionalPool {
 async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
   await pool.query(
-    [
-      identitySchemaSql,
-      catalogAuthoringSchemaSql,
-      inventorySchemaSql,
-      marketplaceSchemaSql,
-      orderingSchemaSql,
-      paymentsSchemaSql,
-      fulfillmentSchemaSql,
-    ].join("\n\n"),
+    composeSchemaSql([
+      { schemaSql: identitySchemaSql },
+      { schemaSql: catalogAuthoringSchemaSql },
+      { schemaSql: inventorySchemaSql },
+      { schemaSql: marketplaceSchemaSql },
+      { schemaSql: orderingSchemaSql },
+      { schemaSql: paymentsSchemaSql },
+      { schemaSql: fulfillmentSchemaSql },
+    ]),
   );
 }
 

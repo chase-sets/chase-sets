@@ -4,12 +4,12 @@ import { ChaseRoot } from "@chase-sets/design-system";
 
 const {
   mockUseLoaderData,
-  mockRequireMarketplaceActor,
-  mockCreateMarketplaceReputationApiClient,
+  mockRequireActorFromIdentityApi,
+  mockCreateReputationRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
-  mockRequireMarketplaceActor: vi.fn(),
-  mockCreateMarketplaceReputationApiClient: vi.fn(),
+  mockRequireActorFromIdentityApi: vi.fn(),
+  mockCreateReputationRequestApiClient: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -21,19 +21,33 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../api.server", () => ({
-  createMarketplaceReputationApiClient: mockCreateMarketplaceReputationApiClient,
-}));
+vi.mock("@chase-sets/reputation/client", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/reputation/client")>(
+    "@chase-sets/reputation/client",
+  );
 
-vi.mock("../auth.server", () => ({
-  requireMarketplaceActor: mockRequireMarketplaceActor,
-}));
+  return {
+    ...actual,
+    createReputationRequestApiClient: mockCreateReputationRequestApiClient,
+  };
+});
+
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>(
+    "@chase-sets/identity/server",
+  );
+
+  return {
+    ...actual,
+    requireActorFromIdentityApi: mockRequireActorFromIdentityApi,
+  };
+});
 
 import MarketplaceAccountReputationRoute, { loader } from "./account-reputation";
 
 describe("marketplace account reputation route", () => {
   beforeEach(() => {
-    mockRequireMarketplaceActor.mockResolvedValue({
+    mockRequireActorFromIdentityApi.mockResolvedValue({
       accountId: "acc_1",
       permissions: ["reputation.view"],
     });
@@ -62,7 +76,7 @@ describe("marketplace account reputation route", () => {
       count: 0,
     });
 
-    mockCreateMarketplaceReputationApiClient.mockReturnValue({
+    mockCreateReputationRequestApiClient.mockReturnValue({
       getAccountReputation,
       listAccountReviews,
     });

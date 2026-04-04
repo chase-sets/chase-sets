@@ -9,7 +9,7 @@ export default defineConfig({
     alias: [
       {
         find: "@chase-sets/catalog",
-        replacement: resolve(currentDir, "../../bounded-contexts/catalog/authoring/index.ts"),
+        replacement: resolve(currentDir, "../../bounded-contexts/catalog/index.ts"),
       },
       {
         find: "@chase-sets/dev-seeds",
@@ -39,6 +39,10 @@ export default defineConfig({
         ),
       },
       {
+        find: /^@chase-sets\/http-host\/(.*)$/,
+        replacement: `${resolve(currentDir, "../../infrastructure/http-host")}/$1`,
+      },
+      {
         find: /^@chase-sets\/event-core$/,
         replacement: resolve(currentDir, "../../contracts/event-core/index.ts"),
       },
@@ -62,6 +66,7 @@ export default defineConfig({
       "../../bounded-contexts/inventory/**/*.test.ts",
     ],
     exclude: ["dist/**", "node_modules/**"],
+    fileParallelism: false,
   },
 });
 

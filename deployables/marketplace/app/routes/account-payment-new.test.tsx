@@ -9,17 +9,17 @@ const {
   mockUseLoaderData,
   mockUseNavigation,
   mockUseSubmit,
-  mockRequireMarketplaceActor,
-  mockCreateMarketplaceOrderingApiClient,
-  mockCreateMarketplacePaymentsApiClient,
+  mockRequireActorFromIdentityApi,
+  mockCreateOrderingRequestApiClient,
+  mockCreatePaymentsRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseActionData: vi.fn(),
   mockUseLoaderData: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSubmit: vi.fn(),
-  mockRequireMarketplaceActor: vi.fn(),
-  mockCreateMarketplaceOrderingApiClient: vi.fn(),
-  mockCreateMarketplacePaymentsApiClient: vi.fn(),
+  mockRequireActorFromIdentityApi: vi.fn(),
+  mockCreateOrderingRequestApiClient: vi.fn(),
+  mockCreatePaymentsRequestApiClient: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -35,14 +35,38 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../api.server", () => ({
-  createMarketplaceOrderingApiClient: mockCreateMarketplaceOrderingApiClient,
-  createMarketplacePaymentsApiClient: mockCreateMarketplacePaymentsApiClient,
-}));
+vi.mock("@chase-sets/ordering/client", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/ordering/client")>(
+    "@chase-sets/ordering/client",
+  );
 
-vi.mock("../auth.server", () => ({
-  requireMarketplaceActor: mockRequireMarketplaceActor,
-}));
+  return {
+    ...actual,
+    createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
+  };
+});
+
+vi.mock("@chase-sets/payments/client", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/payments/client")>(
+    "@chase-sets/payments/client",
+  );
+
+  return {
+    ...actual,
+    createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
+  };
+});
+
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>(
+    "@chase-sets/identity/server",
+  );
+
+  return {
+    ...actual,
+    requireActorFromIdentityApi: mockRequireActorFromIdentityApi,
+  };
+});
 
 import MarketplaceAccountPaymentNewRoute, {
   action,
@@ -81,7 +105,7 @@ describe("marketplace account payment start route", () => {
     mockUseActionData.mockReturnValue(undefined);
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSubmit.mockReturnValue(vi.fn());
-    mockRequireMarketplaceActor.mockResolvedValue({
+    mockRequireActorFromIdentityApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: ["orders.view", "orders.manage"],
     });
@@ -120,7 +144,7 @@ describe("marketplace account payment start route", () => {
       .mockResolvedValueOnce(buildOrder("ord_1"))
       .mockResolvedValueOnce(buildOrder("ord_2"));
 
-    mockCreateMarketplaceOrderingApiClient.mockReturnValue({
+    mockCreateOrderingRequestApiClient.mockReturnValue({
       getBuyerOrder,
     });
 
@@ -142,7 +166,7 @@ describe("marketplace account payment start route", () => {
       payment_id: "pay_1",
     });
 
-    mockCreateMarketplacePaymentsApiClient.mockReturnValue({
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
       createBuyerPayment,
     });
 

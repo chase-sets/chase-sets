@@ -1,3 +1,4 @@
+export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildFulfillmentApi } from "./api";

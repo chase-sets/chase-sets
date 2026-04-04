@@ -6,28 +6,8 @@ import { createPayoutRoutes } from "./payouts/route";
 
 export type SettlementApiEnv = AuthenticatedApiEnv;
 
-async function drainProjectors(services: SettlementServices) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
-
 export function buildSettlementApi(services: SettlementServices) {
   const app = new Hono<SettlementApiEnv>();
-
-  app.use("*", async (c, next) => {
-    await next();
-
-    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-      await drainProjectors(services);
-    }
-  });
 
   app.route("/", createWalletRoutes(services.wallets));
   app.route("/", createPayoutRoutes(services.payouts));

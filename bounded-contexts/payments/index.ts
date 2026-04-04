@@ -1,3 +1,4 @@
+export { default as contextManifest } from "./context.json";
 export { buildPaymentsApi } from "./api";
 export {
   createStripeWebhookRoutes,

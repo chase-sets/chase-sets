@@ -14,7 +14,28 @@
   ],
   "publicExports": [
     ".",
-    "./client"
+    "./client",
+    "./routes/*",
+    "./web"
   ],
-  "requiredPorts": []
+  "requiredPorts": [],
+  "apiMounts": [
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace",
+      "routes": [
+        { "routeId": "account-fulfillment", "routePath": "account/fulfillment", "fileExport": "./routes/marketplace/account-fulfillment", "routeType": "route", "sourceContext": "fulfillment" },
+        { "routeId": "account-fulfillment-shipment", "routePath": "account/fulfillment/:shipmentId", "fileExport": "./routes/marketplace/account-fulfillment-shipment", "routeType": "route", "sourceContext": "fulfillment" },
+        { "routeId": "account-shipment", "routePath": "account/shipments/:shipmentId", "fileExport": "./routes/marketplace/account-shipment", "routeType": "route", "sourceContext": "fulfillment" },
+        { "routeId": "account-shipments", "routePath": "account/shipments", "fileExport": "./routes/marketplace/account-shipments", "routeType": "route", "sourceContext": "fulfillment" }
+      ]
+    }
+  ]
 }

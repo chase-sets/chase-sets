@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
+import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogAuthoringSchemaSql } from "@chase-sets/catalog";
 import { discoverySchemaSql } from "@chase-sets/discovery";
-import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { fulfillmentSchemaSql } from "@chase-sets/fulfillment";
 import { identitySchemaSql } from "@chase-sets/identity";
 import { inventorySchemaSql } from "@chase-sets/inventory";
@@ -24,22 +24,20 @@ function createPool(connectionString: string): PgTransactionalPool {
 
 async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-
-  for (const schemaSql of [
-    eventCorePostgresSchemaSql,
-    identitySchemaSql,
-    catalogAuthoringSchemaSql,
-    inventorySchemaSql,
-    discoverySchemaSql,
-    marketplaceSchemaSql,
-    orderingSchemaSql,
-    fulfillmentSchemaSql,
-    paymentsSchemaSql,
-    reputationSchemaSql,
-    settlementSchemaSql,
-  ]) {
-    await pool.query(schemaSql);
-  }
+  await pool.query(
+    composeSchemaSql([
+      { schemaSql: identitySchemaSql },
+      { schemaSql: catalogAuthoringSchemaSql },
+      { schemaSql: inventorySchemaSql },
+      { schemaSql: discoverySchemaSql },
+      { schemaSql: marketplaceSchemaSql },
+      { schemaSql: orderingSchemaSql },
+      { schemaSql: fulfillmentSchemaSql },
+      { schemaSql: paymentsSchemaSql },
+      { schemaSql: reputationSchemaSql },
+      { schemaSql: settlementSchemaSql },
+    ]),
+  );
 }
 
 describe("marketplace stack seed orchestration", () => {

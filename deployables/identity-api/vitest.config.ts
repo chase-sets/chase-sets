@@ -20,6 +20,10 @@ export default defineConfig({
         replacement: resolve(currentDir, "../../infrastructure/event-core-postgres/index.ts"),
       },
       {
+        find: /^@chase-sets\/http-host\/(.*)$/,
+        replacement: `${resolve(currentDir, "../../infrastructure/http-host")}/$1`,
+      },
+      {
         find: /^@chase-sets\/event-core$/,
         replacement: resolve(currentDir, "../../contracts/event-core/index.ts"),
       },

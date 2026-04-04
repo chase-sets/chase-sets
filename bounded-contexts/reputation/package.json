@@ -9,6 +9,7 @@
     "exports":  {
                     ".":  "./index.ts",
                     "./client":  "./client.ts",
+                    "./routes/*":  "./routes/*.tsx",
                     "./web":  "./web.ts"
                 },
     "types":  "./index.ts",

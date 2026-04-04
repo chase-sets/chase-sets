@@ -3,6 +3,7 @@ import pg from "pg";
 import { Hono } from "hono";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import {
   catalogSeedIds,
   demoIdentitySeedIds,
@@ -42,14 +43,18 @@ function createPool(connectionString: string): PgTransactionalPool {
 
 async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(inventorySchemaSql);
+  await pool.query(composeSchemaSql([{ schemaSql: inventorySchemaSql }]));
 }
 
 async function recreateCrossContextSchema(pool: PgTransactionalPool) {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(identitySchemaSql);
-  await pool.query(catalogAuthoringSchemaSql);
-  await pool.query(inventorySchemaSql);
+  await pool.query(
+    composeSchemaSql([
+      { schemaSql: identitySchemaSql },
+      { schemaSql: catalogAuthoringSchemaSql },
+      { schemaSql: inventorySchemaSql },
+    ]),
+  );
 }
 
 async function drainProjectors(projectors: readonly { runOnce: () => Promise<{ processed: number }> }[]) {
@@ -94,6 +99,13 @@ describe("inventory api", () => {
       });
       c.set("context", inventoryContext);
       await next();
+    });
+    app.use("/api/inventory/*", async (c, next) => {
+      await next();
+
+      if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+        await drainProjectors(services.projectors);
+      }
     });
     app.route("/api/inventory", buildInventoryApi(services));
   });
@@ -283,6 +295,13 @@ describe("inventory api", () => {
       });
       c.set("context", inventoryContext);
       await next();
+    });
+    unauthorizedApp.use("/api/inventory/*", async (c, next) => {
+      await next();
+
+      if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+        await drainProjectors(services.projectors);
+      }
     });
     unauthorizedApp.route("/api/inventory", buildInventoryApi(services));
 

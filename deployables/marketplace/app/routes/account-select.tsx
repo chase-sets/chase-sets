@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
+import { createIdentityRequestApiClient } from "@chase-sets/identity/client";
 import { AccountSelectionPage } from "@chase-sets/identity/web";
-import { createMarketplaceIdentityApiClient } from "../api.server";
 import {
   completeAuthentication,
   requireAccountSelectionToken,
@@ -9,7 +9,7 @@ import {
 import { buildMarketplaceMeta } from "../seo";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createMarketplaceIdentityApiClient(request);
+  const api = createIdentityRequestApiClient(request);
   const selectionToken = requireAccountSelectionToken(request);
   return api.resolveAccountSelection<{
     memberships: { accountId: string; roleKey: string }[];
@@ -20,7 +20,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
-  const api = createMarketplaceIdentityApiClient(request);
+  const api = createIdentityRequestApiClient(request);
   const selectionToken = requireAccountSelectionToken(request);
   const result = await api.completeAccountSelection<{ sessionToken?: string }>({
     selectionToken,

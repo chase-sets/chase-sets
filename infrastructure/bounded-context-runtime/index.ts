@@ -1,7 +1,9 @@
 import type {
   BcApiModule,
+  BcApiMount,
   BcProjector,
 } from "@chase-sets/bounded-context-module";
+import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 
 const RETRY_DELAY_MS = 1_000;
 const MAX_RETRIES = 30;
@@ -63,20 +65,149 @@ export function createContextServices<
 export function composeSchemaSql(
   modules: readonly Pick<BcApiModule, "schemaSql">[],
 ): string {
-  return modules.map((module) => module.schemaSql).join("\n\n");
+  const eventCoreSchemaSql = eventCorePostgresSchemaSql.trim();
+  let eventCoreIncluded = false;
+
+  const schemaParts = modules
+    .map((module) => module.schemaSql.trim())
+    .map((schemaSql) => {
+      if (!schemaSql.startsWith(eventCoreSchemaSql)) {
+        return schemaSql;
+      }
+
+      if (!eventCoreIncluded) {
+        eventCoreIncluded = true;
+        return schemaSql;
+      }
+
+      return schemaSql.slice(eventCoreSchemaSql.length).trim();
+    })
+    .filter((schemaSql) => schemaSql.length > 0);
+
+  return schemaParts.join("\n\n");
 }
 
-export function composeApiModules<TPool>(
-  pool: TPool,
-  modules: readonly Readonly<{
+export function composeApiModules<
+  TPool,
+  TModules extends readonly Readonly<{
     module: BcApiModule<unknown, TPool, unknown>;
     ports: unknown;
   }>[],
-) {
+>(
+  pool: TPool,
+  modules: TModules,
+): {
+  [K in keyof TModules]: TModules[K] extends Readonly<{
+    module: BcApiModule<infer TServices, TPool, infer _TPorts>;
+    ports: infer _TProvidedPorts;
+  }>
+    ? Readonly<{
+        module: TModules[K]["module"];
+        services: TServices;
+      }>
+    : never;
+} {
   return modules.map(({ module, ports }) => ({
     module,
     services: module.createServices(pool, ports),
-  }));
+  })) as {
+    [K in keyof TModules]: TModules[K] extends Readonly<{
+      module: BcApiModule<infer TServices, TPool, infer _TPorts>;
+      ports: infer _TProvidedPorts;
+    }>
+      ? Readonly<{
+          module: TModules[K]["module"];
+          services: TServices;
+        }>
+      : never;
+  };
+}
+
+export type ResolvedApiMount<TRouter = unknown> = BcApiMount & Readonly<{
+  contextName: string;
+  router: TRouter;
+}>;
+
+export function createResolvedApiMount<TRouter>(
+  contextName: string,
+  mount: Readonly<{
+    mountPath: string;
+    kind: string;
+    requiresAuth: boolean;
+    drainProjectorsOnWrite: boolean;
+  }>,
+  router: TRouter,
+): ResolvedApiMount<TRouter> {
+  if (mount.kind !== "primary" && mount.kind !== "additional") {
+    throw new Error(
+      `Invalid API mount kind '${mount.kind}' for context '${contextName}'.`,
+    );
+  }
+
+  return {
+    contextName,
+    mountPath: mount.mountPath,
+    kind: mount.kind,
+    requiresAuth: mount.requiresAuth,
+    drainProjectorsOnWrite: mount.drainProjectorsOnWrite,
+    router,
+  };
+}
+
+function normalizeMountWildcard(mountPath: string) {
+  return mountPath.endsWith("/*") ? mountPath : `${mountPath}/*`;
+}
+
+function uniqueMountPaths(paths: readonly string[]) {
+  return [...new Set(paths)];
+}
+
+export function attachApiMountMiddleware(
+  app: Readonly<{
+    use(path: string, middleware: unknown): unknown;
+  }>,
+  mountPaths: readonly string[],
+  middleware: unknown,
+): void {
+  for (const mountPath of uniqueMountPaths(mountPaths)) {
+    app.use(normalizeMountWildcard(mountPath), middleware);
+  }
+}
+
+export function attachWriteDrainMiddleware(
+  app: Readonly<{
+    use(path: string, middleware: (context: unknown, next: () => Promise<void>) => Promise<void>): unknown;
+  }>,
+  mounts: readonly Pick<ResolvedApiMount, "mountPath" | "drainProjectorsOnWrite">[],
+  drain: () => Promise<void>,
+): void {
+  const writeDrainPaths = mounts
+    .filter((mount) => mount.drainProjectorsOnWrite)
+    .map((mount) => mount.mountPath);
+
+  for (const mountPath of uniqueMountPaths(writeDrainPaths)) {
+    app.use(normalizeMountWildcard(mountPath), async (context: unknown, next) => {
+      await next();
+
+      const req = (context as { req?: { method?: string } }).req;
+      const method = req?.method?.toUpperCase() ?? "GET";
+
+      if (method !== "GET" && method !== "HEAD") {
+        await drain();
+      }
+    });
+  }
+}
+
+export function mountApiRouters(
+  app: Readonly<{
+    route(path: string, router: unknown): unknown;
+  }>,
+  mounts: readonly ResolvedApiMount[],
+): void {
+  for (const mount of mounts) {
+    app.route(mount.mountPath, mount.router);
+  }
 }
 
 export function createForwardedAuthHeaders(
@@ -183,13 +314,13 @@ export async function bootstrapApiModule<TServices, TPool, TPorts>(
 
 export function buildOpenGraphMeta({
   title,
-  description,
+  description = title,
   siteName = "Chase Sets",
   imageUrl,
   type = "website",
 }: Readonly<{
   title: string;
-  description: string;
+  description?: string;
   siteName?: string;
   imageUrl?: string;
   type?: "website" | "product";

@@ -18,10 +18,32 @@
   "publicExports": [
     ".",
     "./client",
-    "./integration"
+    "./integration",
+    "./routes/*",
+    "./web"
   ],
   "requiredPorts": [
     "inventoryReservations",
     "supplyResolver"
+  ],
+  "apiMounts": [
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace",
+      "routes": [
+        { "routeId": "account-cart", "routePath": "account/cart", "fileExport": "./routes/account-cart", "routeType": "route", "sourceContext": "ordering" },
+        { "routeId": "account-order", "routePath": "account/orders/:orderId", "fileExport": "./routes/account-order", "routeType": "route", "sourceContext": "ordering" },
+        { "routeId": "account-orders", "routePath": "account/orders", "fileExport": "./routes/account-orders", "routeType": "route", "sourceContext": "ordering" },
+        { "routeId": "account-sale", "routePath": "account/sales/:orderId", "fileExport": "./routes/account-sale", "routeType": "route", "sourceContext": "ordering" },
+        { "routeId": "account-sales", "routePath": "account/sales", "fileExport": "./routes/account-sales", "routeType": "route", "sourceContext": "ordering" }
+      ]
+    }
   ]
 }

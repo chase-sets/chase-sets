@@ -21,7 +21,27 @@
   "publicExports": [
     ".",
     "./client",
-    "./integration"
+    "./integration",
+    "./routes/*",
+    "./web"
   ],
-  "requiredPorts": []
+  "requiredPorts": [],
+  "apiMounts": [
+    {
+      "mountPath": "/api/inventory",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace",
+      "routes": [
+        { "routeId": "account-inventory", "routePath": "account/inventory", "fileExport": "./routes/marketplace/account-inventory", "routeType": "route", "sourceContext": "inventory" },
+        { "routeId": "account-inventory-locations", "routePath": "account/inventory/locations", "fileExport": "./routes/marketplace/account-inventory-locations", "routeType": "route", "sourceContext": "inventory" },
+        { "routeId": "account-inventory-record", "routePath": "account/inventory/records/:recordId", "fileExport": "./routes/marketplace/account-inventory-record", "routeType": "route", "sourceContext": "inventory" }
+      ]
+    }
+  ]
 }

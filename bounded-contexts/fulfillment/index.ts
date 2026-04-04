@@ -1,4 +1,5 @@
 export { FulfillmentDomainError } from "./common";
+export { default as contextManifest } from "./context.json";
 export { buildFulfillmentApi } from "./api";
 export type { FulfillmentApiEnv } from "./api";
 export { createFulfillmentServices } from "./services";

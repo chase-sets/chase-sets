@@ -1,3 +1,4 @@
+export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { buildPaymentsApi } from "./api";
 import type { PaymentsPaymentDetail } from "./payments/ui/contracts";

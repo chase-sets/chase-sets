@@ -13,11 +13,31 @@
     "items"
   ],
   "allowedSupportDirectories": [
+    "shell",
     "tests"
   ],
   "publicExports": [
     ".",
-    "./client"
+    "./client",
+    "./routes/*",
+    "./web"
   ],
-  "requiredPorts": []
+  "requiredPorts": [],
+  "apiMounts": [
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": false
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace",
+      "routes": [
+        { "routeId": "item-detail", "routePath": "items/:id", "fileExport": "./routes/item-detail", "routeType": "route", "sourceContext": "discovery" },
+        { "routeId": "search", "routePath": "search", "fileExport": "./routes/search", "routeType": "route", "sourceContext": "discovery" }
+      ]
+    }
+  ]
 }

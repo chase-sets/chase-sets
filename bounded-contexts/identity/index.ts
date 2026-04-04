@@ -1,4 +1,5 @@
 export { IdentityDomainError } from "./common";
+export { default as contextManifest } from "./context.json";
 export { buildIdentityApi } from "./api";
 export { createBootstrapContext } from "./api";
 export type { IdentityApiEnv } from "./api";

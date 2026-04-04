@@ -171,6 +171,9 @@
       "@chase-sets/http/*": [
         "./contracts/http/*.ts"
       ],
+      "@chase-sets/http-host/*": [
+        "./infrastructure/http-host/*.ts"
+      ],
       "@chase-sets/primitives/*": [
         "./contracts/primitives/*.ts"
       ],
