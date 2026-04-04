@@ -4,9 +4,13 @@ import {
   route,
   type RouteConfig,
 } from "@react-router/dev/routes";
-import { contextRoutes } from "./context-routes.generated";
+import {
+  layoutContextRoutes,
+  rootContextRoutes,
+} from "./context-routes.generated";
 
 export default [
+  ...rootContextRoutes,
   route("favicon.ico", "routes/favicon.ts"),
   route(
     ".well-known/appspecific/com.chrome.devtools.json",
@@ -16,10 +20,6 @@ export default [
   route("sitemap.xml", "routes/sitemap.ts"),
   layout("routes/layout.tsx", [
     index("routes/index.tsx"),
-    route("sign-in", "routes/sign-in.tsx"),
-    route("sign-out", "routes/sign-out.tsx"),
-    route("register", "routes/register.tsx"),
-    route("account/select", "routes/account-select.tsx"),
-    ...contextRoutes,
+    ...layoutContextRoutes,
   ]),
 ] satisfies RouteConfig;

@@ -4,7 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/sellable-units";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -214,6 +214,9 @@ export const decideMarketplaceListing: AggregateDecider<
       return [{ type: "marketplace.listing.published", data: {} }];
     case "PauseListing":
       assert(state.listingId !== null, "Listing must be created first.");
+      if (state.status === "paused") {
+        return [];
+      }
       assert(state.status === "active", "Only active listings can be paused.");
       return [{ type: "marketplace.listing.paused", data: {} }];
     case "WithdrawListing":
@@ -261,3 +264,4 @@ export const evolveMarketplaceListing: AggregateEvolver<
       return assertNever(event);
   }
 };
+

@@ -1,0 +1,123 @@
+{
+  "contextName": "auth",
+  "packageName": "@chase-sets/auth",
+  "ownedNouns": [
+    "authentication",
+    "session-journey",
+    "account-selection"
+  ],
+  "streamPrefix": "auth.",
+  "apiBasePath": "/api/auth",
+  "slices": [
+    "customer"
+  ],
+  "allowedSupportDirectories": [
+    "routes",
+    "shell-support"
+  ],
+  "publicExports": [
+    ".",
+    "./client",
+    "./integration",
+    "./routes/*",
+    "./server",
+    "./web"
+  ],
+  "allowedContextDependencies": [],
+  "requiredPorts": [],
+  "apiDeployables": [],
+  "apiMounts": [],
+  "deployableContributions": [
+    {
+      "deployable": "catalog-admin",
+      "routes": [
+        {
+          "routeId": "account-select",
+          "routePath": "account-select",
+          "fileExport": "./routes/catalog-admin/account-select",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "placement": "root"
+        },
+        {
+          "routeId": "sign-in",
+          "routePath": "sign-in",
+          "fileExport": "./routes/catalog-admin/sign-in",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "placement": "root"
+        },
+        {
+          "routeId": "sign-out",
+          "routePath": "sign-out",
+          "fileExport": "./routes/catalog-admin/sign-out",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "placement": "root"
+        }
+      ]
+    },
+    {
+      "deployable": "identity-admin",
+      "routes": [
+        {
+          "routeId": "account-select",
+          "routePath": "account-select",
+          "fileExport": "./routes/identity-admin/account-select",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "placement": "root"
+        },
+        {
+          "routeId": "sign-in",
+          "routePath": "sign-in",
+          "fileExport": "./routes/identity-admin/sign-in",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "placement": "root"
+        },
+        {
+          "routeId": "sign-out",
+          "routePath": "sign-out",
+          "fileExport": "./routes/identity-admin/sign-out",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "placement": "root"
+        }
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "routes": [
+        {
+          "routeId": "account-select",
+          "routePath": "account/select",
+          "fileExport": "./routes/marketplace/account-select",
+          "routeType": "route",
+          "sourceContext": "auth"
+        },
+        {
+          "routeId": "register",
+          "routePath": "register",
+          "fileExport": "./routes/marketplace/register",
+          "routeType": "route",
+          "sourceContext": "auth"
+        },
+        {
+          "routeId": "sign-in",
+          "routePath": "sign-in",
+          "fileExport": "./routes/marketplace/sign-in",
+          "routeType": "route",
+          "sourceContext": "auth"
+        },
+        {
+          "routeId": "sign-out",
+          "routePath": "sign-out",
+          "fileExport": "./routes/marketplace/sign-out",
+          "routeType": "route",
+          "sourceContext": "auth"
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { identitySeedIds } from "@chase-sets/dev-seeds";
+import { identitySeedIds } from "./seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createBootstrapContext } from "./api";
 import { upsertPasswordCredential } from "./auth-support/store";

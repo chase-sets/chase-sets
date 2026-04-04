@@ -1,81 +1,16 @@
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-
-const currentDir = dirname(fileURLToPath(import.meta.url));
+import { createWorkspaceSourceAliases } from "../../scripts/workspace-source-aliases.mjs";
 
 export default defineConfig({
   resolve: {
-    alias: [
-      {
-        find: "@chase-sets/discovery",
-        replacement: resolve(currentDir, "../../bounded-contexts/discovery/index.ts"),
-      },
-      {
-        find: /^@chase-sets\/identity\/server$/,
-        replacement: resolve(currentDir, "../../bounded-contexts/identity/server.ts"),
-      },
-      {
-        find: /^@chase-sets\/fulfillment$/,
-        replacement: resolve(currentDir, "../../bounded-contexts/fulfillment/index.ts"),
-      },
-      {
-        find: /^@chase-sets\/reputation$/,
-        replacement: resolve(currentDir, "../../bounded-contexts/reputation/index.ts"),
-      },
-      {
-        find: /^@chase-sets\/settlement$/,
-        replacement: resolve(currentDir, "../../bounded-contexts/settlement/index.ts"),
-      },
-      {
-        find: "@chase-sets/identity",
-        replacement: resolve(currentDir, "../../bounded-contexts/identity/index.ts"),
-      },
-      {
-        find: /^@chase-sets\/marketplace-context\/web$/,
-        replacement: resolve(currentDir, "../../bounded-contexts/marketplace/web.ts"),
-      },
-      {
-        find: "@chase-sets/marketplace",
-        replacement: resolve(currentDir, "../../bounded-contexts/marketplace/index.ts"),
-      },
-      {
-        find: "@chase-sets/catalog",
-        replacement: resolve(currentDir, "../../bounded-contexts/catalog/index.ts"),
-      },
-      {
-        find: "@chase-sets/event-core-postgres",
-        replacement: resolve(
-          currentDir,
-          "../../infrastructure/event-core-postgres/index.ts"
-        ),
-      },
-      {
-        find: /^@chase-sets\/http-host\/(.*)$/,
-        replacement: `${resolve(currentDir, "../../infrastructure/http-host")}/$1`,
-      },
-      {
-        find: /^@chase-sets\/event-core$/,
-        replacement: resolve(currentDir, "../../contracts/event-core/index.ts"),
-      },
-      {
-        find: /^@chase-sets\/event-core\/(.*)$/,
-        replacement: `${resolve(currentDir, "../../contracts/event-core")}/$1`,
-      },
-      {
-        find: /^@chase-sets\/http\/(.*)$/,
-        replacement: `${resolve(currentDir, "../../contracts/http")}/$1`,
-      },
-      {
-        find: /^@chase-sets\/primitives\/(.*)$/,
-        replacement: `${resolve(currentDir, "../../contracts/primitives")}/$1`,
-      },
-    ],
+    alias: createWorkspaceSourceAliases(),
   },
   test: {
     include: ["__tests__/**/*.test.ts", "../../bounded-contexts/discovery/tests/acceptance/**/*.test.ts"],
     exclude: ["dist/**", "node_modules/**"],
     fileParallelism: false,
+    minWorkers: 1,
+    maxWorkers: 1,
   },
 });
 

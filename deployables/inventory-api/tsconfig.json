@@ -9,8 +9,7 @@
     "vitest.config.ts",
     "../../bounded-contexts/catalog/authoring/**/*.ts",
     "../../bounded-contexts/inventory/**/*.ts",
-    "../../bounded-contexts/inventory/**/*.tsx",
-    "../../contracts/dev-seeds/**/*.ts"
+    "../../bounded-contexts/inventory/**/*.tsx"
   ]
 }
 

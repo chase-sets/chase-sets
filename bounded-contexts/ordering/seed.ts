@@ -4,19 +4,17 @@ import type {
   PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import {
-  catalogSeedIds,
-  identitySeedIds,
-} from "@chase-sets/dev-seeds";
+  resolveSellableUnitDescriptor,
+  type CatalogVersionSchema,
+} from "@chase-sets/catalog/integration";
+import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createInventoryServices } from "@chase-sets/inventory";
 import {
   createMarketplaceServices,
   createMarketplaceSupplyResolver,
 } from "@chase-sets/marketplace";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import {
-  resolveSellableUnitDescriptor,
-  type CatalogVersionSchema,
-} from "@chase-sets/sellable-units";
 import { createOrderingServices } from "./services";
 
 const rawNearMintVersionSelection = [
@@ -54,11 +52,11 @@ const checkoutCartLines = [
 
 const cancelledCartLines = [
   {
-    catalogItemId: catalogSeedIds.items.charizardBaseSet,
-    itemTitle: "Charizard",
-    itemSubtitle: "Base Set 4/102 Holo Rare",
-    versionSelection: rawNearMintVersionSelection,
-    versionSummary: "Form: Raw | Condition: Near Mint",
+    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    itemTitle: "Pikachu",
+    itemSubtitle: "Jungle 60/64 Common",
+    versionSelection: rawExcellentVersionSelection,
+    versionSummary: "Form: Raw | Condition: Excellent",
     quantity: 1,
   },
 ] as const;
@@ -365,4 +363,5 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
 
   console.log("\nOrdering seed complete!");
 }
+
 

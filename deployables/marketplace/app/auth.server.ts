@@ -1,15 +1,11 @@
 import { redirect } from "react-router";
 import {
   hasPermission,
-  resolveActorFromAuthApi,
-  type ResolvedActor,
-} from "@chase-sets/auth-runtime";
-import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime";
-import {
   completeBrowserAuthentication,
   requireAccountSelectionTokenOrRedirect,
-  signOutActorViaIdentityApi,
-} from "@chase-sets/identity/server";
+  resolveActorFromAuthContext,
+  signOutActorViaAuthApi,
+} from "@chase-sets/auth/server";
 
 function buildCurrentPath(request: Request) {
   const url = new URL(request.url);
@@ -26,10 +22,7 @@ export function getReturnTo(request: Request, fallback: string) {
 }
 
 export async function resolveMarketplaceActor(request: Request) {
-  return resolveActorFromAuthApi({
-    authApiBaseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
-    request,
-  });
+  return resolveActorFromAuthContext({ request });
 }
 
 export async function requireMarketplaceActor(
@@ -77,7 +70,7 @@ export async function signOutMarketplaceActor(
     returnTo?: string;
   }> = {},
 ) {
-  return signOutActorViaIdentityApi(request, {
+  return signOutActorViaAuthApi(request, {
     returnTo: options.returnTo ?? "/search",
   });
 }

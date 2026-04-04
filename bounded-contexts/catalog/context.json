@@ -24,6 +24,7 @@
     ".",
     "./client",
     "./integration",
+    "./seed-support/*",
     "./routes/*",
     "./web"
   ],

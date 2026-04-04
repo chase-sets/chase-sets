@@ -2,7 +2,9 @@
 
 import { route, type RouteConfig } from "@react-router/dev/routes";
 
-export const contextRoutes = [
+export const rootContextRoutes = [] satisfies RouteConfig;
+
+export const layoutContextRoutes = [
   route("account", "routes/account.tsx"),
   route("account/cart", "routes/account-cart.tsx"),
   route("account/consents", "routes/account-consents.tsx"),
@@ -32,10 +34,14 @@ export const contextRoutes = [
   route("account/sales/:orderId", "routes/account-sale.tsx"),
   route("account/sales/:orderId/review", "routes/account-sale-review.tsx"),
   route("account/security", "routes/account-security.tsx"),
+  route("account/select", "routes/account-select.tsx"),
   route("account/settlement", "routes/account-settlement.tsx"),
   route("account/shipments", "routes/account-shipments.tsx"),
   route("account/shipments/:shipmentId", "routes/account-shipment.tsx"),
   route("account/team", "routes/account-team.tsx"),
   route("items/:id", "routes/item-detail.tsx"),
+  route("register", "routes/register.tsx"),
   route("search", "routes/search.tsx"),
+  route("sign-in", "routes/sign-in.tsx"),
+  route("sign-out", "routes/sign-out.tsx"),
 ] satisfies RouteConfig;

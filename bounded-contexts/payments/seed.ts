@@ -1,5 +1,6 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { identitySeedIds, paymentsReservedSeedIds } from "@chase-sets/dev-seeds";
+import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { createPaymentsServices } from "./services";
 import { createFakePaymentProcessorGateway } from "./fake-gateway";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
@@ -323,4 +324,5 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     "2026-03-21T09:05:00.000Z",
   );
 }
+
 

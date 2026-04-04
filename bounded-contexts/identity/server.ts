@@ -106,6 +106,15 @@ function buildCurrentPath(request: Request) {
   return `${url.pathname}${url.search}`;
 }
 
+function resolveIdentityApiBaseUrl(baseUrl: string) {
+  const url = new URL(baseUrl);
+  if (url.pathname === "" || url.pathname === "/") {
+    url.pathname = "/api/identity";
+  }
+
+  return url.toString().replace(/\/$/, "");
+}
+
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
 }
@@ -274,7 +283,7 @@ export async function resolveActorFromIdentityApi(options: Readonly<{
   fetch?: typeof globalThis.fetch;
 }>): Promise<ResolvedActor | null> {
   return resolveActorFromAuthApi({
-    authApiBaseUrl: options.identityApiBaseUrl,
+    authApiBaseUrl: resolveIdentityApiBaseUrl(options.identityApiBaseUrl),
     request: options.request,
     fetch: options.fetch,
   });
@@ -292,8 +301,9 @@ export async function requireActorFromIdentityApi(options: Readonly<{
     permission: options.permission,
     signInPath: options.signInPath,
     authApiBaseUrl:
-      options.identityApiBaseUrl ??
-      resolveRequestApiBaseUrl(options.request, "/api/identity"),
+      options.identityApiBaseUrl
+        ? resolveIdentityApiBaseUrl(options.identityApiBaseUrl)
+        : resolveRequestApiBaseUrl(options.request, "/api/identity"),
     fetch: options.fetch,
   });
 }

@@ -23,6 +23,7 @@
     "./web"
   ],
   "allowedContextDependencies": [
+    "@chase-sets/catalog",
     "@chase-sets/marketplace",
     "@chase-sets/ordering"
   ],

@@ -11,7 +11,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/sellable-units";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
 import {
   OrderingDomainError,
   buildDemandSignature,
@@ -660,3 +660,4 @@ export function createOrderingOrderRuntime(
     ],
   };
 }
+

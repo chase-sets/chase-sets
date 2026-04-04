@@ -3,7 +3,7 @@ import {
   type CatalogVersionChoice as InventoryVersionChoice,
   type CatalogVersionDimension as InventoryVersionDimension,
   type CatalogVersionSchema as InventoryVersionSchema,
-} from "@chase-sets/sellable-units";
+} from "@chase-sets/catalog/integration";
 import { assert } from "../common";
 
 export type {
@@ -236,3 +236,4 @@ export function summarizeVersionSelection(
     .filter((entry): entry is string => entry !== null)
     .join(" | ");
 }
+

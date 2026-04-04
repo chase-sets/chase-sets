@@ -1,5 +1,6 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { fulfillmentReservedSeedIds, identitySeedIds } from "@chase-sets/dev-seeds";
+import { fulfillmentReservedSeedIds } from "@chase-sets/fulfillment/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createFulfillmentServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";
@@ -314,3 +315,4 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
 
   await drainProjectors(services.projectors);
 }
+

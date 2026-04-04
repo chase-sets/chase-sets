@@ -2,7 +2,13 @@
 
 import { route, type RouteConfig } from "@react-router/dev/routes";
 
-export const contextRoutes = [
+export const rootContextRoutes = [
+  route("account-select", "routes/account-select.tsx"),
+  route("sign-in", "routes/sign-in.tsx"),
+  route("sign-out", "routes/sign-out.tsx"),
+] satisfies RouteConfig;
+
+export const layoutContextRoutes = [
   route("accounts", "routes/accounts.tsx"),
   route("accounts/:id", "routes/accounts-detail.tsx"),
   route("api-keys", "routes/api-keys.tsx"),

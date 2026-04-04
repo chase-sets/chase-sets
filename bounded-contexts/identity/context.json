@@ -26,6 +26,7 @@
     "auth-support",
     "projection-support",
     "read-model-support",
+    "seed-support",
     "shell",
     "shell-support",
     "tests"
@@ -33,7 +34,9 @@
   "publicExports": [
     ".",
     "./client",
+    "./integration",
     "./routes/*",
+    "./seed-support/*",
     "./server",
     "./web"
   ],

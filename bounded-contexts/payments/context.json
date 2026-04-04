@@ -12,12 +12,15 @@
     "refunds"
   ],
   "allowedSupportDirectories": [
+    "seed-support",
     "tests"
   ],
   "publicExports": [
     ".",
     "./client",
+    "./integration",
     "./routes/*",
+    "./seed-support/*",
     "./web"
   ],
   "allowedContextDependencies": [

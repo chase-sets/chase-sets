@@ -1,5 +1,6 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { identitySeedIds, reputationReservedSeedIds } from "@chase-sets/dev-seeds";
+import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { reputationReservedSeedIds } from "@chase-sets/reputation/seed-support/ids";
 import { createReputationServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";
@@ -122,3 +123,4 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
 
   await drainProjectors(services.projectors);
 }
+

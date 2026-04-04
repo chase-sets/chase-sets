@@ -1,4 +1,4 @@
-import { catalogSeedIds } from "@chase-sets/dev-seeds";
+import { catalogSeedIds } from "../../seed-support/ids";
 import type { CatalogServices } from "../services";
 import type { ChoiceId, DimensionId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
@@ -345,3 +345,4 @@ export async function seedDimensions(
 
   return result;
 }
+

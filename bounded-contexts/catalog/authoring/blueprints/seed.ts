@@ -1,4 +1,4 @@
-import { catalogSeedIds } from "@chase-sets/dev-seeds";
+import { catalogSeedIds } from "../../seed-support/ids";
 import type { CatalogServices } from "../services";
 import type { BlueprintId } from "../../ids";
 import { sendSeedCommand } from "../seed-support";
@@ -162,3 +162,4 @@ export async function seedBlueprints(
 
   return result;
 }
+

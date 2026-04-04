@@ -1,18 +1,18 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration";
 import {
   catalogSeedIds,
-  demoIdentitySeedIds,
+  type SeedCatalogItemId,
+} from "@chase-sets/catalog/seed-support/ids";
+import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import {
   inventorySeedIds,
-} from "@chase-sets/dev-seeds";
-import { resolveSellableUnitDescriptor } from "@chase-sets/sellable-units";
-import type {
-  SeedCatalogItemId,
-  SeedInventoryHoldId,
-  SeedInventoryRecordId,
-  SeedStorageLocationId,
-} from "@chase-sets/dev-seeds";
+  type SeedInventoryHoldId,
+  type SeedInventoryRecordId,
+  type SeedStorageLocationId,
+} from "@chase-sets/inventory/seed-support/ids";
 import { createInventoryServices } from "./services";
-import { drainProjectors, sendSeedCommand } from "./seed-support";
+import { drainProjectors, sendSeedCommand } from "./seed-support/context";
 
 const DEMO_RELEASED_AT = "2026-03-31T00:00:00.000Z";
 
@@ -296,3 +296,4 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
   await drainProjectors("inventory", services.projectors);
   console.log("\nInventory seed complete!");
 }
+

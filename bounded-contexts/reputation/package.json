@@ -11,6 +11,7 @@
                     "./client":  "./client.ts",
                     "./integration":  "./integration.ts",
                     "./routes/*":  "./routes/*.tsx",
+                    "./seed-support/*":  "./seed-support/*.ts",
                     "./web":  "./web.ts"
                 },
     "types":  "./index.ts",

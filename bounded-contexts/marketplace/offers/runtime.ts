@@ -11,7 +11,7 @@ import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 import {
   resolveSellableUnitDescriptor,
   type CatalogVersionSchema,
-} from "@chase-sets/sellable-units";
+} from "@chase-sets/catalog/integration";
 import type { MarketplaceRuntimeDeps } from "../runtime-support";
 import {
   decideMarketplaceOffer,
@@ -190,3 +190,4 @@ export function createMarketplaceOfferRuntime(
     ],
   };
 }
+

@@ -1,4 +1,5 @@
 import type { Branded } from "@chase-sets/primitives/brand";
+import { assert } from "./common";
 
 export type CatalogVersionKey = Branded<string, "CatalogVersionKey">;
 
@@ -46,12 +47,6 @@ export class SellableUnitError extends Error {
   public constructor(message: string) {
     super(message);
     this.name = "SellableUnitError";
-  }
-}
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) {
-    throw new SellableUnitError(message);
   }
 }
 
@@ -168,7 +163,7 @@ export function resolveCatalogVersionDescriptor(input: Readonly<{
 
   for (const dimension of schema.canonicalDimensionOrder
     .map((entry) =>
-      schema.dimensions.find((dimension) => dimension.dimensionId === entry.dimensionId),
+      schema.dimensions.find((candidate) => candidate.dimensionId === entry.dimensionId),
     )
     .filter(
       (dimension): dimension is CatalogVersionDimension => dimension !== undefined,

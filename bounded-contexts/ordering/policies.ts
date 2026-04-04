@@ -1,5 +1,5 @@
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/sellable-units";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
 import {
   assert,
   buildDemandSignature,
@@ -143,3 +143,4 @@ export function assertSupplyAvailable(
   );
   assert(totalAvailable >= quantity, message);
 }
+

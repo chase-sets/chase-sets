@@ -18,7 +18,6 @@
                          "@chase-sets/event-core-postgres":  "0.1.0",
                          "@chase-sets/marketplace":  "0.1.0",
                          "@chase-sets/ordering":  "0.1.0",
-                         "@chase-sets/sellable-units":  "0.1.0",
                          "@chase-sets/catalog":  "0.1.0",
                          "@chase-sets/bounded-context-runtime":  "0.1.0"
                      }

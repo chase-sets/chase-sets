@@ -1,5 +1,5 @@
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/sellable-units";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
 
 export type CartLineId = TypedUlid<"cli">;
 export type OrderLineId = TypedUlid<"oli">;
@@ -126,3 +126,4 @@ export function normalizeShippingOption(value: string): ShippingOption {
       throw new OrderingDomainError("Shipping option is not supported.");
   }
 }
+

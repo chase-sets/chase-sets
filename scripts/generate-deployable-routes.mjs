@@ -89,6 +89,7 @@ async function main() {
       currentRoutes.push(
         ...contribution.routes.map((route) => ({
           ...route,
+          placement: route.placement ?? "layout",
           packageName: manifest.packageName,
           sourceContext: manifest.contextName,
         })),

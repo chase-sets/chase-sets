@@ -9,6 +9,7 @@ export type BcProjector = Readonly<{
 }>;
 
 export type BcRouteType = "route" | "index";
+export type BcRoutePlacement = "root" | "layout";
 
 export type BcRouteModule = Readonly<{
   readonly routeId: string;
@@ -16,6 +17,7 @@ export type BcRouteModule = Readonly<{
   readonly fileExport: string;
   readonly routeType: BcRouteType;
   readonly sourceContext: string;
+  readonly placement?: BcRoutePlacement;
 }>;
 
 export type BcDeployableContribution = Readonly<{

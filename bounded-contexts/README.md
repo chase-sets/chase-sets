@@ -8,6 +8,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 
 | Context | Purpose |
 | --- | --- |
+| [Auth](./auth/README.md) | Own sign-in, sign-out, registration, and session-entry journeys. |
 | [Identity](./identity/README.md) | Own users and the accounts they act for. |
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
@@ -100,11 +101,12 @@ Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
 
 ## Upstream and Downstream Relationships
 
+- Auth is upstream for browser authentication journeys and actor-resolution helpers.
 - Identity is upstream for user and account references.
 - Catalog is upstream for canonical item references.
 - Discovery depends on Catalog for canonical item, category, blueprint, and field facts used to build browse/search views.
 - Inventory depends on Identity and Catalog sellable-unit structure.
-- Marketplace depends on Identity, Catalog sellable-unit identity, and Inventory availability signals.
+- Marketplace depends on Identity, Auth journey entry points, Catalog sellable-unit identity, and Inventory availability signals.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
 - Ordering depends on Marketplace sellable-unit commitments and Identity account references.
 - Fulfillment depends on Ordering.

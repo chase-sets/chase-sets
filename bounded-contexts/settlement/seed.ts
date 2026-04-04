@@ -1,9 +1,7 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import {
-  identitySeedIds,
-  paymentsReservedSeedIds,
-  settlementReservedSeedIds,
-} from "@chase-sets/dev-seeds";
+import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
+import { settlementReservedSeedIds } from "@chase-sets/settlement/seed-support/ids";
 import { createSettlementServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";
@@ -196,3 +194,4 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
 
   await drainProjectors(services.projectors);
 }
+

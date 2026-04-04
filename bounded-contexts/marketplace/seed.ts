@@ -1,15 +1,13 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
-  catalogSeedIds,
-  identitySeedIds,
-  inventorySeedIds,
-  marketplaceReservedSeedIds,
-} from "@chase-sets/dev-seeds";
-import type { ListingId, OfferId } from "@chase-sets/primitives/typed-ids";
-import {
   resolveSellableUnitDescriptor,
   type CatalogVersionSchema,
-} from "@chase-sets/sellable-units";
+} from "@chase-sets/catalog/integration";
+import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
+import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
+import type { ListingId, OfferId } from "@chase-sets/primitives/typed-ids";
 import { createMarketplaceServices } from "./services";
 
 type ListingSeed = Readonly<{
@@ -334,3 +332,4 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
 
   await drainProjectors(services.projectors);
 }
+

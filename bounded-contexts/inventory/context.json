@@ -23,9 +23,12 @@
     "./client",
     "./integration",
     "./routes/*",
+    "./seed-support/*",
     "./web"
   ],
-  "allowedContextDependencies": [],
+  "allowedContextDependencies": [
+    "@chase-sets/catalog"
+  ],
   "requiredPorts": [],
   "apiDeployables": [
     "inventory-api"

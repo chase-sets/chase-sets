@@ -14,7 +14,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   resolveSellableUnitDescriptor,
   type CatalogVersionSchema,
-} from "@chase-sets/sellable-units";
+} from "@chase-sets/catalog/integration";
 import type { CartLineId } from "../common";
 import { OrderingDomainError } from "../common";
 import {
@@ -203,3 +203,4 @@ export function createOrderingCartRuntime(
     ],
   };
 }
+

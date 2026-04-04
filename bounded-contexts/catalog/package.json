@@ -8,6 +8,7 @@
                     "./client":  "./client.ts",
                     "./routes/*":  "./routes/*.tsx",
                     "./integration":  "./integration.ts",
+                    "./seed-support/*":  "./seed-support/*.ts",
                     "./web":  "./web.ts"
                 },
     "types":  "./index.ts",

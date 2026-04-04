@@ -13,6 +13,7 @@
     "accounts"
   ],
   "allowedSupportDirectories": [
+    "seed-support",
     "tests"
   ],
   "publicExports": [
@@ -20,9 +21,11 @@
     "./client",
     "./integration",
     "./routes/*",
+    "./seed-support/*",
     "./web"
   ],
   "allowedContextDependencies": [
+    "@chase-sets/catalog",
     "@chase-sets/reputation"
   ],
   "requiredPorts": [

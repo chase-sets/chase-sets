@@ -9,37 +9,27 @@ export const deployableRouteConfig = {
     routesFileParts: ["deployables", "catalog-admin", "app", "context-routes.generated.ts"],
     routesDirParts: ["deployables", "catalog-admin", "app", "routes"],
     hostRoutes: new Set([
-      "account-select.tsx",
       "index.tsx",
       "layout.tsx",
-      "sign-in.tsx",
-      "sign-out.tsx",
     ]),
   },
   "identity-admin": {
     routesFileParts: ["deployables", "identity-admin", "app", "context-routes.generated.ts"],
     routesDirParts: ["deployables", "identity-admin", "app", "routes"],
     hostRoutes: new Set([
-      "account-select.tsx",
       "index.tsx",
       "layout.tsx",
-      "sign-in.tsx",
-      "sign-out.tsx",
     ]),
   },
   marketplace: {
     routesFileParts: ["deployables", "marketplace", "app", "context-routes.generated.ts"],
     routesDirParts: ["deployables", "marketplace", "app", "routes"],
     hostRoutes: new Set([
-      "account-select.tsx",
       "chrome-devtools.ts",
       "favicon.ts",
       "index.tsx",
       "layout.tsx",
-      "register.tsx",
       "robots.ts",
-      "sign-in.tsx",
-      "sign-out.tsx",
       "sitemap.ts",
     ]),
   },
@@ -64,22 +54,31 @@ export function buildWrapperContent(packageName, route) {
 }
 
 export function buildRoutesFileContent(routes) {
-  if (routes.length === 0) {
-    return `${generatedFileMarker}export const contextRoutes = [];\n`;
-  }
-
+  const rootRoutes = routes.filter((route) => (route.placement ?? "layout") === "root");
+  const layoutRoutes = routes.filter((route) => (route.placement ?? "layout") === "layout");
   const usesIndex = routes.some((route) => route.routeType === "index");
   const importNames = usesIndex ? "index, route" : "route";
-  const routeLines = routes.map((route) =>
+
+  function buildRouteList(bucket) {
+    if (bucket.length === 0) {
+      return "[]";
+    }
+
+    return `[
+${bucket
+  .map((route) =>
     route.routeType === "index"
       ? `  index("routes/${route.routeId}.tsx"),`
       : `  route("${route.routePath}", "routes/${route.routeId}.tsx"),`,
-  );
+  )
+  .join("\n")}
+]`;
+  }
 
   return `${generatedFileMarker}import { ${importNames}, type RouteConfig } from "@react-router/dev/routes";
 
-export const contextRoutes = [
-${routeLines.join("\n")}
-] satisfies RouteConfig;
+export const rootContextRoutes = ${buildRouteList(rootRoutes)} satisfies RouteConfig;
+
+export const layoutContextRoutes = ${buildRouteList(layoutRoutes)} satisfies RouteConfig;
 `;
 }

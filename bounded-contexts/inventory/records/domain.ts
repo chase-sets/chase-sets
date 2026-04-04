@@ -4,7 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/sellable-units";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
 import type { InventoryVersionSelectionEntry } from "../catalog-items/versioning";
 import {
   assert,
@@ -170,3 +170,4 @@ export const evolveInventoryRecord: AggregateEvolver<
 function requireCreatedInventoryRecord(state: InventoryRecordState) {
   assert(state.id !== null, "Inventory record must be created first.");
 }
+

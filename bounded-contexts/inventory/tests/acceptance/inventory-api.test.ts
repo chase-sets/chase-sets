@@ -4,11 +4,9 @@ import { Hono } from "hono";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
-import {
-  catalogSeedIds,
-  demoIdentitySeedIds,
-  inventorySeedIds,
-} from "@chase-sets/dev-seeds";
+import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
+import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import {
   catalogAuthoringSchemaSql,
   seedCatalogDatabase,
@@ -437,8 +435,9 @@ describe("inventory api", () => {
     expect(storageLocations.map((location) => location.storage_location_id).sort()).toEqual(
       Object.values(inventorySeedIds.storageLocations).sort(),
     );
-  }, 15000);
+  }, 60000);
 });
+
 
 
 

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { settlementSchemaSql, seedSettlementDatabase } from ".";
 
 const databaseUrl =
@@ -37,7 +38,10 @@ describe("settlement seed", () => {
       pending_balance_amount: string;
       available_balance_amount: string;
     }>(
-      "SELECT pending_balance_amount, available_balance_amount FROM settlement_wallet_pages",
+      `SELECT pending_balance_amount, available_balance_amount
+       FROM settlement_wallet_pages
+       WHERE account_id = $1`,
+      [identitySeedIds.seller.accountId],
     );
     expect(wallet.rows[0]).toMatchObject({
       pending_balance_amount: "0.00",

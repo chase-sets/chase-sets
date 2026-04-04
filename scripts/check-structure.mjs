@@ -117,6 +117,7 @@ function isAllowedPublicExportName(value) {
     value === "." ||
     value === "./client" ||
     value === "./integration" ||
+    value === "./seed-support/*" ||
     value === "./server" ||
     value === "./web" ||
     value === "./routes/*" ||
@@ -250,8 +251,14 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "apiDeployables must be an array of deployable names");
     }
 
-    if (!Array.isArray(manifest.apiMounts) || manifest.apiMounts.length === 0) {
-      addPathViolation(`${relativeRoot}/context.json`, "apiMounts must declare at least one API contribution");
+    if (!Array.isArray(manifest.apiMounts)) {
+      addPathViolation(`${relativeRoot}/context.json`, "apiMounts must be an array");
+    }
+
+    if (Array.isArray(manifest.apiDeployables) && manifest.apiDeployables.length > 0 &&
+      (!Array.isArray(manifest.apiMounts) || manifest.apiMounts.length === 0)
+    ) {
+      addPathViolation(`${relativeRoot}/context.json`, "apiMounts must declare at least one API contribution when apiDeployables are configured");
     }
 
     if (!Array.isArray(manifest.deployableContributions)) {
@@ -277,8 +284,12 @@ function isAllowedDeployableBoundedContextImport(specifier) {
 function isAllowedContextImporter(relativeFile) {
   return (
     relativeFile.includes("/tests/") ||
+    relativeFile.includes("/__tests__/") ||
+    relativeFile.includes("/seed-support/") ||
     relativeFile.endsWith(".test.ts") ||
     relativeFile.endsWith(".test.tsx") ||
+    relativeFile.endsWith(".test.js") ||
+    relativeFile.endsWith(".test.jsx") ||
     relativeFile.endsWith("/seed.ts") ||
     relativeFile.endsWith("/seed.test.ts")
   );
@@ -371,12 +382,17 @@ async function validateContextManifest(context) {
     }
   }
 
-  const primaryMounts = (manifest.apiMounts ?? []).filter((mount) => mount.kind === "primary");
-  if (primaryMounts.length !== 1) {
+  const apiMounts = manifest.apiMounts ?? [];
+  const primaryMounts = apiMounts.filter((mount) => mount.kind === "primary");
+  if ((manifest.apiDeployables?.length ?? 0) === 0) {
+    if (apiMounts.length !== 0) {
+      addPathViolation(`${root}/context.json`, "contexts without apiDeployables must not declare apiMounts");
+    }
+  } else if (primaryMounts.length !== 1) {
     addPathViolation(`${root}/context.json`, "apiMounts must declare exactly one primary mount");
   }
 
-  for (const [index, mount] of (manifest.apiMounts ?? []).entries()) {
+  for (const [index, mount] of apiMounts.entries()) {
     const mountLabel = `${root}/context.json apiMounts[${index}]`;
 
     if (typeof mount.mountPath !== "string" || !mount.mountPath.startsWith("/")) {
@@ -485,6 +501,14 @@ async function validateDeployableRouteOwnership(contexts) {
 
         if (route.routeType !== "route" && route.routeType !== "index") {
           addPathViolation(routeLabel, "routeType must be 'route' or 'index'");
+        }
+
+        if (
+          route.placement !== undefined &&
+          route.placement !== "root" &&
+          route.placement !== "layout"
+        ) {
+          addPathViolation(routeLabel, "placement must be 'root' or 'layout' when provided");
         }
 
         if (typeof route.fileExport !== "string" || !route.fileExport.startsWith("./routes/")) {
@@ -689,6 +713,28 @@ function checkImport(file, specifier) {
       addViolation(file, `deployables must consume public context entrypoints (${specifier})`);
     }
   }
+
+  const importsScripts =
+    normalized.startsWith("scripts/") ||
+    normalized.includes("/scripts/") ||
+    (resolvedSpecifier?.includes("/scripts/") ?? false);
+  const isRuntimeSource =
+    !relativeFile.startsWith("scripts/") &&
+    !relativeFile.includes("/tests/") &&
+    !relativeFile.includes("/__tests__/") &&
+    !relativeFile.endsWith(".test.ts") &&
+    !relativeFile.endsWith(".test.tsx") &&
+    !relativeFile.endsWith(".test.js") &&
+    !relativeFile.endsWith(".test.jsx") &&
+    !relativeFile.endsWith("/seed.ts") &&
+    !relativeFile.endsWith("/seed.test.ts") &&
+    !relativeFile.includes("/seed-support/") &&
+    !relativeFile.includes("/scripts/") &&
+    !/\/(?:vite|vitest)\.config\.ts$/.test(relativeFile);
+
+  if (isRuntimeSource && importsScripts) {
+    addViolation(file, `runtime code must not import scripts (${specifier})`);
+  }
 }
 
 for (const context of contextManifests.values()) {
@@ -750,6 +796,20 @@ for (const root of roots) {
     }
 
     const content = await readFile(file, "utf8");
+
+    if (
+      /deployables\/[^/]+\/(?:vite|vitest)\.config\.ts$/.test(normalizedFile) &&
+      !content.includes("createWorkspaceSourceAliases")
+    ) {
+      addViolation(file, "deployable build configs must use the shared workspace alias helper");
+    }
+
+    if (
+      /deployables\/[^/]+\/(?:vite|vitest)\.config\.ts$/.test(normalizedFile) &&
+      /(replacement\s*:\s*[\s\S]{0,160}?\.\.\/\.\.\/(?:bounded-contexts|contracts|infrastructure|packages)\/|resolve\([\s\S]{0,120}?\.\.\/\.\.\/(?:bounded-contexts|contracts|infrastructure|packages)\/)/.test(content)
+    ) {
+      addViolation(file, "deployable build configs must not hard-code workspace source paths");
+    }
 
     if (
       normalizedFile.startsWith("deployables/") &&

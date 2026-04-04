@@ -4,7 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/sellable-units";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
 import {
   assert,
   assertNever,
@@ -357,3 +357,4 @@ export const evolveOrderingOrder: AggregateEvolver<
       return assertNever(event);
   }
 };
+

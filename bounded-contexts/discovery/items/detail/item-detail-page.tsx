@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { resolveSellableUnitDescriptor } from "@chase-sets/sellable-units";
+import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration";
 import {
   Breadcrumbs,
   Card,
@@ -450,3 +450,4 @@ export function ItemDetailPage({
     </Stagger>
   );
 }
+
