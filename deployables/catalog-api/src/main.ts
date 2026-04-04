@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { createCatalogServices } from "@chase-sets/catalog-authoring";
+import { createCatalogServices } from "@chase-sets/catalog";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import { resolveActorFromIdentityApi } from "@chase-sets/identity/server";
@@ -26,3 +26,4 @@ startProjectorPolling(services.projectors, PROJECTION_INTERVAL_MS, (error) => {
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Catalog API listening on port ${info.port}`);
 });
+

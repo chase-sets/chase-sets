@@ -1,0 +1,21 @@
+{
+  "contextName": "reputation",
+  "packageName": "@chase-sets/reputation",
+  "ownedNouns": [
+    "review",
+    "reputation-summary"
+  ],
+  "streamPrefix": "reputation.",
+  "apiBasePath": "/api/marketplace",
+  "slices": [
+    "reviews"
+  ],
+  "allowedSupportDirectories": [
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client"
+  ],
+  "requiredPorts": []
+}

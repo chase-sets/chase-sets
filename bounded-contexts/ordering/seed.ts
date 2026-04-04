@@ -11,7 +11,7 @@ import { createInventoryServices } from "@chase-sets/inventory";
 import {
   createMarketplaceServices,
   createMarketplaceSupplyResolver,
-} from "@chase-sets/marketplace-context";
+} from "@chase-sets/marketplace";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   resolveSellableUnitDescriptor,
@@ -365,3 +365,4 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
 
   console.log("\nOrdering seed complete!");
 }
+

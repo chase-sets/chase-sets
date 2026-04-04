@@ -10,7 +10,7 @@ import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
 import {
   createMarketplaceServices,
   createMarketplaceSupplyResolver,
-} from "@chase-sets/marketplace-context";
+} from "@chase-sets/marketplace";
 import { createOrderingServices } from "@chase-sets/ordering";
 
 type OrderRow = Readonly<{
@@ -323,3 +323,4 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     "2026-03-21T09:05:00.000Z",
   );
 }
+

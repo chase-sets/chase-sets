@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { seedCatalogDatabase } from "@chase-sets/catalog-authoring";
+import { seedCatalogDatabase } from "@chase-sets/catalog";
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import { loadConfig } from "./config";
 
@@ -24,3 +24,4 @@ if (isDirectExecution) {
       process.exitCode = 1;
     });
 }
+

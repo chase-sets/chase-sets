@@ -36,11 +36,11 @@ export default defineConfig({
         replacement: resolve(currentDir, "../../bounded-contexts/marketplace/web.ts"),
       },
       {
-        find: "@chase-sets/marketplace-context",
+        find: "@chase-sets/marketplace",
         replacement: resolve(currentDir, "../../bounded-contexts/marketplace/index.ts"),
       },
       {
-        find: "@chase-sets/catalog-authoring",
+        find: "@chase-sets/catalog",
         replacement: resolve(currentDir, "../../bounded-contexts/catalog/authoring/index.ts"),
       },
       {
@@ -74,3 +74,4 @@ export default defineConfig({
     fileParallelism: false,
   },
 });
+

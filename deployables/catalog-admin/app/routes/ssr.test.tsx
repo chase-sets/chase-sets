@@ -4,7 +4,7 @@ import {
   CatalogAdminLayout,
   DimensionDetailPage,
   DimensionListPage,
-} from "@chase-sets/catalog-authoring/web";
+} from "@chase-sets/catalog/web";
 import { buildCanonicalUrl } from "../root";
 import { loader as dimensionDetailLoader } from "./dimensions-detail";
 import { loader as dimensionsLoader, meta as dimensionsMeta } from "./dimensions";
@@ -146,3 +146,4 @@ describe("catalog admin SSR routes", () => {
     expect(result.data?.name).toBe("Size");
   });
 });
+

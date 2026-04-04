@@ -6,7 +6,7 @@ export type { ReputationServices } from "./services";
 export { reputationSchemaSql } from "./schema";
 export { seedReputationDatabase } from "./seed";
 
-import type { BcModule } from "@chase-sets/bounded-context-module";
+import type { BcApiModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ReputationServices } from "./services";
 import { buildReputationApi } from "./api";
@@ -14,10 +14,12 @@ import { createReputationServices } from "./services";
 import { reputationSchemaSql } from "./schema";
 import { seedReputationDatabase } from "./seed";
 
-export const module: BcModule<ReputationServices, PgTransactionalPool> = {
+export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> = {
+  contextName: "reputation",
   routePrefix: "/api/marketplace",
+  streamPrefix: "reputation.",
   schemaSql: reputationSchemaSql,
-  createServices: createReputationServices,
+  createServices: (pool) => createReputationServices(pool),
   buildApi: buildReputationApi,
   projectors: (services) => services.projectors,
   seed: seedReputationDatabase,

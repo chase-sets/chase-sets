@@ -1,0 +1,27 @@
+{
+  "contextName": "ordering",
+  "packageName": "@chase-sets/ordering",
+  "ownedNouns": [
+    "cart",
+    "order"
+  ],
+  "streamPrefix": "ordering.",
+  "apiBasePath": "/api/marketplace",
+  "slices": [
+    "cart",
+    "orders",
+    "accounts"
+  ],
+  "allowedSupportDirectories": [
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client",
+    "./integration"
+  ],
+  "requiredPorts": [
+    "inventoryReservations",
+    "supplyResolver"
+  ]
+}

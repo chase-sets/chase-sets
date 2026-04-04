@@ -16,7 +16,7 @@ export default defineConfig({
         replacement: resolve(currentDir, "../../bounded-contexts/identity/index.ts"),
       },
       {
-        find: "@chase-sets/catalog-authoring",
+        find: "@chase-sets/catalog",
         replacement: resolve(currentDir, "../../bounded-contexts/catalog/authoring/index.ts"),
       },
       {
@@ -52,3 +52,4 @@ export default defineConfig({
     exclude: ["dist/**", "node_modules/**"],
   },
 });
+

@@ -1,17 +1,2 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
-import { ApiKeyListPage, type ApiKey } from "@chase-sets/identity/web";
-import type { ListResponse } from "@chase-sets/http/responses";
-import { createIdentityServerApiClient } from "../api.server";
+export { default, loader, meta } from "@chase-sets/identity/routes/admin/api-keys";
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createIdentityServerApiClient(request);
-  return api.listApiKeys<ListResponse<ApiKey>>("limit=50&offset=0");
-}
-
-export const meta: MetaFunction = () => [{ title: "API Keys | Identity Admin" }];
-
-export default function ApiKeysRoute() {
-  const data = useLoaderData<typeof loader>();
-  return <ApiKeyListPage initialData={data} />;
-}

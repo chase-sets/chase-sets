@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { catalogAuthoringSchemaSql } from "@chase-sets/catalog-authoring";
+import { catalogAuthoringSchemaSql } from "@chase-sets/catalog";
 import { discoverySchemaSql } from "@chase-sets/discovery";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { fulfillmentSchemaSql } from "@chase-sets/fulfillment";
 import { identitySchemaSql } from "@chase-sets/identity";
 import { inventorySchemaSql } from "@chase-sets/inventory";
-import { marketplaceSchemaSql } from "@chase-sets/marketplace-context";
+import { marketplaceSchemaSql } from "@chase-sets/marketplace";
 import { orderingSchemaSql } from "@chase-sets/ordering";
 import { paymentsSchemaSql } from "@chase-sets/payments";
 import { reputationSchemaSql } from "@chase-sets/reputation";
@@ -143,3 +143,4 @@ describe("marketplace stack seed orchestration", () => {
     expect(eventCountAfter.rows[0]?.count).toBe(eventCountBefore.rows[0]?.count);
   }, 60_000);
 });
+

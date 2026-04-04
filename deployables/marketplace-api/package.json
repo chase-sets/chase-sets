@@ -1,39 +1,39 @@
 {
-  "name": "@chase-sets/marketplace-api",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "bootstrap": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/bootstrap.ts",
-    "dev": "tsx watch --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
-    "start": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
-    "backfill:search": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/scripts/backfill-search.ts",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit",
-    "test": "vitest run --config ./vitest.config.ts",
-    "test:watch": "vitest --config ./vitest.config.ts"
-  },
-  "dependencies": {
-    "@chase-sets/bounded-context-runtime": "0.1.0",
-    "@chase-sets/catalog-authoring": "0.1.0",
-    "@chase-sets/discovery": "0.1.0",
-    "@chase-sets/event-core": "0.1.0",
-    "@chase-sets/event-core-postgres": "0.1.0",
-    "@chase-sets/fulfillment": "0.1.0",
-    "@chase-sets/http": "0.1.0",
-    "@chase-sets/identity": "0.1.0",
-    "@chase-sets/inventory": "0.1.0",
-    "@chase-sets/marketplace-context": "0.1.0",
-    "@chase-sets/ordering": "0.1.0",
-    "@chase-sets/payments": "0.1.0",
-    "@chase-sets/reputation": "0.1.0",
-    "@chase-sets/settlement": "0.1.0",
-    "hono": "^4.12.5",
-    "@hono/node-server": "^1.19.11",
-    "pg": "^8.20.0"
-  },
-  "devDependencies": {
-    "@types/pg": "^8.18.0",
-    "tsx": "^4.21.0",
-    "vitest": "^4.0.18"
-  }
+    "name":  "@chase-sets/app-marketplace-api",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "bootstrap":  "tsx --env-file=.env.example --env-file-if-exists=.env.local src/bootstrap.ts",
+                    "dev":  "tsx watch --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
+                    "start":  "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
+                    "backfill:search":  "tsx --env-file=.env.example --env-file-if-exists=.env.local src/scripts/backfill-search.ts",
+                    "typecheck":  "tsc -p ./tsconfig.json --noEmit",
+                    "test":  "vitest run --config ./vitest.config.ts",
+                    "test:watch":  "vitest --config ./vitest.config.ts"
+                },
+    "dependencies":  {
+                         "@chase-sets/bounded-context-runtime":  "0.1.0",
+                         "@chase-sets/discovery":  "0.1.0",
+                         "@chase-sets/event-core":  "0.1.0",
+                         "@chase-sets/event-core-postgres":  "0.1.0",
+                         "@chase-sets/fulfillment":  "0.1.0",
+                         "@chase-sets/http":  "0.1.0",
+                         "@chase-sets/identity":  "0.1.0",
+                         "@chase-sets/inventory":  "0.1.0",
+                         "@chase-sets/ordering":  "0.1.0",
+                         "@chase-sets/payments":  "0.1.0",
+                         "@chase-sets/reputation":  "0.1.0",
+                         "@chase-sets/settlement":  "0.1.0",
+                         "hono":  "^4.12.5",
+                         "@hono/node-server":  "^1.19.11",
+                         "pg":  "^8.20.0",
+                         "@chase-sets/catalog":  "0.1.0",
+                         "@chase-sets/marketplace":  "0.1.0"
+                     },
+    "devDependencies":  {
+                            "@types/pg":  "^8.18.0",
+                            "tsx":  "^4.21.0",
+                            "vitest":  "^4.0.18"
+                        }
 }

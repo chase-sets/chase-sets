@@ -1,5 +1,5 @@
 import { loadConfig } from "../config";
-import { catalogAuthoringSchemaSql } from "@chase-sets/catalog-authoring";
+import { catalogAuthoringSchemaSql } from "@chase-sets/catalog";
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import { seedDatabase } from "../seed";
 
@@ -23,3 +23,4 @@ resetDatabase()
     console.error("Database reset failed:", error);
     process.exit(1);
   });
+

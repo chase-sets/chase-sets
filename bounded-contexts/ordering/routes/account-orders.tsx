@@ -1,0 +1,44 @@
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
+import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
+import type { ListResponse } from "@chase-sets/http/responses";
+import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { createOrderingRequestApiClient } from "../client";
+import {
+  OrderingOrderListPage,
+  type OrderingOrderListItem,
+} from "../web";
+
+const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
+const MARKETPLACE_DESCRIPTION =
+  "Track buyer-side orders and drill into each order's fulfillment state.";
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  await requireActorFromIdentityApi({ request, permission: "orders.view" });
+  const api = createOrderingRequestApiClient(request);
+
+  return {
+    orders: await api.listBuyerOrders(DEFAULT_ORDER_QUERY),
+  };
+}
+
+export const meta: MetaFunction = () =>
+  buildOpenGraphMeta({
+    title: "Orders | Marketplace",
+    description: MARKETPLACE_DESCRIPTION,
+  });
+
+export default function OrderingAccountOrdersRoute() {
+  const data = useLoaderData<typeof loader>();
+
+  return (
+    <OrderingOrderListPage
+      title="Orders"
+      eyebrow="Buyer"
+      emptyTitle="No orders yet"
+      emptyDescription="Your checkout activity and accepted seller offers will appear here."
+      orderDetailBasePath="/account/orders"
+      orders={(data.orders as ListResponse<OrderingOrderListItem>).items}
+    />
+  );
+}

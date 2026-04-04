@@ -1,0 +1,23 @@
+{
+  "contextName": "discovery",
+  "packageName": "@chase-sets/discovery",
+  "ownedNouns": [
+    "search",
+    "browse",
+    "item-detail"
+  ],
+  "streamPrefix": "discovery.",
+  "apiBasePath": "/api/marketplace",
+  "slices": [
+    "categories",
+    "items"
+  ],
+  "allowedSupportDirectories": [
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client"
+  ],
+  "requiredPorts": []
+}

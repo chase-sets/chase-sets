@@ -1,0 +1,38 @@
+{
+  "contextName": "identity",
+  "packageName": "@chase-sets/identity",
+  "ownedNouns": [
+    "user",
+    "account",
+    "membership",
+    "invitation",
+    "session",
+    "api-key",
+    "consent"
+  ],
+  "streamPrefix": "identity.",
+  "apiBasePath": "/api/identity",
+  "slices": [
+    "accounts",
+    "users",
+    "memberships",
+    "invitations",
+    "sessions",
+    "api-keys",
+    "consents",
+    "customer"
+  ],
+  "allowedSupportDirectories": [
+    "auth-support",
+    "projection-support",
+    "read-model-support",
+    "shell-support",
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client",
+    "./server"
+  ],
+  "requiredPorts": []
+}

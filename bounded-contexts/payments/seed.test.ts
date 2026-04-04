@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { catalogAuthoringSchemaSql, seedCatalogDatabase } from "@chase-sets/catalog-authoring";
+import { catalogAuthoringSchemaSql, seedCatalogDatabase } from "@chase-sets/catalog";
 import { identitySchemaSql, seedIdentityDatabase } from "@chase-sets/identity";
 import { inventorySchemaSql, seedInventoryDatabase } from "@chase-sets/inventory";
-import { marketplaceSchemaSql, seedMarketplaceDatabase } from "@chase-sets/marketplace-context";
+import { marketplaceSchemaSql, seedMarketplaceDatabase } from "@chase-sets/marketplace";
 import { orderingSchemaSql, seedOrderingDatabase } from "@chase-sets/ordering";
 import { paymentsSchemaSql, seedPaymentsDatabase } from ".";
 
@@ -81,3 +81,4 @@ describe("payments seed", () => {
     expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
   }, 40_000);
 });
+

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CatalogServices } from "@chase-sets/catalog-authoring";
+import type { CatalogServices } from "@chase-sets/catalog";
 import { buildCatalogApp } from "../src/app";
 
 describe("catalog api host app", () => {
@@ -80,3 +80,4 @@ describe("catalog api host app", () => {
     expect(writeResponse.status).toBe(201);
   });
 });
+

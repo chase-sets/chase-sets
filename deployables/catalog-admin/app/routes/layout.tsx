@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLocation } from "react-router";
 import { Button } from "@chase-sets/design-system";
-import { CatalogAdminLayout } from "@chase-sets/catalog-authoring/web";
+import { CatalogAdminLayout } from "@chase-sets/catalog/web";
 import { requireCatalogAdminActor } from "../auth.server";
 
 function resolveActiveKey(pathname: string) {
@@ -33,3 +33,4 @@ export default function CatalogAdminLayoutRoute() {
     </CatalogAdminLayout>
   );
 }
+

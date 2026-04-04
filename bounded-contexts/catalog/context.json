@@ -1,0 +1,29 @@
+{
+  "contextName": "catalog",
+  "packageName": "@chase-sets/catalog",
+  "ownedNouns": [
+    "catalog-item",
+    "category",
+    "blueprint",
+    "field",
+    "component",
+    "dimension"
+  ],
+  "streamPrefix": "catalog.",
+  "apiBasePath": "/api/catalog",
+  "slices": [
+    "authoring"
+  ],
+  "allowedSupportDirectories": [
+    "projection-support",
+    "shell-support",
+    "seed-support",
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client",
+    "./integration"
+  ],
+  "requiredPorts": []
+}

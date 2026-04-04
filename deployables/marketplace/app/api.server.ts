@@ -2,7 +2,7 @@ import { createDiscoveryApiClient } from "@chase-sets/discovery/web";
 import { createFulfillmentApiClient } from "@chase-sets/fulfillment/web";
 import { createIdentityApiClient } from "@chase-sets/identity/web";
 import { createInventoryApiClient } from "@chase-sets/inventory/web";
-import { createMarketplaceApiClient } from "@chase-sets/marketplace-context/web";
+import { createMarketplaceApiClient } from "@chase-sets/marketplace/web";
 import { createOrderingApiClient } from "@chase-sets/ordering/web";
 import { createPaymentsApiClient } from "@chase-sets/payments/web";
 import { createReputationApiClient } from "@chase-sets/reputation/web";
@@ -91,3 +91,4 @@ export function createMarketplaceSettlementApiClient(request: Request) {
     fetch: createForwardedAuthFetch(request),
   });
 }
+

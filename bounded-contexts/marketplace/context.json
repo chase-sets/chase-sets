@@ -1,0 +1,23 @@
+{
+  "contextName": "marketplace",
+  "packageName": "@chase-sets/marketplace",
+  "ownedNouns": [
+    "listing",
+    "offer"
+  ],
+  "streamPrefix": "marketplace.",
+  "apiBasePath": "/api/marketplace",
+  "slices": [
+    "listings",
+    "offers"
+  ],
+  "allowedSupportDirectories": [
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client",
+    "./integration"
+  ],
+  "requiredPorts": []
+}

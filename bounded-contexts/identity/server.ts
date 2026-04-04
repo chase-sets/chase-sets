@@ -1,5 +1,6 @@
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime";
 import type { PermissionKey } from "./common";
 import {
   IDENTITY_BOOTSTRAP_TENANT_ID,
@@ -101,6 +102,26 @@ export function readIdentitySessionToken(request: Request) {
 
 export function readAccountSelectionToken(request: Request) {
   return readCookie(request, IDENTITY_ACCOUNT_SELECTION_COOKIE_NAME);
+}
+
+function createRedirectResponse(location: string, headers?: HeadersInit) {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("Location", location);
+  return new Response(null, { status: 302, headers: responseHeaders });
+}
+
+function buildCurrentPath(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
+}
+
+function isSafeReturnTo(value: string | null) {
+  return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
+}
+
+export function getSafeReturnTo(request: Request, fallback: string) {
+  const returnTo = new URL(request.url).searchParams.get("returnTo");
+  return isSafeReturnTo(returnTo) ? returnTo! : fallback;
 }
 
 export function appendIdentitySessionCookie(
@@ -286,4 +307,124 @@ export async function resolveActorFromIdentityApi(options: Readonly<{
 
   const body = (await response.json()) as { actor: ResolvedActor };
   return body.actor;
+}
+
+export async function requireActorFromIdentityApi(options: Readonly<{
+  request: Request;
+  permission?: PermissionKey;
+  signInPath?: string;
+  identityApiBaseUrl?: string;
+  fetch?: typeof globalThis.fetch;
+}>): Promise<ResolvedActor> {
+  const actor = await resolveActorFromIdentityApi({
+    identityApiBaseUrl:
+      options.identityApiBaseUrl ??
+      resolveRequestApiBaseUrl(options.request, "/api/identity"),
+    request: options.request,
+    fetch: options.fetch,
+  });
+
+  if (!actor) {
+    throw createRedirectResponse(
+      `${options.signInPath ?? "/sign-in"}?returnTo=${encodeURIComponent(
+        buildCurrentPath(options.request),
+      )}`,
+    );
+  }
+
+  if (options.permission && !hasPermission(actor, options.permission)) {
+    throw new Response("Forbidden.", { status: 403 });
+  }
+
+  return actor;
+}
+
+export function requireAccountSelectionTokenOrRedirect(
+  request: Request,
+  options: Readonly<{
+    signInPath?: string;
+    fallbackPath?: string;
+  }> = {},
+) {
+  const selectionToken = readAccountSelectionToken(request);
+  if (!selectionToken) {
+    throw createRedirectResponse(
+      `${options.signInPath ?? "/sign-in"}?returnTo=${encodeURIComponent(
+        getSafeReturnTo(request, options.fallbackPath ?? "/account"),
+      )}`,
+    );
+  }
+
+  return selectionToken;
+}
+
+export function completeBrowserAuthentication(
+  request: Request,
+  result: Readonly<{
+    requiresAccountSelection?: boolean;
+    selectionToken?: string;
+    sessionToken?: string;
+  }>,
+  options: Readonly<{
+    defaultSuccessPath: string;
+    accountSelectionPath: string;
+  }>,
+) {
+  const headers = new Headers();
+  clearAccountSelectionCookie(headers, request);
+
+  if (result.requiresAccountSelection) {
+    if (!result.selectionToken) {
+      return { error: "Account selection could not be started." };
+    }
+
+    appendAccountSelectionCookie(headers, result.selectionToken, request);
+    throw createRedirectResponse(
+      `${options.accountSelectionPath}?returnTo=${encodeURIComponent(
+        getSafeReturnTo(request, options.defaultSuccessPath),
+      )}`,
+      headers,
+    );
+  }
+
+  if (!result.sessionToken) {
+    return { error: "Authentication did not return a session." };
+  }
+
+  appendIdentitySessionCookie(headers, result.sessionToken, request);
+  throw createRedirectResponse(
+    getSafeReturnTo(request, options.defaultSuccessPath),
+    headers,
+  );
+}
+
+export async function signOutActorViaIdentityApi(
+  request: Request,
+  options: Readonly<{
+    identityApiBaseUrl?: string;
+    returnTo?: string;
+    fetch?: typeof globalThis.fetch;
+  }> = {},
+) {
+  const headers = new Headers();
+  clearAccountSelectionCookie(headers, request);
+  clearIdentitySessionCookie(headers, request);
+
+  try {
+    const identityApiBaseUrl =
+      options.identityApiBaseUrl ??
+      resolveRequestApiBaseUrl(request, "/api/identity");
+    await (options.fetch ?? globalThis.fetch)(
+      new URL("auth/session/sign-out", `${identityApiBaseUrl}/`),
+      {
+        method: "POST",
+        headers: createForwardedAuthHeaders(request),
+        credentials: "include",
+      },
+    );
+  } catch {
+    // Clearing the local cookies is enough to end the browser session.
+  }
+
+  return createRedirectResponse(options.returnTo ?? "/search", headers);
 }

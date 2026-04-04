@@ -11,7 +11,7 @@ import {
   createCatalogServices,
   catalogAuthoringSchemaSql,
   type CatalogServices,
-} from "@chase-sets/catalog-authoring";
+} from "@chase-sets/catalog";
 import {
   eventCorePostgresSchemaSql,
   type PgTransactionalPool,
@@ -470,3 +470,4 @@ describe("marketplace search", () => {
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });
+

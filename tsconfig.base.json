@@ -18,29 +18,53 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@chase-sets/catalog-authoring": [
-        "./bounded-contexts/catalog/authoring/index.ts"
+      "@chase-sets/catalog": [
+        "./bounded-contexts/catalog/index.ts"
       ],
-      "@chase-sets/catalog-authoring/web": [
-        "./bounded-contexts/catalog/authoring/web.ts"
+      "@chase-sets/catalog/client": [
+        "./bounded-contexts/catalog/client.ts"
+      ],
+      "@chase-sets/catalog/web": [
+        "./bounded-contexts/catalog/web.ts"
+      ],
+      "@chase-sets/catalog/routes/*": [
+        "./bounded-contexts/catalog/routes/*"
       ],
       "@chase-sets/discovery": [
         "./bounded-contexts/discovery/index.ts"
       ],
+      "@chase-sets/discovery/client": [
+        "./bounded-contexts/discovery/client.ts"
+      ],
       "@chase-sets/discovery/web": [
         "./bounded-contexts/discovery/web.ts"
+      ],
+      "@chase-sets/discovery/routes/*": [
+        "./bounded-contexts/discovery/routes/*"
       ],
       "@chase-sets/fulfillment": [
         "./bounded-contexts/fulfillment/index.ts"
       ],
+      "@chase-sets/fulfillment/client": [
+        "./bounded-contexts/fulfillment/client.ts"
+      ],
       "@chase-sets/fulfillment/web": [
         "./bounded-contexts/fulfillment/web.ts"
       ],
-      "@chase-sets/marketplace-context": [
+      "@chase-sets/fulfillment/routes/*": [
+        "./bounded-contexts/fulfillment/routes/*"
+      ],
+      "@chase-sets/marketplace": [
         "./bounded-contexts/marketplace/index.ts"
       ],
-      "@chase-sets/marketplace-context/web": [
+      "@chase-sets/marketplace/client": [
+        "./bounded-contexts/marketplace/client.ts"
+      ],
+      "@chase-sets/marketplace/web": [
         "./bounded-contexts/marketplace/web.ts"
+      ],
+      "@chase-sets/marketplace/routes/*": [
+        "./bounded-contexts/marketplace/routes/*"
       ],
       "@chase-sets/identity": [
         "./bounded-contexts/identity/index.ts"
@@ -48,38 +72,74 @@
       "@chase-sets/identity/server": [
         "./bounded-contexts/identity/server.ts"
       ],
+      "@chase-sets/identity/client": [
+        "./bounded-contexts/identity/client.ts"
+      ],
       "@chase-sets/identity/web": [
         "./bounded-contexts/identity/web.ts"
+      ],
+      "@chase-sets/identity/routes/*": [
+        "./bounded-contexts/identity/routes/*"
       ],
       "@chase-sets/reputation": [
         "./bounded-contexts/reputation/index.ts"
       ],
+      "@chase-sets/reputation/client": [
+        "./bounded-contexts/reputation/client.ts"
+      ],
       "@chase-sets/reputation/web": [
         "./bounded-contexts/reputation/web.ts"
+      ],
+      "@chase-sets/reputation/routes/*": [
+        "./bounded-contexts/reputation/routes/*"
       ],
       "@chase-sets/settlement": [
         "./bounded-contexts/settlement/index.ts"
       ],
+      "@chase-sets/settlement/client": [
+        "./bounded-contexts/settlement/client.ts"
+      ],
       "@chase-sets/settlement/web": [
         "./bounded-contexts/settlement/web.ts"
+      ],
+      "@chase-sets/settlement/routes/*": [
+        "./bounded-contexts/settlement/routes/*"
       ],
       "@chase-sets/inventory": [
         "./bounded-contexts/inventory/index.ts"
       ],
+      "@chase-sets/inventory/client": [
+        "./bounded-contexts/inventory/client.ts"
+      ],
       "@chase-sets/inventory/web": [
         "./bounded-contexts/inventory/web.ts"
+      ],
+      "@chase-sets/inventory/routes/*": [
+        "./bounded-contexts/inventory/routes/*"
       ],
       "@chase-sets/ordering": [
         "./bounded-contexts/ordering/index.ts"
       ],
+      "@chase-sets/ordering/client": [
+        "./bounded-contexts/ordering/client.ts"
+      ],
       "@chase-sets/ordering/web": [
         "./bounded-contexts/ordering/web.ts"
+      ],
+      "@chase-sets/ordering/routes/*": [
+        "./bounded-contexts/ordering/routes/*"
       ],
       "@chase-sets/payments": [
         "./bounded-contexts/payments/index.ts"
       ],
+      "@chase-sets/payments/client": [
+        "./bounded-contexts/payments/client.ts"
+      ],
       "@chase-sets/payments/web": [
         "./bounded-contexts/payments/web.ts"
+      ],
+      "@chase-sets/payments/routes/*": [
+        "./bounded-contexts/payments/routes/*"
       ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"

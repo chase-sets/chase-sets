@@ -1,19 +1,27 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import { seedCatalogDatabase } from "@chase-sets/catalog-authoring";
+import { seedCatalogDatabase } from "@chase-sets/catalog";
 import { createDiscoveryServices } from "@chase-sets/discovery";
 import {
   createFulfillmentServices,
   seedFulfillmentDatabase,
 } from "@chase-sets/fulfillment";
 import { seedIdentityDatabase } from "@chase-sets/identity";
-import { createInventoryServices, seedInventoryDatabase } from "@chase-sets/inventory";
+import {
+  createInventoryReservationGateway,
+  createInventoryServices,
+  seedInventoryDatabase,
+} from "@chase-sets/inventory";
 import {
   createMarketplaceServices,
   createMarketplaceSupplyResolver,
   seedMarketplaceDatabase,
-} from "@chase-sets/marketplace-context";
-import { createOrderingServices, seedOrderingDatabase } from "@chase-sets/ordering";
+} from "@chase-sets/marketplace";
+import {
+  createOrderSnapshotReader,
+  createOrderingServices,
+  seedOrderingDatabase,
+} from "@chase-sets/ordering";
 import {
   createFakePaymentProcessorGateway,
   createPaymentsServices,
@@ -51,50 +59,11 @@ export async function seedMarketplaceStack(pool: PgTransactionalPool) {
   const marketplace = createMarketplaceServices(pool);
   const ordering = createOrderingServices(pool, {
     supplyResolver: createMarketplaceSupplyResolver(marketplace),
-    inventoryReservations: {
-      createReservation: async ({ sellerAccountId, inventoryRecordId, quantity, reason, notes, context }) => {
-        const result = await inventory.holds.createHold(
-          {
-            accountId: sellerAccountId,
-            recordId: inventoryRecordId,
-            quantity,
-            reason,
-            notes,
-          },
-          context as never,
-        );
-
-        return {
-          holdId: result.holdId,
-          inventoryRecordId,
-          sellerAccountId,
-          quantity,
-        };
-      },
-      releaseReservation: async ({ sellerAccountId, holdId, context }) => {
-        await inventory.holds.releaseHold(
-          {
-            accountId: sellerAccountId,
-            holdId,
-          },
-          context as never,
-        );
-      },
-    },
+    inventoryReservations: createInventoryReservationGateway(inventory),
   });
   const payments = createPaymentsServices(pool, {
     processorGateway: createFakePaymentProcessorGateway(),
-    getOrderSnapshot: async (orderId, buyerAccountId) => {
-      const order = await ordering.orders.getBuyerOrder(orderId, buyerAccountId);
-      return order
-        ? {
-            orderId: order.order_id as never,
-            buyerAccountId: order.buyer_account_id as never,
-            totalAmount: order.total_amount,
-            status: order.status,
-          }
-        : null;
-    },
+    getOrderSnapshot: createOrderSnapshotReader(ordering),
   });
   const fulfillment = createFulfillmentServices(pool);
   const reputation = createReputationServices(pool);
@@ -111,3 +80,4 @@ export async function seedMarketplaceStack(pool: PgTransactionalPool) {
     ...settlement.projectors,
   ]);
 }
+

@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { ItemDetailPage } from "@chase-sets/discovery/web";
-import { MarketplaceOfferSubmissionSection } from "@chase-sets/marketplace-context/web";
+import { MarketplaceOfferSubmissionSection } from "@chase-sets/marketplace/web";
 import type { DiscoveryItemDetail } from "@chase-sets/discovery/web";
 
 function buildItemDetail(
@@ -283,3 +283,4 @@ describe("marketplace item detail page", () => {
     ).toBeGreaterThan(0);
   });
 });
+

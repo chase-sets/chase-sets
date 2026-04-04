@@ -1,4 +1,4 @@
-import { createCatalogApiClient } from "@chase-sets/catalog-authoring/web";
+import { createCatalogApiClient } from "@chase-sets/catalog/web";
 import { createIdentityApiClient } from "@chase-sets/identity/web";
 import { createForwardedAuthFetch } from "@chase-sets/identity/server";
 
@@ -25,3 +25,4 @@ export function createIdentityServerApiClient(request: Request) {
     fetch: createForwardedAuthFetch(request),
   });
 }
+

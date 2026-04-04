@@ -1,0 +1,20 @@
+{
+  "contextName": "fulfillment",
+  "packageName": "@chase-sets/fulfillment",
+  "ownedNouns": [
+    "shipment"
+  ],
+  "streamPrefix": "fulfillment.",
+  "apiBasePath": "/api/marketplace",
+  "slices": [
+    "shipments"
+  ],
+  "allowedSupportDirectories": [
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client"
+  ],
+  "requiredPorts": []
+}

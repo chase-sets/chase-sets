@@ -8,7 +8,7 @@ import { createInventoryServices } from "@chase-sets/inventory";
 import {
   createMarketplaceServices,
   createMarketplaceSupplyResolver,
-} from "@chase-sets/marketplace-context";
+} from "@chase-sets/marketplace";
 import { createOrderingServices } from "@chase-sets/ordering";
 import {
   createPaymentsServices,
@@ -125,3 +125,4 @@ startProjectorPolling(
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Marketplace API listening on port ${info.port}`);
 });
+

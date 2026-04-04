@@ -11,7 +11,7 @@ import {
 import {
   catalogAuthoringSchemaSql,
   seedCatalogDatabase,
-} from "@chase-sets/catalog-authoring";
+} from "@chase-sets/catalog";
 import {
   identitySchemaSql,
   seedIdentityDatabase,
@@ -420,6 +420,7 @@ describe("inventory api", () => {
     );
   }, 15000);
 });
+
 
 
 

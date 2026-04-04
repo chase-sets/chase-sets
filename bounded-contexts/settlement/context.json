@@ -1,0 +1,23 @@
+{
+  "contextName": "settlement",
+  "packageName": "@chase-sets/settlement",
+  "ownedNouns": [
+    "wallet",
+    "payout",
+    "ledger-entry"
+  ],
+  "streamPrefix": "settlement.",
+  "apiBasePath": "/api/settlement",
+  "slices": [
+    "wallets",
+    "payouts"
+  ],
+  "allowedSupportDirectories": [
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client"
+  ],
+  "requiredPorts": []
+}

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { buildCatalogAuthoringApi, type CatalogServices } from "@chase-sets/catalog-authoring";
+import { buildCatalogAuthoringApi, type CatalogServices } from "@chase-sets/catalog";
 import { createHealthRoutes } from "@chase-sets/http/health";
 import {
   createCatalogAuthMiddleware,
@@ -30,3 +30,4 @@ export function buildCatalogApp(
 
   return app;
 }
+

@@ -8,7 +8,7 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: "@chase-sets/catalog-authoring",
+        find: "@chase-sets/catalog",
         replacement: resolve(currentDir, "../../bounded-contexts/catalog/authoring/index.ts"),
       },
       {
@@ -64,3 +64,4 @@ export default defineConfig({
     exclude: ["dist/**", "node_modules/**"],
   },
 });
+

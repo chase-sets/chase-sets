@@ -1,0 +1,26 @@
+{
+  "contextName": "payments",
+  "packageName": "@chase-sets/payments",
+  "ownedNouns": [
+    "payment",
+    "refund"
+  ],
+  "streamPrefix": "payments.",
+  "apiBasePath": "/api/marketplace",
+  "slices": [
+    "payments",
+    "refunds"
+  ],
+  "allowedSupportDirectories": [
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client",
+    "./integration"
+  ],
+  "requiredPorts": [
+    "processorGateway",
+    "getOrderSnapshot"
+  ]
+}

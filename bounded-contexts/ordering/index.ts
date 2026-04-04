@@ -1,4 +1,5 @@
 export { OrderingDomainError } from "./common";
+export { createOrderSnapshotReader } from "./integration";
 export type {
   InventoryReservationGateway,
   MarketplaceDemand,
@@ -15,7 +16,7 @@ export type { OrderingServices, OrderingServiceOptions } from "./services";
 export { orderingSchemaSql } from "./schema";
 export { seedOrderingDatabase } from "./seed";
 
-import type { BcModule } from "@chase-sets/bounded-context-module";
+import type { BcApiModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { OrderingServices, OrderingServiceOptions } from "./services";
 import { buildOrderingApi } from "./api";
@@ -25,9 +26,11 @@ import { seedOrderingDatabase } from "./seed";
 
 export function createOrderingModule(
   options: OrderingServiceOptions = {},
-): BcModule<OrderingServices, PgTransactionalPool> {
+): BcApiModule<OrderingServices, PgTransactionalPool, void> {
   return {
+    contextName: "ordering",
     routePrefix: "/api/marketplace",
+    streamPrefix: "ordering.",
     schemaSql: orderingSchemaSql,
     createServices: (pool) => createOrderingServices(pool, options),
     buildApi: buildOrderingApi,

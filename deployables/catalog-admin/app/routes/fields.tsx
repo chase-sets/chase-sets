@@ -1,19 +1,2 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
-import { FieldListPage, type Field } from "@chase-sets/catalog-authoring/web";
-import type { ListResponse } from "@chase-sets/http/responses";
-import { createCatalogServerApiClient } from "../api.server";
+export { default, loader, meta } from "@chase-sets/catalog/routes/admin/fields";
 
-const DEFAULT_LIST_QUERY = "limit=50&offset=0";
-
-export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createCatalogServerApiClient(request);
-  return api.listFields<ListResponse<Field>>(DEFAULT_LIST_QUERY);
-}
-
-export const meta: MetaFunction = () => [{ title: "Fields | Catalog Admin" }];
-
-export default function FieldsRoute() {
-  const data = useLoaderData<typeof loader>();
-  return <FieldListPage initialData={data} />;
-}

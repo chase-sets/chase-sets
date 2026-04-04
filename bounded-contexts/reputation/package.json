@@ -1,30 +1,31 @@
 {
-  "name": "@chase-sets/reputation",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "vitest run --config ./vitest.config.mjs"
-  },
-  "exports": {
-    ".": "./index.ts",
-    "./web": "./web.ts"
-  },
-  "types": "./index.ts",
-  "dependencies": {
-    "@chase-sets/auth-context": "0.1.0",
-    "@chase-sets/bounded-context-module": "0.1.0",
-    "@chase-sets/dev-seeds": "0.1.0",
-    "@chase-sets/design-system": "0.1.0",
-    "@chase-sets/event-core": "0.1.0",
-    "@chase-sets/event-core-postgres": "0.1.0",
-    "@chase-sets/fulfillment": "0.1.0",
-    "@chase-sets/http": "0.1.0",
-    "@chase-sets/identity": "0.1.0",
-    "@chase-sets/primitives": "0.1.0",
-    "hono": "^4.12.5"
-  },
-  "devDependencies": {
-    "vitest": "^4.0.18"
-  }
+    "name":  "@chase-sets/reputation",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "test":  "vitest run --config ./vitest.config.mjs"
+                },
+    "exports":  {
+                    ".":  "./index.ts",
+                    "./client":  "./client.ts",
+                    "./web":  "./web.ts"
+                },
+    "types":  "./index.ts",
+    "dependencies":  {
+                         "@chase-sets/auth-context":  "0.1.0",
+                         "@chase-sets/bounded-context-module":  "0.1.0",
+                         "@chase-sets/design-system":  "0.1.0",
+                         "@chase-sets/event-core":  "0.1.0",
+                         "@chase-sets/event-core-postgres":  "0.1.0",
+                         "@chase-sets/fulfillment":  "0.1.0",
+                         "@chase-sets/http":  "0.1.0",
+                         "@chase-sets/identity":  "0.1.0",
+                         "@chase-sets/primitives":  "0.1.0",
+                         "hono":  "^4.12.5",
+                         "@chase-sets/bounded-context-runtime":  "0.1.0"
+                     },
+    "devDependencies":  {
+                            "vitest":  "^4.0.18"
+                        }
 }

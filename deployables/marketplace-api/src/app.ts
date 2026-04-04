@@ -10,7 +10,7 @@ import {
 import {
   buildMarketplaceApi,
   type MarketplaceServices,
-} from "@chase-sets/marketplace-context";
+} from "@chase-sets/marketplace";
 import type { InventoryServices } from "@chase-sets/inventory";
 import {
   buildOrderingApi,
@@ -120,3 +120,4 @@ export function buildMarketplaceApp(
 
   return app;
 }
+

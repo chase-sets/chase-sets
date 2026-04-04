@@ -1,0 +1,27 @@
+{
+  "contextName": "inventory",
+  "packageName": "@chase-sets/inventory",
+  "ownedNouns": [
+    "inventory-record",
+    "inventory-hold",
+    "storage-location"
+  ],
+  "streamPrefix": "inventory.",
+  "apiBasePath": "/api/inventory",
+  "slices": [
+    "records",
+    "holds",
+    "storage-locations",
+    "catalog-items"
+  ],
+  "allowedSupportDirectories": [
+    "seed-support",
+    "tests"
+  ],
+  "publicExports": [
+    ".",
+    "./client",
+    "./integration"
+  ],
+  "requiredPorts": []
+}

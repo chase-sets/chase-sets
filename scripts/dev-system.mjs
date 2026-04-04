@@ -27,22 +27,22 @@ const marketplaceApiEnvLocalPath = path.join(
 const stripeReadyTimeoutMs = 20_000;
 
 const bootstrapWorkspaces = [
-  "@chase-sets/identity-api",
-  "@chase-sets/catalog-api",
-  "@chase-sets/inventory-api",
-  "@chase-sets/marketplace-api",
+  "@chase-sets/app-identity-api",
+  "@chase-sets/app-catalog-api",
+  "@chase-sets/app-inventory-api",
+  "@chase-sets/app-marketplace-api",
 ];
 
 const processes = [
   {
     name: "showcase",
-    workspace: "@chase-sets/design-system-showcase",
+    workspace: "@chase-sets/app-design-system-showcase",
     env: {},
     port: 6171,
   },
   {
     name: "identity-api",
-    workspace: "@chase-sets/identity-api",
+    workspace: "@chase-sets/app-identity-api",
     env: {
       DATABASE_URL: databaseUrl,
       PORT: "6181",
@@ -51,7 +51,7 @@ const processes = [
   },
   {
     name: "catalog-api",
-    workspace: "@chase-sets/catalog-api",
+    workspace: "@chase-sets/app-catalog-api",
     env: {
       DATABASE_URL: databaseUrl,
       IDENTITY_API_BASE_URL: "http://localhost:6181",
@@ -61,7 +61,7 @@ const processes = [
   },
   {
     name: "marketplace-api",
-    workspace: "@chase-sets/marketplace-api",
+    workspace: "@chase-sets/app-marketplace-api",
     env: {
       DATABASE_URL: databaseUrl,
       PORT: "6182",
@@ -70,7 +70,7 @@ const processes = [
   },
   {
     name: "inventory-api",
-    workspace: "@chase-sets/inventory-api",
+    workspace: "@chase-sets/app-inventory-api",
     env: {
       DATABASE_URL: databaseUrl,
       IDENTITY_API_BASE_URL: "http://localhost:6181",
@@ -80,19 +80,19 @@ const processes = [
   },
   {
     name: "catalog-admin",
-    workspace: "@chase-sets/catalog-admin",
+    workspace: "@chase-sets/app-catalog-admin",
     env: {},
     port: 6172,
   },
   {
     name: "marketplace",
-    workspace: "@chase-sets/marketplace",
+    workspace: "@chase-sets/app-marketplace-web",
     env: {},
     port: 6173,
   },
   {
     name: "identity-admin",
-    workspace: "@chase-sets/identity-admin",
+    workspace: "@chase-sets/app-identity-admin",
     env: {},
     port: 6174,
   },

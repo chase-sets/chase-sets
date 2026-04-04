@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DiscoveryServices } from "@chase-sets/discovery";
 import type { FulfillmentServices } from "@chase-sets/fulfillment";
 import type { InventoryServices } from "@chase-sets/inventory";
-import type { MarketplaceServices } from "@chase-sets/marketplace-context";
+import type { MarketplaceServices } from "@chase-sets/marketplace";
 import type { OrderingServices } from "@chase-sets/ordering";
 import type { PaymentsServices } from "@chase-sets/payments";
 import type { ReputationServices } from "@chase-sets/reputation";
@@ -609,3 +609,4 @@ describe("marketplace api host app", () => {
     });
   });
 });
+

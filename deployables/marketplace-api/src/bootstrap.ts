@@ -1,4 +1,4 @@
-import { module as catalogModule } from "@chase-sets/catalog-authoring";
+import { module as catalogModule } from "@chase-sets/catalog";
 import {
   module as discoveryModule,
 } from "@chase-sets/discovery";
@@ -7,14 +7,16 @@ import {
   module as fulfillmentModule,
 } from "@chase-sets/fulfillment";
 import {
-  createMarketplaceSupplyResolver,
   module as marketplaceModule,
-} from "@chase-sets/marketplace-context";
+} from "@chase-sets/marketplace";
+import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
 import { module as identityModule } from "@chase-sets/identity";
 import {
+  createInventoryReservationGateway,
   module as inventoryModule,
 } from "@chase-sets/inventory";
 import {
+  createOrderSnapshotReader,
   createOrderingModule,
 } from "@chase-sets/ordering";
 import {
@@ -29,6 +31,7 @@ import {
 } from "@chase-sets/settlement";
 import {
   collectProjectors,
+  composeSchemaSql,
   drainProjectors,
   waitForDatabase,
 } from "@chase-sets/bounded-context-runtime";
@@ -46,51 +49,12 @@ async function bootstrap() {
     const marketplace = marketplaceModule.createServices(pool);
     const orderingModule = createOrderingModule({
       supplyResolver: createMarketplaceSupplyResolver(marketplace),
-      inventoryReservations: {
-        createReservation: async ({ sellerAccountId, inventoryRecordId, quantity, reason, notes, context }) => {
-          const result = await inventory.holds.createHold(
-            {
-              accountId: sellerAccountId,
-              recordId: inventoryRecordId,
-              quantity,
-              reason,
-              notes,
-            },
-            context as never,
-          );
-
-          return {
-            holdId: result.holdId,
-            inventoryRecordId,
-            sellerAccountId,
-            quantity,
-          };
-        },
-        releaseReservation: async ({ sellerAccountId, holdId, context }) => {
-          await inventory.holds.releaseHold(
-            {
-              accountId: sellerAccountId,
-              holdId,
-            },
-            context as never,
-          );
-        },
-      },
+      inventoryReservations: createInventoryReservationGateway(inventory),
     });
     const ordering = orderingModule.createServices(pool);
     const paymentsModule = createPaymentsModule({
       processorGateway: createFakePaymentProcessorGateway(),
-      getOrderSnapshot: async (orderId, buyerAccountId) => {
-        const order = await ordering.orders.getBuyerOrder(orderId, buyerAccountId);
-        return order
-          ? {
-              orderId: order.order_id as never,
-              buyerAccountId: order.buyer_account_id as never,
-              totalAmount: order.total_amount,
-              status: order.status,
-            }
-          : null;
-      },
+      getOrderSnapshot: createOrderSnapshotReader(ordering),
     });
     const fulfillment = fulfillmentModule.createServices(pool);
     const reputation = reputationModule.createServices(pool);
@@ -109,9 +73,7 @@ async function bootstrap() {
       settlementModule,
     ] as const;
 
-    await pool.query(
-      modules.map((module) => module.schemaSql).join("\n\n"),
-    );
+    await pool.query(composeSchemaSql(modules));
     await seedMarketplaceStack(pool);
     await drainProjectors(
       collectProjectors([
@@ -136,3 +98,4 @@ void bootstrap().catch((error) => {
   console.error("Marketplace bootstrap failed.", error);
   process.exit(1);
 });
+
