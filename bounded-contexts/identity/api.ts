@@ -4,8 +4,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   AccountId,
   ApiKeyId,
-  CommandId,
-  CorrelationId,
   MembershipId,
   SessionId,
   UserId,
@@ -29,8 +27,6 @@ import {
 } from "./auth-support/store";
 import {
   IDENTITY_BOOTSTRAP_ACCOUNT_ID,
-  IDENTITY_BOOTSTRAP_TENANT_ID,
-  IDENTITY_BOOTSTRAP_USER_ID,
 } from "./constants";
 import {
   assert,
@@ -50,6 +46,7 @@ import { invitationRoutes } from "./invitations/route";
 import { sessionRoutes } from "./sessions/route";
 import { apiKeyRoutes } from "./api-keys/route";
 import { consentRoutes } from "./consents/route";
+import { createIdentityBootstrapContext } from "./bootstrap-context";
 
 export type IdentityApiEnv = {
   Variables: {
@@ -59,17 +56,7 @@ export type IdentityApiEnv = {
 };
 
 export function createBootstrapContext(): EventStoreContext {
-  return {
-    tenantId: IDENTITY_BOOTSTRAP_TENANT_ID as never,
-    audit: {
-      performedByUserId: IDENTITY_BOOTSTRAP_USER_ID as never,
-      forAccountId: IDENTITY_BOOTSTRAP_ACCOUNT_ID as never,
-    },
-    trace: {
-      correlationId: createId("cor") as CorrelationId,
-      commandId: createId("cmd") as CommandId,
-    },
-  };
+  return createIdentityBootstrapContext();
 }
 
 function getBootstrapContext(c: Context<IdentityApiEnv>) {

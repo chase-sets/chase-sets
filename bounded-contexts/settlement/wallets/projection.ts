@@ -57,25 +57,7 @@ export function buildWalletProjectionHandlers(
       const creditedDelta = data.direction === "credit" ? data.amount : "0.00";
       const debitedDelta = data.direction === "debit" ? data.amount : "0.00";
 
-      await db.query(
-        `UPDATE settlement_wallet_pages
-         SET pending_balance_amount = pending_balance_amount + $2::numeric,
-             available_balance_amount = available_balance_amount + $3::numeric,
-             total_credited_amount = total_credited_amount + $4::numeric,
-             total_debited_amount = total_debited_amount + $5::numeric,
-             updated_at = $6
-         WHERE account_id = $1`,
-        [
-          data.accountId,
-          pendingDelta,
-          availableDelta,
-          creditedDelta,
-          debitedDelta,
-          data.postedAt,
-        ],
-      );
-
-      await db.query(
+      const insertedEntry = await db.query(
         `INSERT INTO settlement_ledger_entry_pages (
            ledger_entry_id,
            account_id,
@@ -94,19 +76,8 @@ export function buildWalletProjectionHandlers(
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL, $12
          )
-         ON CONFLICT (ledger_entry_id) DO UPDATE
-         SET account_id = EXCLUDED.account_id,
-             kind = EXCLUDED.kind,
-             direction = EXCLUDED.direction,
-             amount = EXCLUDED.amount,
-             currency_code = EXCLUDED.currency_code,
-             funds_status = EXCLUDED.funds_status,
-             order_id = EXCLUDED.order_id,
-             payment_id = EXCLUDED.payment_id,
-             payout_id = EXCLUDED.payout_id,
-             description = EXCLUDED.description,
-             posted_at = EXCLUDED.posted_at,
-             updated_at = EXCLUDED.updated_at`,
+         ON CONFLICT (ledger_entry_id) DO NOTHING
+         RETURNING ledger_entry_id`,
         [
           data.ledgerEntryId,
           data.accountId,
@@ -122,6 +93,28 @@ export function buildWalletProjectionHandlers(
           data.postedAt,
         ],
       );
+
+      if (insertedEntry.rowCount === 0) {
+        return;
+      }
+
+      await db.query(
+        `UPDATE settlement_wallet_pages
+         SET pending_balance_amount = pending_balance_amount + $2::numeric,
+             available_balance_amount = available_balance_amount + $3::numeric,
+             total_credited_amount = total_credited_amount + $4::numeric,
+             total_debited_amount = total_debited_amount + $5::numeric,
+             updated_at = $6
+         WHERE account_id = $1`,
+        [
+          data.accountId,
+          pendingDelta,
+          availableDelta,
+          creditedDelta,
+          debitedDelta,
+          data.postedAt,
+        ],
+      );
     },
     "settlement.wallet.ledger-entry-available-recorded": async (event) => {
       const data = event.data as {
@@ -131,6 +124,20 @@ export function buildWalletProjectionHandlers(
         availableAt: string;
       };
 
+      const releasedEntry = await db.query(
+        `UPDATE settlement_ledger_entry_pages
+         SET funds_status = 'available',
+             available_at = $2,
+             updated_at = $2
+         WHERE ledger_entry_id = $1
+           AND funds_status <> 'available'`,
+        [data.ledgerEntryId, data.availableAt],
+      );
+
+      if (releasedEntry.rowCount === 0) {
+        return;
+      }
+
       await db.query(
         `UPDATE settlement_wallet_pages
          SET pending_balance_amount = pending_balance_amount - $2::numeric,
@@ -138,15 +145,6 @@ export function buildWalletProjectionHandlers(
              updated_at = $3
          WHERE account_id = $1`,
         [data.accountId, data.amount, data.availableAt],
-      );
-
-      await db.query(
-        `UPDATE settlement_ledger_entry_pages
-         SET funds_status = 'available',
-             available_at = $2,
-             updated_at = $2
-         WHERE ledger_entry_id = $1`,
-        [data.ledgerEntryId, data.availableAt],
       );
     },
   };

@@ -11,18 +11,22 @@ Identity owns users and the accounts they act for in Chase Sets.
 - Membership
 - Role
 - Permission
-- Credential
-- Authentication Method
-- Session
 - API Key
 - Profile
 - Contact Method
 - Verification
 - Invitation
 - Consent
+- Account-scoped session records used for audit and account switching
 
 ## Does Not Own
 
+- Sign-in
+- Registration
+- Sign-out
+- Account selection during authentication
+- Browser session-token persistence
+- Authentication challenges and credential verification flows
 - Listings
 - Inventory
 - Orders
@@ -39,11 +43,11 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 - User
 - Membership
 - Invitation
-- Session
+- Account Session Record
 
 ## Incoming Dependencies
 
-- None. Identity is an upstream context.
+- Auth depends on Identity through `@chase-sets/identity/integration` for user, account, membership, and invitation facts.
 
 ## Outgoing Integration Events
 
@@ -61,6 +65,12 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 2. Accounts are the root of all commerce activity.
 3. Users never directly own listings, offers, wallets, or orders.
 4. Buyer and Seller remain roles an Account plays in downstream contexts.
+
+## Boundary Notes
+
+- Identity owns identity-management behavior and admin surfaces.
+- Auth owns interactive authentication journeys and the `/api/auth` surface.
+- Identity must not re-expose browser auth pages or auth-specific clients as part of its public web surface.
 
 ## Open Extraction Candidates
 

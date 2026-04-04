@@ -70,7 +70,7 @@ describe("marketplace inventory routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -110,7 +110,7 @@ describe("marketplace inventory routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -156,7 +156,7 @@ describe("marketplace inventory routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -216,7 +216,7 @@ describe("marketplace inventory routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -254,3 +254,4 @@ describe("marketplace inventory routes", () => {
     expect(result).toEqual({ error: "Hold exceeds availability." });
   });
 });
+

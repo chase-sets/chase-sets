@@ -27,7 +27,7 @@ describe("marketplace offer routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -85,7 +85,7 @@ describe("marketplace offer routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -136,7 +136,7 @@ describe("marketplace offer routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -194,7 +194,7 @@ describe("marketplace offer routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -247,7 +247,7 @@ describe("marketplace offer routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             jsonResponse({
               actor: {
@@ -314,3 +314,4 @@ describe("marketplace offer routes", () => {
     expect(response.headers.get("Location")).toBe("/account/offers");
   });
 });
+

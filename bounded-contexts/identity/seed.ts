@@ -1,7 +1,7 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "./seed-support/ids";
 import { createIdentityServices } from "./services";
-import { createBootstrapContext } from "./api";
+import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { upsertPasswordCredential } from "./auth-support/store";
 
 const SELLER_CONTACT_METHOD_ID = "ctm_seed_seller_sms";
@@ -29,7 +29,7 @@ async function drainProjectors(projectors: ReadonlyArray<{ runOnce: () => Promis
 
 export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const services = createIdentityServices(pool);
-  const context = createBootstrapContext();
+  const context = createIdentityBootstrapContext();
 
   try {
     const existing = await services.db.query(

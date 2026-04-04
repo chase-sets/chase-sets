@@ -31,6 +31,17 @@ function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
 }
 
+function normalizeAuthApiBaseUrl(baseUrl: string) {
+  const url = new URL(baseUrl);
+  if (url.pathname === "" || url.pathname === "/") {
+    url.pathname = "/api/auth";
+  } else if (url.pathname === "/api/identity") {
+    url.pathname = "/api/auth";
+  }
+
+  return url.toString().replace(/\/$/, "");
+}
+
 function resolveAuthSessionUrl(baseUrl: string, sessionPath: string) {
   const normalizedPath = sessionPath.replace(/^\/+/, "");
   return new URL(normalizedPath, normalizeBaseUrl(baseUrl));
@@ -56,13 +67,15 @@ export async function resolveActorFromAuthApi(options: Readonly<{
   fetch?: typeof globalThis.fetch;
 }>): Promise<ResolvedActor | null> {
   const authApiBaseUrl =
-    options.authApiBaseUrl ??
+    options.authApiBaseUrl
+      ? normalizeAuthApiBaseUrl(options.authApiBaseUrl)
+      :
     resolveRequestApiBaseUrl(
       options.request,
-      options.authApiBasePath ?? "/api/identity",
+      options.authApiBasePath ?? "/api/auth",
     );
   const response = await (options.fetch ?? globalThis.fetch)(
-    resolveAuthSessionUrl(authApiBaseUrl, options.sessionPath ?? "auth/session"),
+    resolveAuthSessionUrl(authApiBaseUrl, options.sessionPath ?? "session"),
     {
       headers: createForwardedAuthHeaders(options.request),
       credentials: "include",

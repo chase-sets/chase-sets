@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { createAuthServices } from "@chase-sets/auth";
 import { createIdentityServices } from "@chase-sets/identity";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
@@ -7,10 +8,11 @@ import { loadConfig } from "./config";
 
 const config = loadConfig();
 const pool = createPgPool(config.databaseUrl);
-const services = createIdentityServices(pool);
-const app = buildIdentityApp(services);
+const identity = createIdentityServices(pool);
+const auth = createAuthServices(identity);
+const app = buildIdentityApp({ auth, identity });
 
-startProjectorPolling(services.projectors, 1_000, (error) => {
+startProjectorPolling(identity.projectors, 1_000, (error) => {
   console.error("Projection error:", error);
 });
 

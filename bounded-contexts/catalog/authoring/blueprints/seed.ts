@@ -1,7 +1,7 @@
 import { catalogSeedIds } from "../../seed-support/ids";
 import type { CatalogServices } from "../services";
 import type { BlueprintId } from "../../ids";
-import { sendSeedCommand } from "../seed-support";
+import { sendSeedCommand } from "../seed-support/context";
 import type { ComponentIds } from "../components/seed";
 import type { DimensionIds } from "../dimensions/seed";
 import type { FieldIds } from "../fields/seed";
@@ -162,4 +162,6 @@ export async function seedBlueprints(
 
   return result;
 }
+
+
 

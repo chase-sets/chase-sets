@@ -10,8 +10,8 @@ import type { RefundId } from "./common";
 import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
 import {
   createMarketplaceServices,
-  createMarketplaceSupplyResolver,
 } from "@chase-sets/marketplace";
+import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
 import { createOrderingServices } from "@chase-sets/ordering";
 
 type OrderRow = Readonly<{

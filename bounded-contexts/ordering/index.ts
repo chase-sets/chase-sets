@@ -1,13 +1,5 @@
 export { OrderingDomainError } from "./common";
 export { default as contextManifest } from "./context.json";
-export { createOrderSnapshotReader } from "./integration";
-export {
-  createOrderingRequestIntegrationClient,
-} from "./integration";
-export type {
-  OrderingOrderDetail,
-  OrderingOrderListItem,
-} from "./integration";
 export type {
   InventoryReservationGateway,
   MarketplaceDemand,

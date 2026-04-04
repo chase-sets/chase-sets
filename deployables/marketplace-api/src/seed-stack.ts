@@ -8,20 +8,20 @@ import {
 } from "@chase-sets/fulfillment";
 import { seedIdentityDatabase } from "@chase-sets/identity";
 import {
-  createInventoryReservationGateway,
   createInventoryServices,
   seedInventoryDatabase,
 } from "@chase-sets/inventory";
+import { createInventoryReservationGateway } from "@chase-sets/inventory/integration";
 import {
   createMarketplaceServices,
-  createMarketplaceSupplyResolver,
   seedMarketplaceDatabase,
 } from "@chase-sets/marketplace";
+import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
 import {
-  createOrderSnapshotReader,
   createOrderingServices,
   seedOrderingDatabase,
 } from "@chase-sets/ordering";
+import { createOrderSnapshotReader } from "@chase-sets/ordering/integration";
 import {
   createFakePaymentProcessorGateway,
   createPaymentsServices,

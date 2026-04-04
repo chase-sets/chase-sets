@@ -1,7 +1,7 @@
 import { catalogSeedIds } from "../../seed-support/ids";
 import type { CatalogServices } from "../services";
 import type { FieldId } from "../../ids";
-import { sendSeedCommand } from "../seed-support";
+import { sendSeedCommand } from "../seed-support/context";
 
 type FieldDef = {
   key: string;
@@ -108,4 +108,6 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
 
   return result;
 }
+
+
 

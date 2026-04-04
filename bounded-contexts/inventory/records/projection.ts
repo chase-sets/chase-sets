@@ -35,11 +35,12 @@ export function buildInventoryRecordProjectionHandlers(
            version_selection,
            storage_location_id,
            total_quantity,
+           last_stream_version,
            acquisition_cost_amount,
            created_at,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
          ON CONFLICT (record_id) DO UPDATE
          SET account_id = $2,
              catalog_item_id = $3,
@@ -47,8 +48,10 @@ export function buildInventoryRecordProjectionHandlers(
              version_selection = $5,
              storage_location_id = $6,
              total_quantity = $7,
-             acquisition_cost_amount = $8,
-             updated_at = $9`,
+             last_stream_version = $8,
+             acquisition_cost_amount = $9,
+             updated_at = $10
+         WHERE inventory_records.last_stream_version < $8`,
         [
           recordId,
           accountId,
@@ -57,6 +60,7 @@ export function buildInventoryRecordProjectionHandlers(
           JSON.stringify(Array.isArray(versionSelection) ? versionSelection : []),
           storageLocationId,
           totalQuantity,
+          event.streamVersion,
           acquisitionCostAmount,
           event.timing.recordedAt,
         ],
@@ -71,9 +75,11 @@ export function buildInventoryRecordProjectionHandlers(
       await db.query(
         `UPDATE inventory_records
          SET total_quantity = total_quantity + $2,
-             updated_at = $3
-         WHERE record_id = $1`,
-        [recordId, quantityDelta, event.timing.recordedAt],
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE record_id = $1
+           AND last_stream_version < $4`,
+        [recordId, quantityDelta, event.timing.recordedAt, event.streamVersion],
       );
     },
   };

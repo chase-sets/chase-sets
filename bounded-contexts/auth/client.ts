@@ -3,7 +3,7 @@ import {
   resolveRequestApiBaseUrl,
 } from "@chase-sets/bounded-context-runtime";
 
-const DEFAULT_BASE_URL = "/api/identity";
+const DEFAULT_BASE_URL = "/api/auth";
 
 export class AuthApiError extends Error {
   public constructor(
@@ -74,12 +74,12 @@ export function createAuthApiClient({
 
   return {
     async register<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(configuredFetch, buildUrl("auth/register"), body, headers);
+      return postJson<T>(configuredFetch, buildUrl("register"), body, headers);
     },
     async signInWithPassword<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(
         configuredFetch,
-        buildUrl("auth/password-sign-in"),
+        buildUrl("password-sign-in"),
         body,
         headers,
       );
@@ -87,7 +87,7 @@ export function createAuthApiClient({
     async resolveAccountSelection<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(
         configuredFetch,
-        buildUrl("auth/account-selection/resolve"),
+        buildUrl("account-selection/resolve"),
         body,
         headers,
       );
@@ -95,21 +95,21 @@ export function createAuthApiClient({
     async completeAccountSelection<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(
         configuredFetch,
-        buildUrl("auth/account-selection/complete"),
+        buildUrl("account-selection/complete"),
         body,
         headers,
       );
     },
     async getCurrentActor<T>(): Promise<T> {
       return parseJsonResponse<T>(
-        await configuredFetch(buildUrl("auth/session"), {
+        await configuredFetch(buildUrl("session"), {
           headers,
         }),
       );
     },
     async signOutCurrentSession<T>(): Promise<T> {
       return parseJsonResponse<T>(
-        await configuredFetch(buildUrl("auth/sign-out"), {
+        await configuredFetch(buildUrl("sign-out"), {
           method: "POST",
           headers,
         }),
@@ -122,7 +122,7 @@ export const authApi = createAuthApiClient();
 
 export function createAuthRequestApiClient(request: Request) {
   return createAuthApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
     fetch: createForwardedAuthFetch(request),
   });
 }

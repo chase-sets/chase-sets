@@ -12,6 +12,7 @@
     "customer"
   ],
   "allowedSupportDirectories": [
+    "auth-support",
     "routes",
     "shell-support"
   ],
@@ -23,10 +24,21 @@
     "./server",
     "./web"
   ],
-  "allowedContextDependencies": [],
+  "allowedContextDependencies": [
+    "@chase-sets/identity"
+  ],
   "requiredPorts": [],
-  "apiDeployables": [],
-  "apiMounts": [],
+  "apiDeployables": [
+    "identity-api"
+  ],
+  "apiMounts": [
+    {
+      "mountPath": "/api/auth",
+      "kind": "primary",
+      "requiresAuth": false,
+      "drainProjectorsOnWrite": true
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "catalog-admin",

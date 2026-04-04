@@ -12,6 +12,7 @@ It is the canonical home for:
 - sign-out behavior
 - browser session cookie conventions
 - actor-resolution helpers used by hosts
+- the mounted Auth API at `/api/auth`
 
 ## Owns
 
@@ -19,7 +20,10 @@ It is the canonical home for:
 - Browser session lifecycle
 - Account-selection continuation during sign-in
 - Session-cookie and return-path behavior
+- Session-token and account-selection-token persistence
+- Auth-specific credential and challenge persistence
 - Host-facing auth route modules
+- Auth API routes and orchestration
 
 ## Does Not Own
 
@@ -34,16 +38,19 @@ Those remain in Identity.
 
 ## Current Boundary
 
-Auth currently orchestrates the sign-in journey against the Identity API because Identity still owns the underlying account, membership, and session records.
+Auth is the canonical home for interactive authentication behavior, session-token persistence, and the `/api/auth` surface.
+
+Identity remains upstream for:
+
+- users
+- accounts
+- memberships
+- invitations
+- consent records
+- the account-scoped session record that Auth activates or revokes
 
 That means:
 
-- Auth owns the user journey and host-facing auth helpers.
-- Identity owns the underlying identity data and management behavior.
-- Deployables compose Auth routes and Identity feature routes separately.
-
-## Extraction Direction
-
-Long term, the underlying session and credential records may move fully into Auth if that reduces coupling further.
-
-For now, Auth is already the canonical bounded context for authentication behavior and deployable integration.
+- Auth owns the browser and API authentication journey.
+- Identity owns the underlying account and membership facts that Auth needs to finish authentication.
+- Auth may depend on Identity only through `@chase-sets/identity/integration`.

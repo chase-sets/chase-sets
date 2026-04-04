@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS inventory_records (
   version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
   storage_location_id text NOT NULL REFERENCES inventory_storage_locations(storage_location_id),
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
+  last_stream_version bigint NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0),
   acquisition_cost_amount numeric(12,2) NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()

@@ -1,7 +1,7 @@
 import { catalogSeedIds } from "../../seed-support/ids";
 import type { CatalogServices } from "../services";
 import type { CategoryId } from "../../ids";
-import { sendSeedCommand } from "../seed-support";
+import { sendSeedCommand } from "../seed-support/context";
 
 export type CategoryIds = Record<string, CategoryId>;
 
@@ -170,4 +170,6 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
   console.log(`  ${Object.keys(result).length} categories created`);
   return result;
 }
+
+
 

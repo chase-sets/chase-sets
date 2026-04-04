@@ -2,10 +2,6 @@ export { ReputationDomainError } from "./common";
 export { default as contextManifest } from "./context.json";
 export { buildReputationApi } from "./api";
 export type { ReputationApiEnv } from "./api";
-export {
-  createReputationRequestIntegrationClient,
-} from "./integration";
-export type { ReputationReviewOpportunity } from "./integration";
 export { createReputationServices } from "./services";
 export type { ReputationServices } from "./services";
 export { reputationSchemaSql } from "./schema";

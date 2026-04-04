@@ -153,6 +153,8 @@ Examples:
 Notes:
 
 - Credentials must never be exposed in logs or events.
+- Interactive credential verification and challenge handling are owned by Auth.
+- Identity keeps only the user-level references needed for account and membership management.
 
 ---
 
@@ -171,12 +173,13 @@ Examples:
 Notes:
 
 - A user may have multiple authentication methods.
+- Auth owns the sign-in and registration journey that uses these methods.
 
 ---
 
 ## Session
 
-A **Session** is a time-bounded authenticated interaction between a user and the system.
+A **Session** in Identity is the account-scoped record that tracks which account a signed-in user is acting for and when that access expires.
 
 Examples:
 
@@ -185,7 +188,8 @@ Examples:
 
 Notes:
 
-- Sessions may expire or be revoked.
+- Auth owns the browser session token and the user-facing session lifecycle.
+- Identity owns the account-scoped session record used for authorization and auditing.
 
 ---
 

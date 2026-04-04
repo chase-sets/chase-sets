@@ -32,13 +32,16 @@ export async function drainProjectors(
   projectors: readonly Projector[],
 ): Promise<void> {
   console.log(`Running ${label} projectors...`);
-  let totalProcessed: number;
+  let totalProcessed = 0;
+
   do {
     totalProcessed = 0;
+
     for (const projector of projectors) {
       const result = await projector.runOnce();
       totalProcessed += result.processed;
     }
   } while (totalProcessed > 0);
+
   console.log(`${label} projections up to date.`);
 }

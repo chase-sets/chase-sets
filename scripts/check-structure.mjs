@@ -55,6 +55,8 @@ const knownDeployables = new Set(Object.keys(deployableRouteConfig));
 const knownApiDeployables = new Set(Object.keys(deployableApiMountConfig));
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
+const forbiddenRootSurfaceReexports =
+  /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|integration|seed-support(?:\/[^"']+)?)["']/;
 const violations = [];
 
 function normalizeRelative(filePath) {
@@ -336,6 +338,25 @@ async function validateContextManifest(context) {
   const { manifest, packageJson, rootAbs, root } = context;
   if (typeof packageJson.exports !== "object" || packageJson.exports === null) {
     addPathViolation(`${root}/package.json`, "implemented bounded contexts must declare package exports");
+  }
+
+  if (!existsSync(path.join(rootAbs, "README.md"))) {
+    addPathViolation(`${root}/README.md`, "implemented bounded contexts must define a README");
+  }
+
+  if (!existsSync(path.join(rootAbs, "GLOSSARY.md"))) {
+    addPathViolation(`${root}/GLOSSARY.md`, "implemented bounded contexts must define a glossary");
+  }
+
+  const declaredPublicExports = new Set(manifest.publicExports ?? []);
+  const packageExportKeys = new Set(
+    Object.keys(packageJson.exports ?? {}).filter((key) => key !== "."),
+  );
+
+  for (const exportKey of packageExportKeys) {
+    if (!declaredPublicExports.has(exportKey)) {
+      addPathViolation(`${root}/package.json`, `package export ${exportKey} must be declared in context.json publicExports`);
+    }
   }
 
   for (const publicExport of manifest.publicExports ?? []) {
@@ -796,6 +817,14 @@ for (const root of roots) {
     }
 
     const content = await readFile(file, "utf8");
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      path.basename(file) === "index.ts" &&
+      forbiddenRootSurfaceReexports.test(content)
+    ) {
+      addViolation(file, "context root entrypoints must not re-export secondary public surfaces");
+    }
 
     if (
       /deployables\/[^/]+\/(?:vite|vitest)\.config\.ts$/.test(normalizedFile) &&

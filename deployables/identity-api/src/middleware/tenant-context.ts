@@ -9,14 +9,12 @@ import type {
   UserId,
 } from "@chase-sets/primitives/typed-ids";
 import {
+  createAuthBootstrapContext,
   resolveActorFromRequest,
   type ResolvedActor,
-} from "@chase-sets/identity/server";
+} from "@chase-sets/auth";
 import { createActorEventStoreContext } from "@chase-sets/auth-runtime";
-import {
-  createBootstrapContext,
-  type IdentityServices,
-} from "@chase-sets/identity";
+import type { IdentityApiHostServices } from "../app";
 
 const TENANT_HEADER = "x-tenant-id";
 const USER_HEADER = "x-user-id";
@@ -33,15 +31,15 @@ export type TenantContextEnv = {
 };
 
 const ANONYMOUS_ROUTES = new Set([
-  "POST /api/identity/auth/register",
-  "POST /api/identity/auth/password-sign-in",
-  "POST /api/identity/auth/magic-link/request",
-  "POST /api/identity/auth/magic-link/consume",
-  "POST /api/identity/auth/passkeys/challenge",
-  "POST /api/identity/auth/passkeys/sign-in",
-  "POST /api/identity/auth/invitations/accept",
-  "POST /api/identity/auth/account-selection/resolve",
-  "POST /api/identity/auth/account-selection/complete",
+  "POST /api/auth/register",
+  "POST /api/auth/password-sign-in",
+  "POST /api/auth/magic-link/request",
+  "POST /api/auth/magic-link/consume",
+  "POST /api/auth/passkeys/challenge",
+  "POST /api/auth/passkeys/sign-in",
+  "POST /api/auth/invitations/accept",
+  "POST /api/auth/account-selection/resolve",
+  "POST /api/auth/account-selection/complete",
   "POST /api/identity/api-keys/resolve",
 ]);
 
@@ -72,7 +70,7 @@ function createContextFromHeaders(request: Request) {
   } satisfies EventStoreContext;
 }
 
-export function createIdentityAuthMiddleware(services: IdentityServices) {
+export function createIdentityAuthMiddleware(services: IdentityApiHostServices) {
   return async function identityAuthMiddleware(
     c: Context<TenantContextEnv>,
     next: Next,
@@ -87,7 +85,7 @@ export function createIdentityAuthMiddleware(services: IdentityServices) {
       return;
     }
 
-    const actor = await resolveActorFromRequest(services, c.req.raw);
+    const actor = await resolveActorFromRequest(services.auth, c.req.raw);
     if (actor) {
       c.set("actor", actor);
       c.set("context", createActorEventStoreContext(actor));
@@ -97,7 +95,7 @@ export function createIdentityAuthMiddleware(services: IdentityServices) {
 
     if (isAnonymousAllowed(c.req.method, pathname)) {
       c.set("actor", null);
-      c.set("context", createBootstrapContext());
+      c.set("context", createAuthBootstrapContext(services.auth));
       await next();
       return;
     }

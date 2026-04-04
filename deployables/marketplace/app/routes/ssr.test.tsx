@@ -8,9 +8,9 @@ import {
 } from "@chase-sets/discovery/web";
 import {
   AccountProfilePage,
-  SignInPage,
   type Account,
 } from "@chase-sets/identity/web";
+import { SignInPage } from "@chase-sets/auth/web";
 import { buildCanonicalUrl } from "../seo";
 import { loader as accountLoader } from "./account";
 import { loader as chromeDevtoolsLoader } from "./chrome-devtools";
@@ -281,7 +281,7 @@ describe("marketplace SSR routes", () => {
       vi.fn((input: string | URL | Request) => {
         const url = String(input);
 
-        if (url.includes("/api/identity/auth/session")) {
+        if (url.includes("/api/auth/session")) {
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -387,3 +387,4 @@ describe("marketplace SSR routes", () => {
     );
   });
 });
+

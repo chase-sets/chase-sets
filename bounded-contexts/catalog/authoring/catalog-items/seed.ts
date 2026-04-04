@@ -1,7 +1,7 @@
 import { catalogSeedIds } from "../../seed-support/ids";
 import type { CatalogServices } from "../services";
 import type { CatalogItemId, FieldId } from "../../ids";
-import { sendSeedCommand } from "../seed-support";
+import { sendSeedCommand } from "../seed-support/context";
 import type { BlueprintIds } from "../blueprints/seed";
 import type { CategoryIds } from "../categories/seed";
 import type { FieldIds } from "../fields/seed";
@@ -212,4 +212,6 @@ export async function seedCatalogItems(
     console.log(`  Item "${item.title}" created and published`);
   }
 }
+
+
 

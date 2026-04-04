@@ -10,10 +10,8 @@ import {
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createInventoryServices } from "@chase-sets/inventory";
-import {
-  createMarketplaceServices,
-  createMarketplaceSupplyResolver,
-} from "@chase-sets/marketplace";
+import { createMarketplaceServices } from "@chase-sets/marketplace";
+import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createOrderingServices } from "./services";
 

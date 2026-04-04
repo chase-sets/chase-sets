@@ -158,8 +158,9 @@ export async function resolveActorFromAuthContext(options: Readonly<{
     request: options.request,
     authApiBaseUrl: resolveRequestApiBaseUrl(
       options.request,
-      options.authApiBasePath ?? "/api/identity",
+      options.authApiBasePath ?? "/api/auth",
     ),
+    sessionPath: "session",
     fetch: options.fetch,
   });
 }
@@ -177,8 +178,9 @@ export async function requireActorFromAuthContext(options: Readonly<{
     signInPath: options.signInPath,
     authApiBaseUrl: resolveRequestApiBaseUrl(
       options.request,
-      options.authApiBasePath ?? "/api/identity",
+      options.authApiBasePath ?? "/api/auth",
     ),
+    sessionPath: "session",
     fetch: options.fetch,
   });
 }
@@ -258,10 +260,10 @@ export async function signOutActorViaAuthApi(
   try {
     const authApiBaseUrl = resolveRequestApiBaseUrl(
       request,
-      options.authApiBasePath ?? "/api/identity",
+      options.authApiBasePath ?? "/api/auth",
     );
     await (options.fetch ?? globalThis.fetch)(
-      new URL("auth/sign-out", `${authApiBaseUrl}/`),
+      new URL("sign-out", `${authApiBaseUrl}/`),
       {
         method: "POST",
         headers: createForwardedAuthHeaders(request),

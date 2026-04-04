@@ -6,7 +6,7 @@ import { seedCategories } from "./categories/seed";
 import { seedComponents } from "./components/seed";
 import { seedDimensions } from "./dimensions/seed";
 import { seedFields } from "./fields/seed";
-import { drainProjectors } from "./seed-support";
+import { drainProjectors } from "./seed-support/context";
 
 export async function seedCatalogDatabase(pool: PgTransactionalPool) {
   const services = createCatalogServices(pool);

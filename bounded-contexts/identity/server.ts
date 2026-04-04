@@ -109,7 +109,9 @@ function buildCurrentPath(request: Request) {
 function resolveIdentityApiBaseUrl(baseUrl: string) {
   const url = new URL(baseUrl);
   if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/api/identity";
+    url.pathname = "/api/auth";
+  } else if (url.pathname === "/api/identity") {
+    url.pathname = "/api/auth";
   }
 
   return url.toString().replace(/\/$/, "");
@@ -303,7 +305,7 @@ export async function requireActorFromIdentityApi(options: Readonly<{
     authApiBaseUrl:
       options.identityApiBaseUrl
         ? resolveIdentityApiBaseUrl(options.identityApiBaseUrl)
-        : resolveRequestApiBaseUrl(options.request, "/api/identity"),
+        : resolveRequestApiBaseUrl(options.request, "/api/auth"),
     fetch: options.fetch,
   });
 }
@@ -382,9 +384,9 @@ export async function signOutActorViaIdentityApi(
   try {
     const identityApiBaseUrl =
       options.identityApiBaseUrl ??
-      resolveRequestApiBaseUrl(request, "/api/identity");
+      resolveRequestApiBaseUrl(request, "/api/auth");
     await (options.fetch ?? globalThis.fetch)(
-      new URL("auth/session/sign-out", `${identityApiBaseUrl}/`),
+      new URL("sign-out", `${identityApiBaseUrl}/`),
       {
         method: "POST",
         headers: createForwardedAuthHeaders(request),

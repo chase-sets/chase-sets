@@ -59,7 +59,7 @@ describe("identity server helpers", () => {
 
   it("resolves the current actor through the mounted identity api path", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe("http://localhost:6181/api/identity/auth/session");
+      expect(String(input)).toBe("http://localhost:6181/api/auth/session");
 
       return new Response(
         JSON.stringify({
@@ -94,3 +94,4 @@ describe("identity server helpers", () => {
     });
   });
 });
+

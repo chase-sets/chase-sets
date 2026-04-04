@@ -4,20 +4,20 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as fulfillmentModule, type FulfillmentServices } from "@chase-sets/fulfillment";
 import { module as identityModule } from "@chase-sets/identity";
 import {
-  createInventoryReservationGateway,
   module as inventoryModule,
   type InventoryServices,
 } from "@chase-sets/inventory";
+import { createInventoryReservationGateway } from "@chase-sets/inventory/integration";
 import {
-  createMarketplaceSupplyResolver,
   module as marketplaceModule,
   type MarketplaceServices,
 } from "@chase-sets/marketplace";
+import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
 import {
-  createOrderSnapshotReader,
   createOrderingModule,
   type OrderingServices,
 } from "@chase-sets/ordering";
+import { createOrderSnapshotReader } from "@chase-sets/ordering/integration";
 import {
   createPaymentsModule,
   type PaymentProcessorGateway,

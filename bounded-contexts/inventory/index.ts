@@ -2,14 +2,6 @@ export { InventoryDomainError } from "./common";
 export { default as contextManifest } from "./context.json";
 export { buildInventoryApi } from "./api";
 export type { InventoryActor, InventoryApiEnv } from "./api";
-export {
-  createInventoryRequestIntegrationClient,
-  createInventoryReservationGateway,
-} from "./integration";
-export type {
-  InventoryRecordListItem,
-  InventoryReservationPort,
-} from "./integration";
 export { createInventoryServices } from "./services";
 export type { InventoryServices } from "./services";
 export { inventorySchemaSql } from "./schema";

@@ -22,6 +22,10 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
 | [Insights](./insights/README.md) | Own cross-context reporting, analytics, and forecasting views. |
 
+Implemented contexts are the directories that contain both `package.json` and `context.json`.
+
+Documentation-only future contexts may still have a README and glossary, but they do not participate in runtime structure checks until they become implemented workspace packages.
+
 ## Ownership Rules
 
 The following rules apply to every context in this directory:
@@ -65,6 +69,14 @@ Prefer:
 
 - slice-local files when behavior belongs to one slice
 - purpose-specific names such as `projection-support`, `shell-support`, `seed-support`, `read-models`, `projections`, `persistence`, or `integration` when context-local code is reused across slices
+
+## Deployable Composition
+
+Generated route wrapper files under `deployables/*/app/routes` are an intentional composition seam.
+
+- Bounded contexts own the real route modules.
+- Deployables own only host routes and generated wrappers.
+- Generated wrappers are tracked, machine-owned files, not a temporary migration artifact.
 
 ## Canonical Ownership
 
