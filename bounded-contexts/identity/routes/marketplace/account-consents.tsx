@@ -2,12 +2,12 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "../../server";
-import { createIdentityRequestApiClient } from "../../client";
+import type { Consent } from "../../client";
+import { ConsentHistoryPage } from "../../customer/consent-history-page";
 import {
-  ConsentHistoryPage,
-  type Consent,
-} from "../../web";
+  createIdentityRequestApiClient,
+  requireActorFromIdentityApi,
+} from "../../server";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({ request });

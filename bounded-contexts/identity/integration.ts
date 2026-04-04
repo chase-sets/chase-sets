@@ -45,18 +45,37 @@ export type IdentityAuthMembership = Readonly<{
   status: string;
 }>;
 
-export type IdentityAuthBridge = Readonly<{
+export type IdentityBootstrapPort = Readonly<{
   bootstrapTenantId: string;
   createBootstrapContext: () => EventStoreContext;
   normalizeEmail: typeof normalizeEmail;
+}>;
+
+export type IdentityUserDirectoryPort = Readonly<{
   getUser: IdentityServices["users"]["getUser"];
   getUserByEmail: IdentityServices["users"]["getUserByEmail"];
-  getInvitation: IdentityServices["invitations"]["getInvitation"];
+}>;
+
+export type IdentityMembershipPort = Readonly<{
   listActiveMembershipsForUser: (userId: string) => Promise<readonly IdentityAuthMembership[]>;
   getActiveMembershipForUserAccount: (
     userId: string,
     accountId: string,
   ) => ReturnType<IdentityServices["memberships"]["getActiveMembershipForUserAccount"]>;
+}>;
+
+export type IdentityInvitationPort = Readonly<{
+  getInvitation: IdentityServices["invitations"]["getInvitation"];
+  acceptInvitationForUser: (params: Readonly<{
+    invitationId: string;
+    userId: string;
+    accountId: string;
+    roleKey: string;
+    context: EventStoreContext;
+  }>) => Promise<string>;
+}>;
+
+export type IdentityProvisioningPort = Readonly<{
   createPersonalIdentity: (params: Readonly<{
     email: string;
     displayName: string;
@@ -75,13 +94,6 @@ export type IdentityAuthBridge = Readonly<{
     credentialId: string;
     context: EventStoreContext;
   }>) => Promise<void>;
-  acceptInvitationForUser: (params: Readonly<{
-    invitationId: string;
-    userId: string;
-    accountId: string;
-    roleKey: string;
-    context: EventStoreContext;
-  }>) => Promise<string>;
 }>;
 
 async function listActiveMembershipsForUser(
@@ -173,47 +185,43 @@ async function createPersonalIdentity(
   return { userId, accountId };
 }
 
-export function createIdentityAuthBridge(
+export function createIdentityBootstrapPort(
   services: IdentityServices,
-): IdentityAuthBridge {
+): IdentityBootstrapPort {
+  void services;
+
   return {
     bootstrapTenantId: IDENTITY_BOOTSTRAP_TENANT_ID,
     createBootstrapContext: createIdentityBootstrapContext,
     normalizeEmail,
+  };
+}
+
+export function createIdentityUserDirectoryPort(
+  services: IdentityServices,
+): IdentityUserDirectoryPort {
+  return {
     getUser: services.users.getUser,
     getUserByEmail: services.users.getUserByEmail,
-    getInvitation: services.invitations.getInvitation,
+  };
+}
+
+export function createIdentityMembershipPort(
+  services: IdentityServices,
+): IdentityMembershipPort {
+  return {
     listActiveMembershipsForUser: (userId) =>
       listActiveMembershipsForUser(services, userId),
     getActiveMembershipForUserAccount: (userId, accountId) =>
       services.memberships.getActiveMembershipForUserAccount(userId, accountId),
-    createPersonalIdentity: (params) => createPersonalIdentity(services, params),
-    enablePasswordCredential: async ({ userId, credentialId, context }) => {
-      await services.users.commandHandler({
-        streamId: `identity.user-${userId}`,
-        command: { type: "EnableAuthMethod", authMethod: "password" },
-        context,
-      });
-      await services.users.commandHandler({
-        streamId: `identity.user-${userId}`,
-        command: { type: "AttachPasswordCredential", credentialId },
-        context,
-      });
-      await drainProjectors(services);
-    },
-    registerPasskeyCredential: async ({ userId, credentialId, context }) => {
-      await services.users.commandHandler({
-        streamId: `identity.user-${userId}`,
-        command: { type: "EnableAuthMethod", authMethod: "passkey" },
-        context,
-      });
-      await services.users.commandHandler({
-        streamId: `identity.user-${userId}`,
-        command: { type: "RegisterPasskeyCredential", credentialId },
-        context,
-      });
-      await drainProjectors(services);
-    },
+  };
+}
+
+export function createIdentityInvitationPort(
+  services: IdentityServices,
+): IdentityInvitationPort {
+  return {
+    getInvitation: services.invitations.getInvitation,
     acceptInvitationForUser: async ({
       invitationId,
       userId,
@@ -244,6 +252,40 @@ export function createIdentityAuthBridge(
       await drainProjectors(services);
 
       return membershipId;
+    },
+  };
+}
+
+export function createIdentityProvisioningPort(
+  services: IdentityServices,
+): IdentityProvisioningPort {
+  return {
+    createPersonalIdentity: (params) => createPersonalIdentity(services, params),
+    enablePasswordCredential: async ({ userId, credentialId, context }) => {
+      await services.users.commandHandler({
+        streamId: `identity.user-${userId}`,
+        command: { type: "EnableAuthMethod", authMethod: "password" },
+        context,
+      });
+      await services.users.commandHandler({
+        streamId: `identity.user-${userId}`,
+        command: { type: "AttachPasswordCredential", credentialId },
+        context,
+      });
+      await drainProjectors(services);
+    },
+    registerPasskeyCredential: async ({ userId, credentialId, context }) => {
+      await services.users.commandHandler({
+        streamId: `identity.user-${userId}`,
+        command: { type: "EnableAuthMethod", authMethod: "passkey" },
+        context,
+      });
+      await services.users.commandHandler({
+        streamId: `identity.user-${userId}`,
+        command: { type: "RegisterPasskeyCredential", credentialId },
+        context,
+      });
+      await drainProjectors(services);
     },
   };
 }

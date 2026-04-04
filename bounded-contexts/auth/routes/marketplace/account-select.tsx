@@ -5,12 +5,12 @@ import type {
 } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { createAuthRequestApiClient } from "../../client";
+import { AccountSelectionPage } from "../../customer/account-selection-page";
 import {
   completeBrowserAuthentication,
+  createAuthRequestApiClient,
   requireAccountSelectionTokenOrRedirect,
 } from "../../server";
-import { AccountSelectionPage } from "../../web";
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: "Select Account | Marketplace" });

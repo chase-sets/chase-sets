@@ -3,11 +3,11 @@ import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { createMarketplaceRequestApiClient } from "../client";
 import {
-  MarketplaceSellerOfferListPage,
   type MarketplaceSellerOfferListItem,
-} from "../web";
+} from "../client";
+import { createMarketplaceRequestApiClient } from "../server";
+import { MarketplaceSellerOfferListPage } from "../offers/ui/seller-offer-list-page";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =

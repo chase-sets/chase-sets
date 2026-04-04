@@ -10,24 +10,40 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthSecretAdapters } from "./auth-support/adapters";
 import {
-  createIdentityAuthBridge,
-  type IdentityAuthBridge,
-  type IdentityServices,
+  type IdentityBootstrapPort,
+  type IdentityInvitationPort,
+  type IdentityMembershipPort,
+  type IdentityProvisioningPort,
+  type IdentityUserDirectoryPort,
 } from "@chase-sets/identity/integration";
 import { createSessionRuntime } from "./sessions/runtime";
+
+type AuthIdentityBridge = IdentityBootstrapPort &
+  IdentityUserDirectoryPort &
+  IdentityMembershipPort &
+  IdentityInvitationPort &
+  IdentityProvisioningPort;
+
+export type AuthServicePorts = Readonly<{
+  identityBootstrap: IdentityBootstrapPort;
+  identityUsers: IdentityUserDirectoryPort;
+  identityMemberships: IdentityMembershipPort;
+  identityInvitations: IdentityInvitationPort;
+  identityProvisioning: IdentityProvisioningPort;
+}>;
 
 export type AuthServices = Readonly<{
   pool: PgTransactionalPool;
   db: PgQueryable;
   auth: ReturnType<typeof createAuthSecretAdapters>;
-  identity: IdentityAuthBridge;
+  identity: AuthIdentityBridge;
   sessions: ReturnType<typeof createSessionRuntime>;
   projectors: readonly Projector[];
 }>;
 
 export function createAuthServices(
   pool: PgTransactionalPool,
-  identityServices: IdentityServices,
+  ports: AuthServicePorts,
 ): AuthServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
@@ -38,7 +54,13 @@ export function createAuthServices(
     pool,
     db,
     auth: createAuthSecretAdapters(),
-    identity: createIdentityAuthBridge(identityServices),
+    identity: {
+      ...ports.identityBootstrap,
+      ...ports.identityUsers,
+      ...ports.identityMemberships,
+      ...ports.identityInvitations,
+      ...ports.identityProvisioning,
+    },
     sessions,
     projectors: [...sessions.projectors],
   };

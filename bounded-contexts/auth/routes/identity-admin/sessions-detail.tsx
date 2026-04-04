@@ -1,7 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { createAuthRequestApiClient } from "../../client";
-import { SessionDetailPage, type Session } from "../../web";
+import type { Session } from "../../sessions/ui/contracts";
+import { SessionDetailPage } from "../../sessions/ui/session-detail-page";
+import { createAuthRequestApiClient } from "../../server";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createAuthRequestApiClient(request);

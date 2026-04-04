@@ -25,9 +25,9 @@ import {
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
-  createOrderingRequestIntegrationClient,
+  createOrderingBuyerGateway,
 } from "@chase-sets/ordering/integration";
-import { createPaymentsRequestApiClient } from "../../client";
+import { createPaymentsRequestApiClient } from "../../server";
 
 function parseOrderIds(value: string | null) {
   return (value ?? "")
@@ -52,7 +52,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect("/account/orders");
   }
 
-  const orderingApi = createOrderingRequestIntegrationClient(request);
+  const orderingApi = createOrderingBuyerGateway(request);
 
   try {
     const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getBuyerOrder(orderId)));

@@ -1,10 +1,10 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import {
-  CategoryDetailPage,
   type CategoryDetail,
-} from "@chase-sets/catalog/web";
-import { createCatalogRequestApiClient } from "../../client";
+} from "../../client";
+import { CategoryDetailPage } from "../../authoring/categories/ui/category-detail-page";
+import { createCatalogRequestApiClient } from "../../server";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);

@@ -8,10 +8,10 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   SettlementApiError,
-  SettlementPayoutListPage,
   type SettlementPayoutRow,
-} from "../../web";
-import { createSettlementRequestApiClient } from "../../client";
+} from "../../client";
+import { createSettlementRequestApiClient } from "../../server";
+import { SettlementPayoutListPage } from "../../payouts/ui/payout-list-page";
 
 type PayoutActionData = Readonly<{
   error: string;

@@ -6,11 +6,9 @@ import type {
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { MarketplaceApiError, createMarketplaceRequestApiClient } from "../client";
-import {
-  MarketplaceSellerOfferDetailPage,
-  type MarketplaceSellerOfferDetail,
-} from "../web";
+import { MarketplaceApiError, type MarketplaceSellerOfferDetail } from "../client";
+import { createMarketplaceRequestApiClient } from "../server";
+import { MarketplaceSellerOfferDetailPage } from "../offers/ui/seller-offer-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Inspect and accept an incoming market offer.";

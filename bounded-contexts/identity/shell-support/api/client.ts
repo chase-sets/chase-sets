@@ -6,7 +6,7 @@ type IdentityApiApp = ReturnType<typeof buildIdentityApi>;
 
 const DEFAULT_BASE_URL = "/api/identity";
 
-export class ApiError extends Error {
+export class IdentityApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly body: unknown,
@@ -35,7 +35,7 @@ function resolveHeaders(
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    throw new ApiError(response.status, errorBody);
+    throw new IdentityApiError(response.status, errorBody);
   }
 
   return response.json() as Promise<T>;

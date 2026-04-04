@@ -26,18 +26,23 @@ import { createOrderingServices } from "./services";
 import { orderingSchemaSql } from "./schema";
 import { seedOrderingDatabase } from "./seed";
 
+export const module: BcApiModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions> = {
+  contextName: "ordering",
+  routePrefix: "/api/marketplace",
+  streamPrefix: "ordering.",
+  schemaSql: orderingSchemaSql,
+  createServices: (pool, options) => createOrderingServices(pool, options),
+  buildApi: buildOrderingApi,
+  projectors: (services) => services.projectors,
+  seed: seedOrderingDatabase,
+};
+
 export function createOrderingModule(
   options: OrderingServiceOptions = {},
 ): BcApiModule<OrderingServices, PgTransactionalPool, void> {
   return {
-    contextName: "ordering",
-    routePrefix: "/api/marketplace",
-    streamPrefix: "ordering.",
-    schemaSql: orderingSchemaSql,
+    ...module,
     createServices: (pool) => createOrderingServices(pool, options),
-    buildApi: buildOrderingApi,
-    projectors: (services) => services.projectors,
-    seed: seedOrderingDatabase,
   };
 }
 

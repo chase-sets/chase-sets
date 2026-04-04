@@ -6,11 +6,9 @@ import type {
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { MarketplaceApiError, createMarketplaceRequestApiClient } from "../client";
-import {
-  MarketplaceListingDetailPage,
-  type MarketplaceListingDetail,
-} from "../web";
+import { MarketplaceApiError, type MarketplaceListingDetail } from "../client";
+import { createMarketplaceRequestApiClient } from "../server";
+import { MarketplaceListingDetailPage } from "../listings/ui/listing-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Inspect listing inventory, pricing, quantity caps, and publication status.";

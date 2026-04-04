@@ -1,8 +1,9 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { FieldListPage, type Field } from "@chase-sets/catalog/web";
+import type { Field } from "../../client";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { createCatalogRequestApiClient } from "../../client";
+import { FieldListPage } from "../../authoring/fields/ui/field-list-page";
+import { createCatalogRequestApiClient } from "../../server";
 
 const DEFAULT_LIST_QUERY = "limit=50&offset=0";
 

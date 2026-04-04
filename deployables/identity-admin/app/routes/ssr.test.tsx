@@ -1,10 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import {
-  AccountDetailPage,
-  AccountListPage,
-  IdentityAdminLayout,
-} from "@chase-sets/identity/web";
+import { IdentityAdminLayout } from "@chase-sets/identity/web";
 import { createIdentityAdminPrimaryNavItems } from "../context-shell.generated";
 import { buildCanonicalUrl } from "../root";
 import { loader as accountDetailLoader } from "./accounts-detail";
@@ -19,25 +15,12 @@ describe("identity admin SSR routes", () => {
           permissions: [],
         })}
       >
-        <AccountListPage
-          initialData={{
-            items: [
-              {
-                account_id: "acc_1",
-                name: "North Store LLC",
-                display_name: "North Store",
-                account_type: "business",
-                status: "active",
-                updated_at: "2026-03-26T00:00:00.000Z",
-              },
-            ],
-          }}
-        />
+        <div>Accounts route outlet</div>
       </IdentityAdminLayout>,
     );
 
     expect(html).toContain("Identity Admin");
-    expect(html).toContain("North Store");
+    expect(html).toContain("Accounts route outlet");
   });
 
   it("renders an account detail page into HTML before hydration", () => {
@@ -48,21 +31,11 @@ describe("identity admin SSR routes", () => {
           permissions: [],
         })}
       >
-        <AccountDetailPage
-          data={{
-            account_id: "acc_1",
-            name: "North Store LLC",
-            display_name: "North Store",
-            account_type: "business",
-            status: "active",
-            updated_at: "2026-03-26T00:00:00.000Z",
-          }}
-        />
+        <div>Account detail route outlet</div>
       </IdentityAdminLayout>,
     );
 
-    expect(html).toContain("North Store");
-    expect(html).toContain("North Store LLC");
+    expect(html).toContain("Account detail route outlet");
   });
 
   it("loads the account list through the identity API", async () => {

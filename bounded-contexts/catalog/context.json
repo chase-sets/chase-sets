@@ -26,12 +26,20 @@
     "./integration",
     "./seed-support/*",
     "./routes/*",
+    "./server",
     "./web"
   ],
   "allowedContextDependencies": [],
   "requiredPorts": [],
+  "integrationCapabilities": [],
+  "apiRequirements": [],
+  "hostPorts": [],
   "apiDeployables": [
     "catalog-api"
+  ],
+  "runtimeDeployables": [
+    "catalog-api",
+    "marketplace-api"
   ],
   "apiMounts": [
     {

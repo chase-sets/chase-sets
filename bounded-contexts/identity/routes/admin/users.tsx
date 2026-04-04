@@ -1,8 +1,9 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { UserListPage, type User } from "@chase-sets/identity/web";
+import type { User } from "../../client";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { createIdentityRequestApiClient } from "../../client";
+import { UserListPage } from "../../users/ui/user-list-page";
+import { createIdentityRequestApiClient } from "../../server";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);

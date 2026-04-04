@@ -7,11 +7,11 @@ import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
-  ApiError as InventoryApiError,
-  InventoryRecordDetailPage,
+  InventoryApiError,
   type InventoryRecordDetail,
-} from "../../web";
-import { createInventoryRequestApiClient } from "../../client";
+} from "../../client";
+import { createInventoryRequestApiClient } from "../../server";
+import { InventoryRecordDetailPage } from "../../records/ui/inventory-record-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

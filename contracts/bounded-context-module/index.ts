@@ -1,12 +1,12 @@
+import type { Projector as EventProjector } from "@chase-sets/event-core/projector";
+
 /**
  * Framework-agnostic contract for a bounded-context module.
  *
  * Context packages expose either a `module` constant or a module factory for
  * cases that require runtime configuration.
  */
-export type BcProjector = Readonly<{
-  runOnce(): Promise<Readonly<{ processed: number }>>;
-}>;
+export type BcProjector = EventProjector;
 
 export type BcRouteType = "route" | "index";
 export type BcRoutePlacement = "root" | "layout";
@@ -38,6 +38,20 @@ export type BcShellContribution = Readonly<{
   readonly order: number;
   readonly visibility: BcShellContributionVisibility;
   readonly requiredPermissions: readonly string[];
+}>;
+
+export type BcIntegrationCapability = Readonly<{
+  readonly key: string;
+  readonly exportName: string;
+}>;
+
+export type BcApiRequirement = Readonly<{
+  readonly capabilityKey: string;
+  readonly portName: string;
+}>;
+
+export type BcHostPort = Readonly<{
+  readonly portName: string;
 }>;
 
 export type BcApiMountKind = "primary" | "additional";

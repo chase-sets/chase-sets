@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import type { OrderingOrderDetail } from "@chase-sets/ordering/web";
-import type { PaymentsPaymentDetail } from "@chase-sets/payments/web";
+import type { OrderingOrderDetail } from "@chase-sets/ordering/client";
+import type { PaymentsPaymentDetail } from "@chase-sets/payments/client";
 
 const { mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),

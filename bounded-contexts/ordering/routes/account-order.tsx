@@ -8,14 +8,12 @@ import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { Card, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
-  createReputationRequestIntegrationClient,
+  createReputationReviewGateway,
   type ReputationReviewOpportunity,
 } from "@chase-sets/reputation/integration";
-import { OrderingApiError, createOrderingRequestApiClient } from "../client";
-import {
-  OrderingOrderDetailPage,
-  type OrderingOrderDetail,
-} from "../web";
+import { OrderingApiError, type OrderingOrderDetail } from "../client";
+import { createOrderingRequestApiClient } from "../server";
+import { OrderingOrderDetailPage } from "../orders/ui/order-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Inspect a buyer order, cancel it while still open, and see review readiness.";
@@ -26,7 +24,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     permission: "orders.view",
   });
   const orderingApi = createOrderingRequestApiClient(request);
-  const reputationApi = createReputationRequestIntegrationClient(request);
+  const reputationApi = createReputationReviewGateway(request);
 
   try {
     const order = await orderingApi.getBuyerOrder(params.orderId!);

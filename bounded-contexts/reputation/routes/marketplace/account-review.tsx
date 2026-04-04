@@ -4,10 +4,10 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   ReputationApiError,
-  ReputationReviewDetailPage,
   type ReputationReviewDetail,
-} from "../../web";
-import { createReputationRequestApiClient } from "../../client";
+} from "../../client";
+import { createReputationRequestApiClient } from "../../server";
+import { ReputationReviewDetailPage } from "../../reviews/ui/review-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

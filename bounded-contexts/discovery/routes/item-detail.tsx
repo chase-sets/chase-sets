@@ -16,13 +16,12 @@ import {
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
-  createMarketplaceRequestIntegrationClient,
+  createMarketplaceOfferGateway,
 } from "@chase-sets/marketplace/integration";
-import {
-  createOrderingRequestIntegrationClient,
-} from "@chase-sets/ordering/integration";
-import { DiscoveryApiError, createDiscoveryRequestApiClient } from "../client";
-import { ItemDetailPage } from "../web";
+import { createOrderingBuyerGateway } from "@chase-sets/ordering/integration";
+import { DiscoveryApiError } from "../client";
+import { createDiscoveryRequestApiClient } from "../server";
+import { ItemDetailPage } from "../items/detail/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.";
@@ -209,8 +208,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const discoveryApi = createDiscoveryRequestApiClient(request);
-  const marketplaceApi = createMarketplaceRequestIntegrationClient(request);
-  const orderingApi = createOrderingRequestIntegrationClient(request);
+  const marketplaceApi = createMarketplaceOfferGateway(request);
+  const orderingApi = createOrderingBuyerGateway(request);
 
   try {
     if (intent === "submit-offer") {

@@ -4,10 +4,10 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
-  FulfillmentShipmentListPage,
   type FulfillmentShipmentListItem,
-} from "../../web";
-import { createFulfillmentRequestApiClient } from "../../client";
+} from "../../client";
+import { createFulfillmentRequestApiClient } from "../../server";
+import { FulfillmentShipmentListPage } from "../../shipments/ui/shipment-list-page";
 
 const DEFAULT_SHIPMENT_QUERY = "limit=100&offset=0";
 

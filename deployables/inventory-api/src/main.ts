@@ -2,14 +2,14 @@ import { serve } from "@hono/node-server";
 import { resolveActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import { createInventoryServices } from "@chase-sets/inventory";
 import { buildInventoryApp } from "./app";
 import { loadConfig } from "./config";
+import { createContextRuntime } from "./context-runtime.generated";
 
 const config = loadConfig();
 const pool = createPgPool(config.databaseUrl);
-const services = createInventoryServices(pool);
-const app = buildInventoryApp(services, {
+const runtime = createContextRuntime(pool);
+const app = buildInventoryApp(runtime.services.inventory, {
   resolveActor: (request) =>
     resolveActorFromAuthApi({
       authApiBaseUrl: config.identityApiBaseUrl,
@@ -19,7 +19,7 @@ const app = buildInventoryApp(services, {
 
 const PROJECTION_INTERVAL_MS = 1_000;
 
-startProjectorPolling(services.projectors, PROJECTION_INTERVAL_MS, (error) => {
+startProjectorPolling(runtime.projectors, PROJECTION_INTERVAL_MS, (error) => {
   console.error("Projection error:", error);
 });
 

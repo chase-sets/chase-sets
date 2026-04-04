@@ -6,8 +6,10 @@ import {
 } from "@chase-sets/auth-runtime";
 import {
   createForwardedAuthHeaders,
+  createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
 } from "@chase-sets/bounded-context-runtime";
+import { createAuthApiClient } from "./client";
 
 export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
 export const AUTH_ACCOUNT_SELECTION_COOKIE_NAME =
@@ -147,6 +149,13 @@ export function hasPermission(
   permission: string,
 ) {
   return hasActorPermission(actor, permission);
+}
+
+export function createAuthRequestApiClient(request: Request) {
+  return createAuthApiClient({
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
+    fetch: createForwardedAuthFetch(request),
+  });
 }
 
 export async function resolveActorFromAuthContext(options: Readonly<{

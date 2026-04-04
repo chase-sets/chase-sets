@@ -4,12 +4,12 @@ import type {
   MetaFunction,
 } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
-import { createAuthRequestApiClient } from "../../client";
+import { AccountSelectionPage } from "../../customer/account-selection-page";
 import {
   completeBrowserAuthentication,
+  createAuthRequestApiClient,
   requireAccountSelectionTokenOrRedirect,
 } from "../../server";
-import { AccountSelectionPage } from "../../web";
 
 export const meta: MetaFunction = () => [
   { title: "Select Account | Catalog Admin" },

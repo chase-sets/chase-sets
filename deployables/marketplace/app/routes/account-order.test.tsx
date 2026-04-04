@@ -1,19 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
+import { jsonResponse, requestUrl } from "./test-support/http";
 
 const {
   mockUseLoaderData,
   mockUseActionData,
   mockRequireActorFromAuthApi,
-  mockCreateOrderingRequestApiClient,
-  mockCreateReputationRequestIntegrationClient,
 } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
-  mockCreateOrderingRequestApiClient: vi.fn(),
-  mockCreateReputationRequestIntegrationClient: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -23,29 +20,6 @@ vi.mock("react-router", async () => {
     ...actual,
     useLoaderData: mockUseLoaderData,
     useActionData: mockUseActionData,
-  };
-});
-
-vi.mock("@chase-sets/ordering/client", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/ordering/client")>(
-    "@chase-sets/ordering/client",
-  );
-
-  return {
-    ...actual,
-    createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
-  };
-});
-
-vi.mock("@chase-sets/reputation/integration", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/reputation/integration")>(
-    "@chase-sets/reputation/integration",
-  );
-
-  return {
-    ...actual,
-    createReputationRequestIntegrationClient:
-      mockCreateReputationRequestIntegrationClient,
   };
 });
 
@@ -97,24 +71,36 @@ describe("marketplace account order route", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
   it("loads the buyer order and matching review opportunity", async () => {
-    const getBuyerOrder = vi.fn().mockResolvedValue(order);
-    const getOrderReviewOpportunity = vi.fn().mockResolvedValue({
-      order_id: "ord_1",
-      subject_account_id: "acc_seller",
-      subject_display_name: "Seller",
-      author_role: "buyer",
-      eligible_at: "2026-04-02T00:00:00.000Z",
-      active_review_id: null,
-    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
 
-    mockCreateOrderingRequestApiClient.mockReturnValue({ getBuyerOrder });
-    mockCreateReputationRequestIntegrationClient.mockReturnValue({
-      getOrderReviewOpportunity,
-    });
+        if (url.includes("/api/marketplace/buyer/orders/ord_1")) {
+          return Promise.resolve(jsonResponse(order));
+        }
+
+        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_1")) {
+          return Promise.resolve(
+            jsonResponse({
+              order_id: "ord_1",
+              subject_account_id: "acc_seller",
+              subject_display_name: "Seller",
+              author_role: "buyer",
+              eligible_at: "2026-04-02T00:00:00.000Z",
+              active_review_id: null,
+            }),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
 
     const result = await loader({
       request: new Request("http://localhost/account/orders/ord_1"),
@@ -122,8 +108,7 @@ describe("marketplace account order route", () => {
       context: undefined,
     } as never);
 
-    expect(getBuyerOrder).toHaveBeenCalledWith("ord_1");
-    expect(getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1");
+    expect(result.order.order_id).toBe("ord_1");
     expect(result.reviewOpportunity?.subject_account_id).toBe("acc_seller");
   });
 

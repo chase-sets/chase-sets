@@ -7,6 +7,7 @@
                     ".":  "./index.ts",
                     "./client":  "./client.ts",
                     "./routes/*":  "./routes/*.tsx",
+                    "./server":  "./server.ts",
                     "./web":  "./web.ts"
                 },
     "types":  "./index.ts",

@@ -3,11 +3,11 @@ import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
-  SettlementWalletPage,
   type SettlementLedgerEntryRow,
   type SettlementWalletRow,
-} from "../../web";
-import { createSettlementRequestApiClient } from "../../client";
+} from "../../client";
+import { createSettlementRequestApiClient } from "../../server";
+import { SettlementWalletPage } from "../../wallets/ui/wallet-page";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

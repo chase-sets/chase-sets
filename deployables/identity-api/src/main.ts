@@ -1,18 +1,16 @@
 import { serve } from "@hono/node-server";
-import { createAuthServices } from "@chase-sets/auth";
-import { createIdentityServices } from "@chase-sets/identity";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import { buildIdentityApp } from "./app";
 import { loadConfig } from "./config";
+import { createContextRuntime } from "./context-runtime.generated";
 
 const config = loadConfig();
 const pool = createPgPool(config.databaseUrl);
-const identity = createIdentityServices(pool);
-const auth = createAuthServices(pool, identity);
-const app = buildIdentityApp({ auth, identity });
+const runtime = createContextRuntime(pool);
+const app = buildIdentityApp(runtime.services);
 
-startProjectorPolling([...identity.projectors, ...auth.projectors], 1_000, (error) => {
+startProjectorPolling(runtime.projectors, 1_000, (error) => {
   console.error("Projection error:", error);
 });
 

@@ -7,11 +7,11 @@ import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
-  ApiError as FulfillmentApiError,
-  FulfillmentShipmentDetailPage,
+  FulfillmentApiError,
   type FulfillmentShipmentDetail,
-} from "../../web";
-import { createFulfillmentRequestApiClient } from "../../client";
+} from "../../client";
+import { createFulfillmentRequestApiClient } from "../../server";
+import { FulfillmentShipmentDetailPage } from "../../shipments/ui/shipment-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

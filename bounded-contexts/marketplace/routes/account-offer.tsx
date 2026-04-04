@@ -4,12 +4,10 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   MarketplaceApiError,
-  createMarketplaceRequestApiClient,
-} from "../client";
-import {
-  MarketplaceBuyerOfferDetailPage,
   type MarketplaceBuyerOfferDetail,
-} from "../web";
+} from "../client";
+import { createMarketplaceRequestApiClient } from "../server";
+import { MarketplaceBuyerOfferDetailPage } from "../offers/ui/buyer-offer-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Review pricing, demand, and status for one buyer offer.";

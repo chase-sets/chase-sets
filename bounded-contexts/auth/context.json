@@ -31,6 +31,30 @@
     "@chase-sets/identity"
   ],
   "requiredPorts": [],
+  "integrationCapabilities": [],
+  "apiRequirements": [
+    {
+      "capabilityKey": "identity.bootstrap-port",
+      "portName": "identityBootstrap"
+    },
+    {
+      "capabilityKey": "identity.user-directory",
+      "portName": "identityUsers"
+    },
+    {
+      "capabilityKey": "identity.membership-port",
+      "portName": "identityMemberships"
+    },
+    {
+      "capabilityKey": "identity.invitation-port",
+      "portName": "identityInvitations"
+    },
+    {
+      "capabilityKey": "identity.provisioning-port",
+      "portName": "identityProvisioning"
+    }
+  ],
+  "hostPorts": [],
   "apiDeployables": [
     "identity-api"
   ],

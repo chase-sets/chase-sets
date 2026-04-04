@@ -1,14 +1,12 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime";
-import { createMarketplaceApiClient } from "./client";
-
 export { createMarketplaceSupplyResolver } from "./supply-resolver";
+import { createMarketplaceRequestApiClient } from "./server";
 
-export function createMarketplaceRequestIntegrationClient(request: Request) {
-  return createMarketplaceApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
-  });
+export function createMarketplaceOfferGateway(request: Request) {
+  const api = createMarketplaceRequestApiClient(request);
+
+  return {
+    createBuyerOffer(input: Record<string, unknown>) {
+      return api.createBuyerOffer(input);
+    },
+  };
 }

@@ -1,6 +1,13 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createAuthServices } from "@chase-sets/auth";
 import { upsertPasswordCredential } from "@chase-sets/auth/seed-support/store";
+import {
+  createIdentityBootstrapPort,
+  createIdentityInvitationPort,
+  createIdentityMembershipPort,
+  createIdentityProvisioningPort,
+  createIdentityUserDirectoryPort,
+} from "./integration";
 import { identitySeedIds } from "./seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
@@ -30,7 +37,13 @@ async function drainProjectors(projectors: ReadonlyArray<{ runOnce: () => Promis
 
 export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const services = createIdentityServices(pool);
-  const authServices = createAuthServices(pool, services);
+  const authServices = createAuthServices(pool, {
+    identityBootstrap: createIdentityBootstrapPort(services),
+    identityUsers: createIdentityUserDirectoryPort(services),
+    identityMemberships: createIdentityMembershipPort(services),
+    identityInvitations: createIdentityInvitationPort(services),
+    identityProvisioning: createIdentityProvisioningPort(services),
+  });
   const context = createIdentityBootstrapContext();
 
   try {

@@ -5,10 +5,10 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
-  ReputationReviewListPage,
   type ReputationReviewListItem,
-} from "../../web";
-import { createReputationRequestApiClient } from "../../client";
+} from "../../client";
+import { createReputationRequestApiClient } from "../../server";
+import { ReputationReviewListPage } from "../../reviews/ui/review-list-page";
 
 const DEFAULT_REVIEW_QUERY = "limit=100&offset=0";
 

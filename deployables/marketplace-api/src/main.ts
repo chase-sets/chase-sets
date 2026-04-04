@@ -8,7 +8,7 @@ import {
 } from "@chase-sets/payments";
 import { loadConfig } from "./config";
 import { buildMarketplaceApp } from "./app";
-import { composeMarketplaceApiStack } from "./stack";
+import { createContextRuntime } from "./context-runtime.generated";
 
 const config = loadConfig();
 const pool = createPgPool(config.databaseUrl);
@@ -29,9 +29,10 @@ if (config.paymentProcessor.kind === "fake") {
   );
 }
 
-const { services } = composeMarketplaceApiStack(pool, {
+const runtime = createContextRuntime(pool, {
   processorGateway: paymentProcessorGateway,
 });
+const { services } = runtime;
 const app = buildMarketplaceApp(
   services,
   {
@@ -44,19 +45,9 @@ const app = buildMarketplaceApp(
 );
 
 const PROJECTION_INTERVAL_MS = 1_000;
-const projectors = [
-  ...services.discovery.projectors,
-  ...services.inventory.projectors,
-  ...services.marketplace.projectors,
-  ...services.payments.projectors,
-  ...services.fulfillment.projectors,
-  ...services.ordering.projectors,
-  ...services.reputation.projectors,
-  ...services.settlement.projectors,
-];
 
 startProjectorPolling(
-  projectors,
+  runtime.projectors,
   PROJECTION_INTERVAL_MS,
   (error) => {
     console.error("Projection error:", error);

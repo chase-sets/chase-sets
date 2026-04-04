@@ -1,8 +1,3 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime";
-
 const DEFAULT_BASE_URL = "/api/auth";
 
 export class AuthApiError extends Error {
@@ -137,10 +132,3 @@ export function createAuthApiClient({
 }
 
 export const authApi = createAuthApiClient();
-
-export function createAuthRequestApiClient(request: Request) {
-  return createAuthApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
-    fetch: createForwardedAuthFetch(request),
-  });
-}

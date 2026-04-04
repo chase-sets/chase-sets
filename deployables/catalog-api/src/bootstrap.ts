@@ -1,19 +1,25 @@
-import { module as catalogModule } from "@chase-sets/catalog";
 import {
-  bootstrapApiModule,
+  composeSchemaSql,
+  drainProjectors,
+  seedApiModulesIfEmpty,
+  waitForDatabase,
 } from "@chase-sets/bounded-context-runtime";
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import { loadConfig } from "./config";
+import { createContextRuntime } from "./context-runtime.generated";
 
 async function bootstrap() {
   const config = loadConfig();
   const pool = createPgPool(config.databaseUrl);
 
   try {
-    await bootstrapApiModule(catalogModule, pool, undefined, {
-      databaseLabel: "Catalog",
-      completionLabel: "Catalog",
-    });
+    await waitForDatabase(pool, "Catalog");
+    const runtime = createContextRuntime(pool);
+    await pool.query(composeSchemaSql(runtime.mountedModules.map(({ module }) => module)));
+    await seedApiModulesIfEmpty(runtime.mountedModules.map(({ module }) => module), pool);
+    await drainProjectors(runtime.projectors);
+    console.log("Catalog projections are up to date.");
+    console.log("Catalog bootstrap complete.");
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();
   }

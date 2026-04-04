@@ -5,11 +5,11 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
-  ReputationAccountPage,
   type ReputationAccountSummary,
   type ReputationReviewListItem,
-} from "../../web";
-import { createReputationRequestApiClient } from "../../client";
+} from "../../client";
+import { createReputationRequestApiClient } from "../../server";
+import { ReputationAccountPage } from "../../reviews/ui/account-reputation-page";
 
 const DEFAULT_REVIEW_QUERY = "limit=10&offset=0";
 

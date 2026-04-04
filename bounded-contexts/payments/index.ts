@@ -27,18 +27,23 @@ import { createPaymentsServices } from "./services";
 import { paymentsSchemaSql } from "./schema";
 import { seedPaymentsDatabase } from "./seed";
 
+export const module: BcApiModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions> = {
+  contextName: "payments",
+  routePrefix: "/api/marketplace",
+  streamPrefix: "payments.",
+  schemaSql: paymentsSchemaSql,
+  createServices: (pool, options) => createPaymentsServices(pool, options),
+  buildApi: (services) => buildPaymentsApi(services.payments),
+  projectors: (services) => services.projectors,
+  seed: seedPaymentsDatabase,
+};
+
 export function createPaymentsModule(
   options: PaymentsServiceOptions = {},
 ): BcApiModule<PaymentsServices, PgTransactionalPool, void> {
   return {
-    contextName: "payments",
-    routePrefix: "/api/marketplace",
-    streamPrefix: "payments.",
-    schemaSql: paymentsSchemaSql,
+    ...module,
     createServices: (pool) => createPaymentsServices(pool, options),
-    buildApi: (services) => buildPaymentsApi(services.payments),
-    projectors: (services) => services.projectors,
-    seed: seedPaymentsDatabase,
   };
 }
 

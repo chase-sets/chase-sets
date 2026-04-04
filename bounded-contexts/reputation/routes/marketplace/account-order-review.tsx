@@ -13,10 +13,10 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   ReputationApiError,
-  ReputationReviewSubmissionPage,
   type ReputationReviewOpportunity,
-} from "../../web";
-import { createReputationRequestApiClient } from "../../client";
+} from "../../client";
+import { createReputationRequestApiClient } from "../../server";
+import { ReputationReviewSubmissionPage } from "../../reviews/ui/review-submission-page";
 
 type ReviewActionData = Readonly<{
   error: string;

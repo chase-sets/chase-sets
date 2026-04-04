@@ -18,14 +18,14 @@ import {
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
-  createOrderingRequestIntegrationClient,
+  createOrderingBuyerGateway,
   type OrderingOrderDetail,
 } from "@chase-sets/ordering/integration";
 import {
   PaymentsApiError,
   type PaymentsPaymentDetail,
-} from "../../web";
-import { createPaymentsRequestApiClient } from "../../client";
+} from "../../client";
+import { createPaymentsRequestApiClient } from "../../server";
 
 type StripePaymentElement = {
   mount(target: HTMLElement | string): void;
@@ -129,7 +129,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     permission: "orders.view",
   });
   const paymentsApi = createPaymentsRequestApiClient(request);
-  const orderingApi = createOrderingRequestIntegrationClient(request);
+  const orderingApi = createOrderingBuyerGateway(request);
 
   try {
     const payment = await paymentsApi.getBuyerPayment(params.paymentId!);

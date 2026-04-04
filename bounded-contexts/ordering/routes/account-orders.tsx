@@ -3,11 +3,11 @@ import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { createOrderingRequestApiClient } from "../client";
 import {
-  OrderingOrderListPage,
   type OrderingOrderListItem,
-} from "../web";
+} from "../client";
+import { createOrderingRequestApiClient } from "../server";
+import { OrderingOrderListPage } from "../orders/ui/order-list-page";
 
 const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =

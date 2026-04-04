@@ -1,7 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { InvitationDetailPage, type Invitation } from "@chase-sets/identity/web";
-import { createIdentityRequestApiClient } from "../../client";
+import type { Invitation } from "../../client";
+import { InvitationDetailPage } from "../../invitations/ui/invitation-detail-page";
+import { createIdentityRequestApiClient } from "../../server";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);

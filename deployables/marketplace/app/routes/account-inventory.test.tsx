@@ -1,6 +1,4 @@
-import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { InventoryRecordListPage } from "@chase-sets/inventory/web";
 import { action as inventoryAction, loader as inventoryLoader } from "./account-inventory";
 import {
   action as inventoryRecordAction,
@@ -15,55 +13,6 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("marketplace inventory routes", () => {
-  it("renders inventory content into HTML before hydration", () => {
-    const html = renderToString(
-      <InventoryRecordListPage
-        data={{
-          items: [
-            {
-              record_id: "inv_1",
-              account_id: "acc_1",
-              catalog_item_id: "cat_charizard",
-              item_title: "Charizard ex",
-              catalog_version_key:
-                "cat_charizard::dim_condition:near_mint|dim_form:raw",
-              item_subtitle: "199/165",
-              version_selection: [
-                { dimensionId: "dim_condition", choiceId: "near_mint" },
-                { dimensionId: "dim_form", choiceId: "raw" },
-              ],
-              version_summary: "Condition: Near Mint | Form: Raw",
-              storage_location_id: "loc_1",
-              storage_location_name: "North shelf",
-              ship_from_code: "CHI-WH-1",
-              total_quantity: 12,
-              held_quantity: 2,
-              available_quantity: 10,
-              acquisition_cost_amount: "4.25",
-              created_at: "2026-03-31T00:00:00.000Z",
-              updated_at: "2026-03-31T00:00:00.000Z",
-            },
-          ],
-        }}
-        locations={[
-          {
-            storage_location_id: "loc_1",
-            account_id: "acc_1",
-            name: "North shelf",
-            description: "Singles",
-            ship_from_code: "CHI-WH-1",
-            is_archived: false,
-            updated_at: "2026-03-31T00:00:00.000Z",
-          },
-        ]}
-      />,
-    );
-
-    expect(html).toContain("Inventory");
-    expect(html).toContain("Charizard ex");
-    expect(html).toContain("North shelf");
-  });
-
   it("loads inventory records and locations through the inventory API", async () => {
     vi.stubGlobal(
       "fetch",

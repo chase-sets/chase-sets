@@ -21,6 +21,7 @@
     "./integration",
     "./routes/*",
     "./seed-support/*",
+    "./server",
     "./web"
   ],
   "allowedContextDependencies": [
@@ -28,6 +29,14 @@
     "@chase-sets/inventory"
   ],
   "requiredPorts": [],
+  "integrationCapabilities": [
+    {
+      "key": "marketplace.supply-resolver",
+      "exportName": "createMarketplaceSupplyResolver"
+    }
+  ],
+  "apiRequirements": [],
+  "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
   ],

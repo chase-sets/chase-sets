@@ -40,8 +40,36 @@
   ],
   "allowedContextDependencies": [],
   "requiredPorts": [],
+  "integrationCapabilities": [
+    {
+      "key": "identity.bootstrap-port",
+      "exportName": "createIdentityBootstrapPort"
+    },
+    {
+      "key": "identity.user-directory",
+      "exportName": "createIdentityUserDirectoryPort"
+    },
+    {
+      "key": "identity.membership-port",
+      "exportName": "createIdentityMembershipPort"
+    },
+    {
+      "key": "identity.invitation-port",
+      "exportName": "createIdentityInvitationPort"
+    },
+    {
+      "key": "identity.provisioning-port",
+      "exportName": "createIdentityProvisioningPort"
+    }
+  ],
+  "apiRequirements": [],
+  "hostPorts": [],
   "apiDeployables": [
     "identity-api"
+  ],
+  "runtimeDeployables": [
+    "identity-api",
+    "marketplace-api"
   ],
   "apiMounts": [
     {

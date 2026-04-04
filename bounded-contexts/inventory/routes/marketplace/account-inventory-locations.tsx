@@ -8,11 +8,11 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
-  ApiError as InventoryApiError,
-  StorageLocationPage,
+  InventoryApiError,
   type InventoryStorageLocation,
-} from "../../web";
-import { createInventoryRequestApiClient } from "../../client";
+} from "../../client";
+import { createInventoryRequestApiClient } from "../../server";
+import { StorageLocationPage } from "../../storage-locations/ui/storage-location-page";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

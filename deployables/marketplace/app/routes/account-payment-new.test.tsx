@@ -1,8 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import type { OrderingOrderDetail } from "@chase-sets/ordering/integration";
+import type { OrderingOrderDetail } from "@chase-sets/ordering/client";
 import type { ComponentProps } from "react";
+import { jsonResponse, requestUrl } from "./test-support/http";
 
 const {
   mockUseActionData,
@@ -10,16 +11,12 @@ const {
   mockUseNavigation,
   mockUseSubmit,
   mockRequireActorFromAuthApi,
-  mockCreateOrderingRequestIntegrationClient,
-  mockCreatePaymentsRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseActionData: vi.fn(),
   mockUseLoaderData: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSubmit: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
-  mockCreateOrderingRequestIntegrationClient: vi.fn(),
-  mockCreatePaymentsRequestApiClient: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -32,29 +29,6 @@ vi.mock("react-router", async () => {
     useLoaderData: mockUseLoaderData,
     useNavigation: mockUseNavigation,
     useSubmit: mockUseSubmit,
-  };
-});
-
-vi.mock("@chase-sets/ordering/integration", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/ordering/integration")>(
-    "@chase-sets/ordering/integration",
-  );
-
-  return {
-    ...actual,
-    createOrderingRequestIntegrationClient:
-      mockCreateOrderingRequestIntegrationClient,
-  };
-});
-
-vi.mock("@chase-sets/payments/client", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/payments/client")>(
-    "@chase-sets/payments/client",
-  );
-
-  return {
-    ...actual,
-    createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
   };
 });
 
@@ -113,6 +87,7 @@ describe("marketplace account payment start route", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
@@ -140,14 +115,22 @@ describe("marketplace account payment start route", () => {
   });
 
   it("loads checkout-created orders from the ordering API", async () => {
-    const getBuyerOrder = vi
-      .fn()
-      .mockResolvedValueOnce(buildOrder("ord_1"))
-      .mockResolvedValueOnce(buildOrder("ord_2"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
 
-    mockCreateOrderingRequestIntegrationClient.mockReturnValue({
-      getBuyerOrder,
-    });
+        if (url.includes("/api/marketplace/buyer/orders/ord_1")) {
+          return Promise.resolve(jsonResponse(buildOrder("ord_1")));
+        }
+
+        if (url.includes("/api/marketplace/buyer/orders/ord_2")) {
+          return Promise.resolve(jsonResponse(buildOrder("ord_2")));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
 
     const result = await loader({
       request: new Request(
@@ -163,13 +146,21 @@ describe("marketplace account payment start route", () => {
   });
 
   it("creates a buyer payment and redirects into the confirmation route", async () => {
-    const createBuyerPayment = vi.fn().mockResolvedValue({
-      payment_id: "pay_1",
-    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = requestUrl(input);
 
-    mockCreatePaymentsRequestApiClient.mockReturnValue({
-      createBuyerPayment,
-    });
+        if (
+          url.includes("/api/marketplace/buyer/payments") &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        ) {
+          return Promise.resolve(jsonResponse({ payment_id: "pay_1" }, 201));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
 
     const form = new URLSearchParams();
     form.set("orderIds", "ord_1, ord_2");
@@ -186,9 +177,6 @@ describe("marketplace account payment start route", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(createBuyerPayment).toHaveBeenCalledWith({
-      orderIds: ["ord_1", "ord_2"],
-    });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
   });

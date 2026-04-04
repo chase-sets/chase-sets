@@ -17,6 +17,7 @@
         "stripe:listen": "node ./scripts/stripe-cli.mjs listen",
         "dev:showcase": "npm run dev --workspace @chase-sets/app-design-system-showcase",
         "generate:api-mounts": "node ./scripts/generate-deployable-api-mounts.mjs",
+        "generate:runtimes": "node ./scripts/generate-deployable-runtimes.mjs",
         "generate:shells": "node ./scripts/generate-deployable-shells.mjs",
         "generate:routes": "node ./scripts/generate-deployable-routes.mjs",
         "test:design-system": "npm run test --workspace @chase-sets/design-system",
@@ -42,7 +43,7 @@
         "dev:marketplace-full": "node ./scripts/dev-system.mjs dev marketplace-full",
         "test:marketplace": "npm run test --workspace @chase-sets/app-marketplace-api",
         "test:inventory": "npm run test --workspace @chase-sets/app-inventory-api",
-        "check:structure": "npm run generate:routes && npm run generate:api-mounts && npm run generate:shells && node ./scripts/check-structure.mjs"
+        "check:structure": "npm run generate:routes && npm run generate:api-mounts && npm run generate:shells && npm run generate:runtimes && node ./scripts/check-structure.mjs"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.2.1",

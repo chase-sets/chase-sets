@@ -22,6 +22,7 @@
     "./integration",
     "./routes/*",
     "./seed-support/*",
+    "./server",
     "./web"
   ],
   "allowedContextDependencies": [
@@ -32,6 +33,23 @@
     "inventoryReservations",
     "supplyResolver"
   ],
+  "integrationCapabilities": [
+    {
+      "key": "ordering.order-snapshot-reader",
+      "exportName": "createOrderSnapshotReader"
+    }
+  ],
+  "apiRequirements": [
+    {
+      "capabilityKey": "marketplace.supply-resolver",
+      "portName": "supplyResolver"
+    },
+    {
+      "capabilityKey": "inventory.reservation-gateway",
+      "portName": "inventoryReservations"
+    }
+  ],
+  "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
   ],

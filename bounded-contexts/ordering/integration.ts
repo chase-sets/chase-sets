@@ -1,14 +1,6 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime";
-import { createOrderingApiClient } from "./client";
 import type { OrderingServices } from "./services";
-
-export type {
-  OrderingOrderDetail,
-  OrderingOrderListItem,
-} from "./orders/ui/contracts";
+import { createOrderingRequestApiClient } from "./server";
+export type { OrderingOrderDetail } from "./client";
 
 export function createOrderSnapshotReader(services: OrderingServices) {
   return async (orderId: string, buyerAccountId: string) => {
@@ -25,9 +17,15 @@ export function createOrderSnapshotReader(services: OrderingServices) {
   };
 }
 
-export function createOrderingRequestIntegrationClient(request: Request) {
-  return createOrderingApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
-  });
+export function createOrderingBuyerGateway(request: Request) {
+  const api = createOrderingRequestApiClient(request);
+
+  return {
+    addCartLine(input: Record<string, unknown>) {
+      return api.addCartLine(input);
+    },
+    getBuyerOrder(orderId: string) {
+      return api.getBuyerOrder(orderId);
+    },
+  };
 }

@@ -22,10 +22,14 @@
     "./integration",
     "./routes/*",
     "./seed-support/*",
+    "./server",
     "./web"
   ],
   "allowedContextDependencies": [],
   "requiredPorts": [],
+  "integrationCapabilities": [],
+  "apiRequirements": [],
+  "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
   ],

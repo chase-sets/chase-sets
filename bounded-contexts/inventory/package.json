@@ -9,6 +9,7 @@
                     "./integration":  "./integration.ts",
                     "./routes/*":  "./routes/*.tsx",
                     "./seed-support/*":  "./seed-support/*.ts",
+                    "./server":  "./server.ts",
                     "./web":  "./web.ts"
                 },
     "types":  "./index.ts",

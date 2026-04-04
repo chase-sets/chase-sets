@@ -308,6 +308,23 @@ export async function seedApiModuleIfEmpty<TPool>(
   console.log(`${module.contextName} events already exist. Skipping seed.`);
 }
 
+export async function seedApiModulesIfEmpty<TPool>(
+  modules: readonly Pick<
+    BcApiModule<unknown, TPool, unknown>,
+    "contextName" | "streamPrefix" | "seed"
+  >[],
+  pool: TPool & {
+    query: (
+      sql: string,
+      params?: readonly unknown[],
+    ) => Promise<{ rows?: readonly Readonly<{ count?: string | number }>[] }>;
+  },
+): Promise<void> {
+  for (const module of modules) {
+    await seedApiModuleIfEmpty(module, pool);
+  }
+}
+
 export async function bootstrapApiModule<TServices, TPool, TPorts>(
   module: BcApiModule<TServices, TPool, TPorts>,
   pool: TPool & {

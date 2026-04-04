@@ -1,7 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { AccountDetailPage, type Account } from "@chase-sets/identity/web";
-import { createIdentityRequestApiClient } from "../../client";
+import type { Account } from "../../client";
+import { AccountDetailPage } from "../../accounts/ui/account-detail-page";
+import { createIdentityRequestApiClient } from "../../server";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);

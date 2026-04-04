@@ -1,9 +1,11 @@
 import type { ActionFunctionArgs, MetaFunction } from "react-router";
 import { useActionData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { createAuthRequestApiClient } from "../../client";
-import { completeBrowserAuthentication } from "../../server";
-import { RegisterPage } from "../../web";
+import { RegisterPage } from "../../customer/register-page";
+import {
+  completeBrowserAuthentication,
+  createAuthRequestApiClient,
+} from "../../server";
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: "Register | Marketplace" });

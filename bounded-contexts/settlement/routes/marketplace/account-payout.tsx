@@ -8,10 +8,10 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   SettlementApiError,
-  SettlementPayoutDetailPage,
   type SettlementPayoutRow,
-} from "../../web";
-import { createSettlementRequestApiClient } from "../../client";
+} from "../../client";
+import { createSettlementRequestApiClient } from "../../server";
+import { SettlementPayoutDetailPage } from "../../payouts/ui/payout-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

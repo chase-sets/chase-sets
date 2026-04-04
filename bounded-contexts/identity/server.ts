@@ -5,8 +5,12 @@ import {
   resolveActorFromAuthApi,
   type ResolvedActor,
 } from "@chase-sets/auth-runtime";
-import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime";
+import {
+  createForwardedAuthFetch,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/bounded-context-runtime";
 import type { PermissionKey } from "./common";
+import { createIdentityApiClient } from "./client";
 
 export type { ResolvedActor } from "@chase-sets/auth-runtime";
 
@@ -24,6 +28,13 @@ export function hasPermission(
   permission: PermissionKey,
 ) {
   return hasActorPermission(actor, permission);
+}
+
+export function createIdentityRequestApiClient(request: Request) {
+  return createIdentityApiClient({
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
+    fetch: createForwardedAuthFetch(request),
+  });
 }
 
 export function createActorEventStoreContext(

@@ -8,12 +8,12 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
-  ApiError as InventoryApiError,
-  InventoryRecordListPage,
+  InventoryApiError,
   type InventoryRecordListItem,
   type InventoryStorageLocation,
-} from "../../web";
-import { createInventoryRequestApiClient } from "../../client";
+} from "../../client";
+import { createInventoryRequestApiClient } from "../../server";
+import { InventoryRecordListPage } from "../../records/ui/inventory-record-list-page";
 
 const DEFAULT_RECORD_QUERY = "limit=100&offset=0";
 

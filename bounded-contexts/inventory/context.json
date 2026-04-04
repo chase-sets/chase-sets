@@ -24,14 +24,27 @@
     "./integration",
     "./routes/*",
     "./seed-support/*",
+    "./server",
     "./web"
   ],
   "allowedContextDependencies": [
     "@chase-sets/catalog"
   ],
   "requiredPorts": [],
+  "integrationCapabilities": [
+    {
+      "key": "inventory.reservation-gateway",
+      "exportName": "createInventoryReservationGateway"
+    }
+  ],
+  "apiRequirements": [],
+  "hostPorts": [],
   "apiDeployables": [
     "inventory-api"
+  ],
+  "runtimeDeployables": [
+    "inventory-api",
+    "marketplace-api"
   ],
   "apiMounts": [
     {

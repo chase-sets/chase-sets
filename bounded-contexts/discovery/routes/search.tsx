@@ -5,8 +5,8 @@ import {
   useSearchParams,
 } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { createDiscoveryRequestApiClient } from "../client";
-import { SearchPage } from "../web";
+import { createDiscoveryRequestApiClient } from "../server";
+import { SearchPage } from "../items/search/search-page";
 
 const PAGE_SIZE = 24;
 const MARKETPLACE_DESCRIPTION =

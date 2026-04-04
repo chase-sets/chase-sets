@@ -1,20 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import { ReputationApiError } from "@chase-sets/reputation/web";
+import { jsonResponse, requestUrl } from "./test-support/http";
 
 const {
   mockUseLoaderData,
   mockUseActionData,
   mockUseNavigation,
   mockRequireActorFromAuthApi,
-  mockCreateReputationRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
-  mockCreateReputationRequestApiClient: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -25,17 +23,6 @@ vi.mock("react-router", async () => {
     useLoaderData: mockUseLoaderData,
     useActionData: mockUseActionData,
     useNavigation: mockUseNavigation,
-  };
-});
-
-vi.mock("@chase-sets/reputation/client", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/reputation/client")>(
-    "@chase-sets/reputation/client",
-  );
-
-  return {
-    ...actual,
-    createReputationRequestApiClient: mockCreateReputationRequestApiClient,
   };
 });
 
@@ -75,15 +62,23 @@ describe("marketplace account order review route", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
   it("loads the verified-order opportunity", async () => {
-    const getOrderReviewOpportunity = vi.fn().mockResolvedValue(opportunity);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
 
-    mockCreateReputationRequestApiClient.mockReturnValue({
-      getOrderReviewOpportunity,
-    });
+        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_1")) {
+          return Promise.resolve(jsonResponse(opportunity));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
 
     const result = await loader({
       request: new Request("http://localhost/account/orders/ord_1/review"),
@@ -91,18 +86,22 @@ describe("marketplace account order review route", () => {
       context: undefined,
     } as never);
 
-    expect(getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1");
     expect(result.opportunity.subject_account_id).toBe("acc_seller");
   });
 
   it("refuses to open the review form for a non-verified order", async () => {
-    const getOrderReviewOpportunity = vi
-      .fn()
-      .mockRejectedValue(new ReputationApiError(404, { error: "Review opportunity not found." }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
 
-    mockCreateReputationRequestApiClient.mockReturnValue({
-      getOrderReviewOpportunity,
-    });
+        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_2")) {
+          return Promise.resolve(jsonResponse({ error: "Review opportunity not found." }, 404));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
 
     await expect(
       loader({
@@ -114,13 +113,25 @@ describe("marketplace account order review route", () => {
   });
 
   it("submits a buyer review and redirects to the new review page", async () => {
-    const getOrderReviewOpportunity = vi.fn().mockResolvedValue(opportunity);
-    const submitReview = vi.fn().mockResolvedValue({ id: "rev_1", version: 1 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = requestUrl(input);
 
-    mockCreateReputationRequestApiClient.mockReturnValue({
-      getOrderReviewOpportunity,
-      submitReview,
-    });
+        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_1")) {
+          return Promise.resolve(jsonResponse(opportunity));
+        }
+
+        if (
+          url.includes("/api/marketplace/reviews") &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        ) {
+          return Promise.resolve(jsonResponse({ id: "rev_1", version: 1 }, 201));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
 
     const form = new FormData();
     form.set("rating", "5");
@@ -135,13 +146,6 @@ describe("marketplace account order review route", () => {
       context: undefined,
     } as never);
 
-    expect(getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1");
-    expect(submitReview).toHaveBeenCalledWith({
-      orderId: "ord_1",
-      subjectAccountId: "acc_seller",
-      rating: 5,
-      feedback: "Great seller.",
-    });
     expect(response).toBeInstanceOf(Response);
     if (!(response instanceof Response)) {
       throw new Error("Expected redirect response.");

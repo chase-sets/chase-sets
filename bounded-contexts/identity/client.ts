@@ -2,18 +2,11 @@ export {
   IdentityApiError,
   createIdentityApiClient,
   identityApi,
-} from "./web";
-export type { IdentityApiClientOptions } from "./web";
-
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime";
-import { createIdentityApiClient } from "./web";
-
-export function createIdentityRequestApiClient(request: Request) {
-  return createIdentityApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
-    fetch: createForwardedAuthFetch(request),
-  });
-}
+} from "./shell-support/api/client";
+export type { IdentityApiClientOptions } from "./shell-support/api/client";
+export type { Account } from "./accounts/ui/contracts";
+export type { User } from "./users/ui/contracts";
+export type { Membership } from "./memberships/ui/contracts";
+export type { Invitation } from "./invitations/ui/contracts";
+export type { ApiKey } from "./api-keys/ui/contracts";
+export type { Consent } from "./consents/ui/contracts";

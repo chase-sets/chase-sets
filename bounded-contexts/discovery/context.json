@@ -20,6 +20,7 @@
     ".",
     "./client",
     "./routes/*",
+    "./server",
     "./web"
   ],
   "allowedContextDependencies": [
@@ -28,6 +29,9 @@
     "@chase-sets/ordering"
   ],
   "requiredPorts": [],
+  "integrationCapabilities": [],
+  "apiRequirements": [],
+  "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
   ],

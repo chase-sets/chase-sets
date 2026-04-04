@@ -1,11 +1,11 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import {
-  BlueprintListPage,
   type Blueprint,
-} from "@chase-sets/catalog/web";
+} from "../../client";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { createCatalogRequestApiClient } from "../../client";
+import { BlueprintListPage } from "../../authoring/blueprints/ui/blueprint-list-page";
+import { createCatalogRequestApiClient } from "../../server";
 
 const DEFAULT_LIST_QUERY = "limit=50&offset=0";
 

@@ -21,6 +21,7 @@
     "./integration",
     "./routes/*",
     "./seed-support/*",
+    "./server",
     "./web"
   ],
   "allowedContextDependencies": [
@@ -29,6 +30,18 @@
   "requiredPorts": [
     "processorGateway",
     "getOrderSnapshot"
+  ],
+  "integrationCapabilities": [],
+  "apiRequirements": [
+    {
+      "capabilityKey": "ordering.order-snapshot-reader",
+      "portName": "getOrderSnapshot"
+    }
+  ],
+  "hostPorts": [
+    {
+      "portName": "processorGateway"
+    }
   ],
   "apiDeployables": [
     "marketplace-api"

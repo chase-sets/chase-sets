@@ -1,11 +1,11 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import {
-  CategoryListPage,
   type CategoryListItem,
-} from "@chase-sets/catalog/web";
+} from "../../client";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { createCatalogRequestApiClient } from "../../client";
+import { CategoryListPage } from "../../authoring/categories/ui/category-list-page";
+import { createCatalogRequestApiClient } from "../../server";
 
 const DEFAULT_LIST_QUERY = "limit=50&offset=0";
 
