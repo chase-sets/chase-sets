@@ -37,7 +37,11 @@
     "./server",
     "./web"
   ],
+  "allowedContextDependencies": [],
   "requiredPorts": [],
+  "apiDeployables": [
+    "identity-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/identity",

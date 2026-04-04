@@ -6,7 +6,9 @@ export { discoverySchemaSql } from "./schema";
 export { rebuildDiscoverySearchIndex } from "./items/search/projection";
 
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import { resolveContextApiMounts } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import contextManifest from "./context.json";
 import type { DiscoveryServices } from "./services";
 import { buildDiscoveryApi } from "./api";
 import { createDiscoveryServices } from "./services";
@@ -21,3 +23,9 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, void> =
   buildApi: buildDiscoveryApi,
   projectors: (services) => services.projectors,
 };
+
+export function resolveApiMounts(services: DiscoveryServices) {
+  return resolveContextApiMounts(contextManifest.contextName, contextManifest.apiMounts, [
+    buildDiscoveryApi(services),
+  ]);
+}

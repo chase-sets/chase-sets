@@ -2,7 +2,7 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { createOrderingRequestApiClient } from "../client";
 import {
   OrderingOrderListPage,
@@ -14,7 +14,7 @@ const MARKETPLACE_DESCRIPTION =
   "Track buyer-side orders and drill into each order's fulfillment state.";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "orders.view" });
+  await requireActorFromAuthApi({ request, permission: "orders.view" });
   const api = createOrderingRequestApiClient(request);
 
   return {

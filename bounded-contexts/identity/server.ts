@@ -1,5 +1,10 @@
-import type { ResolvedActor } from "@chase-sets/auth-context";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import {
+  createActorEventStoreContext as createGenericActorEventStoreContext,
+  hasPermission as hasActorPermission,
+  requireActorFromAuthApi,
+  resolveActorFromAuthApi,
+  type ResolvedActor,
+} from "@chase-sets/auth-runtime";
 import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime";
 import type { PermissionKey } from "./common";
 import {
@@ -12,21 +17,7 @@ export const IDENTITY_SESSION_COOKIE_NAME = "chase_sets_session";
 export const IDENTITY_ACCOUNT_SELECTION_COOKIE_NAME =
   "chase_sets_account_selection";
 
-export type { ResolvedActor } from "@chase-sets/auth-context";
-
-function normalizeBaseUrl(baseUrl: string) {
-  return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-}
-
-function resolveIdentityApiUrl(baseUrl: string, path: string) {
-  const normalizedPath = path.replace(/^\/+/, "");
-
-  if (/\/api\/identity\/?$/i.test(baseUrl)) {
-    return new URL(normalizedPath, normalizeBaseUrl(baseUrl));
-  }
-
-  return new URL(`api/identity/${normalizedPath}`, normalizeBaseUrl(baseUrl));
-}
+export type { ResolvedActor } from "@chase-sets/auth-runtime";
 
 function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
@@ -182,20 +173,13 @@ export function hasPermission(
   actor: ResolvedActor | null | undefined,
   permission: PermissionKey,
 ) {
-  return actor?.permissions.includes(permission) ?? false;
+  return hasActorPermission(actor, permission);
 }
 
 export function createActorEventStoreContext(
   actor: ResolvedActor,
-): EventStoreContext {
-  return {
-    tenantId: actor.tenantId as never,
-    audit: {
-      performedByUserId: actor.userId as never,
-      forAccountId: actor.accountId as never,
-    },
-    trace: {},
-  };
+) {
+  return createGenericActorEventStoreContext(actor);
 }
 
 export async function resolveActorFromSessionToken(
@@ -289,24 +273,11 @@ export async function resolveActorFromIdentityApi(options: Readonly<{
   request: Request;
   fetch?: typeof globalThis.fetch;
 }>): Promise<ResolvedActor | null> {
-  const response = await (options.fetch ?? globalThis.fetch)(
-    resolveIdentityApiUrl(options.identityApiBaseUrl, "auth/session"),
-    {
-      headers: createForwardedAuthHeaders(options.request),
-      credentials: "include",
-    },
-  );
-
-  if (response.status === 401) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw new Error(`Unable to resolve current actor. Status ${response.status}.`);
-  }
-
-  const body = (await response.json()) as { actor: ResolvedActor };
-  return body.actor;
+  return resolveActorFromAuthApi({
+    authApiBaseUrl: options.identityApiBaseUrl,
+    request: options.request,
+    fetch: options.fetch,
+  });
 }
 
 export async function requireActorFromIdentityApi(options: Readonly<{
@@ -316,27 +287,15 @@ export async function requireActorFromIdentityApi(options: Readonly<{
   identityApiBaseUrl?: string;
   fetch?: typeof globalThis.fetch;
 }>): Promise<ResolvedActor> {
-  const actor = await resolveActorFromIdentityApi({
-    identityApiBaseUrl:
+  return requireActorFromAuthApi({
+    request: options.request,
+    permission: options.permission,
+    signInPath: options.signInPath,
+    authApiBaseUrl:
       options.identityApiBaseUrl ??
       resolveRequestApiBaseUrl(options.request, "/api/identity"),
-    request: options.request,
     fetch: options.fetch,
   });
-
-  if (!actor) {
-    throw createRedirectResponse(
-      `${options.signInPath ?? "/sign-in"}?returnTo=${encodeURIComponent(
-        buildCurrentPath(options.request),
-      )}`,
-    );
-  }
-
-  if (options.permission && !hasPermission(actor, options.permission)) {
-    throw new Response("Forbidden.", { status: 403 });
-  }
-
-  return actor;
 }
 
 export function requireAccountSelectionTokenOrRedirect(

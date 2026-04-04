@@ -9,12 +9,14 @@
     "exports":  {
                     ".":  "./index.ts",
                     "./client":  "./client.ts",
+                    "./integration":  "./integration.ts",
                     "./routes/*":  "./routes/*.tsx",
                     "./web":  "./web.ts"
                 },
     "types":  "./index.ts",
     "dependencies":  {
                          "@chase-sets/auth-context":  "0.1.0",
+                         "@chase-sets/auth-runtime":  "0.1.0",
                          "@chase-sets/bounded-context-module":  "0.1.0",
                          "@chase-sets/design-system":  "0.1.0",
                          "@chase-sets/event-core":  "0.1.0",

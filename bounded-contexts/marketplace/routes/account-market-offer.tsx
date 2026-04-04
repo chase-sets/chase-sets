@@ -5,7 +5,7 @@ import type {
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { MarketplaceApiError, createMarketplaceRequestApiClient } from "../client";
 import {
   MarketplaceSellerOfferDetailPage,
@@ -16,7 +16,7 @@ const MARKETPLACE_DESCRIPTION =
   "Inspect and accept an incoming market offer.";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await requireActorFromIdentityApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "offers.view",
   });
@@ -40,7 +40,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-  const actor = await requireActorFromIdentityApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "offers.manage",
   });

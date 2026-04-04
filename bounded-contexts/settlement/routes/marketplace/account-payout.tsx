@@ -5,7 +5,7 @@ import type {
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   SettlementApiError,
   SettlementPayoutDetailPage,
@@ -14,7 +14,7 @@ import {
 import { createSettlementRequestApiClient } from "../../client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "payouts.view",
   });
@@ -33,7 +33,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "payouts.manage",
   });

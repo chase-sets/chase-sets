@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   SettlementWalletPage,
   type SettlementLedgerEntryRow,
@@ -10,7 +10,7 @@ import {
 import { createSettlementRequestApiClient } from "../../client";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "payouts.view",
   });

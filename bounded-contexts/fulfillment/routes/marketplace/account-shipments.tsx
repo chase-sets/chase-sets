@@ -2,7 +2,7 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   FulfillmentShipmentListPage,
   type FulfillmentShipmentListItem,
@@ -12,7 +12,7 @@ import { createFulfillmentRequestApiClient } from "../../client";
 const DEFAULT_SHIPMENT_QUERY = "limit=100&offset=0";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "fulfillment.view",
   });

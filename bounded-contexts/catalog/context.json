@@ -27,7 +27,11 @@
     "./routes/*",
     "./web"
   ],
+  "allowedContextDependencies": [],
   "requiredPorts": [],
+  "apiDeployables": [
+    "catalog-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/catalog",

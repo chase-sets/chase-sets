@@ -1,8 +1,8 @@
 import { serve } from "@hono/node-server";
+import { resolveActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { createCatalogServices } from "@chase-sets/catalog";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import { resolveActorFromIdentityApi } from "@chase-sets/identity/server";
 import { loadConfig } from "./config";
 import { buildCatalogApp } from "./app";
 
@@ -11,8 +11,8 @@ const pool = createPgPool(config.databaseUrl);
 const services = createCatalogServices(pool);
 const app = buildCatalogApp(services, {
   resolveActor: (request) =>
-    resolveActorFromIdentityApi({
-      identityApiBaseUrl: config.identityApiBaseUrl,
+    resolveActorFromAuthApi({
+      authApiBaseUrl: config.identityApiBaseUrl,
       request,
     }),
 });

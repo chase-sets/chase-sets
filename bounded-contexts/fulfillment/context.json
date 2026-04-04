@@ -18,7 +18,11 @@
     "./routes/*",
     "./web"
   ],
+  "allowedContextDependencies": [],
   "requiredPorts": [],
+  "apiDeployables": [
+    "marketplace-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",

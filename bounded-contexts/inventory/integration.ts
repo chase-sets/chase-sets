@@ -1,4 +1,11 @@
+import {
+  createForwardedAuthFetch,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/bounded-context-runtime";
+import { createInventoryApiClient } from "./client";
 import type { InventoryServices } from "./services";
+
+export type { InventoryRecordListItem } from "./records/ui/contracts";
 
 export type InventoryReservationPort = Readonly<{
   createReservation: (input: {
@@ -54,4 +61,11 @@ export function createInventoryReservationGateway(
       );
     },
   };
+}
+
+export function createInventoryRequestIntegrationClient(request: Request) {
+  return createInventoryApiClient({
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/inventory"),
+    fetch: createForwardedAuthFetch(request),
+  });
 }

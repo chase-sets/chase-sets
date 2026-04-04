@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
+import { resolveActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import { resolveActorFromIdentityApi } from "@chase-sets/identity/server";
 import { createInventoryServices } from "@chase-sets/inventory";
 import { buildInventoryApp } from "./app";
 import { loadConfig } from "./config";
@@ -11,8 +11,8 @@ const pool = createPgPool(config.databaseUrl);
 const services = createInventoryServices(pool);
 const app = buildInventoryApp(services, {
   resolveActor: (request) =>
-    resolveActorFromIdentityApi({
-      identityApiBaseUrl: config.identityApiBaseUrl,
+    resolveActorFromAuthApi({
+      authApiBaseUrl: config.identityApiBaseUrl,
       request,
     }),
 });

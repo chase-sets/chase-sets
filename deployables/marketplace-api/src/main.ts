@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
+import { resolveActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import { resolveActorFromIdentityApi } from "@chase-sets/identity/server";
 import {
   createFakePaymentProcessorGateway,
   createStripePaymentProcessorGateway,
@@ -36,8 +36,8 @@ const app = buildMarketplaceApp(
   services,
   {
     resolveActor: (request) =>
-      resolveActorFromIdentityApi({
-        identityApiBaseUrl: config.identityApiBaseUrl,
+      resolveActorFromAuthApi({
+        authApiBaseUrl: config.identityApiBaseUrl,
         request,
       }),
   },

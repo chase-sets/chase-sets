@@ -4,14 +4,13 @@ import type {
   MetaFunction,
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
 import {
-  InventoryApiError,
-  createInventoryRequestApiClient,
-} from "@chase-sets/inventory/client";
-import type { InventoryRecordListItem } from "@chase-sets/inventory/web";
+  createInventoryRequestIntegrationClient,
+  type InventoryRecordListItem,
+} from "@chase-sets/inventory/integration";
 import { MarketplaceApiError, createMarketplaceRequestApiClient } from "../client";
 import {
   MarketplaceListingListPage,
@@ -41,9 +40,9 @@ function toInventoryOption(
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "listings.view" });
+  await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const inventoryApi = createInventoryRequestApiClient(request);
+  const inventoryApi = createInventoryRequestIntegrationClient(request);
 
   const [listings, records] = await Promise.all([
     marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
@@ -59,7 +58,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "listings.manage" });
+  await requireActorFromAuthApi({ request, permission: "listings.manage" });
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createMarketplaceRequestApiClient(request);
@@ -75,7 +74,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     return redirect("/account/listings");
   } catch (error) {
-    if (error instanceof MarketplaceApiError || error instanceof InventoryApiError) {
+    if (error instanceof MarketplaceApiError || error instanceof Error) {
       return {
         error: error.message,
       };

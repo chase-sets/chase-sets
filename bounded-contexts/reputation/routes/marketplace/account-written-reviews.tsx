@@ -3,7 +3,7 @@ import { LinkButton, Stack } from "@chase-sets/design-system";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   ReputationReviewListPage,
   type ReputationReviewListItem,
@@ -13,7 +13,7 @@ import { createReputationRequestApiClient } from "../../client";
 const DEFAULT_REVIEW_QUERY = "limit=100&offset=0";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "reputation.view",
   });

@@ -12,6 +12,7 @@ import {
   useNavigation,
   useSubmit,
 } from "react-router";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   Button,
   Card,
@@ -23,12 +24,9 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
 import {
-  ApiError as OrderingApiError,
-  type OrderingOrderDetail,
-} from "@chase-sets/ordering/web";
-import { createOrderingRequestApiClient } from "@chase-sets/ordering/client";
+  createOrderingRequestIntegrationClient,
+} from "@chase-sets/ordering/integration";
 import { createPaymentsRequestApiClient } from "../../client";
 
 function parseOrderIds(value: string | null) {
@@ -43,7 +41,7 @@ function formatMoney(amount: string) {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "orders.manage",
   });
@@ -54,7 +52,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect("/account/orders");
   }
 
-  const orderingApi = createOrderingRequestApiClient(request);
+  const orderingApi = createOrderingRequestIntegrationClient(request);
 
   try {
     const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getBuyerOrder(orderId)));
@@ -64,7 +62,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       autostart: url.searchParams.get("autostart") === "1",
     };
   } catch (error) {
-    if (error instanceof OrderingApiError && error.status === 404) {
+    if (error instanceof Error && "status" in error && error.status === 404) {
       throw new Response("Order not found.", { status: 404 });
     }
 
@@ -73,7 +71,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "orders.manage",
   });

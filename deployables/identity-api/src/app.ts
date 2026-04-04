@@ -1,17 +1,13 @@
 import { Hono } from "hono";
-import {
-  buildIdentityApi,
-  contextManifest as identityManifest,
-  type IdentityServices,
-} from "@chase-sets/identity";
+import { type IdentityServices } from "@chase-sets/identity";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
-  createResolvedApiMount,
   drainProjectors,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
 import { createHealthRoutes } from "@chase-sets/http-host/health";
+import { createContextApiMounts } from "./context-api-mounts.generated";
 import { errorHandler } from "./middleware/error-handler";
 import {
   createIdentityAuthMiddleware,
@@ -20,17 +16,17 @@ import {
 
 export function buildIdentityApp(services: IdentityServices) {
   const app = new Hono<TenantContextEnv>();
-  const apiMount = createResolvedApiMount(
-    identityManifest.contextName,
-    identityManifest.apiMounts[0],
-    buildIdentityApi(services),
-  );
+  const apiMounts = createContextApiMounts(services);
 
   app.onError(errorHandler);
   app.route("/health", createHealthRoutes());
-  attachApiMountMiddleware(app, [apiMount.mountPath], createIdentityAuthMiddleware(services));
-  attachWriteDrainMiddleware(app, [apiMount], () => drainProjectors(services.projectors));
-  mountApiRouters(app, [apiMount]);
+  attachApiMountMiddleware(
+    app,
+    apiMounts.map((mount) => mount.mountPath),
+    createIdentityAuthMiddleware(services),
+  );
+  attachWriteDrainMiddleware(app, apiMounts, () => drainProjectors(services.projectors));
+  mountApiRouters(app, apiMounts);
 
   return app;
 }

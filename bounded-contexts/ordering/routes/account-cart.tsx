@@ -5,7 +5,7 @@ import type {
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { createOrderingRequestApiClient } from "../client";
 import { OrderingCartPage } from "../web";
 
@@ -13,7 +13,7 @@ const MARKETPLACE_DESCRIPTION =
   "Review cart lines, adjust quantity, and start checkout.";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "orders.view" });
+  await requireActorFromAuthApi({ request, permission: "orders.view" });
   const api = createOrderingRequestApiClient(request);
 
   return {
@@ -22,7 +22,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "orders.manage" });
+  await requireActorFromAuthApi({ request, permission: "orders.manage" });
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createOrderingRequestApiClient(request);

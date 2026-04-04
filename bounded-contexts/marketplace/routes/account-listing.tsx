@@ -5,7 +5,7 @@ import type {
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { MarketplaceApiError, createMarketplaceRequestApiClient } from "../client";
 import {
   MarketplaceListingDetailPage,
@@ -16,7 +16,7 @@ const MARKETPLACE_DESCRIPTION =
   "Inspect listing inventory, pricing, quantity caps, and publication status.";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "listings.view" });
+  await requireActorFromAuthApi({ request, permission: "listings.view" });
   const api = createMarketplaceRequestApiClient(request);
 
   try {
@@ -33,7 +33,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "listings.manage" });
+  await requireActorFromAuthApi({ request, permission: "listings.manage" });
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createMarketplaceRequestApiClient(request);

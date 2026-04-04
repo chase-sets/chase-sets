@@ -6,7 +6,7 @@ import type {
 import { redirect, useActionData, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   ApiError as InventoryApiError,
   StorageLocationPage,
@@ -15,7 +15,7 @@ import {
 import { createInventoryRequestApiClient } from "../../client";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "inventory.view",
   });
@@ -24,7 +24,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "inventory.manage",
   });

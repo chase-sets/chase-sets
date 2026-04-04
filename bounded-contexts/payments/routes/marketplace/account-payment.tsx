@@ -4,6 +4,7 @@ import {
   useLoaderData,
   useRevalidator,
 } from "react-router";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   Badge,
   Button,
@@ -16,12 +17,10 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
 import {
-  ApiError as OrderingApiError,
+  createOrderingRequestIntegrationClient,
   type OrderingOrderDetail,
-} from "@chase-sets/ordering/web";
-import { createOrderingRequestApiClient } from "@chase-sets/ordering/client";
+} from "@chase-sets/ordering/integration";
 import {
   PaymentsApiError,
   type PaymentsPaymentDetail,
@@ -125,12 +124,12 @@ function statusTone(status: string) {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({
+  await requireActorFromAuthApi({
     request,
     permission: "orders.view",
   });
   const paymentsApi = createPaymentsRequestApiClient(request);
-  const orderingApi = createOrderingRequestApiClient(request);
+  const orderingApi = createOrderingRequestIntegrationClient(request);
 
   try {
     const payment = await paymentsApi.getBuyerPayment(params.paymentId!);
@@ -145,7 +144,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   } catch (error) {
     if (
       (error instanceof PaymentsApiError && error.status === 404) ||
-      (error instanceof OrderingApiError && error.status === 404)
+      (error instanceof Error && "status" in error && error.status === 404)
     ) {
       throw new Response("Payment not found.", { status: 404 });
     }

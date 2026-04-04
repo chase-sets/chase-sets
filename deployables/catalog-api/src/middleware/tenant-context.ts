@@ -4,7 +4,7 @@ import {
   createActorEventStoreContext,
   hasPermission,
   type ResolvedActor,
-} from "@chase-sets/identity/server";
+} from "@chase-sets/auth-runtime";
 
 export type TenantContextEnv = {
   Variables: {

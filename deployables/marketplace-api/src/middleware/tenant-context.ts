@@ -3,7 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createActorEventStoreContext,
   type ResolvedActor,
-} from "@chase-sets/identity/server";
+} from "@chase-sets/auth-runtime";
 
 export type TenantContextEnv = {
   Variables: {

@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   MarketplaceApiError,
   createMarketplaceRequestApiClient,
@@ -15,7 +15,7 @@ const MARKETPLACE_DESCRIPTION =
   "Review pricing, demand, and status for one buyer offer.";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "offers.view" });
+  await requireActorFromAuthApi({ request, permission: "offers.view" });
   const api = createMarketplaceRequestApiClient(request);
 
   try {

@@ -8,7 +8,9 @@ export { settlementSchemaSql } from "./schema";
 export { seedSettlementDatabase } from "./seed";
 
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import { resolveContextApiMounts } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import contextManifest from "./context.json";
 import type { SettlementServices } from "./services";
 import { buildSettlementApi } from "./api";
 import { createSettlementServices } from "./services";
@@ -25,3 +27,9 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, void> 
   projectors: (services) => services.projectors,
   seed: seedSettlementDatabase,
 };
+
+export function resolveApiMounts(services: SettlementServices) {
+  return resolveContextApiMounts(contextManifest.contextName, contextManifest.apiMounts, [
+    buildSettlementApi(services),
+  ]);
+}

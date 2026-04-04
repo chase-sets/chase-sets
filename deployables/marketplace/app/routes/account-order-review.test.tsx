@@ -7,13 +7,13 @@ const {
   mockUseLoaderData,
   mockUseActionData,
   mockUseNavigation,
-  mockRequireActorFromIdentityApi,
+  mockRequireActorFromAuthApi,
   mockCreateReputationRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
   mockUseNavigation: vi.fn(),
-  mockRequireActorFromIdentityApi: vi.fn(),
+  mockRequireActorFromAuthApi: vi.fn(),
   mockCreateReputationRequestApiClient: vi.fn(),
 }));
 
@@ -39,14 +39,14 @@ vi.mock("@chase-sets/reputation/client", async () => {
   };
 });
 
-vi.mock("@chase-sets/identity/server", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>(
-    "@chase-sets/identity/server",
+vi.mock("@chase-sets/auth-runtime", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/auth-runtime")>(
+    "@chase-sets/auth-runtime",
   );
 
   return {
     ...actual,
-    requireActorFromIdentityApi: mockRequireActorFromIdentityApi,
+    requireActorFromAuthApi: mockRequireActorFromAuthApi,
   };
 });
 
@@ -68,7 +68,7 @@ describe("marketplace account order review route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
     mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockRequireActorFromIdentityApi.mockResolvedValue({
+    mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: ["reputation.view", "reputation.manage"],
     });

@@ -60,6 +60,9 @@
       "@chase-sets/marketplace/client": [
         "./bounded-contexts/marketplace/client.ts"
       ],
+      "@chase-sets/marketplace/integration": [
+        "./bounded-contexts/marketplace/integration.ts"
+      ],
       "@chase-sets/marketplace/web": [
         "./bounded-contexts/marketplace/web.ts"
       ],
@@ -87,6 +90,9 @@
       "@chase-sets/reputation/client": [
         "./bounded-contexts/reputation/client.ts"
       ],
+      "@chase-sets/reputation/integration": [
+        "./bounded-contexts/reputation/integration.ts"
+      ],
       "@chase-sets/reputation/web": [
         "./bounded-contexts/reputation/web.ts"
       ],
@@ -111,6 +117,9 @@
       "@chase-sets/inventory/client": [
         "./bounded-contexts/inventory/client.ts"
       ],
+      "@chase-sets/inventory/integration": [
+        "./bounded-contexts/inventory/integration.ts"
+      ],
       "@chase-sets/inventory/web": [
         "./bounded-contexts/inventory/web.ts"
       ],
@@ -122,6 +131,9 @@
       ],
       "@chase-sets/ordering/client": [
         "./bounded-contexts/ordering/client.ts"
+      ],
+      "@chase-sets/ordering/integration": [
+        "./bounded-contexts/ordering/integration.ts"
       ],
       "@chase-sets/ordering/web": [
         "./bounded-contexts/ordering/web.ts"
@@ -149,6 +161,9 @@
       ],
       "@chase-sets/auth-context": [
         "./contracts/auth-context/index.ts"
+      ],
+      "@chase-sets/auth-runtime": [
+        "./infrastructure/auth-runtime/index.ts"
       ],
       "@chase-sets/bounded-context-module": [
         "./contracts/bounded-context-module/index.ts"

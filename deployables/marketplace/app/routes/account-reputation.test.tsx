@@ -4,11 +4,11 @@ import { ChaseRoot } from "@chase-sets/design-system";
 
 const {
   mockUseLoaderData,
-  mockRequireActorFromIdentityApi,
+  mockRequireActorFromAuthApi,
   mockCreateReputationRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
-  mockRequireActorFromIdentityApi: vi.fn(),
+  mockRequireActorFromAuthApi: vi.fn(),
   mockCreateReputationRequestApiClient: vi.fn(),
 }));
 
@@ -32,14 +32,14 @@ vi.mock("@chase-sets/reputation/client", async () => {
   };
 });
 
-vi.mock("@chase-sets/identity/server", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>(
-    "@chase-sets/identity/server",
+vi.mock("@chase-sets/auth-runtime", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/auth-runtime")>(
+    "@chase-sets/auth-runtime",
   );
 
   return {
     ...actual,
-    requireActorFromIdentityApi: mockRequireActorFromIdentityApi,
+    requireActorFromAuthApi: mockRequireActorFromAuthApi,
   };
 });
 
@@ -47,7 +47,7 @@ import MarketplaceAccountReputationRoute, { loader } from "./account-reputation"
 
 describe("marketplace account reputation route", () => {
   beforeEach(() => {
-    mockRequireActorFromIdentityApi.mockResolvedValue({
+    mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_1",
       permissions: ["reputation.view"],
     });

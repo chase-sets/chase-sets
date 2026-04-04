@@ -16,10 +16,15 @@
   "publicExports": [
     ".",
     "./client",
+    "./integration",
     "./routes/*",
     "./web"
   ],
+  "allowedContextDependencies": [],
   "requiredPorts": [],
+  "apiDeployables": [
+    "marketplace-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",

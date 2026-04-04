@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import type { OrderingOrderDetail } from "@chase-sets/ordering/web";
+import type { OrderingOrderDetail } from "@chase-sets/ordering/integration";
 import type { ComponentProps } from "react";
 
 const {
@@ -9,16 +9,16 @@ const {
   mockUseLoaderData,
   mockUseNavigation,
   mockUseSubmit,
-  mockRequireActorFromIdentityApi,
-  mockCreateOrderingRequestApiClient,
+  mockRequireActorFromAuthApi,
+  mockCreateOrderingRequestIntegrationClient,
   mockCreatePaymentsRequestApiClient,
 } = vi.hoisted(() => ({
   mockUseActionData: vi.fn(),
   mockUseLoaderData: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSubmit: vi.fn(),
-  mockRequireActorFromIdentityApi: vi.fn(),
-  mockCreateOrderingRequestApiClient: vi.fn(),
+  mockRequireActorFromAuthApi: vi.fn(),
+  mockCreateOrderingRequestIntegrationClient: vi.fn(),
   mockCreatePaymentsRequestApiClient: vi.fn(),
 }));
 
@@ -35,14 +35,15 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("@chase-sets/ordering/client", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/ordering/client")>(
-    "@chase-sets/ordering/client",
+vi.mock("@chase-sets/ordering/integration", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/ordering/integration")>(
+    "@chase-sets/ordering/integration",
   );
 
   return {
     ...actual,
-    createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
+    createOrderingRequestIntegrationClient:
+      mockCreateOrderingRequestIntegrationClient,
   };
 });
 
@@ -57,14 +58,14 @@ vi.mock("@chase-sets/payments/client", async () => {
   };
 });
 
-vi.mock("@chase-sets/identity/server", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>(
-    "@chase-sets/identity/server",
+vi.mock("@chase-sets/auth-runtime", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/auth-runtime")>(
+    "@chase-sets/auth-runtime",
   );
 
   return {
     ...actual,
-    requireActorFromIdentityApi: mockRequireActorFromIdentityApi,
+    requireActorFromAuthApi: mockRequireActorFromAuthApi,
   };
 });
 
@@ -105,7 +106,7 @@ describe("marketplace account payment start route", () => {
     mockUseActionData.mockReturnValue(undefined);
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSubmit.mockReturnValue(vi.fn());
-    mockRequireActorFromIdentityApi.mockResolvedValue({
+    mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: ["orders.view", "orders.manage"],
     });
@@ -144,7 +145,7 @@ describe("marketplace account payment start route", () => {
       .mockResolvedValueOnce(buildOrder("ord_1"))
       .mockResolvedValueOnce(buildOrder("ord_2"));
 
-    mockCreateOrderingRequestApiClient.mockReturnValue({
+    mockCreateOrderingRequestIntegrationClient.mockReturnValue({
       getBuyerOrder,
     });
 

@@ -8,7 +8,9 @@ export { fulfillmentSchemaSql } from "./schema";
 export { seedFulfillmentDatabase } from "./seed";
 
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import { resolveContextApiMounts } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import contextManifest from "./context.json";
 import type { FulfillmentServices } from "./services";
 import { buildFulfillmentApi } from "./api";
 import { createFulfillmentServices } from "./services";
@@ -25,3 +27,9 @@ export const module: BcApiModule<FulfillmentServices, PgTransactionalPool, void>
   projectors: (services) => services.projectors,
   seed: seedFulfillmentDatabase,
 };
+
+export function resolveApiMounts(services: FulfillmentServices) {
+  return resolveContextApiMounts(contextManifest.contextName, contextManifest.apiMounts, [
+    buildFulfillmentApi(services),
+  ]);
+}

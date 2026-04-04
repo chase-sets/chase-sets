@@ -14,6 +14,7 @@
                     "reseed":  "tsx --env-file=.env src/scripts/reset-db.ts"
                 },
     "dependencies":  {
+                         "@chase-sets/auth-runtime":  "0.1.0",
                          "@chase-sets/http-host":  "0.1.0",
                          "@chase-sets/bounded-context-runtime":  "0.1.0",
                          "@chase-sets/event-core":  "0.1.0",

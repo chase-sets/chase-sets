@@ -1,13 +1,14 @@
 import { redirect } from "react-router";
+import {
+  hasPermission,
+  resolveActorFromAuthApi,
+  type ResolvedActor,
+} from "@chase-sets/auth-runtime";
 import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime";
-import { IdentityApiError } from "@chase-sets/identity/web";
 import {
   completeBrowserAuthentication,
-  hasPermission,
   requireAccountSelectionTokenOrRedirect,
-  resolveActorFromIdentityApi,
   signOutActorViaIdentityApi,
-  type ResolvedActor,
 } from "@chase-sets/identity/server";
 
 function buildCurrentPath(request: Request) {
@@ -25,18 +26,10 @@ export function getReturnTo(request: Request, fallback: string) {
 }
 
 export async function resolveMarketplaceActor(request: Request) {
-  try {
-    return await resolveActorFromIdentityApi({
-      identityApiBaseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
-      request,
-    });
-  } catch (error) {
-    if (error instanceof IdentityApiError && error.status === 401) {
-      return null;
-    }
-
-    throw error;
-  }
+  return resolveActorFromAuthApi({
+    authApiBaseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
+    request,
+  });
 }
 
 export async function requireMarketplaceActor(

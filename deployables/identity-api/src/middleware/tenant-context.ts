@@ -9,10 +9,10 @@ import type {
   UserId,
 } from "@chase-sets/primitives/typed-ids";
 import {
-  createActorEventStoreContext,
   resolveActorFromRequest,
   type ResolvedActor,
 } from "@chase-sets/identity/server";
+import { createActorEventStoreContext } from "@chase-sets/auth-runtime";
 import {
   createBootstrapContext,
   type IdentityServices,

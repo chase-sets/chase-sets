@@ -20,9 +20,15 @@
     "./routes/*",
     "./web"
   ],
+  "allowedContextDependencies": [
+    "@chase-sets/ordering"
+  ],
   "requiredPorts": [
     "processorGateway",
     "getOrderSnapshot"
+  ],
+  "apiDeployables": [
+    "marketplace-api"
   ],
   "apiMounts": [
     {

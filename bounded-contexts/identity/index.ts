@@ -9,7 +9,9 @@ export { identitySchemaSql } from "./schema";
 export { seedIdentityDatabase } from "./seed";
 
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import { resolveContextApiMounts } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import contextManifest from "./context.json";
 import type { IdentityServices } from "./services";
 import { buildIdentityApi } from "./api";
 import { createIdentityServices } from "./services";
@@ -26,3 +28,9 @@ export const module: BcApiModule<IdentityServices, PgTransactionalPool, void> = 
   projectors: (services) => services.projectors,
   seed: seedIdentityDatabase,
 };
+
+export function resolveApiMounts(services: IdentityServices) {
+  return resolveContextApiMounts(contextManifest.contextName, contextManifest.apiMounts, [
+    buildIdentityApi(services),
+  ]);
+}

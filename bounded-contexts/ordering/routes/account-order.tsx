@@ -4,14 +4,13 @@ import type {
   MetaFunction,
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { Card, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "@chase-sets/identity/server";
 import {
-  ReputationApiError,
-  createReputationRequestApiClient,
-} from "@chase-sets/reputation/client";
-import type { ReputationReviewOpportunity } from "@chase-sets/reputation/web";
+  createReputationRequestIntegrationClient,
+  type ReputationReviewOpportunity,
+} from "@chase-sets/reputation/integration";
 import { OrderingApiError, createOrderingRequestApiClient } from "../client";
 import {
   OrderingOrderDetailPage,
@@ -22,12 +21,12 @@ const MARKETPLACE_DESCRIPTION =
   "Inspect a buyer order, cancel it while still open, and see review readiness.";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await requireActorFromIdentityApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "orders.view",
   });
   const orderingApi = createOrderingRequestApiClient(request);
-  const reputationApi = createReputationRequestApiClient(request);
+  const reputationApi = createReputationRequestIntegrationClient(request);
 
   try {
     const order = await orderingApi.getBuyerOrder(params.orderId!);
@@ -40,7 +39,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       try {
         reviewOpportunity = await reputationApi.getOrderReviewOpportunity(params.orderId!);
       } catch (error) {
-        if (!(error instanceof ReputationApiError && error.status === 404)) {
+        if (!(error instanceof Error && "status" in error && error.status === 404)) {
           throw error;
         }
       }
@@ -60,7 +59,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromIdentityApi({ request, permission: "orders.manage" });
+  await requireActorFromAuthApi({ request, permission: "orders.manage" });
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createOrderingRequestApiClient(request);

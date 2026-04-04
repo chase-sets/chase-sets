@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  buildApiMountFileContent,
+  deployableApiMountConfig,
+  resolveDeployableApiMountPath,
+} from "./deployable-api-mount-support.mjs";
+import {
   buildRoutesFileContent,
   buildWrapperContent,
   deployableRouteConfig,
@@ -40,11 +45,14 @@ const manifestRequiredFields = [
   "slices",
   "allowedSupportDirectories",
   "publicExports",
+  "allowedContextDependencies",
   "requiredPorts",
+  "apiDeployables",
   "apiMounts",
   "deployableContributions",
 ];
 const knownDeployables = new Set(Object.keys(deployableRouteConfig));
+const knownApiDeployables = new Set(Object.keys(deployableApiMountConfig));
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
 const violations = [];
@@ -102,6 +110,18 @@ function isStringArray(value) {
 
 function isBoolean(value) {
   return value === true || value === false;
+}
+
+function isAllowedPublicExportName(value) {
+  return (
+    value === "." ||
+    value === "./client" ||
+    value === "./integration" ||
+    value === "./server" ||
+    value === "./web" ||
+    value === "./routes/*" ||
+    value === "./ui/*"
+  );
 }
 
 function resolveExistingModulePath(rootDir, relativeSpecifier) {
@@ -218,8 +238,16 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "publicExports must be an array of strings");
     }
 
+    if (!isStringArray(manifest.allowedContextDependencies)) {
+      addPathViolation(`${relativeRoot}/context.json`, "allowedContextDependencies must be an array of package names");
+    }
+
     if (!isStringArray(manifest.requiredPorts)) {
       addPathViolation(`${relativeRoot}/context.json`, "requiredPorts must be an array of strings");
+    }
+
+    if (!isStringArray(manifest.apiDeployables)) {
+      addPathViolation(`${relativeRoot}/context.json`, "apiDeployables must be an array of deployable names");
     }
 
     if (!Array.isArray(manifest.apiMounts) || manifest.apiMounts.length === 0) {
@@ -253,13 +281,6 @@ function isAllowedContextImporter(relativeFile) {
     relativeFile.endsWith(".test.tsx") ||
     relativeFile.endsWith("/seed.ts") ||
     relativeFile.endsWith("/seed.test.ts")
-  );
-}
-
-function isAllowedContextRouteCollaboration(relativeFile, specifier) {
-  return (
-    relativeFile.includes("/routes/") &&
-    /^@chase-sets\/[^/]+\/(web|client|server|integration|routes\/.+)$/.test(specifier)
   );
 }
 
@@ -307,6 +328,10 @@ async function validateContextManifest(context) {
   }
 
   for (const publicExport of manifest.publicExports ?? []) {
+    if (!isAllowedPublicExportName(publicExport)) {
+      addPathViolation(`${root}/context.json`, `publicExports contains an unsupported surface (${publicExport})`);
+    }
+
     const exportTarget =
       publicExport === "."
         ? packageJson.exports?.["."] ?? packageJson.exports
@@ -332,6 +357,18 @@ async function validateContextManifest(context) {
 
   if ((manifest.deployableContributions?.length ?? 0) > 0 && !(manifest.publicExports ?? []).includes("./routes/*")) {
     addPathViolation(`${root}/context.json`, "contexts with route contributions must export ./routes/* publicly");
+  }
+
+  for (const dependency of manifest.allowedContextDependencies ?? []) {
+    if (typeof dependency !== "string" || !dependency.startsWith("@chase-sets/")) {
+      addPathViolation(`${root}/context.json`, `allowedContextDependencies must contain workspace package names (${dependency})`);
+    }
+  }
+
+  for (const deployable of manifest.apiDeployables ?? []) {
+    if (!knownApiDeployables.has(deployable)) {
+      addPathViolation(`${root}/context.json`, `apiDeployables must be one of ${[...knownApiDeployables].join(", ")}`);
+    }
   }
 
   const primaryMounts = (manifest.apiMounts ?? []).filter((mount) => mount.kind === "primary");
@@ -376,6 +413,39 @@ async function validateContextManifest(context) {
         `${root}/${entry.name}`,
         "top-level bounded-context directory must be a declared slice, routes, or an explicitly allowed support directory",
       );
+    }
+  }
+}
+
+async function validateDeployableApiMountOwnership(contexts) {
+  const contextsByDeployable = new Map(
+    Object.keys(deployableApiMountConfig).map((deployable) => [deployable, []]),
+  );
+
+  for (const context of contexts.values()) {
+    for (const deployable of context.manifest.apiDeployables ?? []) {
+      contextsByDeployable.get(deployable)?.push({
+        contextName: context.manifest.contextName,
+        packageName: context.packageName,
+      });
+    }
+  }
+
+  for (const [deployable, unsortedContexts] of contextsByDeployable.entries()) {
+    const expectedContexts = [...unsortedContexts].sort((left, right) =>
+      left.contextName.localeCompare(right.contextName),
+    );
+    const inventoryPath = resolveDeployableApiMountPath(repoRoot, deployable);
+
+    if (!existsSync(inventoryPath)) {
+      addViolation(inventoryPath, "generated API mount inventory is missing");
+      continue;
+    }
+
+    const actualInventory = await readFile(inventoryPath, "utf8");
+    const expectedInventory = buildApiMountFileContent(expectedContexts);
+    if (actualInventory !== expectedInventory) {
+      addViolation(inventoryPath, "generated API mount inventory is out of date");
     }
   }
 }
@@ -541,14 +611,28 @@ function checkImport(file, specifier) {
   if (
     importerContextRoot !== null &&
     !isAllowedContextImporter(relativeFile) &&
-    !isAllowedContextRouteCollaboration(relativeFile, normalized) &&
     boundedContextPackages.some(
       (packageName) =>
         matchesPackageSpecifier(normalized, packageName) &&
         !matchesPackageSpecifier(normalized, contextManifests.get(importerContextRoot)?.packageName ?? ""),
     )
   ) {
-    addViolation(file, `bounded contexts must not import another bounded context (${specifier})`);
+    const importerContext = contextManifests.get(importerContextRoot);
+    const dependency = [...contextManifests.values()].find(({ packageName }) =>
+      matchesPackageSpecifier(normalized, packageName),
+    );
+
+    if (!dependency) {
+      addViolation(file, `bounded contexts must not import another bounded context (${specifier})`);
+    } else {
+      const isAllowedIntegrationImport =
+        normalized === `${dependency.packageName}/integration` &&
+        (importerContext?.manifest.allowedContextDependencies ?? []).includes(dependency.packageName);
+
+      if (!isAllowedIntegrationImport) {
+        addViolation(file, `bounded contexts must use explicit integration exports only (${specifier})`);
+      }
+    }
   }
 
   if (relativeFile.startsWith("contracts/")) {
@@ -612,6 +696,7 @@ for (const context of contextManifests.values()) {
 }
 
 await validateDeployableRouteOwnership(contextManifests);
+await validateDeployableApiMountOwnership(contextManifests);
 
 const topLevelEntries = await readdir(repoRoot, { withFileTypes: true });
 for (const entry of topLevelEntries) {
@@ -665,6 +750,14 @@ for (const root of roots) {
     }
 
     const content = await readFile(file, "utf8");
+
+    if (
+      normalizedFile.startsWith("deployables/") &&
+      /\/src\/app\.ts$/.test(normalizedFile) &&
+      /\bcreateResolvedApiMount\s*\(/.test(content)
+    ) {
+      addViolation(file, "deployable API hosts must consume generated API mount inventories");
+    }
 
     if (normalizedFile.startsWith("contracts/") && /\bprocess\.env\b/.test(content)) {
       addViolation(file, "contracts must not read environment variables");

@@ -154,6 +154,27 @@ export function createResolvedApiMount<TRouter>(
   };
 }
 
+export function resolveContextApiMounts<TRouter>(
+  contextName: string,
+  mounts: readonly Readonly<{
+    mountPath: string;
+    kind: string;
+    requiresAuth: boolean;
+    drainProjectorsOnWrite: boolean;
+  }>[],
+  routers: readonly TRouter[],
+): readonly ResolvedApiMount<TRouter>[] {
+  if (mounts.length !== routers.length) {
+    throw new Error(
+      `Context '${contextName}' declared ${mounts.length} API mounts but provided ${routers.length} routers.`,
+    );
+  }
+
+  return mounts.map((mount, index) =>
+    createResolvedApiMount(contextName, mount, routers[index]),
+  );
+}
+
 function normalizeMountWildcard(mountPath: string) {
   return mountPath.endsWith("/*") ? mountPath : `${mountPath}/*`;
 }

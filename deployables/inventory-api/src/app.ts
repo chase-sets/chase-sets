@@ -1,17 +1,13 @@
 import { Hono } from "hono";
-import {
-  buildInventoryApi,
-  contextManifest as inventoryManifest,
-  type InventoryServices,
-} from "@chase-sets/inventory";
+import { type InventoryServices } from "@chase-sets/inventory";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
-  createResolvedApiMount,
   drainProjectors,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
 import { createHealthRoutes } from "@chase-sets/http-host/health";
+import { createContextApiMounts } from "./context-api-mounts.generated";
 import {
   createInventoryAuthMiddleware,
   type InventoryActorResolver,
@@ -28,21 +24,17 @@ export function buildInventoryApp(
   options: BuildInventoryAppOptions = {},
 ) {
   const app = new Hono<TenantContextEnv>();
-  const apiMount = createResolvedApiMount(
-    inventoryManifest.contextName,
-    inventoryManifest.apiMounts[0],
-    buildInventoryApi(services),
-  );
+  const apiMounts = createContextApiMounts(services);
 
   app.onError(errorHandler);
   app.route("/health", createHealthRoutes());
   attachApiMountMiddleware(
     app,
-    [apiMount.mountPath],
+    apiMounts.map((mount) => mount.mountPath),
     createInventoryAuthMiddleware(options.resolveActor ?? (async () => null)),
   );
-  attachWriteDrainMiddleware(app, [apiMount], () => drainProjectors(services.projectors));
-  mountApiRouters(app, [apiMount]);
+  attachWriteDrainMiddleware(app, apiMounts, () => drainProjectors(services.projectors));
+  mountApiRouters(app, apiMounts);
 
   return app;
 }

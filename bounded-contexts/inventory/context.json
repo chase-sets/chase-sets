@@ -25,7 +25,11 @@
     "./routes/*",
     "./web"
   ],
+  "allowedContextDependencies": [],
   "requiredPorts": [],
+  "apiDeployables": [
+    "inventory-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/inventory",

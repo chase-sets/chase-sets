@@ -12,6 +12,7 @@
                     "seed":  "tsx --env-file=.env src/seed.ts"
                 },
     "dependencies":  {
+                         "@chase-sets/auth-runtime":  "0.1.0",
                          "@chase-sets/http-host":  "0.1.0",
                          "@chase-sets/identity":  "0.1.0",
                          "@chase-sets/event-core":  "0.1.0",

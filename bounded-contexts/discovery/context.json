@@ -22,7 +22,14 @@
     "./routes/*",
     "./web"
   ],
+  "allowedContextDependencies": [
+    "@chase-sets/marketplace",
+    "@chase-sets/ordering"
+  ],
   "requiredPorts": [],
+  "apiDeployables": [
+    "marketplace-api"
+  ],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",

@@ -22,9 +22,15 @@
     "./routes/*",
     "./web"
   ],
+  "allowedContextDependencies": [
+    "@chase-sets/reputation"
+  ],
   "requiredPorts": [
     "inventoryReservations",
     "supplyResolver"
+  ],
+  "apiDeployables": [
+    "marketplace-api"
   ],
   "apiMounts": [
     {

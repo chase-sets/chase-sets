@@ -1,0 +1,15 @@
+{
+  "name": "@chase-sets/auth-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/auth-context": "0.1.0",
+    "@chase-sets/bounded-context-runtime": "0.1.0",
+    "@chase-sets/event-core": "0.1.0"
+  }
+}
