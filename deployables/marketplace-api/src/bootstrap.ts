@@ -1,112 +1,51 @@
-import { catalogAuthoringSchemaSql } from "@chase-sets/catalog-authoring";
+import { module as catalogModule } from "@chase-sets/catalog-authoring";
 import {
-  createDiscoveryServices,
-  discoverySchemaSql,
+  module as discoveryModule,
 } from "@chase-sets/discovery";
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import {
-  createFulfillmentServices,
-  fulfillmentSchemaSql,
+  module as fulfillmentModule,
 } from "@chase-sets/fulfillment";
 import {
-  createMarketplaceServices,
-  marketplaceSchemaSql,
+  createMarketplaceSupplyResolver,
+  module as marketplaceModule,
 } from "@chase-sets/marketplace-context";
-import { identitySchemaSql } from "@chase-sets/identity";
+import { module as identityModule } from "@chase-sets/identity";
 import {
-  createInventoryServices,
-  inventorySchemaSql,
+  module as inventoryModule,
 } from "@chase-sets/inventory";
 import {
-  createOrderingServices,
-  orderingSchemaSql,
+  createOrderingModule,
 } from "@chase-sets/ordering";
 import {
-  createPaymentsServices,
+  createPaymentsModule,
   createFakePaymentProcessorGateway,
-  paymentsSchemaSql,
 } from "@chase-sets/payments";
 import {
-  createReputationServices,
-  reputationSchemaSql,
+  module as reputationModule,
 } from "@chase-sets/reputation";
 import {
-  createSettlementServices,
-  settlementSchemaSql,
+  module as settlementModule,
 } from "@chase-sets/settlement";
-import type { Projector } from "@chase-sets/event-core/projector";
+import {
+  collectProjectors,
+  drainProjectors,
+  waitForDatabase,
+} from "@chase-sets/bounded-context-runtime";
 import { loadBootstrapConfig } from "./config";
 import { seedMarketplaceStack } from "./seed-stack";
-
-const RETRY_DELAY_MS = 1_000;
-const MAX_RETRIES = 30;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForDatabase(
-  pool: ReturnType<typeof createPgPool>,
-  description: string,
-) {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
-    try {
-      await pool.query("SELECT 1");
-      return;
-    } catch (error) {
-      if (attempt === MAX_RETRIES) {
-        throw new Error(
-          `${description} database did not become ready after ${MAX_RETRIES} attempts.`,
-          { cause: error },
-        );
-      }
-
-      await sleep(RETRY_DELAY_MS);
-    }
-  }
-}
-
-async function drainProjectors(label: string, projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-
-  console.log(`${label} projections are up to date.`);
-}
 
 async function bootstrap() {
   const config = loadBootstrapConfig();
   const pool = createPgPool(config.databaseUrl);
 
   try {
-    await waitForDatabase(pool, "Marketplace");
-    await pool.query(
-      [
-        catalogAuthoringSchemaSql,
-        identitySchemaSql,
-        inventorySchemaSql,
-        discoverySchemaSql,
-        marketplaceSchemaSql,
-        orderingSchemaSql,
-        fulfillmentSchemaSql,
-        paymentsSchemaSql,
-        reputationSchemaSql,
-        settlementSchemaSql,
-      ].join("\n\n"),
-    );
-    await seedMarketplaceStack(pool);
-
-    const discovery = createDiscoveryServices(pool);
-    const inventory = createInventoryServices(pool);
-    const marketplace = createMarketplaceServices(pool);
-    const ordering = createOrderingServices(pool, {
+    await waitForDatabase(pool, "Marketplace API");
+    const discovery = discoveryModule.createServices(pool);
+    const inventory = inventoryModule.createServices(pool);
+    const marketplace = marketplaceModule.createServices(pool);
+    const orderingModule = createOrderingModule({
+      supplyResolver: createMarketplaceSupplyResolver(marketplace),
       inventoryReservations: {
         createReservation: async ({ sellerAccountId, inventoryRecordId, quantity, reason, notes, context }) => {
           const result = await inventory.holds.createHold(
@@ -138,9 +77,8 @@ async function bootstrap() {
         },
       },
     });
-    const fulfillment = createFulfillmentServices(pool);
-    const reputation = createReputationServices(pool);
-    const payments = createPaymentsServices(pool, {
+    const ordering = orderingModule.createServices(pool);
+    const paymentsModule = createPaymentsModule({
       processorGateway: createFakePaymentProcessorGateway(),
       getOrderSnapshot: async (orderId, buyerAccountId) => {
         const order = await ordering.orders.getBuyerOrder(orderId, buyerAccountId);
@@ -154,17 +92,40 @@ async function bootstrap() {
           : null;
       },
     });
-    const settlement = createSettlementServices(pool);
-    await drainProjectors("Marketplace", [
-      ...inventory.projectors,
-      ...discovery.projectors,
-      ...marketplace.projectors,
-      ...payments.projectors,
-      ...fulfillment.projectors,
-      ...ordering.projectors,
-      ...reputation.projectors,
-      ...settlement.projectors,
-    ]);
+    const fulfillment = fulfillmentModule.createServices(pool);
+    const reputation = reputationModule.createServices(pool);
+    const payments = paymentsModule.createServices(pool);
+    const settlement = settlementModule.createServices(pool);
+    const modules = [
+      catalogModule,
+      identityModule,
+      inventoryModule,
+      discoveryModule,
+      marketplaceModule,
+      orderingModule,
+      fulfillmentModule,
+      paymentsModule,
+      reputationModule,
+      settlementModule,
+    ] as const;
+
+    await pool.query(
+      modules.map((module) => module.schemaSql).join("\n\n"),
+    );
+    await seedMarketplaceStack(pool);
+    await drainProjectors(
+      collectProjectors([
+        inventory,
+        discovery,
+        marketplace,
+        payments,
+        fulfillment,
+        ordering,
+        reputation,
+        settlement,
+      ]),
+    );
+    console.log("Marketplace projections are up to date.");
     console.log("Marketplace bootstrap complete.");
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();

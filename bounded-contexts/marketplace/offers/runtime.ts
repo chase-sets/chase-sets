@@ -12,7 +12,7 @@ import {
   resolveSellableUnitDescriptor,
   type CatalogVersionSchema,
 } from "@chase-sets/sellable-units";
-import type { InventoryRuntimeDeps } from "../../inventory/runtime-support";
+import type { MarketplaceRuntimeDeps } from "../runtime-support";
 import {
   decideMarketplaceOffer,
   evolveMarketplaceOffer,
@@ -74,7 +74,7 @@ export type MarketplaceOfferServices = Readonly<{
 }>;
 
 export function createMarketplaceOfferRuntime(
-  deps: InventoryRuntimeDeps,
+  deps: MarketplaceRuntimeDeps,
 ): MarketplaceOfferServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({

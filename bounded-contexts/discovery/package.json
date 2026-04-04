@@ -9,6 +9,7 @@
   },
   "types": "./index.ts",
   "dependencies": {
+    "@chase-sets/bounded-context-module": "0.1.0",
     "@chase-sets/catalog-authoring": "0.1.0",
     "@chase-sets/design-system": "0.1.0",
     "@chase-sets/event-core": "0.1.0",

@@ -8,7 +8,11 @@ import {
 } from "@chase-sets/fulfillment";
 import { seedIdentityDatabase } from "@chase-sets/identity";
 import { createInventoryServices, seedInventoryDatabase } from "@chase-sets/inventory";
-import { createMarketplaceServices, seedMarketplaceDatabase } from "@chase-sets/marketplace-context";
+import {
+  createMarketplaceServices,
+  createMarketplaceSupplyResolver,
+  seedMarketplaceDatabase,
+} from "@chase-sets/marketplace-context";
 import { createOrderingServices, seedOrderingDatabase } from "@chase-sets/ordering";
 import {
   createFakePaymentProcessorGateway,
@@ -46,6 +50,7 @@ export async function seedMarketplaceStack(pool: PgTransactionalPool) {
   const inventory = createInventoryServices(pool);
   const marketplace = createMarketplaceServices(pool);
   const ordering = createOrderingServices(pool, {
+    supplyResolver: createMarketplaceSupplyResolver(marketplace),
     inventoryReservations: {
       createReservation: async ({ sellerAccountId, inventoryRecordId, quantity, reason, notes, context }) => {
         const result = await inventory.holds.createHold(

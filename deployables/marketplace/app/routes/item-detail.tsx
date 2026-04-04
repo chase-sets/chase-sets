@@ -14,6 +14,7 @@ import {
   OrderingAddToCartSection,
 } from "@chase-sets/ordering/web";
 import {
+  createMarketplaceDiscoveryApiClient,
   createMarketplaceOrderingApiClient,
   createMarketplaceServerApiClient,
 } from "../api.server";
@@ -21,7 +22,7 @@ import { requireMarketplaceActor } from "../auth.server";
 import { buildMarketplaceMeta } from "../seo";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const api = createMarketplaceServerApiClient(request);
+  const api = createMarketplaceDiscoveryApiClient(request);
   const id = params.id;
 
   if (!id) {
@@ -74,15 +75,16 @@ function parseVersionSelection(value: FormDataEntryValue | null) {
 export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
-  const api = createMarketplaceServerApiClient(request);
+  const discoveryApi = createMarketplaceDiscoveryApiClient(request);
+  const marketplaceApi = createMarketplaceServerApiClient(request);
   const orderingApi = createMarketplaceOrderingApiClient(request);
 
   try {
     if (intent === "submit-offer") {
       await requireMarketplaceActor(request, "offers.manage");
-      const item = await api.getItemDetail(params.id!);
+      const item = await discoveryApi.getItemDetail(params.id!);
 
-      await api.createBuyerOffer({
+      await marketplaceApi.createBuyerOffer({
         catalogItemId: item.item_id,
         catalogVersionKey: String(formData.get("catalogVersionKey") ?? ""),
         itemTitle: item.title,
@@ -98,7 +100,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
     if (intent === "add-to-cart") {
       await requireMarketplaceActor(request, "orders.manage");
-      const item = await api.getItemDetail(params.id!);
+      const item = await discoveryApi.getItemDetail(params.id!);
 
       await orderingApi.addCartLine({
         catalogItemId: item.item_id,

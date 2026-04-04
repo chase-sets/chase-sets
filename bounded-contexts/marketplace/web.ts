@@ -35,11 +35,6 @@ import type {
   MarketplaceSellerOfferDetail,
   MarketplaceSellerOfferListItem,
 } from "./offers/ui/contracts";
-import type {
-  DiscoveryItemDetail,
-  DiscoverySearchResponse,
-} from "../discovery/items/client-support/contracts";
-import type { CategoryListResponse } from "../discovery/categories/ui/contracts";
 
 type MarketplaceApiApp = ReturnType<typeof buildMarketplaceApi>;
 
@@ -98,29 +93,6 @@ export function createMarketplaceApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async searchItems(query: string): Promise<DiscoverySearchResponse> {
-      return parseJsonResponse(
-        await client.items.$get({
-          query: queryFromString(query),
-          header: headers,
-        }),
-      );
-    },
-    async getItemDetail(id: string): Promise<DiscoveryItemDetail> {
-      return parseJsonResponse(
-        await client.items[":id"].$get({
-          param: { id },
-          header: headers,
-        }),
-      );
-    },
-    async listCategories(): Promise<CategoryListResponse> {
-      return parseJsonResponse(
-        await client.categories.$get({
-          header: headers,
-        }),
-      );
-    },
     async getMarketSummary(catalogVersionKey: string): Promise<MarketplaceMarketSummary> {
       return parseJsonResponse(
         await client["sellable-units"][":catalogVersionKey"]["market-summary"].$get({

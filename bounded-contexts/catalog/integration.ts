@@ -1,7 +1,6 @@
 import { assert } from "./common";
-import type { CatalogItemState } from "./authoring/catalog-items/domain";
 import type { DomainEvent } from "@chase-sets/event-core";
-import type { CatalogValue } from "./common";
+import type { CatalogItemStatus, CatalogValue } from "./common";
 import type {
   CatalogVersionDescriptor,
   CatalogVersionSchema,
@@ -15,7 +14,7 @@ export type CatalogItemFieldValueSnapshot = Readonly<{
 
 export type CatalogItemSnapshot = Readonly<{
   catalogItemId: CatalogItemId;
-  status: CatalogItemState["status"];
+  status: CatalogItemStatus;
   title: string;
   subtitle: string | null;
   blueprintId: string | null;
@@ -52,7 +51,18 @@ export type CatalogIntegrationEvent =
   | CatalogItemArchivedIntegrationEvent;
 
 export function createCatalogItemSnapshot(input: {
-  item: Readonly<CatalogItemState>;
+  item: Readonly<{
+    id: CatalogItemId | null;
+    status: CatalogItemStatus;
+    title: string | null;
+    subtitle: string | null;
+    blueprintId: string | null;
+    fieldValues: readonly Readonly<{
+      fieldId: string;
+      value: CatalogValue;
+    }>[];
+    categoryIds: readonly string[];
+  }>;
   versionSchema: CatalogVersionSchema;
   sampleVersions?: readonly CatalogVersionDescriptor[];
 }): CatalogItemSnapshot {

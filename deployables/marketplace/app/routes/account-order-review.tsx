@@ -18,6 +18,14 @@ import { createMarketplaceReputationApiClient } from "../api.server";
 import { requireMarketplaceActor } from "../auth.server";
 import { buildMarketplaceMeta } from "../seo";
 
+type ReviewActionData = Readonly<{
+  error: string;
+  values: Readonly<{
+    rating: number;
+    feedback: string;
+  }>;
+}>;
+
 function parseFeedback(value: FormDataEntryValue | null) {
   return typeof value === "string" ? value : "";
 }
@@ -66,12 +74,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return redirect(`/account/reviews/${opportunity.active_review_id}`);
     }
 
-    const review = await api.submitReview({
+    const review = (await api.submitReview({
       orderId: params.orderId!,
       subjectAccountId: opportunity.subject_account_id,
       rating,
       feedback,
-    });
+    })) as Readonly<{ id: string }>;
 
     return redirect(`/account/reviews/${review.id}`);
   } catch (error) {
@@ -94,7 +102,7 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountOrderReviewRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData() as ReviewActionData | undefined;
   const navigation = useNavigation();
 
   return (

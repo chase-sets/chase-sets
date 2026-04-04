@@ -128,6 +128,10 @@ describe("marketplace account order review route", () => {
       rating: 5,
       feedback: "Great seller.",
     });
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) {
+      throw new Error("Expected redirect response.");
+    }
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/reviews/rev_1");
   });

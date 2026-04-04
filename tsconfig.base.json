@@ -63,11 +63,41 @@
       "@chase-sets/settlement/web": [
         "./bounded-contexts/settlement/web.ts"
       ],
+      "@chase-sets/inventory": [
+        "./bounded-contexts/inventory/index.ts"
+      ],
+      "@chase-sets/inventory/web": [
+        "./bounded-contexts/inventory/web.ts"
+      ],
+      "@chase-sets/ordering": [
+        "./bounded-contexts/ordering/index.ts"
+      ],
+      "@chase-sets/ordering/web": [
+        "./bounded-contexts/ordering/web.ts"
+      ],
+      "@chase-sets/payments": [
+        "./bounded-contexts/payments/index.ts"
+      ],
+      "@chase-sets/payments/web": [
+        "./bounded-contexts/payments/web.ts"
+      ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
       ],
       "@chase-sets/design-system/styles.css": [
         "./packages/design-system/src/styles/tailwind.css"
+      ],
+      "@chase-sets/auth-context": [
+        "./contracts/auth-context/index.ts"
+      ],
+      "@chase-sets/bounded-context-module": [
+        "./contracts/bounded-context-module/index.ts"
+      ],
+      "@chase-sets/bounded-context-runtime": [
+        "./infrastructure/bounded-context-runtime/index.ts"
+      ],
+      "@chase-sets/dev-seeds": [
+        "./contracts/dev-seeds/index.ts"
       ],
       "@chase-sets/event-core": [
         "./contracts/event-core/index.ts"
@@ -83,6 +113,9 @@
       ],
       "@chase-sets/primitives/*": [
         "./contracts/primitives/*.ts"
+      ],
+      "@chase-sets/sellable-units": [
+        "./contracts/sellable-units/index.ts"
       ]
     }
   }

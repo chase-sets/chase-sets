@@ -5,7 +5,10 @@ import { createPgPool } from "@chase-sets/event-core-postgres";
 import { createFulfillmentServices } from "@chase-sets/fulfillment";
 import { resolveActorFromIdentityApi } from "@chase-sets/identity/server";
 import { createInventoryServices } from "@chase-sets/inventory";
-import { createMarketplaceServices } from "@chase-sets/marketplace-context";
+import {
+  createMarketplaceServices,
+  createMarketplaceSupplyResolver,
+} from "@chase-sets/marketplace-context";
 import { createOrderingServices } from "@chase-sets/ordering";
 import {
   createPaymentsServices,
@@ -23,6 +26,7 @@ const discovery = createDiscoveryServices(pool);
 const inventory = createInventoryServices(pool);
 const marketplace = createMarketplaceServices(pool);
 const ordering = createOrderingServices(pool, {
+  supplyResolver: createMarketplaceSupplyResolver(marketplace),
   inventoryReservations: {
     createReservation: async ({ sellerAccountId, inventoryRecordId, quantity, reason, notes, context }) => {
       const result = await inventory.holds.createHold(

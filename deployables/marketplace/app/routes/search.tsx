@@ -5,7 +5,7 @@ import {
   useSearchParams,
 } from "react-router";
 import { SearchPage } from "@chase-sets/discovery/web";
-import { createMarketplaceServerApiClient } from "../api.server";
+import { createMarketplaceDiscoveryApiClient } from "../api.server";
 import { buildMarketplaceMeta } from "../seo";
 
 const PAGE_SIZE = 24;
@@ -40,7 +40,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const category = url.searchParams.get("category") ?? "";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
-  const api = createMarketplaceServerApiClient(request);
+  const api = createMarketplaceDiscoveryApiClient(request);
 
   const [data, categories] = await Promise.all([
     api.searchItems(buildSearchQuery({ search, category, sort, page })),

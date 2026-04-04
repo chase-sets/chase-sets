@@ -8,7 +8,10 @@ import {
   identitySeedIds,
 } from "@chase-sets/dev-seeds";
 import { createInventoryServices } from "@chase-sets/inventory";
-import { createMarketplaceServices } from "@chase-sets/marketplace-context";
+import {
+  createMarketplaceServices,
+  createMarketplaceSupplyResolver,
+} from "@chase-sets/marketplace-context";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   resolveSellableUnitDescriptor,
@@ -123,22 +126,6 @@ async function countOrderingEvents(db: PgQueryable) {
   return Number(result.rows[0]?.count ?? 0);
 }
 
-async function countMarketplaceDependencies(db: PgQueryable) {
-  const result = await db.query<{
-    listing_count: string;
-    offer_count: string;
-  }>(
-    `SELECT
-       (SELECT COUNT(*) FROM marketplace_listing_pages) AS listing_count,
-       (SELECT COUNT(*) FROM marketplace_offer_pages) AS offer_count`,
-  );
-
-  return {
-    listingCount: Number(result.rows[0]?.listing_count ?? 0),
-    offerCount: Number(result.rows[0]?.offer_count ?? 0),
-  };
-}
-
 async function addCartLines(
   services: ReturnType<typeof createOrderingServices>,
   inventory: ReturnType<typeof createInventoryServices>,
@@ -195,6 +182,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
   const inventory = createInventoryServices(pool);
   const marketplace = createMarketplaceServices(pool);
   const ordering = createOrderingServices(pool, {
+    supplyResolver: createMarketplaceSupplyResolver(marketplace),
     inventoryReservations: {
       createReservation: async ({
         sellerAccountId,
@@ -248,13 +236,6 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
     ...marketplace.projectors,
     ...ordering.projectors,
   ]);
-
-  const dependencies = await countMarketplaceDependencies(ordering.db);
-  if (dependencies.listingCount === 0 || dependencies.offerCount === 0) {
-    throw new Error(
-      "Ordering demo seed requires marketplace listings and offers. Seed marketplace first.",
-    );
-  }
 
   console.log("Starting ordering development seed...\n");
 

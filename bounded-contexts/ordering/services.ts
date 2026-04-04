@@ -5,10 +5,10 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
+import { createOrderingAccountRuntime } from "./accounts/runtime";
 import { createOrderingCartRuntime } from "./cart/runtime";
 import { createOrderingOrderRuntime } from "./orders/runtime";
 import {
-  createDatabaseMarketplaceSupplyResolver,
   defaultShippingQuotePolicy,
   type InventoryReservationGateway,
   type MarketplaceSupplyResolver,
@@ -28,6 +28,16 @@ export type OrderingServices = Readonly<{
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
+
+function createMissingSupplyResolver(): MarketplaceSupplyResolver {
+  return {
+    resolveCandidates: async () => {
+      throw new Error(
+        "Ordering requires a marketplace supply resolver for checkout and order placement flows.",
+      );
+    },
+  };
+}
 
 function createMissingInventoryReservationGateway(): InventoryReservationGateway {
   const fail = () => {
@@ -49,14 +59,14 @@ export function createOrderingServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const accounts = createOrderingAccountRuntime({ eventStore, checkpointStore, db });
   const cart = createOrderingCartRuntime({ eventStore, checkpointStore, db });
   const orders = createOrderingOrderRuntime({
     eventStore,
     checkpointStore,
     db,
     carts: cart,
-    supplyResolver:
-      options.supplyResolver ?? createDatabaseMarketplaceSupplyResolver(db),
+    supplyResolver: options.supplyResolver ?? createMissingSupplyResolver(),
     shippingQuotePolicy:
       options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
     inventoryReservations:
@@ -66,7 +76,7 @@ export function createOrderingServices(
   return {
     cart,
     orders,
-    projectors: [...cart.projectors, ...orders.projectors],
+    projectors: [...accounts.projectors, ...cart.projectors, ...orders.projectors],
     pool,
     db,
   };

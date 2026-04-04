@@ -1,16 +1,10 @@
 import { Hono } from "hono";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ResolvedActor } from "@chase-sets/identity/server";
+import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { SettlementServices } from "./services";
 import { createWalletRoutes } from "./wallets/route";
 import { createPayoutRoutes } from "./payouts/route";
 
-export type SettlementApiEnv = {
-  Variables: {
-    actor: ResolvedActor | null;
-    context: EventStoreContext | null;
-  };
-};
+export type SettlementApiEnv = AuthenticatedApiEnv;
 
 async function drainProjectors(services: SettlementServices) {
   let processed = 0;

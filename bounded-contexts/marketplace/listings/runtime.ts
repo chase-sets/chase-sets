@@ -8,7 +8,7 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
-import type { InventoryRuntimeDeps } from "../../inventory/runtime-support";
+import type { MarketplaceRuntimeDeps } from "../runtime-support";
 import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
@@ -101,7 +101,7 @@ export type MarketplaceListingServices = Readonly<{
 }>;
 
 export function createMarketplaceListingRuntime(
-  deps: InventoryRuntimeDeps,
+  deps: MarketplaceRuntimeDeps,
 ): MarketplaceListingServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({

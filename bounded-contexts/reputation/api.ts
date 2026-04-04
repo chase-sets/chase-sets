@@ -1,18 +1,12 @@
 import { Hono } from "hono";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ResolvedActor } from "@chase-sets/identity/server";
+import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { ReputationServices } from "./services";
 import {
   createAccountReviewRoutes,
   createPublicReputationRoutes,
 } from "./reviews/route";
 
-export type ReputationApiEnv = {
-  Variables: {
-    actor: ResolvedActor | null;
-    context: EventStoreContext | null;
-  };
-};
+export type ReputationApiEnv = AuthenticatedApiEnv;
 
 async function drainProjectors(services: ReputationServices) {
   let processed = 0;

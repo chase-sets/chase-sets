@@ -13,6 +13,10 @@ import { createMarketplaceSettlementApiClient } from "../api.server";
 import { requireMarketplaceActor } from "../auth.server";
 import { buildMarketplaceMeta } from "../seo";
 
+type PayoutActionData = Readonly<{
+  error: string;
+}>;
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireMarketplaceActor(request, "payouts.view");
   const settlementApi = createMarketplaceSettlementApiClient(request);
@@ -29,11 +33,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "schedule-payout") {
-      const result = await settlementApi.createPayout({
+      const result = (await settlementApi.createPayout({
         amount: formData.get("amount"),
         destinationReference: formData.get("destinationReference") || null,
         note: formData.get("note") || null,
-      });
+      })) as Readonly<{ id: string }>;
 
       return redirect(`/account/payouts/${result.id}`);
     }
@@ -53,7 +57,7 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountPayoutsRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData() as PayoutActionData | undefined;
 
   return (
     <SettlementPayoutListPage

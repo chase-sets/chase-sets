@@ -46,22 +46,6 @@ type BaseDiscoveryItemDetailRow = Omit<
   "market_summary" | "market_listings"
 >;
 
-async function marketplaceListingsAvailable(db: PgQueryable) {
-  const result = await db.query<{ exists: string | null }>(
-    "SELECT to_regclass('public.marketplace_listing_pages')::text AS exists",
-  );
-
-  return Boolean(result.rows[0]?.exists);
-}
-
-async function identityAccountsAvailable(db: PgQueryable) {
-  const result = await db.query<{ exists: string | null }>(
-    "SELECT to_regclass('public.identity_accounts')::text AS exists",
-  );
-
-  return Boolean(result.rows[0]?.exists);
-}
-
 export async function getDiscoveryItemDetail(
   db: PgQueryable,
   itemId: string,
@@ -76,14 +60,6 @@ export async function getDiscoveryItemDetail(
     return null;
   }
 
-  if (!(await marketplaceListingsAvailable(db))) {
-    return {
-      ...item,
-      market_summary: null,
-      market_listings: [] as DiscoveryItemDetailRow["market_listings"],
-    };
-  }
-
   const summaryResult = await db.query<{
     lowest_price_amount: string | null;
     active_listing_count: number;
@@ -93,38 +69,29 @@ export async function getDiscoveryItemDetail(
        MIN(price_amount)::text AS lowest_price_amount,
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
-     FROM marketplace_listing_pages
+     FROM discovery_market_listings
      WHERE catalog_item_id = $1
        AND status = 'active'`,
     [itemId],
   );
 
-  const includeSellerNames = await identityAccountsAvailable(db);
-  const listingSql = includeSellerNames
-    ? `SELECT
-         listing.*,
-         account.display_name AS seller_display_name,
-         listing.quantity_cap AS visible_quantity
-       FROM marketplace_listing_pages AS listing
-       LEFT JOIN identity_accounts AS account
-         ON account.account_id = listing.account_id
-       WHERE listing.catalog_item_id = $1
-         AND listing.status = 'active'
-       ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`
-    : `SELECT
-         listing.*,
-         NULL::text AS seller_display_name,
-         listing.quantity_cap AS visible_quantity
-       FROM marketplace_listing_pages AS listing
-       WHERE listing.catalog_item_id = $1
-         AND listing.status = 'active'
-       ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`;
-
   const listingsResult = await db.query<
     Omit<DiscoveryItemDetailRow["market_listings"][number], "version_selection"> & {
       version_selection: unknown;
     }
-  >(listingSql, [itemId]);
+  >(
+    `SELECT
+       listing.*,
+       account.seller_display_name,
+       listing.quantity_cap AS visible_quantity
+     FROM discovery_market_listings AS listing
+     LEFT JOIN discovery_market_accounts AS account
+       ON account.account_id = listing.account_id
+     WHERE listing.catalog_item_id = $1
+       AND listing.status = 'active'
+     ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
+    [itemId],
+  );
 
   const summaryRow = summaryResult.rows[0];
   const marketSummary =

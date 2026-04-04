@@ -1,3 +1,4 @@
+import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PermissionKey } from "./common";
 import {
@@ -10,15 +11,7 @@ export const IDENTITY_SESSION_COOKIE_NAME = "chase_sets_session";
 export const IDENTITY_ACCOUNT_SELECTION_COOKIE_NAME =
   "chase_sets_account_selection";
 
-export type ResolvedActor = Readonly<{
-  sessionId: string;
-  tenantId: string;
-  userId: string;
-  accountId: string;
-  membershipId: string;
-  roleKey: string;
-  permissions: readonly PermissionKey[];
-}>;
+export type { ResolvedActor } from "@chase-sets/auth-context";
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;

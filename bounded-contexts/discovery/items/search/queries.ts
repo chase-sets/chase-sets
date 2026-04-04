@@ -35,19 +35,11 @@ export type DiscoverySearchItemRow = Readonly<{
 
 type BaseDiscoverySearchItemRow = Omit<DiscoverySearchItemRow, "market_summary">;
 
-async function marketplaceListingsAvailable(db: PgQueryable) {
-  const result = await db.query<{ exists: string | null }>(
-    "SELECT to_regclass('public.marketplace_listing_pages')::text AS exists",
-  );
-
-  return Boolean(result.rows[0]?.exists);
-}
-
 async function getMarketSummariesForItems(
   db: PgQueryable,
   itemIds: readonly string[],
 ) {
-  if (itemIds.length === 0 || !(await marketplaceListingsAvailable(db))) {
+  if (itemIds.length === 0) {
     return new Map<string, DiscoverySearchItemRow["market_summary"]>();
   }
 
@@ -62,7 +54,7 @@ async function getMarketSummariesForItems(
        MIN(price_amount)::text AS lowest_price_amount,
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
-     FROM marketplace_listing_pages
+     FROM discovery_market_listings
      WHERE status = 'active'
        AND catalog_item_id = ANY($1::text[])
      GROUP BY catalog_item_id`,

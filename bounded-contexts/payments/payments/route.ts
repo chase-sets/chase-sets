@@ -1,14 +1,9 @@
 import { Hono } from "hono";
+import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ResolvedActor } from "@chase-sets/identity/server";
 import type { PaymentServices } from "./runtime";
 
-export type PaymentsApiEnv = {
-  Variables: {
-    actor: ResolvedActor | null;
-    context: EventStoreContext | null;
-  };
-};
+export type PaymentsApiEnv = AuthenticatedApiEnv;
 
 function requirePaymentAccess(
   c: {

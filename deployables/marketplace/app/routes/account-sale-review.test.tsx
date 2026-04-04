@@ -107,6 +107,10 @@ describe("marketplace account sale review route", () => {
       rating: 4,
       feedback: "Prompt buyer.",
     });
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) {
+      throw new Error("Expected redirect response.");
+    }
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/reviews/rev_2");
   });

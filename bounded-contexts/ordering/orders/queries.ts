@@ -116,9 +116,9 @@ const baseOrderSelect = `
     COALESCE(line_stats.line_count, 0) AS line_count,
     COALESCE(line_stats.total_quantity, 0) AS total_quantity
   FROM ordering_order_pages AS page
-  LEFT JOIN identity_accounts AS buyer
+  LEFT JOIN ordering_account_pages AS buyer
     ON buyer.account_id = page.buyer_account_id
-  LEFT JOIN identity_accounts AS seller
+  LEFT JOIN ordering_account_pages AS seller
     ON seller.account_id = page.seller_account_id
   LEFT JOIN (
     SELECT

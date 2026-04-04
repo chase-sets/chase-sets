@@ -123,7 +123,7 @@ const implementedRootRules = new Map([
   [
     "bounded-contexts/inventory",
     {
-      allowedDirs: new Set(["holds", "records", "storage-locations", "tests"]),
+      allowedDirs: new Set(["catalog-items", "holds", "records", "storage-locations", "tests"]),
       allowedFiles: new Set([
         "README.md",
         "GLOSSARY.md",
@@ -138,6 +138,146 @@ const implementedRootRules = new Map([
         "services.ts",
         "web.ts",
       ]),
+    },
+  ],
+  [
+    "bounded-contexts/fulfillment",
+    {
+      allowedDirs: new Set(["shipments"]),
+      allowedFiles: new Set([
+        "README.md",
+        "GLOSSARY.md",
+        "api.ts",
+        "common.ts",
+        "index.ts",
+        "package.json",
+        "schema.ts",
+        "seed.test.ts",
+        "seed.ts",
+        "services.ts",
+        "vitest.config.mjs",
+        "web.ts",
+      ]),
+    },
+  ],
+  [
+    "bounded-contexts/marketplace",
+    {
+      allowedDirs: new Set(["listings", "offers"]),
+      allowedFiles: new Set([
+        "README.md",
+        "GLOSSARY.md",
+        "api.ts",
+        "index.ts",
+        "package.json",
+        "runtime-support.ts",
+        "schema.ts",
+        "seed.ts",
+        "services.ts",
+        "supply-resolver.ts",
+        "vitest.config.mjs",
+        "web.ts",
+      ]),
+    },
+  ],
+  [
+    "bounded-contexts/ordering",
+    {
+      allowedDirs: new Set(["accounts", "cart", "orders"]),
+      allowedFiles: new Set([
+        "README.md",
+        "GLOSSARY.md",
+        "api.ts",
+        "common.ts",
+        "index.ts",
+        "package.json",
+        "policies.ts",
+        "schema.ts",
+        "seed.ts",
+        "services.ts",
+        "vitest.config.mjs",
+        "web.ts",
+      ]),
+    },
+  ],
+  [
+    "bounded-contexts/payments",
+    {
+      allowedDirs: new Set(["payments", "refunds"]),
+      allowedFiles: new Set([
+        "README.md",
+        "GLOSSARY.md",
+        "api.ts",
+        "common.ts",
+        "fake-gateway.ts",
+        "index.ts",
+        "package.json",
+        "processor-gateway.ts",
+        "schema.ts",
+        "seed.test.ts",
+        "seed.ts",
+        "services.ts",
+        "stripe-gateway.ts",
+        "tsconfig.json",
+        "vitest.config.mjs",
+        "web.ts",
+      ]),
+    },
+  ],
+  [
+    "bounded-contexts/reputation",
+    {
+      allowedDirs: new Set(["reviews"]),
+      allowedFiles: new Set([
+        "README.md",
+        "GLOSSARY.md",
+        "api.ts",
+        "common.ts",
+        "index.ts",
+        "package.json",
+        "schema.ts",
+        "seed.test.ts",
+        "seed.ts",
+        "services.ts",
+        "tsconfig.json",
+        "vitest.config.mjs",
+        "web.ts",
+      ]),
+    },
+  ],
+  [
+    "bounded-contexts/settlement",
+    {
+      allowedDirs: new Set(["payouts", "wallets"]),
+      allowedFiles: new Set([
+        "README.md",
+        "GLOSSARY.md",
+        "api.ts",
+        "common.ts",
+        "index.ts",
+        "package.json",
+        "schema.ts",
+        "seed.test.ts",
+        "seed.ts",
+        "services.ts",
+        "tsconfig.json",
+        "vitest.config.mjs",
+        "web.ts",
+      ]),
+    },
+  ],
+  [
+    "contracts/auth-context",
+    {
+      allowedDirs: new Set([]),
+      allowedFiles: new Set(["index.ts", "package.json"]),
+    },
+  ],
+  [
+    "contracts/bounded-context-module",
+    {
+      allowedDirs: new Set([]),
+      allowedFiles: new Set(["index.ts", "package.json"]),
     },
   ],
   [
@@ -204,15 +344,38 @@ const implementedRootRules = new Map([
       ]),
     },
   ],
+  [
+    "infrastructure/bounded-context-runtime",
+    {
+      allowedDirs: new Set([]),
+      allowedFiles: new Set(["index.ts", "package.json"]),
+    },
+  ],
 ]);
-const boundedContextPackages = ["@chase-sets/catalog-authoring", "@chase-sets/discovery", "@chase-sets/identity", "@chase-sets/inventory"];
+const boundedContextPackages = [
+  "@chase-sets/catalog-authoring",
+  "@chase-sets/discovery",
+  "@chase-sets/fulfillment",
+  "@chase-sets/identity",
+  "@chase-sets/inventory",
+  "@chase-sets/marketplace-context",
+  "@chase-sets/ordering",
+  "@chase-sets/payments",
+  "@chase-sets/reputation",
+  "@chase-sets/settlement",
+];
 const contractPackages = [
+  "@chase-sets/auth-context",
+  "@chase-sets/bounded-context-module",
   "@chase-sets/dev-seeds",
   "@chase-sets/event-core",
   "@chase-sets/http",
   "@chase-sets/primitives",
 ];
-const infrastructurePackages = ["@chase-sets/event-core-postgres"];
+const infrastructurePackages = [
+  "@chase-sets/bounded-context-runtime",
+  "@chase-sets/event-core-postgres",
+];
 const workspacePackages = ["@chase-sets/design-system"];
 const forbiddenBoundedContextDirectoryNames = new Set([
   "infrastructure",
@@ -248,10 +411,7 @@ function isTmpFile(file) {
 }
 
 function isImplementedContextFile(relativeFile) {
-  return (
-    relativeFile.startsWith("bounded-contexts/catalog/authoring/") ||
-    relativeFile.startsWith("bounded-contexts/discovery/")
-  );
+  return relativeFile.startsWith("bounded-contexts/");
 }
 
 function isArchitectureDirectory(relativeDir) {
@@ -268,15 +428,19 @@ function matchesPackageSpecifier(specifier, packageName) {
   return specifier === packageName || specifier.startsWith(`${packageName}/`);
 }
 
-function isAllowedDeployableBoundedContextImport(specifier) {
-    return (
-      specifier === "@chase-sets/catalog-authoring/web" ||
-      specifier === "@chase-sets/discovery/web" ||
-      specifier === "@chase-sets/identity/server" ||
-      specifier === "@chase-sets/identity/web" ||
-      specifier === "@chase-sets/inventory/web"
-    );
+function resolveRelativeSpecifier(relativeFile, specifier) {
+  if (!specifier.startsWith(".")) {
+    return null;
   }
+
+  return path.posix.normalize(
+    path.posix.join(path.posix.dirname(relativeFile), specifier),
+  );
+}
+
+function isAllowedDeployableBoundedContextImport(specifier) {
+  return /^@chase-sets\/[^/]+\/(web|server)$/.test(specifier);
+}
 
 function isBoundedContextSpecifier(specifier) {
   return (
@@ -320,8 +484,8 @@ function getBoundedContextRoot(relativeFile) {
     return null;
   }
 
-  if (parts[1] === "catalog" && parts[2] === "authoring") {
-    return "bounded-contexts/catalog/authoring";
+  if (parts[1] === "catalog") {
+    return "bounded-contexts/catalog";
   }
 
   if (parts[1] === "discovery") {
@@ -361,9 +525,13 @@ async function walk(dir) {
 function checkImport(file, specifier, content) {
   const normalized = specifier.replaceAll("\\", "/");
   const relativeFile = normalizeRelative(file);
+  const resolvedSpecifier = resolveRelativeSpecifier(relativeFile, normalized);
   const importerContextRoot = getBoundedContextRoot(relativeFile);
 
-  if (relativeFile.startsWith("bounded-contexts/") && isDeployableSpecifier(normalized)) {
+  if (
+    relativeFile.startsWith("bounded-contexts/") &&
+    (isDeployableSpecifier(normalized) || isDeployableSpecifier(resolvedSpecifier ?? ""))
+  ) {
     addViolation(file, `bounded contexts must not import deployables (${specifier})`);
   }
 
@@ -382,9 +550,14 @@ function checkImport(file, specifier, content) {
 
   if (
     importerContextRoot !== null &&
-    normalized.includes("bounded-contexts/")
+    (
+      normalized.includes("bounded-contexts/") ||
+    (resolvedSpecifier?.includes("bounded-contexts/") ?? false)
+    )
   ) {
-    const referencedContextRoot = getBoundedContextRoot(normalized);
+    const referencedContextRoot = getBoundedContextRoot(
+      resolvedSpecifier ?? normalized,
+    );
     if (
       referencedContextRoot !== null &&
       referencedContextRoot !== importerContextRoot
@@ -399,7 +572,10 @@ function checkImport(file, specifier, content) {
   if (
     relativeFile.startsWith("bounded-contexts/catalog/") &&
     !relativeFile.startsWith("bounded-contexts/catalog/authoring/") &&
-    normalized.includes("bounded-contexts/catalog/authoring/")
+    (
+      normalized.includes("bounded-contexts/catalog/authoring/") ||
+    (resolvedSpecifier?.includes("bounded-contexts/catalog/authoring/") ?? false)
+    )
   ) {
     addViolation(file, `catalog public modules must not import authoring internals (${specifier})`);
   }
@@ -448,7 +624,10 @@ function checkImport(file, specifier, content) {
     if (
       normalized.includes("bounded-contexts/") ||
       normalized.includes("contracts/") ||
-      normalized.includes("infrastructure/")
+      normalized.includes("infrastructure/") ||
+      (resolvedSpecifier?.includes("bounded-contexts/") ?? false) ||
+      (resolvedSpecifier?.includes("contracts/") ?? false) ||
+      (resolvedSpecifier?.includes("infrastructure/") ?? false)
     ) {
       addViolation(
         file,
@@ -488,11 +667,16 @@ function checkImport(file, specifier, content) {
 
   const isShellFile = relativeFile.includes("/shell/");
   const isContextRootEntrypoint = /bounded-contexts\/[^/]+(?:\/authoring)?\/(index|web)\.ts$/.test(relativeFile);
-  if (!isShellFile && !isContextRootEntrypoint && (normalized.includes("/shell/") || normalized.endsWith("/shell"))) {
+  const shellSpecifier = resolvedSpecifier ?? normalized;
+  if (!isShellFile && !isContextRootEntrypoint && (shellSpecifier.includes("/shell/") || shellSpecifier.endsWith("/shell"))) {
     addViolation(file, `non-shell context modules must not depend on shell internals (${specifier})`);
   }
 
-  if (sliceRouteFiles.has(relativeFile) && (normalized === "../services" || normalized.endsWith("/services"))) {
+  if (
+    sliceRouteFiles.has(relativeFile) &&
+    ((resolvedSpecifier ?? normalized).endsWith("/services") ||
+      normalized === "../services")
+  ) {
     addViolation(file, `slice routes must depend on slice-local services (${specifier})`);
   }
 
@@ -562,6 +746,10 @@ for (const [rootPath, rule] of implementedRootRules) {
   const entries = await readdir(path.join(repoRoot, rootPath), { withFileTypes: true });
 
   for (const entry of entries) {
+    if (ignoredDirectories.has(entry.name)) {
+      continue;
+    }
+
     const allowed = entry.isDirectory()
       ? rule.allowedDirs.has(entry.name)
       : rule.allowedFiles.has(entry.name);
