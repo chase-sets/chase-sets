@@ -6,7 +6,11 @@ export {
   resolveActorFromRequest,
   resolveActorFromSessionToken,
 } from "./runtime";
-export { createAuthServices } from "./services";
+export {
+  createAuthServices,
+  revokeSession,
+  startSessionForUser,
+} from "./services";
 export type { AuthServices } from "./services";
 export type { ResolvedActor } from "@chase-sets/auth-context";
 

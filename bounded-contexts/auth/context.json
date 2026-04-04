@@ -9,11 +9,13 @@
   "streamPrefix": "auth.",
   "apiBasePath": "/api/auth",
   "slices": [
-    "customer"
+    "customer",
+    "sessions"
   ],
   "allowedSupportDirectories": [
     "auth-support",
     "routes",
+    "seed-support",
     "shell-support"
   ],
   "publicExports": [
@@ -21,6 +23,7 @@
     "./client",
     "./integration",
     "./routes/*",
+    "./seed-support/*",
     "./server",
     "./web"
   ],
@@ -95,6 +98,20 @@
           "routeType": "route",
           "sourceContext": "auth",
           "placement": "root"
+        },
+        {
+          "routeId": "sessions",
+          "routePath": "sessions",
+          "fileExport": "./routes/identity-admin/sessions",
+          "routeType": "route",
+          "sourceContext": "auth"
+        },
+        {
+          "routeId": "sessions-detail",
+          "routePath": "sessions/:id",
+          "fileExport": "./routes/identity-admin/sessions-detail",
+          "routeType": "route",
+          "sourceContext": "auth"
         }
       ]
     },

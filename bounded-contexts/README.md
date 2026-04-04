@@ -8,8 +8,8 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 
 | Context | Purpose |
 | --- | --- |
-| [Auth](./auth/README.md) | Own sign-in, sign-out, registration, and session-entry journeys. |
-| [Identity](./identity/README.md) | Own users and the accounts they act for. |
+| [Auth](./auth/README.md) | Own sign-in, sign-out, registration, session lifecycle, and session-entry journeys. |
+| [Identity](./identity/README.md) | Own users, accounts, memberships, invitations, API keys, consents, and identity-management surfaces. |
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
 | [Inventory](./inventory/README.md) | Own seller-held stock and operational availability. |

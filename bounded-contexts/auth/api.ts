@@ -15,7 +15,13 @@ import {
   upsertPasswordCredential,
   upsertSessionToken,
 } from "./auth-support/store";
-import type { AuthServices } from "./services";
+import {
+  revokeSession,
+  startSessionForUser,
+  type AuthServices,
+} from "./services";
+import { hasPermission } from "./server";
+import { sessionRoutes } from "./sessions/route";
 
 export type AuthApiEnv = {
   Variables: {
@@ -76,9 +82,7 @@ async function toInteractiveAuthResponse(
   params: Readonly<{
     userId: string;
     authenticationMethod: "password" | "magic-link" | "passkey";
-    sessionResult: Awaited<
-      ReturnType<AuthServices["identity"]["startSessionForUser"]>
-    >;
+    sessionResult: Awaited<ReturnType<typeof startSessionForUser>>;
   }>,
 ) {
   if (!params.sessionResult.requiresAccountSelection) {
@@ -142,7 +146,7 @@ export function buildAuthApi(services: AuthServices) {
       });
     }
 
-    const sessionResult = await services.identity.startSessionForUser({
+    const sessionResult = await startSessionForUser(services, {
       userId: identity.userId,
       accountId: identity.accountId,
       authenticationMethod: body.password ? "password" : "magic-link",
@@ -186,7 +190,7 @@ export function buildAuthApi(services: AuthServices) {
       return c.json({ error: "Invalid email or password." }, 401);
     }
 
-    const sessionResult = await services.identity.startSessionForUser({
+    const sessionResult = await startSessionForUser(services, {
       userId: user.user_id,
       accountId:
         typeof body.accountId === "string" ? body.accountId : undefined,
@@ -248,7 +252,7 @@ export function buildAuthApi(services: AuthServices) {
       user = await services.identity.getUser(identity.userId);
     }
 
-    const sessionResult = await services.identity.startSessionForUser({
+    const sessionResult = await startSessionForUser(services, {
       userId: user!.user_id,
       accountId:
         typeof body.accountId === "string" ? body.accountId : undefined,
@@ -300,7 +304,7 @@ export function buildAuthApi(services: AuthServices) {
       return c.json({ error: "Account selection is invalid or has expired." }, 401);
     }
 
-    const sessionResult = await services.identity.startSessionForUser({
+    const sessionResult = await startSessionForUser(services, {
       userId: selection.user_id,
       accountId:
         typeof body.accountId === "string" ? body.accountId : undefined,
@@ -423,7 +427,7 @@ export function buildAuthApi(services: AuthServices) {
       return c.json({ error: "Unknown passkey credential." }, 401);
     }
 
-    const sessionResult = await services.identity.startSessionForUser({
+    const sessionResult = await startSessionForUser(services, {
       userId: passkey.user_id,
       accountId:
         typeof body.accountId === "string" ? body.accountId : undefined,
@@ -484,7 +488,7 @@ export function buildAuthApi(services: AuthServices) {
       context,
     });
 
-    const sessionResult = await services.identity.startSessionForUser({
+    const sessionResult = await startSessionForUser(services, {
       userId: user!.user_id,
       accountId: invitation.account_id,
       authenticationMethod: body.password ? "password" : "magic-link",
@@ -519,13 +523,39 @@ export function buildAuthApi(services: AuthServices) {
       return c.json({ error: "Authentication required." }, 401);
     }
 
-    const result = await services.identity.revokeSession({
+    const result = await revokeSession(services, {
       sessionId: actor.sessionId,
       context: getRequiredContext(c),
     });
 
     return c.json(result);
   });
+
+  app.use("/sessions", async (c, next) => {
+    const actor = c.var.actor;
+    if (!actor) {
+      return c.json({ error: "Authentication required." }, 401);
+    }
+
+    if (!hasPermission(actor, "security.manage")) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    await next();
+  });
+  app.use("/sessions/*", async (c, next) => {
+    const actor = c.var.actor;
+    if (!actor) {
+      return c.json({ error: "Authentication required." }, 401);
+    }
+
+    if (!hasPermission(actor, "security.manage")) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    await next();
+  });
+  app.route("/sessions", sessionRoutes(services.sessions));
 
   return app;
 }

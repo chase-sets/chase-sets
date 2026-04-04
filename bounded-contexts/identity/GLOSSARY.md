@@ -177,22 +177,6 @@ Notes:
 
 ---
 
-## Session
-
-A **Session** in Identity is the account-scoped record that tracks which account a signed-in user is acting for and when that access expires.
-
-Examples:
-
-- Web session
-- Mobile session
-
-Notes:
-
-- Auth owns the browser session token and the user-facing session lifecycle.
-- Identity owns the account-scoped session record used for authorization and auditing.
-
----
-
 ## API Key
 
 An **API Key** is a credential used by software or integrations to access the system without interactive login.

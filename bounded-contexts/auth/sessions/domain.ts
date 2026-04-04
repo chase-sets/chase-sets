@@ -4,15 +4,26 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
-import {
-  EMPTY_EVENT_DATA,
-  assert,
-  assertNever,
-  toSortedUniqueList,
-  type AuthMethodKey,
-  type EmptyEventData,
-  type SessionStatus,
-} from "../common";
+
+type AuthMethodKey = "password" | "magic-link" | "passkey";
+type SessionStatus = "active" | "revoked" | "expired";
+type EmptyEventData = Readonly<Record<string, never>>;
+
+const EMPTY_EVENT_DATA: EmptyEventData = {};
+
+function assert(condition: boolean, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled variant: ${JSON.stringify(value)}`);
+}
+
+function toSortedUniqueList<T extends string>(values: readonly T[]): T[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
 
 export type SessionState = Readonly<{
   id: SessionId | null;
@@ -59,7 +70,7 @@ export type SessionCommand =
   | ExpireSessionCommand;
 
 export type SessionStartedEvent = DomainEvent<
-  "identity.session.started",
+  "auth.session.started",
   Readonly<{
     sessionId: SessionId;
     userId: UserId;
@@ -71,15 +82,15 @@ export type SessionStartedEvent = DomainEvent<
 >;
 
 export type SessionAccountSwitchedEvent = DomainEvent<
-  "identity.session.account-switched",
+  "auth.session.account-switched",
   Readonly<{ accountId: AccountId }>
 >;
 export type SessionRevokedEvent = DomainEvent<
-  "identity.session.revoked",
+  "auth.session.revoked",
   EmptyEventData
 >;
 export type SessionExpiredEvent = DomainEvent<
-  "identity.session.expired",
+  "auth.session.expired",
   EmptyEventData
 >;
 
@@ -99,7 +110,7 @@ export const decideSession: AggregateDecider<
       assert(state.id === null, "Session has already been started.");
       return [
         {
-          type: "identity.session.started",
+          type: "auth.session.started",
           data: {
             sessionId: command.sessionId,
             userId: command.userId,
@@ -119,16 +130,16 @@ export const decideSession: AggregateDecider<
       assert(state.accountId !== command.accountId, "Session is already active for that account.");
       return [
         {
-          type: "identity.session.account-switched",
+          type: "auth.session.account-switched",
           data: { accountId: command.accountId },
         },
       ];
     case "RevokeSession":
       requireActiveSession(state);
-      return [{ type: "identity.session.revoked", data: EMPTY_EVENT_DATA }];
+      return [{ type: "auth.session.revoked", data: EMPTY_EVENT_DATA }];
     case "ExpireSession":
       requireActiveSession(state);
-      return [{ type: "identity.session.expired", data: EMPTY_EVENT_DATA }];
+      return [{ type: "auth.session.expired", data: EMPTY_EVENT_DATA }];
     default:
       return assertNever(command);
   }
@@ -139,7 +150,7 @@ export const evolveSession: AggregateEvolver<SessionState, SessionEvent> = (
   event,
 ) => {
   switch (event.type) {
-    case "identity.session.started":
+    case "auth.session.started":
       return {
         id: event.data.sessionId,
         userId: event.data.userId,
@@ -149,11 +160,11 @@ export const evolveSession: AggregateEvolver<SessionState, SessionEvent> = (
         status: "active",
         expiresAt: event.data.expiresAt,
       };
-    case "identity.session.account-switched":
+    case "auth.session.account-switched":
       return { ...state, accountId: event.data.accountId };
-    case "identity.session.revoked":
+    case "auth.session.revoked":
       return { ...state, status: "revoked" };
-    case "identity.session.expired":
+    case "auth.session.expired":
       return { ...state, status: "expired" };
     default:
       return assertNever(event);

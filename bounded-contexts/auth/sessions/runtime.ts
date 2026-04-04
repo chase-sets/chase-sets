@@ -5,7 +5,7 @@ import {
   type CommandHandler,
 } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
-import type { IdentityRuntimeDeps } from "../runtime-support";
+import type { AuthRuntimeDeps } from "../runtime-support";
 import {
   decideSession,
   evolveSession,
@@ -26,7 +26,7 @@ export type SessionServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createSessionRuntime(deps: IdentityRuntimeDeps): SessionServices {
+export function createSessionRuntime(deps: AuthRuntimeDeps): SessionServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -44,7 +44,7 @@ export function createSessionRuntime(deps: IdentityRuntimeDeps): SessionServices
     getSession: (sessionId) => getSession(deps.db, sessionId),
     projectors: [
       createProjector({
-        projectorName: "identity-session-projection",
+        projectorName: "auth-session-projection",
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildSessionProjectionHandlers(deps.db),

@@ -9,10 +9,10 @@ import { loadConfig } from "./config";
 const config = loadConfig();
 const pool = createPgPool(config.databaseUrl);
 const identity = createIdentityServices(pool);
-const auth = createAuthServices(identity);
+const auth = createAuthServices(pool, identity);
 const app = buildIdentityApp({ auth, identity });
 
-startProjectorPolling(identity.projectors, 1_000, (error) => {
+startProjectorPolling([...identity.projectors, ...auth.projectors], 1_000, (error) => {
   console.error("Projection error:", error);
 });
 

@@ -6,7 +6,6 @@
     "account",
     "membership",
     "invitation",
-    "session",
     "api-key",
     "consent"
   ],
@@ -17,13 +16,12 @@
     "users",
     "memberships",
     "invitations",
-    "sessions",
     "api-keys",
     "consents",
     "customer"
   ],
   "allowedSupportDirectories": [
-    "auth-support",
+    "api-key-support",
     "projection-support",
     "read-model-support",
     "seed-support",
@@ -65,8 +63,6 @@
         { "routeId": "invitations-detail", "routePath": "invitations/:id", "fileExport": "./routes/admin/invitations-detail", "routeType": "route", "sourceContext": "identity" },
         { "routeId": "memberships", "routePath": "memberships", "fileExport": "./routes/admin/memberships", "routeType": "route", "sourceContext": "identity" },
         { "routeId": "memberships-detail", "routePath": "memberships/:id", "fileExport": "./routes/admin/memberships-detail", "routeType": "route", "sourceContext": "identity" },
-        { "routeId": "sessions", "routePath": "sessions", "fileExport": "./routes/admin/sessions", "routeType": "route", "sourceContext": "identity" },
-        { "routeId": "sessions-detail", "routePath": "sessions/:id", "fileExport": "./routes/admin/sessions-detail", "routeType": "route", "sourceContext": "identity" },
         { "routeId": "users", "routePath": "users", "fileExport": "./routes/admin/users", "routeType": "route", "sourceContext": "identity" },
         { "routeId": "users-detail", "routePath": "users/:id", "fileExport": "./routes/admin/users-detail", "routeType": "route", "sourceContext": "identity" }
       ]

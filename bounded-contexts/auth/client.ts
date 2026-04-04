@@ -107,6 +107,24 @@ export function createAuthApiClient({
         }),
       );
     },
+    async listSessions<T>(query = ""): Promise<T> {
+      const search = new URLSearchParams(query).toString();
+      return parseJsonResponse<T>(
+        await configuredFetch(
+          search ? `${buildUrl("sessions")}?${search}` : buildUrl("sessions"),
+          {
+            headers,
+          },
+        ),
+      );
+    },
+    async getSession<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await configuredFetch(buildUrl(`sessions/${id}`), {
+          headers,
+        }),
+      );
+    },
     async signOutCurrentSession<T>(): Promise<T> {
       return parseJsonResponse<T>(
         await configuredFetch(buildUrl("sign-out"), {

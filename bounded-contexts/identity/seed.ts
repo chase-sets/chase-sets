@@ -1,8 +1,9 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createAuthServices } from "@chase-sets/auth";
+import { upsertPasswordCredential } from "@chase-sets/auth/seed-support/store";
 import { identitySeedIds } from "./seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
-import { upsertPasswordCredential } from "./auth-support/store";
 
 const SELLER_CONTACT_METHOD_ID = "ctm_seed_seller_sms";
 const SELLER_PASSKEY_ID = "crd_seed_seller_passkey";
@@ -29,6 +30,7 @@ async function drainProjectors(projectors: ReadonlyArray<{ runOnce: () => Promis
 
 export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const services = createIdentityServices(pool);
+  const authServices = createAuthServices(pool, services);
   const context = createIdentityBootstrapContext();
 
   try {
@@ -401,8 +403,8 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     context,
   });
 
-  await services.sessions.commandHandler({
-    streamId: `identity.session-${seller.sessionId}`,
+  await authServices.sessions.commandHandler({
+    streamId: `auth.session-${seller.sessionId}`,
     command: {
       type: "StartSession",
       sessionId: seller.sessionId,
@@ -414,8 +416,8 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     },
     context,
   });
-  await services.sessions.commandHandler({
-    streamId: `identity.session-${support.sessionId}`,
+  await authServices.sessions.commandHandler({
+    streamId: `auth.session-${support.sessionId}`,
     command: {
       type: "StartSession",
       sessionId: support.sessionId,
@@ -427,16 +429,16 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     },
     context,
   });
-  await services.sessions.commandHandler({
-    streamId: `identity.session-${support.sessionId}`,
+  await authServices.sessions.commandHandler({
+    streamId: `auth.session-${support.sessionId}`,
     command: {
       type: "SwitchSessionAccount",
       accountId: seller.accountId,
     },
     context,
   });
-  await services.sessions.commandHandler({
-    streamId: `identity.session-${buyer.sessionId}`,
+  await authServices.sessions.commandHandler({
+    streamId: `auth.session-${buyer.sessionId}`,
     command: {
       type: "StartSession",
       sessionId: buyer.sessionId,
@@ -448,8 +450,8 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     },
     context,
   });
-  await services.sessions.commandHandler({
-    streamId: `identity.session-${buyer.sessionId}`,
+  await authServices.sessions.commandHandler({
+    streamId: `auth.session-${buyer.sessionId}`,
     command: { type: "ExpireSession" },
     context,
   });
@@ -510,5 +512,5 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     secretHash: services.auth.hashSecret("buyer1234"),
   });
 
-  await drainProjectors(services.projectors);
+  await drainProjectors([...services.projectors, ...authServices.projectors]);
 }

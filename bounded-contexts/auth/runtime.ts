@@ -3,6 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AuthServices } from "./services";
 import { getSessionByTokenHash } from "./auth-support/store";
 import { AUTH_SESSION_COOKIE_NAME } from "./server";
+import { resolveActorFromSessionId } from "./services";
 
 function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
@@ -63,7 +64,7 @@ export async function resolveActorFromSessionToken(
     return null;
   }
 
-  return services.identity.resolveActorFromSessionId(tokenRecord.session_id);
+  return resolveActorFromSessionId(services, tokenRecord.session_id);
 }
 
 export async function resolveActorFromRequest(

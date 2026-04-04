@@ -439,6 +439,29 @@ async function validateContextManifest(context) {
     "routes",
   ]);
 
+  if (manifest.contextName === "identity") {
+    if ((manifest.allowedSupportDirectories ?? []).includes("auth-support")) {
+      addPathViolation(`${root}/context.json`, "Identity must not declare auth-support after Auth ownership extraction");
+    }
+
+    if ((manifest.ownedNouns ?? []).includes("session")) {
+      addPathViolation(`${root}/context.json`, "Identity must not own session after Auth ownership extraction");
+    }
+
+    if ((manifest.slices ?? []).includes("sessions")) {
+      addPathViolation(`${root}/context.json`, "Identity must not declare a sessions slice after Auth ownership extraction");
+    }
+  }
+
+  if (manifest.contextName === "auth") {
+    const requiredOwnedNouns = ["authentication", "session-journey", "account-selection"];
+    for (const noun of requiredOwnedNouns) {
+      if (!(manifest.ownedNouns ?? []).includes(noun)) {
+        addPathViolation(`${root}/context.json`, `Auth must own ${noun}`);
+      }
+    }
+  }
+
   const rootEntries = await readdir(rootAbs, { withFileTypes: true });
   for (const entry of rootEntries) {
     if (!entry.isDirectory() || ignoredDirectories.has(entry.name)) {

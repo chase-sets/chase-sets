@@ -1,14 +1,11 @@
-import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   AccountId,
   MembershipId,
-  SessionId,
   UserId,
 } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
-  type PermissionKey,
   type RoleKey,
   normalizeEmail,
 } from "./common";
@@ -41,8 +38,6 @@ async function drainProjectors(services: IdentityServices) {
   } while (processed > 0);
 }
 
-export type IdentityAuthMethod = "password" | "magic-link" | "passkey";
-
 export type IdentityAuthMembership = Readonly<{
   membershipId: string;
   accountId: string;
@@ -50,25 +45,18 @@ export type IdentityAuthMembership = Readonly<{
   status: string;
 }>;
 
-export type IdentitySessionStartResult =
-  | Readonly<{
-      requiresAccountSelection: true;
-      memberships: readonly IdentityAuthMembership[];
-    }>
-  | Readonly<{
-      requiresAccountSelection: false;
-      sessionId: string;
-      session: Awaited<ReturnType<IdentityServices["sessions"]["getSession"]>>;
-      memberships: readonly IdentityAuthMembership[];
-    }>;
-
 export type IdentityAuthBridge = Readonly<{
+  bootstrapTenantId: string;
   createBootstrapContext: () => EventStoreContext;
   normalizeEmail: typeof normalizeEmail;
   getUser: IdentityServices["users"]["getUser"];
   getUserByEmail: IdentityServices["users"]["getUserByEmail"];
   getInvitation: IdentityServices["invitations"]["getInvitation"];
   listActiveMembershipsForUser: (userId: string) => Promise<readonly IdentityAuthMembership[]>;
+  getActiveMembershipForUserAccount: (
+    userId: string,
+    accountId: string,
+  ) => ReturnType<IdentityServices["memberships"]["getActiveMembershipForUserAccount"]>;
   createPersonalIdentity: (params: Readonly<{
     email: string;
     displayName: string;
@@ -87,16 +75,6 @@ export type IdentityAuthBridge = Readonly<{
     credentialId: string;
     context: EventStoreContext;
   }>) => Promise<void>;
-  startSessionForUser: (params: Readonly<{
-    userId: string;
-    accountId?: string;
-    authenticationMethod: IdentityAuthMethod;
-    context: EventStoreContext;
-  }>) => Promise<IdentitySessionStartResult>;
-  revokeSession: (params: Readonly<{
-    sessionId: string;
-    context: EventStoreContext;
-  }>) => Promise<Readonly<{ id: string; version: number; status: string }>>;
   acceptInvitationForUser: (params: Readonly<{
     invitationId: string;
     userId: string;
@@ -104,7 +82,6 @@ export type IdentityAuthBridge = Readonly<{
     roleKey: string;
     context: EventStoreContext;
   }>) => Promise<string>;
-  resolveActorFromSessionId: (sessionId: string) => Promise<ResolvedActor | null>;
 }>;
 
 async function listActiveMembershipsForUser(
@@ -196,107 +173,11 @@ async function createPersonalIdentity(
   return { userId, accountId };
 }
 
-async function startSessionForUser(
-  services: IdentityServices,
-  params: Readonly<{
-    userId: string;
-    accountId?: string;
-    authenticationMethod: IdentityAuthMethod;
-    context: EventStoreContext;
-  }>,
-): Promise<IdentitySessionStartResult> {
-  await drainProjectors(services);
-
-  const memberships = await listActiveMembershipsForUser(services, params.userId);
-  if (memberships.length === 0) {
-    throw new Error("User has no active memberships.");
-  }
-
-  const selectedAccountId =
-    params.accountId ??
-    (memberships.length === 1 ? memberships[0].accountId : undefined);
-
-  if (!selectedAccountId) {
-    return {
-      requiresAccountSelection: true,
-      memberships,
-    };
-  }
-
-  const availableAccountIds = memberships.map((membership) => membership.accountId);
-  if (!availableAccountIds.includes(selectedAccountId)) {
-    throw new Error("Selected account is not available for this user.");
-  }
-
-  const sessionId = createId("ses") as SessionId;
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString();
-
-  await services.sessions.commandHandler({
-    streamId: `identity.session-${sessionId}`,
-    command: {
-      type: "StartSession",
-      sessionId,
-      userId: params.userId as UserId,
-      accountId: selectedAccountId as AccountId,
-      availableAccountIds,
-      authenticationMethod: params.authenticationMethod,
-      expiresAt,
-    },
-    context: params.context,
-  });
-
-  await drainProjectors(services);
-  const session = await services.sessions.getSession(sessionId);
-  if (!session) {
-    throw new Error("Session projection was not available after session start.");
-  }
-
-  return {
-    requiresAccountSelection: false,
-    sessionId,
-    session,
-    memberships,
-  };
-}
-
-async function resolveActorFromSessionId(
-  services: IdentityServices,
-  sessionId: string,
-): Promise<ResolvedActor | null> {
-  const session = await services.sessions.getSession(sessionId);
-  if (
-    !session ||
-    session.status !== "active" ||
-    new Date(session.expires_at).getTime() <= Date.now()
-  ) {
-    return null;
-  }
-
-  const membership =
-    await services.memberships.getActiveMembershipForUserAccount(
-      session.user_id,
-      session.account_id,
-    );
-
-  if (!membership) {
-    return null;
-  }
-
-  return {
-    sessionId: session.session_id,
-    tenantId: IDENTITY_BOOTSTRAP_TENANT_ID,
-    userId: session.user_id,
-    accountId: session.account_id,
-    membershipId: membership.membership_id,
-    roleKey: membership.role_key,
-    permissions: membership.role_permissions as readonly PermissionKey[],
-  };
-}
-
 export function createIdentityAuthBridge(
   services: IdentityServices,
 ): IdentityAuthBridge {
   return {
+    bootstrapTenantId: IDENTITY_BOOTSTRAP_TENANT_ID,
     createBootstrapContext: createIdentityBootstrapContext,
     normalizeEmail,
     getUser: services.users.getUser,
@@ -304,6 +185,8 @@ export function createIdentityAuthBridge(
     getInvitation: services.invitations.getInvitation,
     listActiveMembershipsForUser: (userId) =>
       listActiveMembershipsForUser(services, userId),
+    getActiveMembershipForUserAccount: (userId, accountId) =>
+      services.memberships.getActiveMembershipForUserAccount(userId, accountId),
     createPersonalIdentity: (params) => createPersonalIdentity(services, params),
     enablePasswordCredential: async ({ userId, credentialId, context }) => {
       await services.users.commandHandler({
@@ -316,6 +199,7 @@ export function createIdentityAuthBridge(
         command: { type: "AttachPasswordCredential", credentialId },
         context,
       });
+      await drainProjectors(services);
     },
     registerPasskeyCredential: async ({ userId, credentialId, context }) => {
       await services.users.commandHandler({
@@ -328,20 +212,7 @@ export function createIdentityAuthBridge(
         command: { type: "RegisterPasskeyCredential", credentialId },
         context,
       });
-    },
-    startSessionForUser: (params) => startSessionForUser(services, params),
-    revokeSession: async ({ sessionId, context }) => {
-      const result = await services.sessions.commandHandler({
-        streamId: `identity.session-${sessionId}`,
-        command: { type: "RevokeSession" },
-        context,
-      });
-
-      return {
-        id: sessionId,
-        version: result.version,
-        status: result.state.status,
-      };
+      await drainProjectors(services);
     },
     acceptInvitationForUser: async ({
       invitationId,
@@ -370,10 +241,9 @@ export function createIdentityAuthBridge(
         },
         context,
       });
+      await drainProjectors(services);
 
       return membershipId;
     },
-    resolveActorFromSessionId: (sessionId) =>
-      resolveActorFromSessionId(services, sessionId),
   };
 }

@@ -1,13 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
 
-export type IdentityAuthAdapters = Readonly<{
+export type IdentitySecretAdapters = Readonly<{
   issueOpaqueToken: (prefix: string) => string;
   hashSecret: (value: string) => string;
   verifySecret: (value: string, hashedValue: string) => boolean;
   issueChallenge: () => string;
 }>;
 
-export function createIdentityAuthAdapters(): IdentityAuthAdapters {
+export function createIdentitySecretAdapters(): IdentitySecretAdapters {
   return {
     issueOpaqueToken: (prefix) => {
       const suffix = randomBytes(18).toString("hex");

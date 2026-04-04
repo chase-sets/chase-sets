@@ -23,7 +23,7 @@ export type IdentityApiHostServices = Readonly<{
 export function buildIdentityApp(services: IdentityApiHostServices) {
   const app = new Hono<TenantContextEnv>();
   const apiMounts = createContextApiMounts(services);
-  const projectors = [...services.identity.projectors];
+  const projectors = [...services.identity.projectors, ...services.auth.projectors];
 
   app.onError(errorHandler);
   app.route("/health", createHealthRoutes());

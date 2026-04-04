@@ -33,6 +33,7 @@ function createHostServices() {
         issueChallenge: () => "challenge_123",
       },
       identity: {
+        bootstrapTenantId: "tnt_identity",
         createBootstrapContext: () => ({
           tenantId: "tnt",
           audit: {
@@ -42,19 +43,30 @@ function createHostServices() {
           trace: {},
         }),
         getUserByEmail: async () => null,
-        revokeSession: async ({ sessionId }: { sessionId: string }) => {
-          revokedSessionId = sessionId;
-          return { id: sessionId, version: 2, status: "revoked" };
-        },
-        resolveActorFromSessionId: async (sessionId: string) => ({
-          sessionId,
-          tenantId: "tnt_identity",
-          userId: "usr_1",
-          accountId: "acc_1",
-          membershipId: "mbr_1",
-          roleKey: "owner",
-          permissions: ["accounts.view"],
+        getActiveMembershipForUserAccount: async () => ({
+          membership_id: "mbr_1",
+          role_key: "owner",
+          role_permissions: ["accounts.view"],
         }),
+      },
+      sessions: {
+        getSession: async (sessionId: string) => ({
+          session_id: sessionId,
+          user_id: "usr_1",
+          account_id: "acc_1",
+          available_account_ids: ["acc_1"],
+          authentication_method: "password",
+          status: "active",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+        commandHandler: async ({ streamId }: { streamId: string }) => {
+          revokedSessionId = streamId.replace("auth.session-", "");
+          return {
+            version: 2,
+            state: { status: "revoked" },
+          };
+        },
       },
     },
     identity: {

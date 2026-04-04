@@ -17,7 +17,6 @@ Identity owns users and the accounts they act for in Chase Sets.
 - Verification
 - Invitation
 - Consent
-- Account-scoped session records used for audit and account switching
 
 ## Does Not Own
 
@@ -26,6 +25,7 @@ Identity owns users and the accounts they act for in Chase Sets.
 - Sign-out
 - Account selection during authentication
 - Browser session-token persistence
+- Session aggregates and session revocation
 - Authentication challenges and credential verification flows
 - Listings
 - Inventory
@@ -43,11 +43,12 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 - User
 - Membership
 - Invitation
-- Account Session Record
+- API Key
 
 ## Incoming Dependencies
 
 - Auth depends on Identity through `@chase-sets/identity/integration` for user, account, membership, and invitation facts.
+- Auth depends on Identity through `@chase-sets/identity/integration` for user, account, membership, invitation, and email-normalization facts.
 
 ## Outgoing Integration Events
 

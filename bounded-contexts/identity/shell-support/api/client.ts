@@ -108,19 +108,6 @@ export function createIdentityApiClient({
         await client.invitations[":id"].$get({ param: { id }, header: headers }),
       );
     },
-    async listSessions<T>(query = ""): Promise<T> {
-      return parseJsonResponse<T>(
-        await client.sessions.$get({
-          query: Object.fromEntries(new URLSearchParams(query)),
-          header: headers,
-        }),
-      );
-    },
-    async getSession<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
-        await client.sessions[":id"].$get({ param: { id }, header: headers }),
-      );
-    },
     async listApiKeys<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
         await client["api-keys"].$get({

@@ -1,12 +1,19 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { extractIdFromStreamId } from "../projection-support/extract-id-from-stream";
 
-const STREAM_PREFIX = "identity.session-";
+const STREAM_PREFIX = "auth.session-";
+
+function extractIdFromStreamId(streamId: string, prefix: string) {
+  if (!streamId.startsWith(prefix)) {
+    throw new Error(`Expected stream ID ${streamId} to start with ${prefix}.`);
+  }
+
+  return streamId.slice(prefix.length);
+}
 
 export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "identity.session.started": async (event) => {
+    "auth.session.started": async (event) => {
       const {
         sessionId,
         userId,
@@ -53,7 +60,7 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
         ],
       );
     },
-    "identity.session.account-switched": async (event) => {
+    "auth.session.account-switched": async (event) => {
       const sessionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       await db.query(
         `UPDATE identity_sessions
@@ -78,7 +85,7 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
         ],
       );
     },
-    "identity.session.revoked": async (event) => {
+    "auth.session.revoked": async (event) => {
       const sessionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       await db.query(
         `UPDATE identity_sessions
@@ -95,7 +102,7 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
         [sessionId, event.timing.recordedAt],
       );
     },
-    "identity.session.expired": async (event) => {
+    "auth.session.expired": async (event) => {
       const sessionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       await db.query(
         `UPDATE identity_sessions

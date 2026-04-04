@@ -1,11 +1,11 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { SessionListPage, type Session } from "@chase-sets/identity/web";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { createIdentityRequestApiClient } from "../../client";
+import { createAuthRequestApiClient } from "../../client";
+import { SessionListPage, type Session } from "../../web";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createIdentityRequestApiClient(request);
+  const api = createAuthRequestApiClient(request);
   return api.listSessions<ListResponse<Session>>("limit=50&offset=0");
 }
 
@@ -15,4 +15,3 @@ export default function SessionsRoute() {
   const data = useLoaderData<typeof loader>();
   return <SessionListPage initialData={data} />;
 }
-

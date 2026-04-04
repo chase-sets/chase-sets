@@ -4,8 +4,29 @@ import { identityApiKeySchemaSql } from "./api-keys/schema";
 import { identityConsentSchemaSql } from "./consents/schema";
 import { identityInvitationSchemaSql } from "./invitations/schema";
 import { identityMembershipSchemaSql } from "./memberships/schema";
-import { identitySessionSchemaSql } from "./sessions/schema";
 import { identityUserSchemaSql } from "./users/schema";
+
+const legacyAuthSessionSchemaSql = `
+CREATE TABLE IF NOT EXISTS identity_sessions (
+  session_id text PRIMARY KEY,
+  user_id text NOT NULL,
+  account_id text NOT NULL,
+  available_account_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  authentication_method text NOT NULL,
+  status text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS identity_session_lookup (
+  token_hash text PRIMARY KEY,
+  session_id text NOT NULL,
+  user_id text NOT NULL,
+  account_id text NOT NULL,
+  status text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);`;
 
 const identityAuthSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_password_credentials (
@@ -88,7 +109,7 @@ export const identitySchemaSql = [
   identityUserSchemaSql,
   identityMembershipSchemaSql,
   identityInvitationSchemaSql,
-  identitySessionSchemaSql,
+  legacyAuthSessionSchemaSql,
   identityApiKeySchemaSql,
   identityConsentSchemaSql,
   identityAuthSchemaSql,

@@ -14,13 +14,13 @@ Authorization is downstream of Auth. Auth may help resolve the actor, but it doe
 
 The authenticated browser or API interaction window that lets a user continue acting without signing in again on every request.
 
-Auth owns the interactive session lifecycle and the session token that resumes it.
+Auth owns the interactive session lifecycle, the session aggregate, and the session token that resumes it.
 
 ## Session Token
 
 The secret value that identifies the active session when sent back to Chase Sets.
 
-Session-token persistence belongs to Auth even when the underlying account-scoped session record is still coordinated with Identity.
+Session-token persistence belongs to Auth.
 
 ## Account Selection
 

@@ -1,10 +1,10 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { SessionDetailPage, type Session } from "@chase-sets/identity/web";
-import { createIdentityRequestApiClient } from "../../client";
+import { createAuthRequestApiClient } from "../../client";
+import { SessionDetailPage, type Session } from "../../web";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const api = createIdentityRequestApiClient(request);
+  const api = createAuthRequestApiClient(request);
   return {
     id: params.id!,
     data: await api.getSession<Session>(params.id!),
@@ -17,4 +17,3 @@ export default function SessionDetailRoute() {
   const data = useLoaderData<typeof loader>();
   return <SessionDetailPage data={data.data} />;
 }
-
