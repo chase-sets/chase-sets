@@ -55,5 +55,7 @@
         { "routeId": "account-payment-new", "routePath": "account/payments/new", "fileExport": "./routes/marketplace/account-payment-new", "routeType": "route", "sourceContext": "payments" }
       ]
     }
+  ],
+  "shellContributions": [
   ]
 }

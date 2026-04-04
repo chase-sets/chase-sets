@@ -7,6 +7,12 @@ import {
   resolveDeployableApiMountPath,
 } from "./deployable-api-mount-support.mjs";
 import {
+  buildShellFileContent,
+  deployableShellConfig,
+  resolveDeployableShellPath,
+  shellGeneratedComment,
+} from "./deployable-shell-support.mjs";
+import {
   buildRoutesFileContent,
   buildWrapperContent,
   deployableRouteConfig,
@@ -34,7 +40,9 @@ const legacyForbiddenPaths = [
   "bounded-contexts/catalog/authoring/package.json",
   "bounded-contexts/catalog/authoring/api",
   "bounded-contexts/discovery/support",
+  "contracts/dev-seeds",
   "contracts/event-core/postgres",
+  "contracts/sellable-units",
 ];
 const manifestRequiredFields = [
   "contextName",
@@ -50,9 +58,11 @@ const manifestRequiredFields = [
   "apiDeployables",
   "apiMounts",
   "deployableContributions",
+  "shellContributions",
 ];
 const knownDeployables = new Set(Object.keys(deployableRouteConfig));
 const knownApiDeployables = new Set(Object.keys(deployableApiMountConfig));
+const knownShellDeployables = new Set(Object.keys(deployableShellConfig));
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
 const forbiddenRootSurfaceReexports =
@@ -122,8 +132,7 @@ function isAllowedPublicExportName(value) {
     value === "./seed-support/*" ||
     value === "./server" ||
     value === "./web" ||
-    value === "./routes/*" ||
-    value === "./ui/*"
+    value === "./routes/*"
   );
 }
 
@@ -267,6 +276,10 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "deployableContributions must be an array");
     }
 
+    if (!Array.isArray(manifest.shellContributions)) {
+      addPathViolation(`${relativeRoot}/context.json`, "shellContributions must be an array");
+    }
+
     manifests.set(relativeRoot, {
       root: relativeRoot,
       rootAbs: contextRootAbs,
@@ -279,8 +292,27 @@ async function loadContextManifests() {
   return manifests;
 }
 
-function isAllowedDeployableBoundedContextImport(specifier) {
-  return /^@chase-sets\/[^/]+\/(web|client|server|integration|routes\/.+)$/.test(specifier);
+function isTestFile(relativeFile) {
+  return (
+    relativeFile.includes("/tests/") ||
+    relativeFile.includes("/__tests__/") ||
+    relativeFile.endsWith(".test.ts") ||
+    relativeFile.endsWith(".test.tsx") ||
+    relativeFile.endsWith(".test.js") ||
+    relativeFile.endsWith(".test.jsx")
+  );
+}
+
+function isWebDeployableFile(relativeFile) {
+  return /deployables\/(catalog-admin|identity-admin|marketplace)\//.test(relativeFile);
+}
+
+function isAllowedDeployableBoundedContextImport(relativeFile, specifier) {
+  if (isWebDeployableFile(relativeFile) && !isTestFile(relativeFile)) {
+    return /^@chase-sets\/[^/]+\/(web|server|routes\/.+)$/.test(specifier);
+  }
+
+  return /^@chase-sets\/[^/]+(?:\/(web|client|server|integration|routes\/.+))?$/.test(specifier);
 }
 
 function isAllowedContextImporter(relativeFile) {
@@ -389,6 +421,75 @@ async function validateContextManifest(context) {
 
   if ((manifest.deployableContributions?.length ?? 0) > 0 && !(manifest.publicExports ?? []).includes("./routes/*")) {
     addPathViolation(`${root}/context.json`, "contexts with route contributions must export ./routes/* publicly");
+  }
+
+  const routesByDeployable = new Map(
+    (manifest.deployableContributions ?? []).map((contribution) => [
+      contribution.deployable,
+      contribution.routes ?? [],
+    ]),
+  );
+
+  for (const [index, contribution] of (manifest.shellContributions ?? []).entries()) {
+    const contributionLabel = `${root}/context.json shellContributions[${index}]`;
+
+    if (!knownShellDeployables.has(contribution.deployable)) {
+      addPathViolation(
+        contributionLabel,
+        `deployable must be one of ${[...knownShellDeployables].join(", ")}`,
+      );
+      continue;
+    }
+
+    const allowedSlots = deployableShellConfig[contribution.deployable]?.slots ?? new Set();
+    if (!allowedSlots.has(contribution.slot)) {
+      addPathViolation(
+        contributionLabel,
+        `slot must be one of ${[...allowedSlots].sort().join(", ")}`,
+      );
+    }
+
+    if (typeof contribution.key !== "string" || contribution.key.length === 0) {
+      addPathViolation(contributionLabel, "key must be a non-empty string");
+    }
+
+    if (typeof contribution.label !== "string" || contribution.label.length === 0) {
+      addPathViolation(contributionLabel, "label must be a non-empty string");
+    }
+
+    if (typeof contribution.icon !== "string" || contribution.icon.length === 0) {
+      addPathViolation(contributionLabel, "icon must be a non-empty string");
+    }
+
+    if (typeof contribution.href !== "string" || !contribution.href.startsWith("/")) {
+      addPathViolation(contributionLabel, "href must be an absolute path");
+    }
+
+    if (typeof contribution.order !== "number") {
+      addPathViolation(contributionLabel, "order must be a number");
+    }
+
+    if (
+      contribution.visibility !== "always" &&
+      contribution.visibility !== "signed-in" &&
+      contribution.visibility !== "signed-out"
+    ) {
+      addPathViolation(contributionLabel, "visibility must be 'always', 'signed-in', or 'signed-out'");
+    }
+
+    if (!isStringArray(contribution.requiredPermissions)) {
+      addPathViolation(contributionLabel, "requiredPermissions must be an array of strings");
+    }
+
+    const normalizedHref = contribution.href?.replace(/^\//, "");
+    const ownedRoutes = routesByDeployable.get(contribution.deployable) ?? [];
+    const hasOwnedRoute = ownedRoutes.some((route) => route.routePath === normalizedHref);
+    if (!hasOwnedRoute) {
+      addPathViolation(
+        contributionLabel,
+        "shell contributions must point at a same-context route contribution for the target deployable",
+      );
+    }
   }
 
   for (const dependency of manifest.allowedContextDependencies ?? []) {
@@ -506,6 +607,66 @@ async function validateDeployableApiMountOwnership(contexts) {
     const expectedInventory = buildApiMountFileContent(expectedContexts);
     if (actualInventory !== expectedInventory) {
       addViolation(inventoryPath, "generated API mount inventory is out of date");
+    }
+  }
+}
+
+async function validateDeployableShellOwnership(contexts) {
+  const contributionsByDeployable = new Map(
+    Object.keys(deployableShellConfig).map((deployable) => [deployable, []]),
+  );
+
+  for (const context of contexts.values()) {
+    for (const contribution of context.manifest.shellContributions ?? []) {
+      contributionsByDeployable.get(contribution.deployable)?.push({
+        ...contribution,
+        sourceContext: context.manifest.contextName,
+        packageName: context.packageName,
+      });
+    }
+  }
+
+  for (const [deployable, unsortedContributions] of contributionsByDeployable.entries()) {
+    const contributions = [...unsortedContributions].sort((left, right) =>
+      left.slot === right.slot
+        ? left.order === right.order
+          ? left.key.localeCompare(right.key)
+          : left.order - right.order
+        : left.slot.localeCompare(right.slot),
+    );
+    const inventoryPath = resolveDeployableShellPath(repoRoot, deployable);
+    const contributionKeys = new Set();
+    const contributionHrefs = new Set();
+
+    for (const contribution of contributions) {
+      const key = `${contribution.slot}:${contribution.key}`;
+      if (contributionKeys.has(key)) {
+        addPathViolation(
+          `deployables/${deployable}/app/context-shell.generated.ts`,
+          `shell contribution keys must be unique per slot (${contribution.slot}:${contribution.key})`,
+        );
+      }
+      contributionKeys.add(key);
+
+      const href = `${contribution.slot}:${contribution.href}`;
+      if (contributionHrefs.has(href)) {
+        addPathViolation(
+          `deployables/${deployable}/app/context-shell.generated.ts`,
+          `shell contribution hrefs must be unique per slot (${contribution.slot}:${contribution.href})`,
+        );
+      }
+      contributionHrefs.add(href);
+    }
+
+    if (!existsSync(inventoryPath)) {
+      addViolation(inventoryPath, "generated shell inventory is missing");
+      continue;
+    }
+
+    const actualInventory = await readFile(inventoryPath, "utf8");
+    const expectedInventory = buildShellFileContent(deployable, contributions);
+    if (actualInventory !== expectedInventory) {
+      addViolation(inventoryPath, "generated shell inventory is out of date");
     }
   }
 }
@@ -752,7 +913,7 @@ function checkImport(file, specifier) {
       boundedContextPackages.some(
         (packageName) => matchesPackageSpecifier(normalized, packageName) && normalized !== packageName,
       ) &&
-      !isAllowedDeployableBoundedContextImport(normalized)
+      !isAllowedDeployableBoundedContextImport(relativeFile, normalized)
     ) {
       addViolation(file, `deployables must consume public context entrypoints (${specifier})`);
     }
@@ -787,6 +948,7 @@ for (const context of contextManifests.values()) {
 
 await validateDeployableRouteOwnership(contextManifests);
 await validateDeployableApiMountOwnership(contextManifests);
+await validateDeployableShellOwnership(contextManifests);
 
 const topLevelEntries = await readdir(repoRoot, { withFileTypes: true });
 for (const entry of topLevelEntries) {
@@ -835,6 +997,10 @@ for (const root of roots) {
       addViolation(file, "deployables must not define local business API helpers");
     }
 
+    if (/bounded-contexts\/[^/]+(?:\/[^/]+)?\/shell\/nav\.ts$/.test(normalizedFile)) {
+      addViolation(file, "shell navigation must come from generated shell inventories, not hand-authored nav modules");
+    }
+
     if (!sourceExtensions.has(path.extname(file))) {
       continue;
     }
@@ -861,6 +1027,13 @@ for (const root of roots) {
       /(replacement\s*:\s*[\s\S]{0,160}?\.\.\/\.\.\/(?:bounded-contexts|contracts|infrastructure|packages)\/|resolve\([\s\S]{0,120}?\.\.\/\.\.\/(?:bounded-contexts|contracts|infrastructure|packages)\/)/.test(content)
     ) {
       addViolation(file, "deployable build configs must not hard-code workspace source paths");
+    }
+
+    if (
+      /deployables\/(catalog-admin|identity-admin|marketplace)\/app\/routes\/layout\.tsx$/.test(normalizedFile) &&
+      !content.includes("context-shell.generated")
+    ) {
+      addViolation(file, "web deployable layouts must consume generated shell inventories");
     }
 
     if (

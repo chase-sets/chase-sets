@@ -54,5 +54,13 @@
         { "routeId": "account-sales", "routePath": "account/sales", "fileExport": "./routes/account-sales", "routeType": "route", "sourceContext": "ordering" }
       ]
     }
+  ],
+  "shellContributions": [
+    { "deployable": "marketplace", "slot": "top-nav", "key": "cart", "label": "Cart", "icon": "cart", "href": "/account/cart", "order": 110, "visibility": "signed-in", "requiredPermissions": ["orders.manage"] },
+    { "deployable": "marketplace", "slot": "top-nav", "key": "orders", "label": "Orders", "icon": "cart", "href": "/account/orders", "order": 170, "visibility": "signed-in", "requiredPermissions": ["orders.view"] },
+    { "deployable": "marketplace", "slot": "top-nav", "key": "sales", "label": "Sales", "icon": "package", "href": "/account/sales", "order": 190, "visibility": "signed-in", "requiredPermissions": ["orders.view", "listings.view"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "cart", "label": "Cart", "icon": "cart", "href": "/account/cart", "order": 110, "visibility": "signed-in", "requiredPermissions": ["orders.manage"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "orders", "label": "Orders", "icon": "cart", "href": "/account/orders", "order": 170, "visibility": "signed-in", "requiredPermissions": ["orders.view"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "sales", "label": "Sales", "icon": "package", "href": "/account/sales", "order": 190, "visibility": "signed-in", "requiredPermissions": ["orders.view", "listings.view"] }
   ]
 }

@@ -148,5 +148,12 @@
         }
       ]
     }
+  ],
+  "shellContributions": [
+    { "deployable": "identity-admin", "slot": "primary-nav", "key": "sessions", "label": "Sessions", "icon": "clock", "href": "/sessions", "order": 50, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "marketplace", "slot": "top-nav", "key": "sign-in", "label": "Sign In", "icon": "user", "href": "/sign-in", "order": 900, "visibility": "signed-out", "requiredPermissions": [] },
+    { "deployable": "marketplace", "slot": "top-nav", "key": "register", "label": "Register", "icon": "plus", "href": "/register", "order": 910, "visibility": "signed-out", "requiredPermissions": [] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "sign-in", "label": "Sign In", "icon": "user", "href": "/sign-in", "order": 900, "visibility": "signed-out", "requiredPermissions": [] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "register", "label": "Register", "icon": "plus", "href": "/register", "order": 910, "visibility": "signed-out", "requiredPermissions": [] }
   ]
 }

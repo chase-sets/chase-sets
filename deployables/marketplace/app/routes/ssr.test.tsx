@@ -1,6 +1,7 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
+import type { ReactNode } from "react";
 import {
   DiscoveryShellLayout,
   ItemDetailPage,
@@ -11,6 +12,10 @@ import {
   type Account,
 } from "@chase-sets/identity/web";
 import { SignInPage } from "@chase-sets/auth/web";
+import {
+  createMarketplaceBottomNavItems,
+  createMarketplaceTopNavItems,
+} from "../context-shell.generated";
 import { buildCanonicalUrl } from "../seo";
 import { loader as accountLoader } from "./account";
 import { loader as chromeDevtoolsLoader } from "./chrome-devtools";
@@ -22,10 +27,22 @@ import { meta as signInMeta } from "./sign-in";
 import { loader as sitemapLoader } from "./sitemap";
 
 describe("marketplace SSR routes", () => {
+  function renderMarketplaceShell(children: ReactNode) {
+    return (
+      <DiscoveryShellLayout
+        activeKey="search"
+        topNavItems={createMarketplaceTopNavItems()}
+        bottomNavItems={createMarketplaceBottomNavItems()}
+      >
+        {children}
+      </DiscoveryShellLayout>
+    );
+  }
+
   it("renders search results into HTML before hydration", () => {
     const html = renderToString(
       <MemoryRouter>
-        <DiscoveryShellLayout activeKey="search">
+        {renderMarketplaceShell(
           <SearchPage
             search=""
             category=""
@@ -61,7 +78,7 @@ describe("marketplace SSR routes", () => {
             onSortChange={() => undefined}
             onPageChange={() => undefined}
           />
-        </DiscoveryShellLayout>
+        )}
       </MemoryRouter>,
     );
 
@@ -71,7 +88,7 @@ describe("marketplace SSR routes", () => {
 
   it("renders item detail content into HTML before hydration", () => {
     const html = renderToString(
-      <DiscoveryShellLayout activeKey="search">
+      renderMarketplaceShell(
         <ItemDetailPage
           data={{
             item_id: "item-1",
@@ -111,7 +128,7 @@ describe("marketplace SSR routes", () => {
             updated_at: "2026-03-26T00:00:00.000Z",
           }}
         />
-      </DiscoveryShellLayout>,
+      ),
     );
 
     expect(html).toContain("Charizard ex");
@@ -122,9 +139,9 @@ describe("marketplace SSR routes", () => {
 
   it("renders identity entry content into HTML before hydration", () => {
     const html = renderToString(
-      <DiscoveryShellLayout activeKey="search">
+      renderMarketplaceShell(
         <SignInPage />
-      </DiscoveryShellLayout>,
+      ),
     );
 
     expect(html).toContain("Sign In");
@@ -132,7 +149,7 @@ describe("marketplace SSR routes", () => {
 
   it("renders account profile content into HTML before hydration", () => {
     const html = renderToString(
-      <DiscoveryShellLayout activeKey="search">
+      renderMarketplaceShell(
         <AccountProfilePage
           account={{
             account_id: "acc_1",
@@ -143,7 +160,7 @@ describe("marketplace SSR routes", () => {
             updated_at: "2026-03-26T00:00:00.000Z",
           }}
         />
-      </DiscoveryShellLayout>,
+      ),
     );
 
     expect(html).toContain("North Store");

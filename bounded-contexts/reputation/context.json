@@ -47,5 +47,9 @@
         { "routeId": "account-written-reviews", "routePath": "account/reviews/written", "fileExport": "./routes/marketplace/account-written-reviews", "routeType": "route", "sourceContext": "reputation" }
       ]
     }
+  ],
+  "shellContributions": [
+    { "deployable": "marketplace", "slot": "top-nav", "key": "reputation", "label": "Reputation", "icon": "star", "href": "/account/reputation", "order": 160, "visibility": "signed-in", "requiredPermissions": ["reputation.view"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "reputation", "label": "Reputation", "icon": "star", "href": "/account/reputation", "order": 160, "visibility": "signed-in", "requiredPermissions": ["reputation.view"] }
   ]
 }

@@ -50,5 +50,9 @@
         { "routeId": "account-inventory-record", "routePath": "account/inventory/records/:recordId", "fileExport": "./routes/marketplace/account-inventory-record", "routeType": "route", "sourceContext": "inventory" }
       ]
     }
+  ],
+  "shellContributions": [
+    { "deployable": "marketplace", "slot": "top-nav", "key": "inventory", "label": "Inventory", "icon": "package", "href": "/account/inventory", "order": 100, "visibility": "signed-in", "requiredPermissions": ["inventory.view"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "inventory", "label": "Inventory", "icon": "package", "href": "/account/inventory", "order": 100, "visibility": "signed-in", "requiredPermissions": ["inventory.view"] }
   ]
 }

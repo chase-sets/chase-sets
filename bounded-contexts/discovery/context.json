@@ -47,5 +47,9 @@
         { "routeId": "search", "routePath": "search", "fileExport": "./routes/search", "routeType": "route", "sourceContext": "discovery" }
       ]
     }
+  ],
+  "shellContributions": [
+    { "deployable": "marketplace", "slot": "top-nav", "key": "search", "label": "Browse", "icon": "search", "href": "/search", "order": 10, "visibility": "always", "requiredPermissions": [] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "search", "label": "Browse", "icon": "search", "href": "/search", "order": 10, "visibility": "always", "requiredPermissions": [] }
   ]
 }

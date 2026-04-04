@@ -25,6 +25,21 @@ export type BcDeployableContribution = Readonly<{
   readonly routes: readonly BcRouteModule[];
 }>;
 
+export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav";
+export type BcShellContributionVisibility = "always" | "signed-in" | "signed-out";
+
+export type BcShellContribution = Readonly<{
+  readonly deployable: string;
+  readonly slot: BcShellContributionSlot;
+  readonly key: string;
+  readonly label: string;
+  readonly icon: string;
+  readonly href: string;
+  readonly order: number;
+  readonly visibility: BcShellContributionVisibility;
+  readonly requiredPermissions: readonly string[];
+}>;
+
 export type BcApiMountKind = "primary" | "additional";
 
 export type BcApiMount = Readonly<{

@@ -51,5 +51,13 @@
         { "routeId": "account-offers", "routePath": "account/offers", "fileExport": "./routes/account-offers", "routeType": "route", "sourceContext": "marketplace" }
       ]
     }
+  ],
+  "shellContributions": [
+    { "deployable": "marketplace", "slot": "top-nav", "key": "listings", "label": "Listings", "icon": "package", "href": "/account/listings", "order": 120, "visibility": "signed-in", "requiredPermissions": ["listings.view"] },
+    { "deployable": "marketplace", "slot": "top-nav", "key": "market-offers", "label": "Market Offers", "icon": "package", "href": "/account/market-offers", "order": 130, "visibility": "signed-in", "requiredPermissions": ["offers.view", "listings.view"] },
+    { "deployable": "marketplace", "slot": "top-nav", "key": "offers", "label": "Offers", "icon": "package", "href": "/account/offers", "order": 140, "visibility": "signed-in", "requiredPermissions": ["offers.view"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "listings", "label": "Listings", "icon": "package", "href": "/account/listings", "order": 120, "visibility": "signed-in", "requiredPermissions": ["listings.view"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "market-offers", "label": "Market Offers", "icon": "package", "href": "/account/market-offers", "order": 130, "visibility": "signed-in", "requiredPermissions": ["offers.view", "listings.view"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "offers", "label": "Offers", "icon": "package", "href": "/account/offers", "order": 140, "visibility": "signed-in", "requiredPermissions": ["offers.view"] }
   ]
 }

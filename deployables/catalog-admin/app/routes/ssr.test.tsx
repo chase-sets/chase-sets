@@ -5,6 +5,7 @@ import {
   DimensionDetailPage,
   DimensionListPage,
 } from "@chase-sets/catalog/web";
+import { createCatalogAdminPrimaryNavItems } from "../context-shell.generated";
 import { buildCanonicalUrl } from "../root";
 import { loader as dimensionDetailLoader } from "./dimensions-detail";
 import { loader as dimensionsLoader, meta as dimensionsMeta } from "./dimensions";
@@ -12,7 +13,10 @@ import { loader as dimensionsLoader, meta as dimensionsMeta } from "./dimensions
 describe("catalog admin SSR routes", () => {
   it("renders a list page into HTML before hydration", () => {
     const html = renderToString(
-      <CatalogAdminLayout activeKey="dimensions">
+      <CatalogAdminLayout
+        activeKey="dimensions"
+        navItems={createCatalogAdminPrimaryNavItems()}
+      >
         <DimensionListPage
           initialData={{
             items: [
@@ -39,7 +43,10 @@ describe("catalog admin SSR routes", () => {
 
   it("renders a detail page into HTML before hydration", () => {
     const html = renderToString(
-      <CatalogAdminLayout activeKey="dimensions">
+      <CatalogAdminLayout
+        activeKey="dimensions"
+        navItems={createCatalogAdminPrimaryNavItems()}
+      >
         <DimensionDetailPage
           id="dim_1"
           initialData={{

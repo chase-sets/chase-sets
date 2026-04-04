@@ -59,5 +59,13 @@
         { "routeId": "fields-detail", "routePath": "fields/:id", "fileExport": "./routes/admin/fields-detail", "routeType": "route", "sourceContext": "catalog" }
       ]
     }
+  ],
+  "shellContributions": [
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "dimensions", "label": "Dimensions", "icon": "spark", "href": "/dimensions", "order": 10, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "fields", "label": "Fields", "icon": "edit", "href": "/fields", "order": 20, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "components", "label": "Components", "icon": "package", "href": "/components", "order": 30, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "blueprints", "label": "Blueprints", "icon": "copy", "href": "/blueprints", "order": 40, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "categories", "label": "Categories", "icon": "filter", "href": "/categories", "order": 50, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "catalog-items", "label": "Catalog Items", "icon": "dashboard", "href": "/catalog-items", "order": 60, "visibility": "signed-in", "requiredPermissions": [] }
   ]
 }

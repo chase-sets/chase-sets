@@ -1,14 +1,21 @@
 import { useState, type ReactNode } from "react";
-import { AdminShell, ChaseRoot, Text, type ColorMode } from "@chase-sets/design-system";
+import {
+  AdminShell,
+  ChaseRoot,
+  Text,
+  type ColorMode,
+  type NavigationItem,
+} from "@chase-sets/design-system";
 import { CatalogAdminProviders } from "./providers";
-import { catalogAdminNavItems } from "./nav";
 
 export function CatalogAdminLayout({
   activeKey,
+  navItems,
   actions,
   children,
 }: {
   activeKey: string;
+  navItems: readonly NavigationItem[];
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -19,7 +26,7 @@ export function CatalogAdminLayout({
       <CatalogAdminProviders>
         <AdminShell
           brand={<Text weight="semibold">Catalog Admin</Text>}
-          navItems={catalogAdminNavItems}
+          navItems={[...navItems]}
           activeKey={activeKey}
           actions={actions}
         >

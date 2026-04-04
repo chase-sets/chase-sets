@@ -46,5 +46,7 @@
         { "routeId": "account-settlement", "routePath": "account/settlement", "fileExport": "./routes/marketplace/account-settlement", "routeType": "route", "sourceContext": "settlement" }
       ]
     }
+  ],
+  "shellContributions": [
   ]
 }

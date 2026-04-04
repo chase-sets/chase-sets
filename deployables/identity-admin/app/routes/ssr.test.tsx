@@ -5,6 +5,7 @@ import {
   AccountListPage,
   IdentityAdminLayout,
 } from "@chase-sets/identity/web";
+import { createIdentityAdminPrimaryNavItems } from "../context-shell.generated";
 import { buildCanonicalUrl } from "../root";
 import { loader as accountDetailLoader } from "./accounts-detail";
 import { loader as accountsLoader, meta as accountsMeta } from "./accounts";
@@ -12,7 +13,12 @@ import { loader as accountsLoader, meta as accountsMeta } from "./accounts";
 describe("identity admin SSR routes", () => {
   it("renders an account list into HTML before hydration", () => {
     const html = renderToString(
-      <IdentityAdminLayout activeKey="accounts">
+      <IdentityAdminLayout
+        activeKey="accounts"
+        navItems={createIdentityAdminPrimaryNavItems({
+          permissions: [],
+        })}
+      >
         <AccountListPage
           initialData={{
             items: [
@@ -36,7 +42,12 @@ describe("identity admin SSR routes", () => {
 
   it("renders an account detail page into HTML before hydration", () => {
     const html = renderToString(
-      <IdentityAdminLayout activeKey="accounts">
+      <IdentityAdminLayout
+        activeKey="accounts"
+        navItems={createIdentityAdminPrimaryNavItems({
+          permissions: [],
+        })}
+      >
         <AccountDetailPage
           data={{
             account_id: "acc_1",

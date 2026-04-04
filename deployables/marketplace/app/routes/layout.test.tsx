@@ -1,5 +1,9 @@
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createMarketplaceBottomNavItems,
+  createMarketplaceTopNavItems,
+} from "../context-shell.generated";
 
 const { mockUseLocation, mockUseRouteLoaderData } = vi.hoisted(() => ({
   mockUseLocation: vi.fn(),
@@ -50,6 +54,11 @@ describe("marketplace route layout", () => {
 
     const html = renderToString(<MarketplaceLayoutRoute />);
 
+    expect(createMarketplaceTopNavItems(null).map((item) => item.href)).toEqual([
+      "/search",
+      "/sign-in",
+      "/register",
+    ]);
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/cart"');
     expect(html).toContain('href="/account/listings"');
@@ -72,6 +81,11 @@ describe("marketplace route layout", () => {
 
     const html = renderToString(<MarketplaceLayoutRoute />);
 
+    expect(createMarketplaceBottomNavItems(null).map((item) => item.href)).toEqual([
+      "/search",
+      "/sign-in",
+      "/register",
+    ]);
     expect(html).toContain('href="/sign-in"');
     expect(html).toContain('href="/register"');
     expect(html).not.toContain('action="/sign-out"');

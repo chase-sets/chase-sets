@@ -78,6 +78,12 @@ Generated route wrapper files under `deployables/*/app/routes` are an intentiona
 - Deployables own only host routes and generated wrappers.
 - Generated wrappers are tracked, machine-owned files, not a temporary migration artifact.
 
+Generated shell inventories under `deployables/*/app/context-shell.generated.ts` are the matching composition seam for navigation and shell discoverability.
+
+- Bounded contexts declare shell-visible entries in `context.json`.
+- Shell-owner contexts own layout chrome, not other contexts' feature nav.
+- Deployables consume generated shell inventories instead of hand-curated cross-context navigation.
+
 ## Canonical Ownership
 
 These marketplace nouns are already fixed to a single owner:

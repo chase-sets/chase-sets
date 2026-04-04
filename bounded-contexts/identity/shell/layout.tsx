@@ -4,15 +4,17 @@ import {
   ChaseRoot,
   Text,
   type ColorMode,
+  type NavigationItem,
 } from "@chase-sets/design-system";
-import { identityAdminNavItems } from "./nav";
 
 export function IdentityAdminLayout({
   activeKey,
+  navItems,
   actions,
   children,
 }: {
   activeKey: string;
+  navItems: readonly NavigationItem[];
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -22,7 +24,7 @@ export function IdentityAdminLayout({
     <ChaseRoot colorMode={colorMode}>
       <AdminShell
         brand={<Text weight="semibold">Identity Admin</Text>}
-        navItems={identityAdminNavItems}
+        navItems={[...navItems]}
         activeKey={activeKey}
         actions={actions}
       >

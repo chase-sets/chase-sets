@@ -6,18 +6,17 @@ import {
   type NavigationItem,
   type ColorMode,
 } from "@chase-sets/design-system";
-import { marketplaceBottomNavItems, marketplaceTopNavItems } from "./nav";
 
 export function DiscoveryShellLayout({
   activeKey = "search",
-  topNavItems = marketplaceTopNavItems,
-  bottomNavItems = marketplaceBottomNavItems,
+  topNavItems,
+  bottomNavItems,
   actions,
   children,
 }: {
   activeKey?: string;
-  topNavItems?: NavigationItem[];
-  bottomNavItems?: NavigationItem[];
+  topNavItems: readonly NavigationItem[];
+  bottomNavItems: readonly NavigationItem[];
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -27,8 +26,8 @@ export function DiscoveryShellLayout({
     <ChaseRoot colorMode={colorMode}>
       <MarketplaceShell
         brand={<Text weight="semibold">Marketplace</Text>}
-        topNavItems={topNavItems}
-        bottomNavItems={bottomNavItems}
+        topNavItems={[...topNavItems]}
+        bottomNavItems={[...bottomNavItems]}
         activeKey={activeKey}
         actions={actions}
       >
