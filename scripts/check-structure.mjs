@@ -104,6 +104,10 @@ const knownShellDeployables = new Set(Object.keys(deployableShellConfig));
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const domainFacingImportHeuristic =
   /(?:^|\/)(?:domain|domains|query|queries|projection|projections|read-model|read-models|projector|projectors)(?:\/|$)/;
+const routeOrShellSupportSymbolPattern =
+  /^\s*(?:export\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z0-9_]+)/gm;
+const domainFacingSymbolNamePattern =
+  /(?:^|_)(?:domain|domains|query|queries|projection|projections|readmodel|readmodels|projector|projectors)(?:$|_|[A-Z])/i;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|integration|seed-support(?:\/[^"']+)?)["']/;
@@ -344,6 +348,16 @@ function extractImportSpecifiers(content) {
   }
 
   return specifiers;
+}
+
+function extractDeclaredSymbolNames(content) {
+  const names = [];
+  for (const match of content.matchAll(routeOrShellSupportSymbolPattern)) {
+    if (match[1]) {
+      names.push(match[1]);
+    }
+  }
+  return names;
 }
 
 function stripContextManifestSurfaceExport(content) {
@@ -1890,6 +1904,38 @@ function checkImport(file, specifier) {
       `${routeOrShellSupportClassification} modules must depend on slice-local route adapters, not domain-facing internals (${specifier})`,
     );
   }
+
+  if (
+    routeOrShellSupportClassification &&
+    !isTestFile(relativeFile) &&
+    importerContextRoot
+  ) {
+    const isSameContextImport = resolvedSpecifier?.startsWith(`${importerContextRoot}/`) ?? false;
+    const isBoundedContextPackageImport = isBoundedContextSpecifier(normalized);
+    const isAllowedSameContextImport =
+      isSameContextImport &&
+      (
+        resolvedSpecifier.includes("/routes/") ||
+        resolvedSpecifier.includes("/ui/contracts") ||
+        resolvedSpecifier === `${importerContextRoot}/web` ||
+        resolvedSpecifier === `${importerContextRoot}/server` ||
+        resolvedSpecifier === `${importerContextRoot}/client` ||
+        resolvedSpecifier === `${importerContextRoot}/integration`
+      );
+    const isAllowedBoundedContextImport =
+      isBoundedContextPackageImport &&
+      /^@chase-sets\/[^/]+(?:\/(routes\/.+|web|server|client|integration))$/.test(normalized);
+
+    if (
+      (isSameContextImport && !isAllowedSameContextImport) ||
+      (isBoundedContextPackageImport && !isAllowedBoundedContextImport)
+    ) {
+      addViolation(
+        file,
+        `${routeOrShellSupportClassification} modules may import only slice route handlers, ui/contracts, or deployable-facing interfaces (${specifier})`,
+      );
+    }
+  }
 }
 
 for (const context of contextManifests.values()) {
@@ -1978,6 +2024,22 @@ for (const root of roots) {
         file,
         "routes/ must contain deployable adapter modules with route exports (loader/action/meta/default component)",
       );
+    }
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      routeOrShellSupportClassification &&
+      !isTestFile(normalizedFile)
+    ) {
+      const domainFacingSymbols = extractDeclaredSymbolNames(content).filter((name) =>
+        domainFacingSymbolNamePattern.test(name),
+      );
+      if (domainFacingSymbols.length > 0) {
+        addViolation(
+          file,
+          `${routeOrShellSupportClassification} modules must not define domain/query/projection symbols (${domainFacingSymbols.join(", ")}); keep orchestration in adapters only`,
+        );
+      }
     }
 
     if (
