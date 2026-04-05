@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -126,11 +126,22 @@ const allowedTechnicalBoundedContextRootFiles = new Set([
   "test-support.ts",
   "versioning.ts",
 ]);
-const singleSliceSupportFileAllowlist = new Set([
+const singleSliceSupportFileAllowlist = [
   // Temporary migration exceptions: remove entries once each file is relocated into its owning slice.
-]);
+  // {
+  //   file: "bounded-contexts/<context>/<support-directory>/<file>.ts",
+  //   owner: "@team-handle",
+  //   removeBy: "YYYY-MM-DD",
+  // },
+];
+const singleSliceSupportFileAllowlistByFile = new Map(
+  singleSliceSupportFileAllowlist.map((entry) => [entry.file, entry]),
+);
 const singleSliceSupportEnforcementMode =
   process.env.STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT === "warn" ? "warn" : "violation";
+const temporarySingleSliceSupportDebtFlag = process.env.STRUCTURE_ALLOW_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT === "true";
+const temporarySingleSliceSupportDebtLabel =
+  process.env.STRUCTURE_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT_LABEL ?? "structure-temporary-debt";
 const violations = [];
 const warnings = [];
 const clientSurfaceConsumers = new Map();
@@ -213,6 +224,25 @@ function setsAreEqual(left, right) {
   }
 
   return true;
+}
+
+function readGitHubPullRequestLabels() {
+  if (!process.env.GITHUB_EVENT_PATH || !existsSync(process.env.GITHUB_EVENT_PATH)) {
+    return [];
+  }
+
+  try {
+    const eventPayload = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+    return (eventPayload.pull_request?.labels ?? [])
+      .map((label) => label?.name)
+      .filter((label) => typeof label === "string");
+  } catch {
+    return [];
+  }
+}
+
+function isValidIsoDate(value) {
+  return /^\\d{4}-\\d{2}-\\d{2}$/.test(value);
 }
 
 function isTmpFile(file) {
@@ -2067,8 +2097,51 @@ for (const context of contextManifests.values()) {
   }
 }
 
+const todayIsoDate = new Date().toISOString().slice(0, 10);
+for (const entry of singleSliceSupportFileAllowlist) {
+  if (!entry || typeof entry !== "object") {
+    addPathViolation(
+      "scripts/check-structure.mjs",
+      "singleSliceSupportFileAllowlist entries must be objects with file, owner, and removeBy",
+    );
+    continue;
+  }
+
+  const { file, owner, removeBy } = entry;
+  if (!file || typeof file !== "string") {
+    addPathViolation("scripts/check-structure.mjs", "allowlist entries must include a file path");
+  }
+  if (!owner || typeof owner !== "string") {
+    addPathViolation("scripts/check-structure.mjs", `allowlist entry for ${file ?? "unknown"} must include an owner`);
+  }
+  if (!removeBy || typeof removeBy !== "string" || !isValidIsoDate(removeBy)) {
+    addPathViolation(
+      "scripts/check-structure.mjs",
+      `allowlist entry for ${file ?? "unknown"} must include removeBy in YYYY-MM-DD format`,
+    );
+    continue;
+  }
+
+  if (removeBy < todayIsoDate) {
+    addPathViolation(
+      file,
+      `single-slice support allowlist entry expired on ${removeBy}; owner=${owner ?? "unknown"}`,
+    );
+  }
+}
+
+const pullRequestLabels = readGitHubPullRequestLabels();
+const temporaryDebtPermittedByLabel = pullRequestLabels.includes(temporarySingleSliceSupportDebtLabel);
+const temporaryDebtPermitted = temporarySingleSliceSupportDebtFlag || temporaryDebtPermittedByLabel;
+if (process.env.CI && singleSliceSupportFileAllowlist.length > 0 && !temporaryDebtPermitted) {
+  addPathViolation(
+    "scripts/check-structure.mjs",
+    `singleSliceSupportFileAllowlist must be empty in CI unless STRUCTURE_ALLOW_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT=true or PR label ${temporarySingleSliceSupportDebtLabel} is present`,
+  );
+}
+
 for (const [supportFile, usageRecord] of supportFileConsumers.entries()) {
-  if (singleSliceSupportFileAllowlist.has(supportFile)) {
+  if (singleSliceSupportFileAllowlistByFile.has(supportFile)) {
     continue;
   }
 

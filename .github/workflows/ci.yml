@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  structure:
+    runs-on: ubuntu-latest
+    env:
+      STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT: violation
+      STRUCTURE_ALLOW_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'structure-temporary-debt') && 'true' || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check structure
+        run: npm run check:structure:ci
