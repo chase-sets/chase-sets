@@ -21,9 +21,7 @@
     "customer"
   ],
   "allowedSupportDirectories": [
-    "api-key-support",
     "integration",
-    "projection-support",
     "read-model-support",
     "request-support",
     "route-support",

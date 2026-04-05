@@ -1,5 +1,5 @@
 import type { Consent } from "../consents/ui/contracts";
-import { CustomerSummaryPage } from "../shell-support/ui/customer-pages";
+import { CustomerSummaryPage } from "./ui/customer-pages";
 
 export function ConsentHistoryPage({ consents }: { consents: readonly Consent[] }) {
   return (
