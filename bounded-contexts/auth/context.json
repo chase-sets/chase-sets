@@ -228,5 +228,76 @@
       "visibility": "signed-out",
       "requiredPermissions": []
     }
-  ]
+  ],
+  "directoryIntent": {
+    "customer": {
+      "classification": "slice",
+      "purpose": "Own customer feature behavior, read models, and UI contracts for the auth context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal auth module composition"
+      ]
+    },
+    "sessions": {
+      "classification": "slice",
+      "purpose": "Own sessions feature behavior, read models, and UI contracts for the auth context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal auth module composition"
+      ]
+    },
+    "auth-support": {
+      "classification": "support",
+      "purpose": "Provide reusable auth-support assets shared by multiple auth slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple auth slices",
+        "Deployable composition for auth"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide reusable request-support assets shared by multiple auth slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple auth slices",
+        "Deployable composition for auth"
+      ]
+    },
+    "route-support": {
+      "classification": "support",
+      "purpose": "Provide reusable route-support assets shared by multiple auth slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple auth slices",
+        "Deployable composition for auth"
+      ]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Provide reusable seed-support assets shared by multiple auth slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple auth slices",
+        "Deployable composition for auth"
+      ]
+    },
+    "shell-support": {
+      "classification": "support",
+      "purpose": "Provide reusable shell-support assets shared by multiple auth slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple auth slices",
+        "Deployable composition for auth"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
 }

@@ -46,12 +46,73 @@
     {
       "deployable": "marketplace",
       "routes": [
-        { "routeId": "account-payout", "routePath": "account/payouts/:payoutId", "fileExport": "./routes/marketplace/account-payout", "routeType": "route", "sourceContext": "settlement" },
-        { "routeId": "account-payouts", "routePath": "account/payouts", "fileExport": "./routes/marketplace/account-payouts", "routeType": "route", "sourceContext": "settlement" },
-        { "routeId": "account-settlement", "routePath": "account/settlement", "fileExport": "./routes/marketplace/account-settlement", "routeType": "route", "sourceContext": "settlement" }
+        {
+          "routeId": "account-payout",
+          "routePath": "account/payouts/:payoutId",
+          "fileExport": "./routes/marketplace/account-payout",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "account-payouts",
+          "routePath": "account/payouts",
+          "fileExport": "./routes/marketplace/account-payouts",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "account-settlement",
+          "routePath": "account/settlement",
+          "fileExport": "./routes/marketplace/account-settlement",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        }
       ]
     }
   ],
-  "shellContributions": [
-  ]
+  "shellContributions": [],
+  "directoryIntent": {
+    "wallets": {
+      "classification": "slice",
+      "purpose": "Own wallets feature behavior, read models, and UI contracts for the settlement context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal settlement module composition"
+      ]
+    },
+    "payouts": {
+      "classification": "slice",
+      "purpose": "Own payouts feature behavior, read models, and UI contracts for the settlement context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal settlement module composition"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide reusable request-support assets shared by multiple settlement slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple settlement slices",
+        "Deployable composition for settlement"
+      ]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Provide reusable seed-support assets shared by multiple settlement slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple settlement slices",
+        "Deployable composition for settlement"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
 }

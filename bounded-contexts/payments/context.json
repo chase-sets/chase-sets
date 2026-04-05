@@ -66,11 +66,66 @@
     {
       "deployable": "marketplace",
       "routes": [
-        { "routeId": "account-payment", "routePath": "account/payments/:paymentId", "fileExport": "./routes/marketplace/account-payment", "routeType": "route", "sourceContext": "payments" },
-        { "routeId": "account-payment-new", "routePath": "account/payments/new", "fileExport": "./routes/marketplace/account-payment-new", "routeType": "route", "sourceContext": "payments" }
+        {
+          "routeId": "account-payment",
+          "routePath": "account/payments/:paymentId",
+          "fileExport": "./routes/marketplace/account-payment",
+          "routeType": "route",
+          "sourceContext": "payments"
+        },
+        {
+          "routeId": "account-payment-new",
+          "routePath": "account/payments/new",
+          "fileExport": "./routes/marketplace/account-payment-new",
+          "routeType": "route",
+          "sourceContext": "payments"
+        }
       ]
     }
   ],
-  "shellContributions": [
-  ]
+  "shellContributions": [],
+  "directoryIntent": {
+    "payments": {
+      "classification": "slice",
+      "purpose": "Own payments feature behavior, read models, and UI contracts for the payments context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal payments module composition"
+      ]
+    },
+    "refunds": {
+      "classification": "slice",
+      "purpose": "Own refunds feature behavior, read models, and UI contracts for the payments context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal payments module composition"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide reusable request-support assets shared by multiple payments slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple payments slices",
+        "Deployable composition for payments"
+      ]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Provide reusable seed-support assets shared by multiple payments slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple payments slices",
+        "Deployable composition for payments"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
 }

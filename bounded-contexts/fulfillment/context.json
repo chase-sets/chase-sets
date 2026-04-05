@@ -44,17 +44,127 @@
     {
       "deployable": "marketplace",
       "routes": [
-        { "routeId": "account-fulfillment", "routePath": "account/fulfillment", "fileExport": "./routes/marketplace/account-fulfillment", "routeType": "route", "sourceContext": "fulfillment" },
-        { "routeId": "account-fulfillment-shipment", "routePath": "account/fulfillment/:shipmentId", "fileExport": "./routes/marketplace/account-fulfillment-shipment", "routeType": "route", "sourceContext": "fulfillment" },
-        { "routeId": "account-shipment", "routePath": "account/shipments/:shipmentId", "fileExport": "./routes/marketplace/account-shipment", "routeType": "route", "sourceContext": "fulfillment" },
-        { "routeId": "account-shipments", "routePath": "account/shipments", "fileExport": "./routes/marketplace/account-shipments", "routeType": "route", "sourceContext": "fulfillment" }
+        {
+          "routeId": "account-fulfillment",
+          "routePath": "account/fulfillment",
+          "fileExport": "./routes/marketplace/account-fulfillment",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        },
+        {
+          "routeId": "account-fulfillment-shipment",
+          "routePath": "account/fulfillment/:shipmentId",
+          "fileExport": "./routes/marketplace/account-fulfillment-shipment",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        },
+        {
+          "routeId": "account-shipment",
+          "routePath": "account/shipments/:shipmentId",
+          "fileExport": "./routes/marketplace/account-shipment",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        },
+        {
+          "routeId": "account-shipments",
+          "routePath": "account/shipments",
+          "fileExport": "./routes/marketplace/account-shipments",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        }
       ]
     }
   ],
   "shellContributions": [
-    { "deployable": "marketplace", "slot": "top-nav", "key": "shipments", "label": "Shipments", "icon": "package", "href": "/account/shipments", "order": 150, "visibility": "signed-in", "requiredPermissions": ["fulfillment.view"] },
-    { "deployable": "marketplace", "slot": "top-nav", "key": "fulfillment", "label": "Fulfillment", "icon": "package", "href": "/account/fulfillment", "order": 180, "visibility": "signed-in", "requiredPermissions": ["fulfillment.view", "fulfillment.manage"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "shipments", "label": "Shipments", "icon": "package", "href": "/account/shipments", "order": 150, "visibility": "signed-in", "requiredPermissions": ["fulfillment.view"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "fulfillment", "label": "Fulfillment", "icon": "package", "href": "/account/fulfillment", "order": 180, "visibility": "signed-in", "requiredPermissions": ["fulfillment.view", "fulfillment.manage"] }
-  ]
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "shipments",
+      "label": "Shipments",
+      "icon": "package",
+      "href": "/account/shipments",
+      "order": 150,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "fulfillment.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "fulfillment",
+      "label": "Fulfillment",
+      "icon": "package",
+      "href": "/account/fulfillment",
+      "order": 180,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "fulfillment.view",
+        "fulfillment.manage"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "shipments",
+      "label": "Shipments",
+      "icon": "package",
+      "href": "/account/shipments",
+      "order": 150,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "fulfillment.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "fulfillment",
+      "label": "Fulfillment",
+      "icon": "package",
+      "href": "/account/fulfillment",
+      "order": 180,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "fulfillment.view",
+        "fulfillment.manage"
+      ]
+    }
+  ],
+  "directoryIntent": {
+    "shipments": {
+      "classification": "slice",
+      "purpose": "Own shipments feature behavior, read models, and UI contracts for the fulfillment context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal fulfillment module composition"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide reusable request-support assets shared by multiple fulfillment slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple fulfillment slices",
+        "Deployable composition for fulfillment"
+      ]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Provide reusable seed-support assets shared by multiple fulfillment slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple fulfillment slices",
+        "Deployable composition for fulfillment"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
 }

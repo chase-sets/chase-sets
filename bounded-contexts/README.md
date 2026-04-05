@@ -78,7 +78,16 @@ Top-level directory intent:
 
 - `slices` entries in `context.json` are the default and must be feature slices.
 - Any non-feature top-level directory is an explicit exception and must be listed in `allowedSupportDirectories`.
-- Support directories should be narrowly named and obvious at a glance.
+- Every implemented context must define `directoryIntent` in `context.json` for each root directory.
+- `directoryIntent` is the manifest-first contract that classifies each root directory as exactly one of:
+  - `slice` (feature),
+  - `support` (exception),
+  - `routes` (composition seam).
+- `directoryIntent` entries must document:
+  - `purpose`,
+  - `allowedWhen`,
+  - `expectedConsumers`.
+- Structure checks fail when a root directory exists without `directoryIntent` metadata, including support directories listed in `allowedSupportDirectories`.
 
 Naming standard for support directories:
 

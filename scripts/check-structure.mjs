@@ -77,6 +77,7 @@ const manifestRequiredFields = [
   "apiMounts",
   "deployableContributions",
   "shellContributions",
+  "directoryIntent",
 ];
 const knownDeployables = new Set(Object.keys(deployableRouteConfig));
 const knownApiDeployables = new Set(Object.keys(deployableApiMountConfig));
@@ -155,12 +156,9 @@ function classifyContextTopLevelSegment(context, relativePath) {
     return null;
   }
 
-  if ((context.manifest.slices ?? []).includes(segment)) {
-    return { kind: "slice", name: segment };
-  }
-
-  if ((context.manifest.allowedSupportDirectories ?? []).includes(segment)) {
-    return { kind: "support", name: segment };
+  const declaredIntent = context.manifest.directoryIntent?.[segment];
+  if (declaredIntent) {
+    return { kind: declaredIntent.classification, name: segment };
   }
 
   return { kind: "other", name: segment };
@@ -286,6 +284,10 @@ function isAllowedPublicExportName(value) {
     value === "./web" ||
     value === "./routes/*"
   );
+}
+
+function isValidDirectoryClassification(value) {
+  return value === "slice" || value === "support" || value === "routes";
 }
 
 function resolveExistingModulePath(rootDir, relativeSpecifier) {
@@ -422,6 +424,34 @@ async function loadContextManifests() {
             `${relativeRoot}/context.json`,
             `support directories must use *-support naming unless explicitly exempt (integration, tests): ${supportDirectory}`,
           );
+        }
+      }
+    }
+
+    if (!isPlainObject(manifest.directoryIntent)) {
+      addPathViolation(`${relativeRoot}/context.json`, "directoryIntent must be an object");
+    } else {
+      for (const [directoryName, intent] of Object.entries(manifest.directoryIntent)) {
+        const intentLabel = `${relativeRoot}/context.json directoryIntent.${directoryName}`;
+        if (!isPlainObject(intent)) {
+          addPathViolation(intentLabel, "intent metadata must be an object");
+          continue;
+        }
+
+        if (!isValidDirectoryClassification(intent.classification)) {
+          addPathViolation(intentLabel, "classification must be one of: slice, support, routes");
+        }
+
+        if (typeof intent.purpose !== "string" || intent.purpose.trim().length === 0) {
+          addPathViolation(intentLabel, "purpose must be a non-empty string");
+        }
+
+        if (typeof intent.allowedWhen !== "string" || intent.allowedWhen.trim().length === 0) {
+          addPathViolation(intentLabel, "allowedWhen must be a non-empty string");
+        }
+
+        if (!isStringArray(intent.expectedConsumers) || intent.expectedConsumers.length === 0) {
+          addPathViolation(intentLabel, "expectedConsumers must be a non-empty array of strings");
         }
       }
     }
@@ -872,6 +902,8 @@ async function validateContextManifest(context) {
     ...manifest.allowedSupportDirectories,
     "routes",
   ]);
+  const declaredDirectoryIntent = manifest.directoryIntent ?? {};
+  const declaredDirectoryIntentNames = new Set(Object.keys(declaredDirectoryIntent));
 
   if (manifest.contextName === "identity") {
     if ((manifest.allowedSupportDirectories ?? []).includes("auth-support")) {
@@ -931,6 +963,71 @@ async function validateContextManifest(context) {
     }
   }
 
+  for (const sliceDirectory of manifest.slices ?? []) {
+    const intent = declaredDirectoryIntent[sliceDirectory];
+    if (!intent) {
+      addPathViolation(`${root}/context.json`, `directoryIntent must define slice metadata (${sliceDirectory})`);
+      continue;
+    }
+
+    if (intent.classification !== "slice") {
+      addPathViolation(
+        `${root}/context.json`,
+        `directoryIntent classification for ${sliceDirectory} must be slice`,
+      );
+    }
+  }
+
+  for (const supportDirectory of allowedSupportDirectories) {
+    const intent = declaredDirectoryIntent[supportDirectory];
+    if (!intent) {
+      addPathViolation(
+        `${root}/context.json`,
+        `directoryIntent must define support metadata (${supportDirectory})`,
+      );
+      continue;
+    }
+
+    if (intent.classification !== "support") {
+      addPathViolation(
+        `${root}/context.json`,
+        `directoryIntent classification for ${supportDirectory} must be support`,
+      );
+    }
+  }
+
+  if (!declaredDirectoryIntent.routes) {
+    addPathViolation(`${root}/context.json`, "directoryIntent must define routes metadata");
+  } else if (declaredDirectoryIntent.routes.classification !== "routes") {
+    addPathViolation(`${root}/context.json`, "directoryIntent classification for routes must be routes");
+  }
+
+  for (const [directoryName, intent] of Object.entries(declaredDirectoryIntent)) {
+    const expectedClassification =
+      (manifest.slices ?? []).includes(directoryName)
+        ? "slice"
+        : allowedSupportDirectories.includes(directoryName)
+          ? "support"
+          : directoryName === "routes"
+            ? "routes"
+            : null;
+
+    if (!expectedClassification) {
+      addPathViolation(
+        `${root}/context.json`,
+        `directoryIntent entry must reference a declared slice, allowed support directory, or routes (${directoryName})`,
+      );
+      continue;
+    }
+
+    if (intent.classification !== expectedClassification) {
+      addPathViolation(
+        `${root}/context.json`,
+        `directoryIntent classification for ${directoryName} must be ${expectedClassification}`,
+      );
+    }
+  }
+
   for (const entry of rootEntries) {
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) {
       continue;
@@ -941,6 +1038,21 @@ async function validateContextManifest(context) {
         `${root}/${entry.name}`,
         "top-level bounded-context directory must be a declared slice, routes, or an explicitly allowed support directory",
       );
+    }
+
+    if (entry.isDirectory()) {
+      const intent = declaredDirectoryIntent[entry.name];
+      if (!intent) {
+        addPathViolation(
+          `${root}/${entry.name}`,
+          "top-level bounded-context directory must declare directoryIntent metadata",
+        );
+      } else if (!isValidDirectoryClassification(intent.classification)) {
+        addPathViolation(
+          `${root}/${entry.name}`,
+          "top-level bounded-context directory classification must be slice, support, or routes",
+        );
+      }
     }
 
     if (!entry.isFile()) {
@@ -959,6 +1071,15 @@ async function validateContextManifest(context) {
       addPathViolation(
         `${root}/${entry.name}`,
         "implemented bounded-context roots must keep top-level files canonical and avoid ad hoc helper files",
+      );
+    }
+  }
+
+  for (const directoryName of declaredDirectoryIntentNames) {
+    if (!topLevelDirectories.has(directoryName) && directoryName !== "routes") {
+      addPathViolation(
+        `${root}/context.json`,
+        `directoryIntent entry must map to an existing top-level directory (${directoryName})`,
       );
     }
   }
