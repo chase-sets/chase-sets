@@ -162,7 +162,10 @@
       "expectedConsumers": [
         "Multiple inventory slices",
         "Deployable composition for inventory"
-      ]
+      ],
+      "justification": "integration centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "request-support": {
       "classification": "support",
@@ -171,7 +174,10 @@
       "expectedConsumers": [
         "Multiple inventory slices",
         "Deployable composition for inventory"
-      ]
+      ],
+      "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
       "classification": "support",
@@ -180,7 +186,10 @@
       "expectedConsumers": [
         "Multiple inventory slices",
         "Deployable composition for inventory"
-      ]
+      ],
+      "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "tests": {
       "classification": "support",
@@ -189,7 +198,10 @@
       "expectedConsumers": [
         "Multiple inventory slices",
         "Deployable composition for inventory"
-      ]
+      ],
+      "justification": "tests centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",

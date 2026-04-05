@@ -147,7 +147,10 @@
       "expectedConsumers": [
         "Multiple fulfillment slices",
         "Deployable composition for fulfillment"
-      ]
+      ],
+      "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
       "classification": "support",
@@ -156,7 +159,10 @@
       "expectedConsumers": [
         "Multiple fulfillment slices",
         "Deployable composition for fulfillment"
-      ]
+      ],
+      "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",

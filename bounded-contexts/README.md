@@ -86,7 +86,12 @@ Top-level directory intent:
 - `directoryIntent` entries must document:
   - `purpose`,
   - `allowedWhen`,
-  - `expectedConsumers`.
+  - `expectedConsumers`,
+  - `justification`,
+  - `createdFor`,
+  - `sunsetWhen`.
+- Support-directory `expectedConsumers` must declare at least two slices, unless the directory is explicitly tagged as cross-cutting runtime composition (`crossCuttingRuntimeComposition: true`) for approved runtime composition folders such as `request-support` or `seed-support`.
+- Structure checks compare declared support-directory `expectedConsumers` with actual support file consumers and fail when they drift.
 - Structure checks fail when a root directory exists without `directoryIntent` metadata, including support directories listed in `allowedSupportDirectories`.
 
 Naming standard for support directories:

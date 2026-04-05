@@ -253,7 +253,10 @@
       "expectedConsumers": [
         "Multiple auth slices",
         "Deployable composition for auth"
-      ]
+      ],
+      "justification": "auth-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "request-support": {
       "classification": "support",
@@ -262,7 +265,10 @@
       "expectedConsumers": [
         "Multiple auth slices",
         "Deployable composition for auth"
-      ]
+      ],
+      "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "route-support": {
       "classification": "support",
@@ -271,7 +277,10 @@
       "expectedConsumers": [
         "Multiple auth slices",
         "Deployable composition for auth"
-      ]
+      ],
+      "justification": "route-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
       "classification": "support",
@@ -280,16 +289,22 @@
       "expectedConsumers": [
         "Multiple auth slices",
         "Deployable composition for auth"
-      ]
+      ],
+      "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "shell-support": {
       "classification": "support",
       "purpose": "Provide reusable shell-support assets shared by multiple auth slices.",
       "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
       "expectedConsumers": [
-        "Multiple auth slices",
-        "Deployable composition for auth"
-      ]
+        "customer",
+        "sessions"
+      ],
+      "justification": "shell-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
