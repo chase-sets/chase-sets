@@ -68,7 +68,35 @@ Inside a bounded context, avoid generic folder names such as `infrastructure`, `
 Prefer:
 
 - slice-local files when behavior belongs to one slice
-- purpose-specific names such as `projection-support`, `shell-support`, `seed-support`, `read-models`, `projections`, `persistence`, or `integration` when context-local code is reused across slices
+- purpose-specific names such as `route-support`, `request-support`, `projection-support`, `shell-support`, `seed-support`, `read-models`, `projections`, `persistence`, or `integration` when context-local code is reused across slices
+
+## Public Surface Rules
+
+Only a bounded context root `index.ts` may export `contextManifest`.
+
+Secondary public surfaces must be real, stable contracts. A surface should either have meaningful public value or not exist.
+
+Allowed public surfaces:
+
+- `.`
+- `./client`
+- `./server`
+- `./integration`
+- `./web`
+- `./routes/*`
+- `./seed-support/*`
+
+Surface meanings:
+
+- `.` is the deployable plug-in contract only
+- `./client` is browser-safe transport clients, DTOs, and API errors
+- `./server` is same-context request and SSR helpers
+- `./integration` is the only cross-context surface
+- `./web` is deployable-facing shell, layout, provider, and browser-entry code only
+- `./routes/*` is the feature-route surface for generated deployable adapters
+- `./seed-support/*` is seed, bootstrap, and test-only support
+
+Private route and request helpers must stay inside the owning bounded context under explicit support folders, not as ad hoc top-level files.
 
 ## Deployable Composition
 

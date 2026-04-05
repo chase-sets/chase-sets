@@ -1,4 +1,3 @@
-export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildMarketplaceApi } from "./api";
@@ -9,26 +8,26 @@ export type {
   MarketplaceListingInventoryRecordOption,
   MarketplaceListingListItem,
   MarketplaceMarketSummary,
-} from "./listings/ui/contracts";
+} from "./listings/client/contracts";
 export type {
   MarketplaceBuyerOfferDetail,
   MarketplaceOfferListItem,
   MarketplaceSellerOfferDetail,
   MarketplaceSellerOfferListItem,
-} from "./offers/ui/contracts";
+} from "./offers/client/contracts";
 
 import type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
   MarketplaceListingListItem,
   MarketplaceMarketSummary,
-} from "./listings/ui/contracts";
+} from "./listings/client/contracts";
 import type {
   MarketplaceBuyerOfferDetail,
   MarketplaceOfferListItem,
   MarketplaceSellerOfferDetail,
   MarketplaceSellerOfferListItem,
-} from "./offers/ui/contracts";
+} from "./offers/client/contracts";
 
 type MarketplaceApiApp = ReturnType<typeof buildMarketplaceApi>;
 

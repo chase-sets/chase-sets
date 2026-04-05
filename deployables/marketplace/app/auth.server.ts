@@ -1,52 +1,25 @@
-import { redirect } from "react-router";
-import {
-  hasPermission,
-  completeBrowserAuthentication,
-  requireAccountSelectionTokenOrRedirect,
-  resolveActorFromAuthContext,
-  signOutActorViaAuthApi,
-} from "@chase-sets/auth/server";
+import { createAuthHostPolicy } from "@chase-sets/auth/server";
 
-function buildCurrentPath(request: Request) {
-  const url = new URL(request.url);
-  return `${url.pathname}${url.search}`;
-}
+const authPolicy = createAuthHostPolicy({
+  signInPath: "/sign-in",
+  fallbackPath: "/account",
+  defaultSuccessPath: "/account",
+  accountSelectionPath: "/account/select",
+  signedOutReturnTo: "/search",
+});
 
-function isSafeReturnTo(value: string | null) {
-  return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
-}
-
-export function getReturnTo(request: Request, fallback: string) {
-  const returnTo = new URL(request.url).searchParams.get("returnTo");
-  return isSafeReturnTo(returnTo) ? returnTo! : fallback;
-}
-
-export async function resolveMarketplaceActor(request: Request) {
-  return resolveActorFromAuthContext({ request });
-}
+export const getReturnTo = authPolicy.getReturnTo;
+export const resolveMarketplaceActor = authPolicy.resolveActor;
 
 export async function requireMarketplaceActor(
   request: Request,
-  permission?: Parameters<typeof hasPermission>[1],
+  permission?: string,
 ) {
-  const actor = await resolveMarketplaceActor(request);
-  if (!actor) {
-    throw redirect(
-      `/sign-in?returnTo=${encodeURIComponent(buildCurrentPath(request))}`,
-    );
-  }
-
-  if (permission && !hasPermission(actor, permission)) {
-    throw new Response("Forbidden.", { status: 403 });
-  }
-
-  return actor;
+  return authPolicy.requireActor(request, permission);
 }
 
 export function requireAccountSelectionToken(request: Request) {
-  return requireAccountSelectionTokenOrRedirect(request, {
-    fallbackPath: "/account",
-  });
+  return authPolicy.requireAccountSelectionToken(request);
 }
 
 export function completeAuthentication(
@@ -61,7 +34,7 @@ export function completeAuthentication(
     accountSelectionPath: string;
   }>,
 ) {
-  return completeBrowserAuthentication(request, result, options);
+  return authPolicy.completeAuthentication(request, result, options);
 }
 
 export async function signOutMarketplaceActor(
@@ -70,7 +43,5 @@ export async function signOutMarketplaceActor(
     returnTo?: string;
   }> = {},
 ) {
-  return signOutActorViaAuthApi(request, {
-    returnTo: options.returnTo ?? "/search",
-  });
+  return authPolicy.signOutActor(request, options);
 }

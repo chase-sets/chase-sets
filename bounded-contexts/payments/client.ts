@@ -1,7 +1,6 @@
-export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { buildPaymentsApi } from "./api";
-import type { PaymentsPaymentDetail } from "./payments/ui/contracts";
+import type { PaymentsPaymentDetail } from "./payments/client/contracts";
 
 type PaymentsApiApp = ReturnType<typeof buildPaymentsApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -73,5 +72,5 @@ export function createPaymentsApiClient({
   };
 }
 
-export type { PaymentsPaymentDetail } from "./payments/ui/contracts";
+export type { PaymentsPaymentDetail } from "./payments/client/contracts";
 export const paymentsApi = createPaymentsApiClient();

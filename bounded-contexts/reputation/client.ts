@@ -1,4 +1,3 @@
-export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildReputationApi } from "./api";
@@ -8,14 +7,14 @@ export type {
   ReputationReviewOpportunity,
   ReputationReviewDetail,
   ReputationReviewListItem,
-} from "./reviews/ui/contracts";
+} from "./reviews/client/contracts";
 
 import type {
   ReputationAccountSummary,
   ReputationReviewOpportunity,
   ReputationReviewDetail,
   ReputationReviewListItem,
-} from "./reviews/ui/contracts";
+} from "./reviews/client/contracts";
 
 type ReputationApiApp = ReturnType<typeof buildReputationApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";

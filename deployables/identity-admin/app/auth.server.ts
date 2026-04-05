@@ -1,49 +1,23 @@
-import { redirect } from "react-router";
-import {
-  hasPermission,
-  completeBrowserAuthentication,
-  requireAccountSelectionTokenOrRedirect,
-  resolveActorFromAuthContext,
-  signOutActorViaAuthApi,
-} from "@chase-sets/auth/server";
+import { createAuthHostPolicy } from "@chase-sets/auth/server";
 
-function buildCurrentPath(request: Request) {
-  const url = new URL(request.url);
-  return `${url.pathname}${url.search}`;
-}
+const authPolicy = createAuthHostPolicy({
+  signInPath: "/sign-in",
+  fallbackPath: "/accounts",
+  defaultSuccessPath: "/accounts",
+  accountSelectionPath: "/account-select",
+  requiredPermission: "security.manage",
+  signedOutReturnTo: "/sign-in",
+});
 
-function isSafeReturnTo(value: string | null) {
-  return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
-}
-
-export function getReturnTo(request: Request, fallback: string) {
-  const returnTo = new URL(request.url).searchParams.get("returnTo");
-  return isSafeReturnTo(returnTo) ? returnTo! : fallback;
-}
-
-export async function resolveIdentityAdminActor(request: Request) {
-  return resolveActorFromAuthContext({ request });
-}
+export const getReturnTo = authPolicy.getReturnTo;
+export const resolveIdentityAdminActor = authPolicy.resolveActor;
 
 export async function requireIdentityAdminActor(request: Request) {
-  const actor = await resolveIdentityAdminActor(request);
-  if (!actor) {
-    throw redirect(
-      `/sign-in?returnTo=${encodeURIComponent(buildCurrentPath(request))}`,
-    );
-  }
-
-  if (!hasPermission(actor, "security.manage")) {
-    throw new Response("Forbidden.", { status: 403 });
-  }
-
-  return actor;
+  return authPolicy.requireActor(request, "security.manage");
 }
 
 export function requireAccountSelectionToken(request: Request) {
-  return requireAccountSelectionTokenOrRedirect(request, {
-    fallbackPath: "/accounts",
-  });
+  return authPolicy.requireAccountSelectionToken(request);
 }
 
 export function completeAuthentication(
@@ -54,12 +28,9 @@ export function completeAuthentication(
     sessionToken?: string;
   }>,
 ) {
-  return completeBrowserAuthentication(request, result, {
-    defaultSuccessPath: "/accounts",
-    accountSelectionPath: "/account-select",
-  });
+  return authPolicy.completeAuthentication(request, result);
 }
 
 export async function signOutIdentityAdmin(request: Request) {
-  return signOutActorViaAuthApi(request, { returnTo: "/sign-in" });
+  return authPolicy.signOutActor(request);
 }

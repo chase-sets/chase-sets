@@ -285,3 +285,94 @@ export async function signOutActorViaAuthApi(
 
   return createRedirectResponse(options.returnTo ?? "/", headers);
 }
+
+export type AuthHostPolicy = Readonly<{
+  getReturnTo: (request: Request, fallback?: string) => string;
+  resolveActor: (request: Request) => Promise<ResolvedActor | null>;
+  requireActor: (
+    request: Request,
+    permission?: string,
+  ) => Promise<ResolvedActor>;
+  requireAccountSelectionToken: (request: Request) => string;
+  completeAuthentication: (
+    request: Request,
+    result: Readonly<{
+      requiresAccountSelection?: boolean;
+      selectionToken?: string;
+      sessionToken?: string;
+    }>,
+    options?: Readonly<{
+      defaultSuccessPath?: string;
+      accountSelectionPath?: string;
+    }>,
+  ) => { error: string } | never;
+  signOutActor: (
+    request: Request,
+    options?: Readonly<{
+      returnTo?: string;
+    }>,
+  ) => Promise<Response>;
+}>;
+
+export function createAuthHostPolicy(options: Readonly<{
+  signInPath: string;
+  fallbackPath: string;
+  defaultSuccessPath: string;
+  accountSelectionPath: string;
+  requiredPermission?: string;
+  signedOutReturnTo: string;
+}>): AuthHostPolicy {
+  function buildCurrentPath(request: Request) {
+    const url = new URL(request.url);
+    return `${url.pathname}${url.search}`;
+  }
+
+  async function resolveActor(request: Request) {
+    return resolveActorFromAuthContext({ request });
+  }
+
+  async function requireActor(request: Request, permission?: string) {
+    const actor = await resolveActor(request);
+    if (!actor) {
+      throw createRedirectResponse(
+        `${options.signInPath}?returnTo=${encodeURIComponent(
+          buildCurrentPath(request),
+        )}`,
+      );
+    }
+
+    const requiredPermission = permission ?? options.requiredPermission;
+    if (requiredPermission && !hasPermission(actor, requiredPermission)) {
+      throw new Response("Forbidden.", { status: 403 });
+    }
+
+    return actor;
+  }
+
+  return {
+    getReturnTo(request, fallback = options.fallbackPath) {
+      return getSafeReturnTo(request, fallback);
+    },
+    resolveActor,
+    requireActor,
+    requireAccountSelectionToken(request) {
+      return requireAccountSelectionTokenOrRedirect(request, {
+        signInPath: options.signInPath,
+        fallbackPath: options.fallbackPath,
+      });
+    },
+    completeAuthentication(request, result, overrides = {}) {
+      return completeBrowserAuthentication(request, result, {
+        defaultSuccessPath:
+          overrides.defaultSuccessPath ?? options.defaultSuccessPath,
+        accountSelectionPath:
+          overrides.accountSelectionPath ?? options.accountSelectionPath,
+      });
+    },
+    async signOutActor(request, overrides = {}) {
+      return signOutActorViaAuthApi(request, {
+        returnTo: overrides.returnTo ?? options.signedOutReturnTo,
+      });
+    },
+  };
+}

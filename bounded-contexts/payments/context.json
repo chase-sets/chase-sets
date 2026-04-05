@@ -20,8 +20,7 @@
     "./client",
     "./routes/*",
     "./seed-support/*",
-    "./server",
-    "./web"
+    "./server"
   ],
   "allowedContextDependencies": [
     "@chase-sets/ordering"

@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { createAuthRequestApiClient } from "../../browser-auth";
+import { createAuthRequestApiClient } from "../../server";
 import type { Session } from "../../sessions/ui/contracts";
 import { SessionListPage } from "../../sessions/ui/session-list-page";
 

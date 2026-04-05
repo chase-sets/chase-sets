@@ -1,4 +1,3 @@
-export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildFulfillmentApi } from "./api";
@@ -8,12 +7,12 @@ export type {
   FulfillmentShipmentException,
   FulfillmentShipmentLine,
   FulfillmentShipmentListItem,
-} from "./shipments/ui/contracts";
+} from "./shipments/client/contracts";
 
 import type {
   FulfillmentShipmentDetail,
   FulfillmentShipmentListItem,
-} from "./shipments/ui/contracts";
+} from "./shipments/client/contracts";
 
 type FulfillmentApiApp = ReturnType<typeof buildFulfillmentApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";

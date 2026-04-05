@@ -86,6 +86,39 @@ const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|integration|seed-support(?:\/[^"']+)?)["']/;
 const placeholderIntegrationPattern = /\b(?:[A-Z][A-Za-z0-9]*IntegrationSurface|[a-z][A-Za-z0-9]*IntegrationSurface|[a-z][A-Za-z0-9]*ContextBoundary|[A-Z][A-Za-z0-9]*ContextBoundary)\b/;
+const boundedContextSurfaceFiles = new Set(["client.ts", "server.ts", "web.ts", "integration.ts"]);
+const canonicalBoundedContextRootFiles = new Set([
+  "README.md",
+  "GLOSSARY.md",
+  "api.ts",
+  "client.ts",
+  "context.json",
+  "ids.ts",
+  "index.ts",
+  "integration.ts",
+  "package.json",
+  "schema.ts",
+  "seed.ts",
+  "server.ts",
+  "services.ts",
+  "web.ts",
+]);
+const allowedTechnicalBoundedContextRootFiles = new Set([
+  "bootstrap-context.ts",
+  "catalog-events.ts",
+  "common.ts",
+  "constants.ts",
+  "fake-gateway.ts",
+  "policies.ts",
+  "processor-gateway.ts",
+  "runtime-support.ts",
+  "runtime.ts",
+  "sellable-units.ts",
+  "stripe-gateway.ts",
+  "supply-resolver.ts",
+  "test-support.ts",
+  "versioning.ts",
+]);
 const violations = [];
 
 function normalizeRelative(filePath) {
@@ -133,6 +166,13 @@ function extractImportSpecifiers(content) {
   }
 
   return specifiers;
+}
+
+function stripContextManifestSurfaceExport(content) {
+  return content.replace(
+    /^\s*export\s+\{\s*default\s+as\s+contextManifest\s*\}\s+from\s+["']\.\/context\.json["'];?\s*$/gm,
+    "",
+  ).trim();
 }
 
 function extractExportedValueNames(content) {
@@ -755,14 +795,33 @@ async function validateContextManifest(context) {
 
   const rootEntries = await readdir(rootAbs, { withFileTypes: true });
   for (const entry of rootEntries) {
-    if (!entry.isDirectory() || ignoredDirectories.has(entry.name)) {
+    if (entry.isDirectory() && ignoredDirectories.has(entry.name)) {
       continue;
     }
 
-    if (!expectedTopLevelDirectories.has(entry.name)) {
+    if (entry.isDirectory() && !expectedTopLevelDirectories.has(entry.name)) {
       addPathViolation(
         `${root}/${entry.name}`,
         "top-level bounded-context directory must be a declared slice, routes, or an explicitly allowed support directory",
+      );
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const allowedByName =
+      canonicalBoundedContextRootFiles.has(entry.name) ||
+      allowedTechnicalBoundedContextRootFiles.has(entry.name);
+    const allowedByPattern =
+      /^.*\.test\.ts$/.test(entry.name) ||
+      /^vitest\.config\.mjs$/.test(entry.name) ||
+      /^tsconfig\.json$/.test(entry.name);
+
+    if (!allowedByName && !allowedByPattern) {
+      addPathViolation(
+        `${root}/${entry.name}`,
+        "implemented bounded-context roots must keep top-level files canonical and avoid ad hoc helper files",
       );
     }
   }
@@ -1389,10 +1448,36 @@ for (const root of roots) {
 
     if (
       normalizedFile.startsWith("bounded-contexts/") &&
+      boundedContextSurfaceFiles.has(path.basename(file)) &&
+      /^bounded-contexts\/[^/]+\/(?:client|server|web|integration)\.ts$/.test(normalizedFile) &&
+      /export\s+\{\s*default\s+as\s+contextManifest\s*\}\s+from\s+["']\.\/context\.json["'];?/.test(content)
+    ) {
+      addViolation(file, "non-root public surfaces must not export contextManifest");
+    }
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      boundedContextSurfaceFiles.has(path.basename(file)) &&
+      /^bounded-contexts\/[^/]+\/(?:client|server|web|integration)\.ts$/.test(normalizedFile) &&
+      stripContextManifestSurfaceExport(content).length === 0
+    ) {
+      addViolation(file, "declared public surfaces must not be placeholder-only");
+    }
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
       path.basename(file) === "client.ts" &&
       /\bcreate[A-Z][A-Za-z0-9]*Request(?:Api|Integration)Client\b/.test(content)
     ) {
       addViolation(file, "client surfaces must stay browser-safe and must not export request-scoped helpers");
+    }
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      path.basename(file) === "client.ts" &&
+      /\/ui\/contracts\b/.test(content)
+    ) {
+      addViolation(file, "client surfaces must not export presentation-named DTO folders");
     }
 
     if (
@@ -1441,7 +1526,6 @@ for (const root of roots) {
       );
       const invalidSpecifiers = webSurfaceSpecifiers.filter((specifier) =>
         !(
-          specifier === "./context.json" ||
           specifier.startsWith("./shell") ||
           specifier.startsWith("./shell-support") ||
           specifier.startsWith("./browser") ||
@@ -1477,6 +1561,13 @@ for (const root of roots) {
       !content.includes("context-shell.generated")
     ) {
       addViolation(file, "web deployable layouts must consume generated shell inventories");
+    }
+
+    if (
+      /deployables\/(catalog-admin|identity-admin|marketplace)\/app\/auth\.server\.ts$/.test(normalizedFile) &&
+      !content.includes("createAuthHostPolicy")
+    ) {
+      addViolation(file, "web deployable auth wrappers must use the shared Auth host-policy factory");
     }
 
     if (

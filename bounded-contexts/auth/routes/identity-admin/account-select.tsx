@@ -8,7 +8,7 @@ import {
   completeBrowserAuthentication,
   createAuthRequestApiClient,
   requireAccountSelectionTokenOrRedirect,
-} from "../../browser-auth";
+} from "../../server";
 import { AccountSelectionPage } from "../../customer/account-selection-page";
 
 export const meta: MetaFunction = () => [

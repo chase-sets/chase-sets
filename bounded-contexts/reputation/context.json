@@ -20,8 +20,7 @@
     "./integration",
     "./routes/*",
     "./seed-support/*",
-    "./server",
-    "./web"
+    "./server"
   ],
   "allowedContextDependencies": [],
   "requiredPorts": [],

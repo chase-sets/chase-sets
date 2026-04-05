@@ -3,7 +3,7 @@ import { useActionData } from "react-router";
 import {
   completeBrowserAuthentication,
   createAuthRequestApiClient,
-} from "../../browser-auth";
+} from "../../server";
 import { SignInPage } from "../../customer/sign-in-page";
 
 export const meta: MetaFunction = () => [{ title: "Sign In | Catalog Admin" }];

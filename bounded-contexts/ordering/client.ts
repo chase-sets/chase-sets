@@ -1,21 +1,20 @@
-export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildOrderingApi } from "./api";
 
-export type { OrderingCartLine } from "./cart/ui/contracts";
+export type { OrderingCartLine } from "./cart/client/contracts";
 export type {
   OrderingOrderDetail,
   OrderingOrderHold,
   OrderingOrderLine,
   OrderingOrderListItem,
-} from "./orders/ui/contracts";
+} from "./orders/client/contracts";
 
-import type { OrderingCartLine } from "./cart/ui/contracts";
+import type { OrderingCartLine } from "./cart/client/contracts";
 import type {
   OrderingOrderDetail,
   OrderingOrderListItem,
-} from "./orders/ui/contracts";
+} from "./orders/client/contracts";
 
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";

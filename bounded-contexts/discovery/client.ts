@@ -1,10 +1,9 @@
-export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { buildDiscoveryApi } from "./api";
 import type {
   CategoryListResponse,
   DiscoveryCategoryItem,
-} from "./categories/ui/contracts";
+} from "./categories/client/contracts";
 
 export type {
   DiscoveryItemDetail,
@@ -13,7 +12,7 @@ export type {
 export type {
   CategoryListResponse,
   DiscoveryCategoryItem,
-} from "./categories/ui/contracts";
+} from "./categories/client/contracts";
 
 import type {
   DiscoveryItemDetail,

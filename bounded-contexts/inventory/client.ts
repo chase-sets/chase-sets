@@ -1,4 +1,3 @@
-export { default as contextManifest } from "./context.json";
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
@@ -9,14 +8,14 @@ export type {
   InventoryRecordDetail,
   InventoryRecordListItem,
   InventoryHold,
-} from "./records/ui/contracts";
-export type { InventoryStorageLocation } from "./storage-locations/ui/contracts";
+} from "./records/client/contracts";
+export type { InventoryStorageLocation } from "./storage-locations/client/contracts";
 
 import type {
   InventoryRecordDetail,
   InventoryRecordListItem,
-} from "./records/ui/contracts";
-import type { InventoryStorageLocation } from "./storage-locations/ui/contracts";
+} from "./records/client/contracts";
+import type { InventoryStorageLocation } from "./storage-locations/client/contracts";
 
 type InventoryApiApp = ReturnType<typeof buildInventoryApi>;
 

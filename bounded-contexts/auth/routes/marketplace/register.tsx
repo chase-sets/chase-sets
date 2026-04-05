@@ -4,7 +4,7 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
   completeBrowserAuthentication,
   createAuthRequestApiClient,
-} from "../../browser-auth";
+} from "../../server";
 import { RegisterPage } from "../../customer/register-page";
 
 export const meta: MetaFunction = () =>

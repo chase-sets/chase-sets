@@ -22,8 +22,7 @@
     "./integration",
     "./routes/*",
     "./seed-support/*",
-    "./server",
-    "./web"
+    "./server"
   ],
   "allowedContextDependencies": [
     "@chase-sets/catalog",
