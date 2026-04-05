@@ -2,8 +2,8 @@ export {
   ApiError as CatalogApiError,
   api as catalogApi,
   createCatalogApiClient,
-} from "./authoring/shell-support/api/client";
-export type { CatalogApiClientOptions } from "./authoring/shell-support/api/client";
+} from "./shell-support/api/client";
+export type { CatalogApiClientOptions } from "./shell-support/api/client";
 export type {
   Blueprint,
   BlueprintDetail,
@@ -16,4 +16,4 @@ export type {
   Dimension,
   DimensionDetail,
   Field,
-} from "./authoring/client/contracts";
+} from "./shell-support/contracts";

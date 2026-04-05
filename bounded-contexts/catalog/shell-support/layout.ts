@@ -1,1 +1,1 @@
-export { CatalogAdminLayout } from "../authoring/shell";
+export { CatalogAdminLayout } from "./shell";

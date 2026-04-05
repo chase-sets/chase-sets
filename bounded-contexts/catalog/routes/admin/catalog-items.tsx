@@ -1,24 +1,2 @@
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
-import {
-  type CatalogItemListItem,
-} from "../../client";
-import type { ListResponse } from "@chase-sets/http/responses";
-import { CatalogItemListPage } from "../../authoring/catalog-items/ui/catalog-item-list-page";
-import { createCatalogRequestApiClient } from "../../request-support/api-client";
-
-const DEFAULT_LIST_QUERY = "limit=50&offset=0";
-
-export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createCatalogRequestApiClient(request);
-  return api.listCatalogItems<ListResponse<CatalogItemListItem>>(DEFAULT_LIST_QUERY);
-}
-
-export const meta: MetaFunction = () => [{ title: "Catalog Items | Catalog Admin" }];
-
-export default function CatalogItemsRoute() {
-  const data = useLoaderData<typeof loader>();
-  return <CatalogItemListPage initialData={data} />;
-}
-
-
+export { loader, meta } from "../../catalog-items/admin-list-route";
+export { default } from "../../catalog-items/admin-list-route";

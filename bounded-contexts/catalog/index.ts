@@ -3,11 +3,11 @@ export { default as contextManifest } from "./context.json";
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import { buildCatalogAuthoringApi } from "./authoring";
-import type { CatalogServices } from "./authoring";
-import { createCatalogServices } from "./authoring";
-import { catalogAuthoringSchemaSql } from "./authoring";
-import { seedCatalogDatabase } from "./authoring";
+import { buildCatalogAuthoringApi } from "./api";
+import type { CatalogServices } from "./services";
+import { createCatalogServices } from "./services";
+import { catalogAuthoringSchemaSql } from "./schema";
+import { seedCatalogDatabase } from "./seed";
 
 export const module: BcApiModule<CatalogServices, PgTransactionalPool, void> = {
   contextName: "catalog",
