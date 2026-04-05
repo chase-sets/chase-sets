@@ -50,6 +50,8 @@ const allowedTopLevelDirectories = new Set([
 const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared", "support"]);
 const nonSupportSuffixDirectoryExceptions = new Set(["integration", "tests"]);
 const supportDirectoryNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-support$/;
+const supportLifecycleRequiredFields = ["justification", "createdFor", "sunsetWhen"];
+const crossCuttingRuntimeCompositionSupportDirectories = new Set(["request-support", "seed-support"]);
 const legacyForbiddenPaths = [
   "bounded-contexts/catalog/authoring/package.json",
   "bounded-contexts/catalog/authoring/api",
@@ -191,6 +193,24 @@ function recordSupportFileConsumer(importerContext, importerRelativeFile, resolv
   };
   usageRecord.consumerSlices.add(importerSegment.name);
   supportFileConsumers.set(resolvedSpecifier, usageRecord);
+}
+
+function formatSetValues(values) {
+  return [...values].sort().join(", ") || "none";
+}
+
+function setsAreEqual(left, right) {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function isTmpFile(file) {
@@ -457,6 +477,13 @@ async function loadContextManifests() {
 
         if (!isStringArray(intent.expectedConsumers) || intent.expectedConsumers.length === 0) {
           addPathViolation(intentLabel, "expectedConsumers must be a non-empty array of strings");
+        }
+
+        if (Array.isArray(intent.expectedConsumers)) {
+          const uniqueExpectedConsumers = new Set(intent.expectedConsumers);
+          if (uniqueExpectedConsumers.size !== intent.expectedConsumers.length) {
+            addPathViolation(intentLabel, "expectedConsumers must not contain duplicates");
+          }
         }
       }
     }
@@ -997,6 +1024,34 @@ async function validateContextManifest(context) {
       addPathViolation(
         `${root}/context.json`,
         `directoryIntent classification for ${supportDirectory} must be support`,
+      );
+    }
+
+    for (const field of supportLifecycleRequiredFields) {
+      if (typeof intent[field] !== "string" || intent[field].trim().length === 0) {
+        addPathViolation(
+          `${root}/context.json`,
+          `directoryIntent support metadata for ${supportDirectory} must define ${field} as a non-empty string`,
+        );
+      }
+    }
+
+    const expectedConsumers = Array.isArray(intent.expectedConsumers) ? intent.expectedConsumers : [];
+    const taggedAsCrossCuttingRuntimeComposition = intent.crossCuttingRuntimeComposition === true;
+    if (expectedConsumers.length < 2 && !taggedAsCrossCuttingRuntimeComposition) {
+      addPathViolation(
+        `${root}/context.json`,
+        `directoryIntent expectedConsumers for ${supportDirectory} must include at least two slices unless crossCuttingRuntimeComposition is true`,
+      );
+    }
+
+    if (
+      taggedAsCrossCuttingRuntimeComposition &&
+      !crossCuttingRuntimeCompositionSupportDirectories.has(supportDirectory)
+    ) {
+      addPathViolation(
+        `${root}/context.json`,
+        `crossCuttingRuntimeComposition is only allowed for: ${formatSetValues(crossCuttingRuntimeCompositionSupportDirectories)}`,
       );
     }
   }
@@ -1959,6 +2014,43 @@ for (const [supportFile, usageRecord] of supportFileConsumers.entries()) {
       addPathWarning(supportFile, message);
     } else {
       addPathViolation(supportFile, message);
+    }
+  }
+}
+
+const supportDirectoryConsumerSlicesByContext = new Map();
+for (const usageRecord of supportFileConsumers.values()) {
+  const contextSupportMap = supportDirectoryConsumerSlicesByContext.get(usageRecord.contextRoot) ?? new Map();
+  const directoryConsumers = contextSupportMap.get(usageRecord.supportDirectory) ?? new Set();
+  for (const consumerSlice of usageRecord.consumerSlices) {
+    directoryConsumers.add(consumerSlice);
+  }
+  contextSupportMap.set(usageRecord.supportDirectory, directoryConsumers);
+  supportDirectoryConsumerSlicesByContext.set(usageRecord.contextRoot, contextSupportMap);
+}
+
+for (const context of contextManifests.values()) {
+  const contextSupportMap = supportDirectoryConsumerSlicesByContext.get(context.root);
+  if (!contextSupportMap) {
+    continue;
+  }
+
+  for (const [supportDirectory, actualConsumers] of contextSupportMap.entries()) {
+    const directoryIntent = context.manifest.directoryIntent?.[supportDirectory];
+    if (!directoryIntent || directoryIntent.classification !== "support") {
+      addPathViolation(
+        `${context.root}/context.json`,
+        `support consumer usage exists for ${supportDirectory} but directoryIntent support metadata is missing`,
+      );
+      continue;
+    }
+
+    const expectedConsumers = new Set(directoryIntent.expectedConsumers ?? []);
+    if (!setsAreEqual(actualConsumers, expectedConsumers)) {
+      addPathViolation(
+        `${context.root}/context.json`,
+        `directoryIntent expectedConsumers drift for ${supportDirectory}; expected [${formatSetValues(expectedConsumers)}], actual [${formatSetValues(actualConsumers)}]`,
+      );
     }
   }
 }

@@ -113,7 +113,10 @@
       "expectedConsumers": [
         "Multiple discovery slices",
         "Deployable composition for discovery"
-      ]
+      ],
+      "justification": "shell-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "request-support": {
       "classification": "support",
@@ -122,7 +125,10 @@
       "expectedConsumers": [
         "Multiple discovery slices",
         "Deployable composition for discovery"
-      ]
+      ],
+      "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "tests": {
       "classification": "support",
@@ -131,7 +137,10 @@
       "expectedConsumers": [
         "Multiple discovery slices",
         "Deployable composition for discovery"
-      ]
+      ],
+      "justification": "tests centralizes reusable context-local composition that should not duplicate across slices.",
+      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
