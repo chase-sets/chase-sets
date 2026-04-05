@@ -122,6 +122,11 @@ const allowedTechnicalBoundedContextRootFiles = new Set([
   "test-support.ts",
   "versioning.ts",
 ]);
+const singleSliceSupportFileAllowlist = new Set([
+  // Temporary migration exceptions: remove entries once each file is relocated into its owning slice.
+]);
+const singleSliceSupportEnforcementMode =
+  process.env.STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT === "warn" ? "warn" : "violation";
 const violations = [];
 const warnings = [];
 const clientSurfaceConsumers = new Map();
@@ -1941,12 +1946,20 @@ for (const context of contextManifests.values()) {
 }
 
 for (const [supportFile, usageRecord] of supportFileConsumers.entries()) {
+  if (singleSliceSupportFileAllowlist.has(supportFile)) {
+    continue;
+  }
+
   if (usageRecord.consumerSlices.size === 1) {
     const [sliceName] = [...usageRecord.consumerSlices];
-    addPathWarning(
-      supportFile,
-      `support file in ${usageRecord.supportDirectory} is imported by only one slice (${sliceName}); relocate it to that slice`,
-    );
+    const message =
+      `support file in ${usageRecord.supportDirectory} is imported by only one slice (${sliceName}); ` +
+      `relocate it to bounded-contexts/.../${sliceName}/`;
+    if (singleSliceSupportEnforcementMode === "warn") {
+      addPathWarning(supportFile, message);
+    } else {
+      addPathViolation(supportFile, message);
+    }
   }
 }
 
