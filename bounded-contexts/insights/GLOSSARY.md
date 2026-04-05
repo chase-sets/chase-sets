@@ -10,11 +10,13 @@ An **Analytical Projection** is a read model built from integration events acros
 
 A **KPI** is a named metric used to track marketplace or account performance.
 
-Examples:
+The canonical KPI terms and code contracts are:
 
-- Sell-through rate
-- Gross margin
-- Average order value
+| KPI term | Query contract | Route contract |
+| --- | --- | --- |
+| Seller Performance KPI | `insights.dashboards.seller-performance-kpi.query` | `/dashboards/seller-performance-kpi` |
+| Fulfillment Latency KPI | `insights.dashboards.fulfillment-latency-kpi.query` | `/dashboards/fulfillment-latency-kpi` |
+| Conversion Order KPI | `insights.dashboards.conversion-order-kpi.query` | `/dashboards/conversion-order-kpi` |
 
 ## Dashboard View
 
