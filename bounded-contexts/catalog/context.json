@@ -18,8 +18,8 @@
     "integration",
     "projection-support",
     "request-support",
-    "seed-support",
     "shell-support",
+    "seed-support",
     "tests"
   ],
   "publicExports": [
@@ -63,160 +63,28 @@
     {
       "deployable": "catalog-admin",
       "routes": [
-        {
-          "routeId": "blueprints",
-          "routePath": "blueprints",
-          "fileExport": "./routes/admin/blueprints",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "blueprints-detail",
-          "routePath": "blueprints/:id",
-          "fileExport": "./routes/admin/blueprints-detail",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "catalog-items",
-          "routePath": "catalog-items",
-          "fileExport": "./routes/admin/catalog-items",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "catalog-items-detail",
-          "routePath": "catalog-items/:id",
-          "fileExport": "./routes/admin/catalog-items-detail",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "categories",
-          "routePath": "categories",
-          "fileExport": "./routes/admin/categories",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "categories-detail",
-          "routePath": "categories/:id",
-          "fileExport": "./routes/admin/categories-detail",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "components",
-          "routePath": "components",
-          "fileExport": "./routes/admin/components",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "components-detail",
-          "routePath": "components/:id",
-          "fileExport": "./routes/admin/components-detail",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "dimensions",
-          "routePath": "dimensions",
-          "fileExport": "./routes/admin/dimensions",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "dimensions-detail",
-          "routePath": "dimensions/:id",
-          "fileExport": "./routes/admin/dimensions-detail",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "fields",
-          "routePath": "fields",
-          "fileExport": "./routes/admin/fields",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        },
-        {
-          "routeId": "fields-detail",
-          "routePath": "fields/:id",
-          "fileExport": "./routes/admin/fields-detail",
-          "routeType": "route",
-          "sourceContext": "catalog"
-        }
+        { "routeId": "blueprints", "routePath": "blueprints", "fileExport": "./routes/admin/blueprints", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "blueprints-detail", "routePath": "blueprints/:id", "fileExport": "./routes/admin/blueprints-detail", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "catalog-items", "routePath": "catalog-items", "fileExport": "./routes/admin/catalog-items", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "catalog-items-detail", "routePath": "catalog-items/:id", "fileExport": "./routes/admin/catalog-items-detail", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "categories", "routePath": "categories", "fileExport": "./routes/admin/categories", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "categories-detail", "routePath": "categories/:id", "fileExport": "./routes/admin/categories-detail", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "components", "routePath": "components", "fileExport": "./routes/admin/components", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "components-detail", "routePath": "components/:id", "fileExport": "./routes/admin/components-detail", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "dimensions", "routePath": "dimensions", "fileExport": "./routes/admin/dimensions", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "dimensions-detail", "routePath": "dimensions/:id", "fileExport": "./routes/admin/dimensions-detail", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "fields", "routePath": "fields", "fileExport": "./routes/admin/fields", "routeType": "route", "sourceContext": "catalog" },
+        { "routeId": "fields-detail", "routePath": "fields/:id", "fileExport": "./routes/admin/fields-detail", "routeType": "route", "sourceContext": "catalog" }
       ]
     }
   ],
   "shellContributions": [
-    {
-      "deployable": "catalog-admin",
-      "slot": "primary-nav",
-      "key": "dimensions",
-      "label": "Dimensions",
-      "icon": "spark",
-      "href": "/dimensions",
-      "order": 10,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "catalog-admin",
-      "slot": "primary-nav",
-      "key": "fields",
-      "label": "Fields",
-      "icon": "edit",
-      "href": "/fields",
-      "order": 20,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "catalog-admin",
-      "slot": "primary-nav",
-      "key": "components",
-      "label": "Components",
-      "icon": "package",
-      "href": "/components",
-      "order": 30,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "catalog-admin",
-      "slot": "primary-nav",
-      "key": "blueprints",
-      "label": "Blueprints",
-      "icon": "copy",
-      "href": "/blueprints",
-      "order": 40,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "catalog-admin",
-      "slot": "primary-nav",
-      "key": "categories",
-      "label": "Categories",
-      "icon": "filter",
-      "href": "/categories",
-      "order": 50,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "catalog-admin",
-      "slot": "primary-nav",
-      "key": "catalog-items",
-      "label": "Catalog Items",
-      "icon": "dashboard",
-      "href": "/catalog-items",
-      "order": 60,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    }
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "dimensions", "label": "Dimensions", "icon": "spark", "href": "/dimensions", "order": 10, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "fields", "label": "Fields", "icon": "edit", "href": "/fields", "order": 20, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "components", "label": "Components", "icon": "package", "href": "/components", "order": 30, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "blueprints", "label": "Blueprints", "icon": "copy", "href": "/blueprints", "order": 40, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "categories", "label": "Categories", "icon": "filter", "href": "/categories", "order": 50, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "catalog-admin", "slot": "primary-nav", "key": "catalog-items", "label": "Catalog Items", "icon": "dashboard", "href": "/catalog-items", "order": 60, "visibility": "signed-in", "requiredPermissions": [] }
   ],
   "plannedSupportDirectories": [
     "projection-support",

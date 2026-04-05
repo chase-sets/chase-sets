@@ -97,194 +97,36 @@
     {
       "deployable": "identity-admin",
       "routes": [
-        {
-          "routeId": "accounts",
-          "routePath": "accounts",
-          "fileExport": "./routes/admin/accounts",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "accounts-detail",
-          "routePath": "accounts/:id",
-          "fileExport": "./routes/admin/accounts-detail",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "api-keys",
-          "routePath": "api-keys",
-          "fileExport": "./routes/admin/api-keys",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "api-keys-detail",
-          "routePath": "api-keys/:id",
-          "fileExport": "./routes/admin/api-keys-detail",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "invitations",
-          "routePath": "invitations",
-          "fileExport": "./routes/admin/invitations",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "invitations-detail",
-          "routePath": "invitations/:id",
-          "fileExport": "./routes/admin/invitations-detail",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "memberships",
-          "routePath": "memberships",
-          "fileExport": "./routes/admin/memberships",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "memberships-detail",
-          "routePath": "memberships/:id",
-          "fileExport": "./routes/admin/memberships-detail",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "users",
-          "routePath": "users",
-          "fileExport": "./routes/admin/users",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "users-detail",
-          "routePath": "users/:id",
-          "fileExport": "./routes/admin/users-detail",
-          "routeType": "route",
-          "sourceContext": "identity"
-        }
+        { "routeId": "accounts", "routePath": "accounts", "fileExport": "./routes/admin/accounts", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "accounts-detail", "routePath": "accounts/:id", "fileExport": "./routes/admin/accounts-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "api-keys", "routePath": "api-keys", "fileExport": "./routes/admin/api-keys", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "api-keys-detail", "routePath": "api-keys/:id", "fileExport": "./routes/admin/api-keys-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "invitations", "routePath": "invitations", "fileExport": "./routes/admin/invitations", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "invitations-detail", "routePath": "invitations/:id", "fileExport": "./routes/admin/invitations-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "memberships", "routePath": "memberships", "fileExport": "./routes/admin/memberships", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "memberships-detail", "routePath": "memberships/:id", "fileExport": "./routes/admin/memberships-detail", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "users", "routePath": "users", "fileExport": "./routes/admin/users", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "users-detail", "routePath": "users/:id", "fileExport": "./routes/admin/users-detail", "routeType": "route", "sourceContext": "identity" }
       ]
     },
     {
       "deployable": "marketplace",
       "routes": [
-        {
-          "routeId": "account",
-          "routePath": "account",
-          "fileExport": "./routes/marketplace/account",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "account-consents",
-          "routePath": "account/consents",
-          "fileExport": "./routes/marketplace/account-consents",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "account-security",
-          "routePath": "account/security",
-          "fileExport": "./routes/marketplace/account-security",
-          "routeType": "route",
-          "sourceContext": "identity"
-        },
-        {
-          "routeId": "account-team",
-          "routePath": "account/team",
-          "fileExport": "./routes/marketplace/account-team",
-          "routeType": "route",
-          "sourceContext": "identity"
-        }
+        { "routeId": "account", "routePath": "account", "fileExport": "./routes/marketplace/account", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "account-consents", "routePath": "account/consents", "fileExport": "./routes/marketplace/account-consents", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "account-security", "routePath": "account/security", "fileExport": "./routes/marketplace/account-security", "routeType": "route", "sourceContext": "identity" },
+        { "routeId": "account-team", "routePath": "account/team", "fileExport": "./routes/marketplace/account-team", "routeType": "route", "sourceContext": "identity" }
       ]
     }
   ],
   "shellContributions": [
-    {
-      "deployable": "identity-admin",
-      "slot": "primary-nav",
-      "key": "accounts",
-      "label": "Accounts",
-      "icon": "package",
-      "href": "/accounts",
-      "order": 10,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "identity-admin",
-      "slot": "primary-nav",
-      "key": "users",
-      "label": "Users",
-      "icon": "user",
-      "href": "/users",
-      "order": 20,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "identity-admin",
-      "slot": "primary-nav",
-      "key": "memberships",
-      "label": "Memberships",
-      "icon": "settings",
-      "href": "/memberships",
-      "order": 30,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "identity-admin",
-      "slot": "primary-nav",
-      "key": "invitations",
-      "label": "Invitations",
-      "icon": "info",
-      "href": "/invitations",
-      "order": 40,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "identity-admin",
-      "slot": "primary-nav",
-      "key": "api-keys",
-      "label": "API Keys",
-      "icon": "settings",
-      "href": "/api-keys",
-      "order": 60,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "marketplace",
-      "slot": "top-nav",
-      "key": "account",
-      "label": "Account",
-      "icon": "user",
-      "href": "/account",
-      "order": 200,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "accounts.view"
-      ]
-    },
-    {
-      "deployable": "marketplace",
-      "slot": "bottom-nav",
-      "key": "account",
-      "label": "Account",
-      "icon": "user",
-      "href": "/account",
-      "order": 200,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "accounts.view"
-      ]
-    }
+    { "deployable": "identity-admin", "slot": "primary-nav", "key": "accounts", "label": "Accounts", "icon": "package", "href": "/accounts", "order": 10, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "identity-admin", "slot": "primary-nav", "key": "users", "label": "Users", "icon": "user", "href": "/users", "order": 20, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "identity-admin", "slot": "primary-nav", "key": "memberships", "label": "Memberships", "icon": "settings", "href": "/memberships", "order": 30, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "identity-admin", "slot": "primary-nav", "key": "invitations", "label": "Invitations", "icon": "info", "href": "/invitations", "order": 40, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "identity-admin", "slot": "primary-nav", "key": "api-keys", "label": "API Keys", "icon": "settings", "href": "/api-keys", "order": 60, "visibility": "signed-in", "requiredPermissions": [] },
+    { "deployable": "marketplace", "slot": "top-nav", "key": "account", "label": "Account", "icon": "user", "href": "/account", "order": 200, "visibility": "signed-in", "requiredPermissions": ["accounts.view"] },
+    { "deployable": "marketplace", "slot": "bottom-nav", "key": "account", "label": "Account", "icon": "user", "href": "/account", "order": 200, "visibility": "signed-in", "requiredPermissions": ["accounts.view"] }
   ],
   "plannedSupportDirectories": [
     "tests"
