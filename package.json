@@ -45,7 +45,8 @@
         "test:marketplace": "npm run test --workspace @chase-sets/app-marketplace-api",
         "test:inventory": "npm run test --workspace @chase-sets/app-inventory-api",
         "check:structure": "npm run generate:routes && npm run generate:api-mounts && npm run generate:shells && npm run generate:runtimes && npm run generate:lifecycles && node ./scripts/check-structure.mjs",
-        "check:structure:ci": "STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT=violation npm run check:structure"
+        "check:structure:ci": "STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT=violation npm run check:structure",
+        "check:structure:budget": "node ./scripts/structure-metrics-budget.mjs"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.2.1",

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -157,6 +157,7 @@ const singleSliceSupportEnforcementMode =
 const temporarySingleSliceSupportDebtFlag = process.env.STRUCTURE_ALLOW_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT === "true";
 const temporarySingleSliceSupportDebtLabel =
   process.env.STRUCTURE_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT_LABEL ?? "structure-temporary-debt";
+const structureMetricsOutputPath = process.env.STRUCTURE_METRICS_OUTPUT_PATH ?? "artifacts/structure-metrics.json";
 const violations = [];
 const warnings = [];
 const clientSurfaceConsumers = new Map();
@@ -748,6 +749,21 @@ function isAllowedContextImporter(relativeFile) {
 
 const contextManifests = await loadContextManifests();
 const boundedContextPackages = [...contextManifests.values()].map(({ packageName }) => packageName);
+const contextMetricsByRoot = new Map(
+  [...contextManifests.values()].map((context) => [
+    context.root,
+    {
+      contextRoot: context.root,
+      contextName: context.manifest.contextName,
+      sliceCount: Array.isArray(context.manifest.slices) ? context.manifest.slices.length : 0,
+      supportDirectoryCount: Array.isArray(context.manifest.allowedSupportDirectories)
+        ? context.manifest.allowedSupportDirectories.length
+        : 0,
+      singleSliceSupportFiles: 0,
+      driftCount: 0,
+    },
+  ]),
+);
 
 function getContextRoot(relativeFile) {
   for (const root of contextManifests.keys()) {
@@ -2237,6 +2253,11 @@ for (const [supportFile, usageRecord] of supportFileConsumers.entries()) {
   }
 
   if (usageRecord.consumerSlices.size === 1) {
+    const metrics = contextMetricsByRoot.get(usageRecord.contextRoot);
+    if (metrics) {
+      metrics.singleSliceSupportFiles += 1;
+    }
+
     const [sliceName] = [...usageRecord.consumerSlices];
     const message =
       `support file in ${usageRecord.supportDirectory} is imported by only one slice (${sliceName}); ` +
@@ -2269,6 +2290,11 @@ for (const context of contextManifests.values()) {
   for (const [supportDirectory, actualConsumers] of contextSupportMap.entries()) {
     const directoryIntent = context.manifest.directoryIntent?.[supportDirectory];
     if (!directoryIntent || directoryIntent.classification !== "support") {
+      const metrics = contextMetricsByRoot.get(context.root);
+      if (metrics) {
+        metrics.driftCount += 1;
+      }
+
       addPathViolation(
         `${context.root}/context.json`,
         `support consumer usage exists for ${supportDirectory} but directoryIntent support metadata is missing`,
@@ -2278,6 +2304,11 @@ for (const context of contextManifests.values()) {
 
     const expectedConsumers = new Set(directoryIntent.expectedConsumers ?? []);
     if (!setsAreEqual(actualConsumers, expectedConsumers)) {
+      const metrics = contextMetricsByRoot.get(context.root);
+      if (metrics) {
+        metrics.driftCount += 1;
+      }
+
       addPathViolation(
         `${context.root}/context.json`,
         `directoryIntent expectedConsumers drift for ${supportDirectory}; expected [${formatSetValues(expectedConsumers)}], actual [${formatSetValues(actualConsumers)}]`,
@@ -2285,6 +2316,25 @@ for (const context of contextManifests.values()) {
     }
   }
 }
+
+const contextMetrics = [...contextMetricsByRoot.values()].sort((left, right) =>
+  left.contextName.localeCompare(right.contextName),
+);
+const structureMetrics = {
+  generatedAt: new Date().toISOString(),
+  totals: {
+    contextCount: contextMetrics.length,
+    sliceCount: contextMetrics.reduce((total, metrics) => total + metrics.sliceCount, 0),
+    supportDirectoryCount: contextMetrics.reduce((total, metrics) => total + metrics.supportDirectoryCount, 0),
+    singleSliceSupportFiles: contextMetrics.reduce((total, metrics) => total + metrics.singleSliceSupportFiles, 0),
+    driftCount: contextMetrics.reduce((total, metrics) => total + metrics.driftCount, 0),
+  },
+  contexts: contextMetrics,
+};
+
+const structureMetricsAbsolutePath = path.resolve(repoRoot, structureMetricsOutputPath);
+mkdirSync(path.dirname(structureMetricsAbsolutePath), { recursive: true });
+writeFileSync(structureMetricsAbsolutePath, `${JSON.stringify(structureMetrics, null, 2)}\n`, "utf8");
 
 if (violations.length > 0) {
   console.error("Structure check failed:\n");

@@ -12,6 +12,12 @@ jobs:
     env:
       STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT: violation
       STRUCTURE_ALLOW_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'structure-temporary-debt') && 'true' || 'false' }}
+      STRUCTURE_METRICS_OUTPUT_PATH: artifacts/structure-metrics.json
+      STRUCTURE_METRICS_DASHBOARD_PATH: artifacts/structure-metrics-dashboard.md
+      STRUCTURE_BUDGET_MODE: warn
+      STRUCTURE_BUDGET_MAX_SINGLE_SLICE_SUPPORT_FILES: 20
+      STRUCTURE_BUDGET_MAX_DRIFT_COUNT: 8
+      STRUCTURE_BUDGET_MAX_SUPPORT_DIRECTORY_COUNT: 80
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,3 +33,26 @@ jobs:
 
       - name: Check structure
         run: npm run check:structure:ci
+
+      - name: Evaluate structure budget (non-blocking)
+        if: always()
+        run: npm run check:structure:budget
+
+      - name: Publish structure metrics dashboard
+        if: always()
+        run: |
+          if [ -f "${STRUCTURE_METRICS_DASHBOARD_PATH}" ]; then
+            cat "${STRUCTURE_METRICS_DASHBOARD_PATH}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Structure metrics dashboard not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload structure metrics artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: structure-metrics-${{ github.run_id }}
+          path: |
+            artifacts/structure-metrics.json
+            artifacts/structure-metrics-dashboard.md
+          if-no-files-found: warn
