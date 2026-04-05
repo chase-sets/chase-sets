@@ -1,0 +1,84 @@
+{
+  "contextName": "pricing",
+  "packageName": "@chase-sets/pricing",
+  "ownedNouns": [
+    "market-price-snapshot",
+    "price-recommendation"
+  ],
+  "streamPrefix": "pricing.",
+  "apiBasePath": "/api/marketplace",
+  "slices": [
+    "recommendations"
+  ],
+  "allowedSupportDirectories": [],
+  "publicExports": [
+    ".",
+    "./server"
+  ],
+  "allowedContextDependencies": [],
+  "requiredPorts": [
+    "resolveCatalogSellableUnit",
+    "resolveMarketSupply",
+    "reserveInventorySignal",
+    "loadOrderSnapshot"
+  ],
+  "integrationCapabilities": [],
+  "seedRequirements": [
+    "catalog",
+    "identity",
+    "inventory",
+    "marketplace",
+    "ordering",
+    "fulfillment"
+  ],
+  "apiRequirements": [
+    {
+      "capabilityKey": "catalog.sellable-unit-descriptor",
+      "portName": "resolveCatalogSellableUnit"
+    },
+    {
+      "capabilityKey": "marketplace.supply-resolver",
+      "portName": "resolveMarketSupply"
+    },
+    {
+      "capabilityKey": "inventory.reservation-gateway",
+      "portName": "reserveInventorySignal"
+    },
+    {
+      "capabilityKey": "ordering.order-snapshot-reader",
+      "portName": "loadOrderSnapshot"
+    }
+  ],
+  "hostPorts": [],
+  "apiDeployables": [
+    "marketplace-api"
+  ],
+  "apiMounts": [
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [],
+  "shellContributions": [],
+  "directoryIntent": {
+    "recommendations": {
+      "classification": "slice",
+      "purpose": "Own recommendations feature behavior, read models, and API query contracts for the pricing context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal pricing module composition"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
+}

@@ -6,6 +6,7 @@ import { module as FulfillmentModule } from "@chase-sets/fulfillment";
 import { module as MarketplaceModule } from "@chase-sets/marketplace";
 import { module as OrderingModule } from "@chase-sets/ordering";
 import { module as PaymentsModule } from "@chase-sets/payments";
+import { module as PricingModule } from "@chase-sets/pricing";
 import { module as ReputationModule } from "@chase-sets/reputation";
 import { module as SettlementModule } from "@chase-sets/settlement";
 
@@ -16,6 +17,7 @@ export function createContextApiMounts(
   marketplace: ReturnType<typeof MarketplaceModule.createServices>;
   ordering: ReturnType<typeof OrderingModule.createServices>;
   payments: ReturnType<typeof PaymentsModule.createServices>;
+  pricing: ReturnType<typeof PricingModule.createServices>;
   reputation: ReturnType<typeof ReputationModule.createServices>;
   settlement: ReturnType<typeof SettlementModule.createServices>;
 },
@@ -26,6 +28,7 @@ export function createContextApiMounts(
     ...resolveModuleApiMounts(MarketplaceModule, services.marketplace),
     ...resolveModuleApiMounts(OrderingModule, services.ordering),
     ...resolveModuleApiMounts(PaymentsModule, services.payments),
+    ...resolveModuleApiMounts(PricingModule, services.pricing),
     ...resolveModuleApiMounts(ReputationModule, services.reputation),
     ...resolveModuleApiMounts(SettlementModule, services.settlement),
   ];
