@@ -56,3 +56,10 @@ That means:
 - Auth owns session start, session revoke, session lookup, and actor resolution.
 - Identity owns the underlying account and membership facts that Auth needs to finish authentication.
 - Auth may depend on Identity only through `@chase-sets/identity/integration`.
+
+## Feature vs Composition
+
+- **Feature code stays in Auth slices.** Authentication behavior, domain rules, query code, and projections live in Auth-owned slice modules.
+- **`routes/` is adapter-only.** `bounded-contexts/auth/routes/` should only host deployable adapter modules that bind route exports to slice-local features.
+- **`shell-support/` is composition-only.** Keep shell composition and host layout helpers in `bounded-contexts/auth/shell-support/`; do not place feature domain/query/projection code there.
+- **Deployables remain thin roots.** Deployables should mount generated files like `deployables/*/app/context-routes.generated.ts` and `deployables/*/app/context-shell.generated.ts`, then delegate to Auth-owned route modules.

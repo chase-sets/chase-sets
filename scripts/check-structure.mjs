@@ -87,6 +87,8 @@ const knownLifecycleDeployables = new Set(Object.keys(deployableLifecycleConfig)
 const knownRuntimeDeployables = new Set(Object.keys(deployableRuntimeConfig));
 const knownShellDeployables = new Set(Object.keys(deployableShellConfig));
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
+const domainFacingImportHeuristic =
+  /(?:^|\/)(?:domain|domains|query|queries|projection|projections|read-model|read-models|projector|projectors)(?:\/|$)/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|integration|seed-support(?:\/[^"']+)?)["']/;
@@ -229,6 +231,16 @@ function resolveRelativeSpecifier(relativeFile, specifier) {
   return path.posix.normalize(
     path.posix.join(path.posix.dirname(relativeFile), specifier),
   );
+}
+
+function classifyRouteOrShellSupportFile(relativeFile) {
+  if (relativeFile.includes("/routes/")) {
+    return "routes";
+  }
+  if (relativeFile.includes("/shell-support/")) {
+    return "shell-support";
+  }
+  return null;
 }
 
 function extractImportSpecifiers(content) {
@@ -1562,6 +1574,7 @@ function checkImport(file, specifier) {
   const normalized = specifier.replaceAll("\\", "/");
   const relativeFile = normalizeRelative(file);
   const resolvedSpecifier = resolveRelativeSpecifier(relativeFile, normalized);
+  const routeOrShellSupportClassification = classifyRouteOrShellSupportFile(relativeFile);
   const importerContextRoot = getContextRoot(relativeFile);
   const importerContext = importerContextRoot
     ? contextManifests.get(importerContextRoot)
@@ -1707,6 +1720,39 @@ function checkImport(file, specifier) {
   if (isRuntimeSource && importsScripts) {
     addViolation(file, `runtime code must not import scripts (${specifier})`);
   }
+
+  if (
+    routeOrShellSupportClassification &&
+    domainFacingImportHeuristic.test(normalized)
+  ) {
+    addViolation(
+      file,
+      `${routeOrShellSupportClassification} modules must stay composition-only and must not import domain/query/projection code (${specifier}); move this dependency behind a slice-local adapter module`,
+    );
+  }
+
+  if (
+    routeOrShellSupportClassification &&
+    resolvedSpecifier &&
+    domainFacingImportHeuristic.test(resolvedSpecifier)
+  ) {
+    addViolation(
+      file,
+      `${routeOrShellSupportClassification} modules must stay composition-only and must not import domain/query/projection code (${specifier}); move this dependency behind a slice-local adapter module`,
+    );
+  }
+
+  if (
+    routeOrShellSupportClassification &&
+    importerContextRoot &&
+    resolvedSpecifier?.startsWith(`${importerContextRoot}/`) &&
+    domainFacingImportHeuristic.test(resolvedSpecifier)
+  ) {
+    addViolation(
+      file,
+      `${routeOrShellSupportClassification} modules must depend on slice-local route adapters, not domain-facing internals (${specifier})`,
+    );
+  }
 }
 
 for (const context of contextManifests.values()) {
@@ -1775,6 +1821,27 @@ for (const root of roots) {
     }
 
     const content = await readFile(file, "utf8");
+    const routeOrShellSupportClassification = classifyRouteOrShellSupportFile(normalizedFile);
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      normalizedFile.includes("/shell/") &&
+      !normalizedFile.includes("/shell-support/")
+    ) {
+      addViolation(file, "shell composition files must live under shell-support/");
+    }
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      routeOrShellSupportClassification === "routes" &&
+      !isTestFile(normalizedFile) &&
+      /(export\s+const\s+(?:loader|action|meta|headers)|export\s+default\s+function)/.test(content) === false
+    ) {
+      addViolation(
+        file,
+        "routes/ must contain deployable adapter modules with route exports (loader/action/meta/default component)",
+      );
+    }
 
     if (
       /^bounded-contexts\/[^/]+\/index\.ts$/.test(normalizedFile) &&

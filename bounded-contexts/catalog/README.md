@@ -6,6 +6,13 @@ Catalog owns the canonical product model for what can be bought or sold.
 
 It defines the structure used to describe items, the axes that create valid sellable variations, and the deterministic rules used by downstream contexts to resolve item versions.
 
+## Feature vs Composition
+
+- **Feature code stays in Catalog slices.** Domain logic, query handlers, projections, and read-model shaping remain inside Catalog-owned feature slices.
+- **`routes/` is adapter-only.** Files in `bounded-contexts/catalog/routes/` should be deployable adapter modules that expose route entrypoints and delegate to slice-local feature modules.
+- **`shell-support/` is composition-only.** Put layout, shell wiring, and host-level composition helpers under `bounded-contexts/catalog/shell-support/`; avoid feature domain/query/projection code there.
+- **Deployables remain thin roots.** Deployables should consume generated mount inventories (`deployables/*/app/context-routes.generated.ts` and `deployables/*/app/context-shell.generated.ts`) and point to Catalog-owned route modules.
+
 ## Owns
 
 - Dimension definitions and allowed choices
