@@ -4,7 +4,7 @@ import type {
   PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import { createIdentitySecretAdapters } from "./api-key-support/adapters";
+import { createIdentitySecretAdapters } from "./api-keys/secret-adapters";
 import { createAccountRuntime } from "./accounts/runtime";
 import { createApiKeyRuntime } from "./api-keys/runtime";
 import { createConsentRuntime } from "./consents/runtime";

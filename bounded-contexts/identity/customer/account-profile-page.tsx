@@ -1,4 +1,4 @@
-import { CustomerSummaryPage } from "../shell-support/ui/customer-pages";
+import { CustomerSummaryPage } from "./ui/customer-pages";
 import type { Account } from "../accounts/ui/contracts";
 
 export function AccountProfilePage({ account }: { account: Account }) {

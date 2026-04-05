@@ -120,7 +120,9 @@ const allowedTechnicalBoundedContextRootFiles = new Set([
   "versioning.ts",
 ]);
 const violations = [];
+const warnings = [];
 const clientSurfaceConsumers = new Map();
+const supportFileConsumers = new Map();
 
 function normalizeRelative(filePath) {
   return path.relative(repoRoot, filePath).replaceAll("\\", "/");
@@ -134,10 +136,56 @@ function addPathViolation(relativePath, message) {
   violations.push(`${relativePath}: ${message}`);
 }
 
+function addPathWarning(relativePath, message) {
+  warnings.push(`${relativePath}: ${message}`);
+}
+
 function recordClientSurfaceConsumer(packageName, relativeFile) {
   const consumers = clientSurfaceConsumers.get(packageName) ?? new Set();
   consumers.add(relativeFile);
   clientSurfaceConsumers.set(packageName, consumers);
+}
+
+function classifyContextTopLevelSegment(context, relativePath) {
+  const remainder = relativePath.slice(`${context.root}/`.length);
+  const [segment] = remainder.split("/");
+  if (!segment) {
+    return null;
+  }
+
+  if ((context.manifest.slices ?? []).includes(segment)) {
+    return { kind: "slice", name: segment };
+  }
+
+  if ((context.manifest.allowedSupportDirectories ?? []).includes(segment)) {
+    return { kind: "support", name: segment };
+  }
+
+  return { kind: "other", name: segment };
+}
+
+function recordSupportFileConsumer(importerContext, importerRelativeFile, resolvedSpecifier) {
+  if (!resolvedSpecifier?.startsWith(`${importerContext.root}/`)) {
+    return;
+  }
+
+  const importerSegment = classifyContextTopLevelSegment(importerContext, importerRelativeFile);
+  if (!importerSegment || importerSegment.kind !== "slice") {
+    return;
+  }
+
+  const importedSegment = classifyContextTopLevelSegment(importerContext, resolvedSpecifier);
+  if (!importedSegment || importedSegment.kind !== "support") {
+    return;
+  }
+
+  const usageRecord = supportFileConsumers.get(resolvedSpecifier) ?? {
+    contextRoot: importerContext.root,
+    supportDirectory: importedSegment.name,
+    consumerSlices: new Set(),
+  };
+  usageRecord.consumerSlices.add(importerSegment.name);
+  supportFileConsumers.set(resolvedSpecifier, usageRecord);
 }
 
 function isTmpFile(file) {
@@ -1269,6 +1317,9 @@ function checkImport(file, specifier) {
   const importerContext = importerContextRoot
     ? contextManifests.get(importerContextRoot)
     : null;
+  if (importerContext && resolvedSpecifier) {
+    recordSupportFileConsumer(importerContext, relativeFile, resolvedSpecifier);
+  }
 
   if (
     importerContextRoot !== null &&
@@ -1700,12 +1751,30 @@ for (const context of contextManifests.values()) {
   }
 }
 
+for (const [supportFile, usageRecord] of supportFileConsumers.entries()) {
+  if (usageRecord.consumerSlices.size === 1) {
+    const [sliceName] = [...usageRecord.consumerSlices];
+    addPathWarning(
+      supportFile,
+      `support file in ${usageRecord.supportDirectory} is imported by only one slice (${sliceName}); relocate it to that slice`,
+    );
+  }
+}
+
 if (violations.length > 0) {
   console.error("Structure check failed:\n");
   for (const violation of violations.sort()) {
     console.error(`- ${violation}`);
   }
   process.exit(1);
+}
+
+if (warnings.length > 0) {
+  console.warn("Structure check warnings:\n");
+  for (const warning of warnings.sort()) {
+    console.warn(`- ${warning}`);
+  }
+  console.warn("");
 }
 
 console.log("Structure check passed.");

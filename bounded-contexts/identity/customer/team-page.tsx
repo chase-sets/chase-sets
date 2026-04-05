@@ -1,4 +1,4 @@
-import { CustomerSummaryPage } from "../shell-support/ui/customer-pages";
+import { CustomerSummaryPage } from "./ui/customer-pages";
 import type { Membership } from "../memberships/ui/contracts";
 
 export function TeamPage({ memberships }: { memberships: readonly Membership[] }) {

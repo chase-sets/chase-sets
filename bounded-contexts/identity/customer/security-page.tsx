@@ -1,6 +1,6 @@
 import type { ApiKey } from "../api-keys/ui/contracts";
 import type { User } from "../users/ui/contracts";
-import { CustomerSummaryPage } from "../shell-support/ui/customer-pages";
+import { CustomerSummaryPage } from "./ui/customer-pages";
 
 export function SecurityPage({
   user,

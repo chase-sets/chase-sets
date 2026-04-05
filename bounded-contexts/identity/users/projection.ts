@@ -1,7 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeEmail } from "../common";
-import { extractIdFromStreamId } from "../projection-support/extract-id-from-stream";
+import { extractIdFromStreamId } from "../read-model-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "identity.user-";
 
