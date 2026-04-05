@@ -1,0 +1,54 @@
+{
+  "contextName": "insights",
+  "packageName": "@chase-sets/insights",
+  "contextKind": "projection-oriented",
+  "transactionalOwnership": "none",
+  "ownedNouns": [
+    "seller-performance-kpi",
+    "fulfillment-latency-kpi",
+    "conversion-order-kpi",
+    "dashboard-read-model"
+  ],
+  "streamPrefix": "insights.",
+  "apiBasePath": "/api/insights",
+  "slices": [
+    "dashboards"
+  ],
+  "allowedSupportDirectories": [],
+  "publicExports": [
+    "."
+  ],
+  "allowedContextDependencies": [
+    "@chase-sets/fulfillment",
+    "@chase-sets/marketplace",
+    "@chase-sets/ordering"
+  ],
+  "requiredPorts": [],
+  "integrationCapabilities": [],
+  "seedRequirements": [],
+  "apiRequirements": [],
+  "hostPorts": [],
+  "apiDeployables": [],
+  "apiMounts": [],
+  "deployableContributions": [],
+  "shellContributions": [],
+  "directoryIntent": {
+    "dashboards": {
+      "classification": "slice",
+      "purpose": "Ingest published integration events and materialize read-only KPI dashboards for consumers.",
+      "allowedWhen": "Always; dashboards is the initial projection slice for Insights.",
+      "expectedConsumers": [
+        "Insights API composition",
+        "Dashboard UI consumers"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
+}

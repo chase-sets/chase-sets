@@ -49,3 +49,10 @@ Insights terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Open Extraction Candidates
 
 - Merchant BI can be extracted later if self-serve analytics becomes a product area with distinct lifecycle and permissions.
+
+
+## Advisory and Read-Only Design
+
+- Insights ingests published integration events from transactional contexts and materializes dashboard read models.
+- Insights does **not** expose command handlers that mutate upstream transactional contexts.
+- Insights outputs are advisory and query-only by design.

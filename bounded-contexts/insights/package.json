@@ -1,0 +1,15 @@
+{
+  "name": "@chase-sets/insights",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/bounded-context-module": "0.1.0",
+    "@chase-sets/event-core": "0.1.0",
+    "@chase-sets/event-core-postgres": "0.1.0"
+  }
+}
