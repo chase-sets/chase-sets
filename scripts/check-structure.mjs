@@ -33,7 +33,7 @@ import {
 } from "./deployable-route-support.mjs";
 
 const repoRoot = process.cwd();
-const roots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"];
+const roots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages", "tests"];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const moduleFileExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"];
 const ignoredDirectories = new Set(["node_modules", ".git", "dist", "build"]);
@@ -46,7 +46,12 @@ const allowedTopLevelDirectories = new Set([
   "node_modules",
   "packages",
   "scripts",
+  "tests",
 ]);
+const rootCrossSliceTestPattern =
+  /^tests\/(?:acceptance|contract)\/.+\.(?:test|spec)\.(?:ts|tsx|js|jsx)$/;
+const contextCrossSliceTestPattern =
+  /^bounded-contexts\/[^/]+\/tests\/(?:acceptance|integration)\/.+\.(?:test|spec)\.(?:ts|tsx|js|jsx)$/;
 const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared", "support"]);
 const legacyForbiddenPaths = [
   "bounded-contexts/catalog/authoring/package.json",
@@ -791,6 +796,11 @@ async function validateContextManifest(context) {
     "routes",
   ]);
 
+  const declaresTestsDirectory = (manifest.allowedSupportDirectories ?? []).includes("tests");
+  if (declaresTestsDirectory && !existsSync(path.join(rootAbs, "tests"))) {
+    addPathViolation(`${root}/context.json`, `allowedSupportDirectories declares tests, but ${root}/tests is missing`);
+  }
+
   if (manifest.contextName === "identity") {
     if ((manifest.allowedSupportDirectories ?? []).includes("auth-support")) {
       addPathViolation(`${root}/context.json`, "Identity must not declare auth-support after Auth ownership extraction");
@@ -845,6 +855,46 @@ async function validateContextManifest(context) {
         "implemented bounded-context roots must keep top-level files canonical and avoid ad hoc helper files",
       );
     }
+  }
+}
+
+async function validateRootTestsDirectory() {
+  const testsRoot = path.join(repoRoot, "tests");
+  if (!existsSync(testsRoot)) {
+    return;
+  }
+
+  const { files } = await walk(testsRoot);
+  for (const file of files) {
+    const relativeFile = normalizeRelative(file);
+    if (!rootCrossSliceTestPattern.test(relativeFile)) {
+      addViolation(
+        file,
+        "root tests must be cross-slice acceptance/contract tests under tests/acceptance or tests/contract with *.test|*.spec naming",
+      );
+    }
+  }
+}
+
+function validateBoundedContextTestsPlacement(file, normalizedFile) {
+  if (!/^bounded-contexts\/[^/]+\/tests\//.test(normalizedFile)) {
+    return;
+  }
+
+  const contextRoot = getContextRoot(normalizedFile);
+  const context = contextRoot ? contextManifests.get(contextRoot) : null;
+  const declaresTestsDirectory = (context?.manifest.allowedSupportDirectories ?? []).includes("tests");
+
+  if (!declaresTestsDirectory) {
+    addViolation(file, "tests directory is not declared in allowedSupportDirectories");
+    return;
+  }
+
+  if (!contextCrossSliceTestPattern.test(normalizedFile)) {
+    addViolation(
+      file,
+      "bounded-context tests must be cross-slice acceptance/integration tests under tests/acceptance or tests/integration with *.test|*.spec naming",
+    );
   }
 }
 
@@ -1418,6 +1468,7 @@ await validateDeployableApiMountOwnership(contextManifests);
 await validateDeployableRuntimeOwnership(contextManifests);
 await validateDeployableLifecycleOwnership(contextManifests);
 await validateDeployableShellOwnership(contextManifests);
+await validateRootTestsDirectory();
 
 const topLevelEntries = await readdir(repoRoot, { withFileTypes: true });
 for (const entry of topLevelEntries) {
@@ -1437,7 +1488,12 @@ for (const forbiddenPath of legacyForbiddenPaths) {
 }
 
 for (const root of roots) {
-  const { files, directories } = await walk(path.join(repoRoot, root));
+  const rootPath = path.join(repoRoot, root);
+  if (!existsSync(rootPath)) {
+    continue;
+  }
+
+  const { files, directories } = await walk(rootPath);
 
   for (const directory of directories) {
     const relativeDir = normalizeRelative(directory);
@@ -1469,6 +1525,8 @@ for (const root of roots) {
     if (/bounded-contexts\/[^/]+(?:\/[^/]+)?\/shell\/nav\.ts$/.test(normalizedFile)) {
       addViolation(file, "shell navigation must come from generated shell inventories, not hand-authored nav modules");
     }
+
+    validateBoundedContextTestsPlacement(file, normalizedFile);
 
     if (!sourceExtensions.has(path.extname(file))) {
       continue;

@@ -14,8 +14,7 @@
   ],
   "allowedSupportDirectories": [
     "request-support",
-    "seed-support",
-    "tests"
+    "seed-support"
   ],
   "publicExports": [
     ".",

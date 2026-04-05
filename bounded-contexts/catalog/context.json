@@ -19,8 +19,7 @@
     "projection-support",
     "request-support",
     "shell-support",
-    "seed-support",
-    "tests"
+    "seed-support"
   ],
   "publicExports": [
     ".",

@@ -46,6 +46,13 @@ Each implemented bounded context is the canonical home for its own:
 - persistence orchestration
 - seeds and test support
 
+### Test Placement Rule (Hard Requirement)
+
+- Tests belong to the owning slice by default (for example: `orders/domain.test.ts`, `offers/runtime.test.ts`, `listings/ui/*.test.tsx`).
+- A bounded context `tests/` folder is reserved only for true cross-slice acceptance or integration tests that exercise behavior spanning multiple slices in that same context.
+- Root-level `tests/` is reserved only for cross-slice acceptance/contract tests spanning multiple bounded contexts.
+- Root-level `tests/` must not be used for unit, domain, runtime, or single-slice tests.
+
 Shared top-level `infrastructure/` is reserved for reusable technical adapters only.
 
 Examples of shared infrastructure:
