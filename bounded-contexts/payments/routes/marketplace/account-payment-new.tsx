@@ -26,8 +26,8 @@ import {
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
   createOrderingBuyerGateway,
-} from "@chase-sets/ordering/integration";
-import { createPaymentsRequestApiClient } from "../../server";
+} from "@chase-sets/ordering/integration/buyer-gateway";
+import { createPaymentsRequestApiClient } from "../../request-support/api-client";
 
 function parseOrderIds(value: string | null) {
   return (value ?? "")

@@ -4,7 +4,7 @@ import {
   type ComponentDetail,
 } from "../../client";
 import { ComponentDetailPage } from "../../authoring/components/ui/component-detail-page";
-import { createCatalogRequestApiClient } from "../../server";
+import { createCatalogRequestApiClient } from "../../request-support/api-client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);

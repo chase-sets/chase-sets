@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../api";
-import { hasPermission } from "../server";
+import { hasPermission } from "../request-support/permissions";
 import type { AccountServices } from "./runtime";
 
 export function accountRoutes(services: AccountServices) {

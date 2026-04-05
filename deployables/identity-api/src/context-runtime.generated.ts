@@ -4,7 +4,11 @@ import { collectProjectors } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as authModule } from "@chase-sets/auth";
-import { createIdentityBootstrapPort, createIdentityUserDirectoryPort, createIdentityMembershipPort, createIdentityInvitationPort, createIdentityProvisioningPort } from "@chase-sets/identity/integration";
+import { createIdentityBootstrapPort } from "@chase-sets/identity/integration/bootstrap-port";
+import { createIdentityUserDirectoryPort } from "@chase-sets/identity/integration/user-directory";
+import { createIdentityMembershipPort } from "@chase-sets/identity/integration/membership-port";
+import { createIdentityInvitationPort } from "@chase-sets/identity/integration/invitation-port";
+import { createIdentityProvisioningPort } from "@chase-sets/identity/integration/provisioning-port";
 
 export type ContextRuntimeServices = Readonly<{
   identity: ReturnType<typeof identityModule.createServices>;

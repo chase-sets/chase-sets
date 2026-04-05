@@ -5,8 +5,8 @@ import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   MarketplaceApiError,
   type MarketplaceBuyerOfferDetail,
-} from "../client";
-import { createMarketplaceRequestApiClient } from "../server";
+} from "../request-support/api-client";
+import { createMarketplaceRequestApiClient } from "../request-support/api-client";
 import { MarketplaceBuyerOfferDetailPage } from "../offers/ui/buyer-offer-detail-page";
 
 const MARKETPLACE_DESCRIPTION =

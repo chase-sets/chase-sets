@@ -8,7 +8,6 @@
                 },
     "exports":  {
                     ".":  "./index.ts",
-                    "./client":  "./client.ts",
                     "./routes/*":  "./routes/*.tsx",
                     "./seed-support/*":  "./seed-support/*.ts",
                     "./server":  "./server.ts"

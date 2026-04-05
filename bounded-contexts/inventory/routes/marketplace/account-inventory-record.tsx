@@ -9,8 +9,8 @@ import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   InventoryApiError,
   type InventoryRecordDetail,
-} from "../../client";
-import { createInventoryRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
+import { createInventoryRequestApiClient } from "../../request-support/api-client";
 import { InventoryRecordDetailPage } from "../../records/ui/inventory-record-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {

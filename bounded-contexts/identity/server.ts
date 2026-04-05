@@ -10,7 +10,8 @@ import {
   resolveRequestApiBaseUrl,
 } from "@chase-sets/bounded-context-runtime";
 import type { PermissionKey } from "./common";
-import { createIdentityApiClient } from "./client";
+import { createIdentityApiClient } from "./request-support/api-client";
+import { hasPermission } from "./request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/auth-runtime";
 
@@ -21,13 +22,6 @@ function isSafeReturnTo(value: string | null) {
 export function getSafeReturnTo(request: Request, fallback: string) {
   const returnTo = new URL(request.url).searchParams.get("returnTo");
   return isSafeReturnTo(returnTo) ? returnTo! : fallback;
-}
-
-export function hasPermission(
-  actor: ResolvedActor | null | undefined,
-  permission: PermissionKey,
-) {
-  return hasActorPermission(actor, permission);
 }
 
 export function createIdentityRequestApiClient(request: Request) {

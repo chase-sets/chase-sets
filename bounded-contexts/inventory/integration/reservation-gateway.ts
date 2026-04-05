@@ -1,6 +1,4 @@
-import type { InventoryServices } from "./services";
-import { createInventoryRequestApiClient } from "./server";
-export type { InventoryRecordListItem } from "./client";
+import type { InventoryServices } from "../services";
 
 export type InventoryReservationPort = Readonly<{
   createReservation: (input: {
@@ -54,16 +52,6 @@ export function createInventoryReservationGateway(
         },
         context as never,
       );
-    },
-  };
-}
-
-export function createInventoryRecordLookupPort(request: Request) {
-  const api = createInventoryRequestApiClient(request);
-
-  return {
-    listRecords(query = "") {
-      return api.listRecords(query);
     },
   };
 }

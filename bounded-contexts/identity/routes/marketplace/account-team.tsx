@@ -2,10 +2,10 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import { requireActorFromIdentityApi } from "../../server";
-import type { Membership } from "../../client";
+import { requireActorFromIdentityApi } from "../../route-support/identity-request";
+import type { Membership } from "../../request-support/api-client";
 import { TeamPage } from "../../customer/team-page";
-import { createIdentityRequestApiClient } from "../../server";
+import { createIdentityRequestApiClient } from "../../route-support/identity-request";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({

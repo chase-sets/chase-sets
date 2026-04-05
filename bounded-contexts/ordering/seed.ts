@@ -6,12 +6,12 @@ import type {
 import {
   resolveSellableUnitDescriptor,
   type CatalogVersionSchema,
-} from "@chase-sets/catalog/integration";
+} from "@chase-sets/catalog/integration/sellable-units";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
-import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
+import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration/supply-resolver";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createOrderingServices } from "./services";
 

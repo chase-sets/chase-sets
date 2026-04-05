@@ -1,7 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
-import type { MarketplaceServices } from "./services";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
+import type { MarketplaceServices } from "../services";
 
 type VersionSelectionEntry = Readonly<{
   dimensionId: string;
@@ -150,4 +150,3 @@ export function createMarketplaceSupplyResolver(
       resolveMarketplaceSupplyCandidates(services.db, demand),
   };
 }
-

@@ -6,7 +6,7 @@ import type {
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { createOrderingRequestApiClient } from "../server";
+import { createOrderingRequestApiClient } from "../request-support/api-client";
 import { OrderingCartPage } from "../cart/ui/cart-page";
 
 const MARKETPLACE_DESCRIPTION =

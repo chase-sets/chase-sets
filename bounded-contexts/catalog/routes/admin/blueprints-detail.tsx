@@ -4,7 +4,7 @@ import {
   type BlueprintDetail,
 } from "../../client";
 import { BlueprintDetailPage } from "../../authoring/blueprints/ui/blueprint-detail-page";
-import { createCatalogRequestApiClient } from "../../server";
+import { createCatalogRequestApiClient } from "../../request-support/api-client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);

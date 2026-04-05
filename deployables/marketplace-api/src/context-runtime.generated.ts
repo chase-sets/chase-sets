@@ -12,9 +12,9 @@ import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
-import { createInventoryReservationGateway } from "@chase-sets/inventory/integration";
-import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
-import { createOrderSnapshotReader } from "@chase-sets/ordering/integration";
+import { createInventoryReservationGateway } from "@chase-sets/inventory/integration/reservation-gateway";
+import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration/supply-resolver";
+import { createOrderSnapshotReader } from "@chase-sets/ordering/integration/order-snapshot-reader";
 
 export type ContextRuntimeServices = Readonly<{
   catalog: ReturnType<typeof catalogModule.createServices>;

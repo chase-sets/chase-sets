@@ -1,5 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration";
+import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration/sellable-units";
 import {
   catalogSeedIds,
   type SeedCatalogItemId,

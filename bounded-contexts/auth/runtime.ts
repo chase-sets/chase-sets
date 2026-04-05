@@ -2,7 +2,7 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AuthServices } from "./services";
 import { getSessionByTokenHash } from "./auth-support/store";
-import { AUTH_SESSION_COOKIE_NAME } from "./server";
+import { AUTH_SESSION_COOKIE_NAME } from "./request-support/cookies";
 import { resolveActorFromSessionId } from "./services";
 
 function parseCookieHeader(cookieHeader: string | null) {

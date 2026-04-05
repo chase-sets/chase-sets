@@ -4,7 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {

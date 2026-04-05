@@ -5,8 +5,8 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   type MarketplaceSellerOfferListItem,
-} from "../client";
-import { createMarketplaceRequestApiClient } from "../server";
+} from "../request-support/api-client";
+import { createMarketplaceRequestApiClient } from "../request-support/api-client";
 import { MarketplaceSellerOfferListPage } from "../offers/ui/seller-offer-list-page";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";

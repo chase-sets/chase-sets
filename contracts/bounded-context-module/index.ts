@@ -43,6 +43,7 @@ export type BcShellContribution = Readonly<{
 export type BcIntegrationCapability = Readonly<{
   readonly key: string;
   readonly exportName: string;
+  readonly fileExport: string;
   readonly kind: "runtime-port" | "request-gateway";
 }>;
 

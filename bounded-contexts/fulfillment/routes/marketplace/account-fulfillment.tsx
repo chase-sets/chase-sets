@@ -5,8 +5,8 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   type FulfillmentShipmentListItem,
-} from "../../client";
-import { createFulfillmentRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
+import { createFulfillmentRequestApiClient } from "../../request-support/api-client";
 import { FulfillmentShipmentListPage } from "../../shipments/ui/shipment-list-page";
 
 const DEFAULT_SHIPMENT_QUERY = "limit=100&offset=0";

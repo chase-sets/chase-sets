@@ -9,13 +9,11 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthSecretAdapters } from "./auth-support/adapters";
-import {
-  type IdentityBootstrapPort,
-  type IdentityInvitationPort,
-  type IdentityMembershipPort,
-  type IdentityProvisioningPort,
-  type IdentityUserDirectoryPort,
-} from "@chase-sets/identity/integration";
+import type { IdentityBootstrapPort } from "@chase-sets/identity/integration/bootstrap-port";
+import type { IdentityInvitationPort } from "@chase-sets/identity/integration/invitation-port";
+import type { IdentityMembershipPort } from "@chase-sets/identity/integration/membership-port";
+import type { IdentityProvisioningPort } from "@chase-sets/identity/integration/provisioning-port";
+import type { IdentityUserDirectoryPort } from "@chase-sets/identity/integration/user-directory";
 import { createSessionRuntime } from "./sessions/runtime";
 
 type AuthIdentityBridge = IdentityBootstrapPort &

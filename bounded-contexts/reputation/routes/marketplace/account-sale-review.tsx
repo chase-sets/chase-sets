@@ -14,8 +14,8 @@ import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   ReputationApiError,
   type ReputationReviewOpportunity,
-} from "../../client";
-import { createReputationRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
+import { createReputationRequestApiClient } from "../../request-support/api-client";
 import { ReputationReviewSubmissionPage } from "../../reviews/ui/review-submission-page";
 
 type ReviewActionData = Readonly<{

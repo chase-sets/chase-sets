@@ -8,7 +8,7 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
-import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration";
+import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration/sellable-units";
 import type { InventoryCatalogItemServices } from "../catalog-items/runtime";
 import {
   parseVersionSelectionInput,

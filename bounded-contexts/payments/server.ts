@@ -8,7 +8,7 @@ export type {
   PaymentProcessorWebhookEvent,
 } from "./processor-gateway";
 export { PaymentsDomainError } from "./common";
-import { createPaymentsApiClient } from "./client";
+import { createPaymentsApiClient } from "./request-support/api-client";
 
 export function createPaymentsRequestApiClient(request: Request) {
   return createPaymentsApiClient({

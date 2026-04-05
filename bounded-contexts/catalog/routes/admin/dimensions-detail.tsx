@@ -4,7 +4,7 @@ import {
   type DimensionDetail,
 } from "../../client";
 import { DimensionDetailPage } from "../../authoring/dimensions/ui/dimension-detail-page";
-import { createCatalogRequestApiClient } from "../../server";
+import { createCatalogRequestApiClient } from "../../request-support/api-client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);

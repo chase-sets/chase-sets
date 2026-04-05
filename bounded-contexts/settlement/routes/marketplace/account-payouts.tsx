@@ -9,8 +9,8 @@ import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   SettlementApiError,
   type SettlementPayoutRow,
-} from "../../client";
-import { createSettlementRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
+import { createSettlementRequestApiClient } from "../../request-support/api-client";
 import { SettlementPayoutListPage } from "../../payouts/ui/payout-list-page";
 
 type PayoutActionData = Readonly<{

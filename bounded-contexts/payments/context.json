@@ -12,12 +12,12 @@
     "refunds"
   ],
   "allowedSupportDirectories": [
+    "request-support",
     "seed-support",
     "tests"
   ],
   "publicExports": [
     ".",
-    "./client",
     "./routes/*",
     "./seed-support/*",
     "./server"

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { hasPermission as hasActorPermission } from "@chase-sets/auth-runtime";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -20,7 +21,6 @@ import {
   startSessionForUser,
   type AuthServices,
 } from "./services";
-import { hasPermission } from "./server";
 import { sessionRoutes } from "./sessions/route";
 
 export type AuthApiEnv = {
@@ -29,6 +29,13 @@ export type AuthApiEnv = {
     actor: import("@chase-sets/auth-context").ResolvedActor | null;
   };
 };
+
+function hasPermission(
+  actor: import("@chase-sets/auth-context").ResolvedActor | null | undefined,
+  permission: string,
+) {
+  return hasActorPermission(actor, permission);
+}
 
 function getBootstrapContext(c: { var: AuthApiEnv["Variables"] }) {
   return c.var.context;

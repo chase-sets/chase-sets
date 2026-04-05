@@ -10,13 +10,13 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import {
   createInventoryRecordLookupPort,
   type InventoryRecordListItem,
-} from "@chase-sets/inventory/integration";
+} from "@chase-sets/inventory/integration/record-lookup";
 import {
+  createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type MarketplaceListingInventoryRecordOption,
   type MarketplaceListingListItem,
-} from "../client";
-import { createMarketplaceRequestApiClient } from "../server";
+} from "../request-support/api-client";
 import {
   MarketplaceListingListPage,
 } from "../listings/ui/listing-list-page";

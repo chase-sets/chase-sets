@@ -9,11 +9,15 @@ import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
 } from "@chase-sets/bounded-context-runtime";
-import { createAuthApiClient } from "./client";
-
-export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
-export const AUTH_ACCOUNT_SELECTION_COOKIE_NAME =
-  "chase_sets_account_selection";
+import {
+  AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
+  AUTH_SESSION_COOKIE_NAME,
+} from "./request-support/cookies";
+import { createAuthApiClient } from "./request-support/api-client";
+export {
+  AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
+  AUTH_SESSION_COOKIE_NAME,
+} from "./request-support/cookies";
 
 export type { ResolvedActor } from "@chase-sets/auth-runtime";
 

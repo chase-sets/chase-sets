@@ -5,8 +5,8 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   type OrderingOrderListItem,
-} from "../client";
-import { createOrderingRequestApiClient } from "../server";
+} from "../request-support/api-client";
+import { createOrderingRequestApiClient } from "../request-support/api-client";
 import { OrderingOrderListPage } from "../orders/ui/order-list-page";
 
 const DEFAULT_ORDER_QUERY = "limit=100&offset=0";

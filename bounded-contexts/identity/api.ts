@@ -1,5 +1,9 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import {
+  hasPermission as hasActorPermission,
+  type ResolvedActor,
+} from "@chase-sets/auth-runtime";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   ApiKeyId,
@@ -9,10 +13,6 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { getApiKeySecretByPrefix, upsertApiKeySecret } from "./api-keys/secret-store";
 import type { PermissionKey } from "./common";
 import type { IdentityServices } from "./services";
-import {
-  hasPermission,
-  type ResolvedActor,
-} from "./server";
 import { accountRoutes } from "./accounts/route";
 import { userRoutes } from "./users/route";
 import { membershipRoutes } from "./memberships/route";
@@ -27,6 +27,13 @@ export type IdentityApiEnv = {
     actor: ResolvedActor | null;
   };
 };
+
+function hasPermission(
+  actor: ResolvedActor | null | undefined,
+  permission: PermissionKey,
+) {
+  return hasActorPermission(actor, permission);
+}
 
 export function createBootstrapContext(): EventStoreContext {
   return createIdentityBootstrapContext();

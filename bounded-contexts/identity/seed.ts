@@ -3,11 +3,19 @@ import { module as authModule } from "@chase-sets/auth";
 import { upsertPasswordCredential } from "@chase-sets/auth/seed-support/store";
 import {
   createIdentityBootstrapPort,
+} from "./integration/bootstrap-port";
+import {
   createIdentityInvitationPort,
+} from "./integration/invitation-port";
+import {
   createIdentityMembershipPort,
+} from "./integration/membership-port";
+import {
   createIdentityProvisioningPort,
+} from "./integration/provisioning-port";
+import {
   createIdentityUserDirectoryPort,
-} from "./integration";
+} from "./integration/user-directory";
 import { identitySeedIds } from "./seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";

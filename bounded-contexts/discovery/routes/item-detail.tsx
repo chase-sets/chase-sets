@@ -17,10 +17,12 @@ import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
   createMarketplaceOfferGateway,
-} from "@chase-sets/marketplace/integration";
-import { createOrderingBuyerGateway } from "@chase-sets/ordering/integration";
-import { DiscoveryApiError } from "../client";
-import { createDiscoveryRequestApiClient } from "../server";
+} from "@chase-sets/marketplace/integration/offer-gateway";
+import { createOrderingBuyerGateway } from "@chase-sets/ordering/integration/buyer-gateway";
+import {
+  createDiscoveryRequestApiClient,
+  DiscoveryApiError,
+} from "../request-support/api-client";
 import { ItemDetailPage } from "../items/detail/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =

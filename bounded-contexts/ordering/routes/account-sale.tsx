@@ -10,9 +10,12 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
   createReputationReviewGateway,
   type ReputationReviewOpportunity,
-} from "@chase-sets/reputation/integration";
-import { OrderingApiError, type OrderingOrderDetail } from "../client";
-import { createOrderingRequestApiClient } from "../server";
+} from "@chase-sets/reputation/integration/review-gateway";
+import {
+  createOrderingRequestApiClient,
+  OrderingApiError,
+  type OrderingOrderDetail,
+} from "../request-support/api-client";
 import { OrderingOrderDetailPage } from "../orders/ui/order-detail-page";
 
 const MARKETPLACE_DESCRIPTION =

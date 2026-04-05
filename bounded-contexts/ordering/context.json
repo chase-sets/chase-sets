@@ -13,13 +13,14 @@
     "accounts"
   ],
   "allowedSupportDirectories": [
+    "integration",
+    "request-support",
     "seed-support",
     "tests"
   ],
   "publicExports": [
     ".",
-    "./client",
-    "./integration",
+    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -36,11 +37,13 @@
     {
       "key": "ordering.order-snapshot-reader",
       "exportName": "createOrderSnapshotReader",
+      "fileExport": "./integration/order-snapshot-reader",
       "kind": "runtime-port"
     },
     {
       "key": "ordering.buyer-gateway",
       "exportName": "createOrderingBuyerGateway",
+      "fileExport": "./integration/buyer-gateway",
       "kind": "request-gateway"
     }
   ],

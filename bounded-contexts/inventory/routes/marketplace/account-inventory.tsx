@@ -11,8 +11,8 @@ import {
   InventoryApiError,
   type InventoryRecordListItem,
   type InventoryStorageLocation,
-} from "../../client";
-import { createInventoryRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
+import { createInventoryRequestApiClient } from "../../request-support/api-client";
 import { InventoryRecordListPage } from "../../records/ui/inventory-record-list-page";
 
 const DEFAULT_RECORD_QUERY = "limit=100&offset=0";

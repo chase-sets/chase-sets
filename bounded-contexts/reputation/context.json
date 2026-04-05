@@ -11,13 +11,14 @@
     "reviews"
   ],
   "allowedSupportDirectories": [
+    "integration",
+    "request-support",
     "seed-support",
     "tests"
   ],
   "publicExports": [
     ".",
-    "./client",
-    "./integration",
+    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -28,6 +29,7 @@
     {
       "key": "reputation.review-gateway",
       "exportName": "createReputationReviewGateway",
+      "fileExport": "./integration/review-gateway",
       "kind": "request-gateway"
     }
   ],

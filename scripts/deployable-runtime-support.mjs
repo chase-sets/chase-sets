@@ -174,6 +174,16 @@ function buildPortsExpression(context, providersByCapability) {
   return `{\n${entries.join("\n")}\n  }`;
 }
 
+function toCapabilityImportSpecifier(packageName, fileExport) {
+  if (typeof fileExport !== "string" || !fileExport.startsWith("./")) {
+    throw new Error(
+      `Integration capability fileExport must be a package-relative path, received '${fileExport ?? "undefined"}'.`,
+    );
+  }
+
+  return `${packageName}${fileExport.slice(1)}`;
+}
+
 export function buildRuntimeFileContent(unsortedContexts) {
   if (unsortedContexts.length === 0) {
     return `${runtimeGeneratedFileMarker}import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -217,9 +227,11 @@ export function createContextRuntime(_pool: PgTransactionalPool, _hostPorts: Con
       continue;
     }
 
-    capabilityImports.push(
-      `import { ${usedCapabilities.map((capability) => capability.exportName).join(", ")} } from "${context.packageName}/integration";`,
-    );
+    for (const capability of usedCapabilities) {
+      capabilityImports.push(
+        `import { ${capability.exportName} } from "${toCapabilityImportSpecifier(context.packageName, capability.fileExport)}";`,
+      );
+    }
   }
 
   const hostPortsType = buildHostPortsType(sorted);

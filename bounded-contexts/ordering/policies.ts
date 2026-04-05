@@ -1,5 +1,5 @@
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 import {
   assert,
   buildDemandSignature,

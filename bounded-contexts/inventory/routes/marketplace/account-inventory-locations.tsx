@@ -10,8 +10,8 @@ import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   InventoryApiError,
   type InventoryStorageLocation,
-} from "../../client";
-import { createInventoryRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
+import { createInventoryRequestApiClient } from "../../request-support/api-client";
 import { StorageLocationPage } from "../../storage-locations/ui/storage-location-page";
 
 export async function loader({ request }: LoaderFunctionArgs) {

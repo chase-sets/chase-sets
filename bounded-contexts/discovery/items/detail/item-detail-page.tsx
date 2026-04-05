@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration";
+import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration/sellable-units";
 import {
   Breadcrumbs,
   Card,

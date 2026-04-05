@@ -6,8 +6,8 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   type ReputationReviewListItem,
-} from "../../client";
-import { createReputationRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
+import { createReputationRequestApiClient } from "../../request-support/api-client";
 import { ReputationReviewListPage } from "../../reviews/ui/review-list-page";
 
 const DEFAULT_REVIEW_QUERY = "limit=100&offset=0";

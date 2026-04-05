@@ -3,7 +3,7 @@ import {
   type CatalogVersionChoice as InventoryVersionChoice,
   type CatalogVersionDimension as InventoryVersionDimension,
   type CatalogVersionSchema as InventoryVersionSchema,
-} from "@chase-sets/catalog/integration";
+} from "@chase-sets/catalog/integration/sellable-units";
 import { assert } from "../common";
 
 export type {

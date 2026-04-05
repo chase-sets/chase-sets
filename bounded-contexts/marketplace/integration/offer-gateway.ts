@@ -1,5 +1,4 @@
-export { createMarketplaceSupplyResolver } from "./supply-resolver";
-import { createMarketplaceRequestApiClient } from "./server";
+import { createMarketplaceRequestApiClient } from "../request-support/api-client";
 
 export function createMarketplaceOfferGateway(request: Request) {
   const api = createMarketplaceRequestApiClient(request);

@@ -120,6 +120,7 @@ const allowedTechnicalBoundedContextRootFiles = new Set([
   "versioning.ts",
 ]);
 const violations = [];
+const clientSurfaceConsumers = new Map();
 
 function normalizeRelative(filePath) {
   return path.relative(repoRoot, filePath).replaceAll("\\", "/");
@@ -131,6 +132,12 @@ function addViolation(file, message) {
 
 function addPathViolation(relativePath, message) {
   violations.push(`${relativePath}: ${message}`);
+}
+
+function recordClientSurfaceConsumer(packageName, relativeFile) {
+  const consumers = clientSurfaceConsumers.get(packageName) ?? new Set();
+  consumers.add(relativeFile);
+  clientSurfaceConsumers.set(packageName, consumers);
 }
 
 function isTmpFile(file) {
@@ -223,7 +230,7 @@ function isAllowedPublicExportName(value) {
   return (
     value === "." ||
     value === "./client" ||
-    value === "./integration" ||
+    value === "./integration/*" ||
     value === "./seed-support/*" ||
     value === "./server" ||
     value === "./web" ||
@@ -431,7 +438,7 @@ function isApiDeployableFile(relativeFile) {
 
 function isAllowedDeployableBoundedContextImport(relativeFile, specifier) {
   if (/deployables\/[^/]+\/src\/context-runtime\.generated\.ts$/.test(relativeFile)) {
-    return /^@chase-sets\/[^/]+(?:\/integration)?$/.test(specifier);
+    return /^@chase-sets\/[^/]+(?:\/integration\/.+)?$/.test(specifier);
   }
 
   if (/deployables\/[^/]+\/src\/context-api-mounts\.generated\.ts$/.test(relativeFile)) {
@@ -446,7 +453,7 @@ function isAllowedDeployableBoundedContextImport(relativeFile, specifier) {
     return /^@chase-sets\/[^/]+(?:\/server)?$/.test(specifier);
   }
 
-  return /^@chase-sets\/[^/]+(?:\/(web|server|integration|routes\/.+))?$/.test(specifier);
+  return /^@chase-sets\/[^/]+(?:\/(web|server|routes\/.+))?$/.test(specifier);
 }
 
 function isAllowedContextImporter(relativeFile) {
@@ -557,12 +564,26 @@ async function validateContextManifest(context) {
     addPathViolation(`${root}/context.json`, "contexts with route contributions must export ./routes/* publicly");
   }
 
-  if ((manifest.integrationCapabilities?.length ?? 0) > 0 && !(manifest.publicExports ?? []).includes("./integration")) {
-    addPathViolation(`${root}/context.json`, "contexts with integration capabilities must export ./integration publicly");
+  if ((manifest.integrationCapabilities?.length ?? 0) > 0 && !(manifest.publicExports ?? []).includes("./integration/*")) {
+    addPathViolation(`${root}/context.json`, "contexts with integration capabilities must export ./integration/* publicly");
   }
 
-  if ((manifest.publicExports ?? []).includes("./integration") && (manifest.integrationCapabilities?.length ?? 0) === 0) {
-    addPathViolation(`${root}/context.json`, "contexts must not export ./integration without declared integration capabilities");
+  if ((manifest.publicExports ?? []).includes("./integration/*") && (manifest.integrationCapabilities?.length ?? 0) === 0) {
+    addPathViolation(`${root}/context.json`, "contexts must not export ./integration/* without declared integration capabilities");
+  }
+
+  for (const [index, capability] of (manifest.integrationCapabilities ?? []).entries()) {
+    const capabilityLabel = `${root}/context.json integrationCapabilities[${index}]`;
+
+    if (typeof capability.fileExport !== "string" || !capability.fileExport.startsWith("./integration/")) {
+      addPathViolation(capabilityLabel, "integration capability fileExport must target a module under ./integration/");
+      continue;
+    }
+
+    const resolvedCapabilityFile = resolveExistingModulePath(rootAbs, capability.fileExport);
+    if (!resolvedCapabilityFile) {
+      addPathViolation(capabilityLabel, `integration capability fileExport targets a missing module (${capability.fileExport})`);
+    }
   }
 
   const routesByDeployable = new Map(
@@ -1245,6 +1266,37 @@ function checkImport(file, specifier) {
   const relativeFile = normalizeRelative(file);
   const resolvedSpecifier = resolveRelativeSpecifier(relativeFile, normalized);
   const importerContextRoot = getContextRoot(relativeFile);
+  const importerContext = importerContextRoot
+    ? contextManifests.get(importerContextRoot)
+    : null;
+
+  if (
+    importerContextRoot !== null &&
+    (resolvedSpecifier === `${importerContextRoot}/client` ||
+      resolvedSpecifier === `${importerContextRoot}/server` ||
+      resolvedSpecifier === `${importerContextRoot}/integration`)
+  ) {
+    const surfaceName = path.posix.basename(resolvedSpecifier);
+    const isPublicSurface =
+      surfaceName === "server" ||
+      (surfaceName === "client" &&
+        (importerContext?.manifest.publicExports ?? []).includes("./client")) ||
+      (surfaceName === "integration" &&
+        (importerContext?.manifest.publicExports ?? []).includes("./integration"));
+
+    if (isPublicSurface) {
+      addViolation(file, `same-context code must not import its own public ./${surfaceName} surface (${specifier})`);
+    }
+  }
+
+  for (const packageName of boundedContextPackages) {
+    if (
+      normalized === `${packageName}/client` &&
+      !matchesPackageSpecifier(normalized, importerContext?.packageName ?? "")
+    ) {
+      recordClientSurfaceConsumer(packageName, relativeFile);
+    }
+  }
 
   if (
     importerContextRoot !== null &&
@@ -1262,7 +1314,6 @@ function checkImport(file, specifier) {
         !matchesPackageSpecifier(normalized, contextManifests.get(importerContextRoot)?.packageName ?? ""),
     )
   ) {
-    const importerContext = contextManifests.get(importerContextRoot);
     const dependency = [...contextManifests.values()].find(({ packageName }) =>
       matchesPackageSpecifier(normalized, packageName),
     );
@@ -1271,7 +1322,7 @@ function checkImport(file, specifier) {
       addViolation(file, `bounded contexts must not import another bounded context (${specifier})`);
     } else {
       const isAllowedIntegrationImport =
-        normalized === `${dependency.packageName}/integration` &&
+        normalized.startsWith(`${dependency.packageName}/integration/`) &&
         (importerContext?.manifest.allowedContextDependencies ?? []).includes(dependency.packageName);
 
       if (!isAllowedIntegrationImport) {
@@ -1635,6 +1686,17 @@ for (const root of roots) {
     for (const specifier of extractImportSpecifiers(content)) {
       checkImport(file, specifier);
     }
+  }
+}
+
+for (const context of contextManifests.values()) {
+  if (!(context.manifest.publicExports ?? []).includes("./client")) {
+    continue;
+  }
+
+  const consumers = clientSurfaceConsumers.get(context.packageName) ?? new Set();
+  if (consumers.size === 0) {
+    addPathViolation(`${context.root}/context.json`, "contexts must not export ./client without an external consumer");
   }
 }
 

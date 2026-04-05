@@ -5,7 +5,7 @@ import {
 } from "../../client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { CategoryListPage } from "../../authoring/categories/ui/category-list-page";
-import { createCatalogRequestApiClient } from "../../server";
+import { createCatalogRequestApiClient } from "../../request-support/api-client";
 
 const DEFAULT_LIST_QUERY = "limit=50&offset=0";
 

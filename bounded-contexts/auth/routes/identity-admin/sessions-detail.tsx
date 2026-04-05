@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { createAuthRequestApiClient } from "../../server";
+import { createAuthRequestApiClient } from "../../route-support/browser-auth";
 import type { Session } from "../../sessions/ui/contracts";
 import { SessionDetailPage } from "../../sessions/ui/session-detail-page";
 

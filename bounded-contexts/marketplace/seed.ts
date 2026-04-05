@@ -2,7 +2,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   resolveSellableUnitDescriptor,
   type CatalogVersionSchema,
-} from "@chase-sets/catalog/integration";
+} from "@chase-sets/catalog/integration/sellable-units";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";

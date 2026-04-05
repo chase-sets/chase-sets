@@ -20,12 +20,12 @@ import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import {
   createOrderingBuyerGateway,
   type OrderingOrderDetail,
-} from "@chase-sets/ordering/integration";
+} from "@chase-sets/ordering/integration/buyer-gateway";
 import {
+  createPaymentsRequestApiClient,
   PaymentsApiError,
   type PaymentsPaymentDetail,
-} from "../../client";
-import { createPaymentsRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
 
 type StripePaymentElement = {
   mount(target: HTMLElement | string): void;

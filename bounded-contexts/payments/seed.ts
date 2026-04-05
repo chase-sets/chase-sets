@@ -9,7 +9,7 @@ import type { Projector } from "@chase-sets/event-core/projector";
 import type { RefundId } from "./common";
 import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
-import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
+import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration/supply-resolver";
 import { module as orderingModule } from "@chase-sets/ordering";
 
 type OrderRow = Readonly<{

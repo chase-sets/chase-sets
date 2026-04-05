@@ -22,8 +22,11 @@
   ],
   "allowedSupportDirectories": [
     "api-key-support",
+    "integration",
     "projection-support",
     "read-model-support",
+    "request-support",
+    "route-support",
     "seed-support",
     "shell",
     "shell-support",
@@ -31,8 +34,7 @@
   ],
   "publicExports": [
     ".",
-    "./client",
-    "./integration",
+    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server",
@@ -44,26 +46,31 @@
     {
       "key": "identity.bootstrap-port",
       "exportName": "createIdentityBootstrapPort",
+      "fileExport": "./integration/bootstrap-port",
       "kind": "runtime-port"
     },
     {
       "key": "identity.user-directory",
       "exportName": "createIdentityUserDirectoryPort",
+      "fileExport": "./integration/user-directory",
       "kind": "runtime-port"
     },
     {
       "key": "identity.membership-port",
       "exportName": "createIdentityMembershipPort",
+      "fileExport": "./integration/membership-port",
       "kind": "runtime-port"
     },
     {
       "key": "identity.invitation-port",
       "exportName": "createIdentityInvitationPort",
+      "fileExport": "./integration/invitation-port",
       "kind": "runtime-port"
     },
     {
       "key": "identity.provisioning-port",
       "exportName": "createIdentityProvisioningPort",
+      "fileExport": "./integration/provisioning-port",
       "kind": "runtime-port"
     }
   ],

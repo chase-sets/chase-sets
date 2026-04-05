@@ -14,11 +14,11 @@
   ],
   "allowedSupportDirectories": [
     "shell",
+    "request-support",
     "tests"
   ],
   "publicExports": [
     ".",
-    "./client",
     "./routes/*",
     "./server",
     "./web"

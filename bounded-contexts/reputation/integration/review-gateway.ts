@@ -1,6 +1,5 @@
-import { createReputationRequestApiClient } from "./server";
-
-export type { ReputationReviewOpportunity } from "./reviews/ui/contracts";
+import { createReputationRequestApiClient } from "../request-support/api-client";
+export type { ReputationReviewOpportunity } from "../reviews/client/contracts";
 
 export function createReputationReviewGateway(request: Request) {
   const api = createReputationRequestApiClient(request);

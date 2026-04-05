@@ -1,5 +1,5 @@
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration";
+import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 
 export type CartLineId = TypedUlid<"cli">;
 export type OrderLineId = TypedUlid<"oli">;

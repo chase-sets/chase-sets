@@ -15,13 +15,14 @@
     "catalog-items"
   ],
   "allowedSupportDirectories": [
+    "integration",
+    "request-support",
     "seed-support",
     "tests"
   ],
   "publicExports": [
     ".",
-    "./client",
-    "./integration",
+    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -34,11 +35,13 @@
     {
       "key": "inventory.reservation-gateway",
       "exportName": "createInventoryReservationGateway",
+      "fileExport": "./integration/reservation-gateway",
       "kind": "runtime-port"
     },
     {
       "key": "inventory.record-lookup",
       "exportName": "createInventoryRecordLookupPort",
+      "fileExport": "./integration/record-lookup",
       "kind": "request-gateway"
     }
   ],

@@ -1,0 +1,15 @@
+export {
+  type CatalogSelectionEntry,
+  type CatalogVersionApplicabilityClause,
+  type CatalogVersionChoice,
+  type CatalogVersionDescriptor,
+  type CatalogVersionDimension,
+  type CatalogVersionKey,
+  type CatalogVersionSchema,
+  type SellableUnitDescriptor,
+  SellableUnitError,
+  createCatalogVersionKey,
+  normalizeCatalogSelection,
+  resolveCatalogVersionDescriptor,
+  resolveSellableUnitDescriptor,
+} from "../sellable-units";

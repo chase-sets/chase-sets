@@ -14,13 +14,14 @@
   ],
   "allowedSupportDirectories": [
     "auth-support",
+    "request-support",
     "routes",
+    "route-support",
     "seed-support",
     "shell-support"
   ],
   "publicExports": [
     ".",
-    "./client",
     "./routes/*",
     "./seed-support/*",
     "./server"

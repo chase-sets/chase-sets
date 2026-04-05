@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { IdentityApiEnv } from "../api";
-import { hasPermission } from "../server";
+import { hasPermission } from "../request-support/permissions";
 import type { ConsentServices } from "./runtime";
 
 export function consentRoutes(services: ConsentServices) {

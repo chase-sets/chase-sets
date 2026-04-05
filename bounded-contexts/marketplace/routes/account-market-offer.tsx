@@ -6,8 +6,11 @@ import type {
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { MarketplaceApiError, type MarketplaceSellerOfferDetail } from "../client";
-import { createMarketplaceRequestApiClient } from "../server";
+import {
+  createMarketplaceRequestApiClient,
+  MarketplaceApiError,
+  type MarketplaceSellerOfferDetail,
+} from "../request-support/api-client";
 import { MarketplaceSellerOfferDetailPage } from "../offers/ui/seller-offer-detail-page";
 
 const MARKETPLACE_DESCRIPTION =

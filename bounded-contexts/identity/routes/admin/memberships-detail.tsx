@@ -1,8 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import type { Membership } from "../../client";
+import type { Membership } from "../../request-support/api-client";
 import { MembershipDetailPage } from "../../memberships/ui/membership-detail-page";
-import { createIdentityRequestApiClient } from "../../server";
+import { createIdentityRequestApiClient } from "../../route-support/identity-request";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);

@@ -5,9 +5,8 @@
     "type":  "module",
     "exports":  {
                     ".":  "./index.ts",
-                    "./client":  "./client.ts",
                     "./routes/*":  "./routes/*.tsx",
-                    "./integration":  "./integration.ts",
+                    "./integration/*":  "./integration/*.ts",
                     "./seed-support/*":  "./seed-support/*.ts",
                     "./server":  "./server.ts",
                     "./web":  "./web.ts"

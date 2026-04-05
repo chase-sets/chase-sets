@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveActorFromIdentityApi } from "./server";
+import { resolveActorFromIdentityApi } from "./route-support/identity-request";
 
 describe("identity server helpers", () => {
   it("resolves the current actor through the mounted identity api path", async () => {

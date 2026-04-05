@@ -2,12 +2,12 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import type { ApiKey, User } from "../../client";
+import type { ApiKey, User } from "../../request-support/api-client";
 import { SecurityPage } from "../../customer/security-page";
 import {
   createIdentityRequestApiClient,
   requireActorFromIdentityApi,
-} from "../../server";
+} from "../../route-support/identity-request";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({

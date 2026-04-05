@@ -9,8 +9,8 @@ import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   FulfillmentApiError,
   type FulfillmentShipmentDetail,
-} from "../../client";
-import { createFulfillmentRequestApiClient } from "../../server";
+} from "../../request-support/api-client";
+import { createFulfillmentRequestApiClient } from "../../request-support/api-client";
 import { FulfillmentShipmentDetailPage } from "../../shipments/ui/shipment-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
