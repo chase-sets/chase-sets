@@ -282,5 +282,134 @@
         "accounts.view"
       ]
     }
-  ]
+  ],
+  "directoryIntent": {
+    "accounts": {
+      "classification": "slice",
+      "purpose": "Own accounts feature behavior, read models, and UI contracts for the identity context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal identity module composition"
+      ]
+    },
+    "users": {
+      "classification": "slice",
+      "purpose": "Own users feature behavior, read models, and UI contracts for the identity context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal identity module composition"
+      ]
+    },
+    "memberships": {
+      "classification": "slice",
+      "purpose": "Own memberships feature behavior, read models, and UI contracts for the identity context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal identity module composition"
+      ]
+    },
+    "invitations": {
+      "classification": "slice",
+      "purpose": "Own invitations feature behavior, read models, and UI contracts for the identity context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal identity module composition"
+      ]
+    },
+    "api-keys": {
+      "classification": "slice",
+      "purpose": "Own api-keys feature behavior, read models, and UI contracts for the identity context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal identity module composition"
+      ]
+    },
+    "consents": {
+      "classification": "slice",
+      "purpose": "Own consents feature behavior, read models, and UI contracts for the identity context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal identity module composition"
+      ]
+    },
+    "customer": {
+      "classification": "slice",
+      "purpose": "Own customer feature behavior, read models, and UI contracts for the identity context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal identity module composition"
+      ]
+    },
+    "integration": {
+      "classification": "support",
+      "purpose": "Provide reusable integration assets shared by multiple identity slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple identity slices",
+        "Deployable composition for identity"
+      ]
+    },
+    "read-model-support": {
+      "classification": "support",
+      "purpose": "Provide reusable read-model-support assets shared by multiple identity slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple identity slices",
+        "Deployable composition for identity"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide reusable request-support assets shared by multiple identity slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple identity slices",
+        "Deployable composition for identity"
+      ]
+    },
+    "route-support": {
+      "classification": "support",
+      "purpose": "Provide reusable route-support assets shared by multiple identity slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple identity slices",
+        "Deployable composition for identity"
+      ]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Provide reusable seed-support assets shared by multiple identity slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple identity slices",
+        "Deployable composition for identity"
+      ]
+    },
+    "shell-support": {
+      "classification": "support",
+      "purpose": "Provide reusable shell-support assets shared by multiple identity slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple identity slices",
+        "Deployable composition for identity"
+      ]
+    },
+    "tests": {
+      "classification": "support",
+      "purpose": "Provide reusable tests assets shared by multiple identity slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple identity slices",
+        "Deployable composition for identity"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
 }

@@ -64,21 +64,184 @@
     {
       "deployable": "marketplace",
       "routes": [
-        { "routeId": "account-listing", "routePath": "account/listings/:listingId", "fileExport": "./routes/account-listing", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-listings", "routePath": "account/listings", "fileExport": "./routes/account-listings", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-market-offer", "routePath": "account/market-offers/:offerId", "fileExport": "./routes/account-market-offer", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-market-offers", "routePath": "account/market-offers", "fileExport": "./routes/account-market-offers", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-offer", "routePath": "account/offers/:offerId", "fileExport": "./routes/account-offer", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-offers", "routePath": "account/offers", "fileExport": "./routes/account-offers", "routeType": "route", "sourceContext": "marketplace" }
+        {
+          "routeId": "account-listing",
+          "routePath": "account/listings/:listingId",
+          "fileExport": "./routes/account-listing",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-listings",
+          "routePath": "account/listings",
+          "fileExport": "./routes/account-listings",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-market-offer",
+          "routePath": "account/market-offers/:offerId",
+          "fileExport": "./routes/account-market-offer",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-market-offers",
+          "routePath": "account/market-offers",
+          "fileExport": "./routes/account-market-offers",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-offer",
+          "routePath": "account/offers/:offerId",
+          "fileExport": "./routes/account-offer",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-offers",
+          "routePath": "account/offers",
+          "fileExport": "./routes/account-offers",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        }
       ]
     }
   ],
   "shellContributions": [
-    { "deployable": "marketplace", "slot": "top-nav", "key": "listings", "label": "Listings", "icon": "package", "href": "/account/listings", "order": 120, "visibility": "signed-in", "requiredPermissions": ["listings.view"] },
-    { "deployable": "marketplace", "slot": "top-nav", "key": "market-offers", "label": "Market Offers", "icon": "package", "href": "/account/market-offers", "order": 130, "visibility": "signed-in", "requiredPermissions": ["offers.view", "listings.view"] },
-    { "deployable": "marketplace", "slot": "top-nav", "key": "offers", "label": "Offers", "icon": "package", "href": "/account/offers", "order": 140, "visibility": "signed-in", "requiredPermissions": ["offers.view"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "listings", "label": "Listings", "icon": "package", "href": "/account/listings", "order": 120, "visibility": "signed-in", "requiredPermissions": ["listings.view"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "market-offers", "label": "Market Offers", "icon": "package", "href": "/account/market-offers", "order": 130, "visibility": "signed-in", "requiredPermissions": ["offers.view", "listings.view"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "offers", "label": "Offers", "icon": "package", "href": "/account/offers", "order": 140, "visibility": "signed-in", "requiredPermissions": ["offers.view"] }
-  ]
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "listings",
+      "label": "Listings",
+      "icon": "package",
+      "href": "/account/listings",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "market-offers",
+      "label": "Market Offers",
+      "icon": "package",
+      "href": "/account/market-offers",
+      "order": 130,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "offers.view",
+        "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "offers",
+      "label": "Offers",
+      "icon": "package",
+      "href": "/account/offers",
+      "order": 140,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "offers.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "listings",
+      "label": "Listings",
+      "icon": "package",
+      "href": "/account/listings",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "market-offers",
+      "label": "Market Offers",
+      "icon": "package",
+      "href": "/account/market-offers",
+      "order": 130,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "offers.view",
+        "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "offers",
+      "label": "Offers",
+      "icon": "package",
+      "href": "/account/offers",
+      "order": 140,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "offers.view"
+      ]
+    }
+  ],
+  "directoryIntent": {
+    "listings": {
+      "classification": "slice",
+      "purpose": "Own listings feature behavior, read models, and UI contracts for the marketplace context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal marketplace module composition"
+      ]
+    },
+    "offers": {
+      "classification": "slice",
+      "purpose": "Own offers feature behavior, read models, and UI contracts for the marketplace context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal marketplace module composition"
+      ]
+    },
+    "integration": {
+      "classification": "support",
+      "purpose": "Provide reusable integration assets shared by multiple marketplace slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple marketplace slices",
+        "Deployable composition for marketplace"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide reusable request-support assets shared by multiple marketplace slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple marketplace slices",
+        "Deployable composition for marketplace"
+      ]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Provide reusable seed-support assets shared by multiple marketplace slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple marketplace slices",
+        "Deployable composition for marketplace"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
 }

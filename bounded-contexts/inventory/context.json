@@ -70,14 +70,134 @@
     {
       "deployable": "marketplace",
       "routes": [
-        { "routeId": "account-inventory", "routePath": "account/inventory", "fileExport": "./routes/marketplace/account-inventory", "routeType": "route", "sourceContext": "inventory" },
-        { "routeId": "account-inventory-locations", "routePath": "account/inventory/locations", "fileExport": "./routes/marketplace/account-inventory-locations", "routeType": "route", "sourceContext": "inventory" },
-        { "routeId": "account-inventory-record", "routePath": "account/inventory/records/:recordId", "fileExport": "./routes/marketplace/account-inventory-record", "routeType": "route", "sourceContext": "inventory" }
+        {
+          "routeId": "account-inventory",
+          "routePath": "account/inventory",
+          "fileExport": "./routes/marketplace/account-inventory",
+          "routeType": "route",
+          "sourceContext": "inventory"
+        },
+        {
+          "routeId": "account-inventory-locations",
+          "routePath": "account/inventory/locations",
+          "fileExport": "./routes/marketplace/account-inventory-locations",
+          "routeType": "route",
+          "sourceContext": "inventory"
+        },
+        {
+          "routeId": "account-inventory-record",
+          "routePath": "account/inventory/records/:recordId",
+          "fileExport": "./routes/marketplace/account-inventory-record",
+          "routeType": "route",
+          "sourceContext": "inventory"
+        }
       ]
     }
   ],
   "shellContributions": [
-    { "deployable": "marketplace", "slot": "top-nav", "key": "inventory", "label": "Inventory", "icon": "package", "href": "/account/inventory", "order": 100, "visibility": "signed-in", "requiredPermissions": ["inventory.view"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "inventory", "label": "Inventory", "icon": "package", "href": "/account/inventory", "order": 100, "visibility": "signed-in", "requiredPermissions": ["inventory.view"] }
-  ]
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "inventory",
+      "label": "Inventory",
+      "icon": "package",
+      "href": "/account/inventory",
+      "order": 100,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "inventory.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "inventory",
+      "label": "Inventory",
+      "icon": "package",
+      "href": "/account/inventory",
+      "order": 100,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "inventory.view"
+      ]
+    }
+  ],
+  "directoryIntent": {
+    "records": {
+      "classification": "slice",
+      "purpose": "Own records feature behavior, read models, and UI contracts for the inventory context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
+    },
+    "holds": {
+      "classification": "slice",
+      "purpose": "Own holds feature behavior, read models, and UI contracts for the inventory context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
+    },
+    "storage-locations": {
+      "classification": "slice",
+      "purpose": "Own storage-locations feature behavior, read models, and UI contracts for the inventory context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
+    },
+    "catalog-items": {
+      "classification": "slice",
+      "purpose": "Own catalog-items feature behavior, read models, and UI contracts for the inventory context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
+    },
+    "integration": {
+      "classification": "support",
+      "purpose": "Provide reusable integration assets shared by multiple inventory slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple inventory slices",
+        "Deployable composition for inventory"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide reusable request-support assets shared by multiple inventory slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple inventory slices",
+        "Deployable composition for inventory"
+      ]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Provide reusable seed-support assets shared by multiple inventory slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple inventory slices",
+        "Deployable composition for inventory"
+      ]
+    },
+    "tests": {
+      "classification": "support",
+      "purpose": "Provide reusable tests assets shared by multiple inventory slices.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "expectedConsumers": [
+        "Multiple inventory slices",
+        "Deployable composition for inventory"
+      ]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  }
 }
