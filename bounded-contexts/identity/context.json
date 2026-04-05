@@ -29,7 +29,8 @@
     "route-support",
     "seed-support",
     "shell",
-    "shell-support"
+    "shell-support",
+    "tests"
   ],
   "publicExports": [
     ".",
