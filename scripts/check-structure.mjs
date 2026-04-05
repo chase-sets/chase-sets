@@ -348,6 +348,10 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "allowedSupportDirectories must be an array of strings");
     }
 
+    if ("plannedSupportDirectories" in manifest && !isStringArray(manifest.plannedSupportDirectories)) {
+      addPathViolation(`${relativeRoot}/context.json`, "plannedSupportDirectories must be an array of strings when provided");
+    }
+
     if (!isStringArray(manifest.publicExports)) {
       addPathViolation(`${relativeRoot}/context.json`, "publicExports must be an array of strings");
     }
@@ -815,6 +819,40 @@ async function validateContextManifest(context) {
   }
 
   const rootEntries = await readdir(rootAbs, { withFileTypes: true });
+  const topLevelDirectories = new Set(
+    rootEntries
+      .filter((entry) => entry.isDirectory() && !ignoredDirectories.has(entry.name))
+      .map((entry) => entry.name),
+  );
+  const allowedSupportDirectories = manifest.allowedSupportDirectories ?? [];
+  const plannedSupportDirectories = new Set(manifest.plannedSupportDirectories ?? []);
+
+  for (const supportDirectory of plannedSupportDirectories) {
+    if (!allowedSupportDirectories.includes(supportDirectory)) {
+      addPathViolation(
+        `${root}/context.json`,
+        `plannedSupportDirectories must reference declared support directories (${supportDirectory})`,
+      );
+    }
+  }
+
+  for (const supportDirectory of allowedSupportDirectories) {
+    if (supportDirectory === "routes") {
+      addPathViolation(`${root}/context.json`, "routes is implicit and must not be declared in allowedSupportDirectories");
+    }
+
+    if (topLevelDirectories.has(supportDirectory)) {
+      continue;
+    }
+
+    if (!plannedSupportDirectories.has(supportDirectory)) {
+      addPathViolation(
+        `${root}/context.json`,
+        `declared support directory must exist or be listed in plannedSupportDirectories (${supportDirectory})`,
+      );
+    }
+  }
+
   for (const entry of rootEntries) {
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) {
       continue;

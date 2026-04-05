@@ -67,11 +67,25 @@
     {
       "deployable": "marketplace",
       "routes": [
-        { "routeId": "account-payment", "routePath": "account/payments/:paymentId", "fileExport": "./routes/marketplace/account-payment", "routeType": "route", "sourceContext": "payments" },
-        { "routeId": "account-payment-new", "routePath": "account/payments/new", "fileExport": "./routes/marketplace/account-payment-new", "routeType": "route", "sourceContext": "payments" }
+        {
+          "routeId": "account-payment",
+          "routePath": "account/payments/:paymentId",
+          "fileExport": "./routes/marketplace/account-payment",
+          "routeType": "route",
+          "sourceContext": "payments"
+        },
+        {
+          "routeId": "account-payment-new",
+          "routePath": "account/payments/new",
+          "fileExport": "./routes/marketplace/account-payment-new",
+          "routeType": "route",
+          "sourceContext": "payments"
+        }
       ]
     }
   ],
-  "shellContributions": [
+  "shellContributions": [],
+  "plannedSupportDirectories": [
+    "tests"
   ]
 }

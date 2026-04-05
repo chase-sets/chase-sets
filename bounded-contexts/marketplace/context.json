@@ -65,21 +65,134 @@
     {
       "deployable": "marketplace",
       "routes": [
-        { "routeId": "account-listing", "routePath": "account/listings/:listingId", "fileExport": "./routes/account-listing", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-listings", "routePath": "account/listings", "fileExport": "./routes/account-listings", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-market-offer", "routePath": "account/market-offers/:offerId", "fileExport": "./routes/account-market-offer", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-market-offers", "routePath": "account/market-offers", "fileExport": "./routes/account-market-offers", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-offer", "routePath": "account/offers/:offerId", "fileExport": "./routes/account-offer", "routeType": "route", "sourceContext": "marketplace" },
-        { "routeId": "account-offers", "routePath": "account/offers", "fileExport": "./routes/account-offers", "routeType": "route", "sourceContext": "marketplace" }
+        {
+          "routeId": "account-listing",
+          "routePath": "account/listings/:listingId",
+          "fileExport": "./routes/account-listing",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-listings",
+          "routePath": "account/listings",
+          "fileExport": "./routes/account-listings",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-market-offer",
+          "routePath": "account/market-offers/:offerId",
+          "fileExport": "./routes/account-market-offer",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-market-offers",
+          "routePath": "account/market-offers",
+          "fileExport": "./routes/account-market-offers",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-offer",
+          "routePath": "account/offers/:offerId",
+          "fileExport": "./routes/account-offer",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-offers",
+          "routePath": "account/offers",
+          "fileExport": "./routes/account-offers",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        }
       ]
     }
   ],
   "shellContributions": [
-    { "deployable": "marketplace", "slot": "top-nav", "key": "listings", "label": "Listings", "icon": "package", "href": "/account/listings", "order": 120, "visibility": "signed-in", "requiredPermissions": ["listings.view"] },
-    { "deployable": "marketplace", "slot": "top-nav", "key": "market-offers", "label": "Market Offers", "icon": "package", "href": "/account/market-offers", "order": 130, "visibility": "signed-in", "requiredPermissions": ["offers.view", "listings.view"] },
-    { "deployable": "marketplace", "slot": "top-nav", "key": "offers", "label": "Offers", "icon": "package", "href": "/account/offers", "order": 140, "visibility": "signed-in", "requiredPermissions": ["offers.view"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "listings", "label": "Listings", "icon": "package", "href": "/account/listings", "order": 120, "visibility": "signed-in", "requiredPermissions": ["listings.view"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "market-offers", "label": "Market Offers", "icon": "package", "href": "/account/market-offers", "order": 130, "visibility": "signed-in", "requiredPermissions": ["offers.view", "listings.view"] },
-    { "deployable": "marketplace", "slot": "bottom-nav", "key": "offers", "label": "Offers", "icon": "package", "href": "/account/offers", "order": 140, "visibility": "signed-in", "requiredPermissions": ["offers.view"] }
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "listings",
+      "label": "Listings",
+      "icon": "package",
+      "href": "/account/listings",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "market-offers",
+      "label": "Market Offers",
+      "icon": "package",
+      "href": "/account/market-offers",
+      "order": 130,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "offers.view",
+        "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "top-nav",
+      "key": "offers",
+      "label": "Offers",
+      "icon": "package",
+      "href": "/account/offers",
+      "order": 140,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "offers.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "listings",
+      "label": "Listings",
+      "icon": "package",
+      "href": "/account/listings",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "market-offers",
+      "label": "Market Offers",
+      "icon": "package",
+      "href": "/account/market-offers",
+      "order": 130,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "offers.view",
+        "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace",
+      "slot": "bottom-nav",
+      "key": "offers",
+      "label": "Offers",
+      "icon": "package",
+      "href": "/account/offers",
+      "order": 140,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "offers.view"
+      ]
+    }
+  ],
+  "plannedSupportDirectories": [
+    "tests"
   ]
 }

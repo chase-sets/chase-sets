@@ -47,12 +47,32 @@
     {
       "deployable": "marketplace",
       "routes": [
-        { "routeId": "account-payout", "routePath": "account/payouts/:payoutId", "fileExport": "./routes/marketplace/account-payout", "routeType": "route", "sourceContext": "settlement" },
-        { "routeId": "account-payouts", "routePath": "account/payouts", "fileExport": "./routes/marketplace/account-payouts", "routeType": "route", "sourceContext": "settlement" },
-        { "routeId": "account-settlement", "routePath": "account/settlement", "fileExport": "./routes/marketplace/account-settlement", "routeType": "route", "sourceContext": "settlement" }
+        {
+          "routeId": "account-payout",
+          "routePath": "account/payouts/:payoutId",
+          "fileExport": "./routes/marketplace/account-payout",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "account-payouts",
+          "routePath": "account/payouts",
+          "fileExport": "./routes/marketplace/account-payouts",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
+          "routeId": "account-settlement",
+          "routePath": "account/settlement",
+          "fileExport": "./routes/marketplace/account-settlement",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        }
       ]
     }
   ],
-  "shellContributions": [
+  "shellContributions": [],
+  "plannedSupportDirectories": [
+    "tests"
   ]
 }
