@@ -4,7 +4,8 @@ import { buildCatalogAuthoringTestApp, createCatalogAuthoringTestPool } from "..
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
+const databaseUrl = process.env.DATABASE_URL;
+const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -54,7 +55,7 @@ async function getJson(path: string) {
   return { response, json: await response.json() };
 }
 
-describe("Admin page projections", () => {
+describeWithDatabase("Admin page projections", () => {
   beforeAll(() => {
     pool = createCatalogAuthoringTestPool(databaseUrl);
   });

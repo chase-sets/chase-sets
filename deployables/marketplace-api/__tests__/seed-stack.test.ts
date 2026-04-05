@@ -17,8 +17,8 @@ import { createContextRuntime } from "../src/context-runtime.generated";
 import { createFakePaymentProcessorGateway } from "../src/payment-processor";
 import { seedCoverageManifest } from "./seed-coverage.manifest";
 
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
+const databaseUrl = process.env.DATABASE_URL;
+const describeWithDatabase = databaseUrl ? describe : describe.skip;
 const seedSellerAccountId = "acc_seed_demo_account";
 
 function createPool(connectionString: string): PgTransactionalPool {
@@ -43,7 +43,7 @@ async function recreateSchema(pool: PgTransactionalPool) {
   );
 }
 
-describe("marketplace stack seed orchestration", () => {
+describeWithDatabase("marketplace stack seed orchestration", () => {
   let pool: PgTransactionalPool;
 
   beforeAll(() => {
@@ -148,4 +148,3 @@ describe("marketplace stack seed orchestration", () => {
     expect(eventCountAfter.rows[0]?.count).toBe(eventCountBefore.rows[0]?.count);
   }, 60_000);
 });
-

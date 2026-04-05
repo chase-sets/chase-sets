@@ -4,8 +4,8 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { module as settlementModule } from ".";
 
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
+const databaseUrl = process.env.DATABASE_URL;
+const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 function createPool(connectionString: string): PgTransactionalPool {
   return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
@@ -16,7 +16,7 @@ async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query(settlementModule.schemaSql);
 }
 
-describe("settlement seed", () => {
+describeWithDatabase("settlement seed", () => {
   let pool: PgTransactionalPool;
 
   beforeAll(() => {
