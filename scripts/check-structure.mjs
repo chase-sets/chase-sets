@@ -51,6 +51,21 @@ const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared
 const nonSupportSuffixDirectoryExceptions = new Set(["integration", "tests"]);
 const supportDirectoryNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-support$/;
 const supportLifecycleRequiredFields = ["justification", "createdFor", "sunsetWhen"];
+const intentPlaceholderGuardFields = ["purpose", "allowedWhen", "justification", "createdFor", "sunsetWhen"];
+const placeholderFieldTokens = new Set([
+  "bd",
+  "fixme",
+  "misc",
+  "na",
+  "n/a",
+  "none",
+  "placeholder",
+  "temp",
+  "temporary",
+  "tbd",
+  "todo",
+  "unknown",
+]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["request-support", "seed-support"]);
 const legacyForbiddenPaths = [
   "bounded-contexts/catalog/authoring/package.json",
@@ -243,6 +258,46 @@ function readGitHubPullRequestLabels() {
 
 function isValidIsoDate(value) {
   return /^\\d{4}-\\d{2}-\\d{2}$/.test(value);
+}
+
+function normalizeIntentFieldValue(value) {
+  return value.trim().toLowerCase();
+}
+
+function splitIntentFieldTokens(value) {
+  return normalizeIntentFieldValue(value)
+    .split(/[^a-z0-9/.-]+/)
+    .filter(Boolean);
+}
+
+function containsPlaceholderToken(value) {
+  const normalized = normalizeIntentFieldValue(value);
+  if (placeholderFieldTokens.has(normalized)) {
+    return true;
+  }
+
+  const tokens = splitIntentFieldTokens(value);
+  return tokens.some((token) => placeholderFieldTokens.has(token));
+}
+
+function collectSpecificityTerms(manifest) {
+  return new Set(
+    [manifest.contextName, ...(manifest.ownedNouns ?? []), ...(manifest.slices ?? [])]
+      .filter((term) => typeof term === "string")
+      .map((term) => term.trim().toLowerCase())
+      .filter((term) => term.length >= 3),
+  );
+}
+
+function hasSpecificityTerm(value, specificityTerms) {
+  const normalizedValue = normalizeIntentFieldValue(value);
+  for (const term of specificityTerms) {
+    if (normalizedValue.includes(term)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function isTmpFile(file) {
@@ -498,33 +553,68 @@ async function loadContextManifests() {
     if (!isPlainObject(manifest.directoryIntent)) {
       addPathViolation(`${relativeRoot}/context.json`, "directoryIntent must be an object");
     } else {
+      const specificityTerms = collectSpecificityTerms(manifest);
       for (const [directoryName, intent] of Object.entries(manifest.directoryIntent)) {
         const intentLabel = `${relativeRoot}/context.json directoryIntent.${directoryName}`;
+        const intentFieldPath = (fieldName) =>
+          `${relativeRoot}/context.json directoryIntent.${directoryName}.${fieldName}`;
         if (!isPlainObject(intent)) {
           addPathViolation(intentLabel, "intent metadata must be an object");
           continue;
         }
 
         if (!isValidDirectoryClassification(intent.classification)) {
-          addPathViolation(intentLabel, "classification must be one of: slice, support, routes");
+          addPathViolation(
+            intentFieldPath("classification"),
+            "classification must be one of: slice, support, routes",
+          );
         }
 
         if (typeof intent.purpose !== "string" || intent.purpose.trim().length === 0) {
-          addPathViolation(intentLabel, "purpose must be a non-empty string");
+          addPathViolation(intentFieldPath("purpose"), "purpose must be a non-empty string");
         }
 
         if (typeof intent.allowedWhen !== "string" || intent.allowedWhen.trim().length === 0) {
-          addPathViolation(intentLabel, "allowedWhen must be a non-empty string");
+          addPathViolation(intentFieldPath("allowedWhen"), "allowedWhen must be a non-empty string");
         }
 
         if (!isStringArray(intent.expectedConsumers) || intent.expectedConsumers.length === 0) {
-          addPathViolation(intentLabel, "expectedConsumers must be a non-empty array of strings");
+          addPathViolation(
+            intentFieldPath("expectedConsumers"),
+            "expectedConsumers must be a non-empty array of strings",
+          );
         }
 
         if (Array.isArray(intent.expectedConsumers)) {
           const uniqueExpectedConsumers = new Set(intent.expectedConsumers);
           if (uniqueExpectedConsumers.size !== intent.expectedConsumers.length) {
-            addPathViolation(intentLabel, "expectedConsumers must not contain duplicates");
+            addPathViolation(intentFieldPath("expectedConsumers"), "expectedConsumers must not contain duplicates");
+          }
+        }
+
+        for (const field of intentPlaceholderGuardFields) {
+          if (typeof intent[field] !== "string" || intent[field].trim().length === 0) {
+            continue;
+          }
+
+          if (containsPlaceholderToken(intent[field])) {
+            addPathViolation(
+              intentFieldPath(field),
+              `must not use placeholder values (forbidden tokens: ${formatSetValues(placeholderFieldTokens)})`,
+            );
+          }
+        }
+
+        for (const field of ["purpose", "createdFor"]) {
+          if (typeof intent[field] !== "string" || intent[field].trim().length === 0) {
+            continue;
+          }
+
+          if (!hasSpecificityTerm(intent[field], specificityTerms)) {
+            addPathViolation(
+              intentFieldPath(field),
+              "must reference at least one bounded-context term or slice name from context.json (contextName, ownedNouns, or slices)",
+            );
           }
         }
       }
@@ -1054,6 +1144,7 @@ async function validateContextManifest(context) {
 
   for (const supportDirectory of allowedSupportDirectories) {
     const intent = declaredDirectoryIntent[supportDirectory];
+    const supportIntentFieldPath = (fieldName) => `${root}/context.json directoryIntent.${supportDirectory}.${fieldName}`;
     if (!intent) {
       addPathViolation(
         `${root}/context.json`,
@@ -1072,8 +1163,8 @@ async function validateContextManifest(context) {
     for (const field of supportLifecycleRequiredFields) {
       if (typeof intent[field] !== "string" || intent[field].trim().length === 0) {
         addPathViolation(
-          `${root}/context.json`,
-          `directoryIntent support metadata for ${supportDirectory} must define ${field} as a non-empty string`,
+          supportIntentFieldPath(field),
+          "must be a non-empty string",
         );
       }
     }
@@ -1082,8 +1173,8 @@ async function validateContextManifest(context) {
     const taggedAsCrossCuttingRuntimeComposition = intent.crossCuttingRuntimeComposition === true;
     if (expectedConsumers.length < 2 && !taggedAsCrossCuttingRuntimeComposition) {
       addPathViolation(
-        `${root}/context.json`,
-        `directoryIntent expectedConsumers for ${supportDirectory} must include at least two slices unless crossCuttingRuntimeComposition is true`,
+        supportIntentFieldPath("expectedConsumers"),
+        "must include at least two slices unless crossCuttingRuntimeComposition is true",
       );
     }
 
@@ -1092,7 +1183,7 @@ async function validateContextManifest(context) {
       !crossCuttingRuntimeCompositionSupportDirectories.has(supportDirectory)
     ) {
       addPathViolation(
-        `${root}/context.json`,
+        supportIntentFieldPath("crossCuttingRuntimeComposition"),
         `crossCuttingRuntimeComposition is only allowed for: ${formatSetValues(crossCuttingRuntimeCompositionSupportDirectories)}`,
       );
     }
