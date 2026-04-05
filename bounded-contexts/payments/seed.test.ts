@@ -9,8 +9,8 @@ import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from ".";
 
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
+const databaseUrl = process.env.DATABASE_URL;
+const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 function createPool(connectionString: string): PgTransactionalPool {
   return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
@@ -30,7 +30,7 @@ async function recreateSchema(pool: PgTransactionalPool) {
   );
 }
 
-describe("payments seed", () => {
+describeWithDatabase("payments seed", () => {
   let pool: PgTransactionalPool;
 
   beforeAll(() => {
@@ -82,4 +82,3 @@ describe("payments seed", () => {
     expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
   }, 40_000);
 });
-

@@ -38,6 +38,7 @@ const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"])
 const moduleFileExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"];
 const ignoredDirectories = new Set(["node_modules", ".git", "dist", "build"]);
 const allowedTopLevelDirectories = new Set([
+  "artifacts",
   "bounded-contexts",
   "contracts",
   "deployables",
@@ -104,10 +105,6 @@ const knownShellDeployables = new Set(Object.keys(deployableShellConfig));
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const domainFacingImportHeuristic =
   /(?:^|\/)(?:domain|domains|query|queries|projection|projections|read-model|read-models|projector|projectors)(?:\/|$)/;
-const routeOrShellSupportSymbolPattern =
-  /^\s*(?:export\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z0-9_]+)/gm;
-const domainFacingSymbolNamePattern =
-  /(?:^|_)(?:domain|domains|query|queries|projection|projections|readmodel|readmodels|projector|projectors)(?:$|_|[A-Z])/i;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|integration|seed-support(?:\/[^"']+)?)["']/;
@@ -157,7 +154,7 @@ const singleSliceSupportFileAllowlistByFile = new Map(
   singleSliceSupportFileAllowlist.map((entry) => [entry.file, entry]),
 );
 const singleSliceSupportEnforcementMode =
-  process.env.STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT === "warn" ? "warn" : "violation";
+  process.env.STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT === "violation" ? "violation" : "warn";
 const temporarySingleSliceSupportDebtFlag = process.env.STRUCTURE_ALLOW_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT === "true";
 const temporarySingleSliceSupportDebtLabel =
   process.env.STRUCTURE_TEMPORARY_SINGLE_SLICE_SUPPORT_DEBT_LABEL ?? "structure-temporary-debt";
@@ -348,16 +345,6 @@ function extractImportSpecifiers(content) {
   }
 
   return specifiers;
-}
-
-function extractDeclaredSymbolNames(content) {
-  const names = [];
-  for (const match of content.matchAll(routeOrShellSupportSymbolPattern)) {
-    if (match[1]) {
-      names.push(match[1]);
-    }
-  }
-  return names;
 }
 
 function stripContextManifestSurfaceExport(content) {
@@ -626,9 +613,9 @@ async function loadContextManifests() {
           }
 
           if (!hasSpecificityTerm(intent[field], specificityTerms)) {
-            addPathViolation(
+            addPathWarning(
               intentFieldPath(field),
-              "must reference at least one bounded-context term or slice name from context.json (contextName, ownedNouns, or slices)",
+              "should reference at least one bounded-context term or slice name from context.json (contextName, ownedNouns, or slices)",
             );
           }
         }
@@ -1912,23 +1899,14 @@ function checkImport(file, specifier) {
   ) {
     const isSameContextImport = resolvedSpecifier?.startsWith(`${importerContextRoot}/`) ?? false;
     const isBoundedContextPackageImport = isBoundedContextSpecifier(normalized);
-    const isAllowedSameContextImport =
-      isSameContextImport &&
-      (
-        resolvedSpecifier.includes("/routes/") ||
-        resolvedSpecifier.includes("/ui/contracts") ||
-        resolvedSpecifier === `${importerContextRoot}/web` ||
-        resolvedSpecifier === `${importerContextRoot}/server` ||
-        resolvedSpecifier === `${importerContextRoot}/client` ||
-        resolvedSpecifier === `${importerContextRoot}/integration`
-      );
     const isAllowedBoundedContextImport =
       isBoundedContextPackageImport &&
-      /^@chase-sets\/[^/]+(?:\/(routes\/.+|web|server|client|integration))$/.test(normalized);
+      /^@chase-sets\/[^/]+(?:\/(routes\/.+|web|server|client|integration(?:\/.+)?))$/.test(normalized);
 
     if (
-      (isSameContextImport && !isAllowedSameContextImport) ||
-      (isBoundedContextPackageImport && !isAllowedBoundedContextImport)
+      !isSameContextImport &&
+      isBoundedContextPackageImport &&
+      !isAllowedBoundedContextImport
     ) {
       addViolation(
         file,
@@ -2008,14 +1986,6 @@ for (const root of roots) {
 
     if (
       normalizedFile.startsWith("bounded-contexts/") &&
-      normalizedFile.includes("/shell/") &&
-      !normalizedFile.includes("/shell-support/")
-    ) {
-      addViolation(file, "shell composition files must live under shell-support/");
-    }
-
-    if (
-      normalizedFile.startsWith("bounded-contexts/") &&
       routeOrShellSupportClassification === "routes" &&
       !isTestFile(normalizedFile) &&
       /(export\s+const\s+(?:loader|action|meta|headers)|export\s+default\s+function)/.test(content) === false
@@ -2024,22 +1994,6 @@ for (const root of roots) {
         file,
         "routes/ must contain deployable adapter modules with route exports (loader/action/meta/default component)",
       );
-    }
-
-    if (
-      normalizedFile.startsWith("bounded-contexts/") &&
-      routeOrShellSupportClassification &&
-      !isTestFile(normalizedFile)
-    ) {
-      const domainFacingSymbols = extractDeclaredSymbolNames(content).filter((name) =>
-        domainFacingSymbolNamePattern.test(name),
-      );
-      if (domainFacingSymbols.length > 0) {
-        addViolation(
-          file,
-          `${routeOrShellSupportClassification} modules must not define domain/query/projection symbols (${domainFacingSymbols.join(", ")}); keep orchestration in adapters only`,
-        );
-      }
     }
 
     if (

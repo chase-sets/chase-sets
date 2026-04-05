@@ -16,8 +16,8 @@ import { InventoryDomainError } from "../../common";
 import { createInventoryServices } from "../../services";
 import { module as inventoryModule } from "../..";
 
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
+const databaseUrl = process.env.DATABASE_URL;
+const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 const inventoryContext: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -65,7 +65,7 @@ async function countEvents(pool: PgTransactionalPool, prefix: string) {
   return Number(result.rows[0]?.count ?? 0);
 }
 
-describe("inventory api", () => {
+describeWithDatabase("inventory api", () => {
   let pool: PgTransactionalPool;
   let services: ReturnType<typeof createInventoryServices>;
   let app: Hono<InventoryApiEnv>;
@@ -429,7 +429,6 @@ describe("inventory api", () => {
     );
   }, 60000);
 });
-
 
 
 

@@ -12,7 +12,8 @@ import { rebuildDiscoverySearchIndex } from "../../items/search/projection";
 import { createDiscoveryServices } from "../../services";
 import { module as discoveryModule } from "../..";
 
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
+const databaseUrl = process.env.DATABASE_URL;
+const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -70,7 +71,7 @@ const itemSeed = {
   itemId: "cat_charizard",
 };
 
-describe("marketplace search", () => {
+describeWithDatabase("marketplace search", () => {
   beforeAll(async () => {
     pool = createPool(databaseUrl);
     catalogServices = catalogModule.createServices(pool, undefined);
@@ -462,4 +463,3 @@ describe("marketplace search", () => {
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });
-
