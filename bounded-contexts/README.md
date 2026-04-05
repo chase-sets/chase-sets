@@ -70,6 +70,25 @@ Prefer:
 - slice-local files when behavior belongs to one slice
 - purpose-specific names such as `route-support`, `request-support`, `projection-support`, `shell-support`, `seed-support`, `read-models`, `projections`, `persistence`, or `integration` when context-local code is reused across slices
 
+## Feature-Default Directory Plan
+
+Bounded contexts should read as **feature-first** by default.
+
+Top-level directory intent:
+
+- `slices` entries in `context.json` are the default and must be feature slices.
+- Any non-feature top-level directory is an explicit exception and must be listed in `allowedSupportDirectories`.
+- Support directories should be narrowly named and obvious at a glance.
+
+Naming standard for support directories:
+
+- Keep reusable technical helpers in `*-support` folders (for example `request-support`, `route-support`, `shell-support`, `seed-support`, `projection-support`).
+- `integration` is the only non-`*-support` exception for cross-context ports/adapters.
+- `tests` is the only non-`*-support` exception for acceptance or structure tests that span multiple slices.
+- Do not use ambiguous folders like `shell`, `helpers`, or `utils` at the bounded-context root.
+
+When structure shifts away from slice locality (for example shared route wiring or shell composition), encode the shift by creating or extending a purpose-specific `*-support` directory and declaring it in `allowedSupportDirectories`.
+
 ## Public Surface Rules
 
 Only a bounded context root `index.ts` may export `contextManifest`.
