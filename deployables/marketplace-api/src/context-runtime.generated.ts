@@ -10,8 +10,10 @@ import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from "@chase-sets/payments";
+import { module as pricingModule } from "@chase-sets/pricing";
 import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
+import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration/sellable-units";
 import { createInventoryReservationGateway } from "@chase-sets/inventory/integration/reservation-gateway";
 import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration/supply-resolver";
 import { createOrderSnapshotReader } from "@chase-sets/ordering/integration/order-snapshot-reader";
@@ -25,6 +27,7 @@ export type ContextRuntimeServices = Readonly<{
   marketplace: ReturnType<typeof marketplaceModule.createServices>;
   ordering: ReturnType<typeof orderingModule.createServices>;
   payments: ReturnType<typeof paymentsModule.createServices>;
+  pricing: ReturnType<typeof pricingModule.createServices>;
   reputation: ReturnType<typeof reputationModule.createServices>;
   settlement: ReturnType<typeof settlementModule.createServices>;
 }>;
@@ -46,6 +49,7 @@ export function createContextRuntime(
   marketplace: ReturnType<typeof marketplaceModule.createServices>;
   ordering: ReturnType<typeof orderingModule.createServices>;
   payments: ReturnType<typeof paymentsModule.createServices>;
+  pricing: ReturnType<typeof pricingModule.createServices>;
   reputation: ReturnType<typeof reputationModule.createServices>;
   settlement: ReturnType<typeof settlementModule.createServices>;
   };
@@ -64,6 +68,12 @@ export function createContextRuntime(
     processorGateway: hostPorts.processorGateway,
     getOrderSnapshot: createOrderSnapshotReader(services.ordering),
   });
+  services.pricing = pricingModule.createServices(pool, {
+    resolveCatalogSellableUnit: resolveSellableUnitDescriptor(services.catalog),
+    resolveMarketSupply: createMarketplaceSupplyResolver(services.marketplace),
+    reserveInventorySignal: createInventoryReservationGateway(services.inventory),
+    loadOrderSnapshot: createOrderSnapshotReader(services.ordering),
+  });
   services.reputation = reputationModule.createServices(pool, undefined);
   services.settlement = settlementModule.createServices(pool, undefined);
 
@@ -76,6 +86,7 @@ export function createContextRuntime(
     { module: marketplaceModule, services: services.marketplace },
     { module: orderingModule, services: services.ordering },
     { module: paymentsModule, services: services.payments },
+    { module: pricingModule, services: services.pricing },
     { module: reputationModule, services: services.reputation },
     { module: settlementModule, services: services.settlement },
   ] as const;
@@ -92,6 +103,7 @@ export function createContextRuntime(
     services.marketplace,
     services.ordering,
     services.payments,
+    services.pricing,
     services.reputation,
     services.settlement,
     ]),

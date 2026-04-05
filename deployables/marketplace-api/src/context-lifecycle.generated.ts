@@ -13,6 +13,7 @@ const lifecycleContextOrder = [
   "ordering",
   "payments",
   "fulfillment",
+  "pricing",
   "reputation",
   "settlement"
 ] as const;
