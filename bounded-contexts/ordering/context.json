@@ -36,8 +36,20 @@
   "integrationCapabilities": [
     {
       "key": "ordering.order-snapshot-reader",
-      "exportName": "createOrderSnapshotReader"
+      "exportName": "createOrderSnapshotReader",
+      "kind": "runtime-port"
+    },
+    {
+      "key": "ordering.buyer-gateway",
+      "exportName": "createOrderingBuyerGateway",
+      "kind": "request-gateway"
     }
+  ],
+  "seedRequirements": [
+    "catalog",
+    "identity",
+    "inventory",
+    "marketplace"
   ],
   "apiRequirements": [
     {

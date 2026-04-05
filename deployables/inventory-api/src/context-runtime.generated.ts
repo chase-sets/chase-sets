@@ -2,10 +2,14 @@
 
 import { collectProjectors } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
 
 
 export type ContextRuntimeServices = Readonly<{
+  catalog: ReturnType<typeof catalogModule.createServices>;
+  identity: ReturnType<typeof identityModule.createServices>;
   inventory: ReturnType<typeof inventoryModule.createServices>;
 }>;
 
@@ -16,12 +20,18 @@ export function createContextRuntime(
   hostPorts: ContextRuntimeHostPorts = {} as ContextRuntimeHostPorts,
 ) {
   const services = {} as Record<string, unknown> as {
+  catalog: ReturnType<typeof catalogModule.createServices>;
+  identity: ReturnType<typeof identityModule.createServices>;
   inventory: ReturnType<typeof inventoryModule.createServices>;
   };
 
+  services.catalog = catalogModule.createServices(pool, undefined);
+  services.identity = identityModule.createServices(pool, undefined);
   services.inventory = inventoryModule.createServices(pool, undefined);
 
   const mountedModules = [
+    { module: catalogModule, services: services.catalog },
+    { module: identityModule, services: services.identity },
     { module: inventoryModule, services: services.inventory },
   ] as const;
 
@@ -29,6 +39,8 @@ export function createContextRuntime(
     mountedModules,
     services: services as ContextRuntimeServices,
     projectors: collectProjectors([
+    services.catalog,
+    services.identity,
     services.inventory,
     ]),
   };

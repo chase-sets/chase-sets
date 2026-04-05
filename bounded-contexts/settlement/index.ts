@@ -1,14 +1,6 @@
-export { SettlementDomainError } from "./common";
 export { default as contextManifest } from "./context.json";
-export { buildSettlementApi } from "./api";
-export type { SettlementApiEnv } from "./api";
-export { createSettlementServices } from "./services";
-export type { SettlementServices } from "./services";
-export { settlementSchemaSql } from "./schema";
-export { seedSettlementDatabase } from "./seed";
 
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
-import { resolveContextApiMounts } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { SettlementServices } from "./services";
@@ -22,14 +14,9 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, void> 
   routePrefix: "/api/settlement",
   streamPrefix: "settlement.",
   schemaSql: settlementSchemaSql,
+  apiMounts: contextManifest.apiMounts as BcApiModule<SettlementServices, PgTransactionalPool, void>["apiMounts"],
   createServices: (pool) => createSettlementServices(pool),
-  buildApi: buildSettlementApi,
+  buildApis: (services) => [buildSettlementApi(services)],
   projectors: (services) => services.projectors,
   seed: seedSettlementDatabase,
 };
-
-export function resolveApiMounts(services: SettlementServices) {
-  return resolveContextApiMounts(contextManifest.contextName, contextManifest.apiMounts, [
-    buildSettlementApi(services),
-  ]);
-}

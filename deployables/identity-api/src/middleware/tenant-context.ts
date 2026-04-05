@@ -9,12 +9,14 @@ import type {
   UserId,
 } from "@chase-sets/primitives/typed-ids";
 import {
-  createAuthBootstrapContext,
-  resolveActorFromRequest,
   type ResolvedActor,
-} from "@chase-sets/auth";
+} from "@chase-sets/auth/server";
 import { createActorEventStoreContext } from "@chase-sets/auth-runtime";
 import type { IdentityApiHostServices } from "../app";
+import {
+  createAuthBootstrapContext,
+  resolveActorFromRequest,
+} from "../auth-request-context";
 
 const TENANT_HEADER = "x-tenant-id";
 const USER_HEADER = "x-user-id";

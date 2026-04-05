@@ -25,7 +25,7 @@ import {
   PaymentsApiError,
   type PaymentsPaymentDetail,
 } from "../../client";
-import { createPaymentsRequestApiClient } from "../../server";
+import { createPaymentsRequestApiClient } from "../../request-api-client";
 
 type StripePaymentElement = {
   mount(target: HTMLElement | string): void;

@@ -7,6 +7,12 @@ import {
   resolveDeployableApiMountPath,
 } from "./deployable-api-mount-support.mjs";
 import {
+  buildLifecycleFileContent,
+  deployableLifecycleConfig,
+  lifecycleGeneratedComment,
+  resolveDeployableLifecyclePath,
+} from "./deployable-lifecycle-support.mjs";
+import {
   buildRuntimeFileContent,
   deployableRuntimeConfig,
   resolveDeployableRuntimePath,
@@ -62,6 +68,7 @@ const manifestRequiredFields = [
   "allowedContextDependencies",
   "requiredPorts",
   "integrationCapabilities",
+  "seedRequirements",
   "apiRequirements",
   "hostPorts",
   "apiDeployables",
@@ -71,12 +78,14 @@ const manifestRequiredFields = [
 ];
 const knownDeployables = new Set(Object.keys(deployableRouteConfig));
 const knownApiDeployables = new Set(Object.keys(deployableApiMountConfig));
+const knownLifecycleDeployables = new Set(Object.keys(deployableLifecycleConfig));
 const knownRuntimeDeployables = new Set(Object.keys(deployableRuntimeConfig));
 const knownShellDeployables = new Set(Object.keys(deployableShellConfig));
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|integration|seed-support(?:\/[^"']+)?)["']/;
+const placeholderIntegrationPattern = /\b(?:[A-Z][A-Za-z0-9]*IntegrationSurface|[a-z][A-Za-z0-9]*IntegrationSurface|[a-z][A-Za-z0-9]*ContextBoundary|[A-Z][A-Za-z0-9]*ContextBoundary)\b/;
 const violations = [];
 
 function normalizeRelative(filePath) {
@@ -124,6 +133,38 @@ function extractImportSpecifiers(content) {
   }
 
   return specifiers;
+}
+
+function extractExportedValueNames(content) {
+  const names = new Set();
+
+  for (const match of content.matchAll(/export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/g)) {
+    names.add(match[1]);
+  }
+
+  for (const match of content.matchAll(/export\s+(?:const|let|var|class)\s+([A-Za-z0-9_]+)/g)) {
+    names.add(match[1]);
+  }
+
+  for (const match of content.matchAll(/export\s*\{([^}]+)\}/g)) {
+    const entries = match[1]
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    for (const entry of entries) {
+      if (entry.startsWith("type ")) {
+        continue;
+      }
+
+      const aliasMatch = entry.match(/(?:[A-Za-z0-9_]+\s+as\s+)?([A-Za-z0-9_]+)/);
+      if (aliasMatch?.[1]) {
+        names.add(aliasMatch[1]);
+      }
+    }
+  }
+
+  return names;
 }
 
 function isStringArray(value) {
@@ -276,6 +317,10 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "integrationCapabilities must be an array");
     }
 
+    if (!isStringArray(manifest.seedRequirements)) {
+      addPathViolation(`${relativeRoot}/context.json`, "seedRequirements must be an array of context names");
+    }
+
     if (!Array.isArray(manifest.apiRequirements)) {
       addPathViolation(`${relativeRoot}/context.json`, "apiRequirements must be an array");
     }
@@ -349,15 +394,19 @@ function isAllowedDeployableBoundedContextImport(relativeFile, specifier) {
     return /^@chase-sets\/[^/]+(?:\/integration)?$/.test(specifier);
   }
 
+  if (/deployables\/[^/]+\/src\/context-api-mounts\.generated\.ts$/.test(relativeFile)) {
+    return /^@chase-sets\/[^/]+$/.test(specifier);
+  }
+
   if (isWebDeployableFile(relativeFile) && !isTestFile(relativeFile)) {
     return /^@chase-sets\/[^/]+\/(web|server|routes\/.+)$/.test(specifier);
   }
 
   if (isApiDeployableFile(relativeFile) && !isTestFile(relativeFile)) {
-    return /^@chase-sets\/[^/]+$/.test(specifier);
+    return /^@chase-sets\/[^/]+(?:\/server)?$/.test(specifier);
   }
 
-  return /^@chase-sets\/[^/]+(?:\/(web|client|server|integration|routes\/.+))?$/.test(specifier);
+  return /^@chase-sets\/[^/]+(?:\/(web|server|integration|routes\/.+))?$/.test(specifier);
 }
 
 function isAllowedContextImporter(relativeFile) {
@@ -468,6 +517,14 @@ async function validateContextManifest(context) {
     addPathViolation(`${root}/context.json`, "contexts with route contributions must export ./routes/* publicly");
   }
 
+  if ((manifest.integrationCapabilities?.length ?? 0) > 0 && !(manifest.publicExports ?? []).includes("./integration")) {
+    addPathViolation(`${root}/context.json`, "contexts with integration capabilities must export ./integration publicly");
+  }
+
+  if ((manifest.publicExports ?? []).includes("./integration") && (manifest.integrationCapabilities?.length ?? 0) === 0) {
+    addPathViolation(`${root}/context.json`, "contexts must not export ./integration without declared integration capabilities");
+  }
+
   const routesByDeployable = new Map(
     (manifest.deployableContributions ?? []).map((contribution) => [
       contribution.deployable,
@@ -543,6 +600,34 @@ async function validateContextManifest(context) {
     }
   }
 
+  for (const seedRequirement of manifest.seedRequirements ?? []) {
+    if (typeof seedRequirement !== "string" || seedRequirement.length === 0) {
+      addPathViolation(`${root}/context.json`, `seedRequirements must contain bounded context names (${seedRequirement})`);
+    }
+  }
+
+  for (const dependency of Object.keys(packageJson.dependencies ?? {})) {
+    const dependencyContext = [...contextManifests.values()].find(
+      (candidate) => candidate.packageName === dependency,
+    );
+
+    if (!dependencyContext || dependency === manifest.packageName) {
+      continue;
+    }
+
+    const dependencyContextName = dependencyContext.manifest.contextName;
+    const isAllowedDependency =
+      (manifest.allowedContextDependencies ?? []).includes(dependency) ||
+      (manifest.seedRequirements ?? []).includes(dependencyContextName);
+
+    if (!isAllowedDependency) {
+      addPathViolation(
+        `${root}/package.json`,
+        `bounded-context dependency ${dependency} must be declared through allowedContextDependencies or seedRequirements`,
+      );
+    }
+  }
+
   for (const deployable of manifest.apiDeployables ?? []) {
     if (!knownApiDeployables.has(deployable)) {
       addPathViolation(`${root}/context.json`, `apiDeployables must be one of ${[...knownApiDeployables].join(", ")}`);
@@ -569,6 +654,13 @@ async function validateContextManifest(context) {
 
     if (typeof capability.exportName !== "string" || capability.exportName.length === 0) {
       addPathViolation(capabilityLabel, "exportName must be a non-empty string");
+    }
+
+    if (
+      capability.kind !== "runtime-port" &&
+      capability.kind !== "request-gateway"
+    ) {
+      addPathViolation(capabilityLabel, "kind must be 'runtime-port' or 'request-gateway'");
     }
   }
 
@@ -723,6 +815,7 @@ async function validateDeployableRuntimeOwnership(contexts) {
         deployable,
         packageName: context.packageName,
         integrationCapabilities: context.manifest.integrationCapabilities ?? [],
+        seedRequirements: context.manifest.seedRequirements ?? [],
         apiRequirements: context.manifest.apiRequirements ?? [],
         hostPorts: context.manifest.hostPorts ?? [],
       });
@@ -730,13 +823,16 @@ async function validateDeployableRuntimeOwnership(contexts) {
 
     for (const capability of context.manifest.integrationCapabilities ?? []) {
       const existingProvider = capabilityProviders.get(capability.key);
-      if (existingProvider && existingProvider !== context.manifest.contextName) {
+      if (existingProvider && existingProvider.contextName !== context.manifest.contextName) {
         addPathViolation(
           `${context.root}/context.json`,
-          `integration capability ${capability.key} is already provided by ${existingProvider}`,
+          `integration capability ${capability.key} is already provided by ${existingProvider.contextName}`,
         );
       }
-      capabilityProviders.set(capability.key, context.manifest.contextName);
+      capabilityProviders.set(capability.key, {
+        contextName: context.manifest.contextName,
+        kind: capability.kind,
+      });
     }
   }
 
@@ -754,8 +850,15 @@ async function validateDeployableRuntimeOwnership(contexts) {
         continue;
       }
 
+      if (provider.kind !== "runtime-port") {
+        addPathViolation(
+          `${context.root}/context.json`,
+          `apiRequirements capability ${requirement.capabilityKey} must be provided by a runtime-port capability`,
+        );
+      }
+
       const providerContext = [...contexts.values()].find(
-        (candidate) => candidate.manifest.contextName === provider,
+        (candidate) => candidate.manifest.contextName === provider.contextName,
       );
       if (!providerContext) {
         continue;
@@ -852,6 +955,75 @@ async function validateDeployableShellOwnership(contexts) {
     const expectedInventory = buildShellFileContent(deployable, contributions);
     if (actualInventory !== expectedInventory) {
       addViolation(inventoryPath, "generated shell inventory is out of date");
+    }
+  }
+}
+
+async function validateDeployableLifecycleOwnership(contexts) {
+  const contextsByDeployable = new Map(
+    Object.keys(deployableLifecycleConfig).map((deployable) => [deployable, []]),
+  );
+
+  for (const context of contexts.values()) {
+    const runtimeDeployables = context.manifest.runtimeDeployables ?? context.manifest.apiDeployables ?? [];
+    for (const deployable of runtimeDeployables) {
+      contextsByDeployable.get(deployable)?.push({
+        contextName: context.manifest.contextName,
+        deployable,
+        seedRequirements: context.manifest.seedRequirements ?? [],
+      });
+    }
+  }
+
+  for (const context of contexts.values()) {
+    const contextDeployables = new Set(
+      context.manifest.runtimeDeployables ?? context.manifest.apiDeployables ?? [],
+    );
+
+    for (const requirement of context.manifest.seedRequirements ?? []) {
+      const providerContext = [...contexts.values()].find(
+        (candidate) => candidate.manifest.contextName === requirement,
+      );
+
+      if (!providerContext) {
+        addPathViolation(
+          `${context.root}/context.json`,
+          `seedRequirements references unknown context ${requirement}`,
+        );
+        continue;
+      }
+
+      const providerDeployables = new Set(
+        providerContext.manifest.runtimeDeployables ?? providerContext.manifest.apiDeployables ?? [],
+      );
+      const sharesDeployable = [...contextDeployables].some((deployable) =>
+        providerDeployables.has(deployable),
+      );
+
+      if (!sharesDeployable) {
+        addPathViolation(
+          `${context.root}/context.json`,
+          `seedRequirements context ${requirement} must be mounted in the same API deployable`,
+        );
+      }
+    }
+  }
+
+  for (const [deployable, unsortedContexts] of contextsByDeployable.entries()) {
+    const contextsForDeployable = [...unsortedContexts].sort((left, right) =>
+      left.contextName.localeCompare(right.contextName),
+    );
+    const lifecyclePath = resolveDeployableLifecyclePath(repoRoot, deployable);
+
+    if (!existsSync(lifecyclePath)) {
+      addViolation(lifecyclePath, "generated lifecycle inventory is missing");
+      continue;
+    }
+
+    const actualLifecycle = await readFile(lifecyclePath, "utf8");
+    const expectedLifecycle = buildLifecycleFileContent(contextsForDeployable);
+    if (actualLifecycle !== expectedLifecycle) {
+      addViolation(lifecyclePath, "generated lifecycle inventory is out of date");
     }
   }
 }
@@ -1134,6 +1306,7 @@ for (const context of contextManifests.values()) {
 await validateDeployableRouteOwnership(contextManifests);
 await validateDeployableApiMountOwnership(contextManifests);
 await validateDeployableRuntimeOwnership(contextManifests);
+await validateDeployableLifecycleOwnership(contextManifests);
 await validateDeployableShellOwnership(contextManifests);
 
 const topLevelEntries = await readdir(repoRoot, { withFileTypes: true });
@@ -1194,11 +1367,24 @@ for (const root of roots) {
     const content = await readFile(file, "utf8");
 
     if (
-      normalizedFile.startsWith("bounded-contexts/") &&
-      path.basename(file) === "index.ts" &&
+      /^bounded-contexts\/[^/]+\/index\.ts$/.test(normalizedFile) &&
       forbiddenRootSurfaceReexports.test(content)
     ) {
       addViolation(file, "context root entrypoints must not re-export secondary public surfaces");
+    }
+
+    if (/^bounded-contexts\/[^/]+\/index\.ts$/.test(normalizedFile)) {
+      const exportStatements = [...content.matchAll(/^\s*export\b.*$/gm)].map((match) =>
+        match[0].trim(),
+      );
+      const invalidExports = exportStatements.filter((statement) =>
+        statement !== 'export { default as contextManifest } from "./context.json";' &&
+        !statement.startsWith("export const module"),
+      );
+
+      if (invalidExports.length > 0) {
+        addViolation(file, "context root entrypoints must export only contextManifest and module");
+      }
     }
 
     if (
@@ -1215,6 +1401,35 @@ for (const root of roots) {
       /\bcreate[A-Z][A-Za-z0-9]*RequestIntegrationClient\b/.test(content)
     ) {
       addViolation(file, "integration surfaces must not export request-scoped integration clients");
+    }
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      path.basename(file) === "integration.ts" &&
+      placeholderIntegrationPattern.test(content)
+    ) {
+      addViolation(file, "integration surfaces must not export placeholder integration markers");
+    }
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      path.basename(file) === "integration.ts"
+    ) {
+      const contextRoot = getContextRoot(normalizedFile);
+      const context = contextRoot ? contextManifests.get(contextRoot) : null;
+      const exportedValueNames = extractExportedValueNames(content);
+      const declaredCapabilityNames = new Set(
+        (context?.manifest.integrationCapabilities ?? []).map((capability) => capability.exportName),
+      );
+
+      for (const declaredName of declaredCapabilityNames) {
+        if (!exportedValueNames.has(declaredName)) {
+          addViolation(
+            file,
+            `integration surface must export declared capability ${declaredName}`,
+          );
+        }
+      }
     }
 
     if (
@@ -1283,9 +1498,25 @@ for (const root of roots) {
 
     if (
       normalizedFile.startsWith("deployables/") &&
+      /\/src\/bootstrap\.ts$/.test(normalizedFile) &&
+      isApiDeployableFile(normalizedFile) &&
+      !content.includes("context-lifecycle.generated")
+    ) {
+      addViolation(file, "API deployable bootstraps must consume generated lifecycle inventories");
+    }
+
+    if (
+      normalizedFile.startsWith("deployables/") &&
       /\/src\/stack\.ts$/.test(normalizedFile)
     ) {
       addViolation(file, "API deployables must not keep hand-written stack composition modules");
+    }
+
+    if (
+      normalizedFile.startsWith("deployables/") &&
+      /\/src\/seed-stack\.ts$/.test(normalizedFile)
+    ) {
+      addViolation(file, "API deployables must not keep hand-written seed stack composition modules");
     }
 
     if (
@@ -1300,6 +1531,14 @@ for (const root of roots) {
 
     if (normalizedFile.startsWith("contracts/") && /\bprocess\.env\b/.test(content)) {
       addViolation(file, "contracts must not read environment variables");
+    }
+
+    if (
+      normalizedFile.startsWith("deployables/") &&
+      isTestFile(normalizedFile) &&
+      /@chase-sets\/[^/]+\/client/.test(content)
+    ) {
+      addViolation(file, "deployable tests must not depend on bounded-context client surfaces");
     }
 
     for (const specifier of extractImportSpecifiers(content)) {

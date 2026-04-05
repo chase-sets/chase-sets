@@ -1,8 +1,52 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import type { OrderingOrderDetail } from "@chase-sets/ordering/client";
-import type { PaymentsPaymentDetail } from "@chase-sets/payments/client";
+
+type OrderingOrderDetail = Readonly<{
+  order_id: string;
+  source_type: string;
+  source_reference_id: string | null;
+  buyer_account_id: string;
+  buyer_display_name: string;
+  seller_account_id: string;
+  seller_display_name: string;
+  shipping_option: string;
+  item_subtotal_amount: string;
+  shipping_base_amount: string;
+  shipping_discount_amount: string;
+  shipping_charge_amount: string;
+  total_amount: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  cancelled_at: string | null;
+  ready_for_fulfillment_at: string | null;
+  line_count: number;
+  total_quantity: number;
+  lines: readonly unknown[];
+  inventory_holds: readonly unknown[];
+}>;
+
+type PaymentsPaymentDetail = Readonly<{
+  payment_id: string;
+  buyer_account_id: string;
+  order_ids: readonly string[];
+  amount: string;
+  currency_code: string;
+  processor_name: string;
+  processor_payment_reference: string;
+  processor_client_secret: string | null;
+  processor_status: string;
+  status: string;
+  failure_code: string | null;
+  failure_message: string | null;
+  created_at: string;
+  updated_at: string;
+  captured_at: string | null;
+  failed_at: string | null;
+  cancelled_at: string | null;
+  processor_publishable_key: string | null;
+}>;
 
 const { mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),

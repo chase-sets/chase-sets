@@ -1,22 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 import { Hono } from "hono";
-import {
-  buildDiscoveryApi,
-  createDiscoveryServices,
-  discoverySchemaSql,
-  rebuildDiscoverySearchIndex,
-} from "../..";
-import {
-  createCatalogServices,
-  catalogAuthoringSchemaSql,
-  type CatalogServices,
-} from "@chase-sets/catalog";
+import { module as catalogModule } from "@chase-sets/catalog";
 import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { buildDiscoveryApi } from "../../api";
+import { rebuildDiscoverySearchIndex } from "../../items/search/projection";
+import { createDiscoveryServices } from "../../services";
+import { module as discoveryModule } from "../..";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
 
@@ -29,20 +23,20 @@ const context: EventStoreContext = {
 };
 
 let pool: PgTransactionalPool;
-let catalogServices: CatalogServices;
+let catalogServices: ReturnType<typeof catalogModule.createServices>;
 let discoveryServices: ReturnType<typeof createDiscoveryServices>;
 let app: Hono;
 
 function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
 async function recreateSchema() {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
   await pool.query(
     composeSchemaSql([
-      { schemaSql: catalogAuthoringSchemaSql },
-      { schemaSql: discoverySchemaSql },
+      catalogModule,
+      discoveryModule,
     ]),
   );
 }
@@ -79,7 +73,7 @@ const itemSeed = {
 describe("marketplace search", () => {
   beforeAll(async () => {
     pool = createPool(databaseUrl);
-    catalogServices = createCatalogServices(pool);
+    catalogServices = catalogModule.createServices(pool, undefined);
     discoveryServices = createDiscoveryServices(pool);
     app = new Hono();
     app.route("/api/marketplace", buildDiscoveryApi(discoveryServices));

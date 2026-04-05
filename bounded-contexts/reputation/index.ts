@@ -1,14 +1,6 @@
-export { ReputationDomainError } from "./common";
 export { default as contextManifest } from "./context.json";
-export { buildReputationApi } from "./api";
-export type { ReputationApiEnv } from "./api";
-export { createReputationServices } from "./services";
-export type { ReputationServices } from "./services";
-export { reputationSchemaSql } from "./schema";
-export { seedReputationDatabase } from "./seed";
 
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
-import { resolveContextApiMounts } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { ReputationServices } from "./services";
@@ -22,14 +14,9 @@ export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> 
   routePrefix: "/api/marketplace",
   streamPrefix: "reputation.",
   schemaSql: reputationSchemaSql,
+  apiMounts: contextManifest.apiMounts as BcApiModule<ReputationServices, PgTransactionalPool, void>["apiMounts"],
   createServices: (pool) => createReputationServices(pool),
-  buildApi: buildReputationApi,
+  buildApis: (services) => [buildReputationApi(services)],
   projectors: (services) => services.projectors,
   seed: seedReputationDatabase,
 };
-
-export function resolveApiMounts(services: ReputationServices) {
-  return resolveContextApiMounts(contextManifest.contextName, contextManifest.apiMounts, [
-    buildReputationApi(services),
-  ]);
-}

@@ -1,12 +1,6 @@
 export { default as contextManifest } from "./context.json";
-export { buildDiscoveryApi } from "./api";
-export { createDiscoveryServices } from "./services";
-export type { DiscoveryServices } from "./services";
-export { discoverySchemaSql } from "./schema";
-export { rebuildDiscoverySearchIndex } from "./items/search/projection";
 
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
-import { resolveContextApiMounts } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { DiscoveryServices } from "./services";
@@ -19,13 +13,8 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, void> =
   routePrefix: "/api/marketplace",
   streamPrefix: "discovery.",
   schemaSql: discoverySchemaSql,
+  apiMounts: contextManifest.apiMounts as BcApiModule<DiscoveryServices, PgTransactionalPool, void>["apiMounts"],
   createServices: (pool) => createDiscoveryServices(pool),
-  buildApi: buildDiscoveryApi,
+  buildApis: (services) => [buildDiscoveryApi(services)],
   projectors: (services) => services.projectors,
 };
-
-export function resolveApiMounts(services: DiscoveryServices) {
-  return resolveContextApiMounts(contextManifest.contextName, contextManifest.apiMounts, [
-    buildDiscoveryApi(services),
-  ]);
-}

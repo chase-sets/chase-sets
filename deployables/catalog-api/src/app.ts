@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { type CatalogServices } from "@chase-sets/catalog";
+import { module as catalogModule } from "@chase-sets/catalog";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
@@ -20,7 +20,7 @@ export type BuildCatalogAppOptions = Readonly<{
 }>;
 
 export function buildCatalogApp(
-  services: CatalogServices,
+  services: ReturnType<typeof catalogModule.createServices>,
   options: BuildCatalogAppOptions = {},
 ) {
   const app = new Hono<TenantContextEnv>();

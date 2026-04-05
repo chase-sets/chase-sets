@@ -2,13 +2,13 @@ import { serve } from "@hono/node-server";
 import { resolveActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import {
-  createFakePaymentProcessorGateway,
-  createStripePaymentProcessorGateway,
-} from "@chase-sets/payments";
 import { loadConfig } from "./config";
 import { buildMarketplaceApp } from "./app";
 import { createContextRuntime } from "./context-runtime.generated";
+import {
+  createFakePaymentProcessorGateway,
+  createStripePaymentProcessorGateway,
+} from "./payment-processor";
 
 const config = loadConfig();
 const pool = createPgPool(config.databaseUrl);

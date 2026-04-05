@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   updated_at timestamptz NOT NULL,
   captured_at timestamptz NULL,
   failed_at timestamptz NULL,
-  cancelled_at timestamptz NULL
+  cancelled_at timestamptz NULL,
+  last_stream_version bigint NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS payments_payment_pages_buyer_idx

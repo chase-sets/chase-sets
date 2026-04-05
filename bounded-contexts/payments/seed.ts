@@ -8,11 +8,9 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";
 import type { RefundId } from "./common";
 import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
-import {
-  createMarketplaceServices,
-} from "@chase-sets/marketplace";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
-import { createOrderingServices } from "@chase-sets/ordering";
+import { module as orderingModule } from "@chase-sets/ordering";
 
 type OrderRow = Readonly<{
   order_id: string;
@@ -119,8 +117,8 @@ async function getPaymentPage(
 }
 
 export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
-  const marketplace = createMarketplaceServices(pool);
-  const ordering = createOrderingServices(pool, {
+  const marketplace = marketplaceModule.createServices(pool, undefined);
+  const ordering = orderingModule.createServices(pool, {
     supplyResolver: createMarketplaceSupplyResolver(marketplace),
   });
   const processorGateway = createFakePaymentProcessorGateway();

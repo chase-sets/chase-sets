@@ -34,8 +34,18 @@
   "integrationCapabilities": [
     {
       "key": "inventory.reservation-gateway",
-      "exportName": "createInventoryReservationGateway"
+      "exportName": "createInventoryReservationGateway",
+      "kind": "runtime-port"
+    },
+    {
+      "key": "inventory.record-lookup",
+      "exportName": "createInventoryRecordLookupPort",
+      "kind": "request-gateway"
     }
+  ],
+  "seedRequirements": [
+    "catalog",
+    "identity"
   ],
   "apiRequirements": [],
   "hostPorts": [],

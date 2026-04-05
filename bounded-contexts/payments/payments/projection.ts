@@ -37,9 +37,10 @@ export function buildPaymentProjectionHandlers(
            updated_at,
            captured_at,
            failed_at,
-           cancelled_at
+           cancelled_at,
+           last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending-confirmation', NULL, NULL, $10, $10, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending-confirmation', NULL, NULL, $10, $10, NULL, NULL, NULL, $11
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -51,7 +52,9 @@ export function buildPaymentProjectionHandlers(
              processor_client_secret = EXCLUDED.processor_client_secret,
              processor_status = EXCLUDED.processor_status,
              status = EXCLUDED.status,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at,
+             last_stream_version = EXCLUDED.last_stream_version
+         WHERE payments_payment_pages.last_stream_version < EXCLUDED.last_stream_version`,
         [
           data.paymentId,
           data.buyerAccountId,
@@ -63,6 +66,7 @@ export function buildPaymentProjectionHandlers(
           data.processorClientSecret,
           data.processorStatus,
           data.createdAt,
+          event.streamVersion,
         ],
       );
     },
@@ -76,9 +80,11 @@ export function buildPaymentProjectionHandlers(
       await db.query(
         `UPDATE payments_payment_pages
          SET processor_status = $2,
-             updated_at = $3
-         WHERE payment_id = $1`,
-        [data.paymentId, data.processorStatus, data.authorizedAt],
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE payment_id = $1
+           AND last_stream_version < $4`,
+        [data.paymentId, data.processorStatus, data.authorizedAt, event.streamVersion],
       );
     },
     "payments.payment-captured": async (event) => {
@@ -95,9 +101,11 @@ export function buildPaymentProjectionHandlers(
              failure_code = NULL,
              failure_message = NULL,
              captured_at = $3,
-             updated_at = $3
-         WHERE payment_id = $1`,
-        [data.paymentId, data.processorStatus, data.capturedAt],
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE payment_id = $1
+           AND last_stream_version < $4`,
+        [data.paymentId, data.processorStatus, data.capturedAt, event.streamVersion],
       );
     },
     "payments.payment-failed": async (event) => {
@@ -116,14 +124,17 @@ export function buildPaymentProjectionHandlers(
              failure_code = $3,
              failure_message = $4,
              failed_at = $5,
-             updated_at = $5
-         WHERE payment_id = $1`,
+             updated_at = $5,
+             last_stream_version = $6
+         WHERE payment_id = $1
+           AND last_stream_version < $6`,
         [
           data.paymentId,
           data.processorStatus,
           data.failureCode,
           data.failureMessage,
           data.failedAt,
+          event.streamVersion,
         ],
       );
     },
@@ -137,9 +148,11 @@ export function buildPaymentProjectionHandlers(
         `UPDATE payments_payment_pages
          SET status = 'cancelled',
              cancelled_at = $2,
-             updated_at = $2
-         WHERE payment_id = $1`,
-        [data.paymentId, data.cancelledAt],
+             updated_at = $2,
+             last_stream_version = $3
+         WHERE payment_id = $1
+           AND last_stream_version < $3`,
+        [data.paymentId, data.cancelledAt, event.streamVersion],
       );
     },
   };

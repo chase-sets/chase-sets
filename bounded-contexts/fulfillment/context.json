@@ -16,7 +16,6 @@
   "publicExports": [
     ".",
     "./client",
-    "./integration",
     "./routes/*",
     "./seed-support/*",
     "./server",
@@ -25,6 +24,11 @@
   "allowedContextDependencies": [],
   "requiredPorts": [],
   "integrationCapabilities": [],
+  "seedRequirements": [
+    "identity",
+    "payments",
+    "ordering"
+  ],
   "apiRequirements": [],
   "hostPorts": [],
   "apiDeployables": [

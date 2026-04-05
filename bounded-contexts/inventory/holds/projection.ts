@@ -27,9 +27,10 @@ export function buildInventoryHoldProjectionHandlers(
            status,
            created_at,
            updated_at,
-           released_at
+           released_at,
+           last_stream_version
          )
-         VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7, NULL)
+         VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7, NULL, $8)
          ON CONFLICT (hold_id) DO UPDATE
          SET account_id = $2,
              record_id = $3,
@@ -38,8 +39,19 @@ export function buildInventoryHoldProjectionHandlers(
              notes = $6,
              status = 'active',
              updated_at = $7,
-             released_at = NULL`,
-        [holdId, accountId, recordId, quantity, reason, notes, event.timing.recordedAt],
+             released_at = NULL,
+             last_stream_version = $8
+         WHERE inventory_holds.last_stream_version < $8`,
+        [
+          holdId,
+          accountId,
+          recordId,
+          quantity,
+          reason,
+          notes,
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
       );
     },
     "inventory.hold.released": async (event) => {
@@ -52,9 +64,11 @@ export function buildInventoryHoldProjectionHandlers(
         `UPDATE inventory_holds
          SET status = 'released',
              updated_at = $2,
-             released_at = $3
-         WHERE hold_id = $1`,
-        [holdId, event.timing.recordedAt, releasedAt],
+             released_at = $3,
+             last_stream_version = $4
+         WHERE hold_id = $1
+           AND last_stream_version < $4`,
+        [holdId, event.timing.recordedAt, releasedAt, event.streamVersion],
       );
     },
   };

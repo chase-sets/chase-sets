@@ -9,8 +9,8 @@ import {
 } from "@chase-sets/catalog/integration";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import { createInventoryServices } from "@chase-sets/inventory";
-import { createMarketplaceServices } from "@chase-sets/marketplace";
+import { module as inventoryModule } from "@chase-sets/inventory";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createOrderingServices } from "./services";
@@ -124,7 +124,7 @@ async function countOrderingEvents(db: PgQueryable) {
 
 async function addCartLines(
   services: ReturnType<typeof createOrderingServices>,
-  inventory: ReturnType<typeof createInventoryServices>,
+  inventory: ReturnType<typeof inventoryModule.createServices>,
   buyerAccountId: AccountId,
   lines: typeof checkoutCartLines | typeof cancelledCartLines | typeof activeCartLines,
   context: ReturnType<typeof createSeedContext>,
@@ -175,8 +175,8 @@ async function getOfferAcceptanceOrderId(db: PgQueryable, offerId: string) {
 }
 
 export async function seedOrderingDatabase(pool: PgTransactionalPool) {
-  const inventory = createInventoryServices(pool);
-  const marketplace = createMarketplaceServices(pool);
+  const inventory = inventoryModule.createServices(pool, undefined);
+  const marketplace = marketplaceModule.createServices(pool, undefined);
   const ordering = createOrderingServices(pool, {
     supplyResolver: createMarketplaceSupplyResolver(marketplace),
     inventoryReservations: {

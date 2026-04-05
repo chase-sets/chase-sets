@@ -1,11 +1,11 @@
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import { seedIdentityDatabase } from "@chase-sets/identity";
+import { module as identityModule } from "@chase-sets/identity";
 import { loadConfig } from "./config";
 
 const config = loadConfig();
 const pool = createPgPool(config.databaseUrl);
 
-seedIdentityDatabase(pool)
+identityModule.seed?.(pool)
   .then(() => {
     console.log("Identity seeded.");
     return (pool as unknown as { end: () => Promise<void> }).end();

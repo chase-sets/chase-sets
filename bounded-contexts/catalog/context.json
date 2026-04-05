@@ -31,7 +31,14 @@
   ],
   "allowedContextDependencies": [],
   "requiredPorts": [],
-  "integrationCapabilities": [],
+  "integrationCapabilities": [
+    {
+      "key": "catalog.sellable-unit-descriptor",
+      "exportName": "resolveSellableUnitDescriptor",
+      "kind": "runtime-port"
+    }
+  ],
+  "seedRequirements": [],
   "apiRequirements": [],
   "hostPorts": [],
   "apiDeployables": [
@@ -39,6 +46,7 @@
   ],
   "runtimeDeployables": [
     "catalog-api",
+    "inventory-api",
     "marketplace-api"
   ],
   "apiMounts": [

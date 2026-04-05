@@ -30,9 +30,10 @@ export function buildPayoutProjectionHandlers(
            sent_at,
            completed_at,
            failed_at,
-           failure_reason
+           failure_reason,
+           last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, 'scheduled', $7, $7, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, 'scheduled', $7, $7, NULL, NULL, NULL, NULL, $8
          )
          ON CONFLICT (payout_id) DO UPDATE
          SET account_id = EXCLUDED.account_id,
@@ -42,7 +43,9 @@ export function buildPayoutProjectionHandlers(
              note = EXCLUDED.note,
              status = EXCLUDED.status,
              scheduled_at = EXCLUDED.scheduled_at,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at,
+             last_stream_version = EXCLUDED.last_stream_version
+         WHERE settlement_payout_pages.last_stream_version < EXCLUDED.last_stream_version`,
         [
           data.payoutId,
           data.accountId,
@@ -51,6 +54,7 @@ export function buildPayoutProjectionHandlers(
           data.destinationReference,
           data.note,
           data.scheduledAt,
+          event.streamVersion,
         ],
       );
     },
@@ -64,9 +68,11 @@ export function buildPayoutProjectionHandlers(
         `UPDATE settlement_payout_pages
          SET status = 'in-transit',
              sent_at = $2,
-             updated_at = $2
-         WHERE payout_id = $1`,
-        [data.payoutId, data.sentAt],
+             updated_at = $2,
+             last_stream_version = $3
+         WHERE payout_id = $1
+           AND last_stream_version < $3`,
+        [data.payoutId, data.sentAt, event.streamVersion],
       );
     },
     "settlement.payout.completed": async (event) => {
@@ -81,9 +87,11 @@ export function buildPayoutProjectionHandlers(
              completed_at = $2,
              updated_at = $2,
              failed_at = NULL,
-             failure_reason = NULL
-         WHERE payout_id = $1`,
-        [data.payoutId, data.completedAt],
+             failure_reason = NULL,
+             last_stream_version = $3
+         WHERE payout_id = $1
+           AND last_stream_version < $3`,
+        [data.payoutId, data.completedAt, event.streamVersion],
       );
     },
     "settlement.payout.failed": async (event) => {
@@ -98,9 +106,11 @@ export function buildPayoutProjectionHandlers(
          SET status = 'failed',
              failed_at = $2,
              failure_reason = $3,
-             updated_at = $2
-         WHERE payout_id = $1`,
-        [data.payoutId, data.failedAt, data.failureReason],
+             updated_at = $2,
+             last_stream_version = $4
+         WHERE payout_id = $1
+           AND last_stream_version < $4`,
+        [data.payoutId, data.failedAt, data.failureReason, event.streamVersion],
       );
     },
   };

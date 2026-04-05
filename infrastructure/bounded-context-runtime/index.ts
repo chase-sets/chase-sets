@@ -175,6 +175,20 @@ export function resolveContextApiMounts<TRouter>(
   );
 }
 
+export function resolveModuleApiMounts<TServices, TPool, TPorts, TRouter>(
+  module: Pick<
+    BcApiModule<TServices, TPool, TPorts, TRouter>,
+    "contextName" | "apiMounts" | "buildApis"
+  >,
+  services: TServices,
+): readonly ResolvedApiMount<TRouter>[] {
+  return resolveContextApiMounts(
+    module.contextName,
+    module.apiMounts,
+    module.buildApis(services),
+  );
+}
+
 function normalizeMountWildcard(mountPath: string) {
   return mountPath.endsWith("/*") ? mountPath : `${mountPath}/*`;
 }

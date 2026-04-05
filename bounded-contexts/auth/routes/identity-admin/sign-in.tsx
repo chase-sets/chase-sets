@@ -1,10 +1,10 @@
 import type { ActionFunctionArgs, MetaFunction } from "react-router";
 import { useActionData } from "react-router";
-import { SignInPage } from "../../customer/sign-in-page";
 import {
   completeBrowserAuthentication,
   createAuthRequestApiClient,
-} from "../../server";
+} from "../../browser-auth";
+import { SignInPage } from "../../customer/sign-in-page";
 
 export const meta: MetaFunction = () => [{ title: "Sign In | Identity Admin" }];
 

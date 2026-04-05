@@ -21,7 +21,6 @@
   "publicExports": [
     ".",
     "./client",
-    "./integration",
     "./routes/*",
     "./seed-support/*",
     "./server",
@@ -32,6 +31,7 @@
   ],
   "requiredPorts": [],
   "integrationCapabilities": [],
+  "seedRequirements": [],
   "apiRequirements": [
     {
       "capabilityKey": "identity.bootstrap-port",

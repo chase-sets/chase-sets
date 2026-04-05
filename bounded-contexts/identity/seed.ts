@@ -1,5 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createAuthServices } from "@chase-sets/auth";
+import { module as authModule } from "@chase-sets/auth";
 import { upsertPasswordCredential } from "@chase-sets/auth/seed-support/store";
 import {
   createIdentityBootstrapPort,
@@ -37,7 +37,7 @@ async function drainProjectors(projectors: ReadonlyArray<{ runOnce: () => Promis
 
 export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const services = createIdentityServices(pool);
-  const authServices = createAuthServices(pool, {
+  const authServices = authModule.createServices(pool, {
     identityBootstrap: createIdentityBootstrapPort(services),
     identityUsers: createIdentityUserDirectoryPort(services),
     identityMemberships: createIdentityMembershipPort(services),

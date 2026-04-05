@@ -7,22 +7,14 @@ import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { module as identityModule } from "@chase-sets/identity";
 import {
-  catalogAuthoringSchemaSql,
-  seedCatalogDatabase,
-} from "@chase-sets/catalog";
-import {
-  identitySchemaSql,
-  seedIdentityDatabase,
-} from "@chase-sets/identity";
-import {
-  InventoryDomainError,
-  type InventoryApiEnv,
-  buildInventoryApi,
-  createInventoryServices,
-  inventorySchemaSql,
-  seedInventoryDatabase,
 } from "../..";
+import { type InventoryApiEnv, buildInventoryApi } from "../../api";
+import { InventoryDomainError } from "../../common";
+import { createInventoryServices } from "../../services";
+import { module as inventoryModule } from "../..";
 
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
@@ -36,21 +28,21 @@ const inventoryContext: EventStoreContext = {
 };
 
 function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
 async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(composeSchemaSql([{ schemaSql: inventorySchemaSql }]));
+  await pool.query(composeSchemaSql([inventoryModule]));
 }
 
 async function recreateCrossContextSchema(pool: PgTransactionalPool) {
   await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
   await pool.query(
     composeSchemaSql([
-      { schemaSql: identitySchemaSql },
-      { schemaSql: catalogAuthoringSchemaSql },
-      { schemaSql: inventorySchemaSql },
+      identityModule,
+      catalogModule,
+      inventoryModule,
     ]),
   );
 }
@@ -110,7 +102,7 @@ describe("inventory api", () => {
 
   beforeEach(async () => {
     await recreateCrossContextSchema(pool);
-    await seedCatalogDatabase(pool);
+    await catalogModule.seed?.(pool);
     await drainProjectors(services.catalogItems.projectors);
   }, 30_000);
 
@@ -362,9 +354,9 @@ describe("inventory api", () => {
   it("creates deterministic cross-context seed data and stays idempotent", async () => {
     await recreateCrossContextSchema(pool);
 
-    await seedIdentityDatabase(pool);
-    await seedCatalogDatabase(pool);
-    await seedInventoryDatabase(pool);
+    await identityModule.seed?.(pool);
+    await catalogModule.seed?.(pool);
+    await inventoryModule.seed?.(pool);
 
     const seededServices = createInventoryServices(pool);
     const records = await seededServices.records.listRecords({
@@ -424,7 +416,7 @@ describe("inventory api", () => {
     );
 
     const eventCountBefore = await countEvents(pool, "inventory.");
-    await seedInventoryDatabase(pool);
+    await inventoryModule.seed?.(pool);
     const eventCountAfter = await countEvents(pool, "inventory.");
     expect(eventCountAfter).toBe(eventCountBefore);
 

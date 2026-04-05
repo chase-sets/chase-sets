@@ -1,12 +1,12 @@
 import { Hono } from "hono";
-import { type DiscoveryServices } from "@chase-sets/discovery";
-import { type FulfillmentServices } from "@chase-sets/fulfillment";
-import { type MarketplaceServices } from "@chase-sets/marketplace";
-import type { InventoryServices } from "@chase-sets/inventory";
-import { type OrderingServices } from "@chase-sets/ordering";
-import { type PaymentsServices } from "@chase-sets/payments";
-import { type ReputationServices } from "@chase-sets/reputation";
-import { type SettlementServices } from "@chase-sets/settlement";
+import { module as discoveryModule } from "@chase-sets/discovery";
+import { module as fulfillmentModule } from "@chase-sets/fulfillment";
+import { module as inventoryModule } from "@chase-sets/inventory";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as orderingModule } from "@chase-sets/ordering";
+import { module as paymentsModule } from "@chase-sets/payments";
+import { module as reputationModule } from "@chase-sets/reputation";
+import { module as settlementModule } from "@chase-sets/settlement";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
@@ -29,14 +29,14 @@ export type BuildMarketplaceAppOptions = Readonly<{
 
 export function buildMarketplaceApp(
   services: Readonly<{
-    discovery: DiscoveryServices;
-    fulfillment: FulfillmentServices;
-    inventory: InventoryServices;
-    marketplace: MarketplaceServices;
-    ordering: OrderingServices;
-    payments: PaymentsServices;
-    reputation: ReputationServices;
-    settlement: SettlementServices;
+    discovery: ReturnType<typeof discoveryModule.createServices>;
+    fulfillment: ReturnType<typeof fulfillmentModule.createServices>;
+    inventory: ReturnType<typeof inventoryModule.createServices>;
+    marketplace: ReturnType<typeof marketplaceModule.createServices>;
+    ordering: ReturnType<typeof orderingModule.createServices>;
+    payments: ReturnType<typeof paymentsModule.createServices>;
+    reputation: ReturnType<typeof reputationModule.createServices>;
+    settlement: ReturnType<typeof settlementModule.createServices>;
   }>,
   options: BuildMarketplaceAppOptions = {},
 ) {

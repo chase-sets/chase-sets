@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { DiscoveryServices } from "@chase-sets/discovery";
-import type { FulfillmentServices } from "@chase-sets/fulfillment";
-import type { InventoryServices } from "@chase-sets/inventory";
-import type { MarketplaceServices } from "@chase-sets/marketplace";
-import type { OrderingServices } from "@chase-sets/ordering";
-import type { PaymentsServices } from "@chase-sets/payments";
-import type { ReputationServices } from "@chase-sets/reputation";
-import type { SettlementServices } from "@chase-sets/settlement";
 import type { ResolvedActor } from "@chase-sets/identity/server";
+import { module as discoveryModule } from "@chase-sets/discovery";
+import { module as fulfillmentModule } from "@chase-sets/fulfillment";
+import { module as inventoryModule } from "@chase-sets/inventory";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as orderingModule } from "@chase-sets/ordering";
+import { module as paymentsModule } from "@chase-sets/payments";
+import { module as reputationModule } from "@chase-sets/reputation";
+import { module as settlementModule } from "@chase-sets/settlement";
 import { buildMarketplaceApp } from "../src/app";
 
-const services: DiscoveryServices = {
+const services: ReturnType<typeof discoveryModule.createServices> = {
   items: {
     search: {
       searchItems: async () => ({ items: [], total: 0 }),
@@ -30,7 +30,7 @@ const services: DiscoveryServices = {
   projectors: [],
 };
 
-const marketplaceServices: MarketplaceServices = {
+const marketplaceServices: ReturnType<typeof marketplaceModule.createServices> = {
   listings: {
     commandHandler: async () => ({ version: 1 }),
     createListing: async () => ({ listingId: "lst_1" as never, version: 1 }),
@@ -65,7 +65,7 @@ const marketplaceServices: MarketplaceServices = {
   db: {} as never,
 };
 
-const inventoryServices: InventoryServices = {
+const inventoryServices: ReturnType<typeof inventoryModule.createServices> = {
   catalogItems: { getCatalogItemSnapshot: async () => null, projectors: [] } as never,
   storageLocations: {} as never,
   records: {} as never,
@@ -81,7 +81,7 @@ const inventoryServices: InventoryServices = {
   db: {} as never,
 };
 
-const fulfillmentServices: FulfillmentServices = {
+const fulfillmentServices: ReturnType<typeof fulfillmentModule.createServices> = {
   shipments: {
     commandHandler: async () => ({
       version: 1,
@@ -106,7 +106,7 @@ const fulfillmentServices: FulfillmentServices = {
   db: {} as never,
 };
 
-const orderingServices: OrderingServices = {
+const orderingServices: ReturnType<typeof orderingModule.createServices> = {
   cart: {
     commandHandler: async () => ({ version: 1 }),
     addLine: async () => ({ lineId: "cli_1" as never, version: 1 }),
@@ -133,7 +133,7 @@ const orderingServices: OrderingServices = {
   db: {} as never,
 };
 
-const paymentsServices: PaymentsServices = {
+const paymentsServices: ReturnType<typeof paymentsModule.createServices> = {
   payments: {
     commandHandler: async () => ({ version: 1, state: {} as never, newEvents: [], storedEvents: [] }),
     createBuyerPayment: async () => ({
@@ -172,7 +172,7 @@ const paymentsServices: PaymentsServices = {
   db: {} as never,
 };
 
-const reputationServices: ReputationServices = {
+const reputationServices: ReturnType<typeof reputationModule.createServices> = {
   reviews: {
     commandHandler: async () => ({
       version: 1,
@@ -206,7 +206,7 @@ const reputationServices: ReputationServices = {
   db: {} as never,
 };
 
-const settlementServices: SettlementServices = {
+const settlementServices: ReturnType<typeof settlementModule.createServices> = {
   wallets: {
     commandHandler: async () => ({ version: 1, state: {} as never, newEvents: [], storedEvents: [] }),
     getWallet: async () => ({

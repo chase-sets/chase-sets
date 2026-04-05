@@ -30,6 +30,7 @@
   ],
   "requiredPorts": [],
   "integrationCapabilities": [],
+  "seedRequirements": [],
   "apiRequirements": [],
   "hostPorts": [],
   "apiDeployables": [

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS payments_refund_pages (
   requested_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   issued_at timestamptz NULL,
-  failed_at timestamptz NULL
+  failed_at timestamptz NULL,
+  last_stream_version bigint NOT NULL DEFAULT 0
 );
 `;

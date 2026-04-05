@@ -34,9 +34,10 @@ export function buildRefundProjectionHandlers(
            requested_at,
            updated_at,
            issued_at,
-           failed_at
+           failed_at,
+           last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, NULL, 'requested', 'requested', NULL, NULL, $8, $8, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, NULL, 'requested', 'requested', NULL, NULL, $8, $8, NULL, NULL, $9
          )
          ON CONFLICT (refund_id) DO UPDATE
          SET payment_id = EXCLUDED.payment_id,
@@ -47,7 +48,9 @@ export function buildRefundProjectionHandlers(
              processor_name = EXCLUDED.processor_name,
              processor_status = EXCLUDED.processor_status,
              status = EXCLUDED.status,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at,
+             last_stream_version = EXCLUDED.last_stream_version
+         WHERE payments_refund_pages.last_stream_version < EXCLUDED.last_stream_version`,
         [
           data.refundId,
           data.paymentId,
@@ -57,6 +60,7 @@ export function buildRefundProjectionHandlers(
           data.reason,
           data.processorName,
           data.requestedAt,
+          event.streamVersion,
         ],
       );
     },
@@ -76,13 +80,16 @@ export function buildRefundProjectionHandlers(
              failure_code = NULL,
              failure_message = NULL,
              issued_at = $4,
-             updated_at = $4
-         WHERE refund_id = $1`,
+             updated_at = $4,
+             last_stream_version = $5
+         WHERE refund_id = $1
+           AND last_stream_version < $5`,
         [
           data.refundId,
           data.processorRefundReference,
           data.processorStatus,
           data.issuedAt,
+          event.streamVersion,
         ],
       );
     },
@@ -102,14 +109,17 @@ export function buildRefundProjectionHandlers(
              failure_code = $3,
              failure_message = $4,
              failed_at = $5,
-             updated_at = $5
-         WHERE refund_id = $1`,
+             updated_at = $5,
+             last_stream_version = $6
+         WHERE refund_id = $1
+           AND last_stream_version < $6`,
         [
           data.refundId,
           data.processorStatus,
           data.failureCode,
           data.failureMessage,
           data.failedAt,
+          event.streamVersion,
         ],
       );
     },

@@ -17,14 +17,6 @@ import type { IdentityServices } from "./services";
 
 export type { IdentityServices } from "./services";
 
-export type IdentityIntegrationSurface = Readonly<{
-  boundary: "identity-management";
-}>;
-
-export const identityIntegrationSurface: IdentityIntegrationSurface = {
-  boundary: "identity-management",
-};
-
 async function drainProjectors(services: IdentityServices) {
   let processed = 0;
 

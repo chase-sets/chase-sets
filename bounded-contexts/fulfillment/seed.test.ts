@@ -2,32 +2,32 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { catalogAuthoringSchemaSql, seedCatalogDatabase } from "@chase-sets/catalog";
-import { identitySchemaSql, seedIdentityDatabase } from "@chase-sets/identity";
-import { inventorySchemaSql, seedInventoryDatabase } from "@chase-sets/inventory";
-import { marketplaceSchemaSql, seedMarketplaceDatabase } from "@chase-sets/marketplace";
-import { orderingSchemaSql, seedOrderingDatabase } from "@chase-sets/ordering";
-import { paymentsSchemaSql, seedPaymentsDatabase } from "@chase-sets/payments";
-import { fulfillmentSchemaSql, seedFulfillmentDatabase } from ".";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { module as identityModule } from "@chase-sets/identity";
+import { module as inventoryModule } from "@chase-sets/inventory";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as orderingModule } from "@chase-sets/ordering";
+import { module as paymentsModule } from "@chase-sets/payments";
+import { module as fulfillmentModule } from ".";
 
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
 
 function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
 async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
   await pool.query(
     composeSchemaSql([
-      { schemaSql: identitySchemaSql },
-      { schemaSql: catalogAuthoringSchemaSql },
-      { schemaSql: inventorySchemaSql },
-      { schemaSql: marketplaceSchemaSql },
-      { schemaSql: orderingSchemaSql },
-      { schemaSql: paymentsSchemaSql },
-      { schemaSql: fulfillmentSchemaSql },
+      identityModule,
+      catalogModule,
+      inventoryModule,
+      marketplaceModule,
+      orderingModule,
+      paymentsModule,
+      fulfillmentModule,
     ]),
   );
 }
@@ -41,12 +41,12 @@ describe("fulfillment seed", () => {
 
   beforeEach(async () => {
     await recreateSchema(pool);
-    await seedIdentityDatabase(pool);
-    await seedCatalogDatabase(pool);
-    await seedInventoryDatabase(pool);
-    await seedMarketplaceDatabase(pool);
-    await seedOrderingDatabase(pool);
-    await seedPaymentsDatabase(pool);
+    await identityModule.seed?.(pool);
+    await catalogModule.seed?.(pool);
+    await inventoryModule.seed?.(pool);
+    await marketplaceModule.seed?.(pool);
+    await orderingModule.seed?.(pool);
+    await paymentsModule.seed?.(pool);
   }, 40_000);
 
   afterAll(async () => {
@@ -54,7 +54,7 @@ describe("fulfillment seed", () => {
   });
 
   it("projects deterministic shipment lifecycle coverage", async () => {
-    await seedFulfillmentDatabase(pool);
+    await fulfillmentModule.seed?.(pool);
 
     const shipmentStatuses = await pool.query<{ status: string }>(
       "SELECT status FROM fulfillment_shipment_pages ORDER BY shipment_id ASC",
@@ -73,7 +73,7 @@ describe("fulfillment seed", () => {
     const before = await pool.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'fulfillment.%'",
     );
-    await seedFulfillmentDatabase(pool);
+    await fulfillmentModule.seed?.(pool);
     const after = await pool.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'fulfillment.%'",
     );

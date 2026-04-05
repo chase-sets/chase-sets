@@ -32,8 +32,19 @@
   "integrationCapabilities": [
     {
       "key": "marketplace.supply-resolver",
-      "exportName": "createMarketplaceSupplyResolver"
+      "exportName": "createMarketplaceSupplyResolver",
+      "kind": "runtime-port"
+    },
+    {
+      "key": "marketplace.offer-gateway",
+      "exportName": "createMarketplaceOfferGateway",
+      "kind": "request-gateway"
     }
+  ],
+  "seedRequirements": [
+    "catalog",
+    "identity",
+    "inventory"
   ],
   "apiRequirements": [],
   "hostPorts": [],

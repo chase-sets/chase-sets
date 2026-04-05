@@ -1,23 +1,6 @@
 export { default as contextManifest } from "./context.json";
-export { buildPaymentsApi } from "./api";
-export {
-  createStripeWebhookRoutes,
-} from "./payments/route";
-export type { PaymentsApiEnv } from "./payments/route";
-export { paymentsSchemaSql } from "./schema";
-export { createPaymentsServices } from "./services";
-export type { PaymentsServices, PaymentsServiceOptions } from "./services";
-export { seedPaymentsDatabase } from "./seed";
-export type {
-  PaymentProcessorGateway,
-  PaymentProcessorPublicConfig,
-  PaymentProcessorWebhookEvent,
-} from "./processor-gateway";
-export { createFakePaymentProcessorGateway } from "./fake-gateway";
-export { createStripePaymentProcessorGateway } from "./stripe-gateway";
 
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
-import { resolveContextApiMounts } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { PaymentsServices, PaymentsServiceOptions } from "./services";
@@ -32,24 +15,12 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
   routePrefix: "/api/marketplace",
   streamPrefix: "payments.",
   schemaSql: paymentsSchemaSql,
+  apiMounts: contextManifest.apiMounts as BcApiModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>["apiMounts"],
   createServices: (pool, options) => createPaymentsServices(pool, options),
-  buildApi: (services) => buildPaymentsApi(services.payments),
+  buildApis: (services) => [
+    buildPaymentsApi(services.payments),
+    createStripeWebhookRoutes(services.payments),
+  ],
   projectors: (services) => services.projectors,
   seed: seedPaymentsDatabase,
 };
-
-export function createPaymentsModule(
-  options: PaymentsServiceOptions = {},
-): BcApiModule<PaymentsServices, PgTransactionalPool, void> {
-  return {
-    ...module,
-    createServices: (pool) => createPaymentsServices(pool, options),
-  };
-}
-
-export function resolveApiMounts(services: PaymentsServices) {
-  return resolveContextApiMounts(contextManifest.contextName, contextManifest.apiMounts, [
-    buildPaymentsApi(services.payments),
-    createStripeWebhookRoutes(services.payments),
-  ]);
-}

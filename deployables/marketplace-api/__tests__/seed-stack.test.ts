@@ -2,17 +2,19 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { catalogAuthoringSchemaSql } from "@chase-sets/catalog";
-import { discoverySchemaSql } from "@chase-sets/discovery";
-import { fulfillmentSchemaSql } from "@chase-sets/fulfillment";
-import { identitySchemaSql } from "@chase-sets/identity";
-import { inventorySchemaSql } from "@chase-sets/inventory";
-import { marketplaceSchemaSql } from "@chase-sets/marketplace";
-import { orderingSchemaSql } from "@chase-sets/ordering";
-import { paymentsSchemaSql } from "@chase-sets/payments";
-import { reputationSchemaSql } from "@chase-sets/reputation";
-import { settlementSchemaSql } from "@chase-sets/settlement";
-import { seedMarketplaceStack } from "../src/seed-stack";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { module as discoveryModule } from "@chase-sets/discovery";
+import { module as fulfillmentModule } from "@chase-sets/fulfillment";
+import { module as identityModule } from "@chase-sets/identity";
+import { module as inventoryModule } from "@chase-sets/inventory";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as orderingModule } from "@chase-sets/ordering";
+import { module as paymentsModule } from "@chase-sets/payments";
+import { module as reputationModule } from "@chase-sets/reputation";
+import { module as settlementModule } from "@chase-sets/settlement";
+import { seedContextRuntimeIfEmpty } from "../src/context-lifecycle.generated";
+import { createContextRuntime } from "../src/context-runtime.generated";
+import { createFakePaymentProcessorGateway } from "../src/payment-processor";
 import { seedCoverageManifest } from "./seed-coverage.manifest";
 
 const databaseUrl =
@@ -20,23 +22,23 @@ const databaseUrl =
 const seedSellerAccountId = "acc_seed_demo_account";
 
 function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
 async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
   await pool.query(
     composeSchemaSql([
-      { schemaSql: identitySchemaSql },
-      { schemaSql: catalogAuthoringSchemaSql },
-      { schemaSql: inventorySchemaSql },
-      { schemaSql: discoverySchemaSql },
-      { schemaSql: marketplaceSchemaSql },
-      { schemaSql: orderingSchemaSql },
-      { schemaSql: fulfillmentSchemaSql },
-      { schemaSql: paymentsSchemaSql },
-      { schemaSql: reputationSchemaSql },
-      { schemaSql: settlementSchemaSql },
+      identityModule,
+      catalogModule,
+      inventoryModule,
+      discoveryModule,
+      marketplaceModule,
+      orderingModule,
+      fulfillmentModule,
+      paymentsModule,
+      reputationModule,
+      settlementModule,
     ]),
   );
 }
@@ -57,7 +59,10 @@ describe("marketplace stack seed orchestration", () => {
   });
 
   it("seeds lifecycle data across the shared stack and remains idempotent", async () => {
-    await seedMarketplaceStack(pool);
+    const runtime = createContextRuntime(pool, {
+      processorGateway: createFakePaymentProcessorGateway(),
+    });
+    await seedContextRuntimeIfEmpty(pool, runtime);
 
     const listingStatuses = await pool.query<{ status: string }>(
       "SELECT status FROM marketplace_listing_pages ORDER BY listing_id ASC",
@@ -136,7 +141,7 @@ describe("marketplace stack seed orchestration", () => {
     const eventCountBefore = await pool.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events",
     );
-    await seedMarketplaceStack(pool);
+    await seedContextRuntimeIfEmpty(pool, runtime);
     const eventCountAfter = await pool.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events",
     );

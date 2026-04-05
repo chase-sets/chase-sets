@@ -1,9 +1,33 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import type { OrderingOrderDetail } from "@chase-sets/ordering/client";
 import type { ComponentProps } from "react";
 import { jsonResponse, requestUrl } from "./test-support/http";
+
+type OrderingOrderDetail = Readonly<{
+  order_id: string;
+  source_type: string;
+  source_reference_id: string | null;
+  buyer_account_id: string;
+  buyer_display_name: string;
+  seller_account_id: string;
+  seller_display_name: string;
+  shipping_option: string;
+  item_subtotal_amount: string;
+  shipping_base_amount: string;
+  shipping_discount_amount: string;
+  shipping_charge_amount: string;
+  total_amount: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  cancelled_at: string | null;
+  ready_for_fulfillment_at: string | null;
+  line_count: number;
+  total_quantity: number;
+  lines: readonly unknown[];
+  inventory_holds: readonly unknown[];
+}>;
 
 const {
   mockUseActionData,

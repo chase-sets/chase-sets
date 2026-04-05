@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { type InventoryServices } from "@chase-sets/inventory";
+import { module as inventoryModule } from "@chase-sets/inventory";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
@@ -20,7 +20,7 @@ export type BuildInventoryAppOptions = Readonly<{
 }>;
 
 export function buildInventoryApp(
-  services: InventoryServices,
+  services: ReturnType<typeof inventoryModule.createServices>,
   options: BuildInventoryAppOptions = {},
 ) {
   const app = new Hono<TenantContextEnv>();

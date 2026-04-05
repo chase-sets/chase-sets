@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import { seedInventoryDatabase } from "@chase-sets/inventory";
+import { module as inventoryModule } from "@chase-sets/inventory";
 import { loadConfig } from "./config";
 
 export async function seedDatabase() {
@@ -8,7 +8,7 @@ export async function seedDatabase() {
   const pool = createPgPool(config.databaseUrl);
 
   try {
-    await seedInventoryDatabase(pool);
+    await inventoryModule.seed?.(pool);
   } finally {
     await (pool as unknown as { end: () => Promise<void> }).end();
   }

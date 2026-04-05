@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { InventoryServices } from "@chase-sets/inventory";
+import { module as inventoryModule } from "@chase-sets/inventory";
 import { buildInventoryApp } from "../src/app";
 
 describe("inventory api host app", () => {
   it("mounts health and the inventory API under /api/inventory", async () => {
-    const app = buildInventoryApp({} as InventoryServices);
+    const app = buildInventoryApp({} as ReturnType<typeof inventoryModule.createServices>);
 
     const healthResponse = await app.fetch(new Request("http://inventory.test/health"));
     expect(healthResponse.status).toBe(200);
@@ -19,7 +19,7 @@ describe("inventory api host app", () => {
   });
 
   it("returns 403 when the actor lacks inventory read permission", async () => {
-    const app = buildInventoryApp({} as InventoryServices, {
+    const app = buildInventoryApp({} as ReturnType<typeof inventoryModule.createServices>, {
       resolveActor: async () => ({
         sessionId: "ses_1",
         tenantId: "tnt_identity",
@@ -63,7 +63,7 @@ describe("inventory api host app", () => {
           }),
         },
         projectors: [],
-      } as unknown as InventoryServices,
+      } as unknown as ReturnType<typeof inventoryModule.createServices>,
       {
         resolveActor: async () => ({
           sessionId: "ses_1",

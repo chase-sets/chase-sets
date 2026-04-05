@@ -6,7 +6,7 @@ import { buildIdentityApi, type IdentityApiEnv } from "./api";
 import type { IdentityServices } from "./services";
 
 export function createIdentityTestPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
 export function buildIdentityTestApp(

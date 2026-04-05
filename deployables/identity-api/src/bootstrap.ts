@@ -1,11 +1,10 @@
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import {
   composeSchemaSql,
-  drainProjectors,
-  seedApiModulesIfEmpty,
   waitForDatabase,
 } from "@chase-sets/bounded-context-runtime";
 import { loadConfig } from "./config";
+import { seedContextRuntimeIfEmpty } from "./context-lifecycle.generated";
 import { createContextRuntime } from "./context-runtime.generated";
 
 async function bootstrap() {
@@ -16,8 +15,7 @@ async function bootstrap() {
     await waitForDatabase(pool, "Identity");
     const runtime = createContextRuntime(pool);
     await pool.query(composeSchemaSql(runtime.mountedModules.map(({ module }) => module)));
-    await seedApiModulesIfEmpty(runtime.mountedModules.map(({ module }) => module), pool);
-    await drainProjectors(runtime.projectors);
+    await seedContextRuntimeIfEmpty(pool, runtime);
     console.log("Identity projections are up to date.");
     console.log("Identity bootstrap complete.");
   } finally {

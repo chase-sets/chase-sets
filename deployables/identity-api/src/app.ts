@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import type { AuthServices } from "@chase-sets/auth";
-import type { IdentityServices } from "@chase-sets/identity";
+import { module as authModule } from "@chase-sets/auth";
+import { module as identityModule } from "@chase-sets/identity";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
@@ -16,8 +16,8 @@ import {
 } from "./middleware/tenant-context";
 
 export type IdentityApiHostServices = Readonly<{
-  auth: AuthServices;
-  identity: IdentityServices;
+  auth: ReturnType<typeof authModule.createServices>;
+  identity: ReturnType<typeof identityModule.createServices>;
 }>;
 
 export function buildIdentityApp(services: IdentityApiHostServices) {

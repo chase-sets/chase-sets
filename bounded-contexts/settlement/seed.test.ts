@@ -2,18 +2,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import { settlementSchemaSql, seedSettlementDatabase } from ".";
+import { module as settlementModule } from ".";
 
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
 
 function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
 async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-  await pool.query(settlementSchemaSql);
+  await pool.query(settlementModule.schemaSql);
 }
 
 describe("settlement seed", () => {
@@ -32,7 +32,7 @@ describe("settlement seed", () => {
   });
 
   it("creates deterministic wallet and payout projections", async () => {
-    await seedSettlementDatabase(pool);
+    await settlementModule.seed?.(pool);
 
     const wallet = await pool.query<{
       pending_balance_amount: string;
@@ -58,7 +58,7 @@ describe("settlement seed", () => {
     const before = await pool.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'settlement.%'",
     );
-    await seedSettlementDatabase(pool);
+    await settlementModule.seed?.(pool);
     const after = await pool.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'settlement.%'",
     );

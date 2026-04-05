@@ -47,33 +47,33 @@ export function createContextApiMounts(): readonly ResolvedApiMount[] {
   }
 
   const imports = contexts.map(({ contextName, packageName }) => {
-    const alias = `resolve${toPascalCase(contextName)}ApiMounts`;
-    return `import { resolveApiMounts as ${alias} } from "${packageName}";`;
+    const alias = `${toPascalCase(contextName)}Module`;
+    return `import { module as ${alias} } from "${packageName}";`;
   });
 
   const serviceType =
     contexts.length === 1
-      ? `Parameters<typeof resolve${toPascalCase(contexts[0].contextName)}ApiMounts>[0]`
+      ? `ReturnType<typeof ${toPascalCase(contexts[0].contextName)}Module.createServices>`
       : `{
   ${contexts
     .map(
       ({ contextName }) =>
-        `${contextName}: Parameters<typeof resolve${toPascalCase(contextName)}ApiMounts>[0];`,
+        `${contextName}: ReturnType<typeof ${toPascalCase(contextName)}Module.createServices>;`,
     )
     .join("\n  ")}
 }`;
 
   const body =
     contexts.length === 1
-      ? `  return resolve${toPascalCase(contexts[0].contextName)}ApiMounts(services);`
+      ? `  return resolveModuleApiMounts(${toPascalCase(contexts[0].contextName)}Module, services);`
       : contexts
           .map(
             ({ contextName }) =>
-              `    ...resolve${toPascalCase(contextName)}ApiMounts(services.${contextName}),`,
+              `    ...resolveModuleApiMounts(${toPascalCase(contextName)}Module, services.${contextName}),`,
           )
           .join("\n");
 
-  return `${apiMountGeneratedFileMarker}import type { ResolvedApiMount } from "@chase-sets/bounded-context-runtime";
+  return `${apiMountGeneratedFileMarker}import { resolveModuleApiMounts, type ResolvedApiMount } from "@chase-sets/bounded-context-runtime";
 ${imports.join("\n")}
 
 export function createContextApiMounts(

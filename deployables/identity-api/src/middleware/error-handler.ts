@@ -1,10 +1,17 @@
 import type { Context } from "hono";
-import { IdentityDomainError } from "@chase-sets/identity";
 
 type EventStoreErrorLike = Readonly<{
   code: string;
   message: string;
 }>;
+
+function isDomainError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    typeof error.name === "string" &&
+    error.name.endsWith("DomainError")
+  );
+}
 
 function isEventStoreError(error: unknown): error is EventStoreErrorLike {
   return (
@@ -15,8 +22,8 @@ function isEventStoreError(error: unknown): error is EventStoreErrorLike {
   );
 }
 
-export function errorHandler(error: Error, c: Context): Response {
-  if (error instanceof IdentityDomainError) {
+export function errorHandler(error: unknown, c: Context): Response {
+  if (isDomainError(error)) {
     return c.json({ error: error.message }, 400);
   }
 

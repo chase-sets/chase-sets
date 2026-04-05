@@ -25,7 +25,17 @@
   ],
   "allowedContextDependencies": [],
   "requiredPorts": [],
-  "integrationCapabilities": [],
+  "integrationCapabilities": [
+    {
+      "key": "reputation.review-gateway",
+      "exportName": "createReputationReviewGateway",
+      "kind": "request-gateway"
+    }
+  ],
+  "seedRequirements": [
+    "identity",
+    "fulfillment"
+  ],
   "apiRequirements": [],
   "hostPorts": [],
   "apiDeployables": [

@@ -6,7 +6,7 @@ import { buildCatalogAuthoringApi, type CatalogAuthoringEnv } from "./api";
 import type { CatalogServices } from "./services";
 
 export function createCatalogAuthoringTestPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
 export function buildCatalogAuthoringTestApp(

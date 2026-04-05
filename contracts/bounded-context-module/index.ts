@@ -43,6 +43,7 @@ export type BcShellContribution = Readonly<{
 export type BcIntegrationCapability = Readonly<{
   readonly key: string;
   readonly exportName: string;
+  readonly kind: "runtime-port" | "request-gateway";
 }>;
 
 export type BcApiRequirement = Readonly<{
@@ -74,8 +75,9 @@ export interface BcApiModule<
   readonly routePrefix: string;
   readonly streamPrefix: string;
   readonly schemaSql: string;
+  readonly apiMounts: readonly BcApiMount[];
   createServices(pool: TPool, ports: TPorts): TServices;
-  buildApi(services: TServices): TRouter;
+  buildApis(services: TServices): readonly TRouter[];
   projectors(services: TServices): readonly TProjector[];
   seed?(pool: TPool): Promise<void>;
 }

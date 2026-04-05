@@ -2,34 +2,34 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import pg from "pg";
 import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { catalogAuthoringSchemaSql, seedCatalogDatabase } from "@chase-sets/catalog";
-import { identitySchemaSql, seedIdentityDatabase } from "@chase-sets/identity";
-import { inventorySchemaSql, seedInventoryDatabase } from "@chase-sets/inventory";
-import { marketplaceSchemaSql, seedMarketplaceDatabase } from "@chase-sets/marketplace";
-import { orderingSchemaSql, seedOrderingDatabase } from "@chase-sets/ordering";
-import { paymentsSchemaSql, seedPaymentsDatabase } from "@chase-sets/payments";
-import { fulfillmentSchemaSql, seedFulfillmentDatabase } from "@chase-sets/fulfillment";
-import { reputationSchemaSql, seedReputationDatabase } from ".";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { module as fulfillmentModule } from "@chase-sets/fulfillment";
+import { module as identityModule } from "@chase-sets/identity";
+import { module as inventoryModule } from "@chase-sets/inventory";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as orderingModule } from "@chase-sets/ordering";
+import { module as paymentsModule } from "@chase-sets/payments";
+import { module as reputationModule } from ".";
 
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://catalog:catalog@localhost:5432/catalog";
 
 function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
 async function recreateSchema(pool: PgTransactionalPool) {
   await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
   await pool.query(
     composeSchemaSql([
-      { schemaSql: identitySchemaSql },
-      { schemaSql: catalogAuthoringSchemaSql },
-      { schemaSql: inventorySchemaSql },
-      { schemaSql: marketplaceSchemaSql },
-      { schemaSql: orderingSchemaSql },
-      { schemaSql: paymentsSchemaSql },
-      { schemaSql: fulfillmentSchemaSql },
-      { schemaSql: reputationSchemaSql },
+      identityModule,
+      catalogModule,
+      inventoryModule,
+      marketplaceModule,
+      orderingModule,
+      paymentsModule,
+      fulfillmentModule,
+      reputationModule,
     ]),
   );
 }
@@ -43,13 +43,13 @@ describe("reputation seed", () => {
 
   beforeEach(async () => {
     await recreateSchema(pool);
-    await seedIdentityDatabase(pool);
-    await seedCatalogDatabase(pool);
-    await seedInventoryDatabase(pool);
-    await seedMarketplaceDatabase(pool);
-    await seedOrderingDatabase(pool);
-    await seedPaymentsDatabase(pool);
-    await seedFulfillmentDatabase(pool);
+    await identityModule.seed?.(pool);
+    await catalogModule.seed?.(pool);
+    await inventoryModule.seed?.(pool);
+    await marketplaceModule.seed?.(pool);
+    await orderingModule.seed?.(pool);
+    await paymentsModule.seed?.(pool);
+    await fulfillmentModule.seed?.(pool);
   }, 50_000);
 
   afterAll(async () => {
@@ -57,7 +57,7 @@ describe("reputation seed", () => {
   });
 
   it("creates review lifecycle projections and summary data", async () => {
-    await seedReputationDatabase(pool);
+    await reputationModule.seed?.(pool);
 
     const reviewStatuses = await pool.query<{ status: string }>(
       "SELECT status FROM reputation_review_pages ORDER BY review_id ASC",
@@ -77,7 +77,7 @@ describe("reputation seed", () => {
     const before = await pool.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'reputation.%'",
     );
-    await seedReputationDatabase(pool);
+    await reputationModule.seed?.(pool);
     const after = await pool.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'reputation.%'",
     );
