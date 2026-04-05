@@ -48,6 +48,8 @@ const allowedTopLevelDirectories = new Set([
   "scripts",
 ]);
 const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared", "support"]);
+const nonSupportSuffixDirectoryExceptions = new Set(["integration", "tests"]);
+const supportDirectoryNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-support$/;
 const legacyForbiddenPaths = [
   "bounded-contexts/catalog/authoring/package.json",
   "bounded-contexts/catalog/authoring/api",
@@ -346,6 +348,34 @@ async function loadContextManifests() {
 
     if (!isStringArray(manifest.allowedSupportDirectories)) {
       addPathViolation(`${relativeRoot}/context.json`, "allowedSupportDirectories must be an array of strings");
+    } else {
+      const declaredSlices = new Set(manifest.slices ?? []);
+      const seenSupportDirectories = new Set();
+
+      for (const supportDirectory of manifest.allowedSupportDirectories) {
+        if (seenSupportDirectories.has(supportDirectory)) {
+          addPathViolation(
+            `${relativeRoot}/context.json`,
+            `allowedSupportDirectories must not contain duplicates (${supportDirectory})`,
+          );
+        }
+        seenSupportDirectories.add(supportDirectory);
+
+        if (declaredSlices.has(supportDirectory)) {
+          addPathViolation(
+            `${relativeRoot}/context.json`,
+            `allowedSupportDirectories entry must not overlap slices (${supportDirectory})`,
+          );
+        }
+
+        const hasSupportSuffix = supportDirectoryNamePattern.test(supportDirectory);
+        if (!hasSupportSuffix && !nonSupportSuffixDirectoryExceptions.has(supportDirectory)) {
+          addPathViolation(
+            `${relativeRoot}/context.json`,
+            `support directories must use *-support naming unless explicitly exempt (integration, tests): ${supportDirectory}`,
+          );
+        }
+      }
     }
 
     if (!isStringArray(manifest.publicExports)) {
