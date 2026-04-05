@@ -119,6 +119,24 @@ const allowedTechnicalBoundedContextRootFiles = new Set([
   "test-support.ts",
   "versioning.ts",
 ]);
+const boundedContextRouteModulePattern = /^bounded-contexts\/[^/]+\/routes\/.+\.(?:ts|tsx)$/;
+const routeModuleMaxLineCount = 240;
+const suspiciousRouteDomainMutationPatterns = [
+  /\bappend(?:Domain)?Event\b/,
+  /\bappendToStream\b/,
+  /\bsaveDomainEvent\b/,
+  /\bproject(?:Domain)?Event\b/,
+  /\bapply(?:Domain)?Event\b/,
+];
+const suspiciousRoutePersistencePatterns = [
+  /\bfrom\s+["']pg["']/,
+  /\bnew\s+Pool\s*\(/,
+  /\bquery\s*\(\s*`?\s*(?:select|insert|update|delete)\b/i,
+  /\b(?:select|insert|update|delete)\s+.+\s+from\s+/i,
+  /\beventStore\b/,
+  /\bprojectionStore\b/,
+  /\bexecuteSql\b/,
+];
 const violations = [];
 const clientSurfaceConsumers = new Map();
 
@@ -132,6 +150,41 @@ function addViolation(file, message) {
 
 function addPathViolation(relativePath, message) {
   violations.push(`${relativePath}: ${message}`);
+}
+
+function checkBoundedContextRouteModule(file, content) {
+  const normalizedFile = normalizeRelative(file);
+  if (!boundedContextRouteModulePattern.test(normalizedFile)) {
+    return;
+  }
+
+  for (const pattern of suspiciousRouteDomainMutationPatterns) {
+    if (pattern.test(content)) {
+      addViolation(
+        file,
+        "route modules must not mutate domain events directly; delegate domain behavior to owning slice modules",
+      );
+      break;
+    }
+  }
+
+  for (const pattern of suspiciousRoutePersistencePatterns) {
+    if (pattern.test(content)) {
+      addViolation(
+        file,
+        "route modules must not access SQL/persistence directly; delegate through owning slice services",
+      );
+      break;
+    }
+  }
+
+  const lineCount = content.split("\n").length;
+  if (lineCount > routeModuleMaxLineCount) {
+    addViolation(
+      file,
+      `route module is too large (${lineCount} lines > ${routeModuleMaxLineCount}); extract feature logic to owning slice modules`,
+    );
+  }
 }
 
 function recordClientSurfaceConsumer(packageName, relativeFile) {
@@ -1475,6 +1528,7 @@ for (const root of roots) {
     }
 
     const content = await readFile(file, "utf8");
+    checkBoundedContextRouteModule(file, content);
 
     if (
       /^bounded-contexts\/[^/]+\/index\.ts$/.test(normalizedFile) &&

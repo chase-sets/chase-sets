@@ -112,6 +112,15 @@ Generated shell inventories under `deployables/*/app/context-shell.generated.ts`
 - Shell-owner contexts own layout chrome, not other contexts' feature nav.
 - Deployables consume generated shell inventories instead of hand-curated cross-context navigation.
 
+## Route Module Constraints
+
+Bounded-context route modules under `routes/` are deployable composition adapters only.
+
+- Route files may compose request parsing, auth gates, and feature page handlers.
+- Route files must not implement business logic, projection orchestration, or domain rules.
+- Route files should delegate feature behavior to owning slice modules (for example `<slice>/route.ts`, `<slice>/ui/*`, `<slice>/services/*`).
+- Keep route file names and locations aligned to deployable contributions declared in each context manifest.
+
 ## Canonical Ownership
 
 These marketplace nouns are already fixed to a single owner:
