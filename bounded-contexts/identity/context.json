@@ -29,8 +29,7 @@
     "route-support",
     "seed-support",
     "shell",
-    "shell-support",
-    "tests"
+    "shell-support"
   ],
   "publicExports": [
     ".",
@@ -127,8 +126,5 @@
     { "deployable": "identity-admin", "slot": "primary-nav", "key": "api-keys", "label": "API Keys", "icon": "settings", "href": "/api-keys", "order": 60, "visibility": "signed-in", "requiredPermissions": [] },
     { "deployable": "marketplace", "slot": "top-nav", "key": "account", "label": "Account", "icon": "user", "href": "/account", "order": 200, "visibility": "signed-in", "requiredPermissions": ["accounts.view"] },
     { "deployable": "marketplace", "slot": "bottom-nav", "key": "account", "label": "Account", "icon": "user", "href": "/account", "order": 200, "visibility": "signed-in", "requiredPermissions": ["accounts.view"] }
-  ],
-  "plannedSupportDirectories": [
-    "tests"
   ]
 }

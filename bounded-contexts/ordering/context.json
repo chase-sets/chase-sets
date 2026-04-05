@@ -15,8 +15,7 @@
   "allowedSupportDirectories": [
     "integration",
     "request-support",
-    "seed-support",
-    "tests"
+    "seed-support"
   ],
   "publicExports": [
     ".",
@@ -94,8 +93,5 @@
     { "deployable": "marketplace", "slot": "bottom-nav", "key": "cart", "label": "Cart", "icon": "cart", "href": "/account/cart", "order": 110, "visibility": "signed-in", "requiredPermissions": ["orders.manage"] },
     { "deployable": "marketplace", "slot": "bottom-nav", "key": "orders", "label": "Orders", "icon": "cart", "href": "/account/orders", "order": 170, "visibility": "signed-in", "requiredPermissions": ["orders.view"] },
     { "deployable": "marketplace", "slot": "bottom-nav", "key": "sales", "label": "Sales", "icon": "package", "href": "/account/sales", "order": 190, "visibility": "signed-in", "requiredPermissions": ["orders.view", "listings.view"] }
-  ],
-  "plannedSupportDirectories": [
-    "tests"
   ]
 }

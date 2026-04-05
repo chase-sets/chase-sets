@@ -13,8 +13,7 @@
   "allowedSupportDirectories": [
     "integration",
     "request-support",
-    "seed-support",
-    "tests"
+    "seed-support"
   ],
   "publicExports": [
     ".",
@@ -66,8 +65,5 @@
   "shellContributions": [
     { "deployable": "marketplace", "slot": "top-nav", "key": "reputation", "label": "Reputation", "icon": "star", "href": "/account/reputation", "order": 160, "visibility": "signed-in", "requiredPermissions": ["reputation.view"] },
     { "deployable": "marketplace", "slot": "bottom-nav", "key": "reputation", "label": "Reputation", "icon": "star", "href": "/account/reputation", "order": 160, "visibility": "signed-in", "requiredPermissions": ["reputation.view"] }
-  ],
-  "plannedSupportDirectories": [
-    "tests"
   ]
 }

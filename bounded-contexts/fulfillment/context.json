@@ -11,8 +11,7 @@
   ],
   "allowedSupportDirectories": [
     "request-support",
-    "seed-support",
-    "tests"
+    "seed-support"
   ],
   "publicExports": [
     ".",
@@ -57,8 +56,5 @@
     { "deployable": "marketplace", "slot": "top-nav", "key": "fulfillment", "label": "Fulfillment", "icon": "package", "href": "/account/fulfillment", "order": 180, "visibility": "signed-in", "requiredPermissions": ["fulfillment.view", "fulfillment.manage"] },
     { "deployable": "marketplace", "slot": "bottom-nav", "key": "shipments", "label": "Shipments", "icon": "package", "href": "/account/shipments", "order": 150, "visibility": "signed-in", "requiredPermissions": ["fulfillment.view"] },
     { "deployable": "marketplace", "slot": "bottom-nav", "key": "fulfillment", "label": "Fulfillment", "icon": "package", "href": "/account/fulfillment", "order": 180, "visibility": "signed-in", "requiredPermissions": ["fulfillment.view", "fulfillment.manage"] }
-  ],
-  "plannedSupportDirectories": [
-    "tests"
   ]
 }

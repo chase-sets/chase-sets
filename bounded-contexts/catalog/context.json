@@ -16,11 +16,9 @@
   ],
   "allowedSupportDirectories": [
     "integration",
-    "projection-support",
     "request-support",
     "shell-support",
-    "seed-support",
-    "tests"
+    "seed-support"
   ],
   "publicExports": [
     ".",
@@ -85,9 +83,5 @@
     { "deployable": "catalog-admin", "slot": "primary-nav", "key": "blueprints", "label": "Blueprints", "icon": "copy", "href": "/blueprints", "order": 40, "visibility": "signed-in", "requiredPermissions": [] },
     { "deployable": "catalog-admin", "slot": "primary-nav", "key": "categories", "label": "Categories", "icon": "filter", "href": "/categories", "order": 50, "visibility": "signed-in", "requiredPermissions": [] },
     { "deployable": "catalog-admin", "slot": "primary-nav", "key": "catalog-items", "label": "Catalog Items", "icon": "dashboard", "href": "/catalog-items", "order": 60, "visibility": "signed-in", "requiredPermissions": [] }
-  ],
-  "plannedSupportDirectories": [
-    "projection-support",
-    "tests"
   ]
 }
