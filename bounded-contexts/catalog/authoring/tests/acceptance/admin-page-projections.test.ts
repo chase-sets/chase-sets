@@ -7,6 +7,14 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 const databaseUrl = process.env.DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
+function requireDatabaseUrl(): string {
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for database-backed catalog authoring tests.");
+  }
+
+  return databaseUrl;
+}
+
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
   audit: {
@@ -57,7 +65,7 @@ async function getJson(path: string) {
 
 describeWithDatabase("Admin page projections", () => {
   beforeAll(() => {
-    pool = createCatalogAuthoringTestPool(databaseUrl);
+    pool = createCatalogAuthoringTestPool(requireDatabaseUrl());
   });
 
   beforeEach(async () => {

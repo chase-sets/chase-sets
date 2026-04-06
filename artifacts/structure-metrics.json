@@ -1,0 +1,116 @@
+{
+  "generatedAt": "2026-04-06T13:27:42.499Z",
+  "totals": {
+    "contextCount": 13,
+    "sliceCount": 29,
+    "supportDirectoryCount": 38,
+    "singleSliceSupportFiles": 3,
+    "driftCount": 0
+  },
+  "contexts": [
+    {
+      "contextRoot": "bounded-contexts/auth",
+      "contextName": "auth",
+      "sliceCount": 2,
+      "supportDirectoryCount": 5,
+      "singleSliceSupportFiles": 2,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/catalog",
+      "contextName": "catalog",
+      "sliceCount": 1,
+      "supportDirectoryCount": 4,
+      "singleSliceSupportFiles": 1,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/discovery",
+      "contextName": "discovery",
+      "sliceCount": 2,
+      "supportDirectoryCount": 3,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/fulfillment",
+      "contextName": "fulfillment",
+      "sliceCount": 1,
+      "supportDirectoryCount": 2,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/identity",
+      "contextName": "identity",
+      "sliceCount": 7,
+      "supportDirectoryCount": 7,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/insights",
+      "contextName": "insights",
+      "sliceCount": 1,
+      "supportDirectoryCount": 0,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/inventory",
+      "contextName": "inventory",
+      "sliceCount": 4,
+      "supportDirectoryCount": 4,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/marketplace",
+      "contextName": "marketplace",
+      "sliceCount": 2,
+      "supportDirectoryCount": 3,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/ordering",
+      "contextName": "ordering",
+      "sliceCount": 3,
+      "supportDirectoryCount": 3,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/payments",
+      "contextName": "payments",
+      "sliceCount": 2,
+      "supportDirectoryCount": 2,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/pricing",
+      "contextName": "pricing",
+      "sliceCount": 1,
+      "supportDirectoryCount": 0,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/reputation",
+      "contextName": "reputation",
+      "sliceCount": 1,
+      "supportDirectoryCount": 3,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/settlement",
+      "contextName": "settlement",
+      "sliceCount": 2,
+      "supportDirectoryCount": 2,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    }
+  ]
+}

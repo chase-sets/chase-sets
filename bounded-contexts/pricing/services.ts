@@ -11,10 +11,10 @@ import {
 } from "./recommendations/runtime";
 
 export type PricingServicePorts = Readonly<{
-  resolveCatalogSellableUnit: (params: Readonly<Record<string, never>>) => Promise<unknown>;
-  resolveMarketSupply: (params: Readonly<Record<string, never>>) => Promise<unknown>;
-  reserveInventorySignal: (params: Readonly<Record<string, never>>) => Promise<unknown>;
-  loadOrderSnapshot: (params: Readonly<Record<string, never>>) => Promise<unknown>;
+  resolveCatalogSellableUnit: unknown;
+  resolveMarketSupply: unknown;
+  reserveInventorySignal: unknown;
+  loadOrderSnapshot: unknown;
 }>;
 
 export type PricingServices = Readonly<{

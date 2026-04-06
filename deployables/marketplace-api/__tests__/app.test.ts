@@ -6,6 +6,7 @@ import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from "@chase-sets/payments";
+import { module as pricingModule } from "@chase-sets/pricing";
 import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { buildMarketplaceApp } from "../src/app";
@@ -172,6 +173,20 @@ const paymentsServices: ReturnType<typeof paymentsModule.createServices> = {
   db: {} as never,
 };
 
+const pricingServices: ReturnType<typeof pricingModule.createServices> = {
+  recommendations: {
+    commandHandler: async () => ({ version: 1, state: {} as never, newEvents: [], storedEvents: [] }),
+    captureMarketSnapshot: async () => ({ recommendationId: "prc_1", version: 1 }),
+    publishRecommendation: async () => ({ recommendationId: "prc_1", version: 2 }),
+    listSellerRecommendations: async () => ({ items: [], total: 0, count: 0 }),
+    getSellerRecommendation: async () => null,
+    projectors: [],
+  },
+  projectors: [],
+  pool: {} as never,
+  db: {} as never,
+};
+
 const reputationServices: ReturnType<typeof reputationModule.createServices> = {
   reviews: {
     commandHandler: async () => ({
@@ -247,6 +262,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      pricing: pricingServices,
       reputation: reputationServices,
       settlement: settlementServices,
     });
@@ -300,6 +316,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      pricing: pricingServices,
       reputation: reputationServices,
       settlement: settlementServices,
     });
@@ -335,6 +352,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      pricing: pricingServices,
       reputation: reputationServices,
       settlement: settlementServices,
     });
@@ -362,6 +380,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        pricing: pricingServices,
         reputation: reputationServices,
         settlement: settlementServices,
       },
@@ -408,6 +427,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        pricing: pricingServices,
         reputation: reputationServices,
         settlement: settlementServices,
       },
@@ -446,6 +466,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        pricing: pricingServices,
         reputation: reputationServices,
         settlement: settlementServices,
       },
@@ -486,6 +507,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      pricing: pricingServices,
       reputation: reputationServices,
       settlement: settlementServices,
     });
@@ -511,6 +533,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        pricing: pricingServices,
         reputation: reputationServices,
         settlement: settlementServices,
       },
@@ -548,6 +571,7 @@ describe("marketplace api host app", () => {
       marketplace: marketplaceServices,
       ordering: orderingServices,
       payments: paymentsServices,
+      pricing: pricingServices,
       reputation: reputationServices,
       settlement: settlementServices,
     });
@@ -580,6 +604,7 @@ describe("marketplace api host app", () => {
         marketplace: marketplaceServices,
         ordering: orderingServices,
         payments: paymentsServices,
+        pricing: pricingServices,
         reputation: reputationServices,
         settlement: settlementServices,
       },

@@ -15,6 +15,14 @@ import { module as discoveryModule } from "../..";
 const databaseUrl = process.env.DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
+function requireDatabaseUrl(): string {
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for database-backed discovery tests.");
+  }
+
+  return databaseUrl;
+}
+
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
   audit: {
@@ -73,7 +81,7 @@ const itemSeed = {
 
 describeWithDatabase("marketplace search", () => {
   beforeAll(async () => {
-    pool = createPool(databaseUrl);
+    pool = createPool(requireDatabaseUrl());
     catalogServices = catalogModule.createServices(pool, undefined);
     discoveryServices = createDiscoveryServices(pool);
     app = new Hono();

@@ -13,7 +13,7 @@ import { module as paymentsModule } from "@chase-sets/payments";
 import { module as pricingModule } from "@chase-sets/pricing";
 import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
-import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration/sellable-units";
+import { createCatalogSellableUnitDescriptorPort } from "@chase-sets/catalog/integration/sellable-units";
 import { createInventoryReservationGateway } from "@chase-sets/inventory/integration/reservation-gateway";
 import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration/supply-resolver";
 import { createOrderSnapshotReader } from "@chase-sets/ordering/integration/order-snapshot-reader";
@@ -69,7 +69,7 @@ export function createContextRuntime(
     getOrderSnapshot: createOrderSnapshotReader(services.ordering),
   });
   services.pricing = pricingModule.createServices(pool, {
-    resolveCatalogSellableUnit: resolveSellableUnitDescriptor(services.catalog),
+    resolveCatalogSellableUnit: createCatalogSellableUnitDescriptorPort(services.catalog),
     resolveMarketSupply: createMarketplaceSupplyResolver(services.marketplace),
     reserveInventorySignal: createInventoryReservationGateway(services.inventory),
     loadOrderSnapshot: createOrderSnapshotReader(services.ordering),

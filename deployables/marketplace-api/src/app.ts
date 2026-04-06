@@ -5,6 +5,7 @@ import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from "@chase-sets/payments";
+import { module as pricingModule } from "@chase-sets/pricing";
 import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
 import {
@@ -35,6 +36,7 @@ export function buildMarketplaceApp(
     marketplace: ReturnType<typeof marketplaceModule.createServices>;
     ordering: ReturnType<typeof orderingModule.createServices>;
     payments: ReturnType<typeof paymentsModule.createServices>;
+    pricing: ReturnType<typeof pricingModule.createServices>;
     reputation: ReturnType<typeof reputationModule.createServices>;
     settlement: ReturnType<typeof settlementModule.createServices>;
   }>,
@@ -46,6 +48,7 @@ export function buildMarketplaceApp(
     services.inventory,
     services.marketplace,
     services.payments,
+    services.pricing,
     services.fulfillment,
     services.ordering,
     services.reputation,

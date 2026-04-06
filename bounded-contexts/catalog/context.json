@@ -33,7 +33,7 @@
   "integrationCapabilities": [
     {
       "key": "catalog.sellable-unit-descriptor",
-      "exportName": "resolveSellableUnitDescriptor",
+      "exportName": "createCatalogSellableUnitDescriptorPort",
       "fileExport": "./integration/sellable-units",
       "kind": "runtime-port"
     }

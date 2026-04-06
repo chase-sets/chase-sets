@@ -19,6 +19,14 @@ import { module as inventoryModule } from "../..";
 const databaseUrl = process.env.DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
+function requireDatabaseUrl(): string {
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for database-backed inventory tests.");
+  }
+
+  return databaseUrl;
+}
+
 const inventoryContext: EventStoreContext = {
   tenantId: "tnt_test" as never,
   audit: {
@@ -71,7 +79,7 @@ describeWithDatabase("inventory api", () => {
   let app: Hono<InventoryApiEnv>;
 
   beforeAll(async () => {
-    pool = createPool(databaseUrl);
+    pool = createPool(requireDatabaseUrl());
     services = createInventoryServices(pool);
     app = new Hono<InventoryApiEnv>();
     app.onError((error, c) => {

@@ -28,10 +28,10 @@ type PricingRecommendationRuntimeDeps = Readonly<{
 }>;
 
 export type PricingRecommendationPorts = Readonly<{
-  resolveCatalogSellableUnit: (params: Readonly<Record<string, never>>) => Promise<unknown>;
-  resolveMarketSupply: (params: Readonly<Record<string, never>>) => Promise<unknown>;
-  reserveInventorySignal: (params: Readonly<Record<string, never>>) => Promise<unknown>;
-  loadOrderSnapshot: (params: Readonly<Record<string, never>>) => Promise<unknown>;
+  resolveCatalogSellableUnit: unknown;
+  resolveMarketSupply: unknown;
+  reserveInventorySignal: unknown;
+  loadOrderSnapshot: unknown;
 }>;
 
 export type PricingRecommendationServices = Readonly<{
@@ -88,10 +88,10 @@ export function createPricingRecommendationRuntime(
   return {
     commandHandler,
     captureMarketSnapshot: async (params, context) => {
-      await deps.ports.resolveCatalogSellableUnit({});
-      await deps.ports.resolveMarketSupply({});
-      await deps.ports.reserveInventorySignal({});
-      await deps.ports.loadOrderSnapshot({});
+      void deps.ports.resolveCatalogSellableUnit;
+      void deps.ports.resolveMarketSupply;
+      void deps.ports.reserveInventorySignal;
+      void deps.ports.loadOrderSnapshot;
 
       const result = await commandHandler({
         streamId: `pricing.recommendation-${params.recommendationId}`,

@@ -21,6 +21,14 @@ const databaseUrl = process.env.DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 const seedSellerAccountId = "acc_seed_demo_account";
 
+function requireDatabaseUrl(): string {
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for database-backed marketplace seed tests.");
+  }
+
+  return databaseUrl;
+}
+
 function createPool(connectionString: string): PgTransactionalPool {
   return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
@@ -47,7 +55,7 @@ describeWithDatabase("marketplace stack seed orchestration", () => {
   let pool: PgTransactionalPool;
 
   beforeAll(() => {
-    pool = createPool(databaseUrl);
+    pool = createPool(requireDatabaseUrl());
   });
 
   beforeEach(async () => {

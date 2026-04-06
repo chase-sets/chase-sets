@@ -13,6 +13,14 @@ import { module as fulfillmentModule } from ".";
 const databaseUrl = process.env.DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
+function requireDatabaseUrl(): string {
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required for database-backed fulfillment seed tests.");
+  }
+
+  return databaseUrl;
+}
+
 function createPool(connectionString: string): PgTransactionalPool {
   return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
@@ -36,7 +44,7 @@ describeWithDatabase("fulfillment seed", () => {
   let pool: PgTransactionalPool;
 
   beforeAll(() => {
-    pool = createPool(databaseUrl);
+    pool = createPool(requireDatabaseUrl());
   });
 
   beforeEach(async () => {
