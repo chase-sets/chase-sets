@@ -1,4 +1,4 @@
-import { catalogSeedIds } from "../../seed-support/ids";
+import { catalogSeedIds } from "../seed-support/ids";
 import type { CatalogServices } from "../services";
 import type { CatalogItemId, FieldId } from "../../ids";
 import { sendSeedCommand } from "../seed-support/context";

@@ -43,7 +43,12 @@ function createAliasEntry(packageName, exportKey, exportTarget, packageDir) {
 
   const targetPath = normalizePath(path.join(packageDir, exportTarget.replace(/^\.\//, "")));
   if (exportKey === ".") {
-    return [{ find: packageName, replacement: targetPath }];
+    return [
+      {
+        find: new RegExp(`^${escapeRegExp(packageName)}$`),
+        replacement: targetPath,
+      },
+    ];
   }
 
   const exportSuffix = exportKey.replace(/^\.\//, "");

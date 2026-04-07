@@ -44,6 +44,7 @@ export type OrderingOrderListRow = Readonly<{
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
+  cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
   line_count: number;
   total_quantity: number;
@@ -73,6 +74,7 @@ type BaseOrderPageRow = Readonly<{
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
+  cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
   line_count: number;
   total_quantity: number;
@@ -112,6 +114,7 @@ const baseOrderSelect = `
     page.created_at,
     page.updated_at,
     page.cancelled_at,
+    page.cancellation_reason,
     page.ready_for_fulfillment_at,
     COALESCE(line_stats.line_count, 0) AS line_count,
     COALESCE(line_stats.total_quantity, 0) AS total_quantity
@@ -314,4 +317,21 @@ export async function getSellerOrder(
     lines: linesResult.rows.map(mapOrderLine),
     inventory_holds: holdsResult.rows,
   };
+}
+
+export async function hasOrderForSource(
+  db: PgQueryable,
+  sourceType: "cart-checkout" | "offer-acceptance",
+  sourceReferenceId: string,
+): Promise<boolean> {
+  const result = await db.query<{ order_id: string }>(
+    `SELECT order_id
+     FROM ordering_order_pages
+     WHERE source_type = $1
+       AND source_reference_id = $2
+     LIMIT 1`,
+    [sourceType, sourceReferenceId],
+  );
+
+  return Boolean(result.rows[0]?.order_id);
 }

@@ -48,9 +48,17 @@ export function resolveDeployableRoutePaths(repoRoot, deployable) {
   };
 }
 
-export function buildWrapperContent(packageName, route) {
+export function buildWrapperContent(packageName, route, exportNames = []) {
   const specifier = `${packageName}${route.fileExport.slice(1)}`;
-  return `${generatedFileMarker}export * from "${specifier}";\nexport { default } from "${specifier}";\n`;
+  const explicitExportLines = exportNames.map(
+    (name) => `export const ${name} = RouteModule.${name};`,
+  );
+
+  return `${generatedFileMarker}import * as RouteModule from "${specifier}";
+
+${explicitExportLines.join("\n")}
+export default RouteModule.default;
+`;
 }
 
 export function buildRoutesFileContent(routes) {

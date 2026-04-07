@@ -3,7 +3,7 @@ import {
   resolveActorFromAuthApi,
   type ResolvedActor,
 } from "@chase-sets/auth-runtime";
-import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime";
+import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime/http";
 import type { PermissionKey } from "../common";
 export { createIdentityRequestApiClient } from "../request-support/api-client";
 

@@ -11,7 +11,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 import {
   OrderingDomainError,
   buildDemandSignature,
@@ -19,16 +18,15 @@ import {
   normalizeMoneyAmount,
   numberToMoneyAmount,
   type OrderLineId,
+  type OrderStatus,
   type ShippingOption,
 } from "../common";
 import type { OrderingCartLineRow } from "../cart/queries";
 import type { OrderingCartServices } from "../cart/runtime";
 import {
   assertSupplyAvailable,
-  type InventoryReservationGateway,
   type MarketplaceDemand,
   type MarketplaceSupplyCandidate,
-  type MarketplaceSupplyResolver,
   type ShippingQuotePolicy,
 } from "../policies";
 import {
@@ -38,6 +36,7 @@ import {
   listSellerOrders,
 } from "./queries";
 import { buildOrderingOrderProjectionHandlers } from "./projection";
+import { listOrderingSupplyCandidates } from "./supply-queries";
 import {
   decideOrderingOrder,
   evolveOrderingOrder,
@@ -52,9 +51,7 @@ type OrderRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   carts: OrderingCartServices;
-  supplyResolver: MarketplaceSupplyResolver;
   shippingQuotePolicy: ShippingQuotePolicy;
-  inventoryReservations: InventoryReservationGateway;
 }>;
 
 type DemandAllocation = Readonly<{
@@ -82,7 +79,7 @@ type SellerOrderDraft = Readonly<{
     listingId: string;
     inventoryRecordId: string;
     catalogItemId: string;
-    catalogVersionKey: CatalogVersionKey;
+    catalogVersionKey: string;
     itemTitle: string;
     itemSubtitle: string | null;
     versionSelection: { dimensionId: string; choiceId: string }[];
@@ -92,6 +89,7 @@ type SellerOrderDraft = Readonly<{
     lineTotalAmount: string;
   }>;
   reservations: ReadonlyArray<{
+    reservationRequestId: string;
     inventoryRecordId: string;
     quantity: number;
   }>;
@@ -114,6 +112,7 @@ export type OrderingOrderServices = Readonly<{
     params: Readonly<{
       buyerAccountId: AccountId;
       shippingOption: ShippingOption;
+      orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
   ) => Promise<{ orderIds: readonly OrderId[] }>;
@@ -123,13 +122,14 @@ export type OrderingOrderServices = Readonly<{
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
       catalogItemId: string;
-      catalogVersionKey: CatalogVersionKey;
+      catalogVersionKey: string;
       itemTitle: string;
       itemSubtitle: string | null;
       versionSelection: { dimensionId: string; choiceId: string }[];
       versionSummary: string | null;
       priceAmount: string;
       quantityRequested: number;
+      orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
   ) => Promise<{ orderIds: readonly OrderId[] }>;
@@ -170,12 +170,12 @@ function groupDemands(cartLines: readonly OrderingCartLineRow[]) {
       continue;
     }
 
-    grouped.set(key, {
-      catalogItemId: line.catalog_item_id,
-      catalogVersionKey: line.catalog_version_key as CatalogVersionKey,
-      itemTitle: line.item_title,
-      itemSubtitle: line.item_subtitle,
-      versionSelection: line.version_selection,
+      grouped.set(key, {
+        catalogItemId: line.catalog_item_id,
+        catalogVersionKey: line.catalog_version_key,
+        itemTitle: line.item_title,
+        itemSubtitle: line.item_subtitle,
+        versionSelection: line.version_selection,
       versionSummary: line.version_summary,
       quantity: line.quantity,
     });
@@ -278,6 +278,7 @@ function quotePlan(
         lineTotalAmount,
       });
       sellerDraft.reservations.push({
+        reservationRequestId: createId("rsv"),
         inventoryRecordId: allocation.candidate.inventoryRecordId,
         quantity: allocation.quantity,
       });
@@ -377,14 +378,14 @@ function chooseBestPlan(
 }
 
 async function buildDemandOptions(
+  db: PgQueryable,
   demandGroups: readonly MarketplaceDemand[],
-  supplyResolver: MarketplaceSupplyResolver,
   sellerAccountId?: string,
 ) {
   const options: DemandPlan[][] = [];
 
   for (const demand of demandGroups) {
-    const candidates = await supplyResolver.resolveCandidates({
+    const candidates = await listOrderingSupplyCandidates(db, {
       ...demand,
       sellerAccountId,
     });
@@ -412,25 +413,22 @@ export function createOrderingOrderRuntime(
     buyerAccountId: AccountId,
     plan: CheckoutPlan,
     context: EventStoreContext,
+    orderIdsOverride?: readonly OrderId[],
   ) => {
+    if (
+      orderIdsOverride &&
+      orderIdsOverride.length !== plan.orderDrafts.length
+    ) {
+      throw new OrderingDomainError(
+        "Order seed overrides must match the number of generated seller orders.",
+      );
+    }
+
     const orderIds: OrderId[] = [];
 
-    for (const draft of plan.orderDrafts) {
-      const orderId = createId("ord") as OrderId;
-      const reservations = [];
-
-      for (const reservation of draft.reservations) {
-        const hold = await deps.inventoryReservations.createReservation({
-          sellerAccountId: draft.sellerAccountId as AccountId,
-          inventoryRecordId: reservation.inventoryRecordId,
-          quantity: reservation.quantity,
-          reason: "Ordering commitment",
-          notes: `Order ${orderId}`,
-          context,
-        });
-        reservations.push(hold);
-      }
-
+    for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
+      const orderId =
+        orderIdsOverride?.[draftIndex] ?? (createId("ord") as OrderId);
       await commandHandler({
         streamId: `ordering.order-${orderId}`,
         command: {
@@ -447,10 +445,10 @@ export function createOrderingOrderRuntime(
           shippingChargeAmount: draft.shippingChargeAmount,
           totalAmount: draft.totalAmount,
           lines: [...draft.lines],
-          inventoryReservations: reservations.map((reservation) => ({
-            holdId: reservation.holdId,
+          reservationRequests: draft.reservations.map((reservation) => ({
+            reservationRequestId: reservation.reservationRequestId,
             inventoryRecordId: reservation.inventoryRecordId,
-            sellerAccountId: reservation.sellerAccountId,
+            sellerAccountId: draft.sellerAccountId,
             quantity: reservation.quantity,
           })),
         },
@@ -469,13 +467,14 @@ export function createOrderingOrderRuntime(
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
       catalogItemId: string;
-      catalogVersionKey: CatalogVersionKey;
+      catalogVersionKey: string;
       itemTitle: string;
       itemSubtitle: string | null;
       versionSelection: { dimensionId: string; choiceId: string }[];
       versionSummary: string | null;
       priceAmount: string;
       quantityRequested: number;
+      orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
   ) => {
@@ -491,8 +490,8 @@ export function createOrderingOrderRuntime(
       },
     ];
     const demandOptions = await buildDemandOptions(
+      deps.db,
       demandGroups,
-      deps.supplyResolver,
       params.sellerAccountId,
     );
     const plan = chooseBestPlan(
@@ -503,7 +502,12 @@ export function createOrderingOrderRuntime(
       "offer-acceptance",
       params.offerId,
     );
-    const orderIds = await createOrdersFromPlan(params.buyerAccountId, plan, context);
+    const orderIds = await createOrdersFromPlan(
+      params.buyerAccountId,
+      plan,
+      context,
+      params.orderIdsOverride,
+    );
     return { orderIds };
   };
 
@@ -516,13 +520,18 @@ export function createOrderingOrderRuntime(
       }
 
       const demandGroups = groupDemands(cartLines);
-      const demandOptions = await buildDemandOptions(demandGroups, deps.supplyResolver);
+      const demandOptions = await buildDemandOptions(deps.db, demandGroups);
       const plan = chooseBestPlan(
         demandOptions,
         params.shippingOption,
         deps.shippingQuotePolicy,
       );
-      const orderIds = await createOrdersFromPlan(params.buyerAccountId, plan, context);
+      const orderIds = await createOrdersFromPlan(
+        params.buyerAccountId,
+        plan,
+        context,
+        params.orderIdsOverride,
+      );
       await deps.carts.checkout(params.buyerAccountId, context);
 
       return { orderIds };
@@ -533,18 +542,8 @@ export function createOrderingOrderRuntime(
       if (!order) {
         throw new OrderingDomainError("Order not found.");
       }
-      if (order.status !== "pending-payment") {
+      if (!isCancelableOrderStatus(order.status)) {
         throw new OrderingDomainError("Only pending orders can be cancelled.");
-      }
-
-      for (const hold of order.inventory_holds) {
-        if (hold.status === "active") {
-          await deps.inventoryReservations.releaseReservation({
-            sellerAccountId: hold.seller_account_id,
-            holdId: hold.hold_id,
-            context,
-          });
-        }
       }
 
       const result = await commandHandler({
@@ -552,6 +551,7 @@ export function createOrderingOrderRuntime(
         command: {
           type: "CancelOrder",
           cancelledAt: new Date().toISOString(),
+          reason: "buyer-cancelled",
         },
         context,
       });
@@ -563,18 +563,8 @@ export function createOrderingOrderRuntime(
       if (!order) {
         throw new OrderingDomainError("Order not found.");
       }
-      if (order.status !== "pending-payment") {
+      if (!isCancelableOrderStatus(order.status)) {
         throw new OrderingDomainError("Only pending orders can be cancelled.");
-      }
-
-      for (const hold of order.inventory_holds) {
-        if (hold.status === "active") {
-          await deps.inventoryReservations.releaseReservation({
-            sellerAccountId: hold.seller_account_id,
-            holdId: hold.hold_id,
-            context,
-          });
-        }
       }
 
       const result = await commandHandler({
@@ -582,6 +572,7 @@ export function createOrderingOrderRuntime(
         command: {
           type: "CancelOrder",
           cancelledAt: new Date().toISOString(),
+          reason: "seller-cancelled",
         },
         context,
       });
@@ -601,63 +592,11 @@ export function createOrderingOrderRuntime(
         checkpointStore: deps.checkpointStore,
         handlers: buildOrderingOrderProjectionHandlers(deps.db),
       }),
-      createProjector({
-        projectorName: "ordering-marketplace-offer-acceptance",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: {
-          "marketplace.offer.accepted": async (event) => {
-            const data = event.data as unknown as {
-              offerId: string;
-              buyerAccountId: AccountId;
-              sellerAccountId: AccountId;
-              catalogItemId: string;
-              catalogVersionKey: CatalogVersionKey;
-              itemTitle: string;
-              itemSubtitle: string | null;
-              versionSelection: { dimensionId: string; choiceId: string }[];
-              versionSummary: string | null;
-              priceAmount: string;
-              quantityRequested: number;
-            };
-
-            await createOrdersFromAcceptedOffer(data, {
-              tenantId: event.tenantId,
-              audit: event.audit,
-              trace: event.trace,
-            } as EventStoreContext);
-          },
-        },
-      }),
-      createProjector({
-        projectorName: "ordering-payment-capture",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: {
-          "payments.payment-captured": async (event) => {
-            const data = event.data as {
-              orderIds: string[];
-              capturedAt: string;
-            };
-
-            for (const orderId of data.orderIds ?? []) {
-              await commandHandler({
-                streamId: `ordering.order-${orderId}`,
-                command: {
-                  type: "MarkReadyForFulfillment",
-                  readyForFulfillmentAt: data.capturedAt,
-                },
-                context: {
-                  tenantId: event.tenantId,
-                  audit: event.audit,
-                  trace: event.trace,
-                } as EventStoreContext,
-              });
-            }
-          },
-        },
-      }),
     ],
   };
+}
+
+function isCancelableOrderStatus(status: OrderStatus | string) {
+  return status === "pending-payment" || status === "pending-reservation";
 }
 

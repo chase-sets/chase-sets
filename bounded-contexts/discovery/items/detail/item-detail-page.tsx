@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration/sellable-units";
 import {
   Breadcrumbs,
   Card,
@@ -27,6 +26,7 @@ import type {
 } from "../client-support/contracts";
 import { VersionSelector } from "./version-selector";
 import {
+  createDiscoveryCatalogVersionDescriptor,
   getOrderedActiveDimensions,
   normalizeSelectionsForSchema,
   summarizeSelections,
@@ -164,7 +164,7 @@ export function ItemDetailPage({
           .map((selection) => `${selection.dimensionName}: ${selection.choiceLabel}`)
           .join(" | ")
       : null;
-  const selectedCatalogVersionKey = resolveSellableUnitDescriptor({
+  const selectedCatalogVersionKey = createDiscoveryCatalogVersionDescriptor({
     catalogItemId: data.item_id,
     versionSchema: data.version_schema,
     selection: selectedVersionSelection,

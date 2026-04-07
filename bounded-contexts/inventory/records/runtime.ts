@@ -8,11 +8,10 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
-import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration/sellable-units";
 import type { InventoryCatalogItemServices } from "../catalog-items/runtime";
 import {
+  createInventoryCatalogVersionDescriptor,
   parseVersionSelectionInput,
-  validateVersionSelection,
   type InventoryVersionSelectionEntry,
 } from "../catalog-items/versioning";
 import type { InventoryRuntimeDeps } from "../runtime-support";
@@ -110,14 +109,10 @@ export function createInventoryRecordRuntime(
         );
       }
 
-      const versionSelection = validateVersionSelection(
-        catalogItem.version_schema,
-        parseVersionSelectionInput(params.versionSelection),
-      );
-      const sellableUnit = resolveSellableUnitDescriptor({
+      const catalogVersion = createInventoryCatalogVersionDescriptor({
         catalogItemId: params.catalogItemId,
         versionSchema: catalogItem.version_schema,
-        selection: versionSelection,
+        selection: parseVersionSelectionInput(params.versionSelection),
       });
 
       const recordId = createId("inv") as InventoryRecordId;
@@ -128,8 +123,8 @@ export function createInventoryRecordRuntime(
           recordId,
           accountId: params.accountId,
           catalogItemId: params.catalogItemId,
-          catalogVersionKey: sellableUnit.catalogVersionKey,
-          versionSelection: sellableUnit.selection,
+          catalogVersionKey: catalogVersion.catalogVersionKey,
+          versionSelection: catalogVersion.selection,
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,

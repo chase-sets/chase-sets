@@ -96,6 +96,10 @@ export type ReputationReviewServices = Readonly<{
     orderId: string,
     authorAccountId: string,
   ) => ReturnType<typeof getOrderReviewOpportunity>;
+  recordDeliveredShipmentReviewEligibility: (params: {
+    shipmentId: string;
+    deliveredAt: string;
+  }) => Promise<void>;
   projectors: readonly Projector[];
 }>;
 
@@ -133,6 +137,67 @@ export function createReputationReviewRuntime(
 
   return {
     commandHandler,
+    recordDeliveredShipmentReviewEligibility: async (params) => {
+      const shipmentResult = await deps.db.query<{ order_id: string }>(
+        `SELECT order_id
+         FROM reputation_shipment_sources
+         WHERE shipment_id = $1
+           AND status = 'delivered'`,
+        [params.shipmentId],
+      );
+      const orderId = shipmentResult.rows[0]?.order_id;
+      if (!orderId) {
+        return;
+      }
+
+      const orderResult = await deps.db.query<{
+        buyer_account_id: string;
+        seller_account_id: string;
+      }>(
+        `SELECT buyer_account_id, seller_account_id
+         FROM reputation_order_sources
+         WHERE order_id = $1`,
+        [orderId],
+      );
+      const order = orderResult.rows[0];
+      if (!order) {
+        return;
+      }
+
+      const upsertEligibility = async (
+        authorAccountId: string,
+        subjectAccountId: string,
+        authorRole: ReviewRole,
+      ) => {
+        await deps.db.query(
+          `INSERT INTO reputation_review_eligibility_pages (
+             order_id,
+             author_account_id,
+             subject_account_id,
+             author_role,
+             eligible_at,
+             updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $5)
+           ON CONFLICT (order_id, author_account_id, subject_account_id) DO UPDATE
+           SET author_role = EXCLUDED.author_role,
+               eligible_at = LEAST(
+                 reputation_review_eligibility_pages.eligible_at,
+                 EXCLUDED.eligible_at
+               ),
+               updated_at = EXCLUDED.updated_at`,
+          [
+            orderId,
+            authorAccountId,
+            subjectAccountId,
+            authorRole,
+            params.deliveredAt,
+          ],
+        );
+      };
+
+      await upsertEligibility(order.buyer_account_id, order.seller_account_id, "buyer");
+      await upsertEligibility(order.seller_account_id, order.buyer_account_id, "seller");
+    },
     async submitReview(params, context) {
       const orderId = normalizeRequiredText(
         params.orderId,
@@ -250,86 +315,6 @@ export function createReputationReviewRuntime(
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildReputationReviewProjectionHandlers(deps.db),
-      }),
-      createProjector({
-        projectorName: "reputation-review-eligibility",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: {
-          "fulfillment.shipment.delivered": async (event) => {
-            const data = event.data as {
-              shipmentId: string;
-              deliveredAt: string;
-            };
-
-            const shipmentResult = await deps.db.query<{ order_id: string }>(
-              `SELECT order_id
-               FROM fulfillment_shipment_pages
-               WHERE shipment_id = $1`,
-              [data.shipmentId],
-            );
-            const orderId = shipmentResult.rows[0]?.order_id;
-            if (!orderId) {
-              return;
-            }
-
-            const orderResult = await deps.db.query<{
-              buyer_account_id: string;
-              seller_account_id: string;
-            }>(
-              `SELECT buyer_account_id, seller_account_id
-               FROM ordering_order_pages
-               WHERE order_id = $1`,
-              [orderId],
-            );
-            const order = orderResult.rows[0];
-            if (!order) {
-              return;
-            }
-
-            const upsertEligibility = async (
-              authorAccountId: string,
-              subjectAccountId: string,
-              authorRole: ReviewRole,
-            ) => {
-              await deps.db.query(
-                `INSERT INTO reputation_review_eligibility_pages (
-                   order_id,
-                   author_account_id,
-                   subject_account_id,
-                   author_role,
-                   eligible_at,
-                   updated_at
-                 ) VALUES ($1, $2, $3, $4, $5, $5)
-                 ON CONFLICT (order_id, author_account_id, subject_account_id) DO UPDATE
-                 SET author_role = EXCLUDED.author_role,
-                     eligible_at = LEAST(
-                       reputation_review_eligibility_pages.eligible_at,
-                       EXCLUDED.eligible_at
-                     ),
-                     updated_at = EXCLUDED.updated_at`,
-                [
-                  orderId,
-                  authorAccountId,
-                  subjectAccountId,
-                  authorRole,
-                  data.deliveredAt,
-                ],
-              );
-            };
-
-            await upsertEligibility(
-              order.buyer_account_id,
-              order.seller_account_id,
-              "buyer",
-            );
-            await upsertEligibility(
-              order.seller_account_id,
-              order.buyer_account_id,
-              "seller",
-            );
-          },
-        },
       }),
     ],
   };

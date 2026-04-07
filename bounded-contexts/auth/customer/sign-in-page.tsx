@@ -1,4 +1,4 @@
-import { AuthFormPage } from "../shell-support/ui/customer-pages";
+import { AuthFormPage } from "./ui/auth-form-page";
 
 export function SignInPage(props: Readonly<{
   action?: string;

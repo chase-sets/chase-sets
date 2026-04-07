@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS ordering_order_pages (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   cancelled_at timestamptz NULL,
+  cancellation_reason text NULL,
   ready_for_fulfillment_at timestamptz NULL
 );
 

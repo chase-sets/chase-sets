@@ -14,51 +14,19 @@ type Pages = {
   "/": {
     params: {};
   };
+  "/account-select": {
+    params: {};
+  };
   "/sign-in": {
     params: {};
   };
   "/sign-out": {
     params: {};
   };
-  "/account-select": {
-    params: {};
-  };
   "/accounts": {
     params: {};
   };
   "/accounts/:id": {
-    params: {
-      "id": string;
-    };
-  };
-  "/users": {
-    params: {};
-  };
-  "/users/:id": {
-    params: {
-      "id": string;
-    };
-  };
-  "/memberships": {
-    params: {};
-  };
-  "/memberships/:id": {
-    params: {
-      "id": string;
-    };
-  };
-  "/invitations": {
-    params: {};
-  };
-  "/invitations/:id": {
-    params: {
-      "id": string;
-    };
-  };
-  "/sessions": {
-    params: {};
-  };
-  "/sessions/:id": {
     params: {
       "id": string;
     };
@@ -71,12 +39,48 @@ type Pages = {
       "id": string;
     };
   };
+  "/invitations": {
+    params: {};
+  };
+  "/invitations/:id": {
+    params: {
+      "id": string;
+    };
+  };
+  "/memberships": {
+    params: {};
+  };
+  "/memberships/:id": {
+    params: {
+      "id": string;
+    };
+  };
+  "/sessions": {
+    params: {};
+  };
+  "/sessions/:id": {
+    params: {
+      "id": string;
+    };
+  };
+  "/users": {
+    params: {};
+  };
+  "/users/:id": {
+    params: {
+      "id": string;
+    };
+  };
 };
 
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/sign-in" | "/sign-out" | "/account-select" | "/accounts" | "/accounts/:id" | "/users" | "/users/:id" | "/memberships" | "/memberships/:id" | "/invitations" | "/invitations/:id" | "/sessions" | "/sessions/:id" | "/api-keys" | "/api-keys/:id";
+    page: "/" | "/account-select" | "/sign-in" | "/sign-out" | "/accounts" | "/accounts/:id" | "/api-keys" | "/api-keys/:id" | "/invitations" | "/invitations/:id" | "/memberships" | "/memberships/:id" | "/sessions" | "/sessions/:id" | "/users" | "/users/:id";
+  };
+  "routes/account-select.tsx": {
+    id: "routes/account-select";
+    page: "/account-select";
   };
   "routes/sign-in.tsx": {
     id: "routes/sign-in";
@@ -86,13 +90,9 @@ type RouteFiles = {
     id: "routes/sign-out";
     page: "/sign-out";
   };
-  "routes/account-select.tsx": {
-    id: "routes/account-select";
-    page: "/account-select";
-  };
   "routes/layout.tsx": {
     id: "routes/layout";
-    page: "/" | "/accounts" | "/accounts/:id" | "/users" | "/users/:id" | "/memberships" | "/memberships/:id" | "/invitations" | "/invitations/:id" | "/sessions" | "/sessions/:id" | "/api-keys" | "/api-keys/:id";
+    page: "/" | "/accounts" | "/accounts/:id" | "/api-keys" | "/api-keys/:id" | "/invitations" | "/invitations/:id" | "/memberships" | "/memberships/:id" | "/sessions" | "/sessions/:id" | "/users" | "/users/:id";
   };
   "routes/index.tsx": {
     id: "routes/index";
@@ -106,21 +106,13 @@ type RouteFiles = {
     id: "routes/accounts-detail";
     page: "/accounts/:id";
   };
-  "routes/users.tsx": {
-    id: "routes/users";
-    page: "/users";
+  "routes/api-keys.tsx": {
+    id: "routes/api-keys";
+    page: "/api-keys";
   };
-  "routes/users-detail.tsx": {
-    id: "routes/users-detail";
-    page: "/users/:id";
-  };
-  "routes/memberships.tsx": {
-    id: "routes/memberships";
-    page: "/memberships";
-  };
-  "routes/memberships-detail.tsx": {
-    id: "routes/memberships-detail";
-    page: "/memberships/:id";
+  "routes/api-keys-detail.tsx": {
+    id: "routes/api-keys-detail";
+    page: "/api-keys/:id";
   };
   "routes/invitations.tsx": {
     id: "routes/invitations";
@@ -130,6 +122,14 @@ type RouteFiles = {
     id: "routes/invitations-detail";
     page: "/invitations/:id";
   };
+  "routes/memberships.tsx": {
+    id: "routes/memberships";
+    page: "/memberships";
+  };
+  "routes/memberships-detail.tsx": {
+    id: "routes/memberships-detail";
+    page: "/memberships/:id";
+  };
   "routes/sessions.tsx": {
     id: "routes/sessions";
     page: "/sessions";
@@ -138,33 +138,33 @@ type RouteFiles = {
     id: "routes/sessions-detail";
     page: "/sessions/:id";
   };
-  "routes/api-keys.tsx": {
-    id: "routes/api-keys";
-    page: "/api-keys";
+  "routes/users.tsx": {
+    id: "routes/users";
+    page: "/users";
   };
-  "routes/api-keys-detail.tsx": {
-    id: "routes/api-keys-detail";
-    page: "/api-keys/:id";
+  "routes/users-detail.tsx": {
+    id: "routes/users-detail";
+    page: "/users/:id";
   };
 };
 
 type RouteModules = {
   "root": typeof import("./app/root.tsx");
+  "routes/account-select": typeof import("./app/routes/account-select.tsx");
   "routes/sign-in": typeof import("./app/routes/sign-in.tsx");
   "routes/sign-out": typeof import("./app/routes/sign-out.tsx");
-  "routes/account-select": typeof import("./app/routes/account-select.tsx");
   "routes/layout": typeof import("./app/routes/layout.tsx");
   "routes/index": typeof import("./app/routes/index.tsx");
   "routes/accounts": typeof import("./app/routes/accounts.tsx");
   "routes/accounts-detail": typeof import("./app/routes/accounts-detail.tsx");
-  "routes/users": typeof import("./app/routes/users.tsx");
-  "routes/users-detail": typeof import("./app/routes/users-detail.tsx");
-  "routes/memberships": typeof import("./app/routes/memberships.tsx");
-  "routes/memberships-detail": typeof import("./app/routes/memberships-detail.tsx");
-  "routes/invitations": typeof import("./app/routes/invitations.tsx");
-  "routes/invitations-detail": typeof import("./app/routes/invitations-detail.tsx");
-  "routes/sessions": typeof import("./app/routes/sessions.tsx");
-  "routes/sessions-detail": typeof import("./app/routes/sessions-detail.tsx");
   "routes/api-keys": typeof import("./app/routes/api-keys.tsx");
   "routes/api-keys-detail": typeof import("./app/routes/api-keys-detail.tsx");
+  "routes/invitations": typeof import("./app/routes/invitations.tsx");
+  "routes/invitations-detail": typeof import("./app/routes/invitations-detail.tsx");
+  "routes/memberships": typeof import("./app/routes/memberships.tsx");
+  "routes/memberships-detail": typeof import("./app/routes/memberships-detail.tsx");
+  "routes/sessions": typeof import("./app/routes/sessions.tsx");
+  "routes/sessions-detail": typeof import("./app/routes/sessions-detail.tsx");
+  "routes/users": typeof import("./app/routes/users.tsx");
+  "routes/users-detail": typeof import("./app/routes/users-detail.tsx");
 };

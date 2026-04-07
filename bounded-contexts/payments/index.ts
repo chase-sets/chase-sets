@@ -1,14 +1,43 @@
 export { default as contextManifest } from "./context.json";
 
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import type {
+  BcApiModule,
+  BcEventSubscriptionDeclaration,
+  BcProjectionGroupDeclaration,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { PaymentsServices, PaymentsServiceOptions } from "./services";
 import { buildPaymentsApi } from "./api";
+import { buildPaymentsOrderInputProjectionHandlers } from "./payments/order-input-projection";
 import { createStripeWebhookRoutes } from "./payments/route";
 import { createPaymentsServices } from "./services";
 import { paymentsSchemaSql } from "./schema";
 import { seedPaymentsDatabase } from "./seed";
+
+const eventSubscriptions =
+  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups =
+  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+
+function getEventSubscription(
+  sourceContextName: string,
+  projectionName: string,
+): BcEventSubscriptionDeclaration {
+  const declaration = eventSubscriptions.find(
+    (entry) =>
+      entry.sourceContextName === sourceContextName &&
+      entry.projectionName === projectionName,
+  );
+
+  if (!declaration) {
+    throw new Error(
+      `Payments is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
+    );
+  }
+
+  return declaration;
+}
 
 export const module: BcApiModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions> = {
   contextName: "payments",
@@ -16,11 +45,31 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
   streamPrefix: "payments.",
   schemaSql: paymentsSchemaSql,
   apiMounts: contextManifest.apiMounts as BcApiModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>["apiMounts"],
+  projectionGroups,
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [
     buildPaymentsApi(services.payments),
     createStripeWebhookRoutes(services.payments),
   ],
   projectors: (services) => services.projectors,
+  buildSubscriptions: (services) => {
+    const orderingSubscription = getEventSubscription(
+      "ordering",
+      "payments-order-input-projection",
+    );
+
+    return [
+      {
+        subscriptionName: "payments.order-input-projection",
+        sourceContextName: "ordering",
+        projectionName: orderingSubscription.projectionName,
+        subscriptionVersion: orderingSubscription.subscriptionVersion,
+        handlers: buildPaymentsOrderInputProjectionHandlers(services.db),
+        eventTypes: orderingSubscription.eventTypes,
+        streamPrefixes: orderingSubscription.streamPrefixes,
+        order: orderingSubscription.order,
+      },
+    ];
+  },
   seed: seedPaymentsDatabase,
 };

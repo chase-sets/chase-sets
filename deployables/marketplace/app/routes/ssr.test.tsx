@@ -199,6 +199,29 @@ describe("marketplace SSR routes", () => {
     expect(result.item?.title).toBe("Charizard ex");
   });
 
+  it("returns a not-found item detail payload when the marketplace API errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "Item not found." }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const result = await itemLoader({
+      request: new Request("http://localhost/items/missing-item"),
+      params: { id: "missing-item" },
+      context: undefined,
+    } as never);
+
+    expect(result.notFound).toBe(true);
+    expect(result.item).toBeNull();
+  });
+
   it("loads account detail through the identity API", async () => {
     vi.stubGlobal(
       "fetch",

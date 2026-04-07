@@ -1,26 +1,36 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import pg from "pg";
 import { Hono } from "hono";
 import { module as catalogModule } from "@chase-sets/catalog";
-import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import {
-  type PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+  bootstrapContextDatabase,
+  drainContextProcesses,
+  resolveModuleProjectionGroups,
+  resolveModuleSubscriptions,
+} from "@chase-sets/bounded-context-runtime";
+import {
+  closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildDiscoveryApi } from "../../api";
 import { rebuildDiscoverySearchIndex } from "../../items/search/projection";
 import { createDiscoveryServices } from "../../services";
 import { module as discoveryModule } from "../..";
 
-const databaseUrl = process.env.DATABASE_URL;
-const describeWithDatabase = databaseUrl ? describe : describe.skip;
+const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
+const discoveryContextNames = ["catalog", "discovery"] as const;
 
-function requireDatabaseUrl(): string {
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required for database-backed discovery tests.");
+function requireDatabaseBaseUrl(): string {
+  if (!databaseBaseUrl) {
+    throw new Error("TEST_DATABASE_URL is required for database-backed discovery tests.");
   }
 
-  return databaseUrl;
+  return databaseBaseUrl;
 }
 
 const context: EventStoreContext = {
@@ -31,36 +41,13 @@ const context: EventStoreContext = {
   },
 };
 
-let pool: PgTransactionalPool;
 let catalogServices: ReturnType<typeof catalogModule.createServices>;
 let discoveryServices: ReturnType<typeof createDiscoveryServices>;
+let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 let app: Hono;
-
-function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
-}
-
-async function recreateSchema() {
-  await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(
-    composeSchemaSql([
-      catalogModule,
-      discoveryModule,
-    ]),
-  );
-}
-
-async function drainProjectors() {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of discoveryServices.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
+let pools: Readonly<
+  Record<(typeof discoveryContextNames)[number], PgTransactionalPool>
+>;
 
 async function sendCommand<Command>(
   handler: (input: { streamId: string; command: Command; context: EventStoreContext }) => Promise<unknown>,
@@ -81,19 +68,49 @@ const itemSeed = {
 
 describeWithDatabase("marketplace search", () => {
   beforeAll(async () => {
-    pool = createPool(requireDatabaseUrl());
-    catalogServices = catalogModule.createServices(pool, undefined);
-    discoveryServices = createDiscoveryServices(pool);
+    const databaseUrls = createMultiContextTestDatabaseUrls(
+      requireDatabaseBaseUrl(),
+      discoveryContextNames,
+      "discovery_acceptance",
+    );
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls);
+    catalogServices = catalogModule.createServices(pools.catalog, undefined);
+    discoveryServices = createDiscoveryServices(pools.discovery);
+    const mountedContexts = [
+      {
+        contextName: "catalog",
+        module: catalogModule,
+        services: catalogServices,
+        pool: pools.catalog,
+        projectors: catalogModule.projectors(catalogServices),
+      },
+      {
+        contextName: "discovery",
+        module: discoveryModule,
+        services: discoveryServices,
+        pool: pools.discovery,
+        projectors: discoveryModule.projectors(discoveryServices),
+      },
+    ] as const;
+    subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
+    const projectionGroups = resolveModuleProjectionGroups(
+      mountedContexts,
+      subscriptionRunners,
+    );
+    void projectionGroups;
     app = new Hono();
     app.route("/api/marketplace", buildDiscoveryApi(discoveryServices));
   });
 
   beforeEach(async () => {
-    await recreateSchema();
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(catalogModule, pools.catalog);
+    await bootstrapContextDatabase(discoveryModule, pools.discovery);
   });
 
   afterAll(async () => {
-    await (pool as unknown as { end: () => Promise<void> }).end();
+    await closeMultiContextTestPools(pools);
   });
 
   it("indexes catalog facts into discovery search and item detail slices", async () => {
@@ -215,7 +232,10 @@ describeWithDatabase("marketplace search", () => {
       requiredFieldIds: [itemSeed.fieldId as never],
     });
 
-    await drainProjectors();
+    await drainContextProcesses({
+      projectors: discoveryServices.projectors,
+      subscriptionRunners,
+    });
 
     const searchResponse = await app.request("/api/marketplace/items?search=charizard");
     expect(searchResponse.status).toBe(200);
@@ -441,7 +461,10 @@ describeWithDatabase("marketplace search", () => {
       requiredFieldIds: [ids.setFieldId as never, ids.packCountFieldId as never],
     });
 
-    await drainProjectors();
+    await drainContextProcesses({
+      projectors: discoveryServices.projectors,
+      subscriptionRunners,
+    });
 
     const cardResponse = await app.request(`/api/marketplace/items/${ids.cardItemId}`);
     expect(cardResponse.status).toBe(200);
@@ -462,12 +485,12 @@ describeWithDatabase("marketplace search", () => {
   });
 
   it("can rebuild the search index idempotently", async () => {
-    await pool.query(`INSERT INTO discovery_search_catalog_items (item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
+    await pools.discovery.query(`INSERT INTO discovery_search_catalog_items (item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
 
-    await rebuildDiscoverySearchIndex(pool);
-    await rebuildDiscoverySearchIndex(pool);
+    await rebuildDiscoverySearchIndex(pools.discovery);
+    await rebuildDiscoverySearchIndex(pools.discovery);
 
-    const result = await pool.query(`SELECT COUNT(*) AS count FROM discovery_search_items WHERE item_id = 'cat_test'`);
+    const result = await pools.discovery.query(`SELECT COUNT(*) AS count FROM discovery_search_items WHERE item_id = 'cat_test'`);
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });

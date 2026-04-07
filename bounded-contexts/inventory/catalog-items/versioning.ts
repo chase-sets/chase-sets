@@ -1,17 +1,38 @@
-import {
-  type CatalogSelectionEntry,
-  type CatalogVersionChoice as InventoryVersionChoice,
-  type CatalogVersionDimension as InventoryVersionDimension,
-  type CatalogVersionSchema as InventoryVersionSchema,
-} from "@chase-sets/catalog/integration/sellable-units";
 import { assert } from "../common";
 
-export type {
-  InventoryVersionChoice,
-  InventoryVersionDimension,
-  InventoryVersionSchema,
-};
-export type InventoryVersionSelectionEntry = CatalogSelectionEntry;
+export type InventoryVersionSelectionEntry = Readonly<{
+  dimensionId: string;
+  choiceId: string;
+}>;
+
+export type InventoryVersionApplicabilityClause = Readonly<{
+  dimensionId: string;
+  choiceIds: string[];
+}>;
+
+export type InventoryVersionChoice = Readonly<{
+  choiceId: string;
+  code: string;
+  labels?: Array<{ locale: string; value: string }>;
+}>;
+
+export type InventoryVersionDimension = Readonly<{
+  dimensionId: string;
+  dimensionName: string;
+  required: boolean;
+  appliesWhen: InventoryVersionApplicabilityClause[];
+  allowedChoices: InventoryVersionChoice[];
+}>;
+
+export type InventoryVersionSchema = Readonly<{
+  canonicalDimensionOrder: Array<{ dimensionId: string; dimensionName: string }>;
+  dimensions: InventoryVersionDimension[];
+}>;
+
+export type InventoryCatalogVersionDescriptor = Readonly<{
+  catalogVersionKey: string;
+  selection: InventoryVersionSelectionEntry[];
+}>;
 
 export function toInventoryRecordVersionSchema(
   schema: InventoryVersionSchema | null,
@@ -146,6 +167,32 @@ export function parseVersionSelectionInput(
   }
 
   return [];
+}
+
+export function createInventoryCatalogVersionDescriptor(input: Readonly<{
+  catalogItemId: string;
+  versionSchema: InventoryVersionSchema | null;
+  selection: readonly InventoryVersionSelectionEntry[];
+}>): InventoryCatalogVersionDescriptor {
+  const catalogItemId = input.catalogItemId.trim();
+  assert(catalogItemId.length > 0, "Catalog item id is required.");
+
+  const selection = validateVersionSelection(input.versionSchema, input.selection);
+  if (!input.versionSchema || input.versionSchema.dimensions.length === 0) {
+    return {
+      catalogVersionKey: `${catalogItemId}::`,
+      selection: [],
+    };
+  }
+
+  const selections = selectionEntriesToRecord(selection);
+
+  return {
+    catalogVersionKey: `${catalogItemId}::${input.versionSchema.canonicalDimensionOrder
+      .map((entry) => `${entry.dimensionId}:${selections[entry.dimensionId] ?? "-"}`)
+      .join("|")}`,
+    selection: recordToSelectionEntries(input.versionSchema, selections),
+  };
 }
 
 export function validateVersionSelection(

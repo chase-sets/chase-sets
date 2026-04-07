@@ -1,4 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { ShipmentStatus } from "@chase-sets/fulfillment/common";
 import { fulfillmentReservedSeedIds } from "@chase-sets/fulfillment/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createFulfillmentServices } from "./services";
@@ -43,6 +44,20 @@ async function drainProjectors(projectors: readonly Projector[]) {
   } while (processed > 0);
 }
 
+async function getShipmentStatus(
+  pool: PgTransactionalPool,
+  shipmentId: string,
+): Promise<ShipmentStatus | null> {
+  const result = await pool.query<{ status: ShipmentStatus }>(
+    `SELECT status
+     FROM fulfillment_shipment_pages
+     WHERE shipment_id = $1`,
+    [shipmentId],
+  );
+
+  return result.rows[0]?.status ?? null;
+}
+
 async function loadReferenceOrder(pool: PgTransactionalPool): Promise<OrderSnapshot> {
   const orderResult = await pool.query<{
     order_id: string;
@@ -51,7 +66,7 @@ async function loadReferenceOrder(pool: PgTransactionalPool): Promise<OrderSnaps
     shipping_option: string;
   }>(
     `SELECT order_id, buyer_account_id, seller_account_id, shipping_option
-     FROM ordering_order_pages
+     FROM fulfillment_order_sources
      WHERE status = 'ready-for-fulfillment'
      ORDER BY updated_at ASC, order_id ASC
      LIMIT 1`,
@@ -70,7 +85,7 @@ async function loadReferenceOrder(pool: PgTransactionalPool): Promise<OrderSnaps
        item_subtitle,
        version_summary,
        quantity
-     FROM ordering_order_line_pages
+     FROM fulfillment_order_source_lines
      WHERE order_id = $1
      ORDER BY line_index ASC, line_id ASC`,
     [order.order_id],
@@ -84,13 +99,17 @@ async function loadReferenceOrder(pool: PgTransactionalPool): Promise<OrderSnaps
 
 export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
   const services = createFulfillmentServices(pool);
+  const reservedShipmentIds = Object.values(fulfillmentReservedSeedIds.shipments);
 
   try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) AS count FROM fulfillment_shipment_pages",
+    const existing = await services.db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM fulfillment_shipment_pages
+       WHERE shipment_id = ANY($1::text[])`,
+      [reservedShipmentIds],
     );
-    if (Number(existing.rows[0]?.count ?? 0) > 0) {
-      console.log("Fulfillment already contains data. Skipping seed.");
+    if (Number(existing.rows[0]?.count ?? 0) === reservedShipmentIds.length) {
+      console.log("Fulfillment already contains seed data. Skipping seed.");
       return;
     }
   } catch {
@@ -100,7 +119,12 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
   const order = await loadReferenceOrder(pool);
   const context = createSeedContext();
 
-  const createShipment = async (shipmentId: string, createdAt: string) => {
+  const ensureShipmentCreated = async (shipmentId: string, createdAt: string) => {
+    const existingStatus = await getShipmentStatus(pool, shipmentId);
+    if (existingStatus) {
+      return existingStatus;
+    }
+
     await services.shipments.commandHandler({
       streamId: `fulfillment.shipment-${shipmentId}`,
       command: {
@@ -124,194 +148,169 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
       },
       context,
     });
-
     await drainProjectors(services.projectors);
+
+    return getShipmentStatus(pool, shipmentId);
   };
 
-  await createShipment(
+  const ensureShipmentPacked = async (shipmentId: string, createdAt: string) => {
+    let status = await ensureShipmentCreated(shipmentId, createdAt);
+
+    if (status === "awaiting-package") {
+      await services.shipments.packShipment(
+        {
+          shipmentId,
+          sellerAccountId: order.seller_account_id,
+          packageCount: 1,
+        },
+        context,
+      );
+      await drainProjectors(services.projectors);
+      status = await getShipmentStatus(pool, shipmentId);
+    }
+
+    return status;
+  };
+
+  const ensureShipmentLabeled = async (
+    shipmentId: string,
+    createdAt: string,
+    labelReference: string,
+    trackingIdentifier: string,
+  ) => {
+    let status = await ensureShipmentPacked(shipmentId, createdAt);
+
+    if (status === "awaiting-label") {
+      await services.shipments.attachLabel(
+        {
+          shipmentId,
+          sellerAccountId: order.seller_account_id,
+          shippingMethod: "standard",
+          carrierName: "UPS",
+          labelReference,
+          trackingIdentifier,
+        },
+        context,
+      );
+      await drainProjectors(services.projectors);
+      status = await getShipmentStatus(pool, shipmentId);
+    }
+
+    return status;
+  };
+
+  const ensureShipmentDispatched = async (
+    shipmentId: string,
+    createdAt: string,
+    labelReference: string,
+    trackingIdentifier: string,
+  ) => {
+    let status = await ensureShipmentLabeled(
+      shipmentId,
+      createdAt,
+      labelReference,
+      trackingIdentifier,
+    );
+
+    if (status === "label-attached") {
+      await services.shipments.dispatchShipment(
+        {
+          shipmentId,
+          sellerAccountId: order.seller_account_id,
+        },
+        context,
+      );
+      await drainProjectors(services.projectors);
+      status = await getShipmentStatus(pool, shipmentId);
+    }
+
+    return status;
+  };
+
+  await ensureShipmentPacked(
     fulfillmentReservedSeedIds.shipments.awaitingLabel,
     "2026-03-22T10:00:00.000Z",
   );
-  await services.shipments.packShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.awaitingLabel,
-      sellerAccountId: order.seller_account_id,
-      packageCount: 1,
-    },
-    context,
-  );
 
-  await createShipment(
+  await ensureShipmentLabeled(
     fulfillmentReservedSeedIds.shipments.labelAttached,
     "2026-03-22T10:10:00.000Z",
-  );
-  await services.shipments.packShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.labelAttached,
-      sellerAccountId: order.seller_account_id,
-      packageCount: 1,
-    },
-    context,
-  );
-  await services.shipments.attachLabel(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.labelAttached,
-      sellerAccountId: order.seller_account_id,
-      shippingMethod: "standard",
-      carrierName: "UPS",
-      labelReference: "lbl_seed_label_attached",
-      trackingIdentifier: "1ZSEEDLABELATTACHED",
-    },
-    context,
+    "lbl_seed_label_attached",
+    "1ZSEEDLABELATTACHED",
   );
 
-  await createShipment(
+  await ensureShipmentDispatched(
     fulfillmentReservedSeedIds.shipments.dispatchedShipment,
     "2026-03-22T10:20:00.000Z",
-  );
-  await services.shipments.packShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.dispatchedShipment,
-      sellerAccountId: order.seller_account_id,
-      packageCount: 1,
-    },
-    context,
-  );
-  await services.shipments.attachLabel(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.dispatchedShipment,
-      sellerAccountId: order.seller_account_id,
-      shippingMethod: "standard",
-      carrierName: "UPS",
-      labelReference: "lbl_seed_dispatched",
-      trackingIdentifier: "1ZSEEDDISPATCHED",
-    },
-    context,
-  );
-  await services.shipments.dispatchShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.dispatchedShipment,
-      sellerAccountId: order.seller_account_id,
-    },
-    context,
+    "lbl_seed_dispatched",
+    "1ZSEEDDISPATCHED",
   );
 
-  await createShipment(
+  let deliveredStatus = await ensureShipmentDispatched(
     fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
     "2026-03-22T10:30:00.000Z",
+    "lbl_seed_demo_charizard",
+    "1ZSEEDDELIVERED",
   );
-  await services.shipments.packShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
-      sellerAccountId: order.seller_account_id,
-      packageCount: 1,
-    },
-    context,
-  );
-  await services.shipments.attachLabel(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
-      sellerAccountId: order.seller_account_id,
-      shippingMethod: "standard",
-      carrierName: "UPS",
-      labelReference: "lbl_seed_demo_charizard",
-      trackingIdentifier: "1ZSEEDDELIVERED",
-    },
-    context,
-  );
-  await services.shipments.dispatchShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
-      sellerAccountId: order.seller_account_id,
-    },
-    context,
-  );
-  await services.shipments.deliverShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
-      sellerAccountId: order.seller_account_id,
-    },
-    context,
-  );
+  if (deliveredStatus === "dispatched" || deliveredStatus === "exception") {
+    await services.shipments.deliverShipment(
+      {
+        shipmentId: fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
+        sellerAccountId: order.seller_account_id,
+      },
+      context,
+    );
+    await drainProjectors(services.projectors);
+    deliveredStatus = await getShipmentStatus(
+      pool,
+      fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
+    );
+  }
 
-  await createShipment(
+  let returnedStatus = await ensureShipmentDispatched(
     fulfillmentReservedSeedIds.shipments.returnedShipment,
     "2026-03-22T10:40:00.000Z",
+    "lbl_seed_returned",
+    "1ZSEEDRETURNED",
   );
-  await services.shipments.packShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.returnedShipment,
-      sellerAccountId: order.seller_account_id,
-      packageCount: 1,
-    },
-    context,
-  );
-  await services.shipments.attachLabel(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.returnedShipment,
-      sellerAccountId: order.seller_account_id,
-      shippingMethod: "standard",
-      carrierName: "UPS",
-      labelReference: "lbl_seed_returned",
-      trackingIdentifier: "1ZSEEDRETURNED",
-    },
-    context,
-  );
-  await services.shipments.dispatchShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.returnedShipment,
-      sellerAccountId: order.seller_account_id,
-    },
-    context,
-  );
-  await services.shipments.returnShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.returnedShipment,
-      sellerAccountId: order.seller_account_id,
-      reason: "Carrier return to sender",
-    },
-    context,
-  );
+  if (returnedStatus === "dispatched" || returnedStatus === "exception") {
+    await services.shipments.returnShipment(
+      {
+        shipmentId: fulfillmentReservedSeedIds.shipments.returnedShipment,
+        sellerAccountId: order.seller_account_id,
+        reason: "Carrier return to sender",
+      },
+      context,
+    );
+    await drainProjectors(services.projectors);
+    returnedStatus = await getShipmentStatus(
+      pool,
+      fulfillmentReservedSeedIds.shipments.returnedShipment,
+    );
+  }
 
-  await createShipment(
+  let exceptionStatus = await ensureShipmentDispatched(
     fulfillmentReservedSeedIds.shipments.exceptionShipment,
     "2026-03-22T10:50:00.000Z",
+    "lbl_seed_exception",
+    "1ZSEEDEXCEPTION",
   );
-  await services.shipments.packShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.exceptionShipment,
-      sellerAccountId: order.seller_account_id,
-      packageCount: 1,
-    },
-    context,
-  );
-  await services.shipments.attachLabel(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.exceptionShipment,
-      sellerAccountId: order.seller_account_id,
-      shippingMethod: "standard",
-      carrierName: "UPS",
-      labelReference: "lbl_seed_exception",
-      trackingIdentifier: "1ZSEEDEXCEPTION",
-    },
-    context,
-  );
-  await services.shipments.dispatchShipment(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.exceptionShipment,
-      sellerAccountId: order.seller_account_id,
-    },
-    context,
-  );
-  await services.shipments.raiseShipmentException(
-    {
-      shipmentId: fulfillmentReservedSeedIds.shipments.exceptionShipment,
-      sellerAccountId: order.seller_account_id,
-      exceptionType: "carrier-delay",
-      notes: "Missed origin scan handoff.",
-    },
-    context,
-  );
+  if (
+    exceptionStatus !== "exception" &&
+    exceptionStatus !== "delivered" &&
+    exceptionStatus !== "returned"
+  ) {
+    await services.shipments.raiseShipmentException(
+      {
+        shipmentId: fulfillmentReservedSeedIds.shipments.exceptionShipment,
+        sellerAccountId: order.seller_account_id,
+        exceptionType: "carrier-delay",
+        notes: "Missed origin scan handoff.",
+      },
+      context,
+    );
+    await drainProjectors(services.projectors);
+  }
 
   await drainProjectors(services.projectors);
 }

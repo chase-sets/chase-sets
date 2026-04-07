@@ -1,5 +1,4 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { resolveSellableUnitDescriptor } from "@chase-sets/catalog/integration/sellable-units";
 import {
   catalogSeedIds,
   type SeedCatalogItemId,
@@ -11,6 +10,7 @@ import {
   type SeedInventoryRecordId,
   type SeedStorageLocationId,
 } from "@chase-sets/inventory/seed-support/ids";
+import { createInventoryCatalogVersionDescriptor } from "./catalog-items/versioning";
 import { createInventoryServices } from "./services";
 import { drainProjectors, sendSeedCommand } from "./seed-support/context";
 
@@ -236,7 +236,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       throw new Error(`Inventory seed could not load catalog item ${record.catalogItemId}.`);
     }
 
-    const sellableUnit = resolveSellableUnitDescriptor({
+    const catalogVersion = createInventoryCatalogVersionDescriptor({
       catalogItemId: record.catalogItemId,
       versionSchema: catalogItem.version_schema,
       selection: record.versionSelection,
@@ -247,8 +247,8 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       recordId: record.recordId,
       accountId: demoIdentitySeedIds.accountId,
       catalogItemId: record.catalogItemId,
-      catalogVersionKey: sellableUnit.catalogVersionKey,
-      versionSelection: sellableUnit.selection,
+      catalogVersionKey: catalogVersion.catalogVersionKey,
+      versionSelection: catalogVersion.selection,
       storageLocationId: record.storageLocationId,
       totalQuantity: record.totalQuantity,
       acquisitionCostAmount: record.acquisitionCostAmount,

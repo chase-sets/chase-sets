@@ -1,6 +1,10 @@
 export { default as contextManifest } from "./context.json";
 
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import type {
+  BcApiModule,
+  BcEventSubscriptionDeclaration,
+  BcProjectionGroupDeclaration,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { SettlementServices } from "./services";
@@ -8,6 +12,31 @@ import { buildSettlementApi } from "./api";
 import { createSettlementServices } from "./services";
 import { settlementSchemaSql } from "./schema";
 import { seedSettlementDatabase } from "./seed";
+import { buildSettlementPaymentInputProjectionHandlers } from "./wallets/payment-source-projection";
+
+const eventSubscriptions =
+  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups =
+  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+
+function getEventSubscription(
+  sourceContextName: string,
+  projectionName: string,
+): BcEventSubscriptionDeclaration {
+  const declaration = eventSubscriptions.find(
+    (entry) =>
+      entry.sourceContextName === sourceContextName &&
+      entry.projectionName === projectionName,
+  );
+
+  if (!declaration) {
+    throw new Error(
+      `Settlement is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
+    );
+  }
+
+  return declaration;
+}
 
 export const module: BcApiModule<SettlementServices, PgTransactionalPool, void> = {
   contextName: "settlement",
@@ -15,8 +44,28 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, void> 
   streamPrefix: "settlement.",
   schemaSql: settlementSchemaSql,
   apiMounts: contextManifest.apiMounts as BcApiModule<SettlementServices, PgTransactionalPool, void>["apiMounts"],
+  projectionGroups,
   createServices: (pool) => createSettlementServices(pool),
   buildApis: (services) => [buildSettlementApi(services)],
   projectors: (services) => services.projectors,
+  buildSubscriptions: (services) => {
+    const paymentsSubscription = getEventSubscription(
+      "payments",
+      "settlement-payment-input-projection",
+    );
+
+    return [
+      {
+        subscriptionName: "settlement.payment-input-projection",
+        sourceContextName: "payments",
+        projectionName: paymentsSubscription.projectionName,
+        subscriptionVersion: paymentsSubscription.subscriptionVersion,
+        handlers: buildSettlementPaymentInputProjectionHandlers(services.db),
+        eventTypes: paymentsSubscription.eventTypes,
+        streamPrefixes: paymentsSubscription.streamPrefixes,
+        order: paymentsSubscription.order,
+      },
+    ];
+  },
   seed: seedSettlementDatabase,
 };

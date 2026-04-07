@@ -4,10 +4,12 @@ import { module as identityModule } from "@chase-sets/identity";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
-  drainProjectors,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
-import { createHealthRoutes } from "@chase-sets/http-host/health";
+import {
+  createHealthRoutes,
+  type HealthProjectionReplaySummary,
+} from "@chase-sets/http-host/health";
 import { createContextApiMounts } from "./context-api-mounts.generated";
 import { errorHandler } from "./middleware/error-handler";
 import {
@@ -20,19 +22,35 @@ export type IdentityApiHostServices = Readonly<{
   identity: ReturnType<typeof identityModule.createServices>;
 }>;
 
-export function buildIdentityApp(services: IdentityApiHostServices) {
+export function buildIdentityApp(
+  services: IdentityApiHostServices,
+  options: Readonly<{
+    drain?: () => Promise<void>;
+    getProjectionReplay?: () =>
+      | HealthProjectionReplaySummary
+      | Promise<HealthProjectionReplaySummary>;
+  }> = {},
+) {
   const app = new Hono<TenantContextEnv>();
   const apiMounts = createContextApiMounts(services);
-  const projectors = [...services.identity.projectors, ...services.auth.projectors];
 
   app.onError(errorHandler);
-  app.route("/health", createHealthRoutes());
+  app.route(
+    "/health",
+    createHealthRoutes({
+      getProjectionReplay: options.getProjectionReplay,
+    }),
+  );
   attachApiMountMiddleware(
     app,
     apiMounts.map((mount) => mount.mountPath),
     createIdentityAuthMiddleware(services),
   );
-  attachWriteDrainMiddleware(app, apiMounts, () => drainProjectors(projectors));
+  attachWriteDrainMiddleware(
+    app,
+    apiMounts,
+    options.drain ?? (() => Promise.resolve()),
+  );
   mountApiRouters(app, apiMounts);
 
   return app;

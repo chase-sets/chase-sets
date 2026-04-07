@@ -1,4 +1,4 @@
-import { createForwardedAuthHeaders } from "@chase-sets/bounded-context-runtime";
+import { createForwardedAuthHeaders } from "@chase-sets/bounded-context-runtime/http";
 import { createAuthRequestApiClient } from "../request-support/api-client";
 import {
   AUTH_ACCOUNT_SELECTION_COOKIE_NAME,

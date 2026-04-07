@@ -78,6 +78,48 @@ const context = {
   },
 };
 
+type SupplyCandidate = Readonly<{
+  listingId: string;
+  sellerAccountId: string;
+  inventoryRecordId: string;
+  catalogItemId: string;
+  catalogVersionKey: string;
+  itemTitle: string;
+  itemSubtitle: string | null;
+  versionSelection: readonly unknown[];
+  versionSummary: string | null;
+  storageLocationName: string | null;
+  shipFromCode: string | null;
+  priceAmount: string;
+  availableQuantity: number;
+  updatedAt: string;
+}>;
+
+function createSupplyDb(
+  resolver: (params: readonly unknown[] | undefined) => readonly SupplyCandidate[],
+) {
+  return {
+    query: vi.fn(async (_sql: string, params?: readonly unknown[]) => ({
+      rows: resolver(params).map((candidate) => ({
+        listing_id: candidate.listingId,
+        seller_account_id: candidate.sellerAccountId,
+        inventory_record_id: candidate.inventoryRecordId,
+        catalog_item_id: candidate.catalogItemId,
+        catalog_version_key: candidate.catalogVersionKey,
+        item_title: candidate.itemTitle,
+        item_subtitle: candidate.itemSubtitle,
+        version_selection: candidate.versionSelection,
+        version_summary: candidate.versionSummary,
+        storage_location_name: candidate.storageLocationName,
+        ship_from_code: candidate.shipFromCode,
+        price_amount: candidate.priceAmount,
+        available_quantity: candidate.availableQuantity,
+        updated_at: candidate.updatedAt,
+      })),
+    })),
+  };
+}
+
 describe("ordering order runtime", () => {
   it("rejects checkout when active supply is insufficient", async () => {
     const { eventStore } = createInMemoryEventStore();
@@ -99,32 +141,30 @@ describe("ordering order runtime", () => {
       ]),
       checkout: vi.fn(async () => ({ version: 1 })),
     };
+    const db = createSupplyDb(() => [
+      {
+        listingId: "lst_1",
+        sellerAccountId: "acc_seller",
+        inventoryRecordId: "inv_1",
+        catalogItemId: "cat_1",
+        catalogVersionKey: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        versionSelection: [],
+        versionSummary: null,
+        storageLocationName: "North shelf",
+        shipFromCode: "CHI",
+        priceAmount: "10.00",
+        availableQuantity: 1,
+        updatedAt: "2026-03-31T00:00:00.000Z",
+      },
+    ]);
 
     const services = createOrderingOrderRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: {} as never,
+      db: db as never,
       carts: carts as never,
-      supplyResolver: {
-        resolveCandidates: async () => [
-          {
-            listingId: "lst_1",
-            sellerAccountId: "acc_seller" as never,
-            inventoryRecordId: "inv_1",
-            catalogItemId: "cat_1",
-            catalogVersionKey: "cat_1::",
-            itemTitle: "Charizard",
-            itemSubtitle: null,
-            versionSelection: [],
-            versionSummary: null,
-            storageLocationName: "North shelf",
-            shipFromCode: "CHI",
-            priceAmount: "10.00",
-            availableQuantity: 1,
-            updatedAt: "2026-03-31T00:00:00.000Z",
-          },
-        ],
-      },
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -132,12 +172,6 @@ describe("ordering order runtime", () => {
           discountAmount: "0.00",
           chargeAmount: "4.99",
         }),
-      },
-      inventoryReservations: {
-        createReservation: async () => {
-          throw new Error("should not reserve inventory");
-        },
-        releaseReservation: async () => {},
       },
     });
 
@@ -182,93 +216,87 @@ describe("ordering order runtime", () => {
       ]),
       checkout: vi.fn(async () => ({ version: 1 })),
     };
-    const createReservation = vi.fn(async ({ sellerAccountId, inventoryRecordId, quantity }) => ({
-      holdId: `hld_${inventoryRecordId}`,
-      inventoryRecordId,
-      sellerAccountId,
-      quantity,
-    }));
+    const db = createSupplyDb((params) => {
+      const catalogVersionKey = String(params?.[0] ?? "");
+
+      if (catalogVersionKey === "cat_1::") {
+        return [
+          {
+            listingId: "lst_a1",
+            sellerAccountId: "acc_split_a",
+            inventoryRecordId: "inv_a1",
+            catalogItemId: "cat_1",
+            catalogVersionKey: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            versionSelection: [],
+            versionSummary: null,
+            storageLocationName: "A",
+            shipFromCode: "A",
+            priceAmount: "5.00",
+            availableQuantity: 1,
+            updatedAt: "2026-03-31T00:00:00.000Z",
+          },
+          {
+            listingId: "lst_b1",
+            sellerAccountId: "acc_single",
+            inventoryRecordId: "inv_b1",
+            catalogItemId: "cat_1",
+            catalogVersionKey: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            versionSelection: [],
+            versionSummary: null,
+            storageLocationName: "B",
+            shipFromCode: "B",
+            priceAmount: "5.50",
+            availableQuantity: 1,
+            updatedAt: "2026-03-31T00:00:00.000Z",
+          },
+        ];
+      }
+
+      return [
+        {
+          listingId: "lst_c1",
+          sellerAccountId: "acc_split_c",
+          inventoryRecordId: "inv_c1",
+          catalogItemId: "cat_2",
+          catalogVersionKey: "cat_2::",
+          itemTitle: "Blastoise",
+          itemSubtitle: null,
+          versionSelection: [],
+          versionSummary: null,
+          storageLocationName: "C",
+          shipFromCode: "C",
+          priceAmount: "5.00",
+          availableQuantity: 1,
+          updatedAt: "2026-03-31T00:00:00.000Z",
+        },
+        {
+          listingId: "lst_b2",
+          sellerAccountId: "acc_single",
+          inventoryRecordId: "inv_b2",
+          catalogItemId: "cat_2",
+          catalogVersionKey: "cat_2::",
+          itemTitle: "Blastoise",
+          itemSubtitle: null,
+          versionSelection: [],
+          versionSummary: null,
+          storageLocationName: "B",
+          shipFromCode: "B",
+          priceAmount: "5.50",
+          availableQuantity: 1,
+          updatedAt: "2026-03-31T00:00:00.000Z",
+        },
+      ];
+    });
 
     const services = createOrderingOrderRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: {} as never,
+      db: db as never,
       carts: carts as never,
-      supplyResolver: {
-        resolveCandidates: async (demand) => {
-          if (demand.catalogItemId === "cat_1") {
-            return [
-              {
-                listingId: "lst_a1",
-                sellerAccountId: "acc_split_a" as never,
-                inventoryRecordId: "inv_a1",
-                catalogItemId: "cat_1",
-                catalogVersionKey: "cat_1::",
-                itemTitle: "Charizard",
-                itemSubtitle: null,
-                versionSelection: [],
-                versionSummary: null,
-                storageLocationName: "A",
-                shipFromCode: "A",
-                priceAmount: "5.00",
-                availableQuantity: 1,
-                updatedAt: "2026-03-31T00:00:00.000Z",
-              },
-              {
-                listingId: "lst_b1",
-                sellerAccountId: "acc_single" as never,
-                inventoryRecordId: "inv_b1",
-                catalogItemId: "cat_1",
-                catalogVersionKey: "cat_1::",
-                itemTitle: "Charizard",
-                itemSubtitle: null,
-                versionSelection: [],
-                versionSummary: null,
-                storageLocationName: "B",
-                shipFromCode: "B",
-                priceAmount: "5.50",
-                availableQuantity: 1,
-                updatedAt: "2026-03-31T00:00:00.000Z",
-              },
-            ];
-          }
-
-          return [
-            {
-              listingId: "lst_c1",
-              sellerAccountId: "acc_split_c" as never,
-              inventoryRecordId: "inv_c1",
-              catalogItemId: "cat_2",
-              catalogVersionKey: "cat_2::",
-              itemTitle: "Blastoise",
-              itemSubtitle: null,
-              versionSelection: [],
-              versionSummary: null,
-              storageLocationName: "C",
-              shipFromCode: "C",
-              priceAmount: "5.00",
-              availableQuantity: 1,
-              updatedAt: "2026-03-31T00:00:00.000Z",
-            },
-            {
-              listingId: "lst_b2",
-              sellerAccountId: "acc_single" as never,
-              inventoryRecordId: "inv_b2",
-              catalogItemId: "cat_2",
-              catalogVersionKey: "cat_2::",
-              itemTitle: "Blastoise",
-              itemSubtitle: null,
-              versionSelection: [],
-              versionSummary: null,
-              storageLocationName: "B",
-              shipFromCode: "B",
-              priceAmount: "5.50",
-              availableQuantity: 1,
-              updatedAt: "2026-03-31T00:00:00.000Z",
-            },
-          ];
-        },
-      },
       shippingQuotePolicy: {
         quote: ({ itemSubtotalAmount }) => ({
           shippingOption: "standard",
@@ -278,10 +306,6 @@ describe("ordering order runtime", () => {
             Number(itemSubtotalAmount) >= 11 ? "4.99" : "7.99",
         }),
       },
-      inventoryReservations: {
-        createReservation,
-        releaseReservation: async () => {},
-      },
     });
 
     const result = await services.checkoutCart(
@@ -290,27 +314,36 @@ describe("ordering order runtime", () => {
     );
 
     expect(result.orderIds).toHaveLength(1);
-    expect(createReservation).toHaveBeenCalledTimes(2);
-    expect(createReservation.mock.calls.every((call) => call[0].sellerAccountId === "acc_single"))
-      .toBe(true);
 
     const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
     expect(createdEvent?.payload).toMatchObject({
       sellerAccountId: "acc_single",
       itemSubtotalAmount: "11.00",
       totalAmount: "15.99",
+      reservationRequests: [
+        expect.objectContaining({
+          sellerAccountId: "acc_single",
+          inventoryRecordId: "inv_b1",
+          quantity: 1,
+        }),
+        expect.objectContaining({
+          sellerAccountId: "acc_single",
+          inventoryRecordId: "inv_b2",
+          quantity: 1,
+        }),
+      ],
     });
     expect(carts.checkout).toHaveBeenCalled();
   });
 
   it("constrains accepted-offer commitments to the accepting seller", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
-    const resolveCandidates = vi.fn(async (demand) => {
-      expect(demand.sellerAccountId).toBe("acc_seller");
+    const db = createSupplyDb((params) => {
+      expect(params?.[1]).toBe("acc_seller");
       return [
         {
           listingId: "lst_1",
-          sellerAccountId: "acc_seller" as never,
+          sellerAccountId: "acc_seller",
           inventoryRecordId: "inv_1",
           catalogItemId: "cat_1",
           catalogVersionKey: "cat_1::",
@@ -330,12 +363,11 @@ describe("ordering order runtime", () => {
     const services = createOrderingOrderRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: {} as never,
+      db: db as never,
       carts: {
         listCartLines: async () => [],
         checkout: async () => ({ version: 1 }),
       } as never,
-      supplyResolver: { resolveCandidates },
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -343,15 +375,6 @@ describe("ordering order runtime", () => {
           discountAmount: "0.00",
           chargeAmount: "4.99",
         }),
-      },
-      inventoryReservations: {
-        createReservation: async ({ sellerAccountId, inventoryRecordId, quantity }) => ({
-          holdId: "hld_1",
-          inventoryRecordId,
-          sellerAccountId,
-          quantity,
-        }),
-        releaseReservation: async () => {},
       },
     });
 
@@ -372,7 +395,7 @@ describe("ordering order runtime", () => {
       context,
     );
 
-    expect(resolveCandidates).toHaveBeenCalledTimes(1);
+    expect(db.query).toHaveBeenCalledTimes(1);
     const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
     expect(createdEvent?.payload).toMatchObject({
       sourceType: "offer-acceptance",
@@ -382,8 +405,7 @@ describe("ordering order runtime", () => {
   });
 
   it("releases inventory reservations when a buyer cancels a pending order", async () => {
-    const { eventStore } = createInMemoryEventStore();
-    const releaseReservation = vi.fn(async () => {});
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
 
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -450,9 +472,6 @@ describe("ordering order runtime", () => {
         listCartLines: async () => [],
         checkout: async () => ({ version: 1 }),
       } as never,
-      supplyResolver: {
-        resolveCandidates: async () => [],
-      },
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -460,15 +479,6 @@ describe("ordering order runtime", () => {
           discountAmount: "0.00",
           chargeAmount: "4.99",
         }),
-      },
-      inventoryReservations: {
-        createReservation: async ({ sellerAccountId, inventoryRecordId, quantity }) => ({
-          holdId: "hld_1",
-          inventoryRecordId,
-          sellerAccountId,
-          quantity,
-        }),
-        releaseReservation,
       },
     });
 
@@ -503,14 +513,24 @@ describe("ordering order runtime", () => {
             lineTotalAmount: "20.00",
           },
         ],
-        inventoryReservations: [
+        reservationRequests: [
           {
-            holdId: "hld_1",
+            reservationRequestId: "rsv_1",
             inventoryRecordId: "inv_1",
             sellerAccountId: "acc_seller",
             quantity: 1,
           },
         ],
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "ordering.order-ord_1",
+      command: {
+        type: "RecordReservationConfirmed",
+        reservationRequestId: "rsv_1",
+        holdId: "hld_1",
+        confirmedAt: "2026-03-31T00:00:00.000Z",
       },
       context,
     });
@@ -520,10 +540,18 @@ describe("ordering order runtime", () => {
       context,
     );
 
-    expect(releaseReservation).toHaveBeenCalledWith({
-      sellerAccountId: "acc_seller",
-      holdId: "hld_1",
-      context,
+    const cancellationEvent = readAllEvents().find(
+      (event) => event.eventType === "ordering.order.cancelled",
+    );
+    expect(cancellationEvent?.payload).toMatchObject({
+      reason: "buyer-cancelled",
+      reservationRequests: [
+        expect.objectContaining({
+          reservationRequestId: "rsv_1",
+          holdId: "hld_1",
+          status: "confirmed",
+        }),
+      ],
     });
   });
 });

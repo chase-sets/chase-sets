@@ -8,7 +8,7 @@ import {
   createForwardedAuthHeaders,
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime";
+} from "@chase-sets/bounded-context-runtime/http";
 import {
   AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
   AUTH_SESSION_COOKIE_NAME,

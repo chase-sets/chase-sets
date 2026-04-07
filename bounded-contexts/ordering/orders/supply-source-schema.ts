@@ -1,0 +1,81 @@
+export const orderingSupplySourceSchemaSql = `
+CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
+  listing_id text PRIMARY KEY,
+  seller_account_id text NOT NULL,
+  inventory_record_id text NOT NULL,
+  catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
+  item_title text NULL,
+  item_subtitle text NULL,
+  version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
+  version_summary text NULL,
+  storage_location_name text NULL,
+  ship_from_code text NULL,
+  price_amount numeric(12, 2) NOT NULL,
+  quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_lookup_idx
+  ON ordering_market_listing_inputs (catalog_version_key, status, price_amount, updated_at);
+
+CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_record_idx
+  ON ordering_market_listing_inputs (inventory_record_id, status, updated_at);
+
+CREATE TABLE IF NOT EXISTS ordering_inventory_record_inputs (
+  record_id text PRIMARY KEY,
+  seller_account_id text NOT NULL,
+  catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
+  total_quantity integer NOT NULL CHECK (total_quantity >= 0),
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS ordering_inventory_record_inputs_lookup_idx
+  ON ordering_inventory_record_inputs (seller_account_id, catalog_item_id, catalog_version_key);
+
+CREATE TABLE IF NOT EXISTS ordering_inventory_hold_inputs (
+  hold_id text PRIMARY KEY,
+  record_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  quantity integer NOT NULL CHECK (quantity >= 0),
+  status text NOT NULL,
+  released_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS ordering_inventory_hold_inputs_record_idx
+  ON ordering_inventory_hold_inputs (record_id, status);
+
+CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
+  offer_id text PRIMARY KEY,
+  buyer_account_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
+  item_title text NOT NULL,
+  item_subtitle text NULL,
+  version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
+  version_summary text NULL,
+  price_amount numeric(12, 2) NOT NULL,
+  quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
+  accepted_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ordering_payment_capture_inputs (
+  payment_id text PRIMARY KEY,
+  buyer_account_id text NOT NULL,
+  order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  amount numeric(12, 2) NOT NULL,
+  currency_code text NOT NULL,
+  processor_name text NOT NULL,
+  processor_payment_reference text NOT NULL,
+  processor_status text NOT NULL,
+  captured_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+`;

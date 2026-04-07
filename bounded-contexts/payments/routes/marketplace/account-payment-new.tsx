@@ -23,11 +23,9 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import {
-  createOrderingBuyerGateway,
-} from "@chase-sets/ordering/integration/buyer-gateway";
+import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
 import { createPaymentsRequestApiClient } from "../../request-support/api-client";
+import { createPaymentsOrderingBuyerGateway } from "../../request-support/ordering-buyer";
 
 function parseOrderIds(value: string | null) {
   return (value ?? "")
@@ -52,7 +50,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect("/account/orders");
   }
 
-  const orderingApi = createOrderingBuyerGateway(request);
+  const orderingApi = createPaymentsOrderingBuyerGateway(request);
 
   try {
     const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getBuyerOrder(orderId)));

@@ -7,6 +7,8 @@ export const marketplaceReservedSeedIds = {
     lugiaNeoGenesisDraft: "lst_seed_lugia_neo_genesis_draft" as ListingId,
     prismaticEvolutionsPaused: "lst_seed_prismatic_evolutions_paused" as ListingId,
     surgingSparksWithdrawn: "lst_seed_surging_sparks_withdrawn" as ListingId,
+    twilightMasqueradeEliteTrainerActive:
+      "lst_seed_twilight_masquerade_etb_active" as ListingId,
   },
   offers: {
     charizardBaseSetNearMint: "off_seed_charizard_base_set_nm" as OfferId,

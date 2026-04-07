@@ -10,14 +10,10 @@ import { createOrderingCartRuntime } from "./cart/runtime";
 import { createOrderingOrderRuntime } from "./orders/runtime";
 import {
   defaultShippingQuotePolicy,
-  type InventoryReservationGateway,
-  type MarketplaceSupplyResolver,
   type ShippingQuotePolicy,
 } from "./policies";
 
 export type OrderingServiceOptions = Readonly<{
-  inventoryReservations?: InventoryReservationGateway;
-  supplyResolver?: MarketplaceSupplyResolver;
   shippingQuotePolicy?: ShippingQuotePolicy;
 }>;
 
@@ -28,29 +24,6 @@ export type OrderingServices = Readonly<{
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
-
-function createMissingSupplyResolver(): MarketplaceSupplyResolver {
-  return {
-    resolveCandidates: async () => {
-      throw new Error(
-        "Ordering requires a marketplace supply resolver for checkout and order placement flows.",
-      );
-    },
-  };
-}
-
-function createMissingInventoryReservationGateway(): InventoryReservationGateway {
-  const fail = () => {
-    throw new Error(
-      "Ordering requires an inventory reservation gateway for checkout and cancellation flows.",
-    );
-  };
-
-  return {
-    createReservation: async () => fail(),
-    releaseReservation: async () => fail(),
-  };
-}
 
 export function createOrderingServices(
   pool: PgTransactionalPool,
@@ -66,11 +39,8 @@ export function createOrderingServices(
     checkpointStore,
     db,
     carts: cart,
-    supplyResolver: options.supplyResolver ?? createMissingSupplyResolver(),
     shippingQuotePolicy:
       options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
-    inventoryReservations:
-      options.inventoryReservations ?? createMissingInventoryReservationGateway(),
   });
 
   return {

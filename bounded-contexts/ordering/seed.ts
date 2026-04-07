@@ -3,16 +3,15 @@ import type {
   PgQueryable,
   PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import {
-  resolveSellableUnitDescriptor,
-  type CatalogVersionSchema,
-} from "@chase-sets/catalog/integration/sellable-units";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import { module as inventoryModule } from "@chase-sets/inventory";
-import { module as marketplaceModule } from "@chase-sets/marketplace";
-import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration/supply-resolver";
+import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import {
+  createOrderingCatalogVersionDescriptor,
+  type OrderingVersionSchema,
+} from "./common";
+import { orderingReservedSeedIds } from "./seed-support/ids";
 import { createOrderingServices } from "./services";
 
 const rawNearMintVersionSelection = [
@@ -79,18 +78,15 @@ const activeCartLines = [
 ] as const;
 
 const acceptedOfferSeed = {
-  catalogItemId: catalogSeedIds.items.pikachuJungle,
-  itemTitle: "Pikachu",
-  itemSubtitle: "Jungle 60/64 Common",
-  versionSelection: rawExcellentVersionSelection,
-  versionSummary: "Form: Raw | Condition: Excellent",
-  priceAmount: "19.25",
-  quantityRequested: 2,
+  offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
+  catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+  itemTitle: "Twilight Masquerade Elite Trainer Box",
+  itemSubtitle: "Sealed elite trainer box",
+  versionSelection: [] as const,
+  versionSummary: null,
+  priceAmount: "44.00",
+  quantityRequested: 1,
 } as const;
-
-function createSeedContext() {
-  return createSeedContextFor(identitySeedIds.seller.accountId, identitySeedIds.seller.userId);
-}
 
 function createSeedContextFor(accountId: AccountId, userId: string) {
   return {
@@ -115,31 +111,50 @@ async function drainProjectors(projectors: readonly Projector[]) {
   } while (processed > 0);
 }
 
-async function countOrderingEvents(db: PgQueryable) {
-  const result = await db.query<{ count: string }>(
-    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'ordering.%'",
+async function hasOrderPage(db: PgQueryable, orderId: string) {
+  const result = await db.query<{ exists: boolean }>(
+    "SELECT EXISTS(SELECT 1 FROM ordering_order_pages WHERE order_id = $1) AS exists",
+    [orderId],
   );
-  return Number(result.rows[0]?.count ?? 0);
+  return result.rows[0]?.exists ?? false;
+}
+
+async function hasActiveCartLines(db: PgQueryable, buyerAccountId: AccountId) {
+  const result = await db.query<{ count: string }>(
+    `SELECT COUNT(*) AS count
+     FROM ordering_cart_line_pages
+     WHERE buyer_account_id = $1`,
+    [buyerAccountId],
+  );
+  return Number(result.rows[0]?.count ?? 0) > 0;
 }
 
 async function addCartLines(
   services: ReturnType<typeof createOrderingServices>,
-  inventory: ReturnType<typeof inventoryModule.createServices>,
   buyerAccountId: AccountId,
   lines: typeof checkoutCartLines | typeof cancelledCartLines | typeof activeCartLines,
-  context: ReturnType<typeof createSeedContext>,
+  context: ReturnType<typeof createSeedContextFor>,
 ) {
   for (const line of lines) {
-    const catalogItem = await inventory.catalogItems.getCatalogItem(line.catalogItemId);
-    if (!catalogItem) {
+    const catalogItem = await services.db.query<{
+      version_schema: unknown;
+    }>(
+      `SELECT version_schema
+       FROM ordering_catalog_items
+       WHERE item_id = $1`,
+      [line.catalogItemId],
+    );
+    const versionSchema = catalogItem.rows[0]?.version_schema ?? null;
+
+    if (versionSchema === null) {
       throw new Error(`Catalog item ${line.catalogItemId} not found for ordering seed.`);
     }
 
-    const sellableUnit = resolveSellableUnitDescriptor({
+    const catalogVersion = createOrderingCatalogVersionDescriptor({
       catalogItemId: line.catalogItemId,
       versionSchema:
-        typeof catalogItem.version_schema === "object" && catalogItem.version_schema !== null
-          ? (catalogItem.version_schema as CatalogVersionSchema)
+        typeof versionSchema === "object" && versionSchema !== null
+          ? (versionSchema as OrderingVersionSchema)
           : null,
       selection: line.versionSelection,
     });
@@ -148,10 +163,10 @@ async function addCartLines(
       {
         buyerAccountId,
         catalogItemId: line.catalogItemId,
-        catalogVersionKey: sellableUnit.catalogVersionKey,
+        catalogVersionKey: catalogVersion.catalogVersionKey,
         itemTitle: line.itemTitle,
         itemSubtitle: line.itemSubtitle,
-        versionSelection: line.versionSelection,
+        versionSelection: catalogVersion.selection,
         versionSummary: line.versionSummary,
         quantity: line.quantity,
       },
@@ -160,204 +175,145 @@ async function addCartLines(
   }
 }
 
-async function getOfferAcceptanceOrderId(db: PgQueryable, offerId: string) {
-  const result = await db.query<{ order_id: string }>(
-    `SELECT order_id
-     FROM ordering_order_pages
-     WHERE source_type = 'offer-acceptance'
-       AND source_reference_id = $1
-     ORDER BY created_at DESC, order_id DESC
-     LIMIT 1`,
-    [offerId],
+async function getCatalogVersionKey(
+  services: ReturnType<typeof createOrderingServices>,
+  catalogItemId: string,
+  selection: readonly { dimensionId: string; choiceId: string }[],
+) {
+  const result = await services.db.query<{ version_schema: unknown }>(
+    `SELECT version_schema
+     FROM ordering_catalog_items
+     WHERE item_id = $1`,
+    [catalogItemId],
   );
+  const versionSchema = result.rows[0]?.version_schema;
 
-  return result.rows[0]?.order_id ?? null;
+  return createOrderingCatalogVersionDescriptor({
+    catalogItemId,
+    versionSchema:
+      typeof versionSchema === "object" && versionSchema !== null
+        ? (versionSchema as OrderingVersionSchema)
+        : null,
+    selection,
+  }).catalogVersionKey;
 }
 
 export async function seedOrderingDatabase(pool: PgTransactionalPool) {
-  const inventory = inventoryModule.createServices(pool, undefined);
-  const marketplace = marketplaceModule.createServices(pool, undefined);
-  const ordering = createOrderingServices(pool, {
-    supplyResolver: createMarketplaceSupplyResolver(marketplace),
-    inventoryReservations: {
-      createReservation: async ({
-        sellerAccountId,
-        inventoryRecordId,
-        quantity,
-        reason,
-        notes,
-        context,
-      }) => {
-        const result = await inventory.holds.createHold(
-          {
-            accountId: sellerAccountId,
-            recordId: inventoryRecordId,
-            quantity,
-            reason,
-            notes,
-          },
-          context as never,
-        );
-
-        return {
-          holdId: result.holdId,
-          inventoryRecordId,
-          sellerAccountId,
-          quantity,
-        };
-      },
-      releaseReservation: async ({ sellerAccountId, holdId, context }) => {
-        await inventory.holds.releaseHold(
-          {
-            accountId: sellerAccountId,
-            holdId,
-          },
-          context as never,
-        );
-      },
-    },
-  });
+  const ordering = createOrderingServices(pool);
+  const buyerAccountId = identitySeedIds.buyer.accountId;
 
   try {
-    if ((await countOrderingEvents(ordering.db)) > 0) {
-      console.log("Ordering already contains data. Skipping seed.");
+    const [hasCheckoutPending, hasCancelledOrder, hasAcceptedOfferOrder, hasBuyerCart] =
+      await Promise.all([
+        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending),
+        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled),
+        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady),
+        hasActiveCartLines(ordering.db, buyerAccountId),
+      ]);
+
+    if (
+      hasCheckoutPending &&
+      hasCancelledOrder &&
+      hasAcceptedOfferOrder &&
+      hasBuyerCart
+    ) {
+      console.log("Ordering already contains seed data. Skipping seed.");
       return;
     }
   } catch {
-    // Event store tables may not exist yet. Proceed with seeding.
+    // Tables may not exist yet. Proceed with seeding.
   }
 
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
+  await drainProjectors(ordering.projectors);
 
   console.log("Starting ordering development seed...\n");
 
-  const context = createSeedContext();
-  const sellerContext = context;
   const buyerContext = createSeedContextFor(
     identitySeedIds.buyer.accountId,
     identitySeedIds.buyer.userId,
   );
-  const buyerAccountId = identitySeedIds.buyer.accountId;
-
-  await addCartLines(ordering, inventory, buyerAccountId, checkoutCartLines, buyerContext);
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
-  const checkoutResult = await ordering.orders.checkoutCart(
-    {
-      buyerAccountId,
-      shippingOption: "standard",
-    },
-    buyerContext,
+  const sellerContext = createSeedContextFor(
+    identitySeedIds.seller.accountId,
+    identitySeedIds.seller.userId,
   );
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
-  console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
 
-  await addCartLines(ordering, inventory, buyerAccountId, cancelledCartLines, buyerContext);
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
-  const cancelledOrderResult = await ordering.orders.checkoutCart(
-    {
-      buyerAccountId,
-      shippingOption: "expedited",
-    },
-    buyerContext,
-  );
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
-
-  const cancelledOrderId = cancelledOrderResult.orderIds[0];
-  if (!cancelledOrderId) {
-    throw new Error("Ordering demo seed could not create the cancellable order.");
+  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
+    await addCartLines(ordering, buyerAccountId, checkoutCartLines, buyerContext);
+    await drainProjectors(ordering.projectors);
+    const checkoutResult = await ordering.orders.checkoutCart(
+      {
+        buyerAccountId,
+        shippingOption: "standard",
+        orderIdsOverride: [orderingReservedSeedIds.orders.checkoutPending],
+      },
+      buyerContext,
+    );
+    await drainProjectors(ordering.projectors);
+    console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
   }
 
-  await ordering.orders.cancelBuyerOrder(
-    {
-      orderId: cancelledOrderId,
-      buyerAccountId,
-    },
-    buyerContext,
-  );
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
-  console.log(`  Cancelled order seeded (${cancelledOrderId})`);
+  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled))) {
+    await addCartLines(ordering, buyerAccountId, cancelledCartLines, buyerContext);
+    await drainProjectors(ordering.projectors);
+    const cancelledOrderResult = await ordering.orders.checkoutCart(
+      {
+        buyerAccountId,
+        shippingOption: "expedited",
+        orderIdsOverride: [orderingReservedSeedIds.orders.cancelled],
+      },
+      buyerContext,
+    );
+    await drainProjectors(ordering.projectors);
 
-  const acceptedOffer = await marketplace.offers.submitOffer(
-    {
-      buyerAccountId,
-      catalogItemId: acceptedOfferSeed.catalogItemId,
-      catalogVersionKey: resolveSellableUnitDescriptor({
+    const cancelledOrderId = cancelledOrderResult.orderIds[0];
+    if (!cancelledOrderId) {
+      throw new Error("Ordering demo seed could not create the cancellable order.");
+    }
+
+    await ordering.orders.cancelBuyerOrder(
+      {
+        orderId: cancelledOrderId,
+        buyerAccountId,
+      },
+      buyerContext,
+    );
+    await drainProjectors(ordering.projectors);
+    console.log(`  Cancelled order seeded (${cancelledOrderId})`);
+  }
+
+  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady))) {
+    await ordering.orders.createOrdersFromAcceptedOffer(
+      {
+        offerId: acceptedOfferSeed.offerId,
+        buyerAccountId,
+        sellerAccountId: identitySeedIds.seller.accountId,
         catalogItemId: acceptedOfferSeed.catalogItemId,
-        versionSchema: (
-          (
-            await inventory.catalogItems.getCatalogItem(acceptedOfferSeed.catalogItemId)
-          )?.version_schema ?? null
-        ) as CatalogVersionSchema | null,
-        selection: acceptedOfferSeed.versionSelection,
-      }).catalogVersionKey,
-      itemTitle: acceptedOfferSeed.itemTitle,
-      itemSubtitle: acceptedOfferSeed.itemSubtitle,
-      versionSelection: acceptedOfferSeed.versionSelection,
-      versionSummary: acceptedOfferSeed.versionSummary,
-      priceAmount: acceptedOfferSeed.priceAmount,
-      quantityRequested: acceptedOfferSeed.quantityRequested,
-    },
-    buyerContext,
-  );
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
-
-  await marketplace.offers.acceptOffer(
-    {
-      offerId: acceptedOffer.offerId,
-      sellerAccountId: identitySeedIds.seller.accountId,
-    },
-    sellerContext,
-  );
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
-
-  const acceptedOfferOrderId = await getOfferAcceptanceOrderId(
-    ordering.db,
-    acceptedOffer.offerId,
-  );
-  if (!acceptedOfferOrderId) {
-    throw new Error("Ordering demo seed could not create the accepted-offer order.");
+        catalogVersionKey: await getCatalogVersionKey(
+          ordering,
+          acceptedOfferSeed.catalogItemId,
+          acceptedOfferSeed.versionSelection,
+        ),
+        itemTitle: acceptedOfferSeed.itemTitle,
+        itemSubtitle: acceptedOfferSeed.itemSubtitle,
+        versionSelection: [...acceptedOfferSeed.versionSelection],
+        versionSummary: acceptedOfferSeed.versionSummary,
+        priceAmount: acceptedOfferSeed.priceAmount,
+        quantityRequested: acceptedOfferSeed.quantityRequested,
+        orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
+      },
+      sellerContext,
+    );
+    await drainProjectors(ordering.projectors);
+    console.log(
+      `  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`,
+    );
   }
-  console.log(`  Accepted-offer order seeded (${acceptedOfferOrderId})`);
 
-  await addCartLines(ordering, inventory, buyerAccountId, activeCartLines, buyerContext);
-  await drainProjectors([
-    ...inventory.projectors,
-    ...marketplace.projectors,
-    ...ordering.projectors,
-  ]);
-  console.log(`  Active cart seeded for ${buyerAccountId}`);
+  if (!(await hasActiveCartLines(ordering.db, buyerAccountId))) {
+    await addCartLines(ordering, buyerAccountId, activeCartLines, buyerContext);
+    await drainProjectors(ordering.projectors);
+    console.log(`  Active cart seeded for ${buyerAccountId}`);
+  }
 
   console.log("\nOrdering seed complete!");
 }

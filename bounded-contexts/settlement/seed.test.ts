@@ -1,48 +1,143 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import pg from "pg";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  closeMultiContextTestPools,
+  createMountedContextTestRuntime,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+  seedMountedContextTestRuntimeIfEmpty,
+} from "@chase-sets/bounded-context-runtime/test-support";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { module as discoveryModule } from "@chase-sets/discovery";
+import { module as fulfillmentModule } from "@chase-sets/fulfillment";
+import { module as identityModule } from "@chase-sets/identity";
+import { module as inventoryModule } from "@chase-sets/inventory";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as orderingModule } from "@chase-sets/ordering";
+import { module as paymentsModule } from "@chase-sets/payments";
+import { createFakePaymentProcessorGateway } from "../payments/fake-gateway";
+import { module as pricingModule } from "@chase-sets/pricing";
+import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from ".";
 
-const databaseUrl = process.env.DATABASE_URL;
-const describeWithDatabase = databaseUrl ? describe : describe.skip;
+const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
+const marketplaceContextNames = [
+  "catalog",
+  "discovery",
+  "fulfillment",
+  "identity",
+  "inventory",
+  "marketplace",
+  "ordering",
+  "payments",
+  "pricing",
+  "reputation",
+  "settlement",
+] as const;
+const marketplaceLifecycleContextOrder = [
+  "catalog",
+  "discovery",
+  "identity",
+  "inventory",
+  "marketplace",
+  "ordering",
+  "payments",
+  "fulfillment",
+  "pricing",
+  "reputation",
+  "settlement",
+] as const;
 
-function requireDatabaseUrl(): string {
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required for database-backed settlement seed tests.");
+type MarketplaceSeedRuntimePools = Readonly<
+  Record<(typeof marketplaceContextNames)[number], PgTransactionalPool>
+>;
+
+function requireDatabaseBaseUrl(): string {
+  if (!databaseBaseUrl) {
+    throw new Error("TEST_DATABASE_URL is required for database-backed settlement seed tests.");
   }
 
-  return databaseUrl;
+  return databaseBaseUrl;
 }
 
-function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
-}
-
-async function recreateSchema(pool: PgTransactionalPool) {
-  await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-  await pool.query(settlementModule.schemaSql);
+function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools) {
+  return createMountedContextTestRuntime([
+    { contextName: "catalog", module: catalogModule, pool: pools.catalog, ports: undefined },
+    { contextName: "discovery", module: discoveryModule, pool: pools.discovery, ports: undefined },
+    {
+      contextName: "fulfillment",
+      module: fulfillmentModule,
+      pool: pools.fulfillment,
+      ports: undefined,
+    },
+    { contextName: "identity", module: identityModule, pool: pools.identity, ports: undefined },
+    { contextName: "inventory", module: inventoryModule, pool: pools.inventory, ports: undefined },
+    {
+      contextName: "marketplace",
+      module: marketplaceModule,
+      pool: pools.marketplace,
+      ports: undefined,
+    },
+    {
+      contextName: "ordering",
+      module: orderingModule,
+      pool: pools.ordering,
+      ports: undefined,
+    },
+    {
+      contextName: "payments",
+      module: paymentsModule,
+      pool: pools.payments,
+      ports: {
+        processorGateway: createFakePaymentProcessorGateway(),
+      },
+    },
+    { contextName: "pricing", module: pricingModule, pool: pools.pricing, ports: undefined },
+    {
+      contextName: "reputation",
+      module: reputationModule,
+      pool: pools.reputation,
+      ports: undefined,
+    },
+    {
+      contextName: "settlement",
+      module: settlementModule,
+      pool: pools.settlement,
+      ports: undefined,
+    },
+  ] as const);
 }
 
 describeWithDatabase("settlement seed", () => {
-  let pool: PgTransactionalPool;
+  let pools: MarketplaceSeedRuntimePools;
 
-  beforeAll(() => {
-    pool = createPool(requireDatabaseUrl());
+  beforeAll(async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(
+      requireDatabaseBaseUrl(),
+      marketplaceContextNames,
+      "settlement_seed",
+    );
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls) as MarketplaceSeedRuntimePools;
   });
 
   beforeEach(async () => {
-    await recreateSchema(pool);
-  });
+    await resetMultiContextTestSchemas(pools);
+  }, 40_000);
 
   afterAll(async () => {
-    await (pool as unknown as { end: () => Promise<void> }).end();
+    await closeMultiContextTestPools(pools);
   });
 
   it("creates deterministic wallet and payout projections", async () => {
-    await settlementModule.seed?.(pool);
+    const runtime = createMarketplaceSeedRuntime(pools);
+    await seedMountedContextTestRuntimeIfEmpty(runtime, marketplaceLifecycleContextOrder);
 
-    const wallet = await pool.query<{
+    const wallet = await pools.settlement.query<{
       pending_balance_amount: string;
       available_balance_amount: string;
     }>(
@@ -56,20 +151,20 @@ describeWithDatabase("settlement seed", () => {
       available_balance_amount: "100.00",
     });
 
-    const payoutStatuses = await pool.query<{ status: string }>(
+    const payoutStatuses = await pools.settlement.query<{ status: string }>(
       "SELECT status FROM settlement_payout_pages ORDER BY payout_id ASC",
     );
     expect(new Set(payoutStatuses.rows.map((row) => row.status))).toEqual(
       new Set(["completed", "failed"]),
     );
 
-    const before = await pool.query<{ count: string }>(
+    const before = await pools.settlement.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'settlement.%'",
     );
-    await settlementModule.seed?.(pool);
-    const after = await pool.query<{ count: string }>(
+    await seedMountedContextTestRuntimeIfEmpty(runtime, marketplaceLifecycleContextOrder);
+    const after = await pools.settlement.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'settlement.%'",
     );
     expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
-  });
+  }, 70_000);
 });

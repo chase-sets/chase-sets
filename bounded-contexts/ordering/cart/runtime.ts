@@ -11,12 +11,12 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import {
-  resolveSellableUnitDescriptor,
-  type CatalogVersionSchema,
-} from "@chase-sets/catalog/integration/sellable-units";
 import type { CartLineId } from "../common";
-import { OrderingDomainError } from "../common";
+import {
+  OrderingDomainError,
+  createOrderingCatalogVersionDescriptor,
+  type OrderingVersionSchema,
+} from "../common";
 import {
   decideOrderingCart,
   evolveOrderingCart,
@@ -97,7 +97,7 @@ export function createOrderingCartRuntime(
       version_schema: unknown;
     }>(
       `SELECT item_id, status, version_schema
-       FROM inventory_catalog_items
+       FROM ordering_catalog_items
        WHERE item_id = $1`,
       [catalogItemId],
     );
@@ -119,17 +119,17 @@ export function createOrderingCartRuntime(
         );
       }
 
-      const sellableUnit = resolveSellableUnitDescriptor({
+      const catalogVersion = createOrderingCatalogVersionDescriptor({
         catalogItemId: params.catalogItemId,
         versionSchema:
           typeof catalogItem.version_schema === "object" &&
           catalogItem.version_schema !== null
-            ? (catalogItem.version_schema as CatalogVersionSchema)
+            ? (catalogItem.version_schema as OrderingVersionSchema)
             : null,
         selection: params.versionSelection,
       });
 
-      if (params.catalogVersionKey.trim() !== sellableUnit.catalogVersionKey) {
+      if (params.catalogVersionKey.trim() !== catalogVersion.catalogVersionKey) {
         throw new OrderingDomainError(
           "Cart line catalog version key does not match the selected version.",
         );
@@ -143,10 +143,10 @@ export function createOrderingCartRuntime(
           buyerAccountId: params.buyerAccountId,
           lineId,
           catalogItemId: params.catalogItemId,
-          catalogVersionKey: sellableUnit.catalogVersionKey,
+          catalogVersionKey: catalogVersion.catalogVersionKey,
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,
-          versionSelection: sellableUnit.selection,
+          versionSelection: catalogVersion.selection,
           versionSummary: params.versionSummary,
           quantity: params.quantity,
         },

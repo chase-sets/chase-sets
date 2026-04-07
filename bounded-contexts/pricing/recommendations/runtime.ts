@@ -24,14 +24,6 @@ type PricingRecommendationRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
-  ports: PricingRecommendationPorts;
-}>;
-
-export type PricingRecommendationPorts = Readonly<{
-  resolveCatalogSellableUnit: unknown;
-  resolveMarketSupply: unknown;
-  reserveInventorySignal: unknown;
-  loadOrderSnapshot: unknown;
 }>;
 
 export type PricingRecommendationServices = Readonly<{
@@ -88,11 +80,6 @@ export function createPricingRecommendationRuntime(
   return {
     commandHandler,
     captureMarketSnapshot: async (params, context) => {
-      void deps.ports.resolveCatalogSellableUnit;
-      void deps.ports.resolveMarketSupply;
-      void deps.ports.reserveInventorySignal;
-      void deps.ports.loadOrderSnapshot;
-
       const result = await commandHandler({
         streamId: `pricing.recommendation-${params.recommendationId}`,
         command: {

@@ -49,7 +49,7 @@ const allowedTopLevelDirectories = new Set([
   "scripts",
 ]);
 const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared", "support"]);
-const nonSupportSuffixDirectoryExceptions = new Set(["integration", "tests"]);
+const nonSupportSuffixDirectoryExceptions = new Set(["tests"]);
 const supportDirectoryNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-support$/;
 const supportLifecycleRequiredFields = ["justification", "createdFor", "sunsetWhen"];
 const intentPlaceholderGuardFields = ["purpose", "allowedWhen", "justification", "createdFor", "sunsetWhen"];
@@ -86,10 +86,7 @@ const manifestRequiredFields = [
   "allowedSupportDirectories",
   "publicExports",
   "allowedContextDependencies",
-  "requiredPorts",
-  "integrationCapabilities",
   "seedRequirements",
-  "apiRequirements",
   "hostPorts",
   "apiDeployables",
   "apiMounts",
@@ -107,9 +104,8 @@ const domainFacingImportHeuristic =
   /(?:^|\/)(?:domain|domains|query|queries|projection|projections|read-model|read-models|projector|projectors)(?:\/|$)/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
 const forbiddenRootSurfaceReexports =
-  /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|integration|seed-support(?:\/[^"']+)?)["']/;
-const placeholderIntegrationPattern = /\b(?:[A-Z][A-Za-z0-9]*IntegrationSurface|[a-z][A-Za-z0-9]*IntegrationSurface|[a-z][A-Za-z0-9]*ContextBoundary|[A-Z][A-Za-z0-9]*ContextBoundary)\b/;
-const boundedContextSurfaceFiles = new Set(["client.ts", "server.ts", "web.ts", "integration.ts"]);
+  /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|seed-support(?:\/[^"']+)?)["']/;
+const boundedContextSurfaceFiles = new Set(["client.ts", "server.ts", "web.ts"]);
 const canonicalBoundedContextRootFiles = new Set([
   "README.md",
   "GLOSSARY.md",
@@ -118,7 +114,6 @@ const canonicalBoundedContextRootFiles = new Set([
   "context.json",
   "ids.ts",
   "index.ts",
-  "integration.ts",
   "package.json",
   "schema.ts",
   "seed.ts",
@@ -163,6 +158,22 @@ const violations = [];
 const warnings = [];
 const clientSurfaceConsumers = new Map();
 const supportFileConsumers = new Map();
+const crossContextSqlReadGuards = [
+  { tableName: "identity_accounts", ownerContextName: "identity" },
+  { tableName: "inventory_catalog_items", ownerContextName: "inventory" },
+  { tableName: "inventory_records", ownerContextName: "inventory" },
+  { tableName: "inventory_holds", ownerContextName: "inventory" },
+  { tableName: "inventory_storage_locations", ownerContextName: "inventory" },
+  { tableName: "ordering_order_pages", ownerContextName: "ordering" },
+  { tableName: "ordering_order_line_pages", ownerContextName: "ordering" },
+  { tableName: "fulfillment_shipment_pages", ownerContextName: "fulfillment" },
+].map((entry) => ({
+  ...entry,
+  pattern: new RegExp(
+    `(?:from|join|into|update|references)\\s+${entry.tableName}\\b|delete\\s+from\\s+${entry.tableName}\\b|to_regclass\\(\\s*['"]public\\.${entry.tableName}['"]\\s*\\)`,
+    "i",
+  ),
+}));
 
 function normalizeRelative(filePath) {
   return path.relative(repoRoot, filePath).replaceAll("\\", "/");
@@ -398,11 +409,14 @@ function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isEventSubscriptionDeclaration(value) {
+  return isPlainObject(value);
+}
+
 function isAllowedPublicExportName(value) {
   return (
     value === "." ||
     value === "./client" ||
-    value === "./integration/*" ||
     value === "./seed-support/*" ||
     value === "./server" ||
     value === "./web" ||
@@ -634,20 +648,78 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "allowedContextDependencies must be an array of package names");
     }
 
-    if (!isStringArray(manifest.requiredPorts)) {
-      addPathViolation(`${relativeRoot}/context.json`, "requiredPorts must be an array of strings");
-    }
-
-    if (!Array.isArray(manifest.integrationCapabilities)) {
-      addPathViolation(`${relativeRoot}/context.json`, "integrationCapabilities must be an array");
-    }
-
     if (!isStringArray(manifest.seedRequirements)) {
       addPathViolation(`${relativeRoot}/context.json`, "seedRequirements must be an array of context names");
     }
 
-    if (!Array.isArray(manifest.apiRequirements)) {
-      addPathViolation(`${relativeRoot}/context.json`, "apiRequirements must be an array");
+    if ("requiredPorts" in manifest) {
+      addPathViolation(
+        `${relativeRoot}/context.json`,
+        "requiredPorts is retired; model external runtime dependencies through hostPorts only",
+      );
+    }
+
+    if ("integrationCapabilities" in manifest) {
+      addPathViolation(
+        `${relativeRoot}/context.json`,
+        "integrationCapabilities is retired; use eventSubscriptions, projectionGroups, hostPorts, and ./server surfaces instead",
+      );
+    }
+
+    if ("apiRequirements" in manifest) {
+      addPathViolation(
+        `${relativeRoot}/context.json`,
+        "apiRequirements is retired; use eventSubscriptions, projectionGroups, hostPorts, and ./server surfaces instead",
+      );
+    }
+
+    if (
+      manifest.contextName === "payments" &&
+      (
+        !Array.isArray(manifest.eventSubscriptions) ||
+        !manifest.eventSubscriptions.some(
+          (subscription) =>
+            subscription.sourceContextName === "ordering" &&
+            subscription.projectionName === "payments-order-input-projection",
+        ) ||
+        !Array.isArray(manifest.projectionGroups) ||
+        !manifest.projectionGroups.some(
+          (group) =>
+            group.projectionName === "payments-order-input-projection" &&
+            Array.isArray(group.sourceContextNames) &&
+            group.sourceContextNames.includes("ordering"),
+        )
+      )
+    ) {
+      addPathViolation(
+        `${relativeRoot}/context.json`,
+        "payments must declare an ordering-backed payments-order-input-projection projection group",
+      );
+    }
+
+    if (
+      "eventSubscriptions" in manifest &&
+      !Array.isArray(manifest.eventSubscriptions)
+    ) {
+      addPathViolation(`${relativeRoot}/context.json`, "eventSubscriptions must be an array when provided");
+    }
+
+    if (
+      "projectionGroups" in manifest &&
+      !Array.isArray(manifest.projectionGroups)
+    ) {
+      addPathViolation(`${relativeRoot}/context.json`, "projectionGroups must be an array when provided");
+    }
+
+    if (
+      Array.isArray(manifest.eventSubscriptions) &&
+      manifest.eventSubscriptions.length > 0 &&
+      !Array.isArray(manifest.projectionGroups)
+    ) {
+      addPathViolation(
+        `${relativeRoot}/context.json`,
+        "contexts with eventSubscriptions must declare projectionGroups",
+      );
     }
 
     if (!Array.isArray(manifest.hostPorts)) {
@@ -745,6 +817,23 @@ function isAllowedContextImporter(relativeFile) {
     relativeFile.endsWith(".test.jsx") ||
     relativeFile.endsWith("/seed.ts") ||
     relativeFile.endsWith("/seed.test.ts")
+  );
+}
+
+function isFeatureModulePath(relativeFile) {
+  return (
+    relativeFile.includes("/routes/") ||
+    relativeFile.includes("/ui/") ||
+    domainFacingImportHeuristic.test(relativeFile) ||
+    relativeFile.endsWith("/runtime.ts")
+  );
+}
+
+function isAllowedServerSurfaceConsumer(relativeFile) {
+  return (
+    relativeFile.includes("/request-support/") ||
+    relativeFile.includes("/route-support/") ||
+    relativeFile.endsWith("/api.ts")
   );
 }
 
@@ -857,26 +946,11 @@ async function validateContextManifest(context) {
     addPathViolation(`${root}/context.json`, "contexts with route contributions must export ./routes/* publicly");
   }
 
-  if ((manifest.integrationCapabilities?.length ?? 0) > 0 && !(manifest.publicExports ?? []).includes("./integration/*")) {
-    addPathViolation(`${root}/context.json`, "contexts with integration capabilities must export ./integration/* publicly");
-  }
-
-  if ((manifest.publicExports ?? []).includes("./integration/*") && (manifest.integrationCapabilities?.length ?? 0) === 0) {
-    addPathViolation(`${root}/context.json`, "contexts must not export ./integration/* without declared integration capabilities");
-  }
-
-  for (const [index, capability] of (manifest.integrationCapabilities ?? []).entries()) {
-    const capabilityLabel = `${root}/context.json integrationCapabilities[${index}]`;
-
-    if (typeof capability.fileExport !== "string" || !capability.fileExport.startsWith("./integration/")) {
-      addPathViolation(capabilityLabel, "integration capability fileExport must target a module under ./integration/");
-      continue;
-    }
-
-    const resolvedCapabilityFile = resolveExistingModulePath(rootAbs, capability.fileExport);
-    if (!resolvedCapabilityFile) {
-      addPathViolation(capabilityLabel, `integration capability fileExport targets a missing module (${capability.fileExport})`);
-    }
+  if ((manifest.publicExports ?? []).includes("./integration/*")) {
+    addPathViolation(
+      `${root}/context.json`,
+      "contexts must not export ./integration/*; cross-context access belongs on ./server or through published events",
+    );
   }
 
   const routesByDeployable = new Map(
@@ -994,44 +1068,136 @@ async function validateContextManifest(context) {
     }
   }
 
-  for (const [index, capability] of (manifest.integrationCapabilities ?? []).entries()) {
-    const capabilityLabel = `${root}/context.json integrationCapabilities[${index}]`;
+  for (const [index, subscription] of (manifest.eventSubscriptions ?? []).entries()) {
+    const subscriptionLabel = `${root}/context.json eventSubscriptions[${index}]`;
 
-    if (!isPlainObject(capability)) {
-      addPathViolation(capabilityLabel, "integration capability must be an object");
+    if (!isEventSubscriptionDeclaration(subscription)) {
+      addPathViolation(subscriptionLabel, "event subscription must be an object");
       continue;
-    }
-
-    if (typeof capability.key !== "string" || capability.key.length === 0) {
-      addPathViolation(capabilityLabel, "key must be a non-empty string");
-    }
-
-    if (typeof capability.exportName !== "string" || capability.exportName.length === 0) {
-      addPathViolation(capabilityLabel, "exportName must be a non-empty string");
     }
 
     if (
-      capability.kind !== "runtime-port" &&
-      capability.kind !== "request-gateway"
+      typeof subscription.sourceContextName !== "string" ||
+      subscription.sourceContextName.length === 0
     ) {
-      addPathViolation(capabilityLabel, "kind must be 'runtime-port' or 'request-gateway'");
+      addPathViolation(subscriptionLabel, "sourceContextName must be a non-empty string");
+    }
+
+    if (
+      typeof subscription.projectionName !== "string" ||
+      subscription.projectionName.length === 0
+    ) {
+      addPathViolation(subscriptionLabel, "projectionName must be a non-empty string");
+    }
+
+    if (
+      !Number.isInteger(subscription.subscriptionVersion) ||
+      subscription.subscriptionVersion < 1
+    ) {
+      addPathViolation(subscriptionLabel, "subscriptionVersion must be an integer >= 1");
+    }
+
+    if (!isStringArray(subscription.projectorNames) || subscription.projectorNames.length === 0) {
+      addPathViolation(subscriptionLabel, "projectorNames must be a non-empty array of strings");
+    }
+
+    if ("eventTypes" in subscription && !isStringArray(subscription.eventTypes)) {
+      addPathViolation(subscriptionLabel, "eventTypes must be an array of strings when provided");
+    }
+
+    if ("streamPrefixes" in subscription && !isStringArray(subscription.streamPrefixes)) {
+      addPathViolation(subscriptionLabel, "streamPrefixes must be an array of strings when provided");
+    }
+
+    if (
+      "order" in subscription &&
+      (typeof subscription.order !== "number" || Number.isNaN(subscription.order))
+    ) {
+      addPathViolation(subscriptionLabel, "order must be a number when provided");
     }
   }
 
-  for (const [index, requirement] of (manifest.apiRequirements ?? []).entries()) {
-    const requirementLabel = `${root}/context.json apiRequirements[${index}]`;
+  const projectionGroupsByName = new Map();
+  for (const [index, projectionGroup] of (manifest.projectionGroups ?? []).entries()) {
+    const projectionGroupLabel = `${root}/context.json projectionGroups[${index}]`;
 
-    if (!isPlainObject(requirement)) {
-      addPathViolation(requirementLabel, "API requirement must be an object");
+    if (!isPlainObject(projectionGroup)) {
+      addPathViolation(projectionGroupLabel, "projection group must be an object");
       continue;
     }
 
-    if (typeof requirement.capabilityKey !== "string" || requirement.capabilityKey.length === 0) {
-      addPathViolation(requirementLabel, "capabilityKey must be a non-empty string");
+    if (
+      typeof projectionGroup.projectionName !== "string" ||
+      projectionGroup.projectionName.length === 0
+    ) {
+      addPathViolation(projectionGroupLabel, "projectionName must be a non-empty string");
+      continue;
     }
 
-    if (typeof requirement.portName !== "string" || requirement.portName.length === 0) {
-      addPathViolation(requirementLabel, "portName must be a non-empty string");
+    if (projectionGroupsByName.has(projectionGroup.projectionName)) {
+      addPathViolation(
+        projectionGroupLabel,
+        `projectionGroups must not contain duplicate projection names (${projectionGroup.projectionName})`,
+      );
+      continue;
+    }
+    projectionGroupsByName.set(projectionGroup.projectionName, projectionGroup);
+
+    if (
+      !isStringArray(projectionGroup.sourceContextNames) ||
+      projectionGroup.sourceContextNames.length === 0
+    ) {
+      addPathViolation(projectionGroupLabel, "sourceContextNames must be a non-empty array of strings");
+    }
+
+    if (
+      !isStringArray(projectionGroup.ownedTables) ||
+      projectionGroup.ownedTables.length === 0
+    ) {
+      addPathViolation(projectionGroupLabel, "ownedTables must be a non-empty array of strings");
+    }
+
+    if (
+      "requiredDuringBootstrap" in projectionGroup &&
+      !isBoolean(projectionGroup.requiredDuringBootstrap)
+    ) {
+      addPathViolation(projectionGroupLabel, "requiredDuringBootstrap must be a boolean when provided");
+    }
+  }
+
+  const subscribedSourcesByProjection = new Map();
+  for (const subscription of manifest.eventSubscriptions ?? []) {
+    const projectionName = subscription.projectionName;
+    if (typeof projectionName !== "string" || projectionName.length === 0) {
+      continue;
+    }
+
+    const projectionGroup = projectionGroupsByName.get(projectionName);
+    if (!projectionGroup) {
+      addPathViolation(
+        `${root}/context.json`,
+        `eventSubscriptions references undeclared projection group ${projectionName}`,
+      );
+      continue;
+    }
+
+    const subscribedSources = subscribedSourcesByProjection.get(projectionName) ?? new Set();
+    subscribedSources.add(subscription.sourceContextName);
+    subscribedSourcesByProjection.set(projectionName, subscribedSources);
+  }
+
+  for (const [projectionName, subscribedSources] of subscribedSourcesByProjection.entries()) {
+    const projectionGroup = projectionGroupsByName.get(projectionName);
+    if (!projectionGroup) {
+      continue;
+    }
+
+    const declaredSources = new Set(projectionGroup.sourceContextNames ?? []);
+    if (!setsAreEqual(subscribedSources, declaredSources)) {
+      addPathViolation(
+        `${root}/context.json`,
+        `projection group ${projectionName} sourceContextNames must exactly match subscribed sources; declared [${formatSetValues(declaredSources)}], actual [${formatSetValues(subscribedSources)}]`,
+      );
     }
   }
 
@@ -1046,6 +1212,23 @@ async function validateContextManifest(context) {
     if (typeof hostPort.portName !== "string" || hostPort.portName.length === 0) {
       addPathViolation(hostPortLabel, "portName must be a non-empty string");
     }
+  }
+
+  if (
+    manifest.contextName === "payments" &&
+    !(manifest.hostPorts ?? []).some((hostPort) => hostPort?.portName === "processorGateway")
+  ) {
+    addPathViolation(
+      `${root}/context.json`,
+      "payments must declare processorGateway through hostPorts",
+    );
+  }
+
+  if (manifest.contextName !== "payments" && (manifest.hostPorts?.length ?? 0) > 0) {
+    addPathViolation(
+      `${root}/context.json`,
+      "payments.processorGateway is the only remaining host-port seam in implemented bounded contexts",
+    );
   }
 
   const apiMounts = manifest.apiMounts ?? [];
@@ -1243,6 +1426,13 @@ async function validateContextManifest(context) {
       continue;
     }
 
+    if (entry.isDirectory() && entry.name === "integration") {
+      addPathViolation(
+        `${root}/${entry.name}`,
+        "integration directories are retired; use ./server for request-time access and eventSubscriptions for downstream data sharing",
+      );
+    }
+
     if (entry.isDirectory() && !expectedTopLevelDirectories.has(entry.name)) {
       addPathViolation(
         `${root}/${entry.name}`,
@@ -1332,7 +1522,6 @@ async function validateDeployableRuntimeOwnership(contexts) {
   const contextsByDeployable = new Map(
     Object.keys(deployableRuntimeConfig).map((deployable) => [deployable, []]),
   );
-  const capabilityProviders = new Map();
 
   for (const context of contexts.values()) {
     const runtimeDeployables = context.manifest.runtimeDeployables ?? context.manifest.apiDeployables ?? [];
@@ -1341,24 +1530,9 @@ async function validateDeployableRuntimeOwnership(contexts) {
         contextName: context.manifest.contextName,
         deployable,
         packageName: context.packageName,
-        integrationCapabilities: context.manifest.integrationCapabilities ?? [],
         seedRequirements: context.manifest.seedRequirements ?? [],
-        apiRequirements: context.manifest.apiRequirements ?? [],
+        eventSubscriptions: context.manifest.eventSubscriptions ?? [],
         hostPorts: context.manifest.hostPorts ?? [],
-      });
-    }
-
-    for (const capability of context.manifest.integrationCapabilities ?? []) {
-      const existingProvider = capabilityProviders.get(capability.key);
-      if (existingProvider && existingProvider.contextName !== context.manifest.contextName) {
-        addPathViolation(
-          `${context.root}/context.json`,
-          `integration capability ${capability.key} is already provided by ${existingProvider.contextName}`,
-        );
-      }
-      capabilityProviders.set(capability.key, {
-        contextName: context.manifest.contextName,
-        kind: capability.kind,
       });
     }
   }
@@ -1367,27 +1541,16 @@ async function validateDeployableRuntimeOwnership(contexts) {
     const contextDeployables = new Set(
       context.manifest.runtimeDeployables ?? context.manifest.apiDeployables ?? [],
     );
-    for (const requirement of context.manifest.apiRequirements ?? []) {
-      const provider = capabilityProviders.get(requirement.capabilityKey);
-      if (!provider) {
-        addPathViolation(
-          `${context.root}/context.json`,
-          `apiRequirements references unknown capability ${requirement.capabilityKey}`,
-        );
-        continue;
-      }
-
-      if (provider.kind !== "runtime-port") {
-        addPathViolation(
-          `${context.root}/context.json`,
-          `apiRequirements capability ${requirement.capabilityKey} must be provided by a runtime-port capability`,
-        );
-      }
-
+    for (const subscription of context.manifest.eventSubscriptions ?? []) {
       const providerContext = [...contexts.values()].find(
-        (candidate) => candidate.manifest.contextName === provider.contextName,
+        (candidate) => candidate.manifest.contextName === subscription.sourceContextName,
       );
+
       if (!providerContext) {
+        addPathViolation(
+          `${context.root}/context.json`,
+          `eventSubscriptions references unknown context ${subscription.sourceContextName}`,
+        );
         continue;
       }
 
@@ -1401,7 +1564,7 @@ async function validateDeployableRuntimeOwnership(contexts) {
       if (!sharesDeployable) {
         addPathViolation(
           `${context.root}/context.json`,
-          `apiRequirements capability ${requirement.capabilityKey} must be provided by a context mounted in the same API deployable`,
+          `eventSubscriptions context ${subscription.sourceContextName} must be mounted in the same runtime deployable`,
         );
       }
     }
@@ -1772,11 +1935,36 @@ function checkImport(file, specifier) {
     if (!dependency) {
       addViolation(file, `bounded contexts must not import another bounded context (${specifier})`);
     } else {
+      if (
+        normalized === "@chase-sets/catalog/integration/sellable-units" &&
+        dependency.packageName !== contextManifests.get(importerContextRoot)?.packageName
+      ) {
+        addViolation(
+          file,
+          "non-catalog code must own its catalog version-key logic locally instead of importing the catalog sellable-unit integration surface",
+        );
+      }
+
+      if (
+        normalized.startsWith(`${dependency.packageName}/integration/`) &&
+        isFeatureModulePath(relativeFile) &&
+        relativeFile !== "bounded-contexts/auth/services.ts"
+      ) {
+        addViolation(
+          file,
+          `feature modules must not import another bounded context's integration surface directly; move the adapter into local request-support or route-support (${specifier})`,
+        );
+      }
+
       const isAllowedIntegrationImport =
         normalized.startsWith(`${dependency.packageName}/integration/`) &&
         (importerContext?.manifest.allowedContextDependencies ?? []).includes(dependency.packageName);
+      const isAllowedServerImport =
+        normalized === `${dependency.packageName}/server` &&
+        isAllowedServerSurfaceConsumer(relativeFile) &&
+        (importerContext?.manifest.allowedContextDependencies ?? []).includes(dependency.packageName);
 
-      if (!isAllowedIntegrationImport) {
+      if (!isAllowedIntegrationImport && !isAllowedServerImport) {
         addViolation(file, `bounded contexts must use explicit integration exports only (${specifier})`);
       }
     }
@@ -1982,7 +2170,65 @@ for (const root of roots) {
     }
 
     const content = await readFile(file, "utf8");
+
+    if (
+      ((
+        (normalizedFile.startsWith("deployables/") &&
+          (normalizedFile.endsWith("/src/config.ts") || isTestFile(normalizedFile))) ||
+        normalizedFile === "scripts/dev-system.mjs" ||
+        (normalizedFile.startsWith("bounded-contexts/") && isTestFile(normalizedFile))
+      )) &&
+      /\bDATABASE_URL\b/.test(content)
+    ) {
+      addViolation(
+        file,
+        "DB-backed configs and tests must use TEST_DATABASE_URL plus per-context databases instead of DATABASE_URL",
+      );
+    }
+
+    if (
+      (normalizedFile.startsWith("bounded-contexts/") || normalizedFile.startsWith("deployables/")) &&
+      isTestFile(normalizedFile) &&
+      /\bTEST_DATABASE_URL\b/.test(content) &&
+      content.includes("@chase-sets/bounded-context-runtime/test-support") === false
+    ) {
+      addViolation(
+        file,
+        "DB-backed tests using TEST_DATABASE_URL must create per-context databases through @chase-sets/bounded-context-runtime/test-support",
+      );
+    }
+
+    if (
+      (normalizedFile.startsWith("bounded-contexts/") || normalizedFile.startsWith("deployables/")) &&
+      isTestFile(normalizedFile) &&
+      content.includes("composeSchemaSql(")
+    ) {
+      addViolation(
+        file,
+        "DB-backed tests must not compose multiple bounded-context schemas into one database; use per-context databases instead",
+      );
+    }
+
     const routeOrShellSupportClassification = classifyRouteOrShellSupportFile(normalizedFile);
+    const contextRoot = getContextRoot(normalizedFile);
+    const contextName = contextRoot
+      ? contextManifests.get(contextRoot)?.manifest.contextName ?? null
+      : null;
+
+    if (contextName && !isTestFile(normalizedFile)) {
+      for (const guard of crossContextSqlReadGuards) {
+        if (guard.ownerContextName === contextName) {
+          continue;
+        }
+
+        if (guard.pattern.test(content)) {
+          addViolation(
+            file,
+            `non-owning contexts must not query ${guard.tableName}; subscribe to ${guard.ownerContextName} events and persist a local projection instead`,
+          );
+        }
+      }
+    }
 
     if (
       normalizedFile.startsWith("bounded-contexts/") &&
@@ -2020,7 +2266,7 @@ for (const root of roots) {
     if (
       normalizedFile.startsWith("bounded-contexts/") &&
       boundedContextSurfaceFiles.has(path.basename(file)) &&
-      /^bounded-contexts\/[^/]+\/(?:client|server|web|integration)\.ts$/.test(normalizedFile) &&
+      /^bounded-contexts\/[^/]+\/(?:client|server|web)\.ts$/.test(normalizedFile) &&
       /export\s+\{\s*default\s+as\s+contextManifest\s*\}\s+from\s+["']\.\/context\.json["'];?/.test(content)
     ) {
       addViolation(file, "non-root public surfaces must not export contextManifest");
@@ -2029,7 +2275,7 @@ for (const root of roots) {
     if (
       normalizedFile.startsWith("bounded-contexts/") &&
       boundedContextSurfaceFiles.has(path.basename(file)) &&
-      /^bounded-contexts\/[^/]+\/(?:client|server|web|integration)\.ts$/.test(normalizedFile) &&
+      /^bounded-contexts\/[^/]+\/(?:client|server|web)\.ts$/.test(normalizedFile) &&
       stripContextManifestSurfaceExport(content).length === 0
     ) {
       addViolation(file, "declared public surfaces must not be placeholder-only");
@@ -2053,39 +2299,12 @@ for (const root of roots) {
 
     if (
       normalizedFile.startsWith("bounded-contexts/") &&
-      path.basename(file) === "integration.ts" &&
-      /\bcreate[A-Z][A-Za-z0-9]*RequestIntegrationClient\b/.test(content)
-    ) {
-      addViolation(file, "integration surfaces must not export request-scoped integration clients");
-    }
-
-    if (
-      normalizedFile.startsWith("bounded-contexts/") &&
-      path.basename(file) === "integration.ts" &&
-      placeholderIntegrationPattern.test(content)
-    ) {
-      addViolation(file, "integration surfaces must not export placeholder integration markers");
-    }
-
-    if (
-      normalizedFile.startsWith("bounded-contexts/") &&
       path.basename(file) === "integration.ts"
     ) {
-      const contextRoot = getContextRoot(normalizedFile);
-      const context = contextRoot ? contextManifests.get(contextRoot) : null;
-      const exportedValueNames = extractExportedValueNames(content);
-      const declaredCapabilityNames = new Set(
-        (context?.manifest.integrationCapabilities ?? []).map((capability) => capability.exportName),
+      addViolation(
+        file,
+        "integration surfaces are retired; use ./server for request-time access and published events for downstream projections",
       );
-
-      for (const declaredName of declaredCapabilityNames) {
-        if (!exportedValueNames.has(declaredName)) {
-          addViolation(
-            file,
-            `integration surface must export declared capability ${declaredName}`,
-          );
-        }
-      }
     }
 
     if (
@@ -2188,7 +2407,17 @@ for (const root of roots) {
       !normalizedFile.endsWith("/context-runtime.generated.ts") &&
       /@chase-sets\/[^/]+\/integration/.test(content)
     ) {
-      addViolation(file, "API deployables must not import bounded-context integration surfaces directly");
+      addViolation(file, "API deployables must not import retired bounded-context integration surfaces");
+    }
+
+    if (
+      normalizedFile.startsWith("bounded-contexts/") &&
+      /@chase-sets\/[^/]+\/integration/.test(content)
+    ) {
+      addViolation(
+        file,
+        "bounded-context code must not import retired ./integration surfaces; use provider ./server surfaces or published events instead",
+      );
     }
 
     if (normalizedFile.startsWith("contracts/") && /\bprocess\.env\b/.test(content)) {
@@ -2347,6 +2576,13 @@ const structureMetrics = {
   },
   contexts: contextMetrics,
 };
+
+if (structureMetrics.totals.singleSliceSupportFiles !== 0) {
+  addPathViolation(
+    structureMetricsOutputPath,
+    "singleSliceSupportFiles must be 0; move single-slice support assets into their owning slice",
+  );
+}
 
 const structureMetricsAbsolutePath = path.resolve(repoRoot, structureMetricsOutputPath);
 mkdirSync(path.dirname(structureMetricsAbsolutePath), { recursive: true });

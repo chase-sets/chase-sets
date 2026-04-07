@@ -8,10 +8,6 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
-import {
-  resolveSellableUnitDescriptor,
-  type CatalogVersionSchema,
-} from "@chase-sets/catalog/integration/sellable-units";
 import type { MarketplaceRuntimeDeps } from "../runtime-support";
 import {
   decideMarketplaceOffer,
@@ -28,6 +24,10 @@ import {
   listBuyerOffers,
   listSellerVisibleOffers,
 } from "./queries";
+import {
+  createMarketplaceCatalogVersionDescriptor,
+  type MarketplaceVersionSchema,
+} from "./versioning";
 
 export type MarketplaceOfferServices = Readonly<{
   commandHandler: CommandHandler<
@@ -37,6 +37,7 @@ export type MarketplaceOfferServices = Readonly<{
   >;
   submitOffer: (
     params: Readonly<{
+      offerId?: OfferId;
       buyerAccountId: AccountId;
       catalogItemId: string;
       catalogVersionKey: string;
@@ -96,7 +97,7 @@ export function createMarketplaceOfferRuntime(
       version_schema: unknown;
     }>(
       `SELECT item_id, title, subtitle, status, version_schema
-       FROM inventory_catalog_items
+       FROM marketplace_catalog_items
        WHERE item_id = $1`,
       [catalogItemId],
     );
@@ -116,21 +117,21 @@ export function createMarketplaceOfferRuntime(
         throw new Error("Offers may only reference active catalog items.");
       }
 
-      const sellableUnit = resolveSellableUnitDescriptor({
+      const catalogVersion = createMarketplaceCatalogVersionDescriptor({
         catalogItemId: params.catalogItemId,
         versionSchema:
           typeof catalogItem.version_schema === "object" &&
           catalogItem.version_schema !== null
-            ? (catalogItem.version_schema as CatalogVersionSchema)
+            ? (catalogItem.version_schema as MarketplaceVersionSchema)
             : null,
         selection: params.versionSelection,
       });
 
-      if (params.catalogVersionKey.trim() !== sellableUnit.catalogVersionKey) {
+      if (params.catalogVersionKey.trim() !== catalogVersion.catalogVersionKey) {
         throw new Error("Offer catalog version key does not match the selected version.");
       }
 
-      const offerId = createId("off") as OfferId;
+      const offerId = params.offerId ?? (createId("off") as OfferId);
       const result = await commandHandler({
         streamId: `marketplace.offer-${offerId}`,
         command: {
@@ -138,10 +139,10 @@ export function createMarketplaceOfferRuntime(
           offerId,
           buyerAccountId: params.buyerAccountId,
           catalogItemId: params.catalogItemId,
-          catalogVersionKey: sellableUnit.catalogVersionKey,
+          catalogVersionKey: catalogVersion.catalogVersionKey,
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,
-          versionSelection: sellableUnit.selection,
+          versionSelection: catalogVersion.selection,
           versionSummary: params.versionSummary,
           priceAmount: params.priceAmount,
           quantityRequested: params.quantityRequested,

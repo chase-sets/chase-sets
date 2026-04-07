@@ -1,22 +1,316 @@
 export { default as contextManifest } from "./context.json";
 
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import type {
+  BcApiModule,
+  BcEventSubscriptionDeclaration,
+  BcProjectionGroupDeclaration,
+} from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { OrderingServices, OrderingServiceOptions } from "./services";
+import type { OrderingServices } from "./services";
+import { buildOrderingAccountProjectionHandlers } from "./accounts/projection";
 import { buildOrderingApi } from "./api";
+import { buildOrderingCatalogProjectionHandlers } from "./cart/catalog-projection";
+import { hasOrderForSource } from "./orders/queries";
+import {
+  buildOrderingInventorySupplyProjectionHandlers,
+  buildOrderingMarketplaceSupplyProjectionHandlers,
+} from "./orders/supply-projection";
 import { createOrderingServices } from "./services";
 import { orderingSchemaSql } from "./schema";
 import { seedOrderingDatabase } from "./seed";
 
-export const module: BcApiModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions> = {
+const eventSubscriptions =
+  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups =
+  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+
+function getEventSubscription(
+  sourceContextName: string,
+  projectionName: string,
+): BcEventSubscriptionDeclaration {
+  const declaration = eventSubscriptions.find(
+    (entry) =>
+      entry.sourceContextName === sourceContextName &&
+      entry.projectionName === projectionName,
+  );
+
+  if (!declaration) {
+    throw new Error(
+      `Ordering is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
+    );
+  }
+
+  return declaration;
+}
+
+export const module: BcApiModule<OrderingServices, PgTransactionalPool, void> = {
   contextName: "ordering",
   routePrefix: "/api/marketplace",
   streamPrefix: "ordering.",
   schemaSql: orderingSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions>["apiMounts"],
-  createServices: (pool, options) => createOrderingServices(pool, options),
+  apiMounts: contextManifest.apiMounts as BcApiModule<OrderingServices, PgTransactionalPool, void>["apiMounts"],
+  projectionGroups,
+  createServices: (pool) => createOrderingServices(pool),
   buildApis: (services) => [buildOrderingApi(services)],
   projectors: (services) => services.projectors,
+  buildSubscriptions: (services) => {
+    const catalogSubscription = getEventSubscription(
+      "catalog",
+      "ordering-catalog-item-projection",
+    );
+    const identitySubscription = getEventSubscription(
+      "identity",
+      "ordering-account-projection",
+    );
+    const marketplaceSupplySubscription = getEventSubscription(
+      "marketplace",
+      "ordering-marketplace-supply-input-projection",
+    );
+    const inventorySupplySubscription = getEventSubscription(
+      "inventory",
+      "ordering-inventory-supply-input-projection",
+    );
+    const inventoryReservationOutcomeSubscription = getEventSubscription(
+      "inventory",
+      "ordering-inventory-reservation-outcomes",
+    );
+    const marketplaceOfferAcceptanceSubscription = getEventSubscription(
+      "marketplace",
+      "ordering-marketplace-offer-acceptance",
+    );
+    const paymentCaptureSubscription = getEventSubscription(
+      "payments",
+      "ordering-payment-capture",
+    );
+
+    return [
+      {
+        subscriptionName: "ordering.catalog-item-projection",
+        sourceContextName: "catalog",
+        projectionName: catalogSubscription.projectionName,
+        subscriptionVersion: catalogSubscription.subscriptionVersion,
+        handlers: buildOrderingCatalogProjectionHandlers(services.db),
+        eventTypes: catalogSubscription.eventTypes,
+        streamPrefixes: catalogSubscription.streamPrefixes,
+        order: catalogSubscription.order,
+      },
+      {
+        subscriptionName: "ordering.identity-account-projection",
+        sourceContextName: "identity",
+        projectionName: identitySubscription.projectionName,
+        subscriptionVersion: identitySubscription.subscriptionVersion,
+        handlers: buildOrderingAccountProjectionHandlers(services.db),
+        eventTypes: identitySubscription.eventTypes,
+        streamPrefixes: identitySubscription.streamPrefixes,
+        order: identitySubscription.order,
+      },
+      {
+        subscriptionName: "ordering.marketplace-supply-input-projection",
+        sourceContextName: "marketplace",
+        projectionName: marketplaceSupplySubscription.projectionName,
+        subscriptionVersion: marketplaceSupplySubscription.subscriptionVersion,
+        handlers: buildOrderingMarketplaceSupplyProjectionHandlers(services.db),
+        eventTypes: marketplaceSupplySubscription.eventTypes,
+        streamPrefixes: marketplaceSupplySubscription.streamPrefixes,
+        order: marketplaceSupplySubscription.order,
+      },
+      {
+        subscriptionName: "ordering.inventory-supply-input-projection",
+        sourceContextName: "inventory",
+        projectionName: inventorySupplySubscription.projectionName,
+        subscriptionVersion: inventorySupplySubscription.subscriptionVersion,
+        handlers: buildOrderingInventorySupplyProjectionHandlers(services.db),
+        eventTypes: inventorySupplySubscription.eventTypes,
+        streamPrefixes: inventorySupplySubscription.streamPrefixes,
+        order: inventorySupplySubscription.order,
+      },
+      {
+        subscriptionName: "ordering.inventory-reservation-outcomes",
+        sourceContextName: "inventory",
+        projectionName: inventoryReservationOutcomeSubscription.projectionName,
+        subscriptionVersion: inventoryReservationOutcomeSubscription.subscriptionVersion,
+        handlers: {
+          "inventory.reservation.confirmed": async (event) => {
+            const data = event.data as {
+              reservationRequestId: string;
+              holdId: string;
+            };
+
+            await services.orders.commandHandler({
+              streamId: `ordering.order-${(event.data as { orderId: string }).orderId}`,
+              command: {
+                type: "RecordReservationConfirmed",
+                reservationRequestId: data.reservationRequestId,
+                holdId: data.holdId,
+                confirmedAt: event.timing.recordedAt,
+              },
+              context: {
+                tenantId: event.tenantId,
+                audit: event.audit,
+                trace: event.trace,
+              } as never,
+            });
+          },
+          "inventory.reservation.rejected": async (event) => {
+            const data = event.data as {
+              orderId: string;
+              reservationRequestId: string;
+              reason: string;
+            };
+
+            await services.orders.commandHandler({
+              streamId: `ordering.order-${data.orderId}`,
+              command: {
+                type: "RecordReservationRejected",
+                reservationRequestId: data.reservationRequestId,
+                rejectedAt: event.timing.recordedAt,
+                reason: data.reason,
+              },
+              context: {
+                tenantId: event.tenantId,
+                audit: event.audit,
+                trace: event.trace,
+              } as never,
+            });
+          },
+          "inventory.reservation.released": async (event) => {
+            const data = event.data as {
+              orderId: string;
+              reservationRequestId: string;
+              holdId: string;
+              releasedAt: string;
+            };
+
+            await services.orders.commandHandler({
+              streamId: `ordering.order-${data.orderId}`,
+              command: {
+                type: "RecordReservationReleased",
+                reservationRequestId: data.reservationRequestId,
+                holdId: data.holdId,
+                releasedAt: data.releasedAt,
+              },
+              context: {
+                tenantId: event.tenantId,
+                audit: event.audit,
+                trace: event.trace,
+              } as never,
+            });
+          },
+        },
+        eventTypes: inventoryReservationOutcomeSubscription.eventTypes,
+        streamPrefixes: inventoryReservationOutcomeSubscription.streamPrefixes,
+        order: inventoryReservationOutcomeSubscription.order,
+      },
+      {
+        subscriptionName: "ordering.marketplace-offer-acceptance",
+        sourceContextName: "marketplace",
+        projectionName: marketplaceOfferAcceptanceSubscription.projectionName,
+        subscriptionVersion: marketplaceOfferAcceptanceSubscription.subscriptionVersion,
+        handlers: buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
+          onOfferAccepted: async (params) => {
+            if (await hasOrderForSource(services.db, "offer-acceptance", params.offerId)) {
+              return;
+            }
+
+            await services.orders.createOrdersFromAcceptedOffer(
+              {
+                offerId: params.offerId,
+                buyerAccountId: params.buyerAccountId as never,
+                sellerAccountId: params.sellerAccountId as never,
+                catalogItemId: params.catalogItemId,
+                catalogVersionKey: params.catalogVersionKey as never,
+                itemTitle: params.itemTitle,
+                itemSubtitle: params.itemSubtitle,
+                versionSelection: [...params.versionSelection],
+                versionSummary: params.versionSummary,
+                priceAmount: params.priceAmount,
+                quantityRequested: params.quantityRequested,
+              },
+              params.context,
+            );
+          },
+        }),
+        eventTypes: marketplaceOfferAcceptanceSubscription.eventTypes,
+        streamPrefixes: marketplaceOfferAcceptanceSubscription.streamPrefixes,
+        order: marketplaceOfferAcceptanceSubscription.order,
+      },
+      {
+        subscriptionName: "ordering.payment-capture",
+        sourceContextName: "payments",
+        projectionName: paymentCaptureSubscription.projectionName,
+        subscriptionVersion: paymentCaptureSubscription.subscriptionVersion,
+        handlers: {
+          "payments.payment-captured": async (event) => {
+            const data = event.data as {
+              paymentId: string;
+              orderIds: string[];
+              buyerAccountId: string;
+              amount: string;
+              currencyCode: string;
+              processorName: string;
+              processorPaymentReference: string;
+              processorStatus: string;
+              capturedAt: string;
+            };
+
+            await services.db.query(
+              `INSERT INTO ordering_payment_capture_inputs (
+                 payment_id,
+                 buyer_account_id,
+                 order_ids,
+                 amount,
+                 currency_code,
+                 processor_name,
+                 processor_payment_reference,
+                 processor_status,
+                 captured_at,
+                 updated_at
+               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+               ON CONFLICT (payment_id) DO UPDATE
+               SET buyer_account_id = EXCLUDED.buyer_account_id,
+                   order_ids = EXCLUDED.order_ids,
+                   amount = EXCLUDED.amount,
+                   currency_code = EXCLUDED.currency_code,
+                   processor_name = EXCLUDED.processor_name,
+                   processor_payment_reference = EXCLUDED.processor_payment_reference,
+                   processor_status = EXCLUDED.processor_status,
+                   captured_at = EXCLUDED.captured_at,
+                   updated_at = EXCLUDED.updated_at`,
+              [
+                data.paymentId,
+                data.buyerAccountId,
+                JSON.stringify(data.orderIds ?? []),
+                data.amount,
+                data.currencyCode,
+                data.processorName,
+                data.processorPaymentReference,
+                data.processorStatus,
+                data.capturedAt,
+              ],
+            );
+
+            for (const orderId of data.orderIds ?? []) {
+              await services.orders.commandHandler({
+                streamId: `ordering.order-${orderId}`,
+                command: {
+                  type: "MarkReadyForFulfillment",
+                  readyForFulfillmentAt: data.capturedAt,
+                },
+                context: {
+                  tenantId: event.tenantId,
+                  audit: event.audit,
+                  trace: event.trace,
+                } as never,
+              });
+            }
+          },
+        },
+        eventTypes: paymentCaptureSubscription.eventTypes,
+        streamPrefixes: paymentCaptureSubscription.streamPrefixes,
+        order: paymentCaptureSubscription.order,
+      },
+    ];
+  },
   seed: seedOrderingDatabase,
 };

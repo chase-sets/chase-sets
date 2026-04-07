@@ -1,0 +1,102 @@
+export const pricingRecommendationSourceSchemaSql = `
+CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
+  item_id text PRIMARY KEY,
+  title text NOT NULL,
+  subtitle text NULL,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pricing_inventory_record_inputs (
+  record_id text PRIMARY KEY,
+  seller_account_id text NOT NULL,
+  catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
+  total_quantity integer NOT NULL CHECK (total_quantity >= 0),
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
+);
+
+CREATE TABLE IF NOT EXISTS pricing_inventory_hold_inputs (
+  hold_id text PRIMARY KEY,
+  record_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  quantity integer NOT NULL CHECK (quantity >= 0),
+  status text NOT NULL,
+  released_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS pricing_inventory_record_inputs_lookup_idx
+  ON pricing_inventory_record_inputs (seller_account_id, catalog_item_id, catalog_version_key);
+
+CREATE INDEX IF NOT EXISTS pricing_inventory_hold_inputs_record_idx
+  ON pricing_inventory_hold_inputs (record_id, status);
+
+CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
+  listing_id text PRIMARY KEY,
+  seller_account_id text NOT NULL,
+  catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
+  price_amount numeric(12, 2) NOT NULL,
+  quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
+  ON pricing_market_listing_inputs (seller_account_id, catalog_item_id, catalog_version_key, status);
+
+CREATE TABLE IF NOT EXISTS pricing_market_offer_inputs (
+  offer_id text PRIMARY KEY,
+  buyer_account_id text NOT NULL,
+  seller_account_id text NULL,
+  catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
+  price_amount numeric(12, 2) NOT NULL,
+  quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
+  status text NOT NULL,
+  accepted_at timestamptz NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS pricing_market_offer_inputs_lookup_idx
+  ON pricing_market_offer_inputs (catalog_item_id, catalog_version_key, status);
+
+CREATE TABLE IF NOT EXISTS pricing_order_signal_lines (
+  order_id text NOT NULL,
+  line_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
+  unit_price_amount numeric(12, 2) NOT NULL,
+  quantity integer NOT NULL CHECK (quantity > 0),
+  status text NOT NULL,
+  ready_for_fulfillment_at timestamptz NULL,
+  cancelled_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (order_id, line_id)
+);
+
+CREATE INDEX IF NOT EXISTS pricing_order_signal_lines_lookup_idx
+  ON pricing_order_signal_lines (seller_account_id, catalog_item_id, catalog_version_key, status);
+
+CREATE TABLE IF NOT EXISTS pricing_fulfillment_signal_lines (
+  shipment_id text NOT NULL,
+  line_id text NOT NULL,
+  order_id text NOT NULL,
+  catalog_item_id text NOT NULL,
+  catalog_version_key text NOT NULL,
+  quantity integer NOT NULL CHECK (quantity > 0),
+  status text NOT NULL,
+  delivered_at timestamptz NULL,
+  returned_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (shipment_id, line_id)
+);
+
+CREATE INDEX IF NOT EXISTS pricing_fulfillment_signal_lines_lookup_idx
+  ON pricing_fulfillment_signal_lines (catalog_item_id, catalog_version_key, status);
+`;

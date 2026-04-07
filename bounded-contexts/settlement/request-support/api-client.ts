@@ -1,7 +1,7 @@
 import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime";
+} from "@chase-sets/bounded-context-runtime/http";
 export {
   createSettlementApiClient,
   settlementApi,

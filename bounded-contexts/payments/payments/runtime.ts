@@ -18,12 +18,12 @@ import {
   normalizeOrderIds,
   normalizeRequiredText,
   PaymentsDomainError,
-  type BuyerOrderSnapshot,
 } from "../common";
 import type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
 } from "../processor-gateway";
+import { listPaymentOrderInputs } from "./order-input-queries";
 import { buildPaymentProjectionHandlers } from "./projection";
 import {
   getBuyerPayment,
@@ -44,19 +44,17 @@ type PaymentRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
-  getOrderSnapshot: (
-    orderId: OrderId,
-    buyerAccountId: AccountId,
-  ) => Promise<BuyerOrderSnapshot | null>;
 }>;
 
-function sumOrderAmounts(orders: readonly BuyerOrderSnapshot[]) {
+function sumOrderAmounts(
+  orders: readonly Readonly<{ total_amount: string }>[],
+) {
   return orders
     .reduce(
       (sum, order) =>
         sum +
         Number.parseFloat(
-          normalizeMoneyAmount(order.totalAmount, {
+          normalizeMoneyAmount(order.total_amount, {
             fieldName: "Order total",
           }),
         ),
@@ -66,14 +64,15 @@ function sumOrderAmounts(orders: readonly BuyerOrderSnapshot[]) {
 }
 
 async function loadBuyerOrders(
+  db: PgQueryable,
   orderIds: readonly OrderId[],
   buyerAccountId: AccountId,
-  getOrderSnapshot: PaymentRuntimeDeps["getOrderSnapshot"],
 ) {
-  const orders: BuyerOrderSnapshot[] = [];
+  const orders = await listPaymentOrderInputs(db, orderIds, buyerAccountId);
+  const ordersById = new Map(orders.map((order) => [order.order_id, order]));
 
   for (const orderId of orderIds) {
-    const order = await getOrderSnapshot(orderId, buyerAccountId);
+    const order = ordersById.get(orderId);
     if (!order) {
       throw new PaymentsDomainError(`Order ${orderId} was not found.`);
     }
@@ -82,7 +81,6 @@ async function loadBuyerOrders(
         `Order ${orderId} is not eligible for payment in status ${order.status}.`,
       );
     }
-    orders.push(order);
   }
 
   return orders;
@@ -134,7 +132,7 @@ export function createPaymentRuntime(
         "Buyer account is required.",
       ) as AccountId;
       const orderIds = normalizeOrderIds(params.orderIds);
-      const orders = await loadBuyerOrders(orderIds, buyerAccountId, deps.getOrderSnapshot);
+      const orders = await loadBuyerOrders(deps.db, orderIds, buyerAccountId);
       const amount = sumOrderAmounts(orders);
       const paymentId = createId("pay") as PaymentId;
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");

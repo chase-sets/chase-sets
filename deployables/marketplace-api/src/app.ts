@@ -11,11 +11,12 @@ import { module as settlementModule } from "@chase-sets/settlement";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
-  collectProjectors,
-  drainProjectors,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
-import { createHealthRoutes } from "@chase-sets/http-host/health";
+import {
+  createHealthRoutes,
+  type HealthProjectionReplaySummary,
+} from "@chase-sets/http-host/health";
 import { createContextApiMounts } from "./context-api-mounts.generated";
 import {
   createMarketplaceAuthMiddleware,
@@ -25,6 +26,10 @@ import {
 import { errorHandler } from "./middleware/error-handler";
 
 export type BuildMarketplaceAppOptions = Readonly<{
+  drain?: () => Promise<void>;
+  getProjectionReplay?: () =>
+    | HealthProjectionReplaySummary
+    | Promise<HealthProjectionReplaySummary>;
   resolveActor?: MarketplaceActorResolver;
 }>;
 
@@ -43,27 +48,25 @@ export function buildMarketplaceApp(
   options: BuildMarketplaceAppOptions = {},
 ) {
   const app = new Hono<TenantContextEnv>();
-  const projectors = collectProjectors([
-    services.discovery,
-    services.inventory,
-    services.marketplace,
-    services.payments,
-    services.pricing,
-    services.fulfillment,
-    services.ordering,
-    services.reputation,
-    services.settlement,
-  ]);
   const apiMounts = createContextApiMounts(services);
 
   app.onError(errorHandler);
-  app.route("/health", createHealthRoutes());
+  app.route(
+    "/health",
+    createHealthRoutes({
+      getProjectionReplay: options.getProjectionReplay,
+    }),
+  );
   attachApiMountMiddleware(
     app,
     apiMounts.filter((mount) => mount.requiresAuth).map((mount) => mount.mountPath),
     createMarketplaceAuthMiddleware(options.resolveActor ?? (async () => null)),
   );
-  attachWriteDrainMiddleware(app, apiMounts, () => drainProjectors(projectors));
+  attachWriteDrainMiddleware(
+    app,
+    apiMounts,
+    options.drain ?? (() => Promise.resolve()),
+  );
   mountApiRouters(app, apiMounts);
 
   return app;

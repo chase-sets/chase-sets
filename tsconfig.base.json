@@ -24,9 +24,6 @@
       "@chase-sets/auth/client": [
         "./bounded-contexts/auth/client.ts"
       ],
-      "@chase-sets/auth/integration": [
-        "./bounded-contexts/auth/integration.ts"
-      ],
       "@chase-sets/auth/server": [
         "./bounded-contexts/auth/server.ts"
       ],
@@ -41,9 +38,6 @@
       ],
       "@chase-sets/catalog/client": [
         "./bounded-contexts/catalog/client.ts"
-      ],
-      "@chase-sets/catalog/integration": [
-        "./bounded-contexts/catalog/integration.ts"
       ],
       "@chase-sets/catalog/seed-support/*": [
         "./bounded-contexts/catalog/seed-support/*"
@@ -72,9 +66,6 @@
       "@chase-sets/fulfillment/client": [
         "./bounded-contexts/fulfillment/client.ts"
       ],
-      "@chase-sets/fulfillment/integration": [
-        "./bounded-contexts/fulfillment/integration.ts"
-      ],
       "@chase-sets/fulfillment/seed-support/*": [
         "./bounded-contexts/fulfillment/seed-support/*"
       ],
@@ -89,9 +80,6 @@
       ],
       "@chase-sets/marketplace/client": [
         "./bounded-contexts/marketplace/client.ts"
-      ],
-      "@chase-sets/marketplace/integration": [
-        "./bounded-contexts/marketplace/integration.ts"
       ],
       "@chase-sets/marketplace/seed-support/*": [
         "./bounded-contexts/marketplace/seed-support/*"
@@ -111,9 +99,6 @@
       "@chase-sets/identity/client": [
         "./bounded-contexts/identity/client.ts"
       ],
-      "@chase-sets/identity/integration": [
-        "./bounded-contexts/identity/integration.ts"
-      ],
       "@chase-sets/identity/seed-support/*": [
         "./bounded-contexts/identity/seed-support/*"
       ],
@@ -128,9 +113,6 @@
       ],
       "@chase-sets/reputation/client": [
         "./bounded-contexts/reputation/client.ts"
-      ],
-      "@chase-sets/reputation/integration": [
-        "./bounded-contexts/reputation/integration.ts"
       ],
       "@chase-sets/reputation/seed-support/*": [
         "./bounded-contexts/reputation/seed-support/*"
@@ -147,9 +129,6 @@
       "@chase-sets/settlement/client": [
         "./bounded-contexts/settlement/client.ts"
       ],
-      "@chase-sets/settlement/integration": [
-        "./bounded-contexts/settlement/integration.ts"
-      ],
       "@chase-sets/settlement/seed-support/*": [
         "./bounded-contexts/settlement/seed-support/*"
       ],
@@ -164,9 +143,6 @@
       ],
       "@chase-sets/inventory/client": [
         "./bounded-contexts/inventory/client.ts"
-      ],
-      "@chase-sets/inventory/integration": [
-        "./bounded-contexts/inventory/integration.ts"
       ],
       "@chase-sets/inventory/seed-support/*": [
         "./bounded-contexts/inventory/seed-support/*"
@@ -183,9 +159,6 @@
       "@chase-sets/ordering/client": [
         "./bounded-contexts/ordering/client.ts"
       ],
-      "@chase-sets/ordering/integration": [
-        "./bounded-contexts/ordering/integration.ts"
-      ],
       "@chase-sets/ordering/seed-support/*": [
         "./bounded-contexts/ordering/seed-support/*"
       ],
@@ -200,9 +173,6 @@
       ],
       "@chase-sets/payments/client": [
         "./bounded-contexts/payments/client.ts"
-      ],
-      "@chase-sets/payments/integration": [
-        "./bounded-contexts/payments/integration.ts"
       ],
       "@chase-sets/payments/seed-support/*": [
         "./bounded-contexts/payments/seed-support/*"
@@ -230,6 +200,12 @@
       ],
       "@chase-sets/bounded-context-runtime": [
         "./infrastructure/bounded-context-runtime/index.ts"
+      ],
+      "@chase-sets/bounded-context-runtime/http": [
+        "./infrastructure/bounded-context-runtime/http.ts"
+      ],
+      "@chase-sets/bounded-context-runtime/web": [
+        "./infrastructure/bounded-context-runtime/web.ts"
       ],
       "@chase-sets/event-core": [
         "./contracts/event-core/index.ts"

@@ -1,5 +1,4 @@
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 import {
   assert,
   buildDemandSignature,
@@ -11,7 +10,7 @@ import {
 
 export type MarketplaceDemand = Readonly<{
   catalogItemId: string;
-  catalogVersionKey: CatalogVersionKey;
+  catalogVersionKey: string;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: readonly VersionSelectionEntry[];
@@ -24,7 +23,7 @@ export type MarketplaceSupplyCandidate = Readonly<{
   sellerAccountId: AccountId;
   inventoryRecordId: string;
   catalogItemId: string;
-  catalogVersionKey: CatalogVersionKey;
+  catalogVersionKey: string;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: readonly VersionSelectionEntry[];
@@ -35,12 +34,6 @@ export type MarketplaceSupplyCandidate = Readonly<{
   availableQuantity: number;
   updatedAt: string;
 }>;
-
-export interface MarketplaceSupplyResolver {
-  resolveCandidates(
-    demand: MarketplaceDemand & Readonly<{ sellerAccountId?: string }>,
-  ): Promise<readonly MarketplaceSupplyCandidate[]>;
-}
 
 export type ShippingQuoteResult = Readonly<{
   shippingOption: ShippingOption;
@@ -98,29 +91,6 @@ export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
     };
   },
 };
-
-export type InventoryReservation = Readonly<{
-  holdId: string;
-  inventoryRecordId: string;
-  sellerAccountId: string;
-  quantity: number;
-}>;
-
-export interface InventoryReservationGateway {
-  createReservation(params: Readonly<{
-    sellerAccountId: AccountId;
-    inventoryRecordId: string;
-    quantity: number;
-    reason: string;
-    notes?: string | null;
-    context: unknown;
-  }>): Promise<InventoryReservation>;
-  releaseReservation(params: Readonly<{
-    sellerAccountId: string;
-    holdId: string;
-    context: unknown;
-  }>): Promise<void>;
-}
 
 export function tieBreakPlanKey(orderIds: readonly string[]) {
   return [...orderIds].sort().join("|");

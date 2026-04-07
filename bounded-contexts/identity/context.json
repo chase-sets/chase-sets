@@ -21,7 +21,6 @@
     "customer"
   ],
   "allowedSupportDirectories": [
-    "integration",
     "read-model-support",
     "request-support",
     "route-support",
@@ -31,48 +30,13 @@
   ],
   "publicExports": [
     ".",
-    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server",
     "./web"
   ],
   "allowedContextDependencies": [],
-  "requiredPorts": [],
-  "integrationCapabilities": [
-    {
-      "key": "identity.bootstrap-port",
-      "exportName": "createIdentityBootstrapPort",
-      "fileExport": "./integration/bootstrap-port",
-      "kind": "runtime-port"
-    },
-    {
-      "key": "identity.user-directory",
-      "exportName": "createIdentityUserDirectoryPort",
-      "fileExport": "./integration/user-directory",
-      "kind": "runtime-port"
-    },
-    {
-      "key": "identity.membership-port",
-      "exportName": "createIdentityMembershipPort",
-      "fileExport": "./integration/membership-port",
-      "kind": "runtime-port"
-    },
-    {
-      "key": "identity.invitation-port",
-      "exportName": "createIdentityInvitationPort",
-      "fileExport": "./integration/invitation-port",
-      "kind": "runtime-port"
-    },
-    {
-      "key": "identity.provisioning-port",
-      "exportName": "createIdentityProvisioningPort",
-      "fileExport": "./integration/provisioning-port",
-      "kind": "runtime-port"
-    }
-  ],
   "seedRequirements": [],
-  "apiRequirements": [],
   "hostPorts": [],
   "apiDeployables": [
     "identity-api"
@@ -340,18 +304,6 @@
         "Internal identity module composition"
       ]
     },
-    "integration": {
-      "classification": "support",
-      "purpose": "Provide reusable integration assets shared by multiple identity slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple identity slices",
-        "Deployable composition for identity"
-      ],
-      "justification": "integration centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
     "read-model-support": {
       "classification": "support",
       "purpose": "Provide reusable read-model-support assets shared by multiple identity slices.",
@@ -365,7 +317,7 @@
         "users"
       ],
       "justification": "read-model-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice identity workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "request-support": {
@@ -379,7 +331,7 @@
         "users"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice identity workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "route-support": {
@@ -391,7 +343,7 @@
         "Deployable composition for identity"
       ],
       "justification": "route-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice identity workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -403,7 +355,7 @@
         "Deployable composition for identity"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice identity workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "shell-support": {
@@ -418,7 +370,7 @@
         "users"
       ],
       "justification": "shell-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice identity workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "tests": {
@@ -430,12 +382,12 @@
         "Deployable composition for identity"
       ],
       "justification": "tests centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice identity workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose identity-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -443,3 +395,4 @@
     }
   }
 }
+

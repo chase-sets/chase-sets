@@ -23,13 +23,44 @@
     "./server"
   ],
   "allowedContextDependencies": [],
-  "requiredPorts": [],
-  "integrationCapabilities": [],
   "seedRequirements": [
     "identity",
     "payments"
   ],
-  "apiRequirements": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "payments",
+      "projectionName": "settlement-payment-input-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "settlement-payment-input-projection"
+      ],
+      "eventTypes": [
+        "payments.payment-created",
+        "payments.payment-authorized",
+        "payments.payment-captured",
+        "payments.payment-failed",
+        "payments.payment-cancelled",
+        "payments.refund-requested",
+        "payments.refund-issued",
+        "payments.refund-failed"
+      ],
+      "order": 10
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "settlement-payment-input-projection",
+      "sourceContextNames": [
+        "payments"
+      ],
+      "ownedTables": [
+        "settlement_payment_sources",
+        "settlement_refund_sources"
+      ],
+      "requiredDuringBootstrap": true
+    }
+  ],
   "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
@@ -97,7 +128,7 @@
         "Deployable composition for settlement"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice settlement workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -109,12 +140,12 @@
         "Deployable composition for settlement"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice settlement workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose settlement-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -122,3 +153,4 @@
     }
   }
 }
+

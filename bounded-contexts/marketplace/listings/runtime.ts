@@ -97,6 +97,7 @@ export type MarketplaceListingServices = Readonly<{
     recordId: string,
     accountId?: string,
   ) => ReturnType<typeof getInventoryRecordSupply>;
+  reconcileInventoryCapacity: (inventoryRecordId: string) => Promise<void>;
   projectors: readonly Projector[];
 }>;
 
@@ -283,38 +284,13 @@ export function createMarketplaceListingRuntime(
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
     getInventoryRecordSupply: (recordId, accountId) =>
       getInventoryRecordSupply(deps.db, recordId, accountId),
+    reconcileInventoryCapacity,
     projectors: [
       createProjector({
         projectorName: "marketplace-listing-projection",
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildMarketplaceListingProjectionHandlers(deps.db),
-      }),
-      createProjector({
-        projectorName: "marketplace-listing-inventory-capacity-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: {
-          "inventory.record.adjusted": async (event) => {
-            const { recordId } = event.data as { recordId: string };
-            await reconcileInventoryCapacity(recordId);
-          },
-          "inventory.hold.placed": async (event) => {
-            const { recordId } = event.data as { recordId: string };
-            await reconcileInventoryCapacity(recordId);
-          },
-          "inventory.hold.released": async (event) => {
-            const holdId = event.streamId.replace("inventory.hold-", "");
-            const result = await deps.db.query<{ record_id: string }>(
-              `SELECT record_id FROM inventory_holds WHERE hold_id = $1`,
-              [holdId],
-            );
-            const recordId = result.rows[0]?.record_id;
-            if (recordId) {
-              await reconcileInventoryCapacity(recordId);
-            }
-          },
-        },
       }),
     ],
   };

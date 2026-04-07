@@ -5,17 +5,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import {
-  createPricingRecommendationRuntime,
-  type PricingRecommendationPorts,
-} from "./recommendations/runtime";
-
-export type PricingServicePorts = Readonly<{
-  resolveCatalogSellableUnit: unknown;
-  resolveMarketSupply: unknown;
-  reserveInventorySignal: unknown;
-  loadOrderSnapshot: unknown;
-}>;
+import { createPricingRecommendationRuntime } from "./recommendations/runtime";
 
 export type PricingServices = Readonly<{
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
@@ -24,18 +14,8 @@ export type PricingServices = Readonly<{
   db: PgQueryable;
 }>;
 
-function toRecommendationPorts(ports: PricingServicePorts): PricingRecommendationPorts {
-  return {
-    resolveCatalogSellableUnit: ports.resolveCatalogSellableUnit,
-    resolveMarketSupply: ports.resolveMarketSupply,
-    reserveInventorySignal: ports.reserveInventorySignal,
-    loadOrderSnapshot: ports.loadOrderSnapshot,
-  };
-}
-
 export function createPricingServices(
   pool: PgTransactionalPool,
-  ports: PricingServicePorts,
 ): PricingServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
@@ -44,7 +24,6 @@ export function createPricingServices(
     eventStore,
     checkpointStore,
     db,
-    ports: toRecommendationPorts(ports),
   });
 
   return {

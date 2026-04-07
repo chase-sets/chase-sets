@@ -1,4 +1,4 @@
-import { AdminDetailPage } from "../../shell-support/ui/admin-pages";
+import { AdminDetailPage } from "./admin-pages";
 import type { Session } from "./contracts";
 
 export function SessionDetailPage({ data }: { data: Session }) {

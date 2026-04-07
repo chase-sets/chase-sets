@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-04-06T13:27:42.499Z",
+  "generatedAt": "2026-04-06T21:51:00.085Z",
   "totals": {
     "contextCount": 13,
-    "sliceCount": 29,
-    "supportDirectoryCount": 38,
-    "singleSliceSupportFiles": 3,
+    "sliceCount": 30,
+    "supportDirectoryCount": 30,
+    "singleSliceSupportFiles": 0,
     "driftCount": 0
   },
   "contexts": [
@@ -12,16 +12,16 @@
       "contextRoot": "bounded-contexts/auth",
       "contextName": "auth",
       "sliceCount": 2,
-      "supportDirectoryCount": 5,
-      "singleSliceSupportFiles": 2,
+      "supportDirectoryCount": 4,
+      "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
     {
       "contextRoot": "bounded-contexts/catalog",
       "contextName": "catalog",
       "sliceCount": 1,
-      "supportDirectoryCount": 4,
-      "singleSliceSupportFiles": 1,
+      "supportDirectoryCount": 2,
+      "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
     {
@@ -44,7 +44,7 @@
       "contextRoot": "bounded-contexts/identity",
       "contextName": "identity",
       "sliceCount": 7,
-      "supportDirectoryCount": 7,
+      "supportDirectoryCount": 6,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -59,8 +59,8 @@
     {
       "contextRoot": "bounded-contexts/inventory",
       "contextName": "inventory",
-      "sliceCount": 4,
-      "supportDirectoryCount": 4,
+      "sliceCount": 5,
+      "supportDirectoryCount": 3,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -68,7 +68,7 @@
       "contextRoot": "bounded-contexts/marketplace",
       "contextName": "marketplace",
       "sliceCount": 2,
-      "supportDirectoryCount": 3,
+      "supportDirectoryCount": 2,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -76,7 +76,7 @@
       "contextRoot": "bounded-contexts/ordering",
       "contextName": "ordering",
       "sliceCount": 3,
-      "supportDirectoryCount": 3,
+      "supportDirectoryCount": 2,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -100,7 +100,7 @@
       "contextRoot": "bounded-contexts/reputation",
       "contextName": "reputation",
       "sliceCount": 1,
-      "supportDirectoryCount": 3,
+      "supportDirectoryCount": 2,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },

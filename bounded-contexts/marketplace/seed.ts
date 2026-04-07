@@ -1,13 +1,13 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import {
-  resolveSellableUnitDescriptor,
-  type CatalogVersionSchema,
-} from "@chase-sets/catalog/integration/sellable-units";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { ListingId, OfferId } from "@chase-sets/primitives/typed-ids";
+import {
+  createMarketplaceCatalogVersionDescriptor,
+  type MarketplaceVersionSchema,
+} from "./offers/versioning";
 import { createMarketplaceServices } from "./services";
 
 type ListingSeed = Readonly<{
@@ -92,6 +92,14 @@ const listings: readonly ListingSeed[] = [
     priceAmount: "132.00",
     quantityCap: 1,
     finalStatus: "withdrawn",
+  },
+  {
+    listingId: marketplaceReservedSeedIds.listings.twilightMasqueradeEliteTrainerActive,
+    inventoryRecordId: inventorySeedIds.records.twilightMasqueradeEliteTrainerBox,
+    catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    priceAmount: "46.00",
+    quantityCap: 2,
+    finalStatus: "active",
   },
 ];
 
@@ -198,17 +206,17 @@ async function getCatalogVersionKey(
 ) {
   const result = await services.db.query<{ version_schema: unknown }>(
     `SELECT version_schema
-     FROM inventory_catalog_items
+     FROM marketplace_catalog_items
      WHERE item_id = $1`,
     [catalogItemId],
   );
   const versionSchema = result.rows[0]?.version_schema;
 
-  return resolveSellableUnitDescriptor({
+  return createMarketplaceCatalogVersionDescriptor({
     catalogItemId,
     versionSchema:
       typeof versionSchema === "object" && versionSchema !== null
-        ? (versionSchema as CatalogVersionSchema)
+        ? (versionSchema as MarketplaceVersionSchema)
         : null,
     selection,
   }).catalogVersionKey;
@@ -330,6 +338,15 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
     });
   }
 
+  await drainProjectors(services.projectors);
+
+  await services.offers.acceptOffer(
+    {
+      offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
+      sellerAccountId: identitySeedIds.seller.accountId,
+    },
+    context,
+  );
   await drainProjectors(services.projectors);
 }
 

@@ -137,14 +137,14 @@ export async function getInventoryRecordSupply(
        location.name AS storage_location_name,
        location.ship_from_code,
        record.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
-     FROM inventory_records AS record
-     INNER JOIN inventory_storage_locations AS location
+     FROM marketplace_supply_records AS record
+     INNER JOIN marketplace_supply_locations AS location
        ON location.storage_location_id = record.storage_location_id
-     LEFT JOIN inventory_catalog_items AS catalog_item
+     LEFT JOIN marketplace_catalog_items AS catalog_item
        ON catalog_item.item_id = record.catalog_item_id
      LEFT JOIN (
        SELECT record_id, SUM(quantity)::integer AS held_quantity
-       FROM inventory_holds
+       FROM marketplace_supply_holds
        WHERE status = 'active'
        GROUP BY record_id
      ) AS active_holds
@@ -296,7 +296,7 @@ export async function listItemListings(
        account.display_name AS seller_display_name,
        listing.quantity_cap AS visible_quantity
      FROM marketplace_listing_pages AS listing
-     LEFT JOIN identity_accounts AS account
+     LEFT JOIN marketplace_account_pages AS account
        ON account.account_id = listing.account_id
      WHERE listing.catalog_version_key = $1
        AND listing.status = 'active'

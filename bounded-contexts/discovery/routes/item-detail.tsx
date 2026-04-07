@@ -14,19 +14,23 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import {
-  createMarketplaceOfferGateway,
-} from "@chase-sets/marketplace/integration/offer-gateway";
-import { createOrderingBuyerGateway } from "@chase-sets/ordering/integration/buyer-gateway";
+import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
 } from "../request-support/api-client";
+import { createDiscoveryMarketplaceOfferGateway } from "../request-support/marketplace-offers";
+import { createDiscoveryOrderingBuyerGateway } from "../request-support/ordering-buyer";
 import { ItemDetailPage } from "../items/detail/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.";
+
+const EMPTY_ITEM_DETAIL_RESULT = {
+  item: null,
+  notFound: false,
+  error: null,
+} as const;
 
 function parseVersionSelection(value: FormDataEntryValue | null) {
   try {
@@ -210,8 +214,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const discoveryApi = createDiscoveryRequestApiClient(request);
-  const marketplaceApi = createMarketplaceOfferGateway(request);
-  const orderingApi = createOrderingBuyerGateway(request);
+  const marketplaceApi = createDiscoveryMarketplaceOfferGateway(request);
+  const orderingApi = createDiscoveryOrderingBuyerGateway(request);
 
   try {
     if (intent === "submit-offer") {
@@ -280,7 +284,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) =>
   });
 
 export default function DiscoveryItemDetailRoute() {
-  const data = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;
   const actionData = useActionData<typeof action>();
 
   return (

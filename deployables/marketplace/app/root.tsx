@@ -68,20 +68,9 @@ export function ErrorBoundary() {
       : "Unknown error";
 
   return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Marketplace Error</title>
-        <Links />
-      </head>
-      <body>
-        <main>
-          <h1>Marketplace Error</h1>
-          <p>{message}</p>
-        </main>
-        <Scripts />
-      </body>
-    </html>
+    <main>
+      <h1>Marketplace Error</h1>
+      <p>{message}</p>
+    </main>
   );
 }

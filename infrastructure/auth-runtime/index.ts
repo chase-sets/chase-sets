@@ -3,7 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createForwardedAuthHeaders,
   resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime";
+} from "@chase-sets/bounded-context-runtime/http";
 
 export type { ResolvedActor } from "@chase-sets/auth-context";
 

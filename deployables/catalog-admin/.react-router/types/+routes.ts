@@ -14,14 +14,46 @@ type Pages = {
   "/": {
     params: {};
   };
+  "/account-select": {
+    params: {};
+  };
   "/sign-in": {
     params: {};
   };
   "/sign-out": {
     params: {};
   };
-  "/account-select": {
+  "/blueprints": {
     params: {};
+  };
+  "/blueprints/:id": {
+    params: {
+      "id": string;
+    };
+  };
+  "/catalog-items": {
+    params: {};
+  };
+  "/catalog-items/:id": {
+    params: {
+      "id": string;
+    };
+  };
+  "/categories": {
+    params: {};
+  };
+  "/categories/:id": {
+    params: {
+      "id": string;
+    };
+  };
+  "/components": {
+    params: {};
+  };
+  "/components/:id": {
+    params: {
+      "id": string;
+    };
   };
   "/dimensions": {
     params: {};
@@ -39,44 +71,16 @@ type Pages = {
       "id": string;
     };
   };
-  "/components": {
-    params: {};
-  };
-  "/components/:id": {
-    params: {
-      "id": string;
-    };
-  };
-  "/blueprints": {
-    params: {};
-  };
-  "/blueprints/:id": {
-    params: {
-      "id": string;
-    };
-  };
-  "/categories": {
-    params: {};
-  };
-  "/categories/:id": {
-    params: {
-      "id": string;
-    };
-  };
-  "/catalog-items": {
-    params: {};
-  };
-  "/catalog-items/:id": {
-    params: {
-      "id": string;
-    };
-  };
 };
 
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/sign-in" | "/sign-out" | "/account-select" | "/dimensions" | "/dimensions/:id" | "/fields" | "/fields/:id" | "/components" | "/components/:id" | "/blueprints" | "/blueprints/:id" | "/categories" | "/categories/:id" | "/catalog-items" | "/catalog-items/:id";
+    page: "/" | "/account-select" | "/sign-in" | "/sign-out" | "/blueprints" | "/blueprints/:id" | "/catalog-items" | "/catalog-items/:id" | "/categories" | "/categories/:id" | "/components" | "/components/:id" | "/dimensions" | "/dimensions/:id" | "/fields" | "/fields/:id";
+  };
+  "routes/account-select.tsx": {
+    id: "routes/account-select";
+    page: "/account-select";
   };
   "routes/sign-in.tsx": {
     id: "routes/sign-in";
@@ -86,17 +90,45 @@ type RouteFiles = {
     id: "routes/sign-out";
     page: "/sign-out";
   };
-  "routes/account-select.tsx": {
-    id: "routes/account-select";
-    page: "/account-select";
-  };
   "routes/layout.tsx": {
     id: "routes/layout";
-    page: "/" | "/dimensions" | "/dimensions/:id" | "/fields" | "/fields/:id" | "/components" | "/components/:id" | "/blueprints" | "/blueprints/:id" | "/categories" | "/categories/:id" | "/catalog-items" | "/catalog-items/:id";
+    page: "/" | "/blueprints" | "/blueprints/:id" | "/catalog-items" | "/catalog-items/:id" | "/categories" | "/categories/:id" | "/components" | "/components/:id" | "/dimensions" | "/dimensions/:id" | "/fields" | "/fields/:id";
   };
   "routes/index.tsx": {
     id: "routes/index";
     page: "/";
+  };
+  "routes/blueprints.tsx": {
+    id: "routes/blueprints";
+    page: "/blueprints";
+  };
+  "routes/blueprints-detail.tsx": {
+    id: "routes/blueprints-detail";
+    page: "/blueprints/:id";
+  };
+  "routes/catalog-items.tsx": {
+    id: "routes/catalog-items";
+    page: "/catalog-items";
+  };
+  "routes/catalog-items-detail.tsx": {
+    id: "routes/catalog-items-detail";
+    page: "/catalog-items/:id";
+  };
+  "routes/categories.tsx": {
+    id: "routes/categories";
+    page: "/categories";
+  };
+  "routes/categories-detail.tsx": {
+    id: "routes/categories-detail";
+    page: "/categories/:id";
+  };
+  "routes/components.tsx": {
+    id: "routes/components";
+    page: "/components";
+  };
+  "routes/components-detail.tsx": {
+    id: "routes/components-detail";
+    page: "/components/:id";
   };
   "routes/dimensions.tsx": {
     id: "routes/dimensions";
@@ -114,57 +146,25 @@ type RouteFiles = {
     id: "routes/fields-detail";
     page: "/fields/:id";
   };
-  "routes/components.tsx": {
-    id: "routes/components";
-    page: "/components";
-  };
-  "routes/components-detail.tsx": {
-    id: "routes/components-detail";
-    page: "/components/:id";
-  };
-  "routes/blueprints.tsx": {
-    id: "routes/blueprints";
-    page: "/blueprints";
-  };
-  "routes/blueprints-detail.tsx": {
-    id: "routes/blueprints-detail";
-    page: "/blueprints/:id";
-  };
-  "routes/categories.tsx": {
-    id: "routes/categories";
-    page: "/categories";
-  };
-  "routes/categories-detail.tsx": {
-    id: "routes/categories-detail";
-    page: "/categories/:id";
-  };
-  "routes/catalog-items.tsx": {
-    id: "routes/catalog-items";
-    page: "/catalog-items";
-  };
-  "routes/catalog-items-detail.tsx": {
-    id: "routes/catalog-items-detail";
-    page: "/catalog-items/:id";
-  };
 };
 
 type RouteModules = {
   "root": typeof import("./app/root.tsx");
+  "routes/account-select": typeof import("./app/routes/account-select.tsx");
   "routes/sign-in": typeof import("./app/routes/sign-in.tsx");
   "routes/sign-out": typeof import("./app/routes/sign-out.tsx");
-  "routes/account-select": typeof import("./app/routes/account-select.tsx");
   "routes/layout": typeof import("./app/routes/layout.tsx");
   "routes/index": typeof import("./app/routes/index.tsx");
+  "routes/blueprints": typeof import("./app/routes/blueprints.tsx");
+  "routes/blueprints-detail": typeof import("./app/routes/blueprints-detail.tsx");
+  "routes/catalog-items": typeof import("./app/routes/catalog-items.tsx");
+  "routes/catalog-items-detail": typeof import("./app/routes/catalog-items-detail.tsx");
+  "routes/categories": typeof import("./app/routes/categories.tsx");
+  "routes/categories-detail": typeof import("./app/routes/categories-detail.tsx");
+  "routes/components": typeof import("./app/routes/components.tsx");
+  "routes/components-detail": typeof import("./app/routes/components-detail.tsx");
   "routes/dimensions": typeof import("./app/routes/dimensions.tsx");
   "routes/dimensions-detail": typeof import("./app/routes/dimensions-detail.tsx");
   "routes/fields": typeof import("./app/routes/fields.tsx");
   "routes/fields-detail": typeof import("./app/routes/fields-detail.tsx");
-  "routes/components": typeof import("./app/routes/components.tsx");
-  "routes/components-detail": typeof import("./app/routes/components-detail.tsx");
-  "routes/blueprints": typeof import("./app/routes/blueprints.tsx");
-  "routes/blueprints-detail": typeof import("./app/routes/blueprints-detail.tsx");
-  "routes/categories": typeof import("./app/routes/categories.tsx");
-  "routes/categories-detail": typeof import("./app/routes/categories-detail.tsx");
-  "routes/catalog-items": typeof import("./app/routes/catalog-items.tsx");
-  "routes/catalog-items-detail": typeof import("./app/routes/catalog-items-detail.tsx");
 };

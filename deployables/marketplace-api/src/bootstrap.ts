@@ -1,8 +1,5 @@
 import { createPgPool } from "@chase-sets/event-core-postgres";
-import {
-  composeSchemaSql,
-  waitForDatabase,
-} from "@chase-sets/bounded-context-runtime";
+import { drainContextRuntime } from "@chase-sets/bounded-context-runtime";
 import { loadBootstrapConfig } from "./config";
 import { seedContextRuntimeIfEmpty } from "./context-lifecycle.generated";
 import { createContextRuntime } from "./context-runtime.generated";
@@ -10,20 +7,34 @@ import { createFakePaymentProcessorGateway } from "./payment-processor";
 
 async function bootstrap() {
   const config = loadBootstrapConfig();
-  const pool = createPgPool(config.databaseUrl);
+  const pools = {
+    catalog: createPgPool(config.databaseUrls.catalog),
+    discovery: createPgPool(config.databaseUrls.discovery),
+    fulfillment: createPgPool(config.databaseUrls.fulfillment),
+    identity: createPgPool(config.databaseUrls.identity),
+    inventory: createPgPool(config.databaseUrls.inventory),
+    marketplace: createPgPool(config.databaseUrls.marketplace),
+    ordering: createPgPool(config.databaseUrls.ordering),
+    payments: createPgPool(config.databaseUrls.payments),
+    pricing: createPgPool(config.databaseUrls.pricing),
+    reputation: createPgPool(config.databaseUrls.reputation),
+    settlement: createPgPool(config.databaseUrls.settlement),
+  } as const;
 
   try {
-    await waitForDatabase(pool, "Marketplace API");
-    const runtime = createContextRuntime(pool, {
+    const runtime = createContextRuntime(pools, {
       processorGateway: createFakePaymentProcessorGateway(),
     });
-
-    await pool.query(composeSchemaSql(runtime.mountedModules.map(({ module }) => module)));
-    await seedContextRuntimeIfEmpty(pool, runtime);
+    await seedContextRuntimeIfEmpty(pools, runtime);
+    await drainContextRuntime(runtime);
     console.log("Marketplace projections are up to date.");
     console.log("Marketplace bootstrap complete.");
   } finally {
-    await (pool as unknown as { end: () => Promise<void> }).end();
+    await Promise.all(
+      Object.values(pools).map((pool) =>
+        (pool as unknown as { end: () => Promise<void> }).end(),
+      ),
+    );
   }
 }
 

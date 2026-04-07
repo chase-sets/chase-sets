@@ -4,7 +4,6 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 import type { InventoryVersionSelectionEntry } from "../catalog-items/versioning";
 import {
   assert,
@@ -18,7 +17,7 @@ export type InventoryRecordState = Readonly<{
   id: InventoryRecordId | null;
   accountId: AccountId | null;
   catalogItemId: string | null;
-  catalogVersionKey: CatalogVersionKey | null;
+  catalogVersionKey: string | null;
   versionSelection: readonly InventoryVersionSelectionEntry[];
   storageLocationId: string | null;
   totalQuantity: number;
@@ -41,7 +40,7 @@ export type CreateInventoryRecordCommand = Readonly<{
   recordId: InventoryRecordId;
   accountId: AccountId;
   catalogItemId: string;
-  catalogVersionKey: CatalogVersionKey;
+  catalogVersionKey: string;
   versionSelection?: readonly InventoryVersionSelectionEntry[];
   storageLocationId: string;
   totalQuantity: number;
@@ -64,7 +63,7 @@ export type InventoryRecordCreatedEvent = DomainEvent<
     recordId: InventoryRecordId;
     accountId: AccountId;
     catalogItemId: string;
-    catalogVersionKey: CatalogVersionKey;
+    catalogVersionKey: string;
     versionSelection: InventoryVersionSelectionEntry[];
     storageLocationId: string;
     totalQuantity: number;

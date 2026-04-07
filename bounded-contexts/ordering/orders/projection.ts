@@ -32,8 +32,8 @@ export function buildOrderingOrderProjectionHandlers(
           quantity: number;
           lineTotalAmount: string;
         }>;
-        inventoryReservations: Array<{
-          holdId: string;
+        reservationRequests: Array<{
+          reservationRequestId: string;
           inventoryRecordId: string;
           sellerAccountId: string;
           quantity: number;
@@ -57,9 +57,10 @@ export function buildOrderingOrderProjectionHandlers(
            created_at,
            updated_at,
            cancelled_at,
+           cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending-payment', $12, $12, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending-reservation', $12, $12, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
@@ -74,6 +75,7 @@ export function buildOrderingOrderProjectionHandlers(
              total_amount = EXCLUDED.total_amount,
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at,
+             cancellation_reason = EXCLUDED.cancellation_reason,
              ready_for_fulfillment_at = EXCLUDED.ready_for_fulfillment_at`,
         [
           data.orderId,
@@ -146,57 +148,91 @@ export function buildOrderingOrderProjectionHandlers(
         );
       }
 
-      for (const reservation of data.inventoryReservations) {
-        await db.query(
-          `INSERT INTO ordering_order_hold_pages (
-             hold_id,
-             order_id,
-             seller_account_id,
-             inventory_record_id,
-             quantity,
-             status,
-             created_at,
-             released_at
-           ) VALUES (
-             $1, $2, $3, $4, $5, 'active', $6, NULL
-           )
-           ON CONFLICT (hold_id) DO UPDATE
-           SET order_id = EXCLUDED.order_id,
-               seller_account_id = EXCLUDED.seller_account_id,
-               inventory_record_id = EXCLUDED.inventory_record_id,
-               quantity = EXCLUDED.quantity,
-               status = EXCLUDED.status,
-               created_at = EXCLUDED.created_at,
-               released_at = EXCLUDED.released_at`,
-          [
-            reservation.holdId,
-            data.orderId,
-            reservation.sellerAccountId,
-            reservation.inventoryRecordId,
-            reservation.quantity,
-            event.timing.recordedAt,
-          ],
-        );
+    },
+    "ordering.order.reservation-confirmed": async (event) => {
+      const data = event.data as {
+        orderId: string;
+        reservationRequestId: string;
+        inventoryRecordId: string;
+        sellerAccountId: string;
+        quantity: number;
+        holdId: string;
       }
+
+      await db.query(
+        `INSERT INTO ordering_order_hold_pages (
+           hold_id,
+           order_id,
+           seller_account_id,
+           inventory_record_id,
+           quantity,
+           status,
+           created_at,
+           released_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, 'active', $6, NULL
+         )
+         ON CONFLICT (hold_id) DO UPDATE
+         SET order_id = EXCLUDED.order_id,
+             seller_account_id = EXCLUDED.seller_account_id,
+             inventory_record_id = EXCLUDED.inventory_record_id,
+             quantity = EXCLUDED.quantity,
+             status = EXCLUDED.status,
+             created_at = EXCLUDED.created_at,
+             released_at = EXCLUDED.released_at`,
+        [
+          data.holdId,
+          data.orderId,
+          data.sellerAccountId,
+          data.inventoryRecordId,
+          data.quantity,
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "ordering.order.pending-payment-recorded": async (event) => {
+      const data = event.data as {
+        orderId: string;
+        pendingPaymentAt: string;
+      };
+
+      await db.query(
+        `UPDATE ordering_order_pages
+         SET status = 'pending-payment',
+             updated_at = $2
+         WHERE order_id = $1`,
+        [data.orderId, data.pendingPaymentAt],
+      );
     },
     "ordering.order.cancelled": async (event) => {
-      const data = event.data as { orderId: string; cancelledAt: string };
+      const data = event.data as {
+        orderId: string;
+        cancelledAt: string;
+        reason: string;
+      };
 
       await db.query(
         `UPDATE ordering_order_pages
          SET status = 'cancelled',
              cancelled_at = $2,
+             cancellation_reason = $3,
              updated_at = $2
          WHERE order_id = $1`,
-        [data.orderId, data.cancelledAt],
+        [data.orderId, data.cancelledAt, data.reason],
       );
+    },
+    "ordering.order.reservation-released": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        releasedAt: string;
+      };
 
       await db.query(
         `UPDATE ordering_order_hold_pages
          SET status = 'released',
              released_at = $2
-         WHERE order_id = $1`,
-        [data.orderId, data.cancelledAt],
+         WHERE hold_id = $1`,
+        [data.holdId, data.releasedAt],
       );
     },
     "ordering.order.ready-for-fulfillment-recorded": async (event) => {

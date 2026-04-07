@@ -1,5 +1,5 @@
 import { type DataColumn } from "@chase-sets/design-system";
-import { AdminListPage } from "../../shell-support/ui/admin-pages";
+import { AdminListPage } from "./admin-pages";
 import type { Session } from "./contracts";
 
 const columns: DataColumn<Session>[] = [

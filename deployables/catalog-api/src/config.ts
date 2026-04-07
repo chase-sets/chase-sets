@@ -1,24 +1,27 @@
 export type CatalogApiConfig = Readonly<{
-  databaseUrl: string;
+  databaseUrls: Readonly<{
+    catalog: string;
+  }>;
   identityApiBaseUrl: string;
   port: number;
 }>;
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`${name} environment variable is required.`);
+  }
+
+  return value;
+}
+
 export function loadConfig(): CatalogApiConfig {
-  const databaseUrl = process.env.DATABASE_URL;
-  const identityApiBaseUrl = process.env.IDENTITY_API_BASE_URL;
-
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL environment variable is required.");
-  }
-
-  if (!identityApiBaseUrl) {
-    throw new Error("IDENTITY_API_BASE_URL environment variable is required.");
-  }
-
   return {
-    databaseUrl,
-    identityApiBaseUrl,
+    databaseUrls: {
+      catalog: requireEnv("CATALOG_DATABASE_URL"),
+    },
+    identityApiBaseUrl: requireEnv("IDENTITY_API_BASE_URL"),
     port: Number(process.env.PORT ?? 6180),
   };
 }

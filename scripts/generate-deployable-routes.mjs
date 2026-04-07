@@ -10,6 +10,66 @@ import {
 
 const repoRoot = process.cwd();
 const boundedContextsRoot = path.join(repoRoot, "bounded-contexts");
+const routeExportNames = [
+  "loader",
+  "clientLoader",
+  "action",
+  "clientAction",
+  "meta",
+  "links",
+  "headers",
+  "handle",
+  "shouldRevalidate",
+  "ErrorBoundary",
+  "HydrateFallback",
+];
+
+async function resolveRouteSourcePath(contextRoot, fileExport) {
+  const basePath = path.join(contextRoot, fileExport.replace(/^\.\//, ""));
+  const candidates = [
+    `${basePath}.tsx`,
+    `${basePath}.ts`,
+    path.join(basePath, "index.tsx"),
+    path.join(basePath, "index.ts"),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      await readFile(candidate, "utf8");
+      return candidate;
+    } catch {
+      // Try the next supported source file path.
+    }
+  }
+
+  throw new Error(`Could not resolve route source for ${fileExport} under ${contextRoot}.`);
+}
+
+async function readRouteExportNames(contextRoot, fileExport) {
+  const sourcePath = await resolveRouteSourcePath(contextRoot, fileExport);
+  const content = await readFile(sourcePath, "utf8");
+
+  return routeExportNames.filter((name) => {
+    const functionPattern = new RegExp(
+      `export\\s+(?:async\\s+)?function\\s+${name}\\b`,
+      "m",
+    );
+    const variablePattern = new RegExp(
+      `export\\s+(?:const|let|var)\\s+${name}\\b`,
+      "m",
+    );
+    const reExportPattern = new RegExp(
+      `export\\s*\\{[^}]*\\b${name}\\b[^}]*\\}`,
+      "m",
+    );
+
+    return (
+      functionPattern.test(content) ||
+      variablePattern.test(content) ||
+      reExportPattern.test(content)
+    );
+  });
+}
 
 async function loadContextManifests() {
   const entries = await readdir(boundedContextsRoot, { withFileTypes: true });
@@ -32,6 +92,7 @@ async function loadContextManifests() {
 
       manifests.push({
         contextName: manifest.contextName,
+        contextRoot,
         packageName: packageJson.name,
         deployableContributions: manifest.deployableContributions ?? [],
       });
@@ -52,9 +113,10 @@ async function syncWrapperFiles(deployable, routes) {
   for (const route of routes) {
     const wrapperPath = path.join(config.routesDir, `${route.routeId}.tsx`);
     expectedFiles.add(path.basename(wrapperPath));
+    const exportNames = await readRouteExportNames(route.contextRoot, route.fileExport);
     await writeFile(
       wrapperPath,
-      buildWrapperContent(route.packageName, route),
+      buildWrapperContent(route.packageName, route, exportNames),
       "utf8",
     );
   }
@@ -91,6 +153,7 @@ async function main() {
           ...route,
           placement: route.placement ?? "layout",
           packageName: manifest.packageName,
+          contextRoot: manifest.contextRoot,
           sourceContext: manifest.contextName,
         })),
       );

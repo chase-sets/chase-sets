@@ -5,7 +5,7 @@ import { seedDatabase } from "../seed";
 
 async function resetDatabase() {
   const config = loadConfig();
-  const pool = createPgPool(config.databaseUrl);
+  const pool = createPgPool(config.databaseUrls.catalog);
 
   try {
     console.log("Resetting database schema...");

@@ -23,10 +23,7 @@
     "@chase-sets/marketplace",
     "@chase-sets/ordering"
   ],
-  "requiredPorts": [],
-  "integrationCapabilities": [],
   "seedRequirements": [],
-  "apiRequirements": [],
   "hostPorts": [],
   "apiDeployables": [],
   "apiMounts": [],
@@ -44,7 +41,7 @@
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose insights-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -52,3 +49,4 @@
     }
   }
 }
+

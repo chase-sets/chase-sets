@@ -16,6 +16,7 @@ export interface OrderingOrderListItem {
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
+  cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
   line_count: number;
   total_quantity: number;

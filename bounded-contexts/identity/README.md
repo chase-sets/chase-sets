@@ -47,8 +47,8 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 
 ## Incoming Dependencies
 
-- Auth depends on Identity through `@chase-sets/identity/integration` for user, account, membership, and invitation facts.
-- Auth depends on Identity through `@chase-sets/identity/integration` for user, account, membership, invitation, and email-normalization facts.
+- Auth projects Identity-published user, membership, and invitation facts into auth-owned tables for local reads.
+- Auth uses `@chase-sets/identity/server` for the narrow synchronous identity mutations that still belong to Identity.
 
 ## Outgoing Integration Events
 

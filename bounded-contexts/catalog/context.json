@@ -15,31 +15,18 @@
     "authoring"
   ],
   "allowedSupportDirectories": [
-    "integration",
     "request-support",
-    "shell-support",
-    "seed-support"
+    "shell-support"
   ],
   "publicExports": [
     ".",
-    "./integration/*",
     "./seed-support/*",
     "./routes/*",
     "./server",
     "./web"
   ],
   "allowedContextDependencies": [],
-  "requiredPorts": [],
-  "integrationCapabilities": [
-    {
-      "key": "catalog.sellable-unit-descriptor",
-      "exportName": "createCatalogSellableUnitDescriptorPort",
-      "fileExport": "./integration/sellable-units",
-      "kind": "runtime-port"
-    }
-  ],
   "seedRequirements": [],
-  "apiRequirements": [],
   "hostPorts": [],
   "apiDeployables": [
     "catalog-api"
@@ -225,18 +212,6 @@
         "Internal catalog module composition"
       ]
     },
-    "integration": {
-      "classification": "support",
-      "purpose": "Provide reusable integration assets shared by multiple catalog slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple catalog slices",
-        "Deployable composition for catalog"
-      ],
-      "justification": "integration centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by multiple catalog slices.",
@@ -246,7 +221,7 @@
         "Deployable composition for catalog"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice catalog workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "shell-support": {
@@ -258,24 +233,12 @@
         "Deployable composition for catalog"
       ],
       "justification": "shell-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice catalog workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
-    "seed-support": {
-      "classification": "support",
-      "purpose": "Provide reusable seed-support assets shared by multiple catalog slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "authoring"
-      ],
-      "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules.",
-      "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose catalog-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -283,3 +246,4 @@
     }
   }
 }
+

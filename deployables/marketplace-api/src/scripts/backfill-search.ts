@@ -4,7 +4,7 @@ import { loadBootstrapConfig } from "../config";
 
 async function main() {
   const config = loadBootstrapConfig();
-  const pool = createPgPool(config.databaseUrl);
+  const pool = createPgPool(config.databaseUrls.discovery);
 
   try {
     const services = discoveryModule.createServices(pool, undefined);

@@ -4,7 +4,6 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 import {
   assert,
   assertNever,
@@ -26,7 +25,7 @@ export type OrderingOrderLine = Readonly<{
   listingId: string;
   inventoryRecordId: string;
   catalogItemId: string;
-  catalogVersionKey: CatalogVersionKey;
+  catalogVersionKey: string;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: VersionSelectionEntry[];
@@ -36,11 +35,15 @@ export type OrderingOrderLine = Readonly<{
   lineTotalAmount: string;
 }>;
 
-export type OrderingInventoryReservation = Readonly<{
-  holdId: string;
+export type OrderingReservationRequest = Readonly<{
+  reservationRequestId: string;
   inventoryRecordId: string;
   sellerAccountId: string;
   quantity: number;
+  holdId: string | null;
+  status: "pending" | "confirmed" | "rejected" | "released";
+  rejectionReason: string | null;
+  releasedAt: string | null;
 }>;
 
 export type OrderingOrderState = Readonly<{
@@ -56,9 +59,10 @@ export type OrderingOrderState = Readonly<{
   shippingChargeAmount: string | null;
   totalAmount: string | null;
   lines: OrderingOrderLine[];
-  inventoryReservations: OrderingInventoryReservation[];
+  reservationRequests: OrderingReservationRequest[];
   status: OrderStatus | null;
   cancelledAt: string | null;
+  cancellationReason: string | null;
   readyForFulfillmentAt: string | null;
 }>;
 
@@ -75,9 +79,10 @@ export const initialOrderingOrderState: OrderingOrderState = {
   shippingChargeAmount: null,
   totalAmount: null,
   lines: [],
-  inventoryReservations: [],
+  reservationRequests: [],
   status: null,
   cancelledAt: null,
+  cancellationReason: null,
   readyForFulfillmentAt: null,
 };
 
@@ -95,12 +100,41 @@ export type CreateOrderCommand = Readonly<{
   shippingChargeAmount: string;
   totalAmount: string;
   lines: OrderingOrderLine[];
-  inventoryReservations: OrderingInventoryReservation[];
+  reservationRequests: Array<
+    Readonly<{
+      reservationRequestId: string;
+      inventoryRecordId: string;
+      sellerAccountId: string;
+      quantity: number;
+    }>
+  >;
+}>;
+
+export type RecordReservationConfirmedCommand = Readonly<{
+  type: "RecordReservationConfirmed";
+  reservationRequestId: string;
+  holdId: string;
+  confirmedAt: string;
+}>;
+
+export type RecordReservationRejectedCommand = Readonly<{
+  type: "RecordReservationRejected";
+  reservationRequestId: string;
+  rejectedAt: string;
+  reason: string;
+}>;
+
+export type RecordReservationReleasedCommand = Readonly<{
+  type: "RecordReservationReleased";
+  reservationRequestId: string;
+  holdId: string;
+  releasedAt: string;
 }>;
 
 export type CancelOrderCommand = Readonly<{
   type: "CancelOrder";
   cancelledAt: string;
+  reason: string;
 }>;
 
 export type MarkReadyForFulfillmentCommand = Readonly<{
@@ -110,6 +144,9 @@ export type MarkReadyForFulfillmentCommand = Readonly<{
 
 export type OrderingOrderCommand =
   | CreateOrderCommand
+  | RecordReservationConfirmedCommand
+  | RecordReservationRejectedCommand
+  | RecordReservationReleasedCommand
   | CancelOrderCommand
   | MarkReadyForFulfillmentCommand;
 
@@ -128,7 +165,45 @@ export type OrderCreatedEvent = DomainEvent<
     shippingChargeAmount: string;
     totalAmount: string;
     lines: OrderingOrderLine[];
-    inventoryReservations: OrderingInventoryReservation[];
+    reservationRequests: Array<
+      Readonly<{
+        reservationRequestId: string;
+        inventoryRecordId: string;
+        sellerAccountId: string;
+        quantity: number;
+      }>
+    >;
+  }>
+>;
+
+export type OrderReservationConfirmedEvent = DomainEvent<
+  "ordering.order.reservation-confirmed",
+  Readonly<{
+    orderId: OrderId;
+    reservationRequestId: string;
+    inventoryRecordId: string;
+    sellerAccountId: string;
+    quantity: number;
+    holdId: string;
+    confirmedAt: string;
+  }>
+>;
+
+export type OrderReservationRejectedEvent = DomainEvent<
+  "ordering.order.reservation-rejected",
+  Readonly<{
+    orderId: OrderId;
+    reservationRequestId: string;
+    rejectedAt: string;
+    reason: string;
+  }>
+>;
+
+export type OrderPendingPaymentRecordedEvent = DomainEvent<
+  "ordering.order.pending-payment-recorded",
+  Readonly<{
+    orderId: OrderId;
+    pendingPaymentAt: string;
   }>
 >;
 
@@ -137,6 +212,18 @@ export type OrderCancelledEvent = DomainEvent<
   Readonly<{
     orderId: OrderId;
     cancelledAt: string;
+    reason: string;
+    reservationRequests: OrderingReservationRequest[];
+  }>
+>;
+
+export type OrderReservationReleasedEvent = DomainEvent<
+  "ordering.order.reservation-released",
+  Readonly<{
+    orderId: OrderId;
+    reservationRequestId: string;
+    holdId: string;
+    releasedAt: string;
   }>
 >;
 
@@ -150,7 +237,11 @@ export type OrderReadyForFulfillmentEvent = DomainEvent<
 
 export type OrderingOrderEvent =
   | OrderCreatedEvent
+  | OrderReservationConfirmedEvent
+  | OrderReservationRejectedEvent
+  | OrderPendingPaymentRecordedEvent
   | OrderCancelledEvent
+  | OrderReservationReleasedEvent
   | OrderReadyForFulfillmentEvent;
 
 function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
@@ -169,7 +260,7 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
     catalogVersionKey: normalizeRequiredText(
       String(line.catalogVersionKey),
       "Order lines must reference a catalog version key.",
-    ) as CatalogVersionKey,
+    ),
     itemTitle: normalizeRequiredText(
       line.itemTitle,
       "Order lines must include an item title snapshot.",
@@ -190,38 +281,64 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
   }));
 }
 
-function normalizeReservations(
-  reservations: readonly OrderingInventoryReservation[],
+function normalizeReservationRequests(
+  requests: CreateOrderCommand["reservationRequests"],
   sellerAccountId: string,
 ) {
   assert(
-    reservations.length > 0,
-    "Orders must include inventory reservations for committed quantity.",
+    requests.length > 0,
+    "Orders must include inventory reservation requests for committed quantity.",
   );
-  return reservations.map((reservation) => ({
-    holdId: normalizeRequiredText(
-      reservation.holdId,
-      "Inventory reservations must include a hold id.",
-    ),
-    inventoryRecordId: normalizeRequiredText(
-      reservation.inventoryRecordId,
-      "Inventory reservations must include a record id.",
-    ),
-    sellerAccountId: normalizeRequiredText(
-      reservation.sellerAccountId,
-      "Inventory reservations must include a seller account id.",
-    ),
-    quantity: ensurePositiveInteger(
-      reservation.quantity,
-      "Inventory reservation quantity must be a positive whole number.",
-    ),
-  })).map((reservation) => {
-    assert(
-      reservation.sellerAccountId === sellerAccountId,
-      "Inventory reservations must belong to the committed seller.",
+  return requests.map((request) => {
+    const normalizedSellerAccountId = normalizeRequiredText(
+      request.sellerAccountId,
+      "Reservation requests must include a seller account id.",
     );
-    return reservation;
+    assert(
+      normalizedSellerAccountId === sellerAccountId,
+      "Reservation requests must belong to the committed seller.",
+    );
+
+    return {
+      reservationRequestId: normalizeRequiredText(
+        request.reservationRequestId,
+        "Reservation requests must include an id.",
+      ),
+      inventoryRecordId: normalizeRequiredText(
+        request.inventoryRecordId,
+        "Reservation requests must include an inventory record id.",
+      ),
+      sellerAccountId: normalizedSellerAccountId,
+      quantity: ensurePositiveInteger(
+        request.quantity,
+        "Reservation request quantity must be a positive whole number.",
+      ),
+    };
   });
+}
+
+function updateReservationRequest(
+  state: OrderingOrderState,
+  reservationRequestId: string,
+  transform: (request: OrderingReservationRequest) => OrderingReservationRequest,
+) {
+  let matched = false;
+  const reservationRequests = state.reservationRequests.map((request) => {
+    if (request.reservationRequestId !== reservationRequestId) {
+      return request;
+    }
+    matched = true;
+    return transform(request);
+  });
+
+  return {
+    matched,
+    reservationRequests,
+  };
+}
+
+function hasPendingReservations(state: OrderingOrderState) {
+  return state.reservationRequests.some((request) => request.status === "pending");
 }
 
 export const decideOrderingOrder: AggregateDecider<
@@ -268,9 +385,218 @@ export const decideOrderingOrder: AggregateDecider<
               allowZero: true,
             }),
             lines: normalizedLines,
-            inventoryReservations: normalizeReservations(
-              command.inventoryReservations,
+            reservationRequests: normalizeReservationRequests(
+              command.reservationRequests,
               normalizedSellerAccountId,
+            ),
+          },
+        },
+      ];
+    }
+    case "RecordReservationConfirmed": {
+      assert(state.orderId !== null, "Order must be created first.");
+      if (state.status === "cancelled") {
+        return [];
+      }
+
+      const holdId = normalizeRequiredText(
+        command.holdId,
+        "Reservation confirmation must include a hold id.",
+      );
+      const updated = updateReservationRequest(
+        state,
+        command.reservationRequestId,
+        (request) => {
+          if (
+            request.status === "confirmed" &&
+            request.holdId === holdId
+          ) {
+            return request;
+          }
+          assert(
+            request.status === "pending",
+            "Only pending reservation requests can be confirmed.",
+          );
+          return {
+            ...request,
+            holdId,
+            status: "confirmed",
+          };
+        },
+      );
+
+      if (!updated.matched) {
+        return [];
+      }
+
+      const nextState = {
+        ...state,
+        reservationRequests: updated.reservationRequests,
+      };
+
+      const events: OrderingOrderEvent[] = [
+        {
+          type: "ordering.order.reservation-confirmed",
+          data: {
+            orderId: state.orderId,
+            reservationRequestId: normalizeRequiredText(
+              command.reservationRequestId,
+              "Reservation confirmation must include a request id.",
+            ),
+            inventoryRecordId:
+              nextState.reservationRequests.find(
+                (request) =>
+                  request.reservationRequestId === command.reservationRequestId,
+              )?.inventoryRecordId ?? "",
+            sellerAccountId:
+              nextState.reservationRequests.find(
+                (request) =>
+                  request.reservationRequestId === command.reservationRequestId,
+              )?.sellerAccountId ?? "",
+            quantity:
+              nextState.reservationRequests.find(
+                (request) =>
+                  request.reservationRequestId === command.reservationRequestId,
+              )?.quantity ?? 0,
+            holdId,
+            confirmedAt: normalizeRequiredText(
+              command.confirmedAt,
+              "Reservation confirmation must record a timestamp.",
+            ),
+          },
+        },
+      ];
+
+      if (!hasPendingReservations(nextState)) {
+        events.push({
+          type: "ordering.order.pending-payment-recorded",
+          data: {
+            orderId: state.orderId,
+            pendingPaymentAt: command.confirmedAt,
+          },
+        });
+      }
+
+      return events;
+    }
+    case "RecordReservationRejected": {
+      assert(state.orderId !== null, "Order must be created first.");
+      if (state.status === "cancelled") {
+        return [];
+      }
+
+      const updated = updateReservationRequest(
+        state,
+        command.reservationRequestId,
+        (request) => {
+          if (
+            request.status === "rejected" &&
+            request.rejectionReason === normalizeRequiredText(
+              command.reason,
+              "Reservation rejection must include a reason.",
+            )
+          ) {
+            return request;
+          }
+          assert(
+            request.status === "pending",
+            "Only pending reservation requests can be rejected.",
+          );
+          return {
+            ...request,
+            status: "rejected",
+            rejectionReason: normalizeRequiredText(
+              command.reason,
+              "Reservation rejection must include a reason.",
+            ),
+          };
+        },
+      );
+
+      if (!updated.matched) {
+        return [];
+      }
+
+      return [
+        {
+          type: "ordering.order.reservation-rejected",
+          data: {
+            orderId: state.orderId,
+            reservationRequestId: normalizeRequiredText(
+              command.reservationRequestId,
+              "Reservation rejection must include a request id.",
+            ),
+            rejectedAt: normalizeRequiredText(
+              command.rejectedAt,
+              "Reservation rejection must record a timestamp.",
+            ),
+            reason: normalizeRequiredText(
+              command.reason,
+              "Reservation rejection must include a reason.",
+            ),
+          },
+        },
+        {
+          type: "ordering.order.cancelled",
+          data: {
+            orderId: state.orderId,
+            cancelledAt: command.rejectedAt,
+            reason: "inventory-unavailable",
+            reservationRequests: updated.reservationRequests,
+          },
+        },
+      ];
+    }
+    case "RecordReservationReleased": {
+      assert(state.orderId !== null, "Order must be created first.");
+
+      const holdId = normalizeRequiredText(
+        command.holdId,
+        "Reservation release must include a hold id.",
+      );
+      const updated = updateReservationRequest(
+        state,
+        command.reservationRequestId,
+        (request) => {
+          if (request.status === "released") {
+            return request;
+          }
+          assert(
+            request.status === "confirmed",
+            "Only confirmed reservation requests can be released.",
+          );
+          assert(
+            request.holdId === holdId,
+            "Reservation release must reference the confirmed hold id.",
+          );
+          return {
+            ...request,
+            status: "released",
+            releasedAt: normalizeRequiredText(
+              command.releasedAt,
+              "Reservation release must record a timestamp.",
+            ),
+          };
+        },
+      );
+
+      if (!updated.matched) {
+        return [];
+      }
+
+      return [
+        {
+          type: "ordering.order.reservation-released",
+          data: {
+            orderId: state.orderId,
+            reservationRequestId: normalizeRequiredText(
+              command.reservationRequestId,
+              "Reservation release must include a request id.",
+            ),
+            holdId,
+            releasedAt: normalizeRequiredText(
+              command.releasedAt,
+              "Reservation release must record a timestamp.",
             ),
           },
         },
@@ -278,7 +604,13 @@ export const decideOrderingOrder: AggregateDecider<
     }
     case "CancelOrder":
       assert(state.orderId !== null, "Order must be created first.");
-      assert(state.status === "pending-payment", "Only pending orders can be cancelled.");
+      if (state.status === "cancelled") {
+        return [];
+      }
+      assert(
+        state.status === "pending-reservation" || state.status === "pending-payment",
+        "Only pending orders can be cancelled.",
+      );
       return [
         {
           type: "ordering.order.cancelled",
@@ -288,6 +620,11 @@ export const decideOrderingOrder: AggregateDecider<
               command.cancelledAt,
               "Order cancellation must record a timestamp.",
             ),
+            reason: normalizeRequiredText(
+              command.reason,
+              "Order cancellation must include a reason.",
+            ),
+            reservationRequests: state.reservationRequests,
           },
         },
       ];
@@ -298,7 +635,7 @@ export const decideOrderingOrder: AggregateDecider<
       }
       assert(
         state.status === "pending-payment",
-        "Only pending orders can become ready for fulfillment.",
+        "Only pending-payment orders can become ready for fulfillment.",
       );
       return [
         {
@@ -336,16 +673,71 @@ export const evolveOrderingOrder: AggregateEvolver<
         shippingChargeAmount: event.data.shippingChargeAmount,
         totalAmount: event.data.totalAmount,
         lines: event.data.lines,
-        inventoryReservations: event.data.inventoryReservations,
-        status: "pending-payment",
+        reservationRequests: event.data.reservationRequests.map((request) => ({
+          reservationRequestId: request.reservationRequestId,
+          inventoryRecordId: request.inventoryRecordId,
+          sellerAccountId: request.sellerAccountId,
+          quantity: request.quantity,
+          holdId: null,
+          status: "pending",
+          rejectionReason: null,
+          releasedAt: null,
+        })),
+        status: "pending-reservation",
         cancelledAt: null,
+        cancellationReason: null,
         readyForFulfillmentAt: null,
+      };
+    case "ordering.order.reservation-confirmed":
+      return {
+        ...state,
+        reservationRequests: state.reservationRequests.map((request) =>
+          request.reservationRequestId === event.data.reservationRequestId
+            ? {
+                ...request,
+                holdId: event.data.holdId,
+                status: "confirmed",
+              }
+            : request,
+        ),
+      };
+    case "ordering.order.reservation-rejected":
+      return {
+        ...state,
+        reservationRequests: state.reservationRequests.map((request) =>
+          request.reservationRequestId === event.data.reservationRequestId
+            ? {
+                ...request,
+                status: "rejected",
+                rejectionReason: event.data.reason,
+              }
+            : request,
+        ),
+      };
+    case "ordering.order.pending-payment-recorded":
+      return {
+        ...state,
+        status: "pending-payment",
       };
     case "ordering.order.cancelled":
       return {
         ...state,
         status: "cancelled",
         cancelledAt: event.data.cancelledAt,
+        cancellationReason: event.data.reason,
+      };
+    case "ordering.order.reservation-released":
+      return {
+        ...state,
+        reservationRequests: state.reservationRequests.map((request) =>
+          request.reservationRequestId === event.data.reservationRequestId
+            ? {
+                ...request,
+                status: "released",
+                releasedAt: event.data.releasedAt,
+              }
+            : request,
+        ),
       };
     case "ordering.order.ready-for-fulfillment-recorded":
       return {
@@ -357,4 +749,3 @@ export const evolveOrderingOrder: AggregateEvolver<
       return assertNever(event);
   }
 };
-

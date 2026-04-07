@@ -1,16 +1,48 @@
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 
 export type CartLineId = TypedUlid<"cli">;
 export type OrderLineId = TypedUlid<"oli">;
 
 export type ShippingOption = "standard" | "expedited" | "priority";
-export type OrderStatus = "pending-payment" | "ready-for-fulfillment" | "cancelled";
+export type OrderStatus =
+  | "pending-reservation"
+  | "pending-payment"
+  | "ready-for-fulfillment"
+  | "cancelled";
 export type OrderSourceType = "cart-checkout" | "offer-acceptance";
 
 export type VersionSelectionEntry = Readonly<{
   dimensionId: string;
   choiceId: string;
+}>;
+
+export type OrderingVersionApplicabilityClause = Readonly<{
+  dimensionId: string;
+  choiceIds: string[];
+}>;
+
+export type OrderingVersionChoice = Readonly<{
+  choiceId: string;
+  code: string;
+  labels?: Array<{ locale: string; value: string }>;
+}>;
+
+export type OrderingVersionDimension = Readonly<{
+  dimensionId: string;
+  dimensionName: string;
+  required: boolean;
+  appliesWhen: OrderingVersionApplicabilityClause[];
+  allowedChoices: OrderingVersionChoice[];
+}>;
+
+export type OrderingVersionSchema = Readonly<{
+  canonicalDimensionOrder: Array<{ dimensionId: string; dimensionName: string }>;
+  dimensions: OrderingVersionDimension[];
+}>;
+
+export type OrderingCatalogVersionDescriptor = Readonly<{
+  catalogVersionKey: string;
+  selection: VersionSelectionEntry[];
 }>;
 
 export class OrderingDomainError extends Error {
@@ -107,11 +139,116 @@ export function normalizeVersionSelection(
   return normalized;
 }
 
-export function buildDemandSignature(catalogVersionKey: string | CatalogVersionKey) {
+export function buildDemandSignature(catalogVersionKey: string) {
   return normalizeRequiredText(
     String(catalogVersionKey),
     "Catalog version key is required.",
   );
+}
+
+function selectionEntriesToRecord(
+  selection: readonly VersionSelectionEntry[],
+): Record<string, string> {
+  return Object.fromEntries(
+    selection.map((entry) => [entry.dimensionId, entry.choiceId]),
+  );
+}
+
+function isDimensionActive(
+  dimension: OrderingVersionDimension,
+  selections: Record<string, string>,
+) {
+  return dimension.appliesWhen.every((clause) => {
+    const selectedChoiceId = selections[clause.dimensionId];
+    return (
+      selectedChoiceId !== undefined &&
+      clause.choiceIds.includes(selectedChoiceId)
+    );
+  });
+}
+
+export function createOrderingCatalogVersionDescriptor(input: Readonly<{
+  catalogItemId: string;
+  versionSchema: OrderingVersionSchema | null;
+  selection: readonly VersionSelectionEntry[];
+}>): OrderingCatalogVersionDescriptor {
+  const catalogItemId = normalizeRequiredText(
+    input.catalogItemId,
+    "Catalog item id is required.",
+  );
+  const selection = normalizeVersionSelection(input.selection);
+  const schema = input.versionSchema;
+
+  if (!schema || schema.dimensions.length === 0) {
+    assert(
+      selection.length === 0,
+      "Selection is not allowed for this catalog item.",
+    );
+    return {
+      catalogVersionKey: `${catalogItemId}::`,
+      selection: [],
+    };
+  }
+
+  const selections = selectionEntriesToRecord(selection);
+
+  for (const dimension of schema.canonicalDimensionOrder
+    .map((entry) =>
+      schema.dimensions.find((candidate) => candidate.dimensionId === entry.dimensionId),
+    )
+    .filter(
+      (dimension): dimension is OrderingVersionDimension => dimension !== undefined,
+    )) {
+    const active = isDimensionActive(dimension, selections);
+    const selectedChoiceId = selections[dimension.dimensionId];
+
+    if (!active) {
+      assert(
+        selectedChoiceId === undefined,
+        "Selection cannot include inactive dimensions.",
+      );
+      continue;
+    }
+
+    if (selectedChoiceId === undefined) {
+      assert(
+        !dimension.required,
+        `Selection must include ${dimension.dimensionName}.`,
+      );
+      continue;
+    }
+
+    assert(
+      dimension.allowedChoices.some((choice) => choice.choiceId === selectedChoiceId),
+      `Selection must use an allowed choice for ${dimension.dimensionName}.`,
+    );
+  }
+
+  assert(
+    selection.every((entry) =>
+      schema.dimensions.some((dimension) => dimension.dimensionId === entry.dimensionId),
+    ),
+    "Selection cannot include unknown dimensions.",
+  );
+
+  return {
+    catalogVersionKey: `${catalogItemId}::${schema.canonicalDimensionOrder
+      .map((entry) => `${entry.dimensionId}:${selections[entry.dimensionId] ?? "-"}`)
+      .join("|")}`,
+    selection: schema.canonicalDimensionOrder
+      .map((entry) => {
+        const choiceId = selections[entry.dimensionId];
+        if (!choiceId) {
+          return null;
+        }
+
+        return {
+          dimensionId: entry.dimensionId,
+          choiceId,
+        };
+      })
+      .filter((entry): entry is VersionSelectionEntry => entry !== null),
+  };
 }
 
 export function normalizeShippingOption(value: string): ShippingOption {

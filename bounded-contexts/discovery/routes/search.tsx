@@ -4,13 +4,21 @@ import {
   useNavigation,
   useSearchParams,
 } from "react-router";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
+import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
 import { createDiscoveryRequestApiClient } from "../request-support/api-client";
 import { SearchPage } from "../items/search/search-page";
 
 const PAGE_SIZE = 24;
 const MARKETPLACE_DESCRIPTION =
   "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.";
+const EMPTY_SEARCH_RESULT = {
+  search: "",
+  category: "",
+  sort: "relevance",
+  page: 1,
+  data: null,
+  categories: [],
+} as const;
 
 function buildSearchQuery({
   search,
@@ -68,7 +76,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) =>
   });
 
 export default function DiscoverySearchRoute() {
-  const data = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>() ?? EMPTY_SEARCH_RESULT;
   const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
 

@@ -11,32 +11,103 @@
     "reviews"
   ],
   "allowedSupportDirectories": [
-    "integration",
     "request-support",
     "seed-support"
   ],
   "publicExports": [
     ".",
-    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server"
   ],
-  "allowedContextDependencies": [],
-  "requiredPorts": [],
-  "integrationCapabilities": [
-    {
-      "key": "reputation.review-gateway",
-      "exportName": "createReputationReviewGateway",
-      "fileExport": "./integration/review-gateway",
-      "kind": "request-gateway"
-    }
+  "allowedContextDependencies": [
+    "@chase-sets/identity"
   ],
   "seedRequirements": [
     "identity",
     "fulfillment"
   ],
-  "apiRequirements": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "identity",
+      "projectionName": "reputation-account-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "reputation-account-projection"
+      ],
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "order": 10
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "reputation-order-source-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "reputation-order-source-projection"
+      ],
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "order": 20
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "reputation-shipment-source-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "reputation-shipment-source-projection"
+      ],
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered",
+        "fulfillment.shipment.returned",
+        "fulfillment.shipment.exception-raised"
+      ],
+      "order": 30
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "reputation-account-projection",
+      "sourceContextNames": [
+        "identity"
+      ],
+      "ownedTables": [
+        "reputation_account_pages"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "reputation-order-source-projection",
+      "sourceContextNames": [
+        "ordering"
+      ],
+      "ownedTables": [
+        "reputation_order_sources"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "reputation-shipment-source-projection",
+      "sourceContextNames": [
+        "fulfillment"
+      ],
+      "ownedTables": [
+        "reputation_shipment_sources"
+      ],
+      "requiredDuringBootstrap": true
+    }
+  ],
   "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
@@ -135,18 +206,6 @@
         "Internal reputation module composition"
       ]
     },
-    "integration": {
-      "classification": "support",
-      "purpose": "Provide reusable integration assets shared by multiple reputation slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple reputation slices",
-        "Deployable composition for reputation"
-      ],
-      "justification": "integration centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by multiple reputation slices.",
@@ -156,7 +215,7 @@
         "Deployable composition for reputation"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice reputation workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -168,12 +227,12 @@
         "Deployable composition for reputation"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice reputation workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose reputation-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -181,3 +240,4 @@
     }
   }
 }
+

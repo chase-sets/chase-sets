@@ -47,7 +47,14 @@ function readAuthSessionToken(request: Request) {
 export function createAuthBootstrapContext(
   services: IdentityApiHostServices["auth"],
 ): EventStoreContext {
-  return services.identity.createBootstrapContext();
+  return {
+    tenantId: services.identity.bootstrapTenantId as never,
+    audit: {
+      performedByUserId: "usr_identity_system" as never,
+      forAccountId: "acc_identity_system" as never,
+    },
+    trace: {},
+  };
 }
 
 async function resolveActorFromSessionId(

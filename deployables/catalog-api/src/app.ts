@@ -3,10 +3,12 @@ import { module as catalogModule } from "@chase-sets/catalog";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
-  drainProjectors,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
-import { createHealthRoutes } from "@chase-sets/http-host/health";
+import {
+  createHealthRoutes,
+  type HealthProjectionReplaySummary,
+} from "@chase-sets/http-host/health";
 import { createContextApiMounts } from "./context-api-mounts.generated";
 import {
   createCatalogAuthMiddleware,
@@ -16,6 +18,10 @@ import {
 import { errorHandler } from "./middleware/error-handler";
 
 export type BuildCatalogAppOptions = Readonly<{
+  drain?: () => Promise<void>;
+  getProjectionReplay?: () =>
+    | HealthProjectionReplaySummary
+    | Promise<HealthProjectionReplaySummary>;
   resolveActor?: CatalogActorResolver;
 }>;
 
@@ -28,14 +34,23 @@ export function buildCatalogApp(
 
   app.onError(errorHandler);
 
-  app.route("/health", createHealthRoutes());
+  app.route(
+    "/health",
+    createHealthRoutes({
+      getProjectionReplay: options.getProjectionReplay,
+    }),
+  );
 
   attachApiMountMiddleware(
     app,
     apiMounts.map((mount) => mount.mountPath),
     createCatalogAuthMiddleware(options.resolveActor ?? (async () => null)),
   );
-  attachWriteDrainMiddleware(app, apiMounts, () => drainProjectors(services.projectors));
+  attachWriteDrainMiddleware(
+    app,
+    apiMounts,
+    options.drain ?? (() => Promise.resolve()),
+  );
   mountApiRouters(app, apiMounts);
 
   return app;

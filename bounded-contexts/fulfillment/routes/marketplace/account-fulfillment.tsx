@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
+import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   type FulfillmentShipmentListItem,

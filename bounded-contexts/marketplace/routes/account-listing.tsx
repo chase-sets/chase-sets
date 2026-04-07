@@ -4,7 +4,7 @@ import type {
   MetaFunction,
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
+import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import {
   createMarketplaceRequestApiClient,

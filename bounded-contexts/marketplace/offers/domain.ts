@@ -4,7 +4,6 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -76,7 +75,7 @@ export type MarketplaceOfferState = Readonly<{
   offerId: OfferId | null;
   buyerAccountId: AccountId | null;
   catalogItemId: string | null;
-  catalogVersionKey: CatalogVersionKey | null;
+  catalogVersionKey: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
@@ -109,7 +108,7 @@ export type SubmitOfferCommand = Readonly<{
   offerId: OfferId;
   buyerAccountId: AccountId;
   catalogItemId: string;
-  catalogVersionKey: CatalogVersionKey;
+  catalogVersionKey: string;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
@@ -132,7 +131,7 @@ export type OfferSubmittedEvent = DomainEvent<
     offerId: OfferId;
     buyerAccountId: AccountId;
     catalogItemId: string;
-    catalogVersionKey: CatalogVersionKey;
+    catalogVersionKey: string;
     itemTitle: string;
     itemSubtitle: string | null;
     versionSelection: { dimensionId: string; choiceId: string }[];
@@ -149,7 +148,7 @@ export type OfferAcceptedEvent = DomainEvent<
     buyerAccountId: AccountId;
     sellerAccountId: AccountId;
     catalogItemId: string;
-    catalogVersionKey: CatalogVersionKey;
+    catalogVersionKey: string;
     itemTitle: string;
     itemSubtitle: string | null;
     versionSelection: { dimensionId: string; choiceId: string }[];

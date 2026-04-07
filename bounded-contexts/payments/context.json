@@ -24,20 +24,38 @@
   "allowedContextDependencies": [
     "@chase-sets/ordering"
   ],
-  "requiredPorts": [
-    "processorGateway",
-    "getOrderSnapshot"
-  ],
-  "integrationCapabilities": [],
   "seedRequirements": [
     "identity",
     "marketplace",
     "ordering"
   ],
-  "apiRequirements": [
+  "eventSubscriptions": [
     {
-      "capabilityKey": "ordering.order-snapshot-reader",
-      "portName": "getOrderSnapshot"
+      "sourceContextName": "ordering",
+      "projectionName": "payments-order-input-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "payments-order-input-projection"
+      ],
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "order": 10
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "payments-order-input-projection",
+      "sourceContextNames": [
+        "ordering"
+      ],
+      "ownedTables": [
+        "payments_order_inputs"
+      ],
+      "requiredDuringBootstrap": true
     }
   ],
   "hostPorts": [
@@ -110,7 +128,7 @@
         "Deployable composition for payments"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice payments workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -122,12 +140,12 @@
         "Deployable composition for payments"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice payments workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose payments-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -135,3 +153,4 @@
     }
   }
 }
+

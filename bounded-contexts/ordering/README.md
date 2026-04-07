@@ -46,7 +46,7 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 - Identity for buyer and seller account references
 - Marketplace for active sellable-unit supply and accepted offer decisions
-- Inventory for reservation execution at commitment time
+- Inventory reservation outcome events for post-commitment hold execution and release
 
 ## Outgoing Integration Events
 

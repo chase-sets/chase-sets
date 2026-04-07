@@ -1,13 +1,7 @@
-import pg from "pg";
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildCatalogAuthoringApi, type CatalogAuthoringEnv } from "./api";
 import type { CatalogServices } from "./services";
-
-export function createCatalogAuthoringTestPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
-}
 
 export function buildCatalogAuthoringTestApp(
   services: CatalogServices,

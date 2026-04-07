@@ -12,6 +12,8 @@ export type DiscoveryServices = Readonly<{
   categories: DiscoveryCategoryServices;
   items: DiscoveryItemsServices;
   projectors: readonly Projector[];
+  db: PgQueryable;
+  pool: PgTransactionalPool;
 }>;
 
 export function createDiscoveryServices(pool: PgTransactionalPool): DiscoveryServices {
@@ -26,5 +28,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool): DiscoverySer
     categories,
     items,
     projectors: [...items.projectors, ...categories.projectors],
+    db,
+    pool,
   };
 }

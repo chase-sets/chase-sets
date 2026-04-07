@@ -34,8 +34,7 @@ async function loadContextManifests() {
         packageName: packageJson.name,
         apiDeployables: manifest.apiDeployables ?? [],
         runtimeDeployables: manifest.runtimeDeployables ?? manifest.apiDeployables ?? [],
-        integrationCapabilities: manifest.integrationCapabilities ?? [],
-        apiRequirements: manifest.apiRequirements ?? [],
+        sourceRuntimeDeployables: manifest.sourceRuntimeDeployables ?? [],
         hostPorts: manifest.hostPorts ?? [],
       });
     } catch {
@@ -51,8 +50,18 @@ async function main() {
 
   for (const deployable of Object.keys(deployableRuntimeConfig)) {
     const contexts = manifests
-      .filter((manifest) => manifest.runtimeDeployables.includes(deployable))
-      .map((manifest) => ({ ...manifest, deployable }))
+      .filter(
+        (manifest) =>
+          manifest.runtimeDeployables.includes(deployable) ||
+          manifest.sourceRuntimeDeployables.includes(deployable),
+      )
+      .map((manifest) => ({
+        ...manifest,
+        deployable,
+        runtimeRole: manifest.runtimeDeployables.includes(deployable)
+          ? "active"
+          : "source-only",
+      }))
       .sort((left, right) => left.contextName.localeCompare(right.contextName));
 
     await writeFile(

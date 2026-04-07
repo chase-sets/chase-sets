@@ -139,7 +139,7 @@ export async function listSellerVisibleOffers(
          offer.*,
          buyer.display_name AS buyer_display_name
        FROM marketplace_offer_pages AS offer
-       LEFT JOIN identity_accounts AS buyer
+       LEFT JOIN marketplace_account_pages AS buyer
          ON buyer.account_id = offer.buyer_account_id
        WHERE offer.status = 'submitted'
          AND ${sellerVisibilitySql}
@@ -172,7 +172,7 @@ export async function getSellerVisibleOffer(
        offer.*,
        buyer.display_name AS buyer_display_name
      FROM marketplace_offer_pages AS offer
-     LEFT JOIN identity_accounts AS buyer
+     LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
      WHERE offer.offer_id = $2
        AND offer.status = 'submitted'

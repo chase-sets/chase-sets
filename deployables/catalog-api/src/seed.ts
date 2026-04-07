@@ -5,7 +5,7 @@ import { loadConfig } from "./config";
 
 export async function seedDatabase() {
   const config = loadConfig();
-  const pool = createPgPool(config.databaseUrl);
+  const pool = createPgPool(config.databaseUrls.catalog);
 
   try {
     await catalogModule.seed?.(pool);

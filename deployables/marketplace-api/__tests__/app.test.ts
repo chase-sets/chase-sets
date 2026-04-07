@@ -269,12 +269,85 @@ describe("marketplace api host app", () => {
 
     const healthResponse = await app.fetch(new Request("http://marketplace.test/health"));
     expect(healthResponse.status).toBe(200);
+    await expect(healthResponse.json()).resolves.toEqual({
+      status: "ok",
+      projectionReplay: undefined,
+    });
 
     const legacyResponse = await app.fetch(new Request("http://marketplace.test/api/items"));
     expect(legacyResponse.status).toBe(404);
 
     const discoveryResponse = await app.fetch(new Request("http://marketplace.test/api/marketplace/items"));
     expect(discoveryResponse.status).toBe(200);
+  });
+
+  it("reports replay lag in the health payload", async () => {
+    const app = buildMarketplaceApp(
+      {
+        discovery: services,
+        fulfillment: fulfillmentServices,
+        inventory: inventoryServices,
+        marketplace: marketplaceServices,
+        ordering: orderingServices,
+        payments: paymentsServices,
+        pricing: pricingServices,
+        reputation: reputationServices,
+        settlement: settlementServices,
+      },
+      {
+        getProjectionReplay: async () => ({
+          status: "degraded",
+          totalGroups: 2,
+          requiredGroups: 1,
+          initializedGroups: 1,
+          caughtUpGroups: 1,
+          behindGroups: 1,
+          runningGroups: 0,
+          errorGroups: 0,
+          contexts: [
+            {
+              contextName: "pricing",
+              totalGroups: 2,
+              requiredGroups: 1,
+              initializedGroups: 1,
+              caughtUpGroups: 1,
+              behindGroups: 1,
+              runningGroups: 0,
+              errorGroups: 0,
+            },
+          ],
+        }),
+      },
+    );
+
+    const response = await app.fetch(new Request("http://marketplace.test/health"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "degraded",
+      projectionReplay: {
+        status: "degraded",
+        totalGroups: 2,
+        requiredGroups: 1,
+        initializedGroups: 1,
+        caughtUpGroups: 1,
+        behindGroups: 1,
+        runningGroups: 0,
+        errorGroups: 0,
+        contexts: [
+          {
+            contextName: "pricing",
+            totalGroups: 2,
+            requiredGroups: 1,
+            initializedGroups: 1,
+            caughtUpGroups: 1,
+            behindGroups: 1,
+            runningGroups: 0,
+            errorGroups: 0,
+          },
+        ],
+      },
+    });
   });
 
   it("hides empty categories from the marketplace category list", async () => {

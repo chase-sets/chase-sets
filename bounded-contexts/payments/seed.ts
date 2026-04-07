@@ -1,5 +1,6 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { createPaymentsServices } from "./services";
 import { createFakePaymentProcessorGateway } from "./fake-gateway";
@@ -8,9 +9,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";
 import type { RefundId } from "./common";
 import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
-import { module as marketplaceModule } from "@chase-sets/marketplace";
-import { createMarketplaceSupplyResolver } from "@chase-sets/marketplace/integration/supply-resolver";
-import { module as orderingModule } from "@chase-sets/ordering";
 
 type OrderRow = Readonly<{
   order_id: string;
@@ -50,44 +48,39 @@ async function drainProjectors(projectors: readonly Projector[]) {
   } while (processed > 0);
 }
 
-async function getPendingCartCheckoutOrder(
+async function getSeedOrder(
   pool: PgTransactionalPool,
+  orderId: string,
+  buyerAccountId: string,
 ): Promise<OrderRow> {
-  const result = await pool.query<OrderRow>(
-    `SELECT order_id, buyer_account_id, total_amount
-     FROM ordering_order_pages
-     WHERE source_type = 'cart-checkout'
-       AND status = 'pending-payment'
-     ORDER BY created_at ASC, order_id ASC
-     LIMIT 1`,
+  const result = await pool.query<OrderRow & Readonly<{ status: string }>>(
+    `SELECT
+       order_id,
+       buyer_account_id,
+       total_amount::text AS total_amount,
+       status
+     FROM payments_order_inputs
+     WHERE order_id = $1
+       AND buyer_account_id = $2`,
+    [orderId, buyerAccountId],
   );
   const order = result.rows[0];
 
   if (!order) {
-    throw new Error("Payments seed requires at least one pending cart checkout order.");
+    throw new Error(`Payments seed requires order ${orderId} to exist.`);
   }
 
-  return order;
-}
-
-async function getAcceptedOfferOrder(
-  pool: PgTransactionalPool,
-): Promise<OrderRow> {
-  const result = await pool.query<OrderRow>(
-    `SELECT order_id, buyer_account_id, total_amount
-     FROM ordering_order_pages
-     WHERE source_type = 'offer-acceptance'
-       AND status = 'pending-payment'
-     ORDER BY created_at ASC, order_id ASC
-     LIMIT 1`,
-  );
-  const order = result.rows[0];
-
-  if (!order) {
-    throw new Error("Payments seed requires an accepted-offer order in pending-payment status.");
+  if (order.status !== "pending-payment") {
+    throw new Error(
+      `Payments seed requires order ${orderId} to be in pending-payment status.`,
+    );
   }
 
-  return order;
+  return {
+    order_id: order.order_id,
+    buyer_account_id: order.buyer_account_id,
+    total_amount: order.total_amount,
+  };
 }
 
 async function getPaymentPage(
@@ -117,10 +110,6 @@ async function getPaymentPage(
 }
 
 export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
-  const marketplace = marketplaceModule.createServices(pool, undefined);
-  const ordering = orderingModule.createServices(pool, {
-    supplyResolver: createMarketplaceSupplyResolver(marketplace),
-  });
   const processorGateway = createFakePaymentProcessorGateway();
   const services = createPaymentsServices(pool, {
     processorGateway,
@@ -138,8 +127,16 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     // Table may not exist yet. Proceed with seeding.
   }
 
-  const pendingCheckoutOrder = await getPendingCartCheckoutOrder(pool);
-  const acceptedOfferOrder = await getAcceptedOfferOrder(pool);
+  const pendingCheckoutOrder = await getSeedOrder(
+    pool,
+    orderingReservedSeedIds.orders.checkoutPending,
+    identitySeedIds.buyer.accountId,
+  );
+  const acceptedOfferOrder = await getSeedOrder(
+    pool,
+    orderingReservedSeedIds.orders.acceptedOfferReady,
+    identitySeedIds.buyer.accountId,
+  );
   const buyerContext = createSeedContext(
     identitySeedIds.buyer.accountId,
     identitySeedIds.buyer.userId,
@@ -177,7 +174,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       context: buyerContext,
     });
 
-    await drainProjectors([...services.projectors, ...ordering.projectors]);
+    await drainProjectors(services.projectors);
   };
 
   await createPayment(
@@ -209,7 +206,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     },
     buyerContext,
   );
-  await drainProjectors([...services.projectors, ...ordering.projectors]);
+  await drainProjectors(services.projectors);
 
   await createPayment(
     paymentsReservedSeedIds.payments.cancelledVintageCheckout,
@@ -224,7 +221,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     },
     context: buyerContext,
   });
-  await drainProjectors([...services.projectors, ...ordering.projectors]);
+  await drainProjectors(services.projectors);
 
   await createPayment(
     paymentsReservedSeedIds.payments.acceptedOfferCaptured,
@@ -247,7 +244,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     },
     buyerContext,
   );
-  await drainProjectors([...services.projectors, ...ordering.projectors]);
+  await drainProjectors(services.projectors);
 
   const issueRefund = async (
     refundId: RefundId,
@@ -308,7 +305,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       });
     }
 
-    await drainProjectors([...services.projectors, ...ordering.projectors]);
+    await drainProjectors(services.projectors);
   };
 
   await issueRefund(

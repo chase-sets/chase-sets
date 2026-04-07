@@ -6,8 +6,7 @@
     "exports":  {
                     ".":  "./index.ts",
                     "./routes/*":  "./routes/*.tsx",
-                    "./integration/*":  "./integration/*.ts",
-                    "./seed-support/*":  "./seed-support/*.ts",
+                    "./seed-support/*":  "./authoring/seed-support/*.ts",
                     "./server":  "./server.ts",
                     "./web":  "./web.ts"
                 },

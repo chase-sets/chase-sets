@@ -1,5 +1,17 @@
 export type MarketplaceApiBaseConfig = Readonly<{
-  databaseUrl: string;
+  databaseUrls: Readonly<{
+    catalog: string;
+    discovery: string;
+    fulfillment: string;
+    identity: string;
+    inventory: string;
+    marketplace: string;
+    ordering: string;
+    payments: string;
+    pricing: string;
+    reputation: string;
+    settlement: string;
+  }>;
   identityApiBaseUrl: string;
   port: number;
 }>;
@@ -21,17 +33,31 @@ export type MarketplaceApiConfig = MarketplaceApiBaseConfig & Readonly<{
 }>;
 
 function loadBaseConfig(): MarketplaceApiBaseConfig {
-  const databaseUrl = process.env.DATABASE_URL;
-  const identityApiBaseUrl =
-    process.env.IDENTITY_API_BASE_URL ?? "http://localhost:6181/api/identity";
+  const requireEnv = (name: string) => {
+    const value = process.env[name];
 
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL environment variable is required.");
-  }
+    if (!value) {
+      throw new Error(`${name} environment variable is required.`);
+    }
+
+    return value;
+  };
 
   return {
-    databaseUrl,
-    identityApiBaseUrl,
+    databaseUrls: {
+      catalog: requireEnv("CATALOG_DATABASE_URL"),
+      discovery: requireEnv("DISCOVERY_DATABASE_URL"),
+      fulfillment: requireEnv("FULFILLMENT_DATABASE_URL"),
+      identity: requireEnv("IDENTITY_DATABASE_URL"),
+      inventory: requireEnv("INVENTORY_DATABASE_URL"),
+      marketplace: requireEnv("MARKETPLACE_DATABASE_URL"),
+      ordering: requireEnv("ORDERING_DATABASE_URL"),
+      payments: requireEnv("PAYMENTS_DATABASE_URL"),
+      pricing: requireEnv("PRICING_DATABASE_URL"),
+      reputation: requireEnv("REPUTATION_DATABASE_URL"),
+      settlement: requireEnv("SETTLEMENT_DATABASE_URL"),
+    },
+    identityApiBaseUrl: requireEnv("IDENTITY_API_BASE_URL"),
     port: Number(process.env.PORT ?? 6182),
   };
 }

@@ -31,6 +31,7 @@ export const seedCoverageManifest = {
   },
   fulfillment: {
     shipments: [
+      "awaiting-package",
       "awaiting-label",
       "label-attached",
       "dispatched",

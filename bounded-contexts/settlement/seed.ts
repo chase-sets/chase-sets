@@ -6,6 +6,13 @@ import { createSettlementServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";
 
+type SeedPaymentSourceRow = Readonly<{
+  amount: string;
+  currency_code: string;
+  status: string;
+  captured_at: string | null;
+}>;
+
 function createSeedContext(): EventStoreContext {
   return {
     tenantId: "tnt_seed_development" as never,
@@ -45,12 +52,28 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
 
   const context = createSeedContext();
   const sellerAccountId = identitySeedIds.seller.accountId;
+  const capturedPayment = await services.db.query<SeedPaymentSourceRow>(
+    `SELECT amount::text AS amount,
+            currency_code,
+            status,
+            captured_at
+       FROM settlement_payment_sources
+      WHERE payment_id = $1`,
+    [paymentsReservedSeedIds.payments.acceptedOfferCaptured],
+  );
+
+  const seedPayment = capturedPayment.rows[0];
+  if (!seedPayment || seedPayment.status !== "captured") {
+    throw new Error(
+      `Settlement seed requires payments replay to populate captured payment '${paymentsReservedSeedIds.payments.acceptedOfferCaptured}' before settlement seeding runs.`,
+    );
+  }
 
   await services.wallets.ensureWallet(
     {
       accountId: sellerAccountId,
-      currencyCode: "usd",
-      openedAt: "2026-03-24T08:00:00.000Z",
+      currencyCode: seedPayment.currency_code as never,
+      openedAt: seedPayment.captured_at ?? "2026-03-24T08:00:00.000Z",
     },
     context,
   );
@@ -60,12 +83,12 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
       ledgerEntryId: settlementReservedSeedIds.ledgerEntries.pendingSaleCredit,
       kind: "sale",
       direction: "credit",
-      amount: "120.00",
-      currencyCode: "usd",
+      amount: seedPayment.amount,
+      currencyCode: seedPayment.currency_code as never,
       fundsStatus: "pending",
       paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
       description: "Captured order awaiting settlement release",
-      postedAt: "2026-03-24T08:05:00.000Z",
+      postedAt: seedPayment.captured_at ?? "2026-03-24T08:05:00.000Z",
     },
     context,
   );

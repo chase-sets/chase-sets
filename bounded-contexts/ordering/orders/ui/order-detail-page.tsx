@@ -16,6 +16,10 @@ function formatMoney(amount: string) {
   return `$${amount}`;
 }
 
+function isPendingStatus(status: string) {
+  return status === "pending-payment" || status === "pending-reservation";
+}
+
 function statusTone(status: string) {
   switch (status) {
     case "cancelled":
@@ -80,7 +84,7 @@ export function OrderingOrderDetailPage({
             {order.status === "pending-payment" && paymentHref ? (
               <LinkButton href={paymentHref}>Pay now</LinkButton>
             ) : null}
-            {order.status === "pending-payment" ? (
+            {isPendingStatus(order.status) ? (
               <form method="post">
                 <Button type="submit" name="intent" value="cancel-order" tone="danger">
                   Cancel order

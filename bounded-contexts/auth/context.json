@@ -16,8 +16,7 @@
     "auth-support",
     "request-support",
     "route-support",
-    "seed-support",
-    "shell-support"
+    "seed-support"
   ],
   "publicExports": [
     ".",
@@ -28,29 +27,95 @@
   "allowedContextDependencies": [
     "@chase-sets/identity"
   ],
-  "requiredPorts": [],
-  "integrationCapabilities": [],
-  "seedRequirements": [],
-  "apiRequirements": [
+  "seedRequirements": [
+    "identity"
+  ],
+  "eventSubscriptions": [
     {
-      "capabilityKey": "identity.bootstrap-port",
-      "portName": "identityBootstrap"
+      "sourceContextName": "identity",
+      "projectionName": "auth-identity-user-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "auth-identity-user-projection"
+      ],
+      "eventTypes": [
+        "identity.user.created",
+        "identity.user.profile-updated",
+        "identity.user.contact-method-added",
+        "identity.user.contact-method-verified",
+        "identity.user.auth-method-enabled",
+        "identity.user.password-credential-attached",
+        "identity.user.passkey-registered",
+        "identity.user.suspended",
+        "identity.user.reactivated"
+      ],
+      "order": 10
     },
     {
-      "capabilityKey": "identity.user-directory",
-      "portName": "identityUsers"
+      "sourceContextName": "identity",
+      "projectionName": "auth-identity-membership-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "auth-identity-membership-projection"
+      ],
+      "eventTypes": [
+        "identity.membership.granted",
+        "identity.membership.role-changed",
+        "identity.membership.revoked",
+        "identity.membership.reinstated"
+      ],
+      "order": 20
     },
     {
-      "capabilityKey": "identity.membership-port",
-      "portName": "identityMemberships"
+      "sourceContextName": "identity",
+      "projectionName": "auth-identity-invitation-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "auth-identity-invitation-projection"
+      ],
+      "eventTypes": [
+        "identity.invitation.created",
+        "identity.invitation.resent",
+        "identity.invitation.cancelled",
+        "identity.invitation.accepted",
+        "identity.invitation.declined",
+        "identity.invitation.expired"
+      ],
+      "order": 30
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "auth-identity-user-projection",
+      "sourceContextNames": [
+        "identity"
+      ],
+      "ownedTables": [
+        "auth_identity_users",
+        "auth_identity_user_emails"
+      ],
+      "requiredDuringBootstrap": true
     },
     {
-      "capabilityKey": "identity.invitation-port",
-      "portName": "identityInvitations"
+      "projectionName": "auth-identity-membership-projection",
+      "sourceContextNames": [
+        "identity"
+      ],
+      "ownedTables": [
+        "auth_identity_memberships",
+        "auth_identity_user_memberships"
+      ],
+      "requiredDuringBootstrap": true
     },
     {
-      "capabilityKey": "identity.provisioning-port",
-      "portName": "identityProvisioning"
+      "projectionName": "auth-identity-invitation-projection",
+      "sourceContextNames": [
+        "identity"
+      ],
+      "ownedTables": [
+        "auth_identity_invitations"
+      ],
+      "requiredDuringBootstrap": true
     }
   ],
   "hostPorts": [],
@@ -255,7 +320,7 @@
         "Deployable composition for auth"
       ],
       "justification": "auth-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice auth workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "request-support": {
@@ -267,7 +332,7 @@
         "Deployable composition for auth"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice auth workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "route-support": {
@@ -279,7 +344,7 @@
         "Deployable composition for auth"
       ],
       "justification": "route-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice auth workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -291,24 +356,12 @@
         "Deployable composition for auth"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
-    "shell-support": {
-      "classification": "support",
-      "purpose": "Provide reusable shell-support assets shared by multiple auth slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "customer",
-        "sessions"
-      ],
-      "justification": "shell-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice auth workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose auth-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -316,3 +369,4 @@
     }
   }
 }
+

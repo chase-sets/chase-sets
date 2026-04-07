@@ -36,9 +36,9 @@ describe("ordering order domain", () => {
           lineTotalAmount: "20.00",
         },
       ],
-      inventoryReservations: [
+      reservationRequests: [
         {
-          holdId: "hld_1",
+          reservationRequestId: "rsv_1",
           inventoryRecordId: "inv_1",
           sellerAccountId: "acc_seller",
           quantity: 1,
@@ -49,6 +49,7 @@ describe("ordering order domain", () => {
     const cancelled = decideOrderingOrder(createdState, {
       type: "CancelOrder",
       cancelledAt: "2026-03-31T00:00:00.000Z",
+      reason: "buyer-cancelled",
     }).reduce(evolveOrderingOrder, createdState);
 
     expect(cancelled.status).toBe("cancelled");
@@ -85,9 +86,9 @@ describe("ordering order domain", () => {
           lineTotalAmount: "20.00",
         },
       ],
-      inventoryReservations: [
+      reservationRequests: [
         {
-          holdId: "hld_1",
+          reservationRequestId: "rsv_1",
           inventoryRecordId: "inv_1",
           sellerAccountId: "acc_seller",
           quantity: 1,
@@ -95,10 +96,17 @@ describe("ordering order domain", () => {
       ],
     }).reduce(evolveOrderingOrder, initialOrderingOrderState);
 
-    const ready = decideOrderingOrder(createdState, {
+    const pendingPaymentState = decideOrderingOrder(createdState, {
+      type: "RecordReservationConfirmed",
+      reservationRequestId: "rsv_1",
+      holdId: "hld_1",
+      confirmedAt: "2026-03-31T00:00:00.000Z",
+    }).reduce(evolveOrderingOrder, createdState);
+
+    const ready = decideOrderingOrder(pendingPaymentState, {
       type: "MarkReadyForFulfillment",
       readyForFulfillmentAt: "2026-04-01T00:00:00.000Z",
-    }).reduce(evolveOrderingOrder, createdState);
+    }).reduce(evolveOrderingOrder, pendingPaymentState);
 
     expect(ready.status).toBe("ready-for-fulfillment");
     expect(ready.readyForFulfillmentAt).toBe("2026-04-01T00:00:00.000Z");
@@ -120,7 +128,7 @@ describe("ordering order domain", () => {
         shippingChargeAmount: "4.99",
         totalAmount: "4.99",
         lines: [],
-        inventoryReservations: [],
+        reservationRequests: [],
       }),
     ).toThrow("Orders must include at least one line.");
   });

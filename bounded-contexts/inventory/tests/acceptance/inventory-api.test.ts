@@ -1,30 +1,40 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import pg from "pg";
 import { Hono } from "hono";
+import {
+  bootstrapContextDatabase,
+  drainContextProcesses,
+  resolveModuleProjectionGroups,
+  resolveModuleSubscriptions,
+  syncContextProjectionGroups,
+} from "@chase-sets/bounded-context-runtime";
+import {
+  closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+} from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { composeSchemaSql } from "@chase-sets/bounded-context-runtime";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { module as catalogModule } from "@chase-sets/catalog";
-import { module as identityModule } from "@chase-sets/identity";
-import {
-} from "../..";
 import { type InventoryApiEnv, buildInventoryApi } from "../../api";
 import { InventoryDomainError } from "../../common";
 import { createInventoryServices } from "../../services";
 import { module as inventoryModule } from "../..";
 
-const databaseUrl = process.env.DATABASE_URL;
-const describeWithDatabase = databaseUrl ? describe : describe.skip;
+const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
+const inventoryContextNames = ["catalog", "inventory"] as const;
 
-function requireDatabaseUrl(): string {
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required for database-backed inventory tests.");
+function requireDatabaseBaseUrl(): string {
+  if (!databaseBaseUrl) {
+    throw new Error("TEST_DATABASE_URL is required for database-backed inventory tests.");
   }
 
-  return databaseUrl;
+  return databaseBaseUrl;
 }
 
 const inventoryContext: EventStoreContext = {
@@ -34,35 +44,6 @@ const inventoryContext: EventStoreContext = {
     forAccountId: "acc_inventory" as never,
   },
 };
-
-function createPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
-}
-
-async function recreateSchema(pool: PgTransactionalPool) {
-  await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(composeSchemaSql([inventoryModule]));
-}
-
-async function recreateCrossContextSchema(pool: PgTransactionalPool) {
-  await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(
-    composeSchemaSql([
-      identityModule,
-      catalogModule,
-      inventoryModule,
-    ]),
-  );
-}
-
-async function drainProjectors(projectors: readonly { runOnce: () => Promise<{ processed: number }> }[]) {
-  for (const projector of projectors) {
-    let processed = 0;
-    do {
-      processed = (await projector.runOnce()).processed;
-    } while (processed > 0);
-  }
-}
 
 async function countEvents(pool: PgTransactionalPool, prefix: string) {
   const result = await pool.query(
@@ -74,13 +55,51 @@ async function countEvents(pool: PgTransactionalPool, prefix: string) {
 }
 
 describeWithDatabase("inventory api", () => {
-  let pool: PgTransactionalPool;
+  let databaseUrls: Readonly<Record<(typeof inventoryContextNames)[number], string>>;
+  let pools: Readonly<
+    Record<(typeof inventoryContextNames)[number], PgTransactionalPool>
+  >;
+  let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
+  let runtime: any;
   let services: ReturnType<typeof createInventoryServices>;
   let app: Hono<InventoryApiEnv>;
 
   beforeAll(async () => {
-    pool = createPool(requireDatabaseUrl());
-    services = createInventoryServices(pool);
+    databaseUrls = createMultiContextTestDatabaseUrls(
+      requireDatabaseBaseUrl(),
+      inventoryContextNames,
+      "inventory_acceptance",
+    );
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls);
+    const catalogServices = catalogModule.createServices(pools.catalog, undefined);
+    services = createInventoryServices(pools.inventory);
+    runtime = {
+      mountedContexts: [
+        {
+          contextName: "catalog",
+          module: catalogModule,
+          services: catalogServices,
+          pool: pools.catalog,
+          projectors: catalogModule.projectors(catalogServices),
+        },
+        {
+          contextName: "inventory",
+          module: inventoryModule,
+          services,
+          pool: pools.inventory,
+          projectors: inventoryModule.projectors(services),
+        },
+      ] as const,
+      subscriptionRunners: [],
+      projectionGroups: [],
+    };
+    subscriptionRunners = resolveModuleSubscriptions(runtime.mountedContexts);
+    runtime.subscriptionRunners = subscriptionRunners;
+    runtime.projectionGroups = resolveModuleProjectionGroups(
+      runtime.mountedContexts,
+      subscriptionRunners,
+    );
     app = new Hono<InventoryApiEnv>();
     app.onError((error, c) => {
       if (error instanceof InventoryDomainError) {
@@ -102,20 +121,25 @@ describeWithDatabase("inventory api", () => {
       await next();
 
       if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-        await drainProjectors(services.projectors);
+        await drainContextProcesses({
+          projectors: services.projectors,
+          subscriptionRunners,
+        });
       }
     });
     app.route("/api/inventory", buildInventoryApi(services));
   });
 
   beforeEach(async () => {
-    await recreateCrossContextSchema(pool);
-    await catalogModule.seed?.(pool);
-    await drainProjectors(services.catalogItems.projectors);
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(catalogModule, pools.catalog);
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await catalogModule.seed?.(pools.catalog);
+    await syncContextProjectionGroups(runtime, "inventory", { requiredOnly: true });
   }, 30_000);
 
   afterAll(async () => {
-    await (pool as unknown as { end: () => Promise<void> }).end();
+    await closeMultiContextTestPools(pools);
   });
 
   it("creates records, places holds, releases holds, and projects availability", async () => {
@@ -298,7 +322,10 @@ describeWithDatabase("inventory api", () => {
       await next();
 
       if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-        await drainProjectors(services.projectors);
+        await drainContextProcesses({
+          projectors: services.projectors,
+          subscriptionRunners,
+        });
       }
     });
     unauthorizedApp.route("/api/inventory", buildInventoryApi(services));
@@ -331,7 +358,10 @@ describeWithDatabase("inventory api", () => {
       },
       otherContext,
     );
-    await drainProjectors(services.projectors);
+    await drainContextProcesses({
+      projectors: services.projectors,
+      subscriptionRunners,
+    });
 
     await services.records.createRecord(
       {
@@ -352,7 +382,10 @@ describeWithDatabase("inventory api", () => {
       },
       otherContext,
     );
-    await drainProjectors(services.projectors);
+    await drainContextProcesses({
+      projectors: services.projectors,
+      subscriptionRunners,
+    });
 
     const listResponse = await app.request("/api/inventory/records");
     const listBody = await listResponse.json();
@@ -360,13 +393,18 @@ describeWithDatabase("inventory api", () => {
   });
 
   it("creates deterministic cross-context seed data and stays idempotent", async () => {
-    await recreateCrossContextSchema(pool);
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(catalogModule, pools.catalog);
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    await catalogModule.seed?.(pools.catalog);
+    await syncContextProjectionGroups(runtime, "inventory", { requiredOnly: true });
+    await inventoryModule.seed?.(pools.inventory);
+    await drainContextProcesses({
+      projectors: services.projectors,
+      subscriptionRunners,
+    });
 
-    await identityModule.seed?.(pool);
-    await catalogModule.seed?.(pool);
-    await inventoryModule.seed?.(pool);
-
-    const seededServices = createInventoryServices(pool);
+    const seededServices = createInventoryServices(pools.inventory);
     const records = await seededServices.records.listRecords({
       accountId: demoIdentitySeedIds.accountId,
       limit: 50,
@@ -423,9 +461,9 @@ describeWithDatabase("inventory api", () => {
       ]),
     );
 
-    const eventCountBefore = await countEvents(pool, "inventory.");
-    await inventoryModule.seed?.(pool);
-    const eventCountAfter = await countEvents(pool, "inventory.");
+    const eventCountBefore = await countEvents(pools.inventory, "inventory.");
+    await inventoryModule.seed?.(pools.inventory);
+    const eventCountAfter = await countEvents(pools.inventory, "inventory.");
     expect(eventCountAfter).toBe(eventCountBefore);
 
     const storageLocations = await seededServices.storageLocations.listStorageLocations({

@@ -55,7 +55,7 @@ That means:
 - Auth owns the browser and API authentication journey.
 - Auth owns session start, session revoke, session lookup, and actor resolution.
 - Identity owns the underlying account and membership facts that Auth needs to finish authentication.
-- Auth may depend on Identity only through `@chase-sets/identity/integration`.
+- Auth reads identity facts through auth-owned projections and issues the small remaining synchronous identity mutations through `@chase-sets/identity/server`.
 
 ## Feature vs Composition
 

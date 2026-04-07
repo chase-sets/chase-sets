@@ -1,5 +1,9 @@
 import { serve } from "@hono/node-server";
 import { resolveActorFromAuthApi } from "@chase-sets/auth-runtime";
+import {
+  drainContextRuntime,
+  refreshProjectionReplaySummary,
+} from "@chase-sets/bounded-context-runtime";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
 import { createPgPool } from "@chase-sets/event-core-postgres";
 import { loadConfig } from "./config";
@@ -11,7 +15,19 @@ import {
 } from "./payment-processor";
 
 const config = loadConfig();
-const pool = createPgPool(config.databaseUrl);
+const pools = {
+  catalog: createPgPool(config.databaseUrls.catalog),
+  discovery: createPgPool(config.databaseUrls.discovery),
+  fulfillment: createPgPool(config.databaseUrls.fulfillment),
+  identity: createPgPool(config.databaseUrls.identity),
+  inventory: createPgPool(config.databaseUrls.inventory),
+  marketplace: createPgPool(config.databaseUrls.marketplace),
+  ordering: createPgPool(config.databaseUrls.ordering),
+  payments: createPgPool(config.databaseUrls.payments),
+  pricing: createPgPool(config.databaseUrls.pricing),
+  reputation: createPgPool(config.databaseUrls.reputation),
+  settlement: createPgPool(config.databaseUrls.settlement),
+} as const;
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -29,13 +45,15 @@ if (config.paymentProcessor.kind === "fake") {
   );
 }
 
-const runtime = createContextRuntime(pool, {
+const runtime = createContextRuntime(pools, {
   processorGateway: paymentProcessorGateway,
 });
 const { services } = runtime;
 const app = buildMarketplaceApp(
   services,
   {
+    drain: () => drainContextRuntime(runtime),
+    getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
     resolveActor: (request) =>
       resolveActorFromAuthApi({
         authApiBaseUrl: config.identityApiBaseUrl,
@@ -51,6 +69,13 @@ startProjectorPolling(
   PROJECTION_INTERVAL_MS,
   (error) => {
     console.error("Projection error:", error);
+  },
+);
+startProjectorPolling(
+  runtime.subscriptionRunners,
+  PROJECTION_INTERVAL_MS,
+  (error) => {
+    console.error("Subscription error:", error);
   },
 );
 

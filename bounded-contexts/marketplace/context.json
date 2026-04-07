@@ -12,42 +12,124 @@
     "offers"
   ],
   "allowedSupportDirectories": [
-    "integration",
     "request-support",
     "seed-support"
   ],
   "publicExports": [
     ".",
-    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server"
   ],
   "allowedContextDependencies": [
     "@chase-sets/catalog",
+    "@chase-sets/identity",
     "@chase-sets/inventory"
-  ],
-  "requiredPorts": [],
-  "integrationCapabilities": [
-    {
-      "key": "marketplace.supply-resolver",
-      "exportName": "createMarketplaceSupplyResolver",
-      "fileExport": "./integration/supply-resolver",
-      "kind": "runtime-port"
-    },
-    {
-      "key": "marketplace.offer-gateway",
-      "exportName": "createMarketplaceOfferGateway",
-      "fileExport": "./integration/offer-gateway",
-      "kind": "request-gateway"
-    }
   ],
   "seedRequirements": [
     "catalog",
     "identity",
     "inventory"
   ],
-  "apiRequirements": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "marketplace-catalog-item-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "marketplace-catalog-item-projection"
+      ],
+      "eventTypes": [
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.published",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.choice-added",
+        "catalog.dimension.choice-revised"
+      ],
+      "order": 10
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "marketplace-identity-account-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "marketplace-identity-account-projection"
+      ],
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "order": 20
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "marketplace-inventory-supply-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "marketplace-inventory-supply-projection"
+      ],
+      "eventTypes": [
+        "inventory.storage-location.created",
+        "inventory.storage-location.updated",
+        "inventory.storage-location.archived",
+        "inventory.record.created",
+        "inventory.record.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.released"
+      ],
+      "order": 30
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "marketplace-catalog-item-projection",
+      "sourceContextNames": [
+        "catalog"
+      ],
+      "ownedTables": [
+        "marketplace_catalog_items",
+        "marketplace_catalog_blueprints",
+        "marketplace_catalog_dimensions",
+        "marketplace_catalog_dimension_choices"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "marketplace-identity-account-projection",
+      "sourceContextNames": [
+        "identity"
+      ],
+      "ownedTables": [
+        "marketplace_account_pages"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "marketplace-inventory-supply-projection",
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "marketplace_supply_locations",
+        "marketplace_supply_records",
+        "marketplace_supply_holds"
+      ],
+      "requiredDuringBootstrap": true
+    }
+  ],
   "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
@@ -208,18 +290,6 @@
         "Internal marketplace module composition"
       ]
     },
-    "integration": {
-      "classification": "support",
-      "purpose": "Provide reusable integration assets shared by multiple marketplace slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple marketplace slices",
-        "Deployable composition for marketplace"
-      ],
-      "justification": "integration centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by multiple marketplace slices.",
@@ -229,7 +299,7 @@
         "Deployable composition for marketplace"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice marketplace workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -241,12 +311,12 @@
         "Deployable composition for marketplace"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice marketplace workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose marketplace-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -254,3 +324,4 @@
     }
   }
 }
+

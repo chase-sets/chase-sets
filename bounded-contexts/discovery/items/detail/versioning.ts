@@ -95,3 +95,58 @@ export function summarizeSelections(
     })
     .filter((selection): selection is { dimensionName: string; choiceLabel: string } => selection !== null);
 }
+
+export function createDiscoveryCatalogVersionDescriptor(input: Readonly<{
+  catalogItemId: string;
+  versionSchema: VersionSchema | null;
+  selection: readonly { dimensionId: string; choiceId: string }[];
+}>): Readonly<{
+  catalogVersionKey: string;
+  selection: { dimensionId: string; choiceId: string }[];
+}> {
+  const catalogItemId = input.catalogItemId.trim();
+  if (!catalogItemId) {
+    throw new Error("Catalog item id is required.");
+  }
+
+  if (!input.versionSchema || input.versionSchema.dimensions.length === 0) {
+    if (input.selection.length > 0) {
+      throw new Error("Selection is not allowed for this catalog item.");
+    }
+
+    return {
+      catalogVersionKey: `${catalogItemId}::`,
+      selection: [],
+    };
+  }
+
+  const normalizedSelection = normalizeSelectionsForSchema(
+    input.versionSchema,
+    Object.fromEntries(
+      input.selection.map((entry) => [entry.dimensionId.trim(), entry.choiceId.trim()]),
+    ),
+  );
+
+  const orderedSelection = getOrderedDimensions(input.versionSchema)
+    .map((dimension) => {
+      const choiceId = normalizedSelection[dimension.dimensionId];
+      if (!choiceId) {
+        return null;
+      }
+
+      return {
+        dimensionId: dimension.dimensionId,
+        choiceId,
+      };
+    })
+    .filter(
+      (entry): entry is { dimensionId: string; choiceId: string } => entry !== null,
+    );
+
+  return {
+    catalogVersionKey: `${catalogItemId}::${input.versionSchema.canonicalDimensionOrder
+      .map((entry) => `${entry.dimensionId}:${normalizedSelection[entry.dimensionId] ?? "-"}`)
+      .join("|")}`,
+    selection: orderedSelection,
+  };
+}

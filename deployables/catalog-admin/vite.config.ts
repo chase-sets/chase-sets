@@ -12,6 +12,10 @@ export default defineConfig({
     port: 6172,
     strictPort: true,
     proxy: {
+      "/api/auth": {
+        target: "http://localhost:6181",
+        changeOrigin: true,
+      },
       "/api/catalog": {
         target: "http://localhost:6180",
         changeOrigin: true,

@@ -19,15 +19,70 @@
     "./seed-support/*",
     "./server"
   ],
-  "allowedContextDependencies": [],
-  "requiredPorts": [],
-  "integrationCapabilities": [],
+  "allowedContextDependencies": [
+    "@chase-sets/identity"
+  ],
   "seedRequirements": [
     "identity",
     "payments",
     "ordering"
   ],
-  "apiRequirements": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "identity",
+      "projectionName": "fulfillment-account-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "fulfillment-account-projection"
+      ],
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "order": 10
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "fulfillment-order-source-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "fulfillment-order-source-projection"
+      ],
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "order": 20
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "fulfillment-account-projection",
+      "sourceContextNames": [
+        "identity"
+      ],
+      "ownedTables": [
+        "fulfillment_account_pages"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "fulfillment-order-source-projection",
+      "sourceContextNames": [
+        "ordering"
+      ],
+      "ownedTables": [
+        "fulfillment_order_sources",
+        "fulfillment_order_source_lines"
+      ],
+      "requiredDuringBootstrap": true
+    }
+  ],
   "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
@@ -149,7 +204,7 @@
         "Deployable composition for fulfillment"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice fulfillment workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -161,12 +216,12 @@
         "Deployable composition for fulfillment"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice fulfillment workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose fulfillment-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -174,3 +229,4 @@
     }
   }
 }
+

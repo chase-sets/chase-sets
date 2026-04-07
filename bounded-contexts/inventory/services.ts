@@ -7,6 +7,7 @@ import type { Projector } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "./catalog-items/runtime";
 import { createInventoryHoldRuntime } from "./holds/runtime";
 import { createInventoryRecordRuntime } from "./records/runtime";
+import { createInventoryReservationRuntime } from "./reservations/runtime";
 import { createStorageLocationRuntime } from "./storage-locations/runtime";
 
 export type InventoryServices = Readonly<{
@@ -14,6 +15,7 @@ export type InventoryServices = Readonly<{
   storageLocations: ReturnType<typeof createStorageLocationRuntime>;
   records: ReturnType<typeof createInventoryRecordRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
+  reservations: ReturnType<typeof createInventoryReservationRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -29,17 +31,20 @@ export function createInventoryServices(pool: PgTransactionalPool): InventorySer
   const storageLocations = createStorageLocationRuntime(deps);
   const records = createInventoryRecordRuntime(deps, catalogItems);
   const holds = createInventoryHoldRuntime(deps);
+  const reservations = createInventoryReservationRuntime(deps);
 
   return {
     catalogItems,
     storageLocations,
     records,
     holds,
+    reservations,
     projectors: [
       ...catalogItems.projectors,
       ...storageLocations.projectors,
       ...records.projectors,
       ...holds.projectors,
+      ...reservations.projectors,
     ],
     pool,
     db,

@@ -120,6 +120,11 @@ export type FulfillmentShipmentServices = Readonly<{
     shipmentId: string,
     sellerAccountId: string,
   ) => ReturnType<typeof getSellerShipment>;
+  createShipmentForReadyOrder: (params: {
+    orderId: string;
+    readyForFulfillmentAt: string;
+    context: EventStoreContext;
+  }) => Promise<{ shipmentId: ShipmentId | null }>;
   projectors: readonly Projector[];
 }>;
 
@@ -154,9 +159,9 @@ async function loadReadyOrderSnapshot(
        order_id,
        buyer_account_id,
        seller_account_id,
-       shipping_option,
-       status
-     FROM ordering_order_pages
+     shipping_option,
+     status
+     FROM fulfillment_order_sources
      WHERE order_id = $1`,
     [orderId],
   );
@@ -171,11 +176,11 @@ async function loadReadyOrderSnapshot(
        line_id AS order_line_id,
        catalog_item_id,
        catalog_version_key,
-       item_title,
-       item_subtitle,
-       version_summary,
-       quantity
-     FROM ordering_order_line_pages
+     item_title,
+     item_subtitle,
+     version_summary,
+     quantity
+     FROM fulfillment_order_source_lines
      WHERE order_id = $1
      ORDER BY line_index ASC, line_id ASC`,
     [orderId],
@@ -217,6 +222,47 @@ export function createFulfillmentShipmentRuntime(
 
   return {
     commandHandler,
+    createShipmentForReadyOrder: async (params) => {
+      const existingShipmentId = await findExistingShipmentIdForOrder(
+        deps.db,
+        params.orderId,
+      );
+      if (existingShipmentId) {
+        return { shipmentId: null };
+      }
+
+      const order = await loadReadyOrderSnapshot(deps.db, params.orderId);
+      if (!order) {
+        return { shipmentId: null };
+      }
+
+      const shipmentId = createId("shp") as ShipmentId;
+      await commandHandler({
+        streamId: `fulfillment.shipment-${shipmentId}`,
+        command: {
+          type: "CreateShipment",
+          shipmentId,
+          orderId: order.order_id as OrderId,
+          buyerAccountId: order.buyer_account_id as AccountId,
+          sellerAccountId: order.seller_account_id as AccountId,
+          shippingOption: order.shipping_option,
+          lines: order.lines.map((line) => ({
+            lineId: createId("spl"),
+            orderLineId: line.order_line_id,
+            catalogItemId: line.catalog_item_id,
+            catalogVersionKey: line.catalog_version_key,
+            itemTitle: line.item_title,
+            itemSubtitle: line.item_subtitle,
+            versionSummary: line.version_summary,
+            quantity: line.quantity,
+          })),
+          createdAt: params.readyForFulfillmentAt,
+        },
+        context: params.context,
+      });
+
+      return { shipmentId };
+    },
     packShipment: async (params, context) => {
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
@@ -321,61 +367,6 @@ export function createFulfillmentShipmentRuntime(
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildFulfillmentShipmentProjectionHandlers(deps.db),
-      }),
-      createProjector({
-        projectorName: "fulfillment-order-readiness",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: {
-          "ordering.order.ready-for-fulfillment-recorded": async (event) => {
-            const data = event.data as {
-              orderId: string;
-              readyForFulfillmentAt: string;
-            };
-
-            const existingShipmentId = await findExistingShipmentIdForOrder(
-              deps.db,
-              data.orderId,
-            );
-            if (existingShipmentId) {
-              return;
-            }
-
-            const order = await loadReadyOrderSnapshot(deps.db, data.orderId);
-            if (!order) {
-              return;
-            }
-
-            const shipmentId = createId("shp") as ShipmentId;
-            await commandHandler({
-              streamId: `fulfillment.shipment-${shipmentId}`,
-              command: {
-                type: "CreateShipment",
-                shipmentId,
-                orderId: order.order_id as OrderId,
-                buyerAccountId: order.buyer_account_id as AccountId,
-                sellerAccountId: order.seller_account_id as AccountId,
-                shippingOption: order.shipping_option,
-                lines: order.lines.map((line) => ({
-                  lineId: createId("spl"),
-                  orderLineId: line.order_line_id,
-                  catalogItemId: line.catalog_item_id,
-                  catalogVersionKey: line.catalog_version_key,
-                  itemTitle: line.item_title,
-                  itemSubtitle: line.item_subtitle,
-                  versionSummary: line.version_summary,
-                  quantity: line.quantity,
-                })),
-                createdAt: data.readyForFulfillmentAt,
-              },
-              context: {
-                tenantId: event.tenantId,
-                audit: event.audit,
-                trace: event.trace,
-              } as EventStoreContext,
-            });
-          },
-        },
       }),
     ],
   };

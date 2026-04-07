@@ -19,14 +19,6 @@ export const deployableRuntimeConfig = {
   },
 };
 
-function toPascalCase(value) {
-  return value
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
-    .map((segment) => segment[0].toUpperCase() + segment.slice(1))
-    .join("");
-}
-
 export function resolveDeployableRuntimePath(repoRoot, deployable) {
   const config = deployableRuntimeConfig[deployable];
   if (!config) {
@@ -36,89 +28,12 @@ export function resolveDeployableRuntimePath(repoRoot, deployable) {
   return path.join(repoRoot, ...config.fileParts);
 }
 
-function sortContexts(contexts) {
-  const providersByCapability = new Map();
-  for (const context of contexts) {
-    for (const capability of context.integrationCapabilities ?? []) {
-      if (providersByCapability.has(capability.key)) {
-        throw new Error(
-          `Duplicate integration capability '${capability.key}' provided by both '${providersByCapability.get(capability.key)}' and '${context.contextName}'.`,
-        );
-      }
-
-      providersByCapability.set(capability.key, context.contextName);
-    }
-  }
-
-  const contextsByName = new Map(contexts.map((context) => [context.contextName, context]));
-  const incomingCounts = new Map(contexts.map((context) => [context.contextName, 0]));
-  const dependentsByProvider = new Map(contexts.map((context) => [context.contextName, new Set()]));
-
-  for (const context of contexts) {
-    for (const requirement of context.apiRequirements ?? []) {
-      const providerName = providersByCapability.get(requirement.capabilityKey);
-      if (!providerName) {
-        throw new Error(
-          `Deployable '${context.deployable}' cannot resolve capability '${requirement.capabilityKey}' required by '${context.contextName}'.`,
-        );
-      }
-
-      if (providerName === context.contextName) {
-        throw new Error(
-          `Context '${context.contextName}' cannot require its own capability '${requirement.capabilityKey}'.`,
-        );
-      }
-
-      const dependents = dependentsByProvider.get(providerName);
-      if (!dependents?.has(context.contextName)) {
-        dependents?.add(context.contextName);
-        incomingCounts.set(
-          context.contextName,
-          (incomingCounts.get(context.contextName) ?? 0) + 1,
-        );
-      }
-    }
-  }
-
-  const ready = [...contexts]
-    .filter((context) => (incomingCounts.get(context.contextName) ?? 0) === 0)
-    .map((context) => context.contextName)
-    .sort();
-  const sorted = [];
-
-  while (ready.length > 0) {
-    const contextName = ready.shift();
-    const context = contextsByName.get(contextName);
-    if (!context) {
-      continue;
-    }
-
-    sorted.push(context);
-
-    for (const dependentName of dependentsByProvider.get(contextName) ?? []) {
-      const nextCount = (incomingCounts.get(dependentName) ?? 0) - 1;
-      incomingCounts.set(dependentName, nextCount);
-      if (nextCount === 0) {
-        ready.push(dependentName);
-        ready.sort();
-      }
-    }
-  }
-
-  if (sorted.length !== contexts.length) {
-    throw new Error(
-      `Deployable '${contexts[0]?.deployable ?? "unknown"}' contains a cycle in apiRequirements.`,
-    );
-  }
-
-  return { sorted, providersByCapability };
-}
-
 function buildHostPortsType(contexts) {
+  const activeContexts = contexts.filter((context) => context.runtimeRole !== "source-only");
   const seen = new Map();
   const lines = [];
 
-  for (const context of contexts) {
+  for (const context of activeContexts) {
     const moduleAlias = `${context.contextName}Module`;
     const portType = `Parameters<typeof ${moduleAlias}.createServices>[1]`;
 
@@ -141,30 +56,11 @@ function buildHostPortsType(contexts) {
   return `Readonly<{\n${lines.join("\n")}\n}>`;
 }
 
-function buildPortsExpression(context, providersByCapability) {
+function buildPortsExpression(context) {
   const entries = [];
 
   for (const hostPort of context.hostPorts ?? []) {
     entries.push(`    ${hostPort.portName}: hostPorts.${hostPort.portName},`);
-  }
-
-  for (const requirement of context.apiRequirements ?? []) {
-    const provider = providersByCapability.get(requirement.capabilityKey);
-    const capability = provider
-      ? context.allContextsByName.get(provider)?.integrationCapabilities.find(
-          (candidate) => candidate.key === requirement.capabilityKey,
-        )
-      : null;
-
-    if (!provider || !capability) {
-      throw new Error(
-        `Deployable '${context.deployable}' cannot resolve capability '${requirement.capabilityKey}' required by '${context.contextName}'.`,
-      );
-    }
-
-    entries.push(
-      `    ${requirement.portName}: ${capability.exportName}(services.${provider}),`,
-    );
   }
 
   if (entries.length === 0) {
@@ -174,67 +70,36 @@ function buildPortsExpression(context, providersByCapability) {
   return `{\n${entries.join("\n")}\n  }`;
 }
 
-function toCapabilityImportSpecifier(packageName, fileExport) {
-  if (typeof fileExport !== "string" || !fileExport.startsWith("./")) {
-    throw new Error(
-      `Integration capability fileExport must be a package-relative path, received '${fileExport ?? "undefined"}'.`,
-    );
-  }
-
-  return `${packageName}${fileExport.slice(1)}`;
-}
-
 export function buildRuntimeFileContent(unsortedContexts) {
   if (unsortedContexts.length === 0) {
     return `${runtimeGeneratedFileMarker}import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
+export type ContextRuntimePools = Readonly<Record<string, never>>;
 export type ContextRuntimeHostPorts = Readonly<Record<string, never>>;
 
-export function createContextRuntime(_pool: PgTransactionalPool, _hostPorts: ContextRuntimeHostPorts = {}) {
+export function createContextRuntime(_pools: ContextRuntimePools, _hostPorts: ContextRuntimeHostPorts = {}) {
   return {
+    mountedContexts: [] as const,
     mountedModules: [] as const,
     services: {},
     projectors: [],
+    subscriptionRunners: [],
   };
 }
 `;
   }
 
-  const contexts = unsortedContexts.map((context) => ({ ...context }));
-  const byName = new Map(contexts.map((context) => [context.contextName, context]));
-  for (const context of contexts) {
-    context.allContextsByName = byName;
-  }
-
-  const { sorted, providersByCapability } = sortContexts(contexts);
-  const requiredCapabilityKeys = new Set(
-    sorted.flatMap((context) =>
-      (context.apiRequirements ?? []).map((requirement) => requirement.capabilityKey),
-    ),
+  const sorted = [...unsortedContexts].sort((left, right) =>
+    left.contextName.localeCompare(right.contextName),
   );
+  const activeContexts = sorted.filter((context) => context.runtimeRole !== "source-only");
   const moduleImports = sorted.map((context) => {
     const alias = `${context.contextName}Module`;
     return `import { module as ${alias} } from "${context.packageName}";`;
   });
 
-  const capabilityImports = [];
-  for (const context of sorted) {
-    const usedCapabilities = (context.integrationCapabilities ?? []).filter((capability) =>
-      requiredCapabilityKeys.has(capability.key),
-    );
-
-    if (usedCapabilities.length === 0) {
-      continue;
-    }
-
-    for (const capability of usedCapabilities) {
-      capabilityImports.push(
-        `import { ${capability.exportName} } from "${toCapabilityImportSpecifier(context.packageName, capability.fileExport)}";`,
-      );
-    }
-  }
-
   const hostPortsType = buildHostPortsType(sorted);
+  const poolTypeLines = sorted.map((context) => `  ${context.contextName}: PgTransactionalPool;`);
   const serviceTypeLines = sorted.map((context) => {
     const moduleAlias = `${context.contextName}Module`;
     return `  ${context.contextName}: ReturnType<typeof ${moduleAlias}.createServices>;`;
@@ -242,20 +107,36 @@ export function createContextRuntime(_pool: PgTransactionalPool, _hostPorts: Con
 
   const serviceDeclarations = sorted.map((context) => {
     const moduleAlias = `${context.contextName}Module`;
-    return `  services.${context.contextName} = ${moduleAlias}.createServices(pool, ${buildPortsExpression(context, providersByCapability)});`;
+    return `  services.${context.contextName} = ${moduleAlias}.createServices(pools.${context.contextName}, ${buildPortsExpression(context)});`;
   });
 
-  const mountedModuleEntries = sorted.map(
-    (context) =>
-      `    { module: ${context.contextName}Module, services: services.${context.contextName} },`,
+  const mountedContextEntries = sorted.map(
+    (context) => {
+      const moduleAlias = `${context.contextName}Module`;
+      return `    {
+      contextName: "${context.contextName}",
+      mountRole: "${context.runtimeRole}",
+      module: ${moduleAlias},
+      services: services.${context.contextName},
+      pool: pools.${context.contextName},
+      projectors: ${
+        context.runtimeRole === "source-only"
+          ? "[]"
+          : `${moduleAlias}.projectors(services.${context.contextName})`
+      },
+    },`;
+    },
   );
 
-  const projectorEntries = sorted.map((context) => `    services.${context.contextName},`);
+  const projectorEntries = activeContexts.map((context) => `    services.${context.contextName},`);
 
-  return `${runtimeGeneratedFileMarker}import { collectProjectors } from "@chase-sets/bounded-context-runtime";
+  return `${runtimeGeneratedFileMarker}import { collectProjectors, resolveModuleProjectionGroups, resolveModuleSubscriptions } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 ${moduleImports.join("\n")}
-${capabilityImports.join("\n")}
+
+export type ContextRuntimePools = Readonly<{
+${poolTypeLines.join("\n")}
+}>;
 
 export type ContextRuntimeServices = Readonly<{
 ${serviceTypeLines.join("\n")}
@@ -264,7 +145,7 @@ ${serviceTypeLines.join("\n")}
 export type ContextRuntimeHostPorts = ${hostPortsType};
 
 export function createContextRuntime(
-  pool: PgTransactionalPool,
+  pools: ContextRuntimePools,
   hostPorts: ContextRuntimeHostPorts = {} as ContextRuntimeHostPorts,
 ) {
   const services = {} as Record<string, unknown> as {
@@ -273,16 +154,32 @@ ${serviceTypeLines.join("\n")}
 
 ${serviceDeclarations.join("\n")}
 
-  const mountedModules = [
-${mountedModuleEntries.join("\n")}
+  const mountedContexts = [
+${mountedContextEntries.join("\n")}
   ] as const;
 
+  const mountedModules = [
+${sorted.map(
+  (context) =>
+    `    { module: ${context.contextName}Module, services: services.${context.contextName} },`,
+).join("\n")}
+  ] as const;
+
+  const subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
+  const projectionGroups = resolveModuleProjectionGroups(
+    mountedContexts,
+    subscriptionRunners,
+  );
+
   return {
+    mountedContexts,
     mountedModules,
     services: services as ContextRuntimeServices,
     projectors: collectProjectors([
 ${projectorEntries.join("\n")}
     ]),
+    projectionGroups,
+    subscriptionRunners,
   };
 }
 `;

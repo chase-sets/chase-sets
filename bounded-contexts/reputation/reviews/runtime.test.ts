@@ -76,19 +76,15 @@ const context = {
 };
 
 describe("reputation review runtime", () => {
-  it("creates buyer and seller review eligibility when the same order is delivered", async () => {
+  it("creates buyer and seller review eligibility from delivered local shipment and order sources", async () => {
     const inserts: unknown[][] = [];
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("FROM fulfillment_shipment_pages")) {
+        if (sql.includes("FROM reputation_shipment_sources")) {
           return { rows: [{ order_id: "ord_1" }] };
         }
 
-        if (
-          sql.includes("FROM ordering_order_pages") &&
-          sql.includes("buyer_account_id") &&
-          sql.includes("seller_account_id")
-        ) {
+        if (sql.includes("FROM reputation_order_sources")) {
           return {
             rows: [
               {
@@ -114,23 +110,10 @@ describe("reputation review runtime", () => {
       db: db as never,
     });
 
-    await eventStore.appendToStream({
-      streamId: "fulfillment.shipment-shp_1",
-      events: [
-        {
-          eventType: "fulfillment.shipment.delivered",
-          payload: {
-            shipmentId: "shp_1",
-            deliveredAt: "2026-04-02T00:00:00.000Z",
-          },
-        },
-      ],
-      context,
+    await runtime.recordDeliveredShipmentReviewEligibility({
+      shipmentId: "shp_1",
+      deliveredAt: "2026-04-02T00:00:00.000Z",
     });
-
-    const result = await runtime.projectors[1]?.runOnce();
-
-    expect(result?.processed).toBe(1);
     expect(inserts).toEqual([
       [
         "ord_1",

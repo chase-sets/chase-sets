@@ -68,7 +68,7 @@ Inside a bounded context, avoid generic folder names such as `infrastructure`, `
 Prefer:
 
 - slice-local files when behavior belongs to one slice
-- purpose-specific names such as `route-support`, `request-support`, `projection-support`, `shell-support`, `seed-support`, `read-models`, `projections`, `persistence`, or `integration` when context-local code is reused across slices
+- purpose-specific names such as `route-support`, `request-support`, `projection-support`, `shell-support`, `seed-support`, `read-models`, `projections`, or `persistence` when context-local code is reused across slices
 
 ## Feature-Default Directory Plan
 
@@ -97,7 +97,6 @@ Top-level directory intent:
 Naming standard for support directories:
 
 - Keep reusable technical helpers in `*-support` folders (for example `request-support`, `route-support`, `shell-support`, `seed-support`, `projection-support`).
-- `integration` is the only non-`*-support` exception for cross-context ports/adapters.
 - `tests` is the only non-`*-support` exception for acceptance or structure tests that span multiple slices.
 - Do not use ambiguous folders like `shell`, `helpers`, or `utils` at the bounded-context root.
 
@@ -114,7 +113,6 @@ Allowed public surfaces:
 - `.`
 - `./client`
 - `./server`
-- `./integration`
 - `./web`
 - `./routes/*`
 - `./seed-support/*`
@@ -123,8 +121,7 @@ Surface meanings:
 
 - `.` is the deployable plug-in contract only
 - `./client` is browser-safe transport clients, DTOs, and API errors
-- `./server` is same-context request and SSR helpers
-- `./integration` is the only cross-context surface
+- `./server` is the provider-owned request and SSR surface for same-context use and approved cross-context request composition
 - `./web` is deployable-facing shell, layout, provider, and browser-entry code only
 - `./routes/*` is the feature-route surface for generated deployable adapters
 - `./seed-support/*` is seed, bootstrap, and test-only support
@@ -180,14 +177,14 @@ Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
 
 ## Upstream and Downstream Relationships
 
-- Auth is upstream for browser authentication journeys and actor-resolution helpers.
+- Auth is upstream for browser authentication journeys and actor-resolution helpers, while Identity facts are projected into Auth for local reads.
 - Identity is upstream for user and account references.
 - Catalog is upstream for canonical item references.
 - Discovery depends on Catalog for canonical item, category, blueprint, and field facts used to build browse/search views.
 - Inventory depends on Identity and Catalog sellable-unit structure.
 - Marketplace depends on Identity, Auth journey entry points, Catalog sellable-unit identity, and Inventory availability signals.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
-- Ordering depends on Marketplace sellable-unit commitments and Identity account references.
+- Ordering depends on Marketplace sellable-unit commitments, Identity account references, and inventory reservation outcomes published after order commitment.
 - Fulfillment depends on Ordering.
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.

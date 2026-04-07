@@ -1,17 +1,27 @@
 export type IdentityApiConfig = Readonly<{
-  databaseUrl: string;
+  databaseUrls: Readonly<{
+    auth: string;
+    identity: string;
+  }>;
   port: number;
 }>;
 
-export function loadConfig(): IdentityApiConfig {
-  const databaseUrl = process.env.DATABASE_URL;
+function requireEnv(name: string): string {
+  const value = process.env[name];
 
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL environment variable is required.");
+  if (!value) {
+    throw new Error(`${name} environment variable is required.`);
   }
 
+  return value;
+}
+
+export function loadConfig(): IdentityApiConfig {
   return {
-    databaseUrl,
+    databaseUrls: {
+      auth: requireEnv("AUTH_DATABASE_URL"),
+      identity: requireEnv("IDENTITY_DATABASE_URL"),
+    },
     port: Number(process.env.PORT ?? 6181),
   };
 }

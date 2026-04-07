@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { hasPermission as hasActorPermission } from "@chase-sets/auth-runtime";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createIdentityAuthRequestClient } from "@chase-sets/identity/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   consumeAccountSelectionToken,
@@ -57,6 +58,10 @@ function getRequiredActor(c: { var: AuthApiEnv["Variables"] }) {
   }
 
   return actor;
+}
+
+function createIdentityMutations(c: { req: { raw: Request } }) {
+  return createIdentityAuthRequestClient(c.req.raw);
 }
 
 async function createPendingAccountSelection(
@@ -123,28 +128,26 @@ export function buildAuthApi(services: AuthServices) {
 
   app.post("/register", async (c) => {
     const body = await c.req.json();
+    const identityMutations = createIdentityMutations(c);
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
     const existingUser = await services.identity.getUserByEmail(email);
     if (existingUser) {
       return c.json({ error: "A user already exists for that email." }, 409);
     }
 
-    const context = getBootstrapContext(c);
-    const identity = await services.identity.createPersonalIdentity({
+    const identity = await identityMutations.createPersonalIdentity({
       email,
       displayName: String(body.displayName ?? ""),
       givenName: body.givenName ? String(body.givenName) : undefined,
       familyName: body.familyName ? String(body.familyName) : undefined,
       consents: Array.isArray(body.consents) ? body.consents : undefined,
-      context,
     });
 
     if (body.password) {
       const credentialId = createId("crd");
-      await services.identity.enablePasswordCredential({
+      await identityMutations.enablePasswordCredential({
         userId: identity.userId,
         credentialId,
-        context,
       });
       await upsertPasswordCredential(services.db, {
         credentialId,
@@ -157,7 +160,7 @@ export function buildAuthApi(services: AuthServices) {
       userId: identity.userId,
       accountId: identity.accountId,
       authenticationMethod: body.password ? "password" : "magic-link",
-      context,
+      context: getBootstrapContext(c),
     });
     const authResponse = await toInteractiveAuthResponse(services, {
       userId: identity.userId,
@@ -237,6 +240,7 @@ export function buildAuthApi(services: AuthServices) {
 
   app.post("/magic-link/consume", async (c) => {
     const body = await c.req.json();
+    const identityMutations = createIdentityMutations(c);
     const record = await consumeMagicLinkToken(
       services.db,
       services.auth.hashSecret(String(body.token ?? "")),
@@ -249,12 +253,10 @@ export function buildAuthApi(services: AuthServices) {
       ? await services.identity.getUser(record.user_id)
       : await services.identity.getUserByEmail(record.email);
 
-    const context = getBootstrapContext(c);
     if (!user) {
-      const identity = await services.identity.createPersonalIdentity({
+      const identity = await identityMutations.createPersonalIdentity({
         email: record.email,
         displayName: record.email.split("@")[0],
-        context,
       });
       user = await services.identity.getUser(identity.userId);
     }
@@ -264,7 +266,7 @@ export function buildAuthApi(services: AuthServices) {
       accountId:
         typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "magic-link",
-      context,
+      context: getBootstrapContext(c),
     });
     const authResponse = await toInteractiveAuthResponse(services, {
       userId: user!.user_id,
@@ -364,6 +366,7 @@ export function buildAuthApi(services: AuthServices) {
 
   app.post("/passkeys/register", async (c) => {
     const body = await c.req.json();
+    const identityMutations = createIdentityMutations(c);
     const challenge = await consumeChallenge(services.db, {
       challengeId: String(body.challengeId ?? ""),
       purpose: "passkey-register",
@@ -374,7 +377,6 @@ export function buildAuthApi(services: AuthServices) {
     }
 
     const actor = getRequiredActor(c);
-    const context = getRequiredContext(c);
     const userId =
       (typeof body.userId === "string" ? body.userId : challenge.user_id) ??
       actor.userId;
@@ -383,10 +385,9 @@ export function buildAuthApi(services: AuthServices) {
     }
 
     const credentialId = createId("crd");
-    await services.identity.registerPasskeyCredential({
+    await identityMutations.registerPasskeyCredential({
       userId,
       credentialId,
-      context,
     });
     await upsertPasskeyCredential(services.db, {
       credentialId,
@@ -455,6 +456,7 @@ export function buildAuthApi(services: AuthServices) {
 
   app.post("/invitations/accept", async (c) => {
     const body = await c.req.json();
+    const identityMutations = createIdentityMutations(c);
     const invitation = await services.identity.getInvitation(
       String(body.invitationId ?? ""),
     );
@@ -462,23 +464,20 @@ export function buildAuthApi(services: AuthServices) {
       return c.json({ error: "Invitation is unavailable." }, 404);
     }
 
-    const context = getBootstrapContext(c);
     let user = await services.identity.getUserByEmail(invitation.email);
     if (!user) {
-      const identity = await services.identity.createPersonalIdentity({
+      const identity = await identityMutations.createPersonalIdentity({
         email: invitation.email,
         displayName: invitation.email.split("@")[0],
-        context,
       });
       user = await services.identity.getUser(identity.userId);
     }
 
     if (body.password) {
       const credentialId = createId("crd");
-      await services.identity.enablePasswordCredential({
+      await identityMutations.enablePasswordCredential({
         userId: user!.user_id,
         credentialId,
-        context,
       });
       await upsertPasswordCredential(services.db, {
         credentialId,
@@ -487,19 +486,18 @@ export function buildAuthApi(services: AuthServices) {
       });
     }
 
-    const membershipId = await services.identity.acceptInvitationForUser({
+    const membership = await identityMutations.acceptInvitationForUser({
       invitationId: String(body.invitationId ?? ""),
       userId: user!.user_id,
       accountId: invitation.account_id,
       roleKey: invitation.role_key,
-      context,
     });
 
     const sessionResult = await startSessionForUser(services, {
       userId: user!.user_id,
       accountId: invitation.account_id,
       authenticationMethod: body.password ? "password" : "magic-link",
-      context,
+      context: getBootstrapContext(c),
     });
     const authResponse = await toInteractiveAuthResponse(services, {
       userId: user!.user_id,
@@ -509,7 +507,7 @@ export function buildAuthApi(services: AuthServices) {
 
     return c.json({
       invitationId: body.invitationId,
-      membershipId,
+      membershipId: membership.membershipId,
       userId: user!.user_id,
       ...authResponse,
     });

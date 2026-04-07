@@ -8,9 +8,12 @@ import {
 import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime";
+} from "@chase-sets/bounded-context-runtime/http";
 import type { PermissionKey } from "./common";
-import { createIdentityApiClient } from "./request-support/api-client";
+import {
+  createIdentityApiClient,
+  IdentityApiError,
+} from "./request-support/api-client";
 import { hasPermission } from "./request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/auth-runtime";
@@ -29,6 +32,72 @@ export function createIdentityRequestApiClient(request: Request) {
     baseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
     fetch: createForwardedAuthFetch(request),
   });
+}
+
+export type IdentityAuthMutationClient = Readonly<{
+  createPersonalIdentity: (params: Readonly<{
+    email: string;
+    displayName: string;
+    givenName?: string;
+    familyName?: string;
+    consents?: readonly { policyKey: string; policyVersion: string }[];
+  }>) => Promise<Readonly<{ userId: string; accountId: string }>>;
+  enablePasswordCredential: (params: Readonly<{
+    userId: string;
+    credentialId: string;
+  }>) => Promise<void>;
+  registerPasskeyCredential: (params: Readonly<{
+    userId: string;
+    credentialId: string;
+  }>) => Promise<void>;
+  acceptInvitationForUser: (params: Readonly<{
+    invitationId: string;
+    userId: string;
+    accountId: string;
+    roleKey: string;
+  }>) => Promise<Readonly<{ membershipId: string }>>;
+}>;
+
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new IdentityApiError(response.status, errorBody);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export function createIdentityAuthRequestClient(
+  request: Request,
+): IdentityAuthMutationClient {
+  const fetch = createForwardedAuthFetch(request);
+  const baseUrl = resolveRequestApiBaseUrl(request, "/api/identity/internal/auth");
+  const postJson = async <T>(path: string, body: Record<string, unknown>) =>
+    parseJsonResponse<T>(
+      await fetch(new URL(path, `${baseUrl}/`), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  return {
+    createPersonalIdentity: (params) => postJson("personal-identities", params),
+    enablePasswordCredential: async ({ userId, credentialId }) => {
+      await postJson(`users/${userId}/password-credential`, { credentialId });
+    },
+    registerPasskeyCredential: async ({ userId, credentialId }) => {
+      await postJson(`users/${userId}/passkey-credential`, { credentialId });
+    },
+    acceptInvitationForUser: ({ invitationId, userId, accountId, roleKey }) =>
+      postJson(`invitations/${invitationId}/accept`, {
+        userId,
+        accountId,
+        roleKey,
+      }),
+  };
 }
 
 export function createActorEventStoreContext(

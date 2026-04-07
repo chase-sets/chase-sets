@@ -1,18 +1,28 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
-import { catalogAuthoringSchemaSql, createCatalogServices, type CatalogServices } from "../../index";
-import { buildCatalogAuthoringTestApp, createCatalogAuthoringTestPool } from "../../test-support";
+import {
+  closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { module as catalogModule } from "../../../index";
+import { createCatalogServices, type CatalogServices } from "../../index";
+import { buildCatalogAuthoringTestApp } from "../../test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
-const databaseUrl = process.env.DATABASE_URL;
-const describeWithDatabase = databaseUrl ? describe : describe.skip;
+const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
+const catalogContextNames = ["catalog"] as const;
 
-function requireDatabaseUrl(): string {
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required for database-backed catalog authoring tests.");
+function requireDatabaseBaseUrl(): string {
+  if (!databaseBaseUrl) {
+    throw new Error("TEST_DATABASE_URL is required for database-backed catalog authoring tests.");
   }
 
-  return databaseUrl;
+  return databaseBaseUrl;
 }
 
 const context: EventStoreContext = {
@@ -32,11 +42,6 @@ const headers = {
 let pool: PgTransactionalPool;
 let services: CatalogServices;
 let app: ReturnType<typeof buildCatalogAuthoringTestApp>;
-
-async function recreateSchema() {
-  await pool.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
-  await pool.query(catalogAuthoringSchemaSql);
-}
 
 async function drainProjectors() {
   let processed = 0;
@@ -64,18 +69,26 @@ async function getJson(path: string) {
 }
 
 describeWithDatabase("Admin page projections", () => {
-  beforeAll(() => {
-    pool = createCatalogAuthoringTestPool(requireDatabaseUrl());
+  beforeAll(async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(
+      requireDatabaseBaseUrl(),
+      catalogContextNames,
+      "catalog_authoring_acceptance",
+    );
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    const pools = createMultiContextTestPools(databaseUrls);
+    pool = pools.catalog;
   });
 
   beforeEach(async () => {
-    await recreateSchema();
+    await resetMultiContextTestSchemas({ catalog: pool });
+    await bootstrapContextDatabase(catalogModule, pool);
     services = createCatalogServices(pool);
     app = buildCatalogAuthoringTestApp(services, context);
   });
 
   afterAll(async () => {
-    await (pool as unknown as { end: () => Promise<void> }).end();
+    await closeMultiContextTestPools({ catalog: pool });
   });
 
   it("serves inline page DTOs and fans out referenced name changes", async () => {

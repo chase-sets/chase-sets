@@ -4,7 +4,6 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 import {
   assert,
   assertNever,
@@ -19,7 +18,7 @@ import {
 export type OrderingCartLine = Readonly<{
   lineId: CartLineId;
   catalogItemId: string;
-  catalogVersionKey: CatalogVersionKey;
+  catalogVersionKey: string;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: readonly VersionSelectionEntry[];
@@ -44,7 +43,7 @@ export type AddCartLineCommand = Readonly<{
   buyerAccountId: AccountId;
   lineId: CartLineId;
   catalogItemId: string;
-  catalogVersionKey: CatalogVersionKey;
+  catalogVersionKey: string;
   itemTitle: string;
   itemSubtitle: string | null;
   versionSelection: readonly VersionSelectionEntry[];
@@ -80,7 +79,7 @@ export type CartLineAddedEvent = DomainEvent<
     buyerAccountId: AccountId;
     lineId: CartLineId;
     catalogItemId: string;
-    catalogVersionKey: CatalogVersionKey;
+    catalogVersionKey: string;
     itemTitle: string;
     itemSubtitle: string | null;
     versionSelection: VersionSelectionEntry[];
@@ -152,7 +151,7 @@ export const decideOrderingCart: AggregateDecider<
             catalogVersionKey: normalizeRequiredText(
               String(command.catalogVersionKey),
               "Cart lines must reference a catalog version key.",
-            ) as CatalogVersionKey,
+            ),
             itemTitle: normalizeRequiredText(
               command.itemTitle,
               "Cart lines must include an item title snapshot.",

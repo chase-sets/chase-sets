@@ -6,16 +6,16 @@ import type {
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
 import { Card, LinkButton, Stack, Text } from "@chase-sets/design-system";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
-import {
-  createReputationReviewGateway,
-  type ReputationReviewOpportunity,
-} from "@chase-sets/reputation/integration/review-gateway";
+import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
 import {
   createOrderingRequestApiClient,
   OrderingApiError,
   type OrderingOrderDetail,
 } from "../request-support/api-client";
+import {
+  createOrderingReputationReviewGateway,
+  type ReputationReviewOpportunity,
+} from "../request-support/reputation-review-gateway";
 import { OrderingOrderDetailPage } from "../orders/ui/order-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
@@ -27,7 +27,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     permission: "orders.view",
   });
   const orderingApi = createOrderingRequestApiClient(request);
-  const reputationApi = createReputationReviewGateway(request);
+  const reputationApi = createOrderingReputationReviewGateway(request);
 
   try {
     const order = await orderingApi.getBuyerOrder(params.orderId!);

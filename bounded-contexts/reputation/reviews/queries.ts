@@ -64,9 +64,9 @@ const baseReviewSelect = `
     page.updated_at,
     page.withdrawn_at
   FROM reputation_review_pages AS page
-  LEFT JOIN identity_accounts AS author
+  LEFT JOIN reputation_account_pages AS author
     ON author.account_id = page.author_account_id
-  LEFT JOIN identity_accounts AS subject
+  LEFT JOIN reputation_account_pages AS subject
     ON subject.account_id = page.subject_account_id
 `;
 
@@ -192,10 +192,10 @@ export async function getPublicAccountSummary(
        summary.rating_2_count,
        summary.rating_3_count,
        summary.rating_4_count,
-       summary.rating_5_count,
-       summary.updated_at::text AS updated_at
+     summary.rating_5_count,
+     summary.updated_at::text AS updated_at
      FROM reputation_summary_pages AS summary
-     LEFT JOIN identity_accounts AS account
+     LEFT JOIN reputation_account_pages AS account
        ON account.account_id = summary.account_id
      WHERE summary.account_id = $1`,
     [accountId],
@@ -258,9 +258,9 @@ export async function getOrderReviewOpportunity(
        eligibility.eligible_at,
        active.review_id AS active_review_id
      FROM reputation_review_eligibility_pages AS eligibility
-     INNER JOIN ordering_order_pages AS ordering_page
-       ON ordering_page.order_id = eligibility.order_id
-     LEFT JOIN identity_accounts AS subject
+     INNER JOIN reputation_order_sources AS order_source
+       ON order_source.order_id = eligibility.order_id
+     LEFT JOIN reputation_account_pages AS subject
        ON subject.account_id = eligibility.subject_account_id
      LEFT JOIN reputation_review_pages AS active
        ON active.order_id = eligibility.order_id
@@ -268,7 +268,19 @@ export async function getOrderReviewOpportunity(
       AND active.subject_account_id = eligibility.subject_account_id
       AND active.status = 'active'
      WHERE eligibility.order_id = $1
-       AND eligibility.author_account_id = $2`,
+       AND eligibility.author_account_id = $2
+       AND (
+         (
+           eligibility.author_role = 'buyer'
+           AND order_source.buyer_account_id = eligibility.author_account_id
+           AND order_source.seller_account_id = eligibility.subject_account_id
+         )
+         OR (
+           eligibility.author_role = 'seller'
+           AND order_source.seller_account_id = eligibility.author_account_id
+           AND order_source.buyer_account_id = eligibility.subject_account_id
+         )
+       )`,
     [params.orderId, params.authorAccountId],
   );
 

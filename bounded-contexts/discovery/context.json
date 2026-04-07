@@ -28,10 +28,214 @@
     "@chase-sets/marketplace",
     "@chase-sets/ordering"
   ],
-  "requiredPorts": [],
-  "integrationCapabilities": [],
   "seedRequirements": [],
-  "apiRequirements": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "discovery-category-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "discovery-category-projection"
+      ],
+      "eventTypes": [
+        "catalog.category.created",
+        "catalog.category.revised",
+        "catalog.category.published",
+        "catalog.category.deprecated",
+        "catalog.category.archived",
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.tags-set",
+        "catalog.catalog-item.image-urls-set",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.published",
+        "catalog.field.created",
+        "catalog.field.configured",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.choice-added",
+        "catalog.dimension.choice-revised"
+      ],
+      "order": 10
+    },
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "discovery-search-item-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "discovery-search-item-projection"
+      ],
+      "eventTypes": [
+        "catalog.category.created",
+        "catalog.category.revised",
+        "catalog.category.published",
+        "catalog.category.deprecated",
+        "catalog.category.archived",
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.tags-set",
+        "catalog.catalog-item.image-urls-set",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.published",
+        "catalog.field.created",
+        "catalog.field.configured",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.choice-added",
+        "catalog.dimension.choice-revised"
+      ],
+      "order": 10
+    },
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "discovery-item-detail-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "discovery-item-detail-projection"
+      ],
+      "eventTypes": [
+        "catalog.category.created",
+        "catalog.category.revised",
+        "catalog.category.published",
+        "catalog.category.deprecated",
+        "catalog.category.archived",
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.tags-set",
+        "catalog.catalog-item.image-urls-set",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.published",
+        "catalog.field.created",
+        "catalog.field.configured",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.choice-added",
+        "catalog.dimension.choice-revised"
+      ],
+      "order": 10
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "discovery-market-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "discovery-market-projection"
+      ],
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "order": 20
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "discovery-market-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "discovery-market-projection"
+      ],
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.withdrawn"
+      ],
+      "order": 30
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "discovery-category-projection",
+      "sourceContextNames": [
+        "catalog"
+      ],
+      "ownedTables": [
+        "discovery_category_catalog_categories",
+        "discovery_category_catalog_items",
+        "discovery_categories"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "discovery-search-item-projection",
+      "sourceContextNames": [
+        "catalog"
+      ],
+      "ownedTables": [
+        "discovery_search_catalog_items",
+        "discovery_search_catalog_blueprints",
+        "discovery_search_catalog_categories",
+        "discovery_search_items"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "discovery-item-detail-projection",
+      "sourceContextNames": [
+        "catalog"
+      ],
+      "ownedTables": [
+        "discovery_item_detail_catalog_items",
+        "discovery_item_detail_catalog_blueprints",
+        "discovery_item_detail_catalog_categories",
+        "discovery_item_detail_catalog_fields",
+        "discovery_item_detail_catalog_dimensions",
+        "discovery_item_detail_catalog_dimension_choices",
+        "discovery_item_detail_pages"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "discovery-market-projection",
+      "sourceContextNames": [
+        "identity",
+        "marketplace"
+      ],
+      "ownedTables": [
+        "discovery_market_accounts",
+        "discovery_market_listings"
+      ],
+      "requiredDuringBootstrap": true
+    }
+  ],
   "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
@@ -115,7 +319,7 @@
         "Deployable composition for discovery"
       ],
       "justification": "shell-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice discovery workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "request-support": {
@@ -127,7 +331,7 @@
         "Deployable composition for discovery"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice discovery workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "tests": {
@@ -139,12 +343,12 @@
         "Deployable composition for discovery"
       ],
       "justification": "tests centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice discovery workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose discovery-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -152,3 +356,4 @@
     }
   }
 }
+

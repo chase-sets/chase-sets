@@ -1,4 +1,7 @@
-import type { Projector as EventProjector } from "@chase-sets/event-core/projector";
+import type {
+  Projector as EventProjector,
+  ProjectorHandlerMap,
+} from "@chase-sets/event-core/projector";
 
 /**
  * Framework-agnostic contract for a bounded-context module.
@@ -40,18 +43,6 @@ export type BcShellContribution = Readonly<{
   readonly requiredPermissions: readonly string[];
 }>;
 
-export type BcIntegrationCapability = Readonly<{
-  readonly key: string;
-  readonly exportName: string;
-  readonly fileExport: string;
-  readonly kind: "runtime-port" | "request-gateway";
-}>;
-
-export type BcApiRequirement = Readonly<{
-  readonly capabilityKey: string;
-  readonly portName: string;
-}>;
-
 export type BcHostPort = Readonly<{
   readonly portName: string;
 }>;
@@ -65,10 +56,44 @@ export type BcApiMount = Readonly<{
   readonly drainProjectorsOnWrite: boolean;
 }>;
 
+export type BcEventSubscriptionDeclaration = Readonly<{
+  readonly sourceContextName: string;
+  readonly projectionName: string;
+  readonly subscriptionVersion: number;
+  readonly projectorNames: readonly string[];
+  readonly eventTypes?: readonly string[];
+  readonly streamPrefixes?: readonly string[];
+  readonly order?: number;
+}>;
+
+export type BcProjectionGroupDeclaration = Readonly<{
+  readonly projectionName: string;
+  readonly sourceContextNames: readonly string[];
+  readonly ownedTables: readonly string[];
+  readonly requiredDuringBootstrap?: boolean;
+}>;
+
+export type BcEventSubscription = Readonly<{
+  readonly subscriptionName: string;
+  readonly sourceContextName: string;
+  readonly projectionName: string;
+  readonly subscriptionVersion: number;
+  readonly handlers: ProjectorHandlerMap;
+  readonly eventTypes?: readonly string[];
+  readonly streamPrefixes?: readonly string[];
+  readonly batchSize?: number;
+  readonly order?: number;
+}>;
+
+export type BcProjectionGroup = BcProjectionGroupDeclaration &
+  Readonly<{
+    readonly reset?: () => Promise<void>;
+  }>;
+
 export interface BcApiModule<
   TServices = unknown,
   TPool = unknown,
-  TPorts = unknown,
+  THostPorts = unknown,
   TRouter = unknown,
   TProjector extends BcProjector = BcProjector,
 > {
@@ -77,8 +102,11 @@ export interface BcApiModule<
   readonly streamPrefix: string;
   readonly schemaSql: string;
   readonly apiMounts: readonly BcApiMount[];
-  createServices(pool: TPool, ports: TPorts): TServices;
+  readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
+  createServices(pool: TPool, ports: THostPorts): TServices;
   buildApis(services: TServices): readonly TRouter[];
   projectors(services: TServices): readonly TProjector[];
+  buildSubscriptions?(services: TServices): readonly BcEventSubscription[];
+  buildProjectionGroups?(services: TServices): readonly BcProjectionGroup[];
   seed?(pool: TPool): Promise<void>;
 }

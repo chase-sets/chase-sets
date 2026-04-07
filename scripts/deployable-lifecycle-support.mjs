@@ -103,32 +103,51 @@ export function buildLifecycleFileContent(unsortedContexts) {
   const sorted = sortContextsBySeedRequirements(unsortedContexts);
   const orderedContextNames = sorted.map((context) => context.contextName);
 
-  return `${lifecycleGeneratedFileMarker}import { drainProjectors, seedApiModulesIfEmpty } from "@chase-sets/bounded-context-runtime";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { createContextRuntime } from "./context-runtime.generated";
+  return `${lifecycleGeneratedFileMarker}import {
+  bootstrapContextDatabase,
+  drainContextRuntime,
+  seedApiModuleIfEmpty,
+  syncContextProjectionGroups,
+} from "@chase-sets/bounded-context-runtime";
+import type {
+  ContextRuntimePools,
+  createContextRuntime,
+} from "./context-runtime.generated";
 
 const lifecycleContextOrder = ${JSON.stringify(orderedContextNames, null, 2)} as const;
 
 export async function seedContextRuntimeIfEmpty(
-  pool: PgTransactionalPool,
+  _pools: ContextRuntimePools,
   runtime: ReturnType<typeof createContextRuntime>,
 ): Promise<void> {
-  const mountedModulesByName = new Map(
-    runtime.mountedModules.map(({ module }) => [module.contextName, module]),
+  const mountedContextsByName = new Map(
+    runtime.mountedContexts.map((entry) => [entry.contextName, entry]),
   );
-  const orderedModules = lifecycleContextOrder.map((contextName) => {
-    const module = mountedModulesByName.get(contextName);
-    if (!module) {
+  const orderedContexts = lifecycleContextOrder.map((contextName) => {
+    const context = mountedContextsByName.get(contextName);
+    if (!context) {
       throw new Error(
         \`Runtime is missing mounted module '\${contextName}' required by generated lifecycle order.\`,
       );
     }
 
-    return module;
+    return context;
   });
 
-  await seedApiModulesIfEmpty(orderedModules, pool);
-  await drainProjectors(runtime.projectors);
+  for (const context of runtime.mountedContexts) {
+    await bootstrapContextDatabase(context.module, context.pool);
+  }
+
+  for (const context of orderedContexts) {
+    await syncContextProjectionGroups(runtime, context.contextName, {
+      requiredOnly: true,
+    });
+    await seedApiModuleIfEmpty(context.module, context.pool);
+    await syncContextProjectionGroups(runtime, context.contextName);
+    await drainContextRuntime(runtime);
+  }
+
+  await drainContextRuntime(runtime);
 }
 `;
 }

@@ -4,7 +4,6 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
-import type { CatalogVersionKey } from "@chase-sets/catalog/integration/sellable-units";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -35,7 +34,7 @@ export type MarketplaceListingState = Readonly<{
   accountId: AccountId | null;
   inventoryRecordId: string | null;
   catalogItemId: string | null;
-  catalogVersionKey: CatalogVersionKey | null;
+  catalogVersionKey: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
@@ -70,7 +69,7 @@ export type CreateListingCommand = Readonly<{
   accountId: AccountId;
   inventoryRecordId: string;
   catalogItemId: string;
-  catalogVersionKey: CatalogVersionKey;
+  catalogVersionKey: string;
   itemTitle: string | null;
   itemSubtitle: string | null;
   versionSelection: readonly { dimensionId: string; choiceId: string }[];
@@ -110,7 +109,7 @@ export type ListingCreatedEvent = DomainEvent<
     accountId: AccountId;
     inventoryRecordId: string;
     catalogItemId: string;
-    catalogVersionKey: CatalogVersionKey;
+    catalogVersionKey: string;
     itemTitle: string | null;
     itemSubtitle: string | null;
     versionSelection: { dimensionId: string; choiceId: string }[];

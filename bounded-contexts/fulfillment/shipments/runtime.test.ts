@@ -71,7 +71,7 @@ function createCheckpointStore(): ProjectionCheckpointStore {
 }
 
 describe("fulfillment shipment runtime", () => {
-  it("creates a shipment when an order becomes ready for fulfillment", async () => {
+  it("creates a shipment from a ready local order source", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async (sql: string) => {
@@ -79,7 +79,7 @@ describe("fulfillment shipment runtime", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("FROM ordering_order_pages")) {
+        if (sql.includes("FROM fulfillment_order_sources")) {
           return {
             rows: [
               {
@@ -93,7 +93,7 @@ describe("fulfillment shipment runtime", () => {
           };
         }
 
-        if (sql.includes("FROM ordering_order_line_pages")) {
+        if (sql.includes("FROM fulfillment_order_source_lines")) {
           return {
             rows: [
               {
@@ -119,9 +119,9 @@ describe("fulfillment shipment runtime", () => {
       db: db as never,
     });
 
-    await eventStore.appendToStream({
-      streamId: "ordering.order-ord_1",
-      expectedVersion: 0,
+    await services.createShipmentForReadyOrder({
+      orderId: "ord_1",
+      readyForFulfillmentAt: "2026-04-02T00:00:00.000Z",
       context: {
         tenantId: "tnt_test" as never,
         audit: {
@@ -129,18 +129,7 @@ describe("fulfillment shipment runtime", () => {
           forAccountId: "acc_buyer" as never,
         },
       },
-      events: [
-        {
-          eventType: "ordering.order.ready-for-fulfillment-recorded",
-          payload: {
-            orderId: "ord_1",
-            readyForFulfillmentAt: "2026-04-02T00:00:00.000Z",
-          },
-        },
-      ],
     });
-
-    await services.projectors[1]?.runOnce();
 
     const createdEvent = readAllEvents().find(
       (event) => event.eventType === "fulfillment.shipment.created",

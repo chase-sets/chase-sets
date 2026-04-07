@@ -1,6 +1,7 @@
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AuthServices } from "./services";
+import { createAuthBootstrapContext as createAuthBootstrapEventContext } from "./auth-support/identity-projection";
 import { getSessionByTokenHash } from "./auth-support/store";
 import { AUTH_SESSION_COOKIE_NAME } from "./request-support/cookies";
 import { resolveActorFromSessionId } from "./services";
@@ -46,9 +47,9 @@ export function readAuthSessionToken(request: Request) {
 }
 
 export function createAuthBootstrapContext(
-  services: AuthServices,
+  _services: AuthServices,
 ): EventStoreContext {
-  return services.identity.createBootstrapContext();
+  return createAuthBootstrapEventContext();
 }
 
 export async function resolveActorFromSessionToken(

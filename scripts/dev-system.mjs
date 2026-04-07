@@ -5,13 +5,34 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import pg from "pg";
 
 const mode = process.argv[2] ?? "dev";
 const target = process.argv[3] ?? "all";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const stripeCliScript = fileURLToPath(new URL("./stripe-cli.mjs", import.meta.url));
 const dockerComposeArgs = ["compose", "-f", "docker-compose.dev.yml"];
-const databaseUrl = "postgresql://catalog:catalog@localhost:5432/catalog";
+const localAdminDatabaseUrl =
+  process.env.POSTGRES_DEV_ADMIN_DATABASE_URL ??
+  "postgresql://postgres:postgres@localhost:5432/postgres";
+const legacyAdminDatabaseUrl = "postgresql://catalog:catalog@localhost:5432/catalog";
+const devContextNames = [
+  "auth",
+  "catalog",
+  "discovery",
+  "fulfillment",
+  "identity",
+  "inventory",
+  "marketplace",
+  "ordering",
+  "payments",
+  "pricing",
+  "reputation",
+  "settlement",
+];
+const contextExtensions = {
+  discovery: ["vector"],
+};
 const marketplaceApiEnvExamplePath = path.join(
   rootDir,
   "deployables",
@@ -25,6 +46,158 @@ const marketplaceApiEnvLocalPath = path.join(
   ".env.local",
 );
 const stripeReadyTimeoutMs = 20_000;
+const postgresReadyTimeoutMs = 30_000;
+const postgresReadyPollMs = 1_000;
+
+function createContextDatabaseUrl(contextName) {
+  const url = new URL(localAdminDatabaseUrl);
+  url.username = contextName;
+  url.password = contextName;
+  url.pathname = `/${contextName}`;
+  return url.toString();
+}
+
+function createAdminCandidateUrls(databaseName = "postgres") {
+  const baseAdminUrls = [localAdminDatabaseUrl];
+
+  if (legacyAdminDatabaseUrl !== localAdminDatabaseUrl) {
+    baseAdminUrls.push(legacyAdminDatabaseUrl);
+  }
+
+  return [...new Set(baseAdminUrls)].map((baseAdminUrl) => {
+    const url = new URL(baseAdminUrl);
+    url.pathname = `/${databaseName}`;
+    return url.toString();
+  });
+}
+
+function escapeIdentifier(value) {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function escapeLiteral(value) {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+async function ensureOwnedContextDatabase(adminPool, contextName) {
+  const roleExists = await adminPool.query(
+    "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
+    [contextName],
+  );
+
+  if (roleExists.rows[0]?.exists) {
+    await adminPool.query(
+      `ALTER ROLE ${escapeIdentifier(contextName)} WITH LOGIN PASSWORD ${escapeLiteral(contextName)}`,
+    );
+  } else {
+    await adminPool.query(
+      `CREATE ROLE ${escapeIdentifier(contextName)} WITH LOGIN PASSWORD ${escapeLiteral(contextName)}`,
+    );
+  }
+
+  const databaseExists = await adminPool.query(
+    "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1) AS exists",
+    [contextName],
+  );
+
+  if (databaseExists.rows[0]?.exists) {
+    await adminPool.query(
+      `ALTER DATABASE ${escapeIdentifier(contextName)} OWNER TO ${escapeIdentifier(contextName)}`,
+    );
+  } else {
+    await adminPool.query(
+      `CREATE DATABASE ${escapeIdentifier(contextName)} OWNER ${escapeIdentifier(contextName)}`,
+    );
+  }
+
+  await adminPool.query(
+    `GRANT ALL PRIVILEGES ON DATABASE ${escapeIdentifier(contextName)} TO ${escapeIdentifier(contextName)}`,
+  );
+}
+
+async function withAdminPool(action, databaseName = "postgres") {
+  const adminUrls = createAdminCandidateUrls(databaseName);
+  let lastError = null;
+  const deadline = Date.now() + postgresReadyTimeoutMs;
+
+  while (Date.now() < deadline) {
+    for (const databaseUrl of adminUrls) {
+      const pool = new pg.Pool({ connectionString: databaseUrl });
+
+      try {
+        await pool.query("SELECT 1");
+        return await action(pool);
+      } catch (error) {
+        lastError = error;
+      } finally {
+        await pool.end().catch(() => undefined);
+      }
+    }
+
+    await sleep(postgresReadyPollMs);
+  }
+
+  throw lastError ?? new Error("Unable to connect to the dev Postgres admin database.");
+}
+
+async function repairOwnedContextDatabase(contextName) {
+  await withAdminPool(async (adminPool) => {
+    for (const extensionName of contextExtensions[contextName] ?? []) {
+      await adminPool.query(
+        `CREATE EXTENSION IF NOT EXISTS ${escapeIdentifier(extensionName)}`,
+      );
+    }
+
+    await adminPool.query(
+      `ALTER SCHEMA public OWNER TO ${escapeIdentifier(contextName)}`,
+    );
+    await adminPool.query(
+      `GRANT ALL PRIVILEGES ON SCHEMA public TO ${escapeIdentifier(contextName)}`,
+    );
+
+    const ownedObjects = await adminPool.query(
+      `SELECT c.relname AS object_name, c.relkind AS object_kind
+       FROM pg_class AS c
+       INNER JOIN pg_namespace AS n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public'
+         AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
+         AND pg_get_userbyid(c.relowner) <> $1
+       ORDER BY c.relname`,
+      [contextName],
+    );
+
+    for (const object of ownedObjects.rows) {
+      const objectName = object.object_name;
+      const objectKind = object.object_kind;
+      const objectType =
+        objectKind === "S"
+          ? "SEQUENCE"
+          : objectKind === "v"
+            ? "VIEW"
+            : objectKind === "m"
+              ? "MATERIALIZED VIEW"
+              : objectKind === "f"
+                ? "FOREIGN TABLE"
+                : "TABLE";
+
+      await adminPool.query(
+        `ALTER ${objectType} ${escapeIdentifier("public")}.${escapeIdentifier(objectName)} OWNER TO ${escapeIdentifier(contextName)}`,
+      );
+    }
+  }, contextName);
+}
+
+async function ensureOwnedContextDatabases(contextNames) {
+  await withAdminPool(async (adminPool) => {
+    for (const contextName of contextNames) {
+      await ensureOwnedContextDatabase(adminPool, contextName);
+    }
+  });
+
+  for (const contextName of contextNames) {
+    await repairOwnedContextDatabase(contextName);
+  }
+}
 
 const bootstrapWorkspaces = [
   "@chase-sets/app-identity-api",
@@ -44,7 +217,8 @@ const processes = [
     name: "identity-api",
     workspace: "@chase-sets/app-identity-api",
     env: {
-      DATABASE_URL: databaseUrl,
+      AUTH_DATABASE_URL: createContextDatabaseUrl("auth"),
+      IDENTITY_DATABASE_URL: createContextDatabaseUrl("identity"),
       PORT: "6181",
     },
     port: 6181,
@@ -53,7 +227,7 @@ const processes = [
     name: "catalog-api",
     workspace: "@chase-sets/app-catalog-api",
     env: {
-      DATABASE_URL: databaseUrl,
+      CATALOG_DATABASE_URL: createContextDatabaseUrl("catalog"),
       IDENTITY_API_BASE_URL: "http://localhost:6181",
       PORT: "6180",
     },
@@ -63,7 +237,18 @@ const processes = [
     name: "marketplace-api",
     workspace: "@chase-sets/app-marketplace-api",
     env: {
-      DATABASE_URL: databaseUrl,
+      CATALOG_DATABASE_URL: createContextDatabaseUrl("catalog"),
+      DISCOVERY_DATABASE_URL: createContextDatabaseUrl("discovery"),
+      FULFILLMENT_DATABASE_URL: createContextDatabaseUrl("fulfillment"),
+      IDENTITY_DATABASE_URL: createContextDatabaseUrl("identity"),
+      INVENTORY_DATABASE_URL: createContextDatabaseUrl("inventory"),
+      MARKETPLACE_DATABASE_URL: createContextDatabaseUrl("marketplace"),
+      ORDERING_DATABASE_URL: createContextDatabaseUrl("ordering"),
+      PAYMENTS_DATABASE_URL: createContextDatabaseUrl("payments"),
+      PRICING_DATABASE_URL: createContextDatabaseUrl("pricing"),
+      REPUTATION_DATABASE_URL: createContextDatabaseUrl("reputation"),
+      SETTLEMENT_DATABASE_URL: createContextDatabaseUrl("settlement"),
+      IDENTITY_API_BASE_URL: "http://localhost:6181",
       PORT: "6182",
     },
     port: 6182,
@@ -72,7 +257,10 @@ const processes = [
     name: "inventory-api",
     workspace: "@chase-sets/app-inventory-api",
     env: {
-      DATABASE_URL: databaseUrl,
+      CATALOG_DATABASE_URL: createContextDatabaseUrl("catalog"),
+      IDENTITY_DATABASE_URL: createContextDatabaseUrl("identity"),
+      INVENTORY_DATABASE_URL: createContextDatabaseUrl("inventory"),
+      ORDERING_DATABASE_URL: createContextDatabaseUrl("ordering"),
       IDENTITY_API_BASE_URL: "http://localhost:6181",
       PORT: "6183",
     },
@@ -377,6 +565,8 @@ async function ensureDevDatabase() {
   await runCommand("docker", [...dockerComposeArgs, "up", "-d"], {
     prefix: "docker",
   });
+  prefixedConsole("dev", "Provisioning per-context Postgres roles and databases...");
+  await ensureOwnedContextDatabases(devContextNames);
 }
 
 async function runBootstrap() {
@@ -384,6 +574,9 @@ async function runBootstrap() {
 
   for (const workspace of bootstrapWorkspaces) {
     prefixedConsole("bootstrap", `Running ${workspace} bootstrap...`);
+    const processDefinition = processes.find(
+      (definition) => definition.workspace === workspace,
+    );
     const invocation = buildNpmInvocation([
       "run",
       "bootstrap",
@@ -391,6 +584,7 @@ async function runBootstrap() {
       workspace,
     ]);
     await runCommand(invocation.command, invocation.args, {
+      env: processDefinition?.env ?? {},
       prefix: workspace.replace("@chase-sets/", ""),
     });
   }

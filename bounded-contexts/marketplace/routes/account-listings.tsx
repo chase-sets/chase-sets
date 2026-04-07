@@ -5,18 +5,18 @@ import type {
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime";
+import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
 import type { ListResponse } from "@chase-sets/http/responses";
-import {
-  createInventoryRecordLookupPort,
-  type InventoryRecordListItem,
-} from "@chase-sets/inventory/integration/record-lookup";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type MarketplaceListingInventoryRecordOption,
   type MarketplaceListingListItem,
 } from "../request-support/api-client";
+import {
+  createMarketplaceInventoryRecordLookup,
+  type InventoryRecordListItem,
+} from "../request-support/inventory-record-lookup";
 import {
   MarketplaceListingListPage,
 } from "../listings/ui/listing-list-page";
@@ -45,7 +45,7 @@ function toInventoryOption(
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const inventoryApi = createInventoryRecordLookupPort(request);
+  const inventoryApi = createMarketplaceInventoryRecordLookup(request);
 
   const [listings, records] = await Promise.all([
     marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),

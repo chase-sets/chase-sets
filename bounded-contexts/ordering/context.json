@@ -13,13 +13,11 @@
     "accounts"
   ],
   "allowedSupportDirectories": [
-    "integration",
     "request-support",
     "seed-support"
   ],
   "publicExports": [
     ".",
-    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -28,43 +26,209 @@
     "@chase-sets/catalog",
     "@chase-sets/reputation"
   ],
-  "requiredPorts": [
-    "inventoryReservations",
-    "supplyResolver"
-  ],
-  "integrationCapabilities": [
-    {
-      "key": "ordering.order-snapshot-reader",
-      "exportName": "createOrderSnapshotReader",
-      "fileExport": "./integration/order-snapshot-reader",
-      "kind": "runtime-port"
-    },
-    {
-      "key": "ordering.buyer-gateway",
-      "exportName": "createOrderingBuyerGateway",
-      "fileExport": "./integration/buyer-gateway",
-      "kind": "request-gateway"
-    }
-  ],
   "seedRequirements": [
     "catalog",
     "identity",
     "inventory",
     "marketplace"
   ],
-  "apiRequirements": [
+  "eventSubscriptions": [
     {
-      "capabilityKey": "marketplace.supply-resolver",
-      "portName": "supplyResolver"
+      "sourceContextName": "catalog",
+      "projectionName": "ordering-catalog-item-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "ordering-catalog-item-projection"
+      ],
+      "eventTypes": [
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.published",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.choice-added",
+        "catalog.dimension.choice-revised"
+      ],
+      "order": 10
     },
     {
-      "capabilityKey": "inventory.reservation-gateway",
-      "portName": "inventoryReservations"
+      "sourceContextName": "identity",
+      "projectionName": "ordering-account-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "ordering-account-projection"
+      ],
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "order": 20
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "ordering-marketplace-supply-input-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "ordering-marketplace-supply-input-projection"
+      ],
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.withdrawn"
+      ],
+      "order": 30
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "ordering-inventory-supply-input-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "ordering-inventory-supply-input-projection"
+      ],
+      "eventTypes": [
+        "inventory.record.created",
+        "inventory.record.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.released"
+      ],
+      "order": 40
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "ordering-inventory-reservation-outcomes",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "ordering-inventory-reservation-outcomes"
+      ],
+      "eventTypes": [
+        "inventory.reservation.confirmed",
+        "inventory.reservation.rejected",
+        "inventory.reservation.released"
+      ],
+      "order": 45
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "ordering-marketplace-offer-acceptance",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "ordering-marketplace-offer-acceptance"
+      ],
+      "eventTypes": [
+        "marketplace.offer.accepted"
+      ],
+      "order": 50
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "ordering-payment-capture",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "ordering-payment-capture"
+      ],
+      "eventTypes": [
+        "payments.payment-captured"
+      ],
+      "order": 60
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "ordering-catalog-item-projection",
+      "sourceContextNames": [
+        "catalog"
+      ],
+      "ownedTables": [
+        "ordering_catalog_items",
+        "ordering_catalog_blueprints",
+        "ordering_catalog_dimensions",
+        "ordering_catalog_dimension_choices"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "ordering-account-projection",
+      "sourceContextNames": [
+        "identity"
+      ],
+      "ownedTables": [
+        "ordering_account_pages"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "ordering-marketplace-supply-input-projection",
+      "sourceContextNames": [
+        "marketplace"
+      ],
+      "ownedTables": [
+        "ordering_market_listing_inputs"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "ordering-inventory-supply-input-projection",
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "ordering_inventory_record_inputs",
+        "ordering_inventory_hold_inputs"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "ordering-inventory-reservation-outcomes",
+      "sourceContextNames": [
+        "inventory"
+      ],
+      "ownedTables": [
+        "ordering_order_pages",
+        "ordering_order_hold_pages"
+      ],
+      "requiredDuringBootstrap": false
+    },
+    {
+      "projectionName": "ordering-marketplace-offer-acceptance",
+      "sourceContextNames": [
+        "marketplace"
+      ],
+      "ownedTables": [
+        "ordering_offer_acceptance_inputs"
+      ],
+      "requiredDuringBootstrap": false
+    },
+    {
+      "projectionName": "ordering-payment-capture",
+      "sourceContextNames": [
+        "payments"
+      ],
+      "ownedTables": [
+        "ordering_payment_capture_inputs"
+      ],
+      "requiredDuringBootstrap": false
     }
   ],
   "hostPorts": [],
   "apiDeployables": [
     "marketplace-api"
+  ],
+  "sourceRuntimeDeployables": [
+    "inventory-api"
   ],
   "apiMounts": [
     {
@@ -223,18 +387,6 @@
         "Internal ordering module composition"
       ]
     },
-    "integration": {
-      "classification": "support",
-      "purpose": "Provide reusable integration assets shared by multiple ordering slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple ordering slices",
-        "Deployable composition for ordering"
-      ],
-      "justification": "integration centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by multiple ordering slices.",
@@ -244,7 +396,7 @@
         "Deployable composition for ordering"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice ordering workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -256,12 +408,12 @@
         "Deployable composition for ordering"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice ordering workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose ordering-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -269,3 +421,4 @@
     }
   }
 }
+

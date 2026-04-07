@@ -1,24 +1,33 @@
 export type InventoryApiConfig = Readonly<{
-  databaseUrl: string;
+  databaseUrls: Readonly<{
+    catalog: string;
+    identity: string;
+    inventory: string;
+    ordering: string;
+  }>;
   identityApiBaseUrl: string;
   port: number;
 }>;
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`${name} environment variable is required.`);
+  }
+
+  return value;
+}
+
 export function loadConfig(): InventoryApiConfig {
-  const databaseUrl = process.env.DATABASE_URL;
-  const identityApiBaseUrl = process.env.IDENTITY_API_BASE_URL;
-
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL environment variable is required.");
-  }
-
-  if (!identityApiBaseUrl) {
-    throw new Error("IDENTITY_API_BASE_URL environment variable is required.");
-  }
-
   return {
-    databaseUrl,
-    identityApiBaseUrl,
+    databaseUrls: {
+      catalog: requireEnv("CATALOG_DATABASE_URL"),
+      identity: requireEnv("IDENTITY_DATABASE_URL"),
+      inventory: requireEnv("INVENTORY_DATABASE_URL"),
+      ordering: requireEnv("ORDERING_DATABASE_URL"),
+    },
+    identityApiBaseUrl: requireEnv("IDENTITY_API_BASE_URL"),
     port: Number(process.env.PORT ?? 6183),
   };
 }

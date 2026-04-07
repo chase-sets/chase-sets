@@ -11,18 +11,17 @@
   "slices": [
     "records",
     "holds",
+    "reservations",
     "storage-locations",
     "catalog-items"
   ],
   "allowedSupportDirectories": [
-    "integration",
     "request-support",
     "seed-support",
     "tests"
   ],
   "publicExports": [
     ".",
-    "./integration/*",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -30,26 +29,76 @@
   "allowedContextDependencies": [
     "@chase-sets/catalog"
   ],
-  "requiredPorts": [],
-  "integrationCapabilities": [
-    {
-      "key": "inventory.reservation-gateway",
-      "exportName": "createInventoryReservationGateway",
-      "fileExport": "./integration/reservation-gateway",
-      "kind": "runtime-port"
-    },
-    {
-      "key": "inventory.record-lookup",
-      "exportName": "createInventoryRecordLookupPort",
-      "fileExport": "./integration/record-lookup",
-      "kind": "request-gateway"
-    }
-  ],
   "seedRequirements": [
     "catalog",
     "identity"
   ],
-  "apiRequirements": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "inventory-catalog-item-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "inventory-catalog-item-projection"
+      ],
+      "eventTypes": [
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.published",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.choice-added",
+        "catalog.dimension.choice-revised"
+      ],
+      "order": 10
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "inventory-order-reservation-workflow",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "inventory-order-reservation-workflow"
+      ],
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled"
+      ],
+      "order": 20
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "inventory-catalog-item-projection",
+      "sourceContextNames": [
+        "catalog"
+      ],
+      "ownedTables": [
+        "inventory_catalog_items",
+        "inventory_catalog_blueprints",
+        "inventory_catalog_dimensions",
+        "inventory_catalog_dimension_choices"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "inventory-order-reservation-workflow",
+      "sourceContextNames": [
+        "ordering"
+      ],
+      "ownedTables": [
+        "inventory_reservation_pages"
+      ],
+      "requiredDuringBootstrap": false
+    }
+  ],
   "hostPorts": [],
   "apiDeployables": [
     "inventory-api"
@@ -139,6 +188,14 @@
         "Internal inventory module composition"
       ]
     },
+    "reservations": {
+      "classification": "slice",
+      "purpose": "Own reservations feature behavior, read models, and workflow contracts for the inventory context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
+    },
     "storage-locations": {
       "classification": "slice",
       "purpose": "Own storage-locations feature behavior, read models, and UI contracts for the inventory context.",
@@ -155,18 +212,6 @@
         "Internal inventory module composition"
       ]
     },
-    "integration": {
-      "classification": "support",
-      "purpose": "Provide reusable integration assets shared by multiple inventory slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple inventory slices",
-        "Deployable composition for inventory"
-      ],
-      "justification": "integration centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by multiple inventory slices.",
@@ -176,7 +221,7 @@
         "Deployable composition for inventory"
       ],
       "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice inventory workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "seed-support": {
@@ -188,7 +233,7 @@
         "Deployable composition for inventory"
       ],
       "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice inventory workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "tests": {
@@ -200,12 +245,12 @@
         "Deployable composition for inventory"
       ],
       "justification": "tests centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice workflows that need shared runtime helpers.",
+      "createdFor": "Multi-slice inventory workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Expose context-owned route modules consumed by generated deployable adapters.",
+      "purpose": "Expose inventory-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": [
         "Generated deployable route adapters"
@@ -213,3 +258,4 @@
     }
   }
 }
+

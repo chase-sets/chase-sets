@@ -42,11 +42,25 @@ const ANONYMOUS_ROUTES = new Set([
   "POST /api/auth/invitations/accept",
   "POST /api/auth/account-selection/resolve",
   "POST /api/auth/account-selection/complete",
+  "POST /api/identity/internal/auth/personal-identities",
+  "POST /api/identity/internal/auth/users/:id/password-credential",
+  "POST /api/identity/internal/auth/invitations/:id/accept",
   "POST /api/identity/api-keys/resolve",
 ]);
 
 function isAnonymousAllowed(method: string, pathname: string) {
-  return ANONYMOUS_ROUTES.has(`${method.toUpperCase()} ${pathname}`);
+  const signature = `${method.toUpperCase()} ${pathname}`;
+  if (ANONYMOUS_ROUTES.has(signature)) {
+    return true;
+  }
+
+  return (
+    method.toUpperCase() === "POST" &&
+    (
+      /^\/api\/identity\/internal\/auth\/users\/[^/]+\/password-credential$/.test(pathname) ||
+      /^\/api\/identity\/internal\/auth\/invitations\/[^/]+\/accept$/.test(pathname)
+    )
+  );
 }
 
 function createContextFromHeaders(request: Request) {
