@@ -1,33 +1,13 @@
-import type { ActionFunctionArgs, MetaFunction } from "react-router";
+import type { MetaFunction } from "react-router";
 import { useActionData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
-import {
-  completeBrowserAuthentication,
-  createAuthRequestApiClient,
-} from "../../route-support/browser-auth";
+import { marketplaceAuthHost, marketplaceAuthHostConfig } from "../../host-config";
 import { RegisterPage } from "../../customer/register-page";
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Register | Marketplace" });
+  buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.register! });
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const api = createAuthRequestApiClient(request);
-  const result = await api.register<{
-    requiresAccountSelection?: boolean;
-    selectionToken?: string;
-    sessionToken?: string;
-  }>({
-    displayName: formData.get("displayName"),
-    email: formData.get("email"),
-    password: formData.get("password"),
-  });
-
-  return completeBrowserAuthentication(request, result, {
-    defaultSuccessPath: "/account",
-    accountSelectionPath: "/account/select",
-  });
-}
+export const action = marketplaceAuthHost.createRegisterAction();
 
 export default function MarketplaceRegisterRoute() {
   const actionData = useActionData<typeof action>();

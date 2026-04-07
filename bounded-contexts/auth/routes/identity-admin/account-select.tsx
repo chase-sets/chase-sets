@@ -1,49 +1,20 @@
 import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import {
-  completeBrowserAuthentication,
-  createAuthRequestApiClient,
-  requireAccountSelectionTokenOrRedirect,
-} from "../../route-support/browser-auth";
+  identityAdminAuthHost,
+  identityAdminAuthHostConfig,
+} from "../../host-config";
 import { AccountSelectionPage } from "../../customer/account-selection-page";
 
 export const meta: MetaFunction = () => [
-  { title: "Select Account | Identity Admin" },
+  { title: identityAdminAuthHostConfig.titles.accountSelection },
 ];
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createAuthRequestApiClient(request);
-  const selectionToken = requireAccountSelectionTokenOrRedirect(request, {
-    fallbackPath: "/accounts",
-  });
+export const loader = identityAdminAuthHost.createAccountSelectionLoader();
 
-  return api.resolveAccountSelection<{
-    memberships: { accountId: string; roleKey: string }[];
-  }>({
-    selectionToken,
-  });
-}
-
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const api = createAuthRequestApiClient(request);
-  const selectionToken = requireAccountSelectionTokenOrRedirect(request, {
-    fallbackPath: "/accounts",
-  });
-  const result = await api.completeAccountSelection<{ sessionToken?: string }>({
-    selectionToken,
-    accountId: formData.get("accountId"),
-  });
-
-  return completeBrowserAuthentication(request, result, {
-    defaultSuccessPath: "/accounts",
-    accountSelectionPath: "/account-select",
-  });
-}
+export const action = identityAdminAuthHost.createAccountSelectionAction();
 
 export default function IdentityAdminAccountSelectionRoute() {
   const data = useLoaderData<typeof loader>();

@@ -1,3 +1,4 @@
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import {
   hasPermission as hasActorPermission,
   requireActorFromAuthApi,
@@ -5,13 +6,22 @@ import {
   type ResolvedActor,
 } from "@chase-sets/auth-runtime";
 import {
-  createForwardedAuthHeaders,
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
 } from "@chase-sets/bounded-context-runtime/http";
+import type { InteractiveAuthResult } from "./services";
+import { AuthApiError } from "./client";
+import {
+  appendAccountSelectionCookie,
+  appendSessionCookie,
+  clearAccountSelectionCookie,
+  clearSessionCookie,
+  createRedirectResponse,
+  getSafeReturnTo,
+  readCookie,
+} from "./auth-support/http";
 import {
   AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
-  AUTH_SESSION_COOKIE_NAME,
 } from "./request-support/cookies";
 import { createAuthApiClient } from "./request-support/api-client";
 export {
@@ -21,132 +31,67 @@ export {
 
 export type { ResolvedActor } from "@chase-sets/auth-runtime";
 
-function parseCookieHeader(cookieHeader: string | null) {
-  if (!cookieHeader) {
-    return new Map<string, string>();
-  }
+type AccountSelectionMembership = Readonly<{
+  accountId: string;
+  roleKey: string;
+}>;
 
-  return new Map(
-    cookieHeader
-      .split(";")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const separatorIndex = part.indexOf("=");
-        if (separatorIndex < 0) {
-          return [part, ""];
-        }
+export type AccountSelectionLoaderData = Readonly<{
+  userId: string;
+  memberships: readonly AccountSelectionMembership[];
+}>;
 
-        return [
-          part.slice(0, separatorIndex),
-          decodeURIComponent(part.slice(separatorIndex + 1)),
-        ];
-      }),
-  );
-}
+type AuthActionError = Readonly<{ error: string }>;
 
-function serializeCookie(
-  name: string,
-  value: string,
-  options: Readonly<{
-    request?: Request;
-    maxAgeSeconds?: number;
-  }> = {},
-) {
-  const parts = [
-    `${name}=${encodeURIComponent(value)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-  ];
+export type AuthHostConfig = Readonly<{
+  signInPath: string;
+  fallbackPath: string;
+  defaultSuccessPath: string;
+  accountSelectionPath: string;
+  requiredPermission?: string;
+  signedOutReturnTo: string;
+}>;
 
-  if (typeof options.maxAgeSeconds === "number") {
-    parts.push(`Max-Age=${options.maxAgeSeconds}`);
-  }
-
-  const protocol = options.request
-    ? new URL(options.request.url).protocol
-    : "http:";
-
-  if (protocol === "https:") {
-    parts.push("Secure");
-  }
-
-  return parts.join("; ");
-}
-
-export function readCookie(request: Request, name: string) {
-  return parseCookieHeader(request.headers.get("cookie")).get(name) ?? null;
-}
-
-function createRedirectResponse(location: string, headers?: HeadersInit) {
-  const responseHeaders = new Headers(headers);
-  responseHeaders.set("Location", location);
-  return new Response(null, { status: 302, headers: responseHeaders });
-}
-
-function isSafeReturnTo(value: string | null): value is string {
-  return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
-}
-
-export function getSafeReturnTo(request: Request, fallback: string) {
-  const returnTo = new URL(request.url).searchParams.get("returnTo");
-  return isSafeReturnTo(returnTo) ? returnTo : fallback;
-}
-
-function appendSessionCookie(
-  headers: Headers,
-  sessionToken: string,
-  request?: Request,
-) {
-  headers.append(
-    "Set-Cookie",
-    serializeCookie(AUTH_SESSION_COOKIE_NAME, sessionToken, {
-      request,
-      maxAgeSeconds: 60 * 60 * 24 * 14,
-    }),
-  );
-}
-
-function clearSessionCookie(
-  headers: Headers,
-  request?: Request,
-) {
-  headers.append(
-    "Set-Cookie",
-    serializeCookie(AUTH_SESSION_COOKIE_NAME, "", {
-      request,
-      maxAgeSeconds: 0,
-    }),
-  );
-}
-
-function appendAccountSelectionCookie(
-  headers: Headers,
-  selectionToken: string,
-  request?: Request,
-) {
-  headers.append(
-    "Set-Cookie",
-    serializeCookie(AUTH_ACCOUNT_SELECTION_COOKIE_NAME, selectionToken, {
-      request,
-      maxAgeSeconds: 60 * 10,
-    }),
-  );
-}
-
-function clearAccountSelectionCookie(
-  headers: Headers,
-  request?: Request,
-) {
-  headers.append(
-    "Set-Cookie",
-    serializeCookie(AUTH_ACCOUNT_SELECTION_COOKIE_NAME, "", {
-      request,
-      maxAgeSeconds: 0,
-    }),
-  );
-}
+export type AuthHost = Readonly<{
+  getReturnTo: (request: Request, fallback?: string) => string;
+  resolveActor: (request: Request) => Promise<ResolvedActor | null>;
+  requireActor: (
+    request: Request,
+    permission?: string,
+  ) => Promise<ResolvedActor>;
+  requireAccountSelectionToken: (request: Request) => string;
+  completeAuthentication: (
+    request: Request,
+    result: InteractiveAuthResult,
+    options?: Readonly<{
+      defaultSuccessPath?: string;
+      accountSelectionPath?: string;
+    }>,
+  ) => Response;
+  signOutActor: (
+    request: Request,
+    options?: Readonly<{
+      returnTo?: string;
+    }>,
+  ) => Promise<Response>;
+  createSignInAction: () => (
+    args: ActionFunctionArgs,
+  ) => Promise<Response | AuthActionError>;
+  createRegisterAction: () => (
+    args: ActionFunctionArgs,
+  ) => Promise<Response | AuthActionError>;
+  createAccountSelectionLoader: () => (
+    args: LoaderFunctionArgs,
+  ) => Promise<AccountSelectionLoaderData>;
+  createAccountSelectionAction: () => (
+    args: ActionFunctionArgs,
+  ) => Promise<Response | AuthActionError>;
+  createSignOutAction: (
+    options?: Readonly<{
+      returnTo?: string;
+    }>,
+  ) => (args: ActionFunctionArgs) => Promise<Response>;
+}>;
 
 export function hasPermission(
   actor: ResolvedActor | null | undefined,
@@ -156,6 +101,10 @@ export function hasPermission(
 }
 
 export function createAuthRequestApiClient(request: Request) {
+  return createAuthRequestApiClientInternal(request);
+}
+
+function createAuthRequestApiClientInternal(request: Request) {
   return createAuthApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
     fetch: createForwardedAuthFetch(request),
@@ -198,15 +147,22 @@ export async function requireActorFromAuthContext(options: Readonly<{
   });
 }
 
-export function requireAccountSelectionTokenOrRedirect(
+function toActionError(error: unknown): AuthActionError {
+  if (error instanceof AuthApiError) {
+    return { error: error.message };
+  }
+
+  throw error;
+}
+
+function requireAccountSelectionTokenOrRedirect(
   request: Request,
   options: Readonly<{
     signInPath?: string;
     fallbackPath?: string;
   }> = {},
 ) {
-  const selectionToken =
-    readCookie(request, AUTH_ACCOUNT_SELECTION_COOKIE_NAME);
+  const selectionToken = readCookie(request, AUTH_ACCOUNT_SELECTION_COOKIE_NAME);
   if (!selectionToken) {
     throw createRedirectResponse(
       `${options.signInPath ?? "/sign-in"}?returnTo=${encodeURIComponent(
@@ -218,13 +174,9 @@ export function requireAccountSelectionTokenOrRedirect(
   return selectionToken;
 }
 
-export function completeBrowserAuthentication(
+function completeBrowserAuthentication(
   request: Request,
-  result: Readonly<{
-    requiresAccountSelection?: boolean;
-    selectionToken?: string;
-    sessionToken?: string;
-  }>,
+  result: InteractiveAuthResult,
   options: Readonly<{
     defaultSuccessPath: string;
     accountSelectionPath: string;
@@ -233,13 +185,9 @@ export function completeBrowserAuthentication(
   const headers = new Headers();
   clearAccountSelectionCookie(headers, request);
 
-  if (result.requiresAccountSelection) {
-    if (!result.selectionToken) {
-      return { error: "Account selection could not be started." };
-    }
-
+  if (result.type === "account-selection-required") {
     appendAccountSelectionCookie(headers, result.selectionToken, request);
-    throw createRedirectResponse(
+    return createRedirectResponse(
       `${options.accountSelectionPath}?returnTo=${encodeURIComponent(
         getSafeReturnTo(request, options.defaultSuccessPath),
       )}`,
@@ -247,23 +195,17 @@ export function completeBrowserAuthentication(
     );
   }
 
-  if (!result.sessionToken) {
-    return { error: "Authentication did not return a session." };
-  }
-
   appendSessionCookie(headers, result.sessionToken, request);
-  throw createRedirectResponse(
+  return createRedirectResponse(
     getSafeReturnTo(request, options.defaultSuccessPath),
     headers,
   );
 }
 
-export async function signOutActorViaAuthApi(
+async function signOutActorViaAuthApi(
   request: Request,
   options: Readonly<{
-    authApiBasePath?: string;
     returnTo?: string;
-    fetch?: typeof globalThis.fetch;
   }> = {},
 ) {
   const headers = new Headers();
@@ -271,18 +213,8 @@ export async function signOutActorViaAuthApi(
   clearSessionCookie(headers, request);
 
   try {
-    const authApiBaseUrl = resolveRequestApiBaseUrl(
-      request,
-      options.authApiBasePath ?? "/api/auth",
-    );
-    await (options.fetch ?? globalThis.fetch)(
-      new URL("sign-out", `${authApiBaseUrl}/`),
-      {
-        method: "POST",
-        headers: createForwardedAuthHeaders(request),
-        credentials: "include",
-      },
-    );
+    const api = createAuthRequestApiClientInternal(request);
+    await api.signOutCurrentSession();
   } catch {
     // Clearing local cookies is enough to end the browser session.
   }
@@ -290,42 +222,7 @@ export async function signOutActorViaAuthApi(
   return createRedirectResponse(options.returnTo ?? "/", headers);
 }
 
-export type AuthHostPolicy = Readonly<{
-  getReturnTo: (request: Request, fallback?: string) => string;
-  resolveActor: (request: Request) => Promise<ResolvedActor | null>;
-  requireActor: (
-    request: Request,
-    permission?: string,
-  ) => Promise<ResolvedActor>;
-  requireAccountSelectionToken: (request: Request) => string;
-  completeAuthentication: (
-    request: Request,
-    result: Readonly<{
-      requiresAccountSelection?: boolean;
-      selectionToken?: string;
-      sessionToken?: string;
-    }>,
-    options?: Readonly<{
-      defaultSuccessPath?: string;
-      accountSelectionPath?: string;
-    }>,
-  ) => { error: string } | never;
-  signOutActor: (
-    request: Request,
-    options?: Readonly<{
-      returnTo?: string;
-    }>,
-  ) => Promise<Response>;
-}>;
-
-export function createAuthHostPolicy(options: Readonly<{
-  signInPath: string;
-  fallbackPath: string;
-  defaultSuccessPath: string;
-  accountSelectionPath: string;
-  requiredPermission?: string;
-  signedOutReturnTo: string;
-}>): AuthHostPolicy {
+export function defineAuthHost(options: AuthHostConfig): AuthHost {
   function buildCurrentPath(request: Request) {
     const url = new URL(request.url);
     return `${url.pathname}${url.search}`;
@@ -353,6 +250,22 @@ export function createAuthHostPolicy(options: Readonly<{
     return actor;
   }
 
+  function completeAuthentication(
+    request: Request,
+    result: InteractiveAuthResult,
+    overrides: Readonly<{
+      defaultSuccessPath?: string;
+      accountSelectionPath?: string;
+    }> = {},
+  ) {
+    return completeBrowserAuthentication(request, result, {
+      defaultSuccessPath:
+        overrides.defaultSuccessPath ?? options.defaultSuccessPath,
+      accountSelectionPath:
+        overrides.accountSelectionPath ?? options.accountSelectionPath,
+    });
+  }
+
   return {
     getReturnTo(request, fallback = options.fallbackPath) {
       return getSafeReturnTo(request, fallback);
@@ -365,18 +278,83 @@ export function createAuthHostPolicy(options: Readonly<{
         fallbackPath: options.fallbackPath,
       });
     },
-    completeAuthentication(request, result, overrides = {}) {
-      return completeBrowserAuthentication(request, result, {
-        defaultSuccessPath:
-          overrides.defaultSuccessPath ?? options.defaultSuccessPath,
-        accountSelectionPath:
-          overrides.accountSelectionPath ?? options.accountSelectionPath,
-      });
-    },
+    completeAuthentication,
     async signOutActor(request, overrides = {}) {
       return signOutActorViaAuthApi(request, {
         returnTo: overrides.returnTo ?? options.signedOutReturnTo,
       });
+    },
+    createSignInAction() {
+      return async ({ request }) => {
+        try {
+          const formData = await request.formData();
+          const api = createAuthRequestApiClientInternal(request);
+          const result = await api.signInWithPassword<InteractiveAuthResult>({
+            email: formData.get("email"),
+            password: formData.get("password"),
+          });
+
+          return completeAuthentication(request, result);
+        } catch (error) {
+          return toActionError(error);
+        }
+      };
+    },
+    createRegisterAction() {
+      return async ({ request }) => {
+        try {
+          const formData = await request.formData();
+          const api = createAuthRequestApiClientInternal(request);
+          const result = await api.register<InteractiveAuthResult>({
+            displayName: formData.get("displayName"),
+            email: formData.get("email"),
+            password: formData.get("password"),
+          });
+
+          return completeAuthentication(request, result);
+        } catch (error) {
+          return toActionError(error);
+        }
+      };
+    },
+    createAccountSelectionLoader() {
+      return async ({ request }) => {
+        const api = createAuthRequestApiClientInternal(request);
+        const selectionToken = requireAccountSelectionTokenOrRedirect(request, {
+          signInPath: options.signInPath,
+          fallbackPath: options.fallbackPath,
+        });
+
+        return api.resolveAccountSelection<AccountSelectionLoaderData>({
+          selectionToken,
+        });
+      };
+    },
+    createAccountSelectionAction() {
+      return async ({ request }) => {
+        try {
+          const formData = await request.formData();
+          const api = createAuthRequestApiClientInternal(request);
+          const selectionToken = requireAccountSelectionTokenOrRedirect(request, {
+            signInPath: options.signInPath,
+            fallbackPath: options.fallbackPath,
+          });
+          const result = await api.completeAccountSelection<InteractiveAuthResult>({
+            selectionToken,
+            accountId: formData.get("accountId"),
+          });
+
+          return completeAuthentication(request, result);
+        } catch (error) {
+          return toActionError(error);
+        }
+      };
+    },
+    createSignOutAction(overrides = {}) {
+      return async ({ request }) =>
+        signOutActorViaAuthApi(request, {
+          returnTo: overrides.returnTo ?? options.signedOutReturnTo,
+        });
     },
   };
 }

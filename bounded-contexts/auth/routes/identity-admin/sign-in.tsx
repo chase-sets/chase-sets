@@ -1,30 +1,16 @@
-import type { ActionFunctionArgs, MetaFunction } from "react-router";
+import type { MetaFunction } from "react-router";
 import { useActionData } from "react-router";
 import {
-  completeBrowserAuthentication,
-  createAuthRequestApiClient,
-} from "../../route-support/browser-auth";
+  identityAdminAuthHost,
+  identityAdminAuthHostConfig,
+} from "../../host-config";
 import { SignInPage } from "../../customer/sign-in-page";
 
-export const meta: MetaFunction = () => [{ title: "Sign In | Identity Admin" }];
+export const meta: MetaFunction = () => [
+  { title: identityAdminAuthHostConfig.titles.signIn },
+];
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const api = createAuthRequestApiClient(request);
-  const result = await api.signInWithPassword<{
-    requiresAccountSelection?: boolean;
-    selectionToken?: string;
-    sessionToken?: string;
-  }>({
-    email: formData.get("email"),
-    password: formData.get("password"),
-  });
-
-  return completeBrowserAuthentication(request, result, {
-    defaultSuccessPath: "/accounts",
-    accountSelectionPath: "/account-select",
-  });
-}
+export const action = identityAdminAuthHost.createSignInAction();
 
 export default function IdentityAdminSignInRoute() {
   const actionData = useActionData<typeof action>();

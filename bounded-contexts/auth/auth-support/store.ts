@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AuthMethod } from "./auth-flow";
 
 export async function upsertPasswordCredential(
   db: PgQueryable,
@@ -75,6 +76,27 @@ export async function upsertPasskeyCredential(
       params.externalCredentialId,
       params.label,
       params.publicKey,
+    ],
+  );
+  await db.query(
+    `INSERT INTO identity_passkey_lookup (
+       external_credential_id,
+       credential_id,
+       user_id,
+       label,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (external_credential_id) DO UPDATE
+     SET credential_id = $2,
+         user_id = $3,
+         label = $4,
+         updated_at = now()`,
+    [
+      params.externalCredentialId,
+      params.credentialId,
+      params.userId,
+      params.label,
     ],
   );
 }
@@ -259,7 +281,7 @@ export async function insertAccountSelectionToken(
   params: Readonly<{
     tokenId: string;
     userId: string;
-    authenticationMethod: string;
+    authenticationMethod: AuthMethod;
     tokenHash: string;
     expiresAt: string;
   }>,

@@ -1,9 +1,6 @@
-import type { ActionFunctionArgs } from "react-router";
-import { signOutActorViaAuthApi } from "../../route-support/browser-auth";
+import { catalogAdminAuthHost } from "../../host-config";
 
-export async function action({ request }: ActionFunctionArgs) {
-  return signOutActorViaAuthApi(request, { returnTo: "/sign-in" });
-}
+export const action = catalogAdminAuthHost.createSignOutAction();
 
 export default function CatalogAdminSignOutRoute() {
   return null;

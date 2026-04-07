@@ -1,9 +1,6 @@
-import type { ActionFunctionArgs } from "react-router";
-import { signOutActorViaAuthApi } from "../../route-support/browser-auth";
+import { marketplaceAuthHost } from "../../host-config";
 
-export async function action({ request }: ActionFunctionArgs) {
-  return signOutActorViaAuthApi(request, { returnTo: "/search" });
-}
+export const action = marketplaceAuthHost.createSignOutAction();
 
 export default function MarketplaceSignOutRoute() {
   return null;

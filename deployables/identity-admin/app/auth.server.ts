@@ -1,13 +1,7 @@
-import { createAuthHostPolicy } from "@chase-sets/auth/server";
+import { defineAuthHost } from "@chase-sets/auth/server";
+import { identityAdminAuthHostConfig } from "../../../bounded-contexts/auth/host-config";
 
-const authPolicy = createAuthHostPolicy({
-  signInPath: "/sign-in",
-  fallbackPath: "/accounts",
-  defaultSuccessPath: "/accounts",
-  accountSelectionPath: "/account-select",
-  requiredPermission: "security.manage",
-  signedOutReturnTo: "/sign-in",
-});
+const authPolicy = defineAuthHost(identityAdminAuthHostConfig);
 
 export const getReturnTo = authPolicy.getReturnTo;
 export const resolveIdentityAdminActor = authPolicy.resolveActor;
@@ -22,11 +16,7 @@ export function requireAccountSelectionToken(request: Request) {
 
 export function completeAuthentication(
   request: Request,
-  result: Readonly<{
-    requiresAccountSelection?: boolean;
-    selectionToken?: string;
-    sessionToken?: string;
-  }>,
+  result: Parameters<typeof authPolicy.completeAuthentication>[1],
 ) {
   return authPolicy.completeAuthentication(request, result);
 }

@@ -1,49 +1,19 @@
 import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
-import {
-  completeBrowserAuthentication,
-  createAuthRequestApiClient,
-  requireAccountSelectionTokenOrRedirect,
-} from "../../route-support/browser-auth";
+import { marketplaceAuthHost, marketplaceAuthHostConfig } from "../../host-config";
 import { AccountSelectionPage } from "../../customer/account-selection-page";
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Select Account | Marketplace" });
-
-export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createAuthRequestApiClient(request);
-  const selectionToken = requireAccountSelectionTokenOrRedirect(request, {
-    fallbackPath: "/account",
+  buildOpenGraphMeta({
+    title: marketplaceAuthHostConfig.titles.accountSelection,
   });
 
-  return api.resolveAccountSelection<{
-    memberships: { accountId: string; roleKey: string }[];
-  }>({
-    selectionToken,
-  });
-}
+export const loader = marketplaceAuthHost.createAccountSelectionLoader();
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const api = createAuthRequestApiClient(request);
-  const selectionToken = requireAccountSelectionTokenOrRedirect(request, {
-    fallbackPath: "/account",
-  });
-  const result = await api.completeAccountSelection<{ sessionToken?: string }>({
-    selectionToken,
-    accountId: formData.get("accountId"),
-  });
-
-  return completeBrowserAuthentication(request, result, {
-    defaultSuccessPath: "/account",
-    accountSelectionPath: "/account/select",
-  });
-}
+export const action = marketplaceAuthHost.createAccountSelectionAction();
 
 export default function MarketplaceAccountSelectionRoute() {
   const data = useLoaderData<typeof loader>();

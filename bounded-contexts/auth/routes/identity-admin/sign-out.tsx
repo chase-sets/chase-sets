@@ -1,9 +1,6 @@
-import type { ActionFunctionArgs } from "react-router";
-import { signOutActorViaAuthApi } from "../../route-support/browser-auth";
+import { identityAdminAuthHost } from "../../host-config";
 
-export async function action({ request }: ActionFunctionArgs) {
-  return signOutActorViaAuthApi(request, { returnTo: "/sign-in" });
-}
+export const action = identityAdminAuthHost.createSignOutAction();
 
 export default function IdentityAdminSignOutRoute() {
   return null;

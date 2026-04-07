@@ -9,6 +9,13 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthSecretAdapters } from "./auth-support/adapters";
+import {
+  AUTH_ACCOUNT_SELECTION_TTL_MS,
+  AUTH_SESSION_TTL_MS,
+  createExpiryTimestamp,
+  type AuthMethod,
+  toSessionStreamId,
+} from "./auth-support/auth-flow";
 import { AUTH_BOOTSTRAP_TENANT_ID } from "./auth-support/constants";
 import {
   getAuthIdentityInvitation,
@@ -18,6 +25,10 @@ import {
   listActiveAuthMembershipsForUser,
   normalizeAuthEmail,
 } from "./auth-support/identity-projection";
+import {
+  insertAccountSelectionToken,
+  upsertSessionToken,
+} from "./auth-support/store";
 import { createSessionRuntime } from "./sessions/runtime";
 
 type AuthIdentityReadServices = Readonly<{
@@ -103,12 +114,29 @@ export type AuthSessionStartResult =
       memberships: readonly AuthSessionMembership[];
     }>;
 
-export async function startSessionForUser(
+export type InteractiveAuthResult =
+  | Readonly<{
+      type: "account-selection-required";
+      userId: string;
+      selectionToken: string;
+      selectionExpiresAt: string;
+      memberships: readonly AuthSessionMembership[];
+    }>
+  | Readonly<{
+      type: "session-started";
+      userId: string;
+      sessionId: string;
+      sessionToken: string;
+      session: NonNullable<Awaited<ReturnType<AuthServices["sessions"]["getSession"]>>>;
+      memberships: readonly AuthSessionMembership[];
+    }>;
+
+async function startSessionForUser(
   services: AuthServices,
   params: Readonly<{
     userId: string;
     accountId?: string;
-    authenticationMethod: "password" | "magic-link" | "passkey";
+    authenticationMethod: AuthMethod;
     context: EventStoreContext;
     membershipsOverride?: readonly AuthSessionMembership[];
   }>,
@@ -137,10 +165,10 @@ export async function startSessionForUser(
   }
 
   const sessionId = createId("ses");
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString();
+  const expiresAt = createExpiryTimestamp(AUTH_SESSION_TTL_MS);
 
   await services.sessions.commandHandler({
-    streamId: `auth.session-${sessionId}`,
+    streamId: toSessionStreamId(sessionId),
     command: {
       type: "StartSession",
       sessionId,
@@ -167,6 +195,90 @@ export async function startSessionForUser(
   };
 }
 
+async function issueSessionToken(
+  services: AuthServices,
+  params: Readonly<{
+    sessionId: string;
+    expiresAt: string;
+  }>,
+) {
+  const sessionToken = services.auth.issueOpaqueToken("session");
+  await upsertSessionToken(services.db, {
+    sessionId: params.sessionId,
+    tokenHash: services.auth.hashSecret(sessionToken),
+    expiresAt: params.expiresAt,
+  });
+
+  return sessionToken;
+}
+
+async function issueAccountSelectionToken(
+  services: AuthServices,
+  params: Readonly<{
+    userId: string;
+    authenticationMethod: AuthMethod;
+  }>,
+) {
+  const tokenId = createId("cmd");
+  const selectionToken = services.auth.issueOpaqueToken("acct");
+  const selectionExpiresAt = createExpiryTimestamp(AUTH_ACCOUNT_SELECTION_TTL_MS);
+
+  await insertAccountSelectionToken(services.db, {
+    tokenId,
+    userId: params.userId,
+    authenticationMethod: params.authenticationMethod,
+    tokenHash: services.auth.hashSecret(selectionToken),
+    expiresAt: selectionExpiresAt,
+  });
+
+  return {
+    selectionToken,
+    selectionExpiresAt,
+  };
+}
+
+export async function startInteractiveAuth(
+  services: AuthServices,
+  params: Readonly<{
+    userId: string;
+    accountId?: string;
+    authenticationMethod: AuthMethod;
+    context: EventStoreContext;
+    membershipsOverride?: readonly AuthSessionMembership[];
+  }>,
+): Promise<InteractiveAuthResult> {
+  const sessionResult = await startSessionForUser(services, params);
+
+  if (sessionResult.requiresAccountSelection) {
+    const selection = await issueAccountSelectionToken(services, {
+      userId: params.userId,
+      authenticationMethod: params.authenticationMethod,
+    });
+
+    return {
+      type: "account-selection-required",
+      userId: params.userId,
+      selectionToken: selection.selectionToken,
+      selectionExpiresAt: selection.selectionExpiresAt,
+      memberships: sessionResult.memberships,
+    };
+  }
+
+  const sessionToken = await issueSessionToken(services, {
+    sessionId: sessionResult.sessionId,
+    expiresAt: sessionResult.session.expires_at,
+  });
+
+  return {
+    type: "session-started",
+    userId: params.userId,
+    sessionId: sessionResult.sessionId,
+    sessionToken,
+    session: sessionResult.session,
+    memberships: sessionResult.memberships,
+  };
+}
+
 export async function revokeSession(
   services: AuthServices,
   params: Readonly<{
@@ -175,7 +287,7 @@ export async function revokeSession(
   }>,
 ) {
   const result = await services.sessions.commandHandler({
-    streamId: `auth.session-${params.sessionId}`,
+    streamId: toSessionStreamId(params.sessionId),
     command: { type: "RevokeSession" },
     context: params.context,
   });

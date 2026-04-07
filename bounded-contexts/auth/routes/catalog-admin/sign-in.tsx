@@ -1,30 +1,16 @@
-import type { ActionFunctionArgs, MetaFunction } from "react-router";
+import type { MetaFunction } from "react-router";
 import { useActionData } from "react-router";
 import {
-  completeBrowserAuthentication,
-  createAuthRequestApiClient,
-} from "../../route-support/browser-auth";
+  catalogAdminAuthHost,
+  catalogAdminAuthHostConfig,
+} from "../../host-config";
 import { SignInPage } from "../../customer/sign-in-page";
 
-export const meta: MetaFunction = () => [{ title: "Sign In | Catalog Admin" }];
+export const meta: MetaFunction = () => [
+  { title: catalogAdminAuthHostConfig.titles.signIn },
+];
 
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const api = createAuthRequestApiClient(request);
-  const result = await api.signInWithPassword<{
-    requiresAccountSelection?: boolean;
-    selectionToken?: string;
-    sessionToken?: string;
-  }>({
-    email: formData.get("email"),
-    password: formData.get("password"),
-  });
-
-  return completeBrowserAuthentication(request, result, {
-    defaultSuccessPath: "/dimensions",
-    accountSelectionPath: "/account-select",
-  });
-}
+export const action = catalogAdminAuthHost.createSignInAction();
 
 export default function CatalogAdminSignInRoute() {
   const actionData = useActionData<typeof action>();

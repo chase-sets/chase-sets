@@ -4,8 +4,8 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AuthMethod } from "../auth-support/auth-flow";
 
-type AuthMethodKey = "password" | "magic-link" | "passkey";
 type SessionStatus = "active" | "revoked" | "expired";
 type EmptyEventData = Readonly<Record<string, never>>;
 
@@ -30,7 +30,7 @@ export type SessionState = Readonly<{
   userId: UserId | null;
   accountId: AccountId | null;
   availableAccountIds: readonly string[];
-  authenticationMethod: AuthMethodKey | null;
+  authenticationMethod: AuthMethod | null;
   status: SessionStatus;
   expiresAt: string | null;
 }>;
@@ -51,7 +51,7 @@ export type StartSessionCommand = Readonly<{
   userId: UserId;
   accountId: AccountId;
   availableAccountIds: string[];
-  authenticationMethod: AuthMethodKey;
+  authenticationMethod: AuthMethod;
   expiresAt: string;
 }>;
 
@@ -76,7 +76,7 @@ export type SessionStartedEvent = DomainEvent<
     userId: UserId;
     accountId: AccountId;
     availableAccountIds: string[];
-    authenticationMethod: AuthMethodKey;
+    authenticationMethod: AuthMethod;
     expiresAt: string;
   }>
 >;

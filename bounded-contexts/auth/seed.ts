@@ -2,6 +2,7 @@ import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createAuthSecretAdapters } from "./auth-support/adapters";
+import { toSessionStreamId } from "./auth-support/auth-flow";
 import { upsertPasswordCredential } from "./auth-support/store";
 import { createSessionRuntime } from "./sessions/runtime";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
@@ -45,7 +46,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
   const { seller, buyer, support } = identitySeedIds;
 
   await sessions.commandHandler({
-    streamId: `auth.session-${seller.sessionId}`,
+    streamId: toSessionStreamId(seller.sessionId),
     command: {
       type: "StartSession",
       sessionId: seller.sessionId,
@@ -58,7 +59,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     context,
   });
   await sessions.commandHandler({
-    streamId: `auth.session-${support.sessionId}`,
+    streamId: toSessionStreamId(support.sessionId),
     command: {
       type: "StartSession",
       sessionId: support.sessionId,
@@ -71,7 +72,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     context,
   });
   await sessions.commandHandler({
-    streamId: `auth.session-${support.sessionId}`,
+    streamId: toSessionStreamId(support.sessionId),
     command: {
       type: "SwitchSessionAccount",
       accountId: seller.accountId,
@@ -79,7 +80,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     context,
   });
   await sessions.commandHandler({
-    streamId: `auth.session-${buyer.sessionId}`,
+    streamId: toSessionStreamId(buyer.sessionId),
     command: {
       type: "StartSession",
       sessionId: buyer.sessionId,
@@ -92,7 +93,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     context,
   });
   await sessions.commandHandler({
-    streamId: `auth.session-${buyer.sessionId}`,
+    streamId: toSessionStreamId(buyer.sessionId),
     command: { type: "ExpireSession" },
     context,
   });

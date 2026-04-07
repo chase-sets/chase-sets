@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AuthApiEnv } from "../api";
+import { toSessionStreamId } from "../auth-support/auth-flow";
 import type { SessionServices } from "./runtime";
 
 export function sessionRoutes(services: SessionServices) {
@@ -9,7 +10,7 @@ export function sessionRoutes(services: SessionServices) {
     const sessionId = c.req.param("id");
     const body = await c.req.json();
     const result = await services.commandHandler({
-      streamId: `auth.session-${sessionId}`,
+      streamId: toSessionStreamId(sessionId),
       command: {
         type: "SwitchSessionAccount",
         accountId: body.accountId,
@@ -22,7 +23,7 @@ export function sessionRoutes(services: SessionServices) {
   app.post("/:id/revoke", async (c) => {
     const sessionId = c.req.param("id");
     const result = await services.commandHandler({
-      streamId: `auth.session-${sessionId}`,
+      streamId: toSessionStreamId(sessionId),
       command: { type: "RevokeSession" },
       context: c.get("context"),
     });

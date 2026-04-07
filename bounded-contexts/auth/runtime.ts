@@ -1,50 +1,11 @@
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { readAuthSessionToken } from "./auth-support/http";
 import type { AuthServices } from "./services";
 import { createAuthBootstrapContext as createAuthBootstrapEventContext } from "./auth-support/identity-projection";
 import { getSessionByTokenHash } from "./auth-support/store";
-import { AUTH_SESSION_COOKIE_NAME } from "./request-support/cookies";
 import { resolveActorFromSessionId } from "./services";
-
-function parseCookieHeader(cookieHeader: string | null) {
-  if (!cookieHeader) {
-    return new Map<string, string>();
-  }
-
-  return new Map(
-    cookieHeader
-      .split(";")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const separatorIndex = part.indexOf("=");
-        if (separatorIndex < 0) {
-          return [part, ""];
-        }
-
-        return [
-          part.slice(0, separatorIndex),
-          decodeURIComponent(part.slice(separatorIndex + 1)),
-        ];
-      }),
-  );
-}
-
-export function readAuthSessionToken(request: Request) {
-  const cookieToken =
-    parseCookieHeader(request.headers.get("cookie")).get(AUTH_SESSION_COOKIE_NAME) ??
-    null;
-  if (cookieToken) {
-    return cookieToken;
-  }
-
-  const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  return authorization.slice("Bearer ".length).trim() || null;
-}
+export { readAuthSessionToken } from "./auth-support/http";
 
 export function createAuthBootstrapContext(
   _services: AuthServices,
