@@ -5,13 +5,14 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
-        "./routes/*": "./routes/*.tsx",
+    "./context": "./context.json",
+    "./host-config": "./host-config.ts",
+    "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./seed-support/*.ts",
     "./server": "./server.ts"
   },
   "types": "./index.ts",
   "dependencies": {
-    "@chase-sets/auth-runtime": "0.1.0",
     "@chase-sets/auth-context": "0.1.0",
     "@chase-sets/bounded-context-module": "0.1.0",
     "@chase-sets/bounded-context-runtime": "0.1.0",
@@ -19,6 +20,7 @@
     "@chase-sets/event-core": "0.1.0",
     "@chase-sets/event-core-postgres": "0.1.0",
     "@chase-sets/identity": "0.1.0",
+    "@chase-sets/platform-runtime": "0.1.0",
     "@chase-sets/primitives": "0.1.0",
     "hono": "^4.12.5"
   }

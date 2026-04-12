@@ -4,7 +4,7 @@ import {
   useLoaderData,
   useRevalidator,
 } from "react-router";
-import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
+import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   Badge,
   Button,
@@ -16,16 +16,16 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createPaymentsRequestApiClient,
   PaymentsApiError,
   type PaymentsPaymentDetail,
 } from "../../request-support/api-client";
 import {
-  createPaymentsOrderingBuyerGateway,
+  createOrderingRequestApiClient,
   type OrderingOrderDetail,
-} from "../../request-support/ordering-buyer";
+} from "@chase-sets/ordering/server";
 
 type StripePaymentElement = {
   mount(target: HTMLElement | string): void;
@@ -129,7 +129,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     permission: "orders.view",
   });
   const paymentsApi = createPaymentsRequestApiClient(request);
-  const orderingApi = createPaymentsOrderingBuyerGateway(request);
+  const orderingApi = createOrderingRequestApiClient(request);
 
   try {
     const payment = await paymentsApi.getBuyerPayment(params.paymentId!);

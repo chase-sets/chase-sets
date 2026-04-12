@@ -1,5 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { ShipmentStatus } from "@chase-sets/fulfillment/common";
+import type { ShipmentStatus } from "./common";
 import { fulfillmentReservedSeedIds } from "@chase-sets/fulfillment/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createFulfillmentServices } from "./services";

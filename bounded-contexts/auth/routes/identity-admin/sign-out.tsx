@@ -1,4 +1,4 @@
-import { identityAdminAuthHost } from "../../host-config";
+import { identityAdminAuthHost } from "../../route-support/auth-host.server";
 
 export const action = identityAdminAuthHost.createSignOutAction();
 

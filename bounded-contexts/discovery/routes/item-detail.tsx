@@ -13,14 +13,14 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
+import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
 } from "../request-support/api-client";
-import { createDiscoveryMarketplaceOfferGateway } from "../request-support/marketplace-offers";
-import { createDiscoveryOrderingBuyerGateway } from "../request-support/ordering-buyer";
+import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
+import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { ItemDetailPage } from "../items/detail/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
@@ -214,8 +214,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const discoveryApi = createDiscoveryRequestApiClient(request);
-  const marketplaceApi = createDiscoveryMarketplaceOfferGateway(request);
-  const orderingApi = createDiscoveryOrderingBuyerGateway(request);
+  const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const orderingApi = createOrderingRequestApiClient(request);
 
   try {
     if (intent === "submit-offer") {

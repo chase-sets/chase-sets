@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ApiKey, User } from "../../request-support/api-client";
 import { SecurityPage } from "../../customer/security-page";
 import {

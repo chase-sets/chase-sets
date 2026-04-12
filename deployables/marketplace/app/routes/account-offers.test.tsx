@@ -1,17 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   loader as accountOfferLoader,
-} from "./account-offer";
+} from "@chase-sets/marketplace/routes/account-offer";
 import {
   loader as accountOffersLoader,
-} from "./account-offers";
+} from "@chase-sets/marketplace/routes/account-offers";
 import {
   loader as marketOfferLoader,
-} from "./account-market-offer";
+} from "@chase-sets/marketplace/routes/account-market-offer";
 import {
   loader as marketOffersLoader,
-} from "./account-market-offers";
-import { action as itemDetailAction } from "./item-detail";
+} from "@chase-sets/marketplace/routes/account-market-offers";
+import { action as itemDetailAction } from "@chase-sets/discovery/routes/item-detail";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

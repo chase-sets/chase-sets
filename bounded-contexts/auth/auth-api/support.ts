@@ -1,4 +1,4 @@
-import { hasPermission as hasActorPermission } from "@chase-sets/auth-runtime";
+import { hasPermission as hasActorPermission } from "@chase-sets/platform-runtime/auth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createIdentityAuthRequestClient } from "@chase-sets/identity/server";
 import type { Context, Hono, MiddlewareHandler } from "hono";

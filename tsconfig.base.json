@@ -21,179 +21,23 @@
       "@chase-sets/auth": [
         "./bounded-contexts/auth/index.ts"
       ],
-      "@chase-sets/auth/client": [
-        "./bounded-contexts/auth/client.ts"
-      ],
-      "@chase-sets/auth/server": [
-        "./bounded-contexts/auth/server.ts"
-      ],
-      "@chase-sets/auth/web": [
-        "./bounded-contexts/auth/web.ts"
-      ],
-      "@chase-sets/auth/routes/*": [
-        "./bounded-contexts/auth/routes/*"
-      ],
-      "@chase-sets/catalog": [
-        "./bounded-contexts/catalog/index.ts"
-      ],
-      "@chase-sets/catalog/client": [
-        "./bounded-contexts/catalog/client.ts"
-      ],
-      "@chase-sets/catalog/seed-support/*": [
-        "./bounded-contexts/catalog/seed-support/*"
-      ],
-      "@chase-sets/catalog/web": [
-        "./bounded-contexts/catalog/web.ts"
-      ],
-      "@chase-sets/catalog/routes/*": [
-        "./bounded-contexts/catalog/routes/*"
-      ],
-      "@chase-sets/discovery": [
-        "./bounded-contexts/discovery/index.ts"
-      ],
-      "@chase-sets/discovery/client": [
-        "./bounded-contexts/discovery/client.ts"
-      ],
-      "@chase-sets/discovery/web": [
-        "./bounded-contexts/discovery/web.ts"
-      ],
-      "@chase-sets/discovery/routes/*": [
-        "./bounded-contexts/discovery/routes/*"
-      ],
-      "@chase-sets/fulfillment": [
-        "./bounded-contexts/fulfillment/index.ts"
-      ],
-      "@chase-sets/fulfillment/client": [
-        "./bounded-contexts/fulfillment/client.ts"
-      ],
-      "@chase-sets/fulfillment/seed-support/*": [
-        "./bounded-contexts/fulfillment/seed-support/*"
-      ],
-      "@chase-sets/fulfillment/web": [
-        "./bounded-contexts/fulfillment/web.ts"
-      ],
-      "@chase-sets/fulfillment/routes/*": [
-        "./bounded-contexts/fulfillment/routes/*"
-      ],
-      "@chase-sets/marketplace": [
-        "./bounded-contexts/marketplace/index.ts"
-      ],
-      "@chase-sets/marketplace/client": [
-        "./bounded-contexts/marketplace/client.ts"
-      ],
-      "@chase-sets/marketplace/seed-support/*": [
-        "./bounded-contexts/marketplace/seed-support/*"
-      ],
-      "@chase-sets/marketplace/web": [
-        "./bounded-contexts/marketplace/web.ts"
-      ],
-      "@chase-sets/marketplace/routes/*": [
-        "./bounded-contexts/marketplace/routes/*"
-      ],
-      "@chase-sets/identity": [
-        "./bounded-contexts/identity/index.ts"
-      ],
-      "@chase-sets/identity/server": [
-        "./bounded-contexts/identity/server.ts"
-      ],
-      "@chase-sets/identity/client": [
-        "./bounded-contexts/identity/client.ts"
-      ],
-      "@chase-sets/identity/seed-support/*": [
-        "./bounded-contexts/identity/seed-support/*"
-      ],
-      "@chase-sets/identity/web": [
-        "./bounded-contexts/identity/web.ts"
-      ],
-      "@chase-sets/identity/routes/*": [
-        "./bounded-contexts/identity/routes/*"
-      ],
-      "@chase-sets/reputation": [
-        "./bounded-contexts/reputation/index.ts"
-      ],
-      "@chase-sets/reputation/client": [
-        "./bounded-contexts/reputation/client.ts"
-      ],
-      "@chase-sets/reputation/seed-support/*": [
-        "./bounded-contexts/reputation/seed-support/*"
-      ],
-      "@chase-sets/reputation/web": [
-        "./bounded-contexts/reputation/web.ts"
-      ],
-      "@chase-sets/reputation/routes/*": [
-        "./bounded-contexts/reputation/routes/*"
-      ],
-      "@chase-sets/settlement": [
-        "./bounded-contexts/settlement/index.ts"
-      ],
-      "@chase-sets/settlement/client": [
-        "./bounded-contexts/settlement/client.ts"
-      ],
-      "@chase-sets/settlement/seed-support/*": [
-        "./bounded-contexts/settlement/seed-support/*"
-      ],
-      "@chase-sets/settlement/web": [
-        "./bounded-contexts/settlement/web.ts"
-      ],
-      "@chase-sets/settlement/routes/*": [
-        "./bounded-contexts/settlement/routes/*"
-      ],
-      "@chase-sets/inventory": [
-        "./bounded-contexts/inventory/index.ts"
-      ],
-      "@chase-sets/inventory/client": [
-        "./bounded-contexts/inventory/client.ts"
-      ],
-      "@chase-sets/inventory/seed-support/*": [
-        "./bounded-contexts/inventory/seed-support/*"
-      ],
-      "@chase-sets/inventory/web": [
-        "./bounded-contexts/inventory/web.ts"
-      ],
-      "@chase-sets/inventory/routes/*": [
-        "./bounded-contexts/inventory/routes/*"
-      ],
-      "@chase-sets/ordering": [
-        "./bounded-contexts/ordering/index.ts"
-      ],
-      "@chase-sets/ordering/client": [
-        "./bounded-contexts/ordering/client.ts"
-      ],
-      "@chase-sets/ordering/seed-support/*": [
-        "./bounded-contexts/ordering/seed-support/*"
-      ],
-      "@chase-sets/ordering/web": [
-        "./bounded-contexts/ordering/web.ts"
-      ],
-      "@chase-sets/ordering/routes/*": [
-        "./bounded-contexts/ordering/routes/*"
-      ],
-      "@chase-sets/payments": [
-        "./bounded-contexts/payments/index.ts"
-      ],
-      "@chase-sets/payments/client": [
-        "./bounded-contexts/payments/client.ts"
-      ],
-      "@chase-sets/payments/seed-support/*": [
-        "./bounded-contexts/payments/seed-support/*"
-      ],
-      "@chase-sets/payments/web": [
-        "./bounded-contexts/payments/web.ts"
-      ],
-      "@chase-sets/payments/routes/*": [
-        "./bounded-contexts/payments/routes/*"
-      ],
-      "@chase-sets/design-system": [
-        "./packages/design-system/src/index.ts"
-      ],
-      "@chase-sets/design-system/styles.css": [
-        "./packages/design-system/src/styles/tailwind.css"
-      ],
       "@chase-sets/auth-context": [
         "./contracts/auth-context/index.ts"
       ],
-      "@chase-sets/auth-runtime": [
-        "./infrastructure/auth-runtime/index.ts"
+      "@chase-sets/auth/context": [
+        "./bounded-contexts/auth/context.json"
+      ],
+      "@chase-sets/auth/host-config": [
+        "./bounded-contexts/auth/host-config.ts"
+      ],
+      "@chase-sets/auth/routes/*": [
+        "./bounded-contexts/auth/routes/*.tsx"
+      ],
+      "@chase-sets/auth/seed-support/*": [
+        "./bounded-contexts/auth/seed-support/*.ts"
+      ],
+      "@chase-sets/auth/server": [
+        "./bounded-contexts/auth/server.ts"
       ],
       "@chase-sets/bounded-context-module": [
         "./contracts/bounded-context-module/index.ts"
@@ -204,26 +48,233 @@
       "@chase-sets/bounded-context-runtime/http": [
         "./infrastructure/bounded-context-runtime/http.ts"
       ],
+      "@chase-sets/bounded-context-runtime/provisioning": [
+        "./infrastructure/bounded-context-runtime/provisioning.ts"
+      ],
+      "@chase-sets/bounded-context-runtime/test-support": [
+        "./infrastructure/bounded-context-runtime/test-support.ts"
+      ],
       "@chase-sets/bounded-context-runtime/web": [
         "./infrastructure/bounded-context-runtime/web.ts"
+      ],
+      "@chase-sets/catalog": [
+        "./bounded-contexts/catalog/index.ts"
+      ],
+      "@chase-sets/catalog/context": [
+        "./bounded-contexts/catalog/context.json"
+      ],
+      "@chase-sets/catalog/routes/*": [
+        "./bounded-contexts/catalog/routes/*.tsx"
+      ],
+      "@chase-sets/catalog/seed-support/*": [
+        "./bounded-contexts/catalog/authoring/seed-support/*.ts"
+      ],
+      "@chase-sets/catalog/server": [
+        "./bounded-contexts/catalog/server.ts"
+      ],
+      "@chase-sets/catalog/web": [
+        "./bounded-contexts/catalog/web.ts"
+      ],
+      "@chase-sets/design-system": [
+        "./packages/design-system/src/index.ts"
+      ],
+      "@chase-sets/design-system/styles.css": [
+        "./packages/design-system/src/styles/tailwind.css"
+      ],
+      "@chase-sets/discovery": [
+        "./bounded-contexts/discovery/index.ts"
+      ],
+      "@chase-sets/discovery/context": [
+        "./bounded-contexts/discovery/context.json"
+      ],
+      "@chase-sets/discovery/routes/*": [
+        "./bounded-contexts/discovery/routes/*.tsx"
+      ],
+      "@chase-sets/discovery/server": [
+        "./bounded-contexts/discovery/server.ts"
+      ],
+      "@chase-sets/discovery/web": [
+        "./bounded-contexts/discovery/web.ts"
       ],
       "@chase-sets/event-core": [
         "./contracts/event-core/index.ts"
       ],
+      "@chase-sets/event-core-postgres": [
+        "./infrastructure/event-core-postgres/index.ts"
+      ],
+      "@chase-sets/event-core-postgres/*": [
+        "./infrastructure/event-core-postgres/*.ts"
+      ],
       "@chase-sets/event-core/*": [
         "./contracts/event-core/*.ts"
       ],
-      "@chase-sets/event-core-postgres": [
-        "./infrastructure/event-core-postgres/index.ts"
+      "@chase-sets/fulfillment": [
+        "./bounded-contexts/fulfillment/index.ts"
+      ],
+      "@chase-sets/fulfillment/context": [
+        "./bounded-contexts/fulfillment/context.json"
+      ],
+      "@chase-sets/fulfillment/routes/*": [
+        "./bounded-contexts/fulfillment/routes/*.tsx"
+      ],
+      "@chase-sets/fulfillment/seed-support/*": [
+        "./bounded-contexts/fulfillment/seed-support/*.ts"
+      ],
+      "@chase-sets/fulfillment/server": [
+        "./bounded-contexts/fulfillment/server.ts"
       ],
       "@chase-sets/http/*": [
         "./contracts/http/*.ts"
       ],
-      "@chase-sets/http-host/*": [
-        "./infrastructure/http-host/*.ts"
+      "@chase-sets/identity": [
+        "./bounded-contexts/identity/index.ts"
+      ],
+      "@chase-sets/identity/context": [
+        "./bounded-contexts/identity/context.json"
+      ],
+      "@chase-sets/identity/routes/*": [
+        "./bounded-contexts/identity/routes/*.tsx"
+      ],
+      "@chase-sets/identity/seed-support/*": [
+        "./bounded-contexts/identity/seed-support/*.ts"
+      ],
+      "@chase-sets/identity/server": [
+        "./bounded-contexts/identity/server.ts"
+      ],
+      "@chase-sets/identity/web": [
+        "./bounded-contexts/identity/web.ts"
+      ],
+      "@chase-sets/insights": [
+        "./bounded-contexts/insights/index.ts"
+      ],
+      "@chase-sets/insights/context": [
+        "./bounded-contexts/insights/context.json"
+      ],
+      "@chase-sets/inventory": [
+        "./bounded-contexts/inventory/index.ts"
+      ],
+      "@chase-sets/inventory/context": [
+        "./bounded-contexts/inventory/context.json"
+      ],
+      "@chase-sets/inventory/routes/*": [
+        "./bounded-contexts/inventory/routes/*.tsx"
+      ],
+      "@chase-sets/inventory/seed-support/*": [
+        "./bounded-contexts/inventory/seed-support/*.ts"
+      ],
+      "@chase-sets/inventory/server": [
+        "./bounded-contexts/inventory/server.ts"
+      ],
+      "@chase-sets/marketplace": [
+        "./bounded-contexts/marketplace/index.ts"
+      ],
+      "@chase-sets/marketplace/context": [
+        "./bounded-contexts/marketplace/context.json"
+      ],
+      "@chase-sets/marketplace/routes/*": [
+        "./bounded-contexts/marketplace/routes/*.tsx"
+      ],
+      "@chase-sets/marketplace/seed-support/*": [
+        "./bounded-contexts/marketplace/seed-support/*.ts"
+      ],
+      "@chase-sets/marketplace/server": [
+        "./bounded-contexts/marketplace/server.ts"
+      ],
+      "@chase-sets/ordering": [
+        "./bounded-contexts/ordering/index.ts"
+      ],
+      "@chase-sets/ordering/context": [
+        "./bounded-contexts/ordering/context.json"
+      ],
+      "@chase-sets/ordering/routes/*": [
+        "./bounded-contexts/ordering/routes/*.tsx"
+      ],
+      "@chase-sets/ordering/seed-support/*": [
+        "./bounded-contexts/ordering/seed-support/*.ts"
+      ],
+      "@chase-sets/ordering/server": [
+        "./bounded-contexts/ordering/server.ts"
+      ],
+      "@chase-sets/payments": [
+        "./bounded-contexts/payments/index.ts"
+      ],
+      "@chase-sets/payments/context": [
+        "./bounded-contexts/payments/context.json"
+      ],
+      "@chase-sets/payments/routes/*": [
+        "./bounded-contexts/payments/routes/*.tsx"
+      ],
+      "@chase-sets/payments/seed-support/*": [
+        "./bounded-contexts/payments/seed-support/*.ts"
+      ],
+      "@chase-sets/payments/server": [
+        "./bounded-contexts/payments/server.ts"
+      ],
+      "@chase-sets/platform-runtime": [
+        "./infrastructure/platform-runtime/index.ts"
+      ],
+      "@chase-sets/platform-runtime/api": [
+        "./infrastructure/platform-runtime/api.ts"
+      ],
+      "@chase-sets/platform-runtime/auth": [
+        "./infrastructure/platform-runtime/auth.ts"
+      ],
+      "@chase-sets/platform-runtime/health": [
+        "./infrastructure/platform-runtime/health.ts"
+      ],
+      "@chase-sets/platform-runtime/http": [
+        "./infrastructure/platform-runtime/http.ts"
+      ],
+      "@chase-sets/platform-runtime/meta": [
+        "./infrastructure/platform-runtime/meta.ts"
+      ],
+      "@chase-sets/platform-runtime/web": [
+        "./infrastructure/platform-runtime/web.ts"
+      ],
+      "@chase-sets/platform-runtime/web-route-config": [
+        "./infrastructure/platform-runtime/web-route-config.ts"
+      ],
+      "@chase-sets/pricing": [
+        "./bounded-contexts/pricing/index.ts"
+      ],
+      "@chase-sets/pricing/context": [
+        "./bounded-contexts/pricing/context.json"
+      ],
+      "@chase-sets/pricing/server": [
+        "./bounded-contexts/pricing/server.ts"
       ],
       "@chase-sets/primitives/*": [
         "./contracts/primitives/*.ts"
+      ],
+      "@chase-sets/reputation": [
+        "./bounded-contexts/reputation/index.ts"
+      ],
+      "@chase-sets/reputation/context": [
+        "./bounded-contexts/reputation/context.json"
+      ],
+      "@chase-sets/reputation/routes/*": [
+        "./bounded-contexts/reputation/routes/*.tsx"
+      ],
+      "@chase-sets/reputation/seed-support/*": [
+        "./bounded-contexts/reputation/seed-support/*.ts"
+      ],
+      "@chase-sets/reputation/server": [
+        "./bounded-contexts/reputation/server.ts"
+      ],
+      "@chase-sets/settlement": [
+        "./bounded-contexts/settlement/index.ts"
+      ],
+      "@chase-sets/settlement/context": [
+        "./bounded-contexts/settlement/context.json"
+      ],
+      "@chase-sets/settlement/routes/*": [
+        "./bounded-contexts/settlement/routes/*.tsx"
+      ],
+      "@chase-sets/settlement/seed-support/*": [
+        "./bounded-contexts/settlement/seed-support/*.ts"
+      ],
+      "@chase-sets/settlement/server": [
+        "./bounded-contexts/settlement/server.ts"
       ]
     }
   }

@@ -19,6 +19,7 @@
   ],
   "publicExports": [
     ".",
+    "./context",
     "./routes/*",
     "./server",
     "./web"
@@ -238,7 +239,7 @@
   ],
   "hostPorts": [],
   "apiDeployables": [
-    "marketplace-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -250,7 +251,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "routes": [
         {
           "routeId": "item-detail",
@@ -271,7 +272,7 @@
   ],
   "shellContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "search",
       "label": "Browse",
@@ -282,7 +283,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "search",
       "label": "Browse",
@@ -356,4 +357,3 @@
     }
   }
 }
-

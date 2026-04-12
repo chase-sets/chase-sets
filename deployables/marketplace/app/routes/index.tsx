@@ -1,1 +1,1 @@
-export { loader, meta, default } from "./search";
+export { loader, meta, default } from "@chase-sets/discovery/routes/search";

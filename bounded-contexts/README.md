@@ -123,24 +123,18 @@ Surface meanings:
 - `./client` is browser-safe transport clients, DTOs, and API errors
 - `./server` is the provider-owned request and SSR surface for same-context use and approved cross-context request composition
 - `./web` is deployable-facing shell, layout, provider, and browser-entry code only
-- `./routes/*` is the feature-route surface for generated deployable adapters
+- `./routes/*` is the feature-route surface consumed by manifest-driven deployable composition
 - `./seed-support/*` is seed, bootstrap, and test-only support
 
 Private route and request helpers must stay inside the owning bounded context under explicit support folders, not as ad hoc top-level files.
 
 ## Deployable Composition
 
-Generated route wrapper files under `deployables/*/app/routes` are an intentional composition seam.
+The platform host resolves route and shell composition directly from bounded-context manifests.
 
-- Bounded contexts own the real route modules.
-- Deployables own only host routes and generated wrappers.
-- Generated wrappers are tracked, machine-owned files, not a temporary migration artifact.
-
-Generated shell inventories under `deployables/*/app/context-shell.generated.ts` are the matching composition seam for navigation and shell discoverability.
-
-- Bounded contexts declare shell-visible entries in `context.json`.
-- Shell-owner contexts own layout chrome, not other contexts' feature nav.
-- Deployables consume generated shell inventories instead of hand-curated cross-context navigation.
+- Bounded contexts own the real route modules and shell contributions.
+- Deployables own only host routes, layout, auth wiring, and runtime bootstrap.
+- `infrastructure/platform-runtime` is the canonical projection of manifest-driven route and shell composition.
 
 ## Canonical Ownership
 

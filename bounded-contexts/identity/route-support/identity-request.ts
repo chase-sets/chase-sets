@@ -2,12 +2,12 @@ import {
   requireActorFromAuthApi,
   resolveActorFromAuthApi,
   type ResolvedActor,
-} from "@chase-sets/auth-runtime";
-import { resolveRequestApiBaseUrl } from "@chase-sets/bounded-context-runtime/http";
+} from "@chase-sets/platform-runtime/auth";
+import { resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import type { PermissionKey } from "../common";
 export { createIdentityRequestApiClient } from "../request-support/api-client";
 
-export type { ResolvedActor } from "@chase-sets/auth-runtime";
+export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 
 export async function resolveActorFromIdentityApi(options: Readonly<{
   identityApiBaseUrl: string;

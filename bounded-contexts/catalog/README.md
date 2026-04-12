@@ -11,7 +11,7 @@ It defines the structure used to describe items, the axes that create valid sell
 - **Feature code stays in Catalog slices.** Domain logic, query handlers, projections, and read-model shaping remain inside Catalog-owned feature slices.
 - **`routes/` is adapter-only.** Files in `bounded-contexts/catalog/routes/` should be deployable adapter modules that expose route entrypoints and delegate to slice-local feature modules.
 - **`shell-support/` is composition-only.** Put layout, shell wiring, and host-level composition helpers under `bounded-contexts/catalog/shell-support/`; avoid feature domain/query/projection code there.
-- **Deployables remain thin roots.** Deployables should consume generated mount inventories (`deployables/*/app/context-routes.generated.ts` and `deployables/*/app/context-shell.generated.ts`) and point to Catalog-owned route modules.
+- **Deployables remain thin roots.** Deployables should resolve Catalog route and shell contributions through `@chase-sets/platform-runtime` and point to Catalog-owned route modules.
 
 ## Owns
 

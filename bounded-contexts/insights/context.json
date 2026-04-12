@@ -16,7 +16,8 @@
   ],
   "allowedSupportDirectories": [],
   "publicExports": [
-    "."
+    ".",
+    "./context"
   ],
   "allowedContextDependencies": [
     "@chase-sets/fulfillment",
@@ -49,4 +50,3 @@
     }
   }
 }
-

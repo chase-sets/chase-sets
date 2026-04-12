@@ -1,7 +1,7 @@
 import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime/http";
+} from "@chase-sets/platform-runtime/http";
 export {
   createReputationApiClient,
   ReputationApiError,

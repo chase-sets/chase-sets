@@ -30,6 +30,7 @@
   ],
   "publicExports": [
     ".",
+    "./context",
     "./routes/*",
     "./seed-support/*",
     "./server",
@@ -39,12 +40,10 @@
   "seedRequirements": [],
   "hostPorts": [],
   "apiDeployables": [
-    "identity-api"
+    "platform-api"
   ],
   "runtimeDeployables": [
-    "identity-api",
-    "inventory-api",
-    "marketplace-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -56,7 +55,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "identity-admin",
+      "deployable": "admin-web",
       "routes": [
         {
           "routeId": "accounts",
@@ -131,7 +130,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "routes": [
         {
           "routeId": "account",
@@ -166,7 +165,7 @@
   ],
   "shellContributions": [
     {
-      "deployable": "identity-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "accounts",
       "label": "Accounts",
@@ -177,7 +176,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "identity-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "users",
       "label": "Users",
@@ -188,7 +187,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "identity-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "memberships",
       "label": "Memberships",
@@ -199,7 +198,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "identity-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "invitations",
       "label": "Invitations",
@@ -210,7 +209,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "identity-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "api-keys",
       "label": "API Keys",
@@ -221,21 +220,12 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "account",
-      "label": "Account",
-      "icon": "user",
-      "href": "/account",
-      "order": 200,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "accounts.view"
-      ]
-    },
-    {
-      "deployable": "marketplace",
-      "slot": "bottom-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
       "key": "account",
       "label": "Account",
       "icon": "user",
@@ -395,4 +385,3 @@
     }
   }
 }
-

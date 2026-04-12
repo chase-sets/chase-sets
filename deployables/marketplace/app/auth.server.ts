@@ -1,5 +1,5 @@
 import { defineAuthHost } from "@chase-sets/auth/server";
-import { marketplaceAuthHostConfig } from "../../../bounded-contexts/auth/host-config";
+import { marketplaceAuthHostConfig } from "@chase-sets/auth/host-config";
 
 const authPolicy = defineAuthHost(marketplaceAuthHostConfig);
 

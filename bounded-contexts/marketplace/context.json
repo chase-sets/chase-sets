@@ -17,6 +17,7 @@
   ],
   "publicExports": [
     ".",
+    "./context",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -132,7 +133,7 @@
   ],
   "hostPorts": [],
   "apiDeployables": [
-    "marketplace-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -144,7 +145,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "routes": [
         {
           "routeId": "account-listing",
@@ -193,8 +194,12 @@
   ],
   "shellContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
       "key": "listings",
       "label": "Listings",
       "icon": "package",
@@ -206,8 +211,12 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
       "key": "market-offers",
       "label": "Market Offers",
       "icon": "package",
@@ -220,48 +229,12 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "offers",
-      "label": "Offers",
-      "icon": "package",
-      "href": "/account/offers",
-      "order": 140,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "offers.view"
-      ]
-    },
-    {
-      "deployable": "marketplace",
-      "slot": "bottom-nav",
-      "key": "listings",
-      "label": "Listings",
-      "icon": "package",
-      "href": "/account/listings",
-      "order": 120,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "listings.view"
-      ]
-    },
-    {
-      "deployable": "marketplace",
-      "slot": "bottom-nav",
-      "key": "market-offers",
-      "label": "Market Offers",
-      "icon": "package",
-      "href": "/account/market-offers",
-      "order": 130,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "offers.view",
-        "listings.view"
-      ]
-    },
-    {
-      "deployable": "marketplace",
-      "slot": "bottom-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
       "key": "offers",
       "label": "Offers",
       "icon": "package",
@@ -324,4 +297,3 @@
     }
   }
 }
-

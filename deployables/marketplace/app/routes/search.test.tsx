@@ -22,7 +22,7 @@ vi.mock("react-router", async () => {
   };
 });
 
-import SearchRoute from "./search";
+import SearchRoute from "@chase-sets/discovery/routes/search";
 
 describe("marketplace search route", () => {
   afterEach(() => {

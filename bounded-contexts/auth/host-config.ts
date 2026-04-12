@@ -1,4 +1,4 @@
-import { defineAuthHost, type AuthHostConfig } from "./server";
+import type { AuthHostConfig } from "./server";
 
 export type AuthHostDefinition = AuthHostConfig &
   Readonly<{
@@ -28,12 +28,12 @@ export const marketplaceAuthHostConfig = {
 
 export const catalogAdminAuthHostConfig = {
   hostLabel: "Catalog Admin",
-  signInPath: "/sign-in",
-  fallbackPath: "/dimensions",
-  defaultSuccessPath: "/dimensions",
-  accountSelectionPath: "/account-select",
+  signInPath: "/catalog/sign-in",
+  fallbackPath: "/catalog/dimensions",
+  defaultSuccessPath: "/catalog/dimensions",
+  accountSelectionPath: "/catalog/account-select",
   requiredPermission: "catalog.view",
-  signedOutReturnTo: "/sign-in",
+  signedOutReturnTo: "/catalog/sign-in",
   titles: {
     signIn: "Sign In | Catalog Admin",
     accountSelection: "Select Account | Catalog Admin",
@@ -42,12 +42,12 @@ export const catalogAdminAuthHostConfig = {
 
 export const identityAdminAuthHostConfig = {
   hostLabel: "Identity Admin",
-  signInPath: "/sign-in",
-  fallbackPath: "/accounts",
-  defaultSuccessPath: "/accounts",
-  accountSelectionPath: "/account-select",
+  signInPath: "/identity/sign-in",
+  fallbackPath: "/identity/accounts",
+  defaultSuccessPath: "/identity/accounts",
+  accountSelectionPath: "/identity/account-select",
   requiredPermission: "security.manage",
-  signedOutReturnTo: "/sign-in",
+  signedOutReturnTo: "/identity/sign-in",
   titles: {
     signIn: "Sign In | Identity Admin",
     accountSelection: "Select Account | Identity Admin",
@@ -55,7 +55,3 @@ export const identityAdminAuthHostConfig = {
     sessionDetail: "Session Detail | Identity Admin",
   },
 } satisfies AuthHostDefinition;
-
-export const marketplaceAuthHost = defineAuthHost(marketplaceAuthHostConfig);
-export const catalogAdminAuthHost = defineAuthHost(catalogAdminAuthHostConfig);
-export const identityAdminAuthHost = defineAuthHost(identityAdminAuthHostConfig);

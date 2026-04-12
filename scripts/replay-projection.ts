@@ -7,7 +7,6 @@ import {
   type ContextProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
 import {
-  createPgPool,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 
@@ -22,85 +21,34 @@ type RuntimeHandle = Readonly<{
 
 type DeployableLoader = () => Promise<RuntimeHandle>;
 
-function createPools<TDatabaseUrls extends Record<string, string>>(
-  databaseUrls: TDatabaseUrls,
-): { [K in keyof TDatabaseUrls]: PgTransactionalPool } {
-  return Object.fromEntries(
-    Object.entries(databaseUrls).map(([contextName, databaseUrl]) => [
-      contextName,
-      createPgPool(databaseUrl),
-    ]),
-  ) as { [K in keyof TDatabaseUrls]: PgTransactionalPool };
-}
-
-async function loadCatalogApiRuntime(): Promise<RuntimeHandle> {
-  const [{ loadConfig }, { createContextRuntime }] = await Promise.all([
-    import("../deployables/catalog-api/src/config.ts"),
-    import("../deployables/catalog-api/src/context-runtime.generated.ts"),
-  ]);
-  const config = loadConfig();
-  const pools = createPools(config.databaseUrls);
-
-  return {
-    pools,
-    runtime: createContextRuntime(pools),
-  };
-}
-
-async function loadIdentityApiRuntime(): Promise<RuntimeHandle> {
-  const [{ loadConfig }, { createContextRuntime }] = await Promise.all([
-    import("../deployables/identity-api/src/config.ts"),
-    import("../deployables/identity-api/src/context-runtime.generated.ts"),
-  ]);
-  const config = loadConfig();
-  const pools = createPools(config.databaseUrls);
-
-  return {
-    pools,
-    runtime: createContextRuntime(pools),
-  };
-}
-
-async function loadInventoryApiRuntime(): Promise<RuntimeHandle> {
-  const [{ loadConfig }, { createContextRuntime }] = await Promise.all([
-    import("../deployables/inventory-api/src/config.ts"),
-    import("../deployables/inventory-api/src/context-runtime.generated.ts"),
-  ]);
-  const config = loadConfig();
-  const pools = createPools(config.databaseUrls);
-
-  return {
-    pools,
-    runtime: createContextRuntime(pools),
-  };
-}
-
-async function loadMarketplaceApiRuntime(): Promise<RuntimeHandle> {
+async function loadPlatformApiRuntime(): Promise<RuntimeHandle> {
   const [
     { loadBootstrapConfig },
-    { createContextRuntime },
+    { createPlatformApiHost },
+    { createPlatformApiPools },
     { createFakePaymentProcessorGateway },
   ] = await Promise.all([
-    import("../deployables/marketplace-api/src/config.ts"),
-    import("../deployables/marketplace-api/src/context-runtime.generated.ts"),
-    import("../deployables/marketplace-api/src/payment-processor.ts"),
+    import("../deployables/platform-api/src/config.ts"),
+    import("../deployables/platform-api/src/app.ts"),
+    import("../deployables/platform-api/src/database-pools.ts"),
+    import("../bounded-contexts/payments/server.ts"),
   ]);
   const config = loadBootstrapConfig();
-  const pools = createPools(config.databaseUrls);
+  const pools = createPlatformApiPools(config);
 
   return {
     pools,
-    runtime: createContextRuntime(pools, {
-      processorGateway: createFakePaymentProcessorGateway(),
+    runtime: createPlatformApiHost({
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+      },
     }),
   };
 }
 
 const deployableLoaders: Record<string, DeployableLoader> = {
-  "catalog-api": loadCatalogApiRuntime,
-  "identity-api": loadIdentityApiRuntime,
-  "inventory-api": loadInventoryApiRuntime,
-  "marketplace-api": loadMarketplaceApiRuntime,
+  "platform-api": loadPlatformApiRuntime,
 };
 
 function printUsage(): void {
@@ -116,8 +64,9 @@ function printUsage(): void {
 }
 
 async function closePools(pools: Readonly<Record<string, PgTransactionalPool>>): Promise<void> {
+  const uniquePools = [...new Set(Object.values(pools))];
   await Promise.all(
-    Object.values(pools).map((pool) =>
+    uniquePools.map((pool) =>
       (pool as unknown as { end: () => Promise<void> }).end(),
     ),
   );

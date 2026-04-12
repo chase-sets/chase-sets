@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -15,56 +15,35 @@ const dockerComposeArgs = ["compose", "-f", "docker-compose.dev.yml"];
 const localAdminDatabaseUrl =
   process.env.POSTGRES_DEV_ADMIN_DATABASE_URL ??
   "postgresql://postgres:postgres@localhost:5432/postgres";
-const legacyAdminDatabaseUrl = "postgresql://catalog:catalog@localhost:5432/catalog";
-const devContextNames = [
-  "auth",
-  "catalog",
-  "discovery",
-  "fulfillment",
-  "identity",
-  "inventory",
-  "marketplace",
-  "ordering",
-  "payments",
-  "pricing",
-  "reputation",
-  "settlement",
-];
-const contextExtensions = {
-  discovery: ["vector"],
-};
-const marketplaceApiEnvExamplePath = path.join(
+const devDatabaseName = process.env.POSTGRES_DEV_DATABASE_NAME ?? "chase_sets";
+const devDatabaseUrl = (() => {
+  if (process.env.POSTGRES_DEV_DATABASE_URL) {
+    return process.env.POSTGRES_DEV_DATABASE_URL;
+  }
+
+  const url = new URL(localAdminDatabaseUrl);
+  url.pathname = `/${devDatabaseName}`;
+  return url.toString();
+})();
+const requiredExtensions = ["vector"];
+const platformApiEnvExamplePath = path.join(
   rootDir,
   "deployables",
-  "marketplace-api",
+  "platform-api",
   ".env.example",
 );
-const marketplaceApiEnvLocalPath = path.join(
+const platformApiEnvLocalPath = path.join(
   rootDir,
   "deployables",
-  "marketplace-api",
+  "platform-api",
   ".env.local",
 );
 const stripeReadyTimeoutMs = 20_000;
 const postgresReadyTimeoutMs = 30_000;
 const postgresReadyPollMs = 1_000;
 
-function createContextDatabaseUrl(contextName) {
-  const url = new URL(localAdminDatabaseUrl);
-  url.username = contextName;
-  url.password = contextName;
-  url.pathname = `/${contextName}`;
-  return url.toString();
-}
-
 function createAdminCandidateUrls(databaseName = "postgres") {
-  const baseAdminUrls = [localAdminDatabaseUrl];
-
-  if (legacyAdminDatabaseUrl !== localAdminDatabaseUrl) {
-    baseAdminUrls.push(legacyAdminDatabaseUrl);
-  }
-
-  return [...new Set(baseAdminUrls)].map((baseAdminUrl) => {
+  return [localAdminDatabaseUrl].map((baseAdminUrl) => {
     const url = new URL(baseAdminUrl);
     url.pathname = `/${databaseName}`;
     return url.toString();
@@ -75,44 +54,15 @@ function escapeIdentifier(value) {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function escapeLiteral(value) {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-async function ensureOwnedContextDatabase(adminPool, contextName) {
-  const roleExists = await adminPool.query(
-    "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
-    [contextName],
-  );
-
-  if (roleExists.rows[0]?.exists) {
-    await adminPool.query(
-      `ALTER ROLE ${escapeIdentifier(contextName)} WITH LOGIN PASSWORD ${escapeLiteral(contextName)}`,
-    );
-  } else {
-    await adminPool.query(
-      `CREATE ROLE ${escapeIdentifier(contextName)} WITH LOGIN PASSWORD ${escapeLiteral(contextName)}`,
-    );
-  }
-
+async function ensurePlatformDatabase(adminPool) {
   const databaseExists = await adminPool.query(
     "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1) AS exists",
-    [contextName],
+    [devDatabaseName],
   );
 
-  if (databaseExists.rows[0]?.exists) {
-    await adminPool.query(
-      `ALTER DATABASE ${escapeIdentifier(contextName)} OWNER TO ${escapeIdentifier(contextName)}`,
-    );
-  } else {
-    await adminPool.query(
-      `CREATE DATABASE ${escapeIdentifier(contextName)} OWNER ${escapeIdentifier(contextName)}`,
-    );
+  if (!databaseExists.rows[0]?.exists) {
+    await adminPool.query(`CREATE DATABASE ${escapeIdentifier(devDatabaseName)}`);
   }
-
-  await adminPool.query(
-    `GRANT ALL PRIVILEGES ON DATABASE ${escapeIdentifier(contextName)} TO ${escapeIdentifier(contextName)}`,
-  );
 }
 
 async function withAdminPool(action, databaseName = "postgres") {
@@ -140,70 +90,22 @@ async function withAdminPool(action, databaseName = "postgres") {
   throw lastError ?? new Error("Unable to connect to the dev Postgres admin database.");
 }
 
-async function repairOwnedContextDatabase(contextName) {
+async function preparePlatformDatabase() {
   await withAdminPool(async (adminPool) => {
-    for (const extensionName of contextExtensions[contextName] ?? []) {
+    await ensurePlatformDatabase(adminPool);
+  });
+
+  await withAdminPool(async (adminPool) => {
+    for (const extensionName of requiredExtensions) {
       await adminPool.query(
         `CREATE EXTENSION IF NOT EXISTS ${escapeIdentifier(extensionName)}`,
       );
     }
-
-    await adminPool.query(
-      `ALTER SCHEMA public OWNER TO ${escapeIdentifier(contextName)}`,
-    );
-    await adminPool.query(
-      `GRANT ALL PRIVILEGES ON SCHEMA public TO ${escapeIdentifier(contextName)}`,
-    );
-
-    const ownedObjects = await adminPool.query(
-      `SELECT c.relname AS object_name, c.relkind AS object_kind
-       FROM pg_class AS c
-       INNER JOIN pg_namespace AS n ON n.oid = c.relnamespace
-       WHERE n.nspname = 'public'
-         AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
-         AND pg_get_userbyid(c.relowner) <> $1
-       ORDER BY c.relname`,
-      [contextName],
-    );
-
-    for (const object of ownedObjects.rows) {
-      const objectName = object.object_name;
-      const objectKind = object.object_kind;
-      const objectType =
-        objectKind === "S"
-          ? "SEQUENCE"
-          : objectKind === "v"
-            ? "VIEW"
-            : objectKind === "m"
-              ? "MATERIALIZED VIEW"
-              : objectKind === "f"
-                ? "FOREIGN TABLE"
-                : "TABLE";
-
-      await adminPool.query(
-        `ALTER ${objectType} ${escapeIdentifier("public")}.${escapeIdentifier(objectName)} OWNER TO ${escapeIdentifier(contextName)}`,
-      );
-    }
-  }, contextName);
-}
-
-async function ensureOwnedContextDatabases(contextNames) {
-  await withAdminPool(async (adminPool) => {
-    for (const contextName of contextNames) {
-      await ensureOwnedContextDatabase(adminPool, contextName);
-    }
-  });
-
-  for (const contextName of contextNames) {
-    await repairOwnedContextDatabase(contextName);
-  }
+  }, devDatabaseName);
 }
 
 const bootstrapWorkspaces = [
-  "@chase-sets/app-identity-api",
-  "@chase-sets/app-catalog-api",
-  "@chase-sets/app-inventory-api",
-  "@chase-sets/app-marketplace-api",
+  "@chase-sets/app-platform-api",
 ];
 
 const processes = [
@@ -214,61 +116,17 @@ const processes = [
     port: 6171,
   },
   {
-    name: "identity-api",
-    workspace: "@chase-sets/app-identity-api",
+    name: "platform-api",
+    workspace: "@chase-sets/app-platform-api",
     env: {
-      AUTH_DATABASE_URL: createContextDatabaseUrl("auth"),
-      IDENTITY_DATABASE_URL: createContextDatabaseUrl("identity"),
-      PORT: "6181",
-    },
-    port: 6181,
-  },
-  {
-    name: "catalog-api",
-    workspace: "@chase-sets/app-catalog-api",
-    env: {
-      CATALOG_DATABASE_URL: createContextDatabaseUrl("catalog"),
-      IDENTITY_API_BASE_URL: "http://localhost:6181",
-      PORT: "6180",
-    },
-    port: 6180,
-  },
-  {
-    name: "marketplace-api",
-    workspace: "@chase-sets/app-marketplace-api",
-    env: {
-      CATALOG_DATABASE_URL: createContextDatabaseUrl("catalog"),
-      DISCOVERY_DATABASE_URL: createContextDatabaseUrl("discovery"),
-      FULFILLMENT_DATABASE_URL: createContextDatabaseUrl("fulfillment"),
-      IDENTITY_DATABASE_URL: createContextDatabaseUrl("identity"),
-      INVENTORY_DATABASE_URL: createContextDatabaseUrl("inventory"),
-      MARKETPLACE_DATABASE_URL: createContextDatabaseUrl("marketplace"),
-      ORDERING_DATABASE_URL: createContextDatabaseUrl("ordering"),
-      PAYMENTS_DATABASE_URL: createContextDatabaseUrl("payments"),
-      PRICING_DATABASE_URL: createContextDatabaseUrl("pricing"),
-      REPUTATION_DATABASE_URL: createContextDatabaseUrl("reputation"),
-      SETTLEMENT_DATABASE_URL: createContextDatabaseUrl("settlement"),
-      IDENTITY_API_BASE_URL: "http://localhost:6181",
+      DATABASE_URL: devDatabaseUrl,
       PORT: "6182",
     },
     port: 6182,
   },
   {
-    name: "inventory-api",
-    workspace: "@chase-sets/app-inventory-api",
-    env: {
-      CATALOG_DATABASE_URL: createContextDatabaseUrl("catalog"),
-      IDENTITY_DATABASE_URL: createContextDatabaseUrl("identity"),
-      INVENTORY_DATABASE_URL: createContextDatabaseUrl("inventory"),
-      ORDERING_DATABASE_URL: createContextDatabaseUrl("ordering"),
-      IDENTITY_API_BASE_URL: "http://localhost:6181",
-      PORT: "6183",
-    },
-    port: 6183,
-  },
-  {
-    name: "catalog-admin",
-    workspace: "@chase-sets/app-catalog-admin",
+    name: "admin-web",
+    workspace: "@chase-sets/app-admin-web",
     env: {},
     port: 6172,
   },
@@ -278,19 +136,12 @@ const processes = [
     env: {},
     port: 6173,
   },
-  {
-    name: "identity-admin",
-    workspace: "@chase-sets/app-identity-admin",
-    env: {},
-    port: 6174,
-  },
 ];
 
 const devTargets = {
   all: processes.map(({ name }) => name),
-  "catalog-admin": ["identity-api", "catalog-api", "catalog-admin"],
-  "identity-admin": ["identity-api", "identity-admin"],
-  "marketplace-full": ["identity-api", "marketplace-api", "inventory-api", "marketplace"],
+  "admin-web": ["platform-api", "admin-web"],
+  "marketplace-full": ["platform-api", "marketplace"],
 };
 
 function resolveProcessesForTarget(targetName) {
@@ -405,8 +256,8 @@ function readEnvFile(filePath) {
 }
 
 function resolveMarketplaceStripeConfig() {
-  const envExample = readEnvFile(marketplaceApiEnvExamplePath);
-  const envLocal = readEnvFile(marketplaceApiEnvLocalPath);
+  const envExample = readEnvFile(platformApiEnvExamplePath);
+  const envLocal = readEnvFile(platformApiEnvLocalPath);
 
   return {
     secretKey:
@@ -540,6 +391,148 @@ function isPortAvailable(port) {
   });
 }
 
+function listListeningProcessIds(port) {
+  if (!Number.isInteger(port) || port <= 0) {
+    return [];
+  }
+
+  if (process.platform === "win32") {
+    const command = [
+      "$connections = Get-NetTCPConnection -State Listen -LocalPort",
+      `${port}`,
+      "-ErrorAction SilentlyContinue;",
+      "if ($connections) {",
+      "  $connections | Select-Object -ExpandProperty OwningProcess -Unique",
+      "}",
+    ].join(" ");
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-Command", command], {
+      cwd: rootDir,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    if (result.status !== 0 && result.status !== 1) {
+      throw new Error(
+        `Unable to inspect listeners on port ${port}: ${result.stderr?.trim() || "unknown error"}`,
+      );
+    }
+
+    return String(result.stdout ?? "")
+      .split(/\r?\n/)
+      .map((line) => Number.parseInt(line.trim(), 10))
+      .filter((pid) => Number.isInteger(pid) && pid > 0);
+  }
+
+  const result = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+
+  if (result.error) {
+    if (result.error.code === "ENOENT") {
+      return [];
+    }
+
+    throw result.error;
+  }
+
+  if (result.status !== 0 && result.status !== 1) {
+    throw new Error(
+      `Unable to inspect listeners on port ${port}: ${result.stderr?.trim() || "unknown error"}`,
+    );
+  }
+
+  return String(result.stdout ?? "")
+    .split(/\r?\n/)
+    .map((line) => Number.parseInt(line.trim(), 10))
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
+async function waitForProcessExit(pid, timeoutMs = 5_000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      process.kill(pid, 0);
+      await sleep(100);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") {
+        return true;
+      }
+
+      throw error;
+    }
+  }
+
+  return false;
+}
+
+async function terminateProcessIds(pids, label) {
+  const uniquePids = Array.from(
+    new Set(pids.filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)),
+  );
+
+  if (uniquePids.length === 0) {
+    return false;
+  }
+
+  prefixedConsole(
+    "dev",
+    `Restarting ${label} by stopping listener${uniquePids.length === 1 ? "" : "s"} on PID${uniquePids.length === 1 ? "" : "s"} ${uniquePids.join(", ")}.`,
+  );
+
+  for (const pid of uniquePids) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch (error) {
+      if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) {
+        throw error;
+      }
+    }
+  }
+
+  for (const pid of uniquePids) {
+    const exited = await waitForProcessExit(pid, 3_000);
+    if (!exited) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch (error) {
+        if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) {
+          throw error;
+        }
+      }
+      await waitForProcessExit(pid, 2_000);
+    }
+  }
+
+  return true;
+}
+
+async function restartExistingListener(port, label) {
+  const hasListener = (await hasExistingListener(port)) || !(await isPortAvailable(port));
+  if (!hasListener) {
+    return false;
+  }
+
+  const pids = listListeningProcessIds(port);
+  await terminateProcessIds(pids, label);
+
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (await isPortAvailable(port)) {
+      return true;
+    }
+    await sleep(100);
+  }
+
+  throw new Error(`Unable to restart ${label}: port ${port} is still in use.`);
+}
+
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnCommand(command, args, options);
@@ -565,8 +558,8 @@ async function ensureDevDatabase() {
   await runCommand("docker", [...dockerComposeArgs, "up", "-d"], {
     prefix: "docker",
   });
-  prefixedConsole("dev", "Provisioning per-context Postgres roles and databases...");
-  await ensureOwnedContextDatabases(devContextNames);
+  prefixedConsole("dev", `Provisioning shared Postgres database '${devDatabaseName}'...`);
+  await preparePlatformDatabase();
 }
 
 async function runBootstrap() {
@@ -647,108 +640,81 @@ async function runDev(targetName = "all") {
   process.once("SIGINT", () => shutdown("SIGINT", 0));
   process.once("SIGTERM", () => shutdown("SIGTERM", 0));
 
-  const marketplaceApiDefinition = selectedProcesses.find(
-    (definition) => definition.name === "marketplace-api",
+  const platformApiDefinition = selectedProcesses.find(
+    (definition) => definition.name === "platform-api",
   );
-  let shouldSkipManagedStripeStartup = false;
 
-  if (marketplaceApiDefinition) {
-    const marketplaceApiPortBusy =
-      (await hasExistingListener(marketplaceApiDefinition.port)) ||
-      !(await isPortAvailable(marketplaceApiDefinition.port));
+  if (platformApiDefinition) {
+    await restartExistingListener(
+      platformApiDefinition.port,
+      platformApiDefinition.name,
+    );
 
-    if (marketplaceApiPortBusy) {
-      shouldSkipManagedStripeStartup = true;
-      prefixedConsole(
-        "dev",
-        "Skipping managed Stripe startup because marketplace-api is already running or port 6182 is unavailable.",
+    const stripeConfig = resolveMarketplaceStripeConfig();
+
+    if (stripeConfig.secretKey && stripeConfig.publishableKey) {
+      const readyFilePath = path.join(
+        os.tmpdir(),
+        `chase-sets-stripe-ready-${process.pid}-${Date.now()}.txt`,
       );
-    } else {
-      const stripeConfig = resolveMarketplaceStripeConfig();
+      const stripeListener = spawnCommand("node", [stripeCliScript, "listen"], {
+        env: {
+          STRIPE_READY_FILE: readyFilePath,
+        },
+        prefix: "stripe",
+      });
 
-      if (stripeConfig.secretKey && stripeConfig.publishableKey) {
-        const readyFilePath = path.join(
-          os.tmpdir(),
-          `chase-sets-stripe-ready-${process.pid}-${Date.now()}.txt`,
-        );
-        const stripeListener = spawnCommand("node", [stripeCliScript, "listen"], {
-          env: {
-            STRIPE_READY_FILE: readyFilePath,
-          },
-          prefix: "stripe",
-        });
-
-        stripeListener.on("error", (error) => {
-          if (!shuttingDown) {
-            console.error(`[stripe] Failed to start: ${error.message}`);
-            shutdown("stripe", 1);
-          }
-        });
-
-        stripeListener.on("exit", (code) => {
-          if (!shuttingDown && code !== 0) {
-            console.error(
-              `[stripe] exited unexpectedly with code ${code ?? "unknown"}.`,
-            );
-            shutdown("stripe", code ?? 1);
-          }
-        });
-
-        children.push(stripeListener);
-
-        try {
-          await waitForStripeReady(readyFilePath, stripeListener);
-          prefixedConsole(
-            "dev",
-            "Stripe listener is ready. marketplace-api will start with the current webhook secret.",
-          );
-        } catch (error) {
-          if (!stripeListener.killed) {
-            stripeListener.kill("SIGTERM");
-          }
-          throw error;
+      stripeListener.on("error", (error) => {
+        if (!shuttingDown) {
+          console.error(`[stripe] Failed to start: ${error.message}`);
+          shutdown("stripe", 1);
         }
-      } else {
+      });
+
+      stripeListener.on("exit", (code) => {
+        if (!shuttingDown && code !== 0) {
+          console.error(
+            `[stripe] exited unexpectedly with code ${code ?? "unknown"}.`,
+          );
+          shutdown("stripe", code ?? 1);
+        }
+      });
+
+      children.push(stripeListener);
+
+      try {
+        await waitForStripeReady(readyFilePath, stripeListener);
         prefixedConsole(
           "dev",
-          "Stripe keys are incomplete in deployables/marketplace-api/.env.local, so marketplace-api will use the fake payment processor.",
+          "Stripe listener is ready. platform-api will start with the current webhook secret.",
         );
+      } catch (error) {
+        if (!stripeListener.killed) {
+          stripeListener.kill("SIGTERM");
+        }
+        throw error;
       }
+    } else {
+      prefixedConsole(
+        "dev",
+        "Stripe keys are incomplete in deployables/platform-api/.env.local, so platform-api will use the fake payment processor.",
+      );
     }
   }
 
   if (targetName === "all") {
-    if (!(await hasExistingListener(6170)) && await isPortAvailable(6170)) {
-      const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
-      const portal = spawnCommand("node", [portalScript], {
-        env: { PORT: "6170" },
-        prefix: "portal",
-      });
-      children.push(portal);
-    } else {
-      prefixedConsole("dev", "Skipping portal because port 6170 is already in use.");
-    }
+    await restartExistingListener(6170, "portal");
+    const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
+    const portal = spawnCommand("node", [portalScript], {
+      env: { PORT: "6170" },
+      prefix: "portal",
+    });
+    children.push(portal);
   }
 
   for (const definition of selectedProcesses) {
-    if (definition.name === "marketplace-api" && shouldSkipManagedStripeStartup) {
-      prefixedConsole(
-        "dev",
-        `Skipping ${definition.name} because port ${definition.port} is already in use.`,
-      );
-      continue;
-    }
-
-    if (
-      definition.port &&
-      ((await hasExistingListener(definition.port)) ||
-        !(await isPortAvailable(definition.port)))
-    ) {
-      prefixedConsole(
-        "dev",
-        `Skipping ${definition.name} because port ${definition.port} is already in use.`,
-      );
-      continue;
+    if (definition.port) {
+      await restartExistingListener(definition.port, definition.name);
     }
 
     const invocation = buildNpmInvocation([
@@ -779,13 +745,6 @@ async function runDev(targetName = "all") {
     });
 
     children.push(child);
-  }
-
-  if (children.length === 0) {
-    prefixedConsole(
-      "dev",
-      "All local dev services are already running. Reusing the existing stack.",
-    );
   }
 }
 

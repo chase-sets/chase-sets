@@ -34,6 +34,7 @@ export type BcShellContributionVisibility = "always" | "signed-in" | "signed-out
 export type BcShellContribution = Readonly<{
   readonly deployable: string;
   readonly slot: BcShellContributionSlot;
+  readonly placements?: readonly BcShellContributionSlot[];
   readonly key: string;
   readonly label: string;
   readonly icon: string;

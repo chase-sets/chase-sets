@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import {
   hasPermission as hasActorPermission,
   type ResolvedActor,
-} from "@chase-sets/auth-runtime";
+} from "@chase-sets/platform-runtime/auth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   AccountId,

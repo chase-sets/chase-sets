@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
-import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type SettlementLedgerEntryRow,
   type SettlementWalletRow,

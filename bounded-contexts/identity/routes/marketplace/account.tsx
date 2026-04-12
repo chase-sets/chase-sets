@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromIdentityApi } from "../../route-support/identity-request";
 import type { Account } from "../../request-support/api-client";
 import { AccountProfilePage } from "../../customer/account-profile-page";

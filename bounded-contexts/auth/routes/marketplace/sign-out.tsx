@@ -1,4 +1,4 @@
-import { marketplaceAuthHost } from "../../host-config";
+import { marketplaceAuthHost } from "../../route-support/auth-host.server";
 
 export const action = marketplaceAuthHost.createSignOutAction();
 

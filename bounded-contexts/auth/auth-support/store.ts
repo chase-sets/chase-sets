@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { AuthMethod } from "./auth-flow";
+import type { AuthMethod } from "../sessions/auth-flow";
 
 export async function upsertPasswordCredential(
   db: PgQueryable,

@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { AUTH_SESSION_STREAM_PREFIX } from "../auth-support/auth-flow";
+import { AUTH_SESSION_STREAM_PREFIX } from "./auth-flow";
 
 function extractIdFromStreamId(streamId: string, prefix: string) {
   if (!streamId.startsWith(prefix)) {

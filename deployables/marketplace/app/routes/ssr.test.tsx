@@ -3,18 +3,21 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import type { ReactNode } from "react";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
-import {
-  createMarketplaceBottomNavItems,
-  createMarketplaceTopNavItems,
-} from "../context-shell.generated";
 import { buildCanonicalUrl } from "../seo";
-import { loader as accountLoader } from "./account";
+import { resolveMarketplaceNavItems } from "../host";
+import { loader as accountLoader } from "@chase-sets/identity/routes/marketplace/account";
 import { loader as chromeDevtoolsLoader } from "./chrome-devtools";
 import { loader as faviconLoader } from "./favicon";
-import { loader as itemLoader, meta as itemMeta } from "./item-detail";
+import {
+  loader as itemLoader,
+  meta as itemMeta,
+} from "@chase-sets/discovery/routes/item-detail";
 import { loader as robotsLoader } from "./robots";
-import { loader as searchLoader, meta as searchMeta } from "./search";
-import { meta as signInMeta } from "./sign-in";
+import {
+  loader as searchLoader,
+  meta as searchMeta,
+} from "@chase-sets/discovery/routes/search";
+import { meta as signInMeta } from "@chase-sets/auth/routes/marketplace/sign-in";
 import { loader as sitemapLoader } from "./sitemap";
 
 describe("marketplace SSR routes", () => {
@@ -22,8 +25,8 @@ describe("marketplace SSR routes", () => {
     return (
       <DiscoveryShellLayout
         activeKey="search"
-        topNavItems={createMarketplaceTopNavItems()}
-        bottomNavItems={createMarketplaceBottomNavItems()}
+        topNavItems={resolveMarketplaceNavItems("top-nav")}
+        bottomNavItems={resolveMarketplaceNavItems("bottom-nav")}
       >
         {children}
       </DiscoveryShellLayout>

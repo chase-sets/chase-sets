@@ -1,4 +1,4 @@
-import type { AuthMethod } from "../auth-support/auth-flow";
+import type { AuthMethod } from "../sessions/auth-flow";
 import {
   consumeAccountSelectionToken,
   getAccountSelectionTokenByHash,

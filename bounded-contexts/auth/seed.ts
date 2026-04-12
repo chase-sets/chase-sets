@@ -2,7 +2,7 @@ import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createAuthSecretAdapters } from "./auth-support/adapters";
-import { toSessionStreamId } from "./auth-support/auth-flow";
+import { toSessionStreamId } from "./sessions/auth-flow";
 import { upsertPasswordCredential } from "./auth-support/store";
 import { createSessionRuntime } from "./sessions/runtime";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";

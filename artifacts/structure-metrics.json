@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-04-06T21:51:00.085Z",
+  "generatedAt": "2026-04-12T20:05:38.303Z",
   "totals": {
     "contextCount": 13,
     "sliceCount": 30,
-    "supportDirectoryCount": 30,
+    "supportDirectoryCount": 31,
     "singleSliceSupportFiles": 0,
     "driftCount": 0
   },
@@ -12,7 +12,7 @@
       "contextRoot": "bounded-contexts/auth",
       "contextName": "auth",
       "sliceCount": 2,
-      "supportDirectoryCount": 4,
+      "supportDirectoryCount": 5,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },

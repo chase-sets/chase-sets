@@ -1,4 +1,4 @@
-import { catalogAdminAuthHost } from "../../host-config";
+import { catalogAdminAuthHost } from "../../route-support/auth-host.server";
 
 export const action = catalogAdminAuthHost.createSignOutAction();
 

@@ -2,14 +2,16 @@ import type { Config } from "tailwindcss";
 
 const config: Config = {
   content: [
+    "./bounded-contexts/**/*.{ts,tsx}",
     "./packages/design-system/src/**/*.{ts,tsx}",
+    "./deployables/admin-web/app/**/*.{ts,tsx}",
+    "./deployables/admin-web/src/**/*.{ts,tsx}",
+    "./deployables/design-system-showcase/app/**/*.{ts,tsx}",
     "./deployables/design-system-showcase/src/**/*.{ts,tsx}",
     "./deployables/design-system-showcase/index.html",
+    "./deployables/marketplace/app/**/*.{ts,tsx}",
     "./deployables/marketplace/src/**/*.{ts,tsx}",
-    "./deployables/catalog-admin/src/**/*.{ts,tsx}",
-    "./deployables/catalog-admin/app/**/*.{ts,tsx}",
-    "./deployables/identity-admin/src/**/*.{ts,tsx}",
-    "./deployables/identity-admin/app/**/*.{ts,tsx}"
+    "./deployables/marketplace/index.html",
   ],
   theme: {
     extend: {

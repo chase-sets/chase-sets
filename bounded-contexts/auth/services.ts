@@ -15,7 +15,7 @@ import {
   createExpiryTimestamp,
   type AuthMethod,
   toSessionStreamId,
-} from "./auth-support/auth-flow";
+} from "./sessions/auth-flow";
 import { AUTH_BOOTSTRAP_TENANT_ID } from "./auth-support/constants";
 import {
   getAuthIdentityInvitation,

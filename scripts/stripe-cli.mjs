@@ -5,16 +5,16 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
-const marketplaceApiEnvExamplePath = path.join(
+const platformApiEnvExamplePath = path.join(
   rootDir,
   "deployables",
-  "marketplace-api",
+  "platform-api",
   ".env.example",
 );
-const marketplaceApiEnvLocalPath = path.join(
+const platformApiEnvLocalPath = path.join(
   rootDir,
   "deployables",
-  "marketplace-api",
+  "platform-api",
   ".env.local",
 );
 const dockerImage = process.env.STRIPE_CLI_DOCKER_IMAGE ?? "stripe/stripe-cli";
@@ -33,7 +33,7 @@ function printUsage() {
   console.log("");
   console.log("Environment:");
   console.log(
-    "  STRIPE_API_KEY                Overrides STRIPE_SECRET_KEY from deployables/marketplace-api/.env.local.",
+    "  STRIPE_API_KEY                Overrides STRIPE_SECRET_KEY from deployables/platform-api/.env.local.",
   );
   console.log(
     "  STRIPE_WEBHOOK_FORWARD_URL    Overrides the local webhook endpoint.",
@@ -75,8 +75,8 @@ function readEnvFile(filePath) {
 }
 
 function resolveStripeApiKey() {
-  const envLocal = readEnvFile(marketplaceApiEnvLocalPath);
-  const envExample = readEnvFile(marketplaceApiEnvExamplePath);
+  const envLocal = readEnvFile(platformApiEnvLocalPath);
+  const envExample = readEnvFile(platformApiEnvExamplePath);
 
   return (
     process.env.STRIPE_API_KEY ??
@@ -91,9 +91,9 @@ function detectLineEnding(content) {
 }
 
 function persistWebhookSecret(webhookSecret) {
-  const envLocalExists = existsSync(marketplaceApiEnvLocalPath);
+  const envLocalExists = existsSync(platformApiEnvLocalPath);
   const currentContent = envLocalExists
-    ? readFileSync(marketplaceApiEnvLocalPath, "utf8")
+    ? readFileSync(platformApiEnvLocalPath, "utf8")
     : "";
   const lineEnding = detectLineEnding(currentContent);
   const lines = currentContent.length > 0 ? currentContent.split(/\r?\n/) : [];
@@ -115,11 +115,11 @@ function persistWebhookSecret(webhookSecret) {
   const nextContent = `${nextLines.join(lineEnding).replace(/[ \t]+$/gm, "")}${lineEnding}`;
 
   if (nextContent !== currentContent) {
-    writeFileSync(marketplaceApiEnvLocalPath, nextContent, "utf8");
+    writeFileSync(platformApiEnvLocalPath, nextContent, "utf8");
     console.log(
-      `[stripe] Saved STRIPE_WEBHOOK_SECRET to ${path.relative(rootDir, marketplaceApiEnvLocalPath)}`,
+      `[stripe] Saved STRIPE_WEBHOOK_SECRET to ${path.relative(rootDir, platformApiEnvLocalPath)}`,
     );
-    console.log("[stripe] Restart marketplace-api if it was already running.");
+    console.log("[stripe] Restart platform-api if it was already running.");
   }
 }
 
@@ -129,7 +129,7 @@ function signalReady(webhookSecret) {
   }
 
   writeFileSync(readyFilePath, `${webhookSecret}\n`, "utf8");
-  console.log("[stripe] Listener is ready for marketplace-api startup.");
+  console.log("[stripe] Listener is ready for platform-api startup.");
 }
 
 function pipeOutput(stream, target, onChunk) {
@@ -158,7 +158,7 @@ async function runListen() {
 
   if (!stripeApiKey) {
     throw new Error(
-      "Stripe API key not found. Set STRIPE_SECRET_KEY in deployables/marketplace-api/.env.local or export STRIPE_API_KEY before running stripe:listen.",
+      "Stripe API key not found. Set STRIPE_SECRET_KEY in deployables/platform-api/.env.local or export STRIPE_API_KEY before running stripe:listen.",
     );
   }
 

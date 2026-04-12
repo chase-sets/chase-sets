@@ -1,0 +1,94 @@
+import { Hono } from "hono";
+import { module as authModule } from "@chase-sets/auth";
+import { module as identityModule } from "@chase-sets/identity";
+import {
+  attachApiMountMiddleware,
+  attachWriteDrainMiddleware,
+  mountApiRouters,
+} from "@chase-sets/bounded-context-runtime";
+import {
+  createHealthRoutes,
+  type HealthProjectionReplaySummary,
+} from "@chase-sets/platform-runtime/health";
+import {
+  createApiHost,
+  resolveApiHostMounts,
+  type ApiHostRuntime,
+} from "@chase-sets/platform-runtime/api";
+import {
+  createIdentityAuthMiddleware,
+  createPlatformActorMiddleware,
+  type PlatformActorResolver,
+  type TenantContextEnv,
+} from "./middleware/auth-context";
+import { errorHandler } from "./middleware/error-handler";
+import { apiContextRegistry } from "./generated/api-context-registry";
+
+export type PlatformIdentityServices = Readonly<{
+  auth: ReturnType<typeof authModule.createServices>;
+  identity: ReturnType<typeof identityModule.createServices>;
+}>;
+
+export type BuildPlatformApiOptions = Readonly<{
+  drain?: () => Promise<void>;
+  getProjectionReplay?: () =>
+    | HealthProjectionReplaySummary
+    | Promise<HealthProjectionReplaySummary>;
+  resolveActor?: PlatformActorResolver;
+}>;
+
+export function createPlatformApiHost(
+  options: Parameters<typeof createApiHost>[2],
+): ApiHostRuntime {
+  return createApiHost(apiContextRegistry, "platform-api", options);
+}
+
+export function buildPlatformApiApp(
+  runtime: ApiHostRuntime,
+  options: BuildPlatformApiOptions = {},
+) {
+  const app = new Hono<TenantContextEnv>();
+  const apiMounts = resolveApiHostMounts(runtime);
+  const identityServices = {
+    auth: runtime.services.auth as ReturnType<typeof authModule.createServices>,
+    identity: runtime.services.identity as ReturnType<typeof identityModule.createServices>,
+  } satisfies PlatformIdentityServices;
+
+  app.onError(errorHandler);
+  app.route(
+    "/health",
+    createHealthRoutes({
+      getProjectionReplay: options.getProjectionReplay,
+    }),
+  );
+
+  attachApiMountMiddleware(
+    app,
+    apiMounts
+      .filter((mount) => mount.contextName === "auth" || mount.contextName === "identity")
+      .map((mount) => mount.mountPath),
+    createIdentityAuthMiddleware(identityServices),
+  );
+
+  attachApiMountMiddleware(
+    app,
+    apiMounts
+      .filter(
+        (mount) =>
+          mount.requiresAuth &&
+          mount.contextName !== "auth" &&
+          mount.contextName !== "identity",
+      )
+      .map((mount) => mount.mountPath),
+    createPlatformActorMiddleware(options.resolveActor ?? (async () => null)),
+  );
+
+  attachWriteDrainMiddleware(
+    app,
+    apiMounts,
+    options.drain ?? (() => Promise.resolve()),
+  );
+  mountApiRouters(app, apiMounts);
+
+  return app;
+}

@@ -12,7 +12,7 @@ import {
   useNavigation,
   useSubmit,
 } from "react-router";
-import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
+import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   Button,
   Card,
@@ -23,9 +23,9 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { createPaymentsRequestApiClient } from "../../request-support/api-client";
-import { createPaymentsOrderingBuyerGateway } from "../../request-support/ordering-buyer";
+import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 
 function parseOrderIds(value: string | null) {
   return (value ?? "")
@@ -50,7 +50,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect("/account/orders");
   }
 
-  const orderingApi = createPaymentsOrderingBuyerGateway(request);
+  const orderingApi = createOrderingRequestApiClient(request);
 
   try {
     const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getBuyerOrder(orderId)));

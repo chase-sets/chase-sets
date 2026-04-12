@@ -1,8 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { requireActorFromAuthApi } from "@chase-sets/auth-runtime";
+import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type MarketplaceOfferListItem,
 } from "../request-support/api-client";

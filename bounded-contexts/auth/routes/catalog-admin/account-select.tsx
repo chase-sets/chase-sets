@@ -2,10 +2,8 @@ import type {
   MetaFunction,
 } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
-import {
-  catalogAdminAuthHost,
-  catalogAdminAuthHostConfig,
-} from "../../host-config";
+import { catalogAdminAuthHostConfig } from "../../host-config";
+import { catalogAdminAuthHost } from "../../route-support/auth-host.server";
 import { AccountSelectionPage } from "../../customer/account-selection-page";
 
 export const meta: MetaFunction = () => [

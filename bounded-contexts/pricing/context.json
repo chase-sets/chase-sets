@@ -13,6 +13,7 @@
   "allowedSupportDirectories": [],
   "publicExports": [
     ".",
+    "./context",
     "./server"
   ],
   "allowedContextDependencies": [],
@@ -160,7 +161,7 @@
   ],
   "hostPorts": [],
   "apiDeployables": [
-    "marketplace-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -191,4 +192,3 @@
     }
   }
 }
-

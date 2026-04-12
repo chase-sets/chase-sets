@@ -2,7 +2,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_MAGIC_LINK_TTL_MS,
   createExpiryTimestamp,
-} from "../auth-support/auth-flow";
+} from "../sessions/auth-flow";
 import {
   consumeMagicLinkToken,
   insertMagicLinkToken,

@@ -1,5 +1,4 @@
 export { default as contextManifest } from "./context.json";
-export type { AuthMethod } from "./auth-support/auth-flow";
 
 import type {
   BcApiModule,

@@ -1,9 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createMarketplaceBottomNavItems,
-  createMarketplaceTopNavItems,
-} from "../context-shell.generated";
+import { resolveMarketplaceNavItems } from "../host";
 
 const { mockUseLocation, mockUseRouteLoaderData } = vi.hoisted(() => ({
   mockUseLocation: vi.fn(),
@@ -54,7 +51,9 @@ describe("marketplace route layout", () => {
 
     const html = renderToString(<MarketplaceLayoutRoute />);
 
-    expect(createMarketplaceTopNavItems(null).map((item) => item.href)).toEqual([
+    expect(
+      resolveMarketplaceNavItems("top-nav", null).map((item) => item.href),
+    ).toEqual([
       "/search",
       "/sign-in",
       "/register",
@@ -81,7 +80,9 @@ describe("marketplace route layout", () => {
 
     const html = renderToString(<MarketplaceLayoutRoute />);
 
-    expect(createMarketplaceBottomNavItems(null).map((item) => item.href)).toEqual([
+    expect(
+      resolveMarketplaceNavItems("bottom-nav", null).map((item) => item.href),
+    ).toEqual([
       "/search",
       "/sign-in",
       "/register",

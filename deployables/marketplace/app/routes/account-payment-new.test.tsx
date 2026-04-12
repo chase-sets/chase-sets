@@ -56,9 +56,9 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("@chase-sets/auth-runtime", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/auth-runtime")>(
-    "@chase-sets/auth-runtime",
+vi.mock("@chase-sets/platform-runtime/auth", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(
+    "@chase-sets/platform-runtime/auth",
   );
 
   return {
@@ -70,7 +70,7 @@ vi.mock("@chase-sets/auth-runtime", async () => {
 import MarketplaceAccountPaymentNewRoute, {
   action,
   loader,
-} from "./account-payment-new";
+} from "@chase-sets/payments/routes/marketplace/account-payment-new";
 
 function buildOrder(orderId: string): OrderingOrderDetail {
   return {
@@ -166,7 +166,10 @@ describe("marketplace account payment start route", () => {
 
     expect(result.orderIds).toEqual(["ord_1", "ord_2"]);
     expect(result.autostart).toBe(true);
-    expect(result.orders.map((order) => order.order_id)).toEqual(["ord_1", "ord_2"]);
+    expect(result.orders.map((order) => order.order_id)).toEqual([
+      "ord_1",
+      "ord_2",
+    ]);
   });
 
   it("creates a buyer payment and redirects into the confirmation route", async () => {

@@ -18,6 +18,7 @@
   ],
   "publicExports": [
     ".",
+    "./context",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -225,10 +226,10 @@
   ],
   "hostPorts": [],
   "apiDeployables": [
-    "marketplace-api"
+    "platform-api"
   ],
   "sourceRuntimeDeployables": [
-    "inventory-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -240,7 +241,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "routes": [
         {
           "routeId": "account-cart",
@@ -282,7 +283,7 @@
   ],
   "shellContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "cart",
       "label": "Cart",
@@ -295,7 +296,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "orders",
       "label": "Orders",
@@ -308,7 +309,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "sales",
       "label": "Sales",
@@ -322,7 +323,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "cart",
       "label": "Cart",
@@ -335,7 +336,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "orders",
       "label": "Orders",
@@ -348,7 +349,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "sales",
       "label": "Sales",
@@ -421,4 +422,3 @@
     }
   }
 }
-

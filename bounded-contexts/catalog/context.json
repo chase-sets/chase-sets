@@ -20,6 +20,7 @@
   ],
   "publicExports": [
     ".",
+    "./context",
     "./seed-support/*",
     "./routes/*",
     "./server",
@@ -29,12 +30,10 @@
   "seedRequirements": [],
   "hostPorts": [],
   "apiDeployables": [
-    "catalog-api"
+    "platform-api"
   ],
   "runtimeDeployables": [
-    "catalog-api",
-    "inventory-api",
-    "marketplace-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -46,7 +45,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "catalog-admin",
+      "deployable": "admin-web",
       "routes": [
         {
           "routeId": "blueprints",
@@ -137,7 +136,7 @@
   ],
   "shellContributions": [
     {
-      "deployable": "catalog-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "dimensions",
       "label": "Dimensions",
@@ -148,7 +147,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "catalog-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "fields",
       "label": "Fields",
@@ -159,7 +158,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "catalog-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "components",
       "label": "Components",
@@ -170,7 +169,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "catalog-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "blueprints",
       "label": "Blueprints",
@@ -181,7 +180,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "catalog-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "categories",
       "label": "Categories",
@@ -192,7 +191,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "catalog-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "catalog-items",
       "label": "Catalog Items",
@@ -246,4 +245,3 @@
     }
   }
 }
-

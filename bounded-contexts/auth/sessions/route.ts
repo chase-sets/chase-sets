@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { AuthApiEnv } from "../api";
-import { toSessionStreamId } from "../auth-support/auth-flow";
+import { toSessionStreamId } from "./auth-flow";
 import type { SessionServices } from "./runtime";
 
 export function sessionRoutes(services: SessionServices) {

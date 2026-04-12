@@ -13,6 +13,7 @@
     "sessions"
   ],
   "allowedSupportDirectories": [
+    "auth-api",
     "auth-support",
     "request-support",
     "route-support",
@@ -20,6 +21,8 @@
   ],
   "publicExports": [
     ".",
+    "./context",
+    "./host-config",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -120,7 +123,7 @@
   ],
   "hostPorts": [],
   "apiDeployables": [
-    "identity-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -132,7 +135,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "catalog-admin",
+      "deployable": "admin-web",
       "routes": [
         {
           "routeId": "account-select",
@@ -161,7 +164,7 @@
       ]
     },
     {
-      "deployable": "identity-admin",
+      "deployable": "admin-web",
       "routes": [
         {
           "routeId": "account-select",
@@ -204,7 +207,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "routes": [
         {
           "routeId": "account-select",
@@ -239,7 +242,7 @@
   ],
   "shellContributions": [
     {
-      "deployable": "identity-admin",
+      "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "sessions",
       "label": "Sessions",
@@ -250,7 +253,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "sign-in",
       "label": "Sign In",
@@ -261,7 +264,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "register",
       "label": "Register",
@@ -272,7 +275,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "sign-in",
       "label": "Sign In",
@@ -283,7 +286,7 @@
       "requiredPermissions": []
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "register",
       "label": "Register",
@@ -316,12 +319,24 @@
       "purpose": "Provide reusable auth-support assets shared by multiple auth slices.",
       "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
       "expectedConsumers": [
-        "Multiple auth slices",
-        "Deployable composition for auth"
+        "sessions"
       ],
+      "crossCuttingRuntimeComposition": true,
       "justification": "auth-support centralizes reusable context-local composition that should not duplicate across slices.",
       "createdFor": "Multi-slice auth workflows that need shared runtime helpers.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+    },
+    "auth-api": {
+      "classification": "support",
+      "purpose": "Provide reusable auth API request handlers and middleware shared by auth-owned HTTP surfaces.",
+      "allowedWhen": "Allowed when auth-specific API composition spans multiple entrypoints and should remain context-owned.",
+      "expectedConsumers": [
+        "Deployable composition for auth",
+        "Multiple auth slices"
+      ],
+      "justification": "auth-api keeps auth-owned Hono handlers inside the auth context instead of leaking API glue into deployables.",
+      "createdFor": "Manifest-driven platform API composition across auth-owned routes and middleware.",
+      "sunsetWhen": "Remove when auth API composition can collapse fully into slice-local modules without duplication."
     },
     "request-support": {
       "classification": "support",
@@ -369,4 +384,3 @@
     }
   }
 }
-

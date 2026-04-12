@@ -17,6 +17,7 @@
   ],
   "publicExports": [
     ".",
+    "./context",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -64,7 +65,7 @@
     }
   ],
   "apiDeployables": [
-    "marketplace-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -82,7 +83,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "routes": [
         {
           "routeId": "account-payment",
@@ -153,4 +154,3 @@
     }
   }
 }
-

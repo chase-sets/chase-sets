@@ -1,10 +1,7 @@
 import { Outlet, useLocation, useRouteLoaderData } from "react-router";
 import { Button } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
-import {
-  createMarketplaceBottomNavItems,
-  createMarketplaceTopNavItems,
-} from "../context-shell.generated";
+import { resolveMarketplaceNavItems } from "../host";
 
 type MarketplaceActor = {
   permissions?: readonly string[];
@@ -74,8 +71,8 @@ export default function MarketplaceLayoutRoute() {
       }
     | undefined;
   const actor = rootData?.actor ?? null;
-  const topNavItems = createMarketplaceTopNavItems(actor);
-  const bottomNavItems = createMarketplaceBottomNavItems(actor);
+  const topNavItems = resolveMarketplaceNavItems("top-nav", actor);
+  const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor);
 
   return (
     <DiscoveryShellLayout

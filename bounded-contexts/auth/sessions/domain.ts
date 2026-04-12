@@ -4,7 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
-import type { AuthMethod } from "../auth-support/auth-flow";
+import type { AuthMethod } from "./auth-flow";
 
 type SessionStatus = "active" | "revoked" | "expired";
 type EmptyEventData = Readonly<Record<string, never>>;

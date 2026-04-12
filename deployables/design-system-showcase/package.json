@@ -1,28 +1,28 @@
 {
-    "name":  "@chase-sets/app-design-system-showcase",
-    "version":  "0.1.0",
-    "private":  true,
-    "type":  "module",
-    "dependencies":  {
-                         "@chase-sets/design-system":  "0.1.0",
-                         "@react-router/node":  "7.13.2",
-                         "@react-router/serve":  "7.13.2",
-                         "react":  "^19.2.4",
-                         "react-dom":  "^19.2.4",
-                         "react-router":  "^7.13.2",
-                         "isbot":  "^5"
-                     },
-    "scripts":  {
-                    "build":  "npm run verify:source \u0026\u0026 react-router build \u0026\u0026 npm run verify:css",
-                    "dev":  "react-router dev",
-                    "start":  "react-router-serve ./build/server/index.js",
-                    "test":  "vitest run --config ./vitest.config.ts",
-                    "typecheck":  "tsc -p ./tsconfig.json --noEmit",
-                    "verify:css":  "node ./scripts/verify-css.mjs",
-                    "verify:source":  "node ./scripts/verify-showcase-source.mjs"
-                },
-    "devDependencies":  {
-                            "@tailwindcss/vite":  "^4.2.1",
-                            "tailwindcss":  "^4.2.1"
-                        }
+  "name": "@chase-sets/app-design-system-showcase",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@chase-sets/design-system": "0.1.0",
+    "@react-router/node": "7.13.2",
+    "@react-router/serve": "7.13.2",
+    "isbot": "^5",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router": "^7.13.2"
+  },
+  "scripts": {
+    "build": "npm run verify:source && react-router build && npm run verify:css",
+    "dev": "react-router dev",
+    "start": "react-router-serve ./build/server/index.js",
+    "test": "vitest run --config ./vitest.config.ts",
+    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "verify:css": "node ./scripts/verify-css.mjs",
+    "verify:source": "node ./scripts/verify-showcase-source.mjs"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
+    "tailwindcss": "^4.2.1"
+  }
 }

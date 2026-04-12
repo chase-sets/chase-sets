@@ -4,7 +4,7 @@ import {
   useNavigation,
   useSearchParams,
 } from "react-router";
-import { buildOpenGraphMeta } from "@chase-sets/bounded-context-runtime/web";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { createDiscoveryRequestApiClient } from "../request-support/api-client";
 import { SearchPage } from "../items/search/search-page";
 

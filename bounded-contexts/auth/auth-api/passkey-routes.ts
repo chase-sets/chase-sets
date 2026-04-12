@@ -2,7 +2,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_CHALLENGE_TTL_MS,
   createExpiryTimestamp,
-} from "../auth-support/auth-flow";
+} from "../sessions/auth-flow";
 import {
   consumeChallenge,
   getPasskeyCredentialByExternalId,

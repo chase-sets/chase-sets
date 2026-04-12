@@ -5,7 +5,7 @@ import {
 import {
   AUTH_ACCOUNT_SELECTION_TTL_MS,
   AUTH_SESSION_TTL_MS,
-} from "./auth-flow";
+} from "../sessions/auth-flow";
 
 export function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {

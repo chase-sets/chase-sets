@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { action as inventoryAction, loader as inventoryLoader } from "./account-inventory";
+import {
+  action as inventoryAction,
+  loader as inventoryLoader,
+} from "@chase-sets/inventory/routes/marketplace/account-inventory";
 import {
   action as inventoryRecordAction,
   loader as inventoryRecordLoader,
-} from "./account-inventory-record";
+} from "@chase-sets/inventory/routes/marketplace/account-inventory-record";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

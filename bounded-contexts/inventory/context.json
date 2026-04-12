@@ -22,6 +22,7 @@
   ],
   "publicExports": [
     ".",
+    "./context",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -101,11 +102,10 @@
   ],
   "hostPorts": [],
   "apiDeployables": [
-    "inventory-api"
+    "platform-api"
   ],
   "runtimeDeployables": [
-    "inventory-api",
-    "marketplace-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -117,7 +117,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "routes": [
         {
           "routeId": "account-inventory",
@@ -145,7 +145,7 @@
   ],
   "shellContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "inventory",
       "label": "Inventory",
@@ -158,7 +158,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "inventory",
       "label": "Inventory",
@@ -258,4 +258,3 @@
     }
   }
 }
-

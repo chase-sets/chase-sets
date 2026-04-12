@@ -48,6 +48,12 @@ type PaymentsPaymentDetail = Readonly<{
   processor_publishable_key: string | null;
 }>;
 
+type StripeMock = ReturnType<typeof vi.fn>;
+type StripeWindow = Window &
+  typeof globalThis & {
+    Stripe?: StripeMock;
+  };
+
 const { mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseRevalidator: vi.fn(),
@@ -63,7 +69,7 @@ vi.mock("react-router", async () => {
   };
 });
 
-import MarketplaceAccountPaymentRoute from "./account-payment";
+import MarketplaceAccountPaymentRoute from "@chase-sets/payments/routes/marketplace/account-payment";
 
 function buildOrder(overrides: Partial<OrderingOrderDetail> = {}): OrderingOrderDetail {
   return {
@@ -126,7 +132,7 @@ describe("marketplace account payment route", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    delete window.Stripe;
+    delete (window as StripeWindow).Stripe;
     document.head.innerHTML = "";
   });
 
@@ -200,7 +206,7 @@ describe("marketplace account payment route", () => {
       orders: [buildOrder()],
     });
 
-    window.Stripe = vi.fn(() => ({
+    (window as StripeWindow).Stripe = vi.fn(() => ({
       elements: vi.fn(() => ({
         create: vi.fn(() => paymentElement),
       })),

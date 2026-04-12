@@ -26,9 +26,9 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("@chase-sets/auth-runtime", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/auth-runtime")>(
-    "@chase-sets/auth-runtime",
+vi.mock("@chase-sets/platform-runtime/auth", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(
+    "@chase-sets/platform-runtime/auth",
   );
 
   return {
@@ -40,7 +40,7 @@ vi.mock("@chase-sets/auth-runtime", async () => {
 import MarketplaceAccountSaleReviewRoute, {
   action,
   loader,
-} from "./account-sale-review";
+} from "@chase-sets/reputation/routes/marketplace/account-sale-review";
 
 const opportunity = {
   order_id: "ord_1",

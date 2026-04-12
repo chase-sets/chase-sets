@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { identityAdminAuthHostConfig } from "../../host-config";
-import { createAuthRequestApiClient } from "../../server";
+import { createAuthRequestApiClient } from "../../request-support/api-client";
 import type { Session } from "../../sessions/ui/contracts";
 import { SessionDetailPage } from "../../sessions/ui/session-detail-page";
 

@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { marketplaceAuthHost } from "../../../bounded-contexts/auth/host-config";
+import { defineAuthHost } from "@chase-sets/auth/server";
+import { marketplaceAuthHostConfig } from "@chase-sets/auth/host-config";
 
 describe("marketplace auth host", () => {
+  const marketplaceAuthHost = defineAuthHost(marketplaceAuthHostConfig);
+  const signedInMembership = {
+    membershipId: "mem_1",
+    accountId: "acc_1",
+    roleKey: "seller",
+    status: "active",
+    rolePermissions: ["accounts.view"],
+  } as const;
+
   it("redirects to the safe return target and sets a secure session cookie", () => {
     const response = marketplaceAuthHost.completeAuthentication(
       new Request("https://marketplace.test/sign-in?returnTo=/orders"),
@@ -20,7 +30,7 @@ describe("marketplace auth host", () => {
           expires_at: new Date(Date.now() + 60_000).toISOString(),
           updated_at: new Date().toISOString(),
         },
-        memberships: [{ accountId: "acc_1" }],
+        memberships: [signedInMembership],
       },
     );
 
@@ -39,8 +49,12 @@ describe("marketplace auth host", () => {
         selectionToken: "selection_token",
         selectionExpiresAt: new Date(Date.now() + 60_000).toISOString(),
         memberships: [
-          { accountId: "acc_1" },
-          { accountId: "acc_2" },
+          signedInMembership,
+          {
+            ...signedInMembership,
+            membershipId: "mem_2",
+            accountId: "acc_2",
+          },
         ],
       },
     );

@@ -15,6 +15,7 @@
   ],
   "publicExports": [
     ".",
+    "./context",
     "./routes/*",
     "./seed-support/*",
     "./server"
@@ -85,7 +86,7 @@
   ],
   "hostPorts": [],
   "apiDeployables": [
-    "marketplace-api"
+    "platform-api"
   ],
   "apiMounts": [
     {
@@ -97,7 +98,7 @@
   ],
   "deployableContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "routes": [
         {
           "routeId": "account-fulfillment",
@@ -132,7 +133,7 @@
   ],
   "shellContributions": [
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "shipments",
       "label": "Shipments",
@@ -145,7 +146,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "fulfillment",
       "label": "Fulfillment",
@@ -159,7 +160,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "shipments",
       "label": "Shipments",
@@ -172,7 +173,7 @@
       ]
     },
     {
-      "deployable": "marketplace",
+      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "fulfillment",
       "label": "Fulfillment",
@@ -229,4 +230,3 @@
     }
   }
 }
-

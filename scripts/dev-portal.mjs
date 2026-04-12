@@ -10,9 +10,9 @@ const services = [
     category: "frontend",
   },
   {
-    name: "Catalog Admin",
+    name: "Admin Web",
     url: "http://localhost:6172",
-    description: "Manage sets, cards, and catalog data",
+    description: "Unified catalog and identity administration workspace",
     category: "frontend",
   },
   {
@@ -22,43 +22,25 @@ const services = [
     category: "frontend",
   },
   {
-    name: "Identity Admin",
-    url: "http://localhost:6174",
-    description: "Manage users, roles, and permissions",
-    category: "frontend",
-  },
-  {
-    name: "Catalog API",
-    url: "http://localhost:6180",
-    description: "Catalog authoring and query endpoints",
-    category: "api",
-  },
-  {
-    name: "Identity API",
-    url: "http://localhost:6181",
-    description: "Authentication and authorization endpoints",
-    category: "api",
-  },
-  {
-    name: "Marketplace API",
+    name: "Platform API",
     url: "http://localhost:6182",
-    description: "Discovery, listings, and transaction endpoints",
+    description: "Unified API host composed from the active bounded contexts",
     category: "api",
   },
 ];
 
 function renderPage() {
-  const frontends = services.filter((s) => s.category === "frontend");
-  const apis = services.filter((s) => s.category === "api");
+  const frontends = services.filter((service) => service.category === "frontend");
+  const apis = services.filter((service) => service.category === "api");
 
-  const renderCard = (s) => `
-    <a href="${s.url}" target="_blank" class="card">
+  const renderCard = (service) => `
+    <a href="${service.url}" target="_blank" class="card">
       <div class="card-header">
-        <span class="card-name">${s.name}</span>
-        <span class="badge badge-${s.category}">${s.category}</span>
+        <span class="card-name">${service.name}</span>
+        <span class="badge badge-${service.category}">${service.category}</span>
       </div>
-      <p class="card-description">${s.description}</p>
-      <span class="card-url">${s.url}</span>
+      <p class="card-description">${service.description}</p>
+      <span class="card-url">${service.url}</span>
     </a>`;
 
   return `<!DOCTYPE html>
@@ -66,7 +48,7 @@ function renderPage() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Chase Sets — Dev Portal</title>
+  <title>Chase Sets - Dev Portal</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -219,21 +201,21 @@ function renderPage() {
     </header>
 
     <section class="section">
-      <h2 class="section-title">Applications</h2>
+      <h2 class="section-title">Web Deployables</h2>
       <div class="grid">
         ${frontends.map(renderCard).join("")}
       </div>
     </section>
 
     <section class="section">
-      <h2 class="section-title">APIs</h2>
+      <h2 class="section-title">API Deployables</h2>
       <div class="grid">
         ${apis.map(renderCard).join("")}
       </div>
     </section>
 
     <footer>
-      Start all services with <kbd>npm run dev</kbd> — stop with <kbd>Ctrl+C</kbd>
+      Start the full stack with <kbd>npm run dev</kbd> - stop with <kbd>Ctrl+C</kbd>
     </footer>
   </div>
 </body>

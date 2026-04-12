@@ -1,24 +1,25 @@
 {
-    "name":  "@chase-sets/discovery",
-    "version":  "0.1.0",
-    "private":  true,
-    "type":  "module",
-    "exports":  {
-                    ".":  "./index.ts",
-                    "./routes/*":  "./routes/*.tsx",
-                    "./server":  "./server.ts",
-                    "./web":  "./web.ts"
-                },
-    "types":  "./index.ts",
-    "dependencies":  {
-                         "@chase-sets/auth-runtime":  "0.1.0",
-                         "@chase-sets/bounded-context-module":  "0.1.0",
-                         "@chase-sets/design-system":  "0.1.0",
-                         "@chase-sets/event-core":  "0.1.0",
-                         "@chase-sets/event-core-postgres":  "0.1.0",
-                         "@chase-sets/marketplace":  "0.1.0",
-                         "@chase-sets/ordering":  "0.1.0",
-                         "@chase-sets/catalog":  "0.1.0",
-                         "@chase-sets/bounded-context-runtime":  "0.1.0"
-                     }
+  "name": "@chase-sets/discovery",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./context": "./context.json",
+    "./routes/*": "./routes/*.tsx",
+    "./server": "./server.ts",
+    "./web": "./web.ts"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/bounded-context-module": "0.1.0",
+    "@chase-sets/bounded-context-runtime": "0.1.0",
+    "@chase-sets/catalog": "0.1.0",
+    "@chase-sets/design-system": "0.1.0",
+    "@chase-sets/event-core": "0.1.0",
+    "@chase-sets/event-core-postgres": "0.1.0",
+    "@chase-sets/marketplace": "0.1.0",
+    "@chase-sets/ordering": "0.1.0",
+    "@chase-sets/platform-runtime": "0.1.0"
+  }
 }

@@ -4,11 +4,11 @@ import {
   requireActorFromAuthApi,
   resolveActorFromAuthApi,
   type ResolvedActor,
-} from "@chase-sets/auth-runtime";
+} from "@chase-sets/platform-runtime/auth";
 import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
-} from "@chase-sets/bounded-context-runtime/http";
+} from "@chase-sets/platform-runtime/http";
 import type { PermissionKey } from "./common";
 import {
   createIdentityApiClient,
@@ -16,7 +16,7 @@ import {
 } from "./request-support/api-client";
 import { hasPermission } from "./request-support/permissions";
 
-export type { ResolvedActor } from "@chase-sets/auth-runtime";
+export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
