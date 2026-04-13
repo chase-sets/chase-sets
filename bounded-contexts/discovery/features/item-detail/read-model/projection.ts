@@ -1,5 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { uniqueStrings } from "../../../support/item-support/unique-strings";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -160,10 +161,20 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
   }
 
   const fieldValues = asArray<FieldValue>(item.field_values);
-  const categoryIds = asStringArray(item.category_ids);
+  const rawCategoryIds = asStringArray(item.category_ids);
+  const categoryIds = uniqueStrings(rawCategoryIds);
   const tags = asStringArray(item.tags);
   const imageUrls = asStringArray(item.image_urls);
   const fieldIds = fieldValues.map((entry) => entry.fieldId);
+
+  if (categoryIds.length !== rawCategoryIds.length) {
+    await db.query(
+      `UPDATE discovery_item_detail_catalog_items
+       SET category_ids = $2
+       WHERE item_id = $1`,
+      [itemId, JSON.stringify(categoryIds)],
+    );
+  }
 
   const [fieldNames, categoryNames, blueprintNames] = await Promise.all([
     loadNameMap(
@@ -368,7 +379,10 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
 
       await db.query(
         `UPDATE discovery_item_detail_catalog_items
-         SET category_ids = category_ids || $2::jsonb,
+         SET category_ids = CASE
+               WHEN category_ids @> $2::jsonb THEN category_ids
+               ELSE category_ids || $2::jsonb
+             END,
              updated_at = $3
          WHERE item_id = $1`,
         [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
@@ -705,7 +719,6 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
   };
 }
-
 
 
 

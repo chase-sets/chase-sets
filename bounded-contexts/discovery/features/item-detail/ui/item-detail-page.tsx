@@ -24,6 +24,7 @@ import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
 } from "../../../support/client-support/contracts";
+import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 import { VersionSelector } from "./version-selector";
 import {
   createDiscoveryCatalogVersionDescriptor,
@@ -169,6 +170,10 @@ export function ItemDetailPage({
     versionSchema: data.version_schema,
     selection: selectedVersionSelection,
   }).catalogVersionKey;
+  const categories = [...new Map(
+    data.categories.map((category) => [category.categoryId, category] as const),
+  ).values()];
+  const tags = uniqueDisplayValues(data.tags);
   const visibleListings = data.market_listings.filter((listing) =>
     data.version_schema ? matchesSelectedVersion(listing, selections) : true,
   );
@@ -191,13 +196,13 @@ export function ItemDetailPage({
         }
       : null;
   const metadataItems = [
-    ...(data.tags.length > 0
+    ...(tags.length > 0
       ? [
           {
             key: "Tags",
             value: (
               <Inline gap={1}>
-                {data.tags.map((tag) => (
+                {tags.map((tag) => (
                   <Badge key={tag} tone="neutral">
                     {tag}
                   </Badge>
@@ -247,9 +252,9 @@ export function ItemDetailPage({
                         ) : null}
                       </div>
 
-                      {data.categories.length > 0 ? (
+                      {categories.length > 0 ? (
                         <Inline gap={2}>
-                          {data.categories.map((category) => (
+                          {categories.map((category) => (
                             <Badge key={category.categoryId} tone="accent">
                               {category.name}
                             </Badge>
@@ -450,4 +455,3 @@ export function ItemDetailPage({
     </Stagger>
   );
 }
-

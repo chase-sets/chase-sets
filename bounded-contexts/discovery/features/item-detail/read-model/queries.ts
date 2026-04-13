@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { uniqueStrings } from "../../../support/item-support/unique-strings";
 
 export type DiscoveryItemDetailRow = Readonly<{
   item_id: string;
@@ -45,6 +46,39 @@ type BaseDiscoveryItemDetailRow = Omit<
   DiscoveryItemDetailRow,
   "market_summary" | "market_listings"
 >;
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function normalizeCategoryRefs(value: unknown) {
+  const categoryMap = new Map<string, { categoryId: string; name: string }>();
+
+  for (const entry of asArray<unknown>(value)) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const categoryId = String((entry as { categoryId?: unknown }).categoryId ?? "");
+
+    if (!categoryId || categoryMap.has(categoryId)) {
+      continue;
+    }
+
+    categoryMap.set(categoryId, {
+      categoryId,
+      name: String((entry as { name?: unknown }).name ?? categoryId),
+    });
+  }
+
+  return [...categoryMap.values()];
+}
+
+function normalizeStringArray(value: unknown) {
+  return uniqueStrings(
+    asArray<unknown>(value).filter((entry): entry is string => typeof entry === "string"),
+  );
+}
 
 export async function getDiscoveryItemDetail(
   db: PgQueryable,
@@ -105,6 +139,9 @@ export async function getDiscoveryItemDetail(
 
   return {
     ...item,
+    categories: normalizeCategoryRefs(item.categories),
+    tags: normalizeStringArray(item.tags),
+    image_urls: normalizeStringArray(item.image_urls),
     market_summary: marketSummary,
     market_listings: listingsResult.rows.map((row) => ({
       ...row,
@@ -114,6 +151,5 @@ export async function getDiscoveryItemDetail(
     })),
   };
 }
-
 
 

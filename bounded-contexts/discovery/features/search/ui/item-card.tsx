@@ -8,6 +8,7 @@ import {
 import { Link } from "react-router";
 import { Badge } from "@chase-sets/design-system";
 import type { DiscoverySearchItem } from "../../../support/client-support/contracts";
+import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 
 export function ItemCard({
   item,
@@ -16,6 +17,9 @@ export function ItemCard({
   item: DiscoverySearchItem;
   href: string;
 }) {
+  const categoryNames = uniqueDisplayValues(item.category_names);
+  const tags = uniqueDisplayValues(item.tags).slice(0, 3);
+
   return (
     <Link to={href} className="block">
       <Card
@@ -42,16 +46,16 @@ export function ItemCard({
           {item.blueprint_name && (
             <Text size="sm" tone="secondary">{item.blueprint_name}</Text>
           )}
-          {item.category_names.length > 0 && (
+          {categoryNames.length > 0 && (
             <Inline gap={1}>
-              {item.category_names.map((name) => (
+              {categoryNames.map((name) => (
                 <Badge key={name} tone="accent">{name}</Badge>
               ))}
             </Inline>
           )}
-          {item.tags.length > 0 && (
+          {tags.length > 0 && (
             <Inline gap={1}>
-              {item.tags.slice(0, 3).map((tag) => (
+              {tags.map((tag) => (
                 <Badge key={tag} tone="neutral">{tag}</Badge>
               ))}
             </Inline>
