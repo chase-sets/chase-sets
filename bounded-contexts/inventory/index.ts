@@ -7,13 +7,13 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { InventoryServices } from "./services";
+import type { InventoryServices } from "./support/runtime-support/services";
 import { buildInventoryApi } from "./api";
-import { buildInventoryCatalogItemProjectionHandlers } from "./catalog-items/projection";
-import { InventoryDomainError } from "./common";
-import { createInventoryServices } from "./services";
-import { inventorySchemaSql } from "./schema";
-import { seedInventoryDatabase } from "./seed";
+import { buildInventoryCatalogItemProjectionHandlers } from "./features/records/integrations/catalog/projection";
+import { InventoryDomainError } from "./support/runtime-support/common";
+import { createInventoryServices } from "./support/runtime-support/services";
+import { inventorySchemaSql } from "./support/runtime-support/schema";
+import { seedInventoryDatabase } from "./support/runtime-support/seed";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

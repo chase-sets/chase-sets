@@ -1,14 +1,14 @@
 import { Hono } from "hono";
-import type { AuthServices } from "./services";
-import { registerAccountSelectionRoutes } from "./auth-api/account-selection-routes";
-import { registerInvitationRoutes } from "./auth-api/invitation-routes";
-import { registerMagicLinkRoutes } from "./auth-api/magic-link-routes";
-import { registerPasskeyRoutes } from "./auth-api/passkey-routes";
-import { registerPasswordRoutes } from "./auth-api/password-routes";
-import { registerRegistrationRoutes } from "./auth-api/register-routes";
-import { registerSessionApiRoutes } from "./auth-api/session-routes";
-export type { AuthApiEnv } from "./auth-api/support";
-import type { AuthApiEnv } from "./auth-api/support";
+import type { AuthServices } from "./support/runtime-support/services";
+import { registerAccountSelectionRoutes } from "./support/api-support/account-selection-routes";
+import { registerInvitationRoutes } from "./support/api-support/invitation-routes";
+import { registerMagicLinkRoutes } from "./support/api-support/magic-link-routes";
+import { registerPasskeyRoutes } from "./support/api-support/passkey-routes";
+import { registerPasswordRoutes } from "./support/api-support/password-routes";
+import { registerRegistrationRoutes } from "./support/api-support/register-routes";
+import { registerSessionApiRoutes } from "./support/api-support/session-routes";
+export type { AuthApiEnv } from "./support/api-support/support";
+import type { AuthApiEnv } from "./support/api-support/support";
 
 export function buildAuthApi(services: AuthServices) {
   const app = new Hono<AuthApiEnv>();

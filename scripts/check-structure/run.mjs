@@ -24,9 +24,10 @@ const allowedTopLevelDirectories = new Set([
   "packages",
   "scripts",
 ]);
-const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared", "support"]);
-const nonSupportSuffixDirectoryExceptions = new Set(["auth-api", "tests"]);
+const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared"]);
+const nonSupportSuffixDirectoryExceptions = new Set(["tests"]);
 const supportDirectoryNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-support$/;
+const forbiddenUmbrellaSliceNames = new Set(["authoring", "customer", "items"]);
 const supportLifecycleRequiredFields = ["justification", "createdFor", "sunsetWhen"];
 const intentPlaceholderGuardFields = ["purpose", "allowedWhen", "justification", "createdFor", "sunsetWhen"];
 const placeholderFieldTokens = new Set([
@@ -51,7 +52,6 @@ const crossCuttingRuntimeCompositionSupportDirectories = new Set([
 const legacyForbiddenPaths = [
   "bounded-contexts/catalog/authoring/package.json",
   "bounded-contexts/catalog/authoring/api",
-  "bounded-contexts/discovery/support",
   "contracts/dev-seeds",
   "contracts/event-core/postgres",
   "contracts/sellable-units",
@@ -104,6 +104,8 @@ const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const domainFacingImportHeuristic =
   /(?:^|\/)(?:domain|domains|query|queries|projection|projections|read-model|read-models|projector|projectors)(?:\/|$)/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
+const retiredIntegrationSurfaceImportPattern =
+  /["']@chase-sets\/[^/"'\s]+\/integration(?:\/[^"']*)?["']/;
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|seed-support(?:\/[^"']+)?)["']/;
 const boundedContextSurfaceFiles = new Set(["client.ts", "server.ts", "web.ts"]);
@@ -116,28 +118,16 @@ const canonicalBoundedContextRootFiles = new Set([
   "ids.ts",
   "index.ts",
   "package.json",
-  "schema.ts",
-  "seed.ts",
   "server.ts",
-  "services.ts",
   "web.ts",
 ]);
-const allowedTechnicalBoundedContextRootFiles = new Set([
-  "bootstrap-context.ts",
-  "catalog-events.ts",
-  "common.ts",
-  "constants.ts",
-  "fake-gateway.ts",
-  "host-config.ts",
-  "policies.ts",
-  "processor-gateway.ts",
-  "runtime-support.ts",
-  "runtime.ts",
-  "sellable-units.ts",
-  "stripe-gateway.ts",
-  "supply-resolver.ts",
-  "test-support.ts",
-  "versioning.ts",
+const allowedFeatureSubdirectories = new Set([
+  "api",
+  "domain",
+  "integrations",
+  "read-model",
+  "tests",
+  "ui",
 ]);
 const singleSliceSupportFileAllowlist = [
   // Temporary migration exceptions: remove entries once each file is relocated into its owning slice.
@@ -201,9 +191,29 @@ function recordClientSurfaceConsumer(packageName, relativeFile) {
 
 function classifyContextTopLevelSegment(context, relativePath) {
   const remainder = relativePath.slice(`${context.root}/`.length);
-  const [segment] = remainder.split("/");
+  const [segment, nestedSegment] = remainder.split("/");
   if (!segment) {
     return null;
+  }
+
+  if (
+    segment === "features" &&
+    nestedSegment &&
+    context.manifest.directoryIntent?.[nestedSegment]?.classification === "slice"
+  ) {
+    return { kind: "slice", name: nestedSegment };
+  }
+
+  if (
+    segment === "support" &&
+    nestedSegment &&
+    context.manifest.directoryIntent?.[nestedSegment]?.classification === "support"
+  ) {
+    return { kind: "support", name: nestedSegment };
+  }
+
+  if (segment === "routes") {
+    return { kind: "routes", name: "routes" };
   }
 
   const declaredIntent = context.manifest.directoryIntent?.[segment];
@@ -536,6 +546,15 @@ async function loadContextManifests() {
 
     if (!isStringArray(manifest.slices)) {
       addPathViolation(`${relativeRoot}/context.json`, "slices must be an array of strings");
+    } else {
+      for (const sliceName of manifest.slices) {
+        if (forbiddenUmbrellaSliceNames.has(sliceName)) {
+          addPathViolation(
+            `${relativeRoot}/context.json`,
+            `slice names must be concrete capabilities or journeys, not umbrella labels (${sliceName})`,
+          );
+        }
+      }
     }
 
     if (!isStringArray(manifest.allowedSupportDirectories)) {
@@ -564,7 +583,7 @@ async function loadContextManifests() {
         if (!hasSupportSuffix && !nonSupportSuffixDirectoryExceptions.has(supportDirectory)) {
           addPathViolation(
             `${relativeRoot}/context.json`,
-            `support directories must use *-support naming unless explicitly exempt (integration, tests): ${supportDirectory}`,
+            `support directories must use *-support naming unless explicitly exempt (tests): ${supportDirectory}`,
           );
         }
       }
@@ -828,9 +847,12 @@ function isFeatureModulePath(relativeFile) {
 function isAllowedServerSurfaceConsumer(relativeFile) {
   return (
     relativeFile.includes("/auth-api/") ||
+    relativeFile.includes("/support/api-support/") ||
     relativeFile.includes("/routes/") ||
     relativeFile.includes("/request-support/") ||
+    relativeFile.includes("/support/request-support/") ||
     relativeFile.includes("/route-support/") ||
+    relativeFile.includes("/support/route-support/") ||
     relativeFile.endsWith("/api.ts")
   );
 }
@@ -1305,11 +1327,7 @@ async function validateContextManifest(context) {
     }
   }
 
-  const expectedTopLevelDirectories = new Set([
-    ...manifest.slices,
-    ...manifest.allowedSupportDirectories,
-    "routes",
-  ]);
+  const expectedTopLevelDirectories = new Set(["features", "support", "routes", "tests"]);
   const declaredDirectoryIntent = manifest.directoryIntent ?? {};
   const declaredDirectoryIntentNames = new Set(Object.keys(declaredDirectoryIntent));
 
@@ -1342,6 +1360,20 @@ async function validateContextManifest(context) {
       .filter((entry) => entry.isDirectory() && !ignoredDirectories.has(entry.name))
       .map((entry) => entry.name),
   );
+  const featureDirectories = new Set(
+    (
+      await readdir(path.join(rootAbs, "features"), { withFileTypes: true }).catch(() => [])
+    )
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name),
+  );
+  const supportDirectories = new Set(
+    (
+      await readdir(path.join(rootAbs, "support"), { withFileTypes: true }).catch(() => [])
+    )
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name),
+  );
   const allowedSupportDirectories = manifest.allowedSupportDirectories ?? [];
   const plannedSupportDirectories = new Set(manifest.plannedSupportDirectories ?? []);
 
@@ -1359,7 +1391,7 @@ async function validateContextManifest(context) {
       addPathViolation(`${root}/context.json`, "routes is implicit and must not be declared in allowedSupportDirectories");
     }
 
-    if (topLevelDirectories.has(supportDirectory)) {
+    if (supportDirectories.has(supportDirectory)) {
       continue;
     }
 
@@ -1382,6 +1414,13 @@ async function validateContextManifest(context) {
       addPathViolation(
         `${root}/context.json`,
         `directoryIntent classification for ${sliceDirectory} must be slice`,
+      );
+    }
+
+    if (!featureDirectories.has(sliceDirectory)) {
+      addPathViolation(
+        `${root}/context.json`,
+        `declared slice directory must exist under features/ (${sliceDirectory})`,
       );
     }
   }
@@ -1415,10 +1454,10 @@ async function validateContextManifest(context) {
 
     const expectedConsumers = Array.isArray(intent.expectedConsumers) ? intent.expectedConsumers : [];
     const taggedAsCrossCuttingRuntimeComposition = intent.crossCuttingRuntimeComposition === true;
-    if (expectedConsumers.length < 2 && !taggedAsCrossCuttingRuntimeComposition) {
+    if (expectedConsumers.length < 1 && !taggedAsCrossCuttingRuntimeComposition) {
       addPathViolation(
         supportIntentFieldPath("expectedConsumers"),
-        "must include at least two slices unless crossCuttingRuntimeComposition is true",
+        "must include at least one expected consumer unless crossCuttingRuntimeComposition is true",
       );
     }
 
@@ -1465,6 +1504,48 @@ async function validateContextManifest(context) {
     }
   }
 
+  for (const featureDirectory of featureDirectories) {
+    if (!(manifest.slices ?? []).includes(featureDirectory)) {
+      addPathViolation(
+        `${root}/features/${featureDirectory}`,
+        "feature directory must map to a declared slice",
+      );
+    }
+
+    const featureEntries = await readdir(path.join(rootAbs, "features", featureDirectory), {
+      withFileTypes: true,
+    }).catch(() => []);
+
+    for (const entry of featureEntries) {
+      if (entry.isDirectory() && ignoredDirectories.has(entry.name)) {
+        continue;
+      }
+
+      if (entry.isDirectory() && !allowedFeatureSubdirectories.has(entry.name)) {
+        addPathViolation(
+          `${root}/features/${featureDirectory}/${entry.name}`,
+          "feature subdirectories must be domain, read-model, api, ui, integrations, or tests",
+        );
+      }
+
+      if (entry.isFile()) {
+        addPathViolation(
+          `${root}/features/${featureDirectory}/${entry.name}`,
+          "feature roots must not contain loose files; place code under domain, read-model, api, ui, integrations, or tests",
+        );
+      }
+    }
+  }
+
+  for (const supportDirectory of supportDirectories) {
+    if (!allowedSupportDirectories.includes(supportDirectory)) {
+      addPathViolation(
+        `${root}/support/${supportDirectory}`,
+        "support directory must map to an allowed support directory",
+      );
+    }
+  }
+
   for (const entry of rootEntries) {
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) {
       continue;
@@ -1484,38 +1565,29 @@ async function validateContextManifest(context) {
     if (entry.isDirectory() && !expectedTopLevelDirectories.has(entry.name)) {
       addPathViolation(
         `${root}/${entry.name}`,
-        "top-level bounded-context directory must be a declared slice, routes, or an explicitly allowed support directory",
+        "top-level bounded-context directory must be one of features, support, routes, or tests",
       );
     }
 
-    if (entry.isDirectory()) {
-      const intent = declaredDirectoryIntent[entry.name];
-      if (!intent) {
-        addPathViolation(
-          `${root}/${entry.name}`,
-          "top-level bounded-context directory must declare directoryIntent metadata",
-        );
-      } else if (!isValidDirectoryClassification(intent.classification)) {
-        addPathViolation(
-          `${root}/${entry.name}`,
-          "top-level bounded-context directory classification must be slice, support, or routes",
-        );
-      }
+    if (entry.isDirectory() && entry.name === "features" && (manifest.slices ?? []).length > 0 && featureDirectories.size === 0) {
+      addPathViolation(
+        `${root}/features`,
+        "contexts with declared slices must store them under the features/ bucket",
+      );
+    }
+
+    if (entry.isDirectory() && entry.name === "support" && allowedSupportDirectories.length > 0 && supportDirectories.size === 0) {
+      addPathViolation(
+        `${root}/support`,
+        "contexts with declared support directories must store them under the support/ bucket",
+      );
     }
 
     if (!entry.isFile()) {
       continue;
     }
 
-    const allowedByName =
-      canonicalBoundedContextRootFiles.has(entry.name) ||
-      allowedTechnicalBoundedContextRootFiles.has(entry.name);
-    const allowedByPattern =
-      /^.*\.test\.ts$/.test(entry.name) ||
-      /^vitest\.config\.mjs$/.test(entry.name) ||
-      /^tsconfig\.json$/.test(entry.name);
-
-    if (!allowedByName && !allowedByPattern) {
+    if (!canonicalBoundedContextRootFiles.has(entry.name)) {
       addPathViolation(
         `${root}/${entry.name}`,
         "implemented bounded-context roots must keep top-level files canonical and avoid ad hoc helper files",
@@ -1524,10 +1596,19 @@ async function validateContextManifest(context) {
   }
 
   for (const directoryName of declaredDirectoryIntentNames) {
-    if (!topLevelDirectories.has(directoryName) && directoryName !== "routes") {
+    const intent = declaredDirectoryIntent[directoryName];
+    const existsForIntent =
+      directoryName === "routes"
+        ? topLevelDirectories.has("routes") || directoryName === "routes"
+        : intent?.classification === "slice"
+          ? featureDirectories.has(directoryName)
+          : intent?.classification === "support"
+            ? supportDirectories.has(directoryName)
+            : topLevelDirectories.has(directoryName);
+    if (!existsForIntent && directoryName !== "routes") {
       addPathViolation(
         `${root}/context.json`,
-        `directoryIntent entry must map to an existing top-level directory (${directoryName})`,
+        `directoryIntent entry must map to an existing bucketed directory (${directoryName})`,
       );
     }
   }
@@ -2245,10 +2326,7 @@ await runImportBoundaryValidation({
       );
     }
 
-    if (
-      normalizedFile.startsWith("bounded-contexts/") &&
-      path.basename(file) === "web.ts"
-    ) {
+    if (/^bounded-contexts\/[^/]+\/web\.ts$/.test(normalizedFile)) {
       const webSurfaceSpecifiers = extractImportSpecifiers(content).filter((specifier) =>
         specifier.startsWith("."),
       );
@@ -2256,6 +2334,7 @@ await runImportBoundaryValidation({
         !(
           specifier.startsWith("./shell") ||
           specifier.startsWith("./shell-support") ||
+          specifier.startsWith("./support/shell-support") ||
           specifier.startsWith("./browser") ||
           specifier.startsWith("./providers")
         ),
@@ -2309,14 +2388,14 @@ await runImportBoundaryValidation({
       normalizedFile.startsWith("deployables/") &&
       isApiDeployableFile(normalizedFile) &&
       normalizedFile.includes("/src/") &&
-      /@chase-sets\/[^/]+\/integration/.test(content)
+      retiredIntegrationSurfaceImportPattern.test(content)
     ) {
       addViolation(file, "API deployables must not import retired bounded-context integration surfaces");
     }
 
     if (
       normalizedFile.startsWith("bounded-contexts/") &&
-      /@chase-sets\/[^/]+\/integration/.test(content)
+      retiredIntegrationSurfaceImportPattern.test(content)
     ) {
       addViolation(
         file,

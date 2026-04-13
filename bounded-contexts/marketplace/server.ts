@@ -1,1 +1,1 @@
-export { createMarketplaceRequestApiClient } from "./request-support/api-client";
+export { createMarketplaceRequestApiClient } from "./support/request-support/api-client";

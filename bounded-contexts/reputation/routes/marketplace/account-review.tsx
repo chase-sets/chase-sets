@@ -5,9 +5,9 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   ReputationApiError,
   type ReputationReviewDetail,
-} from "../../request-support/api-client";
-import { createReputationRequestApiClient } from "../../request-support/api-client";
-import { ReputationReviewDetailPage } from "../../reviews/ui/review-detail-page";
+} from "../../support/request-support/api-client";
+import { createReputationRequestApiClient } from "../../support/request-support/api-client";
+import { ReputationReviewDetailPage } from "../../features/reviews/ui/review-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

@@ -1,6 +1,6 @@
 import { hc } from "hono/client";
 import type { buildPaymentsApi } from "./api";
-import type { PaymentsPaymentDetail } from "./payments/client/contracts";
+import type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
 
 type PaymentsApiApp = ReturnType<typeof buildPaymentsApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -72,5 +72,5 @@ export function createPaymentsApiClient({
   };
 }
 
-export type { PaymentsPaymentDetail } from "./payments/client/contracts";
+export type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
 export const paymentsApi = createPaymentsApiClient();

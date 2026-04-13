@@ -6,11 +6,11 @@ export type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
   PaymentProcessorWebhookEvent,
-} from "./processor-gateway";
-export { PaymentsDomainError } from "./common";
-export { createFakePaymentProcessorGateway } from "./fake-gateway";
-export { createStripePaymentProcessorGateway } from "./stripe-gateway";
-import { createPaymentsApiClient } from "./request-support/api-client";
+} from "./support/runtime-support/processor-gateway";
+export { PaymentsDomainError } from "./support/runtime-support/common";
+export { createFakePaymentProcessorGateway } from "./support/runtime-support/fake-gateway";
+export { createStripePaymentProcessorGateway } from "./support/runtime-support/stripe-gateway";
+import { createPaymentsApiClient } from "./support/request-support/api-client";
 
 export function createPaymentsRequestApiClient(request: Request) {
   return createPaymentsApiClient({

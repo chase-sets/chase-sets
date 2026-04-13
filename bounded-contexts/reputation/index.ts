@@ -7,16 +7,16 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { ReputationServices } from "./services";
+import type { ReputationServices } from "./support/runtime-support/services";
 import { buildReputationApi } from "./api";
-import { createReputationServices } from "./services";
-import { reputationSchemaSql } from "./schema";
-import { seedReputationDatabase } from "./seed";
+import { createReputationServices } from "./support/runtime-support/services";
+import { reputationSchemaSql } from "./support/runtime-support/schema";
+import { seedReputationDatabase } from "./support/runtime-support/seed";
 import {
   buildReputationAccountProjectionHandlers,
   buildReputationOrderProjectionHandlers,
   buildReputationShipmentProjectionHandlers,
-} from "./reviews/source-projection";
+} from "./features/reviews/integrations/source/source-projection";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

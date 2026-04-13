@@ -7,7 +7,7 @@
     ".": "./index.ts",
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
-    "./seed-support/*": "./seed-support/*.ts",
+    "./seed-support/*": "./support/seed-support/*.ts",
     "./server": "./server.ts"
   },
   "types": "./index.ts",

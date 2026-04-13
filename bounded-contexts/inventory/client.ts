@@ -1,21 +1,21 @@
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
-import type { InventoryCatalogItemSnapshot } from "./catalog-items/queries";
+import type { InventoryCatalogItemSnapshot } from "./features/records/integrations/catalog/queries";
 
-export type { InventoryCatalogItemSnapshot } from "./catalog-items/queries";
+export type { InventoryCatalogItemSnapshot } from "./features/records/integrations/catalog/queries";
 export type {
   InventoryRecordDetail,
   InventoryRecordListItem,
   InventoryHold,
-} from "./records/client/contracts";
-export type { InventoryStorageLocation } from "./storage-locations/client/contracts";
+} from "./features/records/api/contracts";
+export type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 
 import type {
   InventoryRecordDetail,
   InventoryRecordListItem,
-} from "./records/client/contracts";
-import type { InventoryStorageLocation } from "./storage-locations/client/contracts";
+} from "./features/records/api/contracts";
+import type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 
 type InventoryApiApp = ReturnType<typeof buildInventoryApi>;
 

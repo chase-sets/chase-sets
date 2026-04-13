@@ -18,10 +18,10 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
-} from "../request-support/api-client";
+} from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
-import { ItemDetailPage } from "../items/detail/item-detail-page";
+import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.";

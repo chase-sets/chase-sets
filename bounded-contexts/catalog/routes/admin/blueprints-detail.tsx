@@ -3,8 +3,8 @@ import { useLoaderData } from "react-router";
 import {
   type BlueprintDetail,
 } from "../../client";
-import { BlueprintDetailPage } from "../../authoring/blueprints/ui/blueprint-detail-page";
-import { createCatalogRequestApiClient } from "../../request-support/api-client";
+import { BlueprintDetailPage } from "../../features/blueprints/ui/blueprint-detail-page";
+import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);

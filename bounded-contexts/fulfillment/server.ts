@@ -1,1 +1,1 @@
-export { createFulfillmentRequestApiClient } from "./request-support/api-client";
+export { createFulfillmentRequestApiClient } from "./support/request-support/api-client";

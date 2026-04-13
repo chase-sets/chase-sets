@@ -1,1 +1,1 @@
-export { createCatalogRequestApiClient } from "./request-support/api-client";
+export { createCatalogRequestApiClient } from "./support/request-support/api-client";

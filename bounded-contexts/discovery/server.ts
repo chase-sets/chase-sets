@@ -1,1 +1,1 @@
-export { createDiscoveryRequestApiClient } from "./request-support/api-client";
+export { createDiscoveryRequestApiClient } from "./support/request-support/api-client";

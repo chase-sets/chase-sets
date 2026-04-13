@@ -59,7 +59,7 @@ That means:
 
 ## Feature vs Composition
 
-- **Feature code stays in Auth slices.** Authentication behavior, domain rules, query code, and projections live in Auth-owned slice modules.
+- **Feature code stays in Auth slices.** Authentication behavior, domain rules, query code, and projections live in Auth-owned feature slices under `bounded-contexts/auth/features/`.
 - **`routes/` is adapter-only.** `bounded-contexts/auth/routes/` should only host deployable adapter modules that bind route exports to slice-local features.
-- **`shell-support/` is composition-only.** Keep shell composition and host layout helpers in `bounded-contexts/auth/shell-support/`; do not place feature domain/query/projection code there.
+- **`support/` is composition-only.** Keep API composition, request helpers, and shared journey UI under `bounded-contexts/auth/support/*-support/`; do not place feature domain/query/projection code there.
 - **Deployables remain thin roots.** Deployables should resolve Auth route and shell contributions through `@chase-sets/platform-runtime`, then delegate to Auth-owned route modules.

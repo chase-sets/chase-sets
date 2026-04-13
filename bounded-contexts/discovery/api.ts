@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import type { DiscoveryServices } from "./services";
-import { discoveryCategoryRoutes } from "./categories/route";
-import { discoveryItemRoutes } from "./items/route";
+import type { DiscoveryServices } from "./support/runtime-support/services";
+import { discoveryCategoryRoutes } from "./features/categories/api/route";
+import { discoveryItemRoutes } from "./support/item-support/route";
 
 export function buildDiscoveryApi(services: DiscoveryServices) {
   const app = new Hono();

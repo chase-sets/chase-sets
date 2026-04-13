@@ -7,18 +7,18 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { OrderingServices } from "./services";
-import { buildOrderingAccountProjectionHandlers } from "./accounts/projection";
+import type { OrderingServices } from "./support/runtime-support/services";
+import { buildOrderingAccountProjectionHandlers } from "./support/account-support/projection";
 import { buildOrderingApi } from "./api";
-import { buildOrderingCatalogProjectionHandlers } from "./cart/catalog-projection";
-import { hasOrderForSource } from "./orders/queries";
+import { buildOrderingCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
+import { hasOrderForSource } from "./features/orders/read-model/queries";
 import {
   buildOrderingInventorySupplyProjectionHandlers,
   buildOrderingMarketplaceSupplyProjectionHandlers,
-} from "./orders/supply-projection";
-import { createOrderingServices } from "./services";
-import { orderingSchemaSql } from "./schema";
-import { seedOrderingDatabase } from "./seed";
+} from "./features/orders/integrations/supply/supply-projection";
+import { createOrderingServices } from "./support/runtime-support/services";
+import { orderingSchemaSql } from "./support/runtime-support/schema";
+import { seedOrderingDatabase } from "./support/runtime-support/seed";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

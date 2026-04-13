@@ -51,9 +51,9 @@ Discovery terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Structure Notes
 
-- `items/detail` and `items/search` keep their own slice-local runtime, projection, schema, query, route, and UI files.
+- `features/item-detail` and `features/search` keep their own slice-local runtime, projection, schema, query, route, and UI files.
 - Shared item-page client helpers stay inside Discovery because they are discovery-owned browse behavior, not shared infrastructure.
-- Context-local reusable code should use purpose-specific names such as `client-support` rather than generic `shared` or `support`.
+- Context-local reusable code should live under `support/*-support/` with purpose-specific names such as `client-support`, `item-support`, or `market-support`.
 
 ## Open Extraction Candidates
 

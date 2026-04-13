@@ -6,9 +6,9 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type ReputationReviewListItem,
-} from "../../request-support/api-client";
-import { createReputationRequestApiClient } from "../../request-support/api-client";
-import { ReputationReviewListPage } from "../../reviews/ui/review-list-page";
+} from "../../support/request-support/api-client";
+import { createReputationRequestApiClient } from "../../support/request-support/api-client";
+import { ReputationReviewListPage } from "../../features/reviews/ui/review-list-page";
 
 const DEFAULT_REVIEW_QUERY = "limit=100&offset=0";
 

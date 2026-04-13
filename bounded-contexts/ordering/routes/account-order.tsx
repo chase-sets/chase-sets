@@ -11,12 +11,12 @@ import {
   createOrderingRequestApiClient,
   OrderingApiError,
   type OrderingOrderDetail,
-} from "../request-support/api-client";
+} from "../support/request-support/api-client";
 import {
   createReputationRequestApiClient,
   type ReputationReviewOpportunity,
 } from "@chase-sets/reputation/server";
-import { OrderingOrderDetailPage } from "../orders/ui/order-detail-page";
+import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Inspect a buyer order, cancel it while still open, and see review readiness.";

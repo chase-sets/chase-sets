@@ -1,8 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import type { ApiKey } from "../../request-support/api-client";
-import { ApiKeyDetailPage } from "../../api-keys/ui/api-key-detail-page";
-import { createIdentityRequestApiClient } from "../../route-support/identity-request";
+import type { ApiKey } from "../../support/request-support/api-client";
+import { ApiKeyDetailPage } from "../../features/api-keys/ui/api-key-detail-page";
+import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);

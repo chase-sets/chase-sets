@@ -9,12 +9,12 @@ import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
-import type { PermissionKey } from "./common";
+import type { PermissionKey } from "./support/runtime-support/common";
 import {
   createIdentityApiClient,
   IdentityApiError,
-} from "./request-support/api-client";
-import { hasPermission } from "./request-support/permissions";
+} from "./support/request-support/api-client";
+import { hasPermission } from "./support/request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 

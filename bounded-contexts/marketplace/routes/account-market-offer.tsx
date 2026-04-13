@@ -10,8 +10,8 @@ import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type MarketplaceSellerOfferDetail,
-} from "../request-support/api-client";
-import { MarketplaceSellerOfferDetailPage } from "../offers/ui/seller-offer-detail-page";
+} from "../support/request-support/api-client";
+import { MarketplaceSellerOfferDetailPage } from "../features/offers/ui/seller-offer-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Inspect and accept an incoming market offer.";

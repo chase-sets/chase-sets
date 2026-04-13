@@ -1,10 +1,10 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { identityAdminAuthHostConfig } from "../../host-config";
-import { createAuthRequestApiClient } from "../../request-support/api-client";
-import type { Session } from "../../sessions/ui/contracts";
-import { SessionListPage } from "../../sessions/ui/session-list-page";
+import { identityAdminAuthHostConfig } from "../../support/route-support/host-config";
+import { createAuthRequestApiClient } from "../../support/request-support/api-client";
+import type { Session } from "../../features/sessions/ui/contracts";
+import { SessionListPage } from "../../features/sessions/ui/session-list-page";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createAuthRequestApiClient(request);

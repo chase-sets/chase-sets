@@ -11,6 +11,7 @@
   ],
   "allowedSupportDirectories": [
     "request-support",
+    "runtime-support",
     "seed-support"
   ],
   "publicExports": [
@@ -198,27 +199,40 @@
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide reusable request-support assets shared by multiple fulfillment slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "purpose": "Provide reusable request-support assets shared by fulfillment-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "Multiple fulfillment slices",
         "Deployable composition for fulfillment"
       ],
-      "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice fulfillment workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "request-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "fulfillment workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide reusable runtime-support assets shared by fulfillment-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "shipments"
+      ],
+      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "fulfillment workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide reusable seed-support assets shared by multiple fulfillment slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "purpose": "Provide reusable seed-support assets shared by fulfillment-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "Multiple fulfillment slices",
         "Deployable composition for fulfillment"
       ],
-      "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice fulfillment workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "fulfillment workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",

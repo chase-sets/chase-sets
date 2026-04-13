@@ -4,8 +4,8 @@ import {
   type Blueprint,
 } from "../../client";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { BlueprintListPage } from "../../authoring/blueprints/ui/blueprint-list-page";
-import { createCatalogRequestApiClient } from "../../request-support/api-client";
+import { BlueprintListPage } from "../../features/blueprints/ui/blueprint-list-page";
+import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 
 const DEFAULT_LIST_QUERY = "limit=50&offset=0";
 

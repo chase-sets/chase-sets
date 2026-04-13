@@ -75,9 +75,9 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 
 ## Feature vs Composition
 
-- **Feature code stays in slices.** Domain behavior, queries, and projections belong in Identity-owned slices (for example `admin/` and `account/` modules), not in composition folders.
+- **Feature code stays in slices.** Domain behavior, queries, and projections belong in Identity-owned feature slices under `bounded-contexts/identity/features/`, not in composition folders.
 - **`routes/` is adapter-only.** Files under `bounded-contexts/identity/routes/` should stay thin route adapters that wire deployable contracts to slice-owned feature modules.
-- **`shell-support/` is composition-only.** Keep shell layout, shell navigation, and host-facing shell helpers in `bounded-contexts/identity/shell-support/`; do not place feature domain/query/projection logic there.
+- **`support/` is composition-only.** Keep shell layout, request helpers, and host-facing composition modules in `bounded-contexts/identity/support/*-support/`; do not place feature domain/query/projection logic there.
 - **Deployables remain thin roots.** Deployables should resolve Identity route and shell contributions through `@chase-sets/platform-runtime`, which then mounts Identity-owned route modules.
 
 ## Open Extraction Candidates

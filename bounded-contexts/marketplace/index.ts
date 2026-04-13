@@ -11,12 +11,12 @@ import {
   buildMarketplaceAccountProjectionHandlers,
   buildMarketplaceCatalogProjectionHandlers,
   buildMarketplaceInventoryProjectionHandlers,
-} from "./listings/supply-projection";
-import type { MarketplaceServices } from "./services";
+} from "./features/listings/integrations/supply/supply-projection";
+import type { MarketplaceServices } from "./support/runtime-support/services";
 import { buildMarketplaceApi } from "./api";
-import { createMarketplaceServices } from "./services";
-import { marketplaceSchemaSql } from "./schema";
-import { seedMarketplaceDatabase } from "./seed";
+import { createMarketplaceServices } from "./support/runtime-support/services";
+import { marketplaceSchemaSql } from "./support/runtime-support/schema";
+import { seedMarketplaceDatabase } from "./support/runtime-support/seed";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

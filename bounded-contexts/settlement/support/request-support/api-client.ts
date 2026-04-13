@@ -1,0 +1,23 @@
+import {
+  createForwardedAuthFetch,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
+export {
+  createSettlementApiClient,
+  settlementApi,
+  SettlementApiError,
+} from "../../client";
+export type {
+  SettlementApiClientOptions,
+  SettlementLedgerEntryRow,
+  SettlementPayoutRow,
+  SettlementWalletRow,
+} from "../../client";
+import { createSettlementApiClient } from "../../client";
+
+export function createSettlementRequestApiClient(request: Request) {
+  return createSettlementApiClient({
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/settlement"),
+    fetch: createForwardedAuthFetch(request),
+  });
+}

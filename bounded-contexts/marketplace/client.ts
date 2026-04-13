@@ -8,26 +8,26 @@ export type {
   MarketplaceListingInventoryRecordOption,
   MarketplaceListingListItem,
   MarketplaceMarketSummary,
-} from "./listings/client/contracts";
+} from "./features/listings/api/contracts";
 export type {
   MarketplaceBuyerOfferDetail,
   MarketplaceOfferListItem,
   MarketplaceSellerOfferDetail,
   MarketplaceSellerOfferListItem,
-} from "./offers/client/contracts";
+} from "./features/offers/api/contracts";
 
 import type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
   MarketplaceListingListItem,
   MarketplaceMarketSummary,
-} from "./listings/client/contracts";
+} from "./features/listings/api/contracts";
 import type {
   MarketplaceBuyerOfferDetail,
   MarketplaceOfferListItem,
   MarketplaceSellerOfferDetail,
   MarketplaceSellerOfferListItem,
-} from "./offers/client/contracts";
+} from "./features/offers/api/contracts";
 
 type MarketplaceApiApp = ReturnType<typeof buildMarketplaceApi>;
 

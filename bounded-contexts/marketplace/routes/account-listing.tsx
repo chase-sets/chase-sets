@@ -10,8 +10,8 @@ import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type MarketplaceListingDetail,
-} from "../request-support/api-client";
-import { MarketplaceListingDetailPage } from "../listings/ui/listing-detail-page";
+} from "../support/request-support/api-client";
+import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Inspect listing inventory, pricing, quantity caps, and publication status.";

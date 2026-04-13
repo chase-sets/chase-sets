@@ -24,7 +24,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { createPaymentsRequestApiClient } from "../../request-support/api-client";
+import { createPaymentsRequestApiClient } from "../../support/request-support/api-client";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 
 function parseOrderIds(value: string | null) {

@@ -10,12 +10,16 @@
   "apiBasePath": "/api/marketplace",
   "slices": [
     "categories",
-    "items"
+    "item-detail",
+    "search"
   ],
   "allowedSupportDirectories": [
-    "shell-support",
+    "client-support",
+    "item-support",
+    "market-support",
     "request-support",
-    "tests"
+    "runtime-support",
+    "shell-support"
   ],
   "publicExports": [
     ".",
@@ -303,49 +307,94 @@
         "Internal discovery module composition"
       ]
     },
-    "items": {
+    "item-detail": {
       "classification": "slice",
-      "purpose": "Own items feature behavior, read models, and UI contracts for the discovery context.",
+      "purpose": "Own item-detail feature behavior, read models, and UI contracts for the discovery context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal discovery module composition"
       ]
     },
-    "shell-support": {
-      "classification": "support",
-      "purpose": "Provide reusable shell-support assets shared by multiple discovery slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+    "search": {
+      "classification": "slice",
+      "purpose": "Own search feature behavior, read models, and UI contracts for the discovery context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
-        "Multiple discovery slices",
-        "Deployable composition for discovery"
+        "Internal discovery module composition"
+      ]
+    },
+    "client-support": {
+      "classification": "support",
+      "purpose": "Provide reusable client-support assets shared by discovery-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "item-detail",
+        "search"
       ],
-      "justification": "shell-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice discovery workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "client-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "item-support": {
+      "classification": "support",
+      "purpose": "Provide reusable item-support assets shared by discovery-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "item-detail",
+        "search"
+      ],
+      "justification": "item-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "market-support": {
+      "classification": "support",
+      "purpose": "Provide reusable market-support assets shared by discovery-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "item-detail",
+        "search"
+      ],
+      "justification": "market-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide reusable request-support assets shared by multiple discovery slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "purpose": "Provide reusable request-support assets shared by discovery-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "Multiple discovery slices",
         "Deployable composition for discovery"
       ],
-      "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice discovery workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "request-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
     },
-    "tests": {
+    "runtime-support": {
       "classification": "support",
-      "purpose": "Provide reusable tests assets shared by multiple discovery slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "purpose": "Provide reusable runtime-support assets shared by discovery-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "Multiple discovery slices",
+        "categories",
+        "item-detail",
+        "search"
+      ],
+      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "shell-support": {
+      "classification": "support",
+      "purpose": "Provide reusable shell-support assets shared by discovery-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
         "Deployable composition for discovery"
       ],
-      "justification": "tests centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice discovery workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "shell-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "routes": {
       "classification": "routes",

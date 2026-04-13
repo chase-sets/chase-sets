@@ -1,8 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import type { Field } from "../../request-support/api-client";
-import { FieldDetailPage } from "../../authoring/fields/ui/field-detail-page";
-import { createCatalogRequestApiClient } from "../../request-support/api-client";
+import type { Field } from "../../support/request-support/api-client";
+import { FieldDetailPage } from "../../features/fields/ui/field-detail-page";
+import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);

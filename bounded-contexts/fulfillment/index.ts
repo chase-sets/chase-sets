@@ -7,15 +7,15 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { FulfillmentServices } from "./services";
+import type { FulfillmentServices } from "./support/runtime-support/services";
 import { buildFulfillmentApi } from "./api";
-import { createFulfillmentServices } from "./services";
-import { fulfillmentSchemaSql } from "./schema";
-import { seedFulfillmentDatabase } from "./seed";
+import { createFulfillmentServices } from "./support/runtime-support/services";
+import { fulfillmentSchemaSql } from "./support/runtime-support/schema";
+import { seedFulfillmentDatabase } from "./support/runtime-support/seed";
 import {
   buildFulfillmentAccountProjectionHandlers,
   buildFulfillmentOrderProjectionHandlers,
-} from "./shipments/source-projection";
+} from "./features/shipments/integrations/source/source-projection";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

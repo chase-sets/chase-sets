@@ -1,1 +1,1 @@
-export { IdentityAdminLayout } from "./shell-support";
+export { IdentityAdminLayout } from "./support/shell-support";

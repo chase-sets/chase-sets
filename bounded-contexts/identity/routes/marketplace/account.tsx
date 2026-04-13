@@ -1,10 +1,10 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromIdentityApi } from "../../route-support/identity-request";
-import type { Account } from "../../request-support/api-client";
-import { AccountProfilePage } from "../../customer/account-profile-page";
-import { createIdentityRequestApiClient } from "../../route-support/identity-request";
+import { requireActorFromIdentityApi } from "../../support/route-support/identity-request";
+import type { Account } from "../../support/request-support/api-client";
+import { AccountProfilePage } from "../../features/accounts/ui/account-profile-page";
+import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({

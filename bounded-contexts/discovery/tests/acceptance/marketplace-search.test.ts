@@ -17,8 +17,8 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildDiscoveryApi } from "../../api";
-import { rebuildDiscoverySearchIndex } from "../../items/search/projection";
-import { createDiscoveryServices } from "../../services";
+import { rebuildDiscoverySearchIndex } from "../../features/search/read-model/projection";
+import { createDiscoveryServices } from "../../support/runtime-support/services";
 import { module as discoveryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;

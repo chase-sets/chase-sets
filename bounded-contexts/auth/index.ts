@@ -12,11 +12,11 @@ import {
   buildAuthIdentityInvitationProjectionHandlers,
   buildAuthIdentityMembershipProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
-} from "./auth-support/identity-projection";
-import { authSchemaSql } from "./schema";
-import { seedAuthDatabase } from "./seed";
-import type { AuthServices } from "./services";
-import { createAuthServices } from "./services";
+} from "./support/auth-support/identity-projection";
+import { authSchemaSql } from "./support/runtime-support/schema";
+import { seedAuthDatabase } from "./support/runtime-support/seed";
+import type { AuthServices } from "./support/runtime-support/services";
+import { createAuthServices } from "./support/runtime-support/services";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

@@ -4,8 +4,8 @@ import {
   type Component,
 } from "../../client";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { ComponentListPage } from "../../authoring/components/ui/component-list-page";
-import { createCatalogRequestApiClient } from "../../request-support/api-client";
+import { ComponentListPage } from "../../features/components/ui/component-list-page";
+import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 
 const DEFAULT_LIST_QUERY = "limit=50&offset=0";
 

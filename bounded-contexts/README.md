@@ -63,7 +63,7 @@ Examples of bounded-context-owned data plumbing:
 - projection table naming
 - seed orchestration
 
-Inside a bounded context, avoid generic folder names such as `infrastructure`, `shared`, and `support`.
+Inside a bounded context, avoid generic feature folders such as `infrastructure`, `shared`, and ad hoc root-level helper directories.
 
 Prefer:
 
@@ -76,10 +76,13 @@ Bounded contexts should read as **feature-first** by default.
 
 Top-level directory intent:
 
-- `slices` entries in `context.json` are the default and must be feature slices.
-- Any non-feature top-level directory is an explicit exception and must be listed in `allowedSupportDirectories`.
-- Every implemented context must define `directoryIntent` in `context.json` for each root directory.
-- `directoryIntent` is the manifest-first contract that classifies each root directory as exactly one of:
+- Implemented contexts use explicit root buckets: `features/`, `support/`, `routes/`, and optional `tests/`.
+- Implemented context roots keep only canonical entrypoints and docs: `context.json`, `package.json`, `index.ts`, `api.ts`, `client.ts`, `server.ts`, `web.ts`, `README.md`, `GLOSSARY.md`, and `ids.ts` when the context owns typed IDs.
+- `slices` entries in `context.json` are logical feature slices and must resolve to `features/<slice>/`.
+- `allowedSupportDirectories` entries in `context.json` are logical support modules and must resolve to `support/<name>/`.
+- Feature roots are directory-only seams. Keep slice code under `api/`, `domain/`, `read-model/`, `ui/`, `integrations/`, and slice-local `tests/` when needed.
+- Every implemented context must define `directoryIntent` in `context.json` for each logical slice or support directory.
+- `directoryIntent` is the manifest-first contract that classifies each logical directory as exactly one of:
   - `slice` (feature),
   - `support` (exception),
   - `routes` (composition seam).
@@ -90,15 +93,15 @@ Top-level directory intent:
   - `justification`,
   - `createdFor`,
   - `sunsetWhen`.
-- Support-directory `expectedConsumers` must declare at least two slices, unless the directory is explicitly tagged as cross-cutting runtime composition (`crossCuttingRuntimeComposition: true`) for approved runtime composition folders such as `request-support` or `seed-support`.
+- Support-directory `expectedConsumers` must describe the slices or composition seams that really consume the support module.
 - Structure checks compare declared support-directory `expectedConsumers` with actual support file consumers and fail when they drift.
-- Structure checks fail when a root directory exists without `directoryIntent` metadata, including support directories listed in `allowedSupportDirectories`.
+- Structure checks fail when a declared slice is missing from `features/` or a declared support directory is missing from `support/`.
 
 Naming standard for support directories:
 
 - Keep reusable technical helpers in `*-support` folders (for example `request-support`, `route-support`, `shell-support`, `seed-support`, `projection-support`).
-- `tests` is the only non-`*-support` exception for acceptance or structure tests that span multiple slices.
-- Do not use ambiguous folders like `shell`, `helpers`, or `utils` at the bounded-context root.
+- `tests/` is the only non-`*-support` root bucket exception for acceptance or structure tests that span multiple slices.
+- Do not place ambiguous folders like `shell`, `helpers`, or `utils` directly at the bounded-context root; keep them under `features/` or `support/`.
 
 When structure shifts away from slice locality (for example shared route wiring or shell composition), encode the shift by creating or extending a purpose-specific `*-support` directory and declaring it in `allowedSupportDirectories`.
 

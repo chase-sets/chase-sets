@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import type { MarketplaceServices } from "./services";
+import type { MarketplaceServices } from "./support/runtime-support/services";
 import {
   createPublicListingRoutes,
   createSellerRoutes as createSellerListingRoutes,
-} from "./listings/route";
+} from "./features/listings/api/route";
 import {
   createBuyerOfferRoutes,
   createSellerOfferRoutes,
-} from "./offers/route";
+} from "./features/offers/api/route";
 
 export type MarketplaceApiEnv = AuthenticatedApiEnv;
 

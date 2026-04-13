@@ -7,12 +7,12 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { SettlementServices } from "./services";
+import type { SettlementServices } from "./support/runtime-support/services";
 import { buildSettlementApi } from "./api";
-import { createSettlementServices } from "./services";
-import { settlementSchemaSql } from "./schema";
-import { seedSettlementDatabase } from "./seed";
-import { buildSettlementPaymentInputProjectionHandlers } from "./wallets/payment-source-projection";
+import { createSettlementServices } from "./support/runtime-support/services";
+import { settlementSchemaSql } from "./support/runtime-support/schema";
+import { seedSettlementDatabase } from "./support/runtime-support/seed";
+import { buildSettlementPaymentInputProjectionHandlers } from "./features/wallets/integrations/payment-source/payment-source-projection";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

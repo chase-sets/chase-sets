@@ -7,14 +7,14 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { DiscoveryServices } from "./services";
+import type { DiscoveryServices } from "./support/runtime-support/services";
 import { buildDiscoveryApi } from "./api";
-import { buildDiscoveryCategoryProjectionHandlers } from "./categories/projection";
-import { buildDiscoveryItemDetailProjectionHandlers } from "./items/detail/projection";
-import { buildDiscoveryMarketProjectionHandlers } from "./items/market/projection";
-import { buildDiscoverySearchItemProjectionHandlers } from "./items/search/projection";
-import { createDiscoveryServices } from "./services";
-import { discoverySchemaSql } from "./schema";
+import { buildDiscoveryCategoryProjectionHandlers } from "./features/categories/read-model/projection";
+import { buildDiscoveryItemDetailProjectionHandlers } from "./features/item-detail/read-model/projection";
+import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support/projection";
+import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
+import { createDiscoveryServices } from "./support/runtime-support/services";
+import { discoverySchemaSql } from "./support/runtime-support/schema";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

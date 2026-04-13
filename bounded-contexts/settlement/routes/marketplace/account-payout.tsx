@@ -9,9 +9,9 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   SettlementApiError,
   type SettlementPayoutRow,
-} from "../../request-support/api-client";
-import { createSettlementRequestApiClient } from "../../request-support/api-client";
-import { SettlementPayoutDetailPage } from "../../payouts/ui/payout-detail-page";
+} from "../../support/request-support/api-client";
+import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
+import { SettlementPayoutDetailPage } from "../../features/payouts/ui/payout-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

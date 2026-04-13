@@ -5,9 +5,9 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type SettlementLedgerEntryRow,
   type SettlementWalletRow,
-} from "../../request-support/api-client";
-import { createSettlementRequestApiClient } from "../../request-support/api-client";
-import { SettlementWalletPage } from "../../wallets/ui/wallet-page";
+} from "../../support/request-support/api-client";
+import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
+import { SettlementWalletPage } from "../../features/wallets/ui/wallet-page";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({

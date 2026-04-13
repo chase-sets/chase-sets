@@ -12,14 +12,14 @@ import {
   MarketplaceApiError,
   type MarketplaceListingInventoryRecordOption,
   type MarketplaceListingListItem,
-} from "../request-support/api-client";
+} from "../support/request-support/api-client";
 import {
   createInventoryRequestApiClient,
   type InventoryRecordListItem,
 } from "@chase-sets/inventory/server";
 import {
   MarketplaceListingListPage,
-} from "../listings/ui/listing-list-page";
+} from "../features/listings/ui/listing-list-page";
 
 const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_RECORD_QUERY = "limit=100&offset=0";

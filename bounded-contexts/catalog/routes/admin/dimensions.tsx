@@ -4,8 +4,8 @@ import {
   type Dimension,
 } from "../../client";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { DimensionListPage } from "../../authoring/dimensions/ui/dimension-list-page";
-import { createCatalogRequestApiClient } from "../../request-support/api-client";
+import { DimensionListPage } from "../../features/dimensions/ui/dimension-list-page";
+import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 
 const DEFAULT_LIST_QUERY = "limit=50&offset=0";
 

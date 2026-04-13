@@ -3,8 +3,8 @@ import { useLoaderData } from "react-router";
 import {
   type ComponentDetail,
 } from "../../client";
-import { ComponentDetailPage } from "../../authoring/components/ui/component-detail-page";
-import { createCatalogRequestApiClient } from "../../request-support/api-client";
+import { ComponentDetailPage } from "../../features/components/ui/component-detail-page";
+import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);

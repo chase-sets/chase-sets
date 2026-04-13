@@ -1,0 +1,23 @@
+import {
+  createForwardedAuthFetch,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
+export {
+  createOrderingApiClient,
+  orderingApi,
+  OrderingApiError,
+} from "../../client";
+export type {
+  OrderingApiClientOptions,
+  OrderingCartLine,
+  OrderingOrderDetail,
+  OrderingOrderListItem,
+} from "../../client";
+import { createOrderingApiClient } from "../../client";
+
+export function createOrderingRequestApiClient(request: Request) {
+  return createOrderingApiClient({
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
+    fetch: createForwardedAuthFetch(request),
+  });
+}

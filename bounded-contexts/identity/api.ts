@@ -12,16 +12,16 @@ import type {
   UserId,
 } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { getApiKeySecretByPrefix, upsertApiKeySecret } from "./api-keys/secret-store";
-import type { PermissionKey, RoleKey } from "./common";
-import type { IdentityServices } from "./services";
-import { accountRoutes } from "./accounts/route";
-import { userRoutes } from "./users/route";
-import { membershipRoutes } from "./memberships/route";
-import { invitationRoutes } from "./invitations/route";
-import { apiKeyRoutes } from "./api-keys/route";
-import { consentRoutes } from "./consents/route";
-import { createIdentityBootstrapContext } from "./bootstrap-context";
+import { getApiKeySecretByPrefix, upsertApiKeySecret } from "./features/api-keys/api/secret-store";
+import type { PermissionKey, RoleKey } from "./support/runtime-support/common";
+import type { IdentityServices } from "./support/runtime-support/services";
+import { accountRoutes } from "./features/accounts/api/route";
+import { userRoutes } from "./features/users/api/route";
+import { membershipRoutes } from "./features/memberships/api/route";
+import { invitationRoutes } from "./features/invitations/api/route";
+import { apiKeyRoutes } from "./features/api-keys/api/route";
+import { consentRoutes } from "./features/consents/api/route";
+import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
 
 export type IdentityApiEnv = {
   Variables: {

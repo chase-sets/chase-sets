@@ -12,13 +12,13 @@
     "records",
     "holds",
     "reservations",
-    "storage-locations",
-    "catalog-items"
+    "storage-locations"
   ],
   "allowedSupportDirectories": [
+    "catalog-item-support",
     "request-support",
-    "seed-support",
-    "tests"
+    "runtime-support",
+    "seed-support"
   ],
   "publicExports": [
     ".",
@@ -190,7 +190,7 @@
     },
     "reservations": {
       "classification": "slice",
-      "purpose": "Own reservations feature behavior, read models, and workflow contracts for the inventory context.",
+      "purpose": "Own reservations feature behavior, read models, and UI contracts for the inventory context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal inventory module composition"
@@ -204,49 +204,56 @@
         "Internal inventory module composition"
       ]
     },
-    "catalog-items": {
-      "classification": "slice",
-      "purpose": "Own catalog-items feature behavior, read models, and UI contracts for the inventory context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+    "catalog-item-support": {
+      "classification": "support",
+      "purpose": "Provide reusable catalog-item-support assets shared by inventory-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "Internal inventory module composition"
-      ]
+        "records"
+      ],
+      "justification": "catalog-item-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "inventory workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide reusable request-support assets shared by multiple inventory slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "Multiple inventory slices",
         "Deployable composition for inventory"
       ],
-      "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice inventory workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "request-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "inventory workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide reusable runtime-support assets shared by inventory-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "holds",
+        "records",
+        "reservations",
+        "storage-locations"
+      ],
+      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "inventory workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide reusable seed-support assets shared by multiple inventory slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "purpose": "Provide reusable seed-support assets shared by inventory-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "Multiple inventory slices",
         "Deployable composition for inventory"
       ],
-      "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice inventory workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
-    },
-    "tests": {
-      "classification": "support",
-      "purpose": "Provide reusable tests assets shared by multiple inventory slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple inventory slices",
-        "Deployable composition for inventory"
-      ],
-      "justification": "tests centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice inventory workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "inventory workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",

@@ -4,8 +4,8 @@ import type { buildSettlementApi } from "./api";
 import type {
   SettlementLedgerEntryRow,
   SettlementWalletRow,
-} from "./wallets/queries";
-import type { SettlementPayoutRow } from "./payouts/queries";
+} from "./features/wallets/read-model/queries";
+import type { SettlementPayoutRow } from "./features/payouts/read-model/queries";
 
 type SettlementApiApp = ReturnType<typeof buildSettlementApi>;
 
@@ -125,6 +125,6 @@ export function createSettlementApiClient({
   };
 }
 
-export type { SettlementWalletRow, SettlementLedgerEntryRow } from "./wallets/queries";
-export type { SettlementPayoutRow } from "./payouts/queries";
+export type { SettlementWalletRow, SettlementLedgerEntryRow } from "./features/wallets/read-model/queries";
+export type { SettlementPayoutRow } from "./features/payouts/read-model/queries";
 export const settlementApi = createSettlementApiClient();

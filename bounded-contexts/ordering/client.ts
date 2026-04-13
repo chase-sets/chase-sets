@@ -2,19 +2,19 @@ import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildOrderingApi } from "./api";
 
-export type { OrderingCartLine } from "./cart/client/contracts";
+export type { OrderingCartLine } from "./features/cart/api/contracts";
 export type {
   OrderingOrderDetail,
   OrderingOrderHold,
   OrderingOrderLine,
   OrderingOrderListItem,
-} from "./orders/client/contracts";
+} from "./features/orders/api/contracts";
 
-import type { OrderingCartLine } from "./cart/client/contracts";
+import type { OrderingCartLine } from "./features/cart/api/contracts";
 import type {
   OrderingOrderDetail,
   OrderingOrderListItem,
-} from "./orders/client/contracts";
+} from "./features/orders/api/contracts";
 
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";

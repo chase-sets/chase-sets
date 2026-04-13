@@ -2,9 +2,9 @@ import type {
   MetaFunction,
 } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
-import { identityAdminAuthHostConfig } from "../../host-config";
-import { identityAdminAuthHost } from "../../route-support/auth-host.server";
-import { AccountSelectionPage } from "../../customer/account-selection-page";
+import { identityAdminAuthHostConfig } from "../../support/route-support/host-config";
+import { identityAdminAuthHost } from "../../support/route-support/auth-host.server";
+import { AccountSelectionPage } from "../../features/account-selection/ui/account-selection-page";
 
 export const meta: MetaFunction = () => [
   { title: identityAdminAuthHostConfig.titles.accountSelection },
@@ -25,3 +25,4 @@ export default function IdentityAdminAccountSelectionRoute() {
     />
   );
 }
+

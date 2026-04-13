@@ -21,8 +21,8 @@ import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { type InventoryApiEnv, buildInventoryApi } from "../../api";
-import { InventoryDomainError } from "../../common";
-import { createInventoryServices } from "../../services";
+import { InventoryDomainError } from "../../support/runtime-support/common";
+import { createInventoryServices } from "../../support/runtime-support/services";
 import { module as inventoryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;

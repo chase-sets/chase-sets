@@ -14,11 +14,11 @@ import {
   buildPricingInventoryInputProjectionHandlers,
   buildPricingMarketplaceInputProjectionHandlers,
   buildPricingOrderingInputProjectionHandlers,
-} from "./recommendations/source-projection";
-import { pricingSchemaSql } from "./schema";
-import { seedPricingDatabase } from "./seed";
-import type { PricingServices } from "./services";
-import { createPricingServices } from "./services";
+} from "./features/recommendations/integrations/source/source-projection";
+import { pricingSchemaSql } from "./support/runtime-support/schema";
+import { seedPricingDatabase } from "./support/runtime-support/seed";
+import type { PricingServices } from "./support/runtime-support/services";
+import { createPricingServices } from "./support/runtime-support/services";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];

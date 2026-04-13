@@ -2,11 +2,11 @@ export {
   IdentityApiError,
   createIdentityApiClient,
   identityApi,
-} from "./shell-support/api/client";
-export type { IdentityApiClientOptions } from "./shell-support/api/client";
-export type { Account } from "./accounts/client/contracts";
-export type { User } from "./users/client/contracts";
-export type { Membership } from "./memberships/client/contracts";
-export type { Invitation } from "./invitations/client/contracts";
-export type { ApiKey } from "./api-keys/client/contracts";
-export type { Consent } from "./consents/client/contracts";
+} from "./support/shell-support/api/client";
+export type { IdentityApiClientOptions } from "./support/shell-support/api/client";
+export type { Account } from "./features/accounts/api/contracts";
+export type { User } from "./features/users/api/contracts";
+export type { Membership } from "./features/memberships/api/contracts";
+export type { Invitation } from "./features/invitations/api/contracts";
+export type { ApiKey } from "./features/api-keys/api/contracts";
+export type { Consent } from "./features/consents/api/contracts";

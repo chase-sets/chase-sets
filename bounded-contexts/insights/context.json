@@ -14,7 +14,9 @@
   "slices": [
     "dashboards"
   ],
-  "allowedSupportDirectories": [],
+  "allowedSupportDirectories": [
+    "runtime-support"
+  ],
   "publicExports": [
     ".",
     "./context"
@@ -33,12 +35,22 @@
   "directoryIntent": {
     "dashboards": {
       "classification": "slice",
-      "purpose": "Ingest published integration events and materialize read-only KPI dashboards for consumers.",
-      "allowedWhen": "Always; dashboards is the initial projection slice for Insights.",
+      "purpose": "Own dashboards feature behavior, read models, and UI contracts for the insights context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
-        "Insights API composition",
-        "Dashboard UI consumers"
+        "Internal insights module composition"
       ]
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide reusable runtime-support assets shared by insights-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "Root insights composition"
+      ],
+      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "insights workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "routes": {
       "classification": "routes",

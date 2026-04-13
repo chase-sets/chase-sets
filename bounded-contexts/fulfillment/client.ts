@@ -7,12 +7,12 @@ export type {
   FulfillmentShipmentException,
   FulfillmentShipmentLine,
   FulfillmentShipmentListItem,
-} from "./shipments/client/contracts";
+} from "./features/shipments/api/contracts";
 
 import type {
   FulfillmentShipmentDetail,
   FulfillmentShipmentListItem,
-} from "./shipments/client/contracts";
+} from "./features/shipments/api/contracts";
 
 type FulfillmentApiApp = ReturnType<typeof buildFulfillmentApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";

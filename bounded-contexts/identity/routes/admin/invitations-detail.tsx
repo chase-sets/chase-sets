@@ -1,8 +1,8 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import type { Invitation } from "../../request-support/api-client";
-import { InvitationDetailPage } from "../../invitations/ui/invitation-detail-page";
-import { createIdentityRequestApiClient } from "../../route-support/identity-request";
+import type { Invitation } from "../../support/request-support/api-client";
+import { InvitationDetailPage } from "../../features/invitations/ui/invitation-detail-page";
+import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);

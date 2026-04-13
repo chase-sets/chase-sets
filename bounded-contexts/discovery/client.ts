@@ -3,21 +3,21 @@ import type { buildDiscoveryApi } from "./api";
 import type {
   CategoryListResponse,
   DiscoveryCategoryItem,
-} from "./categories/client/contracts";
+} from "./features/categories/api/contracts";
 
 export type {
   DiscoveryItemDetail,
   DiscoverySearchResponse,
-} from "./items/client-support/contracts";
+} from "./support/client-support/contracts";
 export type {
   CategoryListResponse,
   DiscoveryCategoryItem,
-} from "./categories/client/contracts";
+} from "./features/categories/api/contracts";
 
 import type {
   DiscoveryItemDetail,
   DiscoverySearchResponse,
-} from "./items/client-support/contracts";
+} from "./support/client-support/contracts";
 
 type DiscoveryApiApp = ReturnType<typeof buildDiscoveryApi>;
 

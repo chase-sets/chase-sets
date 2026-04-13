@@ -3,9 +3,9 @@ import type {
 } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { marketplaceAuthHostConfig } from "../../host-config";
-import { marketplaceAuthHost } from "../../route-support/auth-host.server";
-import { AccountSelectionPage } from "../../customer/account-selection-page";
+import { marketplaceAuthHostConfig } from "../../support/route-support/host-config";
+import { marketplaceAuthHost } from "../../support/route-support/auth-host.server";
+import { AccountSelectionPage } from "../../features/account-selection/ui/account-selection-page";
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
@@ -27,3 +27,4 @@ export default function MarketplaceAccountSelectionRoute() {
     />
   );
 }
+

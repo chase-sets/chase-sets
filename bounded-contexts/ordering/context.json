@@ -9,11 +9,12 @@
   "apiBasePath": "/api/marketplace",
   "slices": [
     "cart",
-    "orders",
-    "accounts"
+    "orders"
   ],
   "allowedSupportDirectories": [
+    "account-support",
     "request-support",
+    "runtime-support",
     "seed-support"
   ],
   "publicExports": [
@@ -380,37 +381,55 @@
         "Internal ordering module composition"
       ]
     },
-    "accounts": {
-      "classification": "slice",
-      "purpose": "Own accounts feature behavior, read models, and UI contracts for the ordering context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+    "account-support": {
+      "classification": "support",
+      "purpose": "Provide reusable account-support assets shared by ordering-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "Internal ordering module composition"
-      ]
+        "cart",
+        "orders"
+      ],
+      "justification": "account-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "ordering workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide reusable request-support assets shared by multiple ordering slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "purpose": "Provide reusable request-support assets shared by ordering-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "Multiple ordering slices",
         "Deployable composition for ordering"
       ],
-      "justification": "request-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice ordering workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "request-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "ordering workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide reusable runtime-support assets shared by ordering-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "cart",
+        "orders"
+      ],
+      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "ordering workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide reusable seed-support assets shared by multiple ordering slices.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one slice and cross-slice reuse is explicit.",
+      "purpose": "Provide reusable seed-support assets shared by ordering-owned features and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "Multiple ordering slices",
         "Deployable composition for ordering"
       ],
-      "justification": "seed-support centralizes reusable context-local composition that should not duplicate across slices.",
-      "createdFor": "Multi-slice ordering workflows that need shared runtime helpers.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into slice-local modules."
+      "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
+      "createdFor": "ordering workflows that span multiple features or public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",

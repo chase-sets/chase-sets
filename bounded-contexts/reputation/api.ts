@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import type { ReputationServices } from "./services";
+import type { ReputationServices } from "./support/runtime-support/services";
 import {
   createAccountReviewRoutes,
   createPublicReputationRoutes,
-} from "./reviews/route";
+} from "./features/reviews/api/route";
 
 export type ReputationApiEnv = AuthenticatedApiEnv;
 

@@ -1,1 +1,1 @@
-export * from "./route-support/auth-host";
+export * from "./support/route-support/auth-host";

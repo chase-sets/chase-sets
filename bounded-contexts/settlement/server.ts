@@ -1,1 +1,1 @@
-export { createSettlementRequestApiClient } from "./request-support/api-client";
+export { createSettlementRequestApiClient } from "./support/request-support/api-client";

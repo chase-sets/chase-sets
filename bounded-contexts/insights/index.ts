@@ -3,7 +3,7 @@ export { default as contextManifest } from "./context.json";
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import { createInsightsServices, type InsightsServices } from "./services";
+import { createInsightsServices, type InsightsServices } from "./support/runtime-support/services";
 
 export const module: BcApiModule<InsightsServices, PgTransactionalPool, void> = {
   contextName: "insights",

@@ -5,9 +5,9 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type FulfillmentShipmentListItem,
-} from "../../request-support/api-client";
-import { createFulfillmentRequestApiClient } from "../../request-support/api-client";
-import { FulfillmentShipmentListPage } from "../../shipments/ui/shipment-list-page";
+} from "../../support/request-support/api-client";
+import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
+import { FulfillmentShipmentListPage } from "../../features/shipments/ui/shipment-list-page";
 
 const DEFAULT_SHIPMENT_QUERY = "limit=100&offset=0";
 

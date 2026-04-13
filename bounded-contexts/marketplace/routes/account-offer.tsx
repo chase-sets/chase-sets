@@ -5,9 +5,9 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   MarketplaceApiError,
   type MarketplaceBuyerOfferDetail,
-} from "../request-support/api-client";
-import { createMarketplaceRequestApiClient } from "../request-support/api-client";
-import { MarketplaceBuyerOfferDetailPage } from "../offers/ui/buyer-offer-detail-page";
+} from "../support/request-support/api-client";
+import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
+import { MarketplaceBuyerOfferDetailPage } from "../features/offers/ui/buyer-offer-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Review pricing, demand, and status for one buyer offer.";

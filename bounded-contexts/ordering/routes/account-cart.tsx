@@ -6,8 +6,8 @@ import type {
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createOrderingRequestApiClient } from "../request-support/api-client";
-import { OrderingCartPage } from "../cart/ui/cart-page";
+import { createOrderingRequestApiClient } from "../support/request-support/api-client";
+import { OrderingCartPage } from "../features/cart/ui/cart-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Review cart lines, adjust quantity, and start checkout.";

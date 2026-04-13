@@ -1,1 +1,1 @@
-export { DiscoveryShellLayout } from "./shell-support";
+export { DiscoveryShellLayout } from "./support/shell-support";

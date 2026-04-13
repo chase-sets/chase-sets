@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { InventoryServices } from "./services";
-import { inventoryCatalogItemRoutes } from "./catalog-items/route";
-import { inventoryHoldRoutes } from "./holds/route";
-import { inventoryRecordRoutes } from "./records/route";
-import { inventoryStorageLocationRoutes } from "./storage-locations/route";
+import type { InventoryServices } from "./support/runtime-support/services";
+import { inventoryCatalogItemRoutes } from "./support/catalog-item-support/route";
+import { inventoryHoldRoutes } from "./features/holds/api/route";
+import { inventoryRecordRoutes } from "./features/records/api/route";
+import { inventoryStorageLocationRoutes } from "./features/storage-locations/api/route";
 
 export type InventoryActor = Readonly<{
   accountId: string;

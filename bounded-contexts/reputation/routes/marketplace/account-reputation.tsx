@@ -7,9 +7,9 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type ReputationAccountSummary,
   type ReputationReviewListItem,
-} from "../../request-support/api-client";
-import { createReputationRequestApiClient } from "../../request-support/api-client";
-import { ReputationAccountPage } from "../../reviews/ui/account-reputation-page";
+} from "../../support/request-support/api-client";
+import { createReputationRequestApiClient } from "../../support/request-support/api-client";
+import { ReputationAccountPage } from "../../features/reviews/ui/account-reputation-page";
 
 const DEFAULT_REVIEW_QUERY = "limit=10&offset=0";
 

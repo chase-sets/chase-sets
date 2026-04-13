@@ -5,9 +5,9 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type MarketplaceOfferListItem,
-} from "../request-support/api-client";
-import { createMarketplaceRequestApiClient } from "../request-support/api-client";
-import { MarketplaceBuyerOfferListPage } from "../offers/ui/buyer-offer-list-page";
+} from "../support/request-support/api-client";
+import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
+import { MarketplaceBuyerOfferListPage } from "../features/offers/ui/buyer-offer-list-page";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =

@@ -1,1 +1,1 @@
-export { CatalogAdminLayout } from "./shell-support/layout";
+export { CatalogAdminLayout } from "./support/shell-support/layout";

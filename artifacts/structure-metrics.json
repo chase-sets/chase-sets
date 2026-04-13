@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-04-12T20:05:38.303Z",
+  "generatedAt": "2026-04-12T22:31:20.929Z",
   "totals": {
     "contextCount": 13,
-    "sliceCount": 30,
-    "supportDirectoryCount": 31,
+    "sliceCount": 35,
+    "supportDirectoryCount": 52,
     "singleSliceSupportFiles": 0,
     "driftCount": 0
   },
@@ -11,24 +11,24 @@
     {
       "contextRoot": "bounded-contexts/auth",
       "contextName": "auth",
-      "sliceCount": 2,
-      "supportDirectoryCount": 5,
+      "sliceCount": 4,
+      "supportDirectoryCount": 7,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
     {
       "contextRoot": "bounded-contexts/catalog",
       "contextName": "catalog",
-      "sliceCount": 1,
-      "supportDirectoryCount": 2,
+      "sliceCount": 6,
+      "supportDirectoryCount": 7,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
     {
       "contextRoot": "bounded-contexts/discovery",
       "contextName": "discovery",
-      "sliceCount": 2,
-      "supportDirectoryCount": 3,
+      "sliceCount": 3,
+      "supportDirectoryCount": 6,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -36,15 +36,15 @@
       "contextRoot": "bounded-contexts/fulfillment",
       "contextName": "fulfillment",
       "sliceCount": 1,
-      "supportDirectoryCount": 2,
+      "supportDirectoryCount": 3,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
     {
       "contextRoot": "bounded-contexts/identity",
       "contextName": "identity",
-      "sliceCount": 7,
-      "supportDirectoryCount": 6,
+      "sliceCount": 6,
+      "supportDirectoryCount": 7,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -52,15 +52,15 @@
       "contextRoot": "bounded-contexts/insights",
       "contextName": "insights",
       "sliceCount": 1,
-      "supportDirectoryCount": 0,
+      "supportDirectoryCount": 1,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
     {
       "contextRoot": "bounded-contexts/inventory",
       "contextName": "inventory",
-      "sliceCount": 5,
-      "supportDirectoryCount": 3,
+      "sliceCount": 4,
+      "supportDirectoryCount": 4,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -68,15 +68,15 @@
       "contextRoot": "bounded-contexts/marketplace",
       "contextName": "marketplace",
       "sliceCount": 2,
-      "supportDirectoryCount": 2,
+      "supportDirectoryCount": 3,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
     {
       "contextRoot": "bounded-contexts/ordering",
       "contextName": "ordering",
-      "sliceCount": 3,
-      "supportDirectoryCount": 2,
+      "sliceCount": 2,
+      "supportDirectoryCount": 4,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -84,7 +84,7 @@
       "contextRoot": "bounded-contexts/payments",
       "contextName": "payments",
       "sliceCount": 2,
-      "supportDirectoryCount": 2,
+      "supportDirectoryCount": 3,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -92,7 +92,7 @@
       "contextRoot": "bounded-contexts/pricing",
       "contextName": "pricing",
       "sliceCount": 1,
-      "supportDirectoryCount": 0,
+      "supportDirectoryCount": 1,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -100,7 +100,7 @@
       "contextRoot": "bounded-contexts/reputation",
       "contextName": "reputation",
       "sliceCount": 1,
-      "supportDirectoryCount": 2,
+      "supportDirectoryCount": 3,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -108,7 +108,7 @@
       "contextRoot": "bounded-contexts/settlement",
       "contextName": "settlement",
       "sliceCount": 2,
-      "supportDirectoryCount": 2,
+      "supportDirectoryCount": 3,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     }

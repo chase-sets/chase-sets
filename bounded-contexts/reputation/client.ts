@@ -7,14 +7,14 @@ export type {
   ReputationReviewOpportunity,
   ReputationReviewDetail,
   ReputationReviewListItem,
-} from "./reviews/client/contracts";
+} from "./features/reviews/api/contracts";
 
 import type {
   ReputationAccountSummary,
   ReputationReviewOpportunity,
   ReputationReviewDetail,
   ReputationReviewListItem,
-} from "./reviews/client/contracts";
+} from "./features/reviews/api/contracts";
 
 type ReputationApiApp = ReturnType<typeof buildReputationApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";

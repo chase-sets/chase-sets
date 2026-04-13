@@ -21,7 +21,7 @@ import {
   createPaymentsRequestApiClient,
   PaymentsApiError,
   type PaymentsPaymentDetail,
-} from "../../request-support/api-client";
+} from "../../support/request-support/api-client";
 import {
   createOrderingRequestApiClient,
   type OrderingOrderDetail,
