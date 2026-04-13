@@ -24,10 +24,10 @@
     "@chase-sets/design-system": "0.1.0",
     "@chase-sets/event-core": "0.1.0",
     "@chase-sets/event-core-postgres": "0.1.0",
-    "@react-router/dev": "^7.13.2",
-    "hono": "^4.12.5"
+    "@react-router/dev": "^7.14.0",
+    "hono": "^4.12.12"
   },
   "devDependencies": {
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.4"
   }
 }

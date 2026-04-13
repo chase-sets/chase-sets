@@ -4,6 +4,13 @@ import tailwindcss from "@tailwindcss/vite";
 import { createWorkspaceSourceAliases } from "../../scripts/workspace-source-aliases.mjs";
 
 export default defineConfig({
+  build: {
+    rolldownOptions: {
+      checks: {
+        pluginTimings: false,
+      },
+    },
+  },
   plugins: [reactRouter(), tailwindcss()],
   resolve: {
     alias: createWorkspaceSourceAliases(),

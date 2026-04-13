@@ -5,12 +5,12 @@
   "type": "module",
   "dependencies": {
     "@chase-sets/design-system": "0.1.0",
-    "@react-router/node": "7.13.2",
-    "@react-router/serve": "7.13.2",
+    "@react-router/node": "7.14.0",
+    "@react-router/serve": "7.14.0",
     "isbot": "^5",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-router": "^7.13.2"
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router": "^7.14.0"
   },
   "scripts": {
     "build": "npm run verify:source && react-router build && npm run verify:css",
@@ -22,7 +22,7 @@
     "verify:source": "node ./scripts/verify-showcase-source.mjs"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.1",
-    "tailwindcss": "^4.2.1"
+    "@tailwindcss/vite": "^4.2.2",
+    "tailwindcss": "^4.2.2"
   }
 }

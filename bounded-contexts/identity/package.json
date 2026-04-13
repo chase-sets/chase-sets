@@ -21,6 +21,6 @@
     "@chase-sets/http": "0.1.0",
     "@chase-sets/platform-runtime": "0.1.0",
     "@chase-sets/primitives": "0.1.0",
-    "hono": "^4.12.5"
+    "hono": "^4.12.12"
   }
 }

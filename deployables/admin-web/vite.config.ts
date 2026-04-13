@@ -27,6 +27,13 @@ const localDevCorsOrigins = [
 ];
 
 export default defineConfig({
+  build: {
+    rolldownOptions: {
+      checks: {
+        pluginTimings: false,
+      },
+    },
+  },
   plugins: [reactRouter(), tailwindcss()],
   resolve: {
     alias: createWorkspaceSourceAliases(),
