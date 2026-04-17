@@ -11,10 +11,22 @@ import {
   TextInput,
   NumberInput,
 } from "@chase-sets/design-system";
-import type { MarketplaceListingDetail } from "./contracts";
+import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function formatOptionalMoney(amount: string | null) {
+  return amount ? formatMoney(amount) : "Not set";
+}
+
+function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
+  return [
+    `Marketplace ${formatMoney(preview.marketplace_fee_amount)}`,
+    `Payment ${formatMoney(preview.payment_fee_amount)}`,
+    `Net ${formatMoney(preview.seller_net_amount)}`,
+  ].join(" | ");
 }
 
 function statusTone(status: string) {
@@ -32,9 +44,13 @@ function statusTone(status: string) {
 
 export function MarketplaceListingDetailPage({
   listing,
+  priceDraftAmount,
+  pricePreview,
   errorMessage,
 }: {
   listing: MarketplaceListingDetail;
+  priceDraftAmount?: string | null;
+  pricePreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
 }) {
   return (
@@ -69,6 +85,19 @@ export function MarketplaceListingDetailPage({
             ) : null}
             <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
             <Text>Price: {formatMoney(listing.price_amount)}</Text>
+            <Text>Marketplace fee: {formatOptionalMoney(listing.marketplace_fee_amount)}</Text>
+            <Text>Payment fee: {formatOptionalMoney(listing.payment_fee_amount)}</Text>
+            <Text>Seller net: {formatOptionalMoney(listing.seller_net_amount)}</Text>
+            <Text>
+              Terms schedule: {listing.terms_schedule_id ?? "Default fallback unavailable"}
+            </Text>
+            <Text>Agreement override: {listing.terms_agreement_id ?? "None"}</Text>
+            <Text>
+              Terms resolved at:{" "}
+              {listing.terms_resolved_at
+                ? new Date(listing.terms_resolved_at).toLocaleString()
+                : "Not set"}
+            </Text>
             <Text>Quantity cap: {listing.quantity_cap}</Text>
             <Text>
               Inventory: {listing.storage_location_name ?? "Unknown location"}{" "}
@@ -83,19 +112,43 @@ export function MarketplaceListingDetailPage({
           <Card>
             <form method="post">
               <Stack gap={3}>
-                <input type="hidden" name="intent" value="update-price" />
                 <TextInput
                   label="Price"
                   name="priceAmount"
-                  defaultValue={listing.price_amount}
+                  defaultValue={priceDraftAmount ?? listing.price_amount}
                   inputMode="decimal"
                   required
                 />
-                <Button type="submit" tone="secondary">
-                  Save price
-                </Button>
+                <Stack gap={2}>
+                  <Button type="submit" name="intent" value="update-price" tone="secondary">
+                    Save price
+                  </Button>
+                  <Button type="submit" name="intent" value="preview-price" tone="secondary">
+                    Preview fees
+                  </Button>
+                </Stack>
               </Stack>
             </form>
+            {pricePreview ? (
+              <Stack gap={2}>
+                <Text weight="semibold">Updated fee preview</Text>
+                <Text size="sm" tone="secondary">
+                  Account type: {pricePreview.account_type}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {renderPreviewSummary(pricePreview)}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  Basis amount: {formatMoney(pricePreview.basis_amount)}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  Terms schedule: {pricePreview.schedule_id ?? "No schedule available"}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  Agreement override: {pricePreview.agreement_id ?? "None"}
+                </Text>
+              </Stack>
+            ) : null}
           </Card>
 
           <Card>

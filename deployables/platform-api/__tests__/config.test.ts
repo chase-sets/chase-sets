@@ -40,6 +40,7 @@ describe("platform api config", () => {
     delete process.env.DATABASE_URL;
     process.env.DATABASE_URL_AUTH = "postgresql://localhost/auth";
     process.env.DATABASE_URL_CATALOG = "postgresql://localhost/catalog";
+    process.env.DATABASE_URL_COMMERCIAL_TERMS = "postgresql://localhost/commercial_terms";
     process.env.DATABASE_URL_DISCOVERY = "postgresql://localhost/discovery";
     process.env.DATABASE_URL_FULFILLMENT = "postgresql://localhost/fulfillment";
     process.env.DATABASE_URL_IDENTITY = "postgresql://localhost/identity";
@@ -55,6 +56,9 @@ describe("platform api config", () => {
 
     expect(config.sharedDatabaseUrl).toBeNull();
     expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth");
+    expect(config.contextDatabaseUrls["commercial-terms"]).toBe(
+      "postgresql://localhost/commercial_terms",
+    );
     expect(config.contextDatabaseUrls.settlement).toBe("postgresql://localhost/settlement");
   });
 

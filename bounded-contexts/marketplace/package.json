@@ -18,6 +18,7 @@
     "@chase-sets/auth-context": "0.1.0",
     "@chase-sets/bounded-context-module": "0.1.0",
     "@chase-sets/catalog": "0.1.0",
+    "@chase-sets/commercial-terms": "0.1.0",
     "@chase-sets/design-system": "0.1.0",
     "@chase-sets/event-core": "0.1.0",
     "@chase-sets/event-core-postgres": "0.1.0",

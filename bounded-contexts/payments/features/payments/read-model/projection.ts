@@ -11,6 +11,9 @@ export function buildPaymentProjectionHandlers(
         buyerAccountId: string;
         orderIds: string[];
         amount: string;
+        marketplaceFeeAmount: string;
+        paymentFeeAmount: string;
+        sellerNetAmount: string;
         currencyCode: string;
         processorName: string;
         processorPaymentReference: string;
@@ -25,6 +28,9 @@ export function buildPaymentProjectionHandlers(
            buyer_account_id,
            order_ids,
            amount,
+           marketplace_fee_amount,
+           payment_fee_amount,
+           seller_net_amount,
            currency_code,
            processor_name,
            processor_payment_reference,
@@ -40,12 +46,15 @@ export function buildPaymentProjectionHandlers(
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending-confirmation', NULL, NULL, $10, $10, NULL, NULL, NULL, $11
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending-confirmation', NULL, NULL, $13, $13, NULL, NULL, NULL, $14
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              order_ids = EXCLUDED.order_ids,
              amount = EXCLUDED.amount,
+             marketplace_fee_amount = EXCLUDED.marketplace_fee_amount,
+             payment_fee_amount = EXCLUDED.payment_fee_amount,
+             seller_net_amount = EXCLUDED.seller_net_amount,
              currency_code = EXCLUDED.currency_code,
              processor_name = EXCLUDED.processor_name,
              processor_payment_reference = EXCLUDED.processor_payment_reference,
@@ -60,6 +69,9 @@ export function buildPaymentProjectionHandlers(
           data.buyerAccountId,
           JSON.stringify(data.orderIds),
           data.amount,
+          data.marketplaceFeeAmount,
+          data.paymentFeeAmount,
+          data.sellerNetAmount,
           data.currencyCode,
           data.processorName,
           data.processorPaymentReference,

@@ -295,6 +295,9 @@ export default function MarketplaceAccountPaymentRoute() {
           <Stack gap={2}>
             <Badge tone={statusTone(data.payment.status)}>{data.payment.status}</Badge>
             <Text>Total: {formatMoney(data.payment.amount)}</Text>
+            <Text>Marketplace fees: {formatMoney(data.payment.marketplace_fee_amount)}</Text>
+            <Text>Payment fees: {formatMoney(data.payment.payment_fee_amount)}</Text>
+            <Text>Seller net: {formatMoney(data.payment.seller_net_amount)}</Text>
             <Text>Processor: {data.payment.processor_name}</Text>
             <Text>Orders: {data.payment.order_ids.join(", ")}</Text>
             {data.payment.failure_message ? <Text>{data.payment.failure_message}</Text> : null}
@@ -331,6 +334,9 @@ export default function MarketplaceAccountPaymentRoute() {
                   Status: {order.status}
                 </Text>
                 <Text>Total: {formatMoney(order.total_amount)}</Text>
+                <Text size="sm" tone="secondary">
+                  Seller net: {formatMoney(order.seller_net_amount)}
+                </Text>
                 <LinkButton href={`/account/orders/${order.order_id}`} tone="secondary">
                   Open order
                 </LinkButton>

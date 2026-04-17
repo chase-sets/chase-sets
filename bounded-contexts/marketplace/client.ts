@@ -7,6 +7,7 @@ export type {
   MarketplaceListingDetail,
   MarketplaceListingInventoryRecordOption,
   MarketplaceListingListItem,
+  MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
 export type {
@@ -20,6 +21,7 @@ import type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
   MarketplaceListingListItem,
+  MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
 import type {
@@ -125,6 +127,16 @@ export function createMarketplaceApiClient({
     async createListing(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.seller.listings.$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async previewListingTerms(
+      body: Record<string, unknown>,
+    ): Promise<MarketplaceListingTermsPreview> {
+      return parseJsonResponse(
+        await client.seller.listings.preview.$post({
           json: body,
           header: headers,
         }),

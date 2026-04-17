@@ -37,6 +37,7 @@ import {
 } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { listOrderingSupplyCandidates } from "../integrations/supply/supply-queries";
+import type { CommercialTermsResolver } from "../../../api";
 import {
   decideOrderingOrder,
   evolveOrderingOrder,
@@ -51,6 +52,7 @@ type OrderRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   carts: OrderingCartServices;
+  commercialTermsResolver: CommercialTermsResolver;
   shippingQuotePolicy: ShippingQuotePolicy;
 }>;
 
@@ -427,6 +429,10 @@ export function createOrderingOrderRuntime(
     const orderIds: OrderId[] = [];
 
     for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
+      const commercialTerms = await deps.commercialTermsResolver.resolveOrderTerms({
+        sellerAccountId: draft.sellerAccountId,
+        amount: draft.itemSubtotalAmount,
+      });
       const orderId =
         orderIdsOverride?.[draftIndex] ?? (createId("ord") as OrderId);
       await commandHandler({
@@ -444,6 +450,14 @@ export function createOrderingOrderRuntime(
           shippingDiscountAmount: draft.shippingDiscountAmount,
           shippingChargeAmount: draft.shippingChargeAmount,
           totalAmount: draft.totalAmount,
+          commercialTermsSnapshot: {
+            marketplaceFeeAmount: commercialTerms.marketplaceFeeAmount,
+            paymentFeeAmount: commercialTerms.paymentFeeAmount,
+            sellerNetAmount: commercialTerms.sellerNetAmount,
+            termsScheduleId: commercialTerms.scheduleId,
+            termsAgreementId: commercialTerms.agreementId,
+            termsResolvedAt: commercialTerms.resolvedAt,
+          },
           lines: [...draft.lines],
           reservationRequests: draft.reservations.map((reservation) => ({
             reservationRequestId: reservation.reservationRequestId,

@@ -70,6 +70,31 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   };
 }
 
+const commercialTermsResolver = {
+  resolveListingTerms: vi.fn(async ({ sellerAccountId, amount }) => ({
+    sellerAccountId,
+    accountType: "business" as const,
+    basisAmount: amount,
+    marketplaceFeeAmount: "1.00",
+    paymentFeeAmount: "0.50",
+    sellerNetAmount: "18.50",
+    scheduleId: "cts_default",
+    agreementId: null,
+    resolvedAt: "2026-03-31T00:00:00.000Z",
+  })),
+  resolveOrderTerms: vi.fn(async ({ sellerAccountId, amount }) => ({
+    sellerAccountId,
+    accountType: "business" as const,
+    basisAmount: amount,
+    marketplaceFeeAmount: "1.00",
+    paymentFeeAmount: "0.50",
+    sellerNetAmount: "18.50",
+    scheduleId: "cts_default",
+    agreementId: null,
+    resolvedAt: "2026-03-31T00:00:00.000Z",
+  })),
+};
+
 const context = {
   tenantId: "tnt_test" as never,
   audit: {
@@ -165,6 +190,7 @@ describe("ordering order runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
       carts: carts as never,
+      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -297,6 +323,7 @@ describe("ordering order runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
       carts: carts as never,
+      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: ({ itemSubtotalAmount }) => ({
           shippingOption: "standard",
@@ -368,6 +395,7 @@ describe("ordering order runtime", () => {
         listCartLines: async () => [],
         checkout: async () => ({ version: 1 }),
       } as never,
+      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -426,10 +454,17 @@ describe("ordering order runtime", () => {
                 shipping_discount_amount: "0.00",
                 shipping_charge_amount: "4.99",
                 total_amount: "24.99",
+                marketplace_fee_amount: "1.00",
+                payment_fee_amount: "0.50",
+                seller_net_amount: "18.50",
+                terms_schedule_id: "cts_default",
+                terms_agreement_id: null,
+                terms_resolved_at: "2026-03-31T00:00:00.000Z",
                 status: "pending-payment",
                 created_at: "2026-03-31T00:00:00.000Z",
                 updated_at: "2026-03-31T00:00:00.000Z",
                 cancelled_at: null,
+                cancellation_reason: null,
                 ready_for_fulfillment_at: null,
                 line_count: 1,
                 total_quantity: 1,
@@ -472,6 +507,7 @@ describe("ordering order runtime", () => {
         listCartLines: async () => [],
         checkout: async () => ({ version: 1 }),
       } as never,
+      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -497,6 +533,14 @@ describe("ordering order runtime", () => {
         shippingDiscountAmount: "0.00",
         shippingChargeAmount: "4.99",
         totalAmount: "24.99",
+        commercialTermsSnapshot: {
+          marketplaceFeeAmount: "1.00",
+          paymentFeeAmount: "0.50",
+          sellerNetAmount: "18.50",
+          termsScheduleId: "cts_default",
+          termsAgreementId: null,
+          termsResolvedAt: "2026-03-31T00:00:00.000Z",
+        },
         lines: [
           {
             lineId: "oli_1" as never,

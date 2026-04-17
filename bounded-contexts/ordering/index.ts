@@ -7,7 +7,10 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { OrderingServices } from "./support/runtime-support/services";
+import type {
+  OrderingServiceOptions,
+  OrderingServices,
+} from "./support/runtime-support/services";
 import { buildOrderingAccountProjectionHandlers } from "./support/account-support/projection";
 import { buildOrderingApi } from "./api";
 import { buildOrderingCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
@@ -44,14 +47,22 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<OrderingServices, PgTransactionalPool, void> = {
+export const module: BcApiModule<
+  OrderingServices,
+  PgTransactionalPool,
+  OrderingServiceOptions
+> = {
   contextName: "ordering",
   routePrefix: "/api/marketplace",
   streamPrefix: "ordering.",
   schemaSql: orderingSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<OrderingServices, PgTransactionalPool, void>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<
+    OrderingServices,
+    PgTransactionalPool,
+    OrderingServiceOptions
+  >["apiMounts"],
   projectionGroups,
-  createServices: (pool) => createOrderingServices(pool),
+  createServices: (pool, options) => createOrderingServices(pool, options),
   buildApis: (services) => [buildOrderingApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {

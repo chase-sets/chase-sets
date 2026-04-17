@@ -5,6 +5,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
+import { createOrderingCommercialTermsResolver } from "../../api";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingCartRuntime } from "../../features/cart/api/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
@@ -39,6 +40,7 @@ export function createOrderingServices(
     checkpointStore,
     db,
     carts: cart,
+    commercialTermsResolver: createOrderingCommercialTermsResolver(db),
     shippingQuotePolicy:
       options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
   });

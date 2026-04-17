@@ -120,6 +120,15 @@ export default function MarketplaceAccountPaymentNewRoute() {
   const totalAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0)
     .toFixed(2);
+  const marketplaceFeeAmount = data.orders
+    .reduce((sum, order) => sum + Number.parseFloat(order.marketplace_fee_amount), 0)
+    .toFixed(2);
+  const paymentFeeAmount = data.orders
+    .reduce((sum, order) => sum + Number.parseFloat(order.payment_fee_amount), 0)
+    .toFixed(2);
+  const sellerNetAmount = data.orders
+    .reduce((sum, order) => sum + Number.parseFloat(order.seller_net_amount), 0)
+    .toFixed(2);
 
   return (
     <Page>
@@ -139,6 +148,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
           <Stack gap={2}>
             <Text weight="semibold">Orders: {data.orderIds.join(", ")}</Text>
             <Text>Total due: {formatMoney(totalAmount)}</Text>
+            <Text>Marketplace fees: {formatMoney(marketplaceFeeAmount)}</Text>
+            <Text>Payment fees: {formatMoney(paymentFeeAmount)}</Text>
+            <Text>Seller net: {formatMoney(sellerNetAmount)}</Text>
             <Text size="sm" tone="secondary">
               Payment covers {data.orders.length} seller-specific order
               {data.orders.length === 1 ? "" : "s"} created by checkout.
@@ -174,6 +186,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
                   Status: {order.status}
                 </Text>
                 <Text>Total: {formatMoney(order.total_amount)}</Text>
+                <Text size="sm" tone="secondary">
+                  Seller net: {formatMoney(order.seller_net_amount)}
+                </Text>
                 <LinkButton href={`/account/orders/${order.order_id}`} tone="secondary">
                   Open order
                 </LinkButton>

@@ -166,21 +166,36 @@ function listBoundedContexts(workspaces) {
     .sort((left, right) => left.contextName.localeCompare(right.contextName));
 }
 
+function toIdentifier(value) {
+  const normalized = String(value)
+    .replace(/[^A-Za-z0-9_$]+(.)?/g, (_match, next) =>
+      next ? next.toUpperCase() : "",
+    )
+    .replace(/^[^A-Za-z_$]+/, "");
+
+  return normalized.length > 0 ? normalized : "context";
+}
+
 function buildApiRegistry(outputPath, hostName, contexts) {
   const activeContexts = contexts.filter((context) =>
     context.manifest.apiDeployables?.includes(hostName),
   );
   const contextImports = activeContexts.map(
-    (context) =>
-      `import { contextManifest as ${context.contextName}Manifest, module as ${context.contextName}Module } from "${context.packageName}";`,
+    (context) => {
+      const identifier = toIdentifier(context.contextName);
+      return `import { contextManifest as ${identifier}Manifest, module as ${identifier}Module } from "${context.packageName}";`;
+    },
   );
   const entries = activeContexts.map(
-    (context) => `  {
+    (context) => {
+      const identifier = toIdentifier(context.contextName);
+      return `  {
     contextName: "${context.contextName}",
     packageName: "${context.packageName}",
-    manifest: ${context.contextName}Manifest,
-    module: ${context.contextName}Module,
-  },`,
+    manifest: ${identifier}Manifest,
+    module: ${identifier}Module,
+  },`;
+    },
   );
 
   return `${generatedRegistryComment}
@@ -207,13 +222,13 @@ function buildWebRegistry(outputPath, hostName, contexts) {
   const activeContexts = contexts.filter((context) => contributesToWebHost(context, hostName));
   const manifestImports = activeContexts.map(
     (context) =>
-      `import ${context.contextName}Manifest from "${context.packageName}/context";`,
+      `import ${toIdentifier(context.contextName)}Manifest from "${context.packageName}/context";`,
   );
   const entries = activeContexts.map(
     (context) => `  {
     contextName: "${context.contextName}",
     packageName: "${context.packageName}",
-    manifest: ${context.contextName}Manifest as WebContextRegistry[number]["manifest"],
+    manifest: ${toIdentifier(context.contextName)}Manifest as WebContextRegistry[number]["manifest"],
   },`,
   );
 

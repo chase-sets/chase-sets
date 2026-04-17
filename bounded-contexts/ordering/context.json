@@ -26,12 +26,14 @@
   ],
   "allowedContextDependencies": [
     "@chase-sets/catalog",
+    "@chase-sets/commercial-terms",
     "@chase-sets/reputation"
   ],
   "seedRequirements": [
     "catalog",
     "identity",
     "inventory",
+    "commercial-terms",
     "marketplace"
   ],
   "eventSubscriptions": [
@@ -398,8 +400,7 @@
       "purpose": "Provide reusable request-support assets shared by ordering-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "Multiple ordering slices",
-        "Deployable composition for ordering"
+        "orders"
       ],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "ordering workflows that span multiple features or public entrypoints.",

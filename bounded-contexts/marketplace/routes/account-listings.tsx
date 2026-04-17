@@ -12,6 +12,7 @@ import {
   MarketplaceApiError,
   type MarketplaceListingInventoryRecordOption,
   type MarketplaceListingListItem,
+  type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import {
   createInventoryRequestApiClient,
@@ -65,13 +66,27 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createMarketplaceRequestApiClient(request);
+  const createForm = {
+    inventoryRecordId: String(formData.get("inventoryRecordId") ?? ""),
+    priceAmount: String(formData.get("priceAmount") ?? ""),
+    quantityCap: String(formData.get("quantityCap") ?? ""),
+  };
 
   try {
+    if (intent === "preview-listing") {
+      return {
+        createForm,
+        createPreview: await api.previewListingTerms({
+          priceAmount: createForm.priceAmount,
+        }),
+      };
+    }
+
     if (intent === "create-listing") {
       await api.createListing({
-        inventoryRecordId: formData.get("inventoryRecordId"),
-        priceAmount: formData.get("priceAmount"),
-        quantityCap: Number(formData.get("quantityCap") ?? 0),
+        inventoryRecordId: createForm.inventoryRecordId,
+        priceAmount: createForm.priceAmount,
+        quantityCap: Number(createForm.quantityCap ?? 0),
       });
     }
 
@@ -79,6 +94,7 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch (error) {
     if (error instanceof MarketplaceApiError || error instanceof Error) {
       return {
+        createForm,
         error: error.message,
       };
     }
@@ -101,6 +117,8 @@ export default function MarketplaceAccountListingsRoute() {
     <MarketplaceListingListPage
       data={data.listings as ListResponse<MarketplaceListingListItem>}
       inventoryRecords={data.inventoryRecords}
+      createForm={actionData?.createForm}
+      createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
     />
   );

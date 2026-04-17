@@ -12,6 +12,12 @@ export interface OrderingOrderListItem {
   shipping_discount_amount: string;
   shipping_charge_amount: string;
   total_amount: string;
+  marketplace_fee_amount: string;
+  payment_fee_amount: string;
+  seller_net_amount: string;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string;
   status: string;
   created_at: string;
   updated_at: string;

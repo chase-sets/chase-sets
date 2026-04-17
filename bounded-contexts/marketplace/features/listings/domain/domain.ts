@@ -20,10 +20,19 @@ function ensurePositiveInteger(value: number, message: string): number {
   return value;
 }
 
-function normalizeMoneyAmount(value: string): string {
+function normalizeMoneyAmount(
+  value: string,
+  options: Readonly<{ fieldName?: string; allowZero?: boolean }> = {},
+): string {
   const normalized = value.trim();
-  assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Price amount must be a valid decimal.");
-  assert(Number.parseFloat(normalized) > 0, "Price amount must be greater than zero.");
+  const fieldName = options.fieldName ?? "Price amount";
+  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
+  assert(
+    options.allowZero
+      ? Number.parseFloat(normalized) >= 0
+      : Number.parseFloat(normalized) > 0,
+    `${fieldName} must be ${options.allowZero ? "zero or greater" : "greater than zero"}.`,
+  );
   return normalized;
 }
 
@@ -42,6 +51,12 @@ export type MarketplaceListingState = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string | null;
+  marketplaceFeeAmount: string | null;
+  paymentFeeAmount: string | null;
+  sellerNetAmount: string | null;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+  termsResolvedAt: string | null;
   quantityCap: number;
   status: ListingStatus;
 }>;
@@ -59,6 +74,12 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   storageLocationName: null,
   shipFromCode: null,
   priceAmount: null,
+  marketplaceFeeAmount: null,
+  paymentFeeAmount: null,
+  sellerNetAmount: null,
+  termsScheduleId: null,
+  termsAgreementId: null,
+  termsResolvedAt: null,
   quantityCap: 0,
   status: "draft",
 };
@@ -77,12 +98,24 @@ export type CreateListingCommand = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
+  marketplaceFeeAmount?: string | null;
+  paymentFeeAmount?: string | null;
+  sellerNetAmount?: string | null;
+  termsScheduleId?: string | null;
+  termsAgreementId?: string | null;
+  termsResolvedAt?: string | null;
   quantityCap: number;
 }>;
 
 export type UpdateListingPriceCommand = Readonly<{
   type: "UpdateListingPrice";
   priceAmount: string;
+  marketplaceFeeAmount?: string | null;
+  paymentFeeAmount?: string | null;
+  sellerNetAmount?: string | null;
+  termsScheduleId?: string | null;
+  termsAgreementId?: string | null;
+  termsResolvedAt?: string | null;
 }>;
 
 export type UpdateListingQuantityCapCommand = Readonly<{
@@ -117,12 +150,26 @@ export type ListingCreatedEvent = DomainEvent<
     storageLocationName: string | null;
     shipFromCode: string | null;
     priceAmount: string;
+    marketplaceFeeAmount: string | null;
+    paymentFeeAmount: string | null;
+    sellerNetAmount: string | null;
+    termsScheduleId: string | null;
+    termsAgreementId: string | null;
+    termsResolvedAt: string | null;
     quantityCap: number;
   }>
 >;
 export type ListingPriceUpdatedEvent = DomainEvent<
   "marketplace.listing.price-updated",
-  Readonly<{ priceAmount: string }>
+  Readonly<{
+    priceAmount: string;
+    marketplaceFeeAmount: string | null;
+    paymentFeeAmount: string | null;
+    sellerNetAmount: string | null;
+    termsScheduleId: string | null;
+    termsAgreementId: string | null;
+    termsResolvedAt: string | null;
+  }>
 >;
 export type ListingQuantityCapUpdatedEvent = DomainEvent<
   "marketplace.listing.quantity-cap-updated",
@@ -176,6 +223,30 @@ export const decideMarketplaceListing: AggregateDecider<
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
             priceAmount: normalizeMoneyAmount(command.priceAmount),
+            marketplaceFeeAmount:
+              command.marketplaceFeeAmount === undefined || command.marketplaceFeeAmount === null
+                ? null
+                : normalizeMoneyAmount(command.marketplaceFeeAmount, {
+                    fieldName: "Marketplace fee amount",
+                    allowZero: true,
+                  }),
+            paymentFeeAmount:
+              command.paymentFeeAmount === undefined || command.paymentFeeAmount === null
+                ? null
+                : normalizeMoneyAmount(command.paymentFeeAmount, {
+                    fieldName: "Payment fee amount",
+                    allowZero: true,
+                  }),
+            sellerNetAmount:
+              command.sellerNetAmount === undefined || command.sellerNetAmount === null
+                ? null
+                : normalizeMoneyAmount(command.sellerNetAmount, {
+                    fieldName: "Seller net amount",
+                    allowZero: true,
+                  }),
+            termsScheduleId: command.termsScheduleId?.trim() ?? null,
+            termsAgreementId: command.termsAgreementId?.trim() ?? null,
+            termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
             quantityCap: ensurePositiveInteger(
               command.quantityCap,
               "Listing quantity cap must be a positive whole number.",
@@ -189,7 +260,33 @@ export const decideMarketplaceListing: AggregateDecider<
       return [
         {
           type: "marketplace.listing.price-updated",
-          data: { priceAmount: normalizeMoneyAmount(command.priceAmount) },
+          data: {
+            priceAmount: normalizeMoneyAmount(command.priceAmount),
+            marketplaceFeeAmount:
+              command.marketplaceFeeAmount === undefined || command.marketplaceFeeAmount === null
+                ? null
+                : normalizeMoneyAmount(command.marketplaceFeeAmount, {
+                    fieldName: "Marketplace fee amount",
+                    allowZero: true,
+                  }),
+            paymentFeeAmount:
+              command.paymentFeeAmount === undefined || command.paymentFeeAmount === null
+                ? null
+                : normalizeMoneyAmount(command.paymentFeeAmount, {
+                    fieldName: "Payment fee amount",
+                    allowZero: true,
+                  }),
+            sellerNetAmount:
+              command.sellerNetAmount === undefined || command.sellerNetAmount === null
+                ? null
+                : normalizeMoneyAmount(command.sellerNetAmount, {
+                    fieldName: "Seller net amount",
+                    allowZero: true,
+                  }),
+            termsScheduleId: command.termsScheduleId?.trim() ?? null,
+            termsAgreementId: command.termsAgreementId?.trim() ?? null,
+            termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
+          },
         },
       ];
     case "UpdateListingQuantityCap":
@@ -246,11 +343,26 @@ export const evolveMarketplaceListing: AggregateEvolver<
         storageLocationName: event.data.storageLocationName,
         shipFromCode: event.data.shipFromCode,
         priceAmount: event.data.priceAmount,
+        marketplaceFeeAmount: event.data.marketplaceFeeAmount,
+        paymentFeeAmount: event.data.paymentFeeAmount,
+        sellerNetAmount: event.data.sellerNetAmount,
+        termsScheduleId: event.data.termsScheduleId,
+        termsAgreementId: event.data.termsAgreementId,
+        termsResolvedAt: event.data.termsResolvedAt,
         quantityCap: event.data.quantityCap,
         status: "draft",
       };
     case "marketplace.listing.price-updated":
-      return { ...state, priceAmount: event.data.priceAmount };
+      return {
+        ...state,
+        priceAmount: event.data.priceAmount,
+        marketplaceFeeAmount: event.data.marketplaceFeeAmount,
+        paymentFeeAmount: event.data.paymentFeeAmount,
+        sellerNetAmount: event.data.sellerNetAmount,
+        termsScheduleId: event.data.termsScheduleId,
+        termsAgreementId: event.data.termsAgreementId,
+        termsResolvedAt: event.data.termsResolvedAt,
+      };
     case "marketplace.listing.quantity-cap-updated":
       return { ...state, quantityCap: event.data.quantityCap };
     case "marketplace.listing.published":
@@ -263,4 +375,3 @@ export const evolveMarketplaceListing: AggregateEvolver<
       return assertNever(event);
   }
 };
-

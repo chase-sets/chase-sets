@@ -1,0 +1,29 @@
+{
+  "name": "@chase-sets/commercial-terms",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --config ./tests/vitest.config.mjs"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./context": "./context.json",
+    "./routes/*": "./routes/*",
+    "./seed-support/*": "./support/seed-support/*",
+    "./server": "./server.ts"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/auth-context": "0.1.0",
+    "@chase-sets/bounded-context-module": "0.1.0",
+    "@chase-sets/event-core": "0.1.0",
+    "@chase-sets/event-core-postgres": "0.1.0",
+    "@chase-sets/http": "0.1.0",
+    "@chase-sets/platform-runtime": "0.1.0",
+    "hono": "^4.12.12"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  }
+}

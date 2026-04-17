@@ -8,7 +8,9 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
+import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
+import type { MarketplaceListingTermsPreview } from "../ui/contracts";
 import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
@@ -59,9 +61,13 @@ export type MarketplaceListingServices = Readonly<{
       inventoryRecordId: string;
       priceAmount: string;
       quantityCap: number;
+      listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: ListingId; version: number }>;
+  previewListingTerms: (
+    params: Readonly<{ accountId: string; priceAmount: string }>,
+  ) => Promise<MarketplaceListingTermsPreview>;
   updateListingPrice: (
     params: Readonly<{ accountId: string; listingId: string; priceAmount: string }>,
     context: EventStoreContext,
@@ -101,16 +107,21 @@ export type MarketplaceListingServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
+type ListingRuntimeDeps = MarketplaceRuntimeDeps & Readonly<{
+  commercialTermsResolver: CommercialTermsResolver;
+}>;
+
 export function createMarketplaceListingRuntime(
-  deps: MarketplaceRuntimeDeps,
+  deps: ListingRuntimeDeps,
 ): MarketplaceListingServices {
+  const repository = createAggregateRepository({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
+    initialState: () => initialMarketplaceListingState,
+    evolve: evolveMarketplaceListing,
+  });
   const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
-      initialState: () => initialMarketplaceListingState,
-      evolve: evolveMarketplaceListing,
-    }),
+    repository,
     evolve: evolveMarketplaceListing,
     decide: decideMarketplaceListing,
   });
@@ -163,6 +174,18 @@ export function createMarketplaceListingRuntime(
     }
   }
 
+  async function loadOwnedListingState(listingId: string, accountId: string) {
+    const aggregate = await repository.load(`marketplace.listing-${listingId}`);
+    const listing = aggregate.state;
+
+    assert(
+      listing.listingId !== null && listing.accountId === accountId,
+      "Listing not found.",
+    );
+
+    return listing;
+  }
+
   return {
     commandHandler,
     createListing: async (params, context) => {
@@ -172,8 +195,12 @@ export function createMarketplaceListingRuntime(
         params.accountId,
       );
       assert(supply, "Inventory record not found.");
+      const terms = await deps.commercialTermsResolver.resolveListingTerms({
+        sellerAccountId: params.accountId,
+        amount: params.priceAmount,
+      });
 
-      const listingId = createId("lst") as ListingId;
+      const listingId = params.listingIdOverride ?? (createId("lst") as ListingId);
       const result = await commandHandler({
         streamId: `marketplace.listing-${listingId}`,
         command: {
@@ -190,6 +217,12 @@ export function createMarketplaceListingRuntime(
           storageLocationName: supply.storage_location_name,
           shipFromCode: supply.ship_from_code,
           priceAmount: params.priceAmount,
+          marketplaceFeeAmount: terms.marketplaceFeeAmount,
+          paymentFeeAmount: terms.paymentFeeAmount,
+          sellerNetAmount: terms.sellerNetAmount,
+          termsScheduleId: terms.scheduleId,
+          termsAgreementId: terms.agreementId,
+          termsResolvedAt: terms.resolvedAt,
           quantityCap: params.quantityCap,
         },
         context,
@@ -197,15 +230,41 @@ export function createMarketplaceListingRuntime(
 
       return { listingId, version: result.version };
     },
+    previewListingTerms: async (params) => {
+      const terms = await deps.commercialTermsResolver.resolveListingTerms({
+        sellerAccountId: params.accountId,
+        amount: params.priceAmount,
+      });
+
+      return {
+        account_type: terms.accountType,
+        basis_amount: terms.basisAmount,
+        marketplace_fee_amount: terms.marketplaceFeeAmount,
+        payment_fee_amount: terms.paymentFeeAmount,
+        seller_net_amount: terms.sellerNetAmount,
+        schedule_id: terms.scheduleId,
+        agreement_id: terms.agreementId,
+        resolved_at: terms.resolvedAt,
+      };
+    },
     updateListingPrice: async (params, context) => {
-      const listing = await getSellerListing(deps.db, params.listingId, params.accountId);
-      assert(listing, "Listing not found.");
+      await loadOwnedListingState(params.listingId, params.accountId);
+      const terms = await deps.commercialTermsResolver.resolveListingTerms({
+        sellerAccountId: params.accountId,
+        amount: params.priceAmount,
+      });
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
         command: {
           type: "UpdateListingPrice",
           priceAmount: params.priceAmount,
+          marketplaceFeeAmount: terms.marketplaceFeeAmount,
+          paymentFeeAmount: terms.paymentFeeAmount,
+          sellerNetAmount: terms.sellerNetAmount,
+          termsScheduleId: terms.scheduleId,
+          termsAgreementId: terms.agreementId,
+          termsResolvedAt: terms.resolvedAt,
         },
         context,
       });
@@ -213,12 +272,12 @@ export function createMarketplaceListingRuntime(
       return { listingId: params.listingId, version: result.version };
     },
     updateListingQuantityCap: async (params, context) => {
-      const listing = await getSellerListing(deps.db, params.listingId, params.accountId);
-      assert(listing, "Listing not found.");
+      const listing = await loadOwnedListingState(params.listingId, params.accountId);
 
       if (listing.status === "active") {
+        assert(listing.inventoryRecordId, "Listing inventory record is missing.");
         await ensureActiveCapacity(
-          listing.inventory_record_id,
+          listing.inventoryRecordId,
           params.quantityCap,
           params.listingId,
         );
@@ -236,12 +295,12 @@ export function createMarketplaceListingRuntime(
       return { listingId: params.listingId, version: result.version };
     },
     publishListing: async (params, context) => {
-      const listing = await getSellerListing(deps.db, params.listingId, params.accountId);
-      assert(listing, "Listing not found.");
+      const listing = await loadOwnedListingState(params.listingId, params.accountId);
+      assert(listing.inventoryRecordId, "Listing inventory record is missing.");
 
       await ensureActiveCapacity(
-        listing.inventory_record_id,
-        listing.quantity_cap,
+        listing.inventoryRecordId,
+        listing.quantityCap,
         params.listingId,
       );
 
@@ -254,8 +313,7 @@ export function createMarketplaceListingRuntime(
       return { listingId: params.listingId, version: result.version };
     },
     pauseListing: async (params, context) => {
-      const listing = await getSellerListing(deps.db, params.listingId, params.accountId);
-      assert(listing, "Listing not found.");
+      await loadOwnedListingState(params.listingId, params.accountId);
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
@@ -266,8 +324,7 @@ export function createMarketplaceListingRuntime(
       return { listingId: params.listingId, version: result.version };
     },
     withdrawListing: async (params, context) => {
-      const listing = await getSellerListing(deps.db, params.listingId, params.accountId);
-      assert(listing, "Listing not found.");
+      await loadOwnedListingState(params.listingId, params.accountId);
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,

@@ -13,6 +13,12 @@ export type MarketplaceListingListRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
+  marketplace_fee_amount: string | null;
+  payment_fee_amount: string | null;
+  seller_net_amount: string | null;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string | null;
   quantity_cap: number;
   status: string;
   created_at: string;
@@ -44,6 +50,12 @@ type MarketplaceListingPageRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
+  marketplace_fee_amount: string | null;
+  payment_fee_amount: string | null;
+  seller_net_amount: string | null;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string | null;
   quantity_cap: number;
   status: string;
   created_at: string;

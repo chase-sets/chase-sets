@@ -14,6 +14,7 @@ export type {
   MarketplaceListingDetail,
   MarketplaceListingInventoryRecordOption,
   MarketplaceListingListItem,
+  MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
   MarketplaceOfferListItem,
   MarketplaceSellerOfferDetail,

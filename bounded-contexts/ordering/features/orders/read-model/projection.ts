@@ -18,6 +18,14 @@ export function buildOrderingOrderProjectionHandlers(
         shippingDiscountAmount: string;
         shippingChargeAmount: string;
         totalAmount: string;
+        commercialTermsSnapshot: {
+          marketplaceFeeAmount: string;
+          paymentFeeAmount: string;
+          sellerNetAmount: string;
+          termsScheduleId: string | null;
+          termsAgreementId: string | null;
+          termsResolvedAt: string;
+        };
         lines: Array<{
           lineId: string;
           listingId: string;
@@ -53,6 +61,12 @@ export function buildOrderingOrderProjectionHandlers(
            shipping_discount_amount,
            shipping_charge_amount,
            total_amount,
+           marketplace_fee_amount,
+           payment_fee_amount,
+           seller_net_amount,
+           terms_schedule_id,
+           terms_agreement_id,
+           terms_resolved_at,
            status,
            created_at,
            updated_at,
@@ -60,7 +74,7 @@ export function buildOrderingOrderProjectionHandlers(
            cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending-reservation', $12, $12, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'pending-reservation', $18, $18, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
@@ -73,6 +87,12 @@ export function buildOrderingOrderProjectionHandlers(
              shipping_discount_amount = EXCLUDED.shipping_discount_amount,
              shipping_charge_amount = EXCLUDED.shipping_charge_amount,
              total_amount = EXCLUDED.total_amount,
+             marketplace_fee_amount = EXCLUDED.marketplace_fee_amount,
+             payment_fee_amount = EXCLUDED.payment_fee_amount,
+             seller_net_amount = EXCLUDED.seller_net_amount,
+             terms_schedule_id = EXCLUDED.terms_schedule_id,
+             terms_agreement_id = EXCLUDED.terms_agreement_id,
+             terms_resolved_at = EXCLUDED.terms_resolved_at,
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at,
              cancellation_reason = EXCLUDED.cancellation_reason,
@@ -89,6 +109,12 @@ export function buildOrderingOrderProjectionHandlers(
           data.shippingDiscountAmount,
           data.shippingChargeAmount,
           data.totalAmount,
+          data.commercialTermsSnapshot.marketplaceFeeAmount,
+          data.commercialTermsSnapshot.paymentFeeAmount,
+          data.commercialTermsSnapshot.sellerNetAmount,
+          data.commercialTermsSnapshot.termsScheduleId,
+          data.commercialTermsSnapshot.termsAgreementId,
+          data.commercialTermsSnapshot.termsResolvedAt,
           event.timing.recordedAt,
         ],
       );

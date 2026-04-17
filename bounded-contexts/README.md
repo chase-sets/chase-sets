@@ -13,6 +13,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
 | [Inventory](./inventory/README.md) | Own seller-held stock and operational availability. |
+| [Commercial Terms](./commercial-terms/README.md) | Own marketplace fee policy, payment fee policy, and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
 | [Ordering](./ordering/README.md) | Own checkout normalization and commercial commitment. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
@@ -179,9 +180,11 @@ Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
 - Catalog is upstream for canonical item references.
 - Discovery depends on Catalog for canonical item, category, blueprint, and field facts used to build browse/search views.
 - Inventory depends on Identity and Catalog sellable-unit structure.
+- Commercial Terms depends on Identity account references and account classification facts.
 - Marketplace depends on Identity, Auth journey entry points, Catalog sellable-unit identity, and Inventory availability signals.
+- Marketplace depends on Commercial Terms for resolved seller fee snapshots used in listing management.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
-- Ordering depends on Marketplace sellable-unit commitments, Identity account references, and inventory reservation outcomes published after order commitment.
+- Ordering depends on Marketplace sellable-unit commitments, Commercial Terms resolution, Identity account references, and inventory reservation outcomes published after order commitment.
 - Fulfillment depends on Ordering.
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
@@ -200,11 +203,12 @@ Each context may define rich internal domain events, but only a small, stable in
 These scenarios should map cleanly to one owner per decision:
 
 1. Inventory owns bulk stock ingestion and seller stock for a resolved sellable unit.
-2. Marketplace owns listing publication and offer negotiation for sellable units.
-3. Ordering owns cart decomposition and order creation for committed sellable units.
-4. Fulfillment owns shipment state and tracking.
-5. Reputation owns post-transaction ratings, written feedback, and aggregate reputation summaries.
-6. Payments owns charge and refund execution.
-7. Settlement owns ledger adjustments and payout eligibility.
-8. Pricing owns recommendations but never directly mutates listings or inventory.
-9. Insights owns reporting and forecasting without owning source transactions.
+2. Commercial Terms owns fee schedules, negotiated overrides, and deterministic seller commercial snapshots.
+3. Marketplace owns listing publication and offer negotiation for sellable units.
+4. Ordering owns cart decomposition and order creation for committed sellable units.
+5. Fulfillment owns shipment state and tracking.
+6. Reputation owns post-transaction ratings, written feedback, and aggregate reputation summaries.
+7. Payments owns charge and refund execution.
+8. Settlement owns ledger adjustments and payout eligibility.
+9. Pricing owns recommendations but never directly mutates listings or inventory.
+10. Insights owns reporting and forecasting without owning source transactions.

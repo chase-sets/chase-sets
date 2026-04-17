@@ -81,6 +81,14 @@ export function OrderingOrderDetailPage({
             <Text>Item subtotal: {formatMoney(order.item_subtotal_amount)}</Text>
             <Text>Shipping charge: {formatMoney(order.shipping_charge_amount)}</Text>
             <Text>Total: {formatMoney(order.total_amount)}</Text>
+            <Text>Marketplace fee: {formatMoney(order.marketplace_fee_amount)}</Text>
+            <Text>Payment fee: {formatMoney(order.payment_fee_amount)}</Text>
+            <Text>Seller net: {formatMoney(order.seller_net_amount)}</Text>
+            <Text>Terms schedule: {order.terms_schedule_id ?? "No schedule snapshot"}</Text>
+            <Text>Agreement override: {order.terms_agreement_id ?? "None"}</Text>
+            <Text>
+              Terms resolved at: {new Date(order.terms_resolved_at).toLocaleString()}
+            </Text>
             {order.status === "pending-payment" && paymentHref ? (
               <LinkButton href={paymentHref}>Pay now</LinkButton>
             ) : null}

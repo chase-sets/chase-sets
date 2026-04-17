@@ -24,6 +24,9 @@ export type PaymentState = Readonly<{
   buyerAccountId: AccountId | null;
   orderIds: readonly OrderId[];
   amount: string | null;
+  marketplaceFeeAmount: string | null;
+  paymentFeeAmount: string | null;
+  sellerNetAmount: string | null;
   currencyCode: CurrencyCode | null;
   processorName: PaymentProcessorName | null;
   processorPaymentReference: string | null;
@@ -43,6 +46,9 @@ export const initialPaymentState: PaymentState = {
   buyerAccountId: null,
   orderIds: [],
   amount: null,
+  marketplaceFeeAmount: null,
+  paymentFeeAmount: null,
+  sellerNetAmount: null,
   currencyCode: null,
   processorName: null,
   processorPaymentReference: null,
@@ -63,6 +69,9 @@ export type CreatePaymentCommand = Readonly<{
   buyerAccountId: AccountId;
   orderIds: readonly OrderId[];
   amount: string;
+  marketplaceFeeAmount: string;
+  paymentFeeAmount: string;
+  sellerNetAmount: string;
   currencyCode: CurrencyCode;
   processorName: PaymentProcessorName;
   processorPaymentReference: string;
@@ -110,6 +119,9 @@ export type PaymentCreatedEvent = DomainEvent<
     buyerAccountId: AccountId;
     orderIds: OrderId[];
     amount: string;
+    marketplaceFeeAmount: string;
+    paymentFeeAmount: string;
+    sellerNetAmount: string;
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
@@ -135,6 +147,9 @@ export type PaymentCapturedEvent = DomainEvent<
     orderIds: OrderId[];
     buyerAccountId: AccountId;
     amount: string;
+    marketplaceFeeAmount: string;
+    paymentFeeAmount: string;
+    sellerNetAmount: string;
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
@@ -150,6 +165,9 @@ export type PaymentFailedEvent = DomainEvent<
     orderIds: OrderId[];
     buyerAccountId: AccountId;
     amount: string;
+    marketplaceFeeAmount: string;
+    paymentFeeAmount: string;
+    sellerNetAmount: string;
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
@@ -192,6 +210,18 @@ export const decidePayment: AggregateDecider<
             orderIds: normalizeOrderIds(command.orderIds),
             amount: normalizeMoneyAmount(command.amount, {
               fieldName: "Payment amount",
+            }),
+            marketplaceFeeAmount: normalizeMoneyAmount(command.marketplaceFeeAmount, {
+              fieldName: "Marketplace fee amount",
+              allowZero: true,
+            }),
+            paymentFeeAmount: normalizeMoneyAmount(command.paymentFeeAmount, {
+              fieldName: "Payment fee amount",
+              allowZero: true,
+            }),
+            sellerNetAmount: normalizeMoneyAmount(command.sellerNetAmount, {
+              fieldName: "Seller net amount",
+              allowZero: true,
             }),
             currencyCode: normalizeCurrencyCode(command.currencyCode),
             processorName: normalizeProcessorName(command.processorName),
@@ -247,6 +277,9 @@ export const decidePayment: AggregateDecider<
             orderIds: [...state.orderIds],
             buyerAccountId: state.buyerAccountId!,
             amount: state.amount!,
+            marketplaceFeeAmount: state.marketplaceFeeAmount!,
+            paymentFeeAmount: state.paymentFeeAmount!,
+            sellerNetAmount: state.sellerNetAmount!,
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
@@ -276,6 +309,9 @@ export const decidePayment: AggregateDecider<
             orderIds: [...state.orderIds],
             buyerAccountId: state.buyerAccountId!,
             amount: state.amount!,
+            marketplaceFeeAmount: state.marketplaceFeeAmount!,
+            paymentFeeAmount: state.paymentFeeAmount!,
+            sellerNetAmount: state.sellerNetAmount!,
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
@@ -326,6 +362,9 @@ export const evolvePayment: AggregateEvolver<
         buyerAccountId: event.data.buyerAccountId,
         orderIds: [...event.data.orderIds],
         amount: event.data.amount,
+        marketplaceFeeAmount: event.data.marketplaceFeeAmount,
+        paymentFeeAmount: event.data.paymentFeeAmount,
+        sellerNetAmount: event.data.sellerNetAmount,
         currencyCode: event.data.currencyCode,
         processorName: event.data.processorName,
         processorPaymentReference: event.data.processorPaymentReference,

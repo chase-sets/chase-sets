@@ -63,6 +63,26 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
     });
   });
 
+  app.post("/listings/preview", async (c) => {
+    const access = requireSellerAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = await c.req.json();
+
+    try {
+      const preview = await services.previewListingTerms({
+        accountId: access.actor.accountId,
+        priceAmount: String(body.priceAmount ?? ""),
+      });
+
+      return c.json(preview);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
   app.get("/listings/:id", async (c) => {
     const access = requireSellerAccess(c, "listings.view");
     if (access.response) {

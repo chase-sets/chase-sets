@@ -11,6 +11,12 @@ export interface MarketplaceListingListItem {
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
+  marketplace_fee_amount: string | null;
+  payment_fee_amount: string | null;
+  seller_net_amount: string | null;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string | null;
   quantity_cap: number;
   status: string;
   created_at: string;
@@ -40,4 +46,15 @@ export interface MarketplaceListingInventoryRecordOption {
   storage_location_name: string;
   ship_from_code: string;
   available_quantity: number;
+}
+
+export interface MarketplaceListingTermsPreview {
+  account_type: "personal" | "business" | "enterprise";
+  basis_amount: string;
+  marketplace_fee_amount: string;
+  payment_fee_amount: string;
+  seller_net_amount: string;
+  schedule_id: string | null;
+  agreement_id: string | null;
+  resolved_at: string;
 }

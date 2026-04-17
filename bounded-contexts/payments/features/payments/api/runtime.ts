@@ -63,6 +63,29 @@ function sumOrderAmounts(
     .toFixed(2);
 }
 
+function sumFeeAmounts(
+  orders: readonly Readonly<{
+    marketplace_fee_amount: string;
+    payment_fee_amount: string;
+    seller_net_amount: string;
+  }>[],
+  fieldName: "marketplace_fee_amount" | "payment_fee_amount" | "seller_net_amount",
+) {
+  return orders
+    .reduce(
+      (sum, order) =>
+        sum +
+        Number.parseFloat(
+          normalizeMoneyAmount(order[fieldName], {
+            fieldName,
+            allowZero: true,
+          }),
+        ),
+      0,
+    )
+    .toFixed(2);
+}
+
 async function loadBuyerOrders(
   db: PgQueryable,
   orderIds: readonly OrderId[],
@@ -134,6 +157,9 @@ export function createPaymentRuntime(
       const orderIds = normalizeOrderIds(params.orderIds);
       const orders = await loadBuyerOrders(deps.db, orderIds, buyerAccountId);
       const amount = sumOrderAmounts(orders);
+      const marketplaceFeeAmount = sumFeeAmounts(orders, "marketplace_fee_amount");
+      const paymentFeeAmount = sumFeeAmounts(orders, "payment_fee_amount");
+      const sellerNetAmount = sumFeeAmounts(orders, "seller_net_amount");
       const paymentId = createId("pay") as PaymentId;
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
       const processorPayment = await deps.processorGateway.createPaymentIntent({
@@ -157,6 +183,9 @@ export function createPaymentRuntime(
           buyerAccountId,
           orderIds,
           amount,
+          marketplaceFeeAmount,
+          paymentFeeAmount,
+          sellerNetAmount,
           currencyCode,
           processorName: processorPayment.processorName,
           processorPaymentReference: processorPayment.processorPaymentReference,
@@ -172,6 +201,9 @@ export function createPaymentRuntime(
         buyer_account_id: buyerAccountId,
         order_ids: orderIds,
         amount,
+        marketplace_fee_amount: marketplaceFeeAmount,
+        payment_fee_amount: paymentFeeAmount,
+        seller_net_amount: sellerNetAmount,
         currency_code: currencyCode,
         processor_name: processorPayment.processorName,
         processor_payment_reference: processorPayment.processorPaymentReference,

@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-04-13T00:56:10.925Z",
+  "generatedAt": "2026-04-16T21:30:36.341Z",
   "totals": {
-    "contextCount": 13,
-    "sliceCount": 35,
-    "supportDirectoryCount": 52,
+    "contextCount": 14,
+    "sliceCount": 38,
+    "supportDirectoryCount": 55,
     "singleSliceSupportFiles": 0,
     "driftCount": 0
   },
@@ -21,6 +21,14 @@
       "contextName": "catalog",
       "sliceCount": 6,
       "supportDirectoryCount": 7,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/commercial-terms",
+      "contextName": "commercial-terms",
+      "sliceCount": 3,
+      "supportDirectoryCount": 3,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },

@@ -88,10 +88,38 @@ describeWithDatabase("platform api bootstrap", () => {
     const identityTablesInAuth = await pools.auth.query<
       Readonly<{ relation_name: string | null }>
     >("SELECT to_regclass('public.identity_user_pages') AS relation_name");
+    const commercialTermsSchedules = await pools["commercial-terms"].query<
+      Readonly<{ count: string }>
+    >("SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages");
+    const commercialTermsAgreements = await pools["commercial-terms"].query<
+      Readonly<{ count: string }>
+    >("SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages");
+    const seededListingsWithTerms = await pools.marketplace.query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM marketplace_listing_pages
+       WHERE marketplace_fee_amount IS NOT NULL
+         AND payment_fee_amount IS NOT NULL
+         AND seller_net_amount IS NOT NULL
+         AND terms_schedule_id IS NOT NULL
+         AND terms_resolved_at IS NOT NULL`,
+    );
+    const seededOrdersWithTerms = await pools.ordering.query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM ordering_order_pages
+       WHERE marketplace_fee_amount IS NOT NULL
+         AND payment_fee_amount IS NOT NULL
+         AND seller_net_amount IS NOT NULL
+         AND terms_schedule_id IS NOT NULL
+         AND terms_resolved_at IS NOT NULL`,
+    );
 
     expect(authReplayContext?.requiredGroups).toBeGreaterThan(0);
     expect(authReplayContext?.caughtUpGroups).toBe(authReplayContext?.totalGroups);
     expect(Number(authUsers.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(identityTablesInAuth.rows[0]?.relation_name).toBeNull();
+    expect(Number(commercialTermsSchedules.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
+    expect(Number(commercialTermsAgreements.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(1);
+    expect(Number(seededListingsWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(seededOrdersWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
   }, 60_000);
 });

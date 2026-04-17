@@ -46,6 +46,15 @@ export type OrderingReservationRequest = Readonly<{
   releasedAt: string | null;
 }>;
 
+export type OrderingCommercialTermsSnapshot = Readonly<{
+  marketplaceFeeAmount: string;
+  paymentFeeAmount: string;
+  sellerNetAmount: string;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+  termsResolvedAt: string;
+}>;
+
 export type OrderingOrderState = Readonly<{
   orderId: OrderId | null;
   sourceType: OrderSourceType | null;
@@ -58,6 +67,7 @@ export type OrderingOrderState = Readonly<{
   shippingDiscountAmount: string | null;
   shippingChargeAmount: string | null;
   totalAmount: string | null;
+  commercialTermsSnapshot: OrderingCommercialTermsSnapshot | null;
   lines: OrderingOrderLine[];
   reservationRequests: OrderingReservationRequest[];
   status: OrderStatus | null;
@@ -78,6 +88,7 @@ export const initialOrderingOrderState: OrderingOrderState = {
   shippingDiscountAmount: null,
   shippingChargeAmount: null,
   totalAmount: null,
+  commercialTermsSnapshot: null,
   lines: [],
   reservationRequests: [],
   status: null,
@@ -99,6 +110,7 @@ export type CreateOrderCommand = Readonly<{
   shippingDiscountAmount: string;
   shippingChargeAmount: string;
   totalAmount: string;
+  commercialTermsSnapshot: OrderingCommercialTermsSnapshot;
   lines: OrderingOrderLine[];
   reservationRequests: Array<
     Readonly<{
@@ -164,6 +176,7 @@ export type OrderCreatedEvent = DomainEvent<
     shippingDiscountAmount: string;
     shippingChargeAmount: string;
     totalAmount: string;
+    commercialTermsSnapshot: OrderingCommercialTermsSnapshot;
     lines: OrderingOrderLine[];
     reservationRequests: Array<
       Readonly<{
@@ -317,6 +330,29 @@ function normalizeReservationRequests(
   });
 }
 
+function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnapshot) {
+  return {
+    marketplaceFeeAmount: normalizeMoneyAmount(snapshot.marketplaceFeeAmount, {
+      fieldName: "Marketplace fee amount",
+      allowZero: true,
+    }),
+    paymentFeeAmount: normalizeMoneyAmount(snapshot.paymentFeeAmount, {
+      fieldName: "Payment fee amount",
+      allowZero: true,
+    }),
+    sellerNetAmount: normalizeMoneyAmount(snapshot.sellerNetAmount, {
+      fieldName: "Seller net amount",
+      allowZero: true,
+    }),
+    termsScheduleId: normalizeOptionalText(snapshot.termsScheduleId),
+    termsAgreementId: normalizeOptionalText(snapshot.termsAgreementId),
+    termsResolvedAt: normalizeRequiredText(
+      snapshot.termsResolvedAt,
+      "Commercial terms snapshot must include a resolution timestamp.",
+    ),
+  };
+}
+
 function updateReservationRequest(
   state: OrderingOrderState,
   reservationRequestId: string,
@@ -384,6 +420,9 @@ export const decideOrderingOrder: AggregateDecider<
               fieldName: "Order total",
               allowZero: true,
             }),
+            commercialTermsSnapshot: normalizeCommercialTermsSnapshot(
+              command.commercialTermsSnapshot,
+            ),
             lines: normalizedLines,
             reservationRequests: normalizeReservationRequests(
               command.reservationRequests,
@@ -672,6 +711,7 @@ export const evolveOrderingOrder: AggregateEvolver<
         shippingDiscountAmount: event.data.shippingDiscountAmount,
         shippingChargeAmount: event.data.shippingChargeAmount,
         totalAmount: event.data.totalAmount,
+        commercialTermsSnapshot: event.data.commercialTermsSnapshot,
         lines: event.data.lines,
         reservationRequests: event.data.reservationRequests.map((request) => ({
           reservationRequestId: request.reservationRequestId,

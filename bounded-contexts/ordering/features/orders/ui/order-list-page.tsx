@@ -70,6 +70,9 @@ export function OrderingOrderListPage({
                     {order.line_count === 1 ? "" : "s"}
                   </Text>
                   <Text>Total: {formatMoney(order.total_amount)}</Text>
+                  <Text size="sm" tone="secondary">
+                    Seller net: {formatMoney(order.seller_net_amount)}
+                  </Text>
                   <LinkButton href={`${orderDetailBasePath}/${order.order_id}`} tone="secondary">
                     Open order
                   </LinkButton>

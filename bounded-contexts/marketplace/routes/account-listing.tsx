@@ -10,6 +10,7 @@ import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type MarketplaceListingDetail,
+  type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
 
@@ -38,12 +39,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createMarketplaceRequestApiClient(request);
+  const priceDraftAmount = String(formData.get("priceAmount") ?? "");
 
   try {
     switch (intent) {
+      case "preview-price":
+        return {
+          priceDraftAmount,
+          pricePreview: await api.previewListingTerms({
+            priceAmount: priceDraftAmount,
+          }),
+        };
       case "update-price":
         await api.updateListingPrice(params.listingId!, {
-          priceAmount: formData.get("priceAmount"),
+          priceAmount: priceDraftAmount,
         });
         break;
       case "update-quantity-cap":
@@ -68,6 +77,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   } catch (error) {
     if (error instanceof MarketplaceApiError) {
       return {
+        priceDraftAmount,
         error: error.message,
       };
     }
@@ -89,6 +99,8 @@ export default function MarketplaceAccountListingRoute() {
   return (
     <MarketplaceListingDetailPage
       listing={data.listing as MarketplaceListingDetail}
+      priceDraftAmount={actionData?.priceDraftAmount ?? null}
+      pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
     />
   );

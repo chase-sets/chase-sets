@@ -1,6 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 
-export type AccountType = "personal" | "business";
+export type AccountType = "personal" | "business" | "enterprise";
 export type AccountStatus = "active" | "suspended" | "closed";
 export type UserStatus = "active" | "suspended";
 export type MembershipStatus = "active" | "revoked";
@@ -27,6 +27,8 @@ export type PermissionKey =
   | "accounts.view"
   | "catalog.manage"
   | "catalog.view"
+  | "commercial-terms.manage"
+  | "commercial-terms.view"
   | "fulfillment.manage"
   | "fulfillment.view"
   | "memberships.manage"

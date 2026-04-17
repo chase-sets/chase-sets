@@ -5,6 +5,12 @@ import {
   initialPaymentState,
 } from "./domain";
 
+const commercialAmounts = {
+  marketplaceFeeAmount: "2.00",
+  paymentFeeAmount: "1.00",
+  sellerNetAmount: "39.50",
+} as const;
+
 describe("payments payment domain", () => {
   it("creates and captures a payment", () => {
     const created = decidePayment(initialPaymentState, {
@@ -13,6 +19,7 @@ describe("payments payment domain", () => {
       buyerAccountId: "acc_buyer" as never,
       orderIds: ["ord_1" as never, "ord_2" as never],
       amount: "42.50",
+      ...commercialAmounts,
       currencyCode: "usd",
       processorName: "stripe",
       processorPaymentReference: "pi_123",
@@ -39,6 +46,9 @@ describe("payments payment domain", () => {
       buyerAccountId: "acc_buyer" as never,
       orderIds: ["ord_1" as never],
       amount: "10.00",
+      marketplaceFeeAmount: "1.00",
+      paymentFeeAmount: "0.50",
+      sellerNetAmount: "8.50",
       currencyCode: "usd",
       processorName: "stripe",
       processorPaymentReference: "pi_123",
@@ -77,6 +87,9 @@ describe("payments payment domain", () => {
         buyerAccountId: "acc_buyer" as never,
         orderIds: [],
         amount: "0.00",
+        marketplaceFeeAmount: "0.00",
+        paymentFeeAmount: "0.00",
+        sellerNetAmount: "0.00",
         currencyCode: "usd",
         processorName: "stripe",
         processorPaymentReference: "pi_123",

@@ -2,6 +2,7 @@
 
 import { contextManifest as authManifest, module as authModule } from "@chase-sets/auth";
 import { contextManifest as catalogManifest, module as catalogModule } from "@chase-sets/catalog";
+import { contextManifest as commercialTermsManifest, module as commercialTermsModule } from "@chase-sets/commercial-terms";
 import { contextManifest as discoveryManifest, module as discoveryModule } from "@chase-sets/discovery";
 import { contextManifest as fulfillmentManifest, module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
@@ -25,6 +26,12 @@ export const apiContextRegistry = [
     packageName: "@chase-sets/catalog",
     manifest: catalogManifest,
     module: catalogModule,
+  },
+  {
+    contextName: "commercial-terms",
+    packageName: "@chase-sets/commercial-terms",
+    manifest: commercialTermsManifest,
+    module: commercialTermsModule,
   },
   {
     contextName: "discovery",

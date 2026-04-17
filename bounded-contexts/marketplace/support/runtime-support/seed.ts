@@ -268,49 +268,46 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
       continue;
     }
 
-    await services.listings.commandHandler({
-      streamId: `marketplace.listing-${listing.listingId}`,
-      command: {
-        type: "CreateListing",
-        listingId: listing.listingId,
+    const seededListingId = listing.listingId;
+    await services.listings.createListing(
+      {
         accountId: identitySeedIds.seller.accountId,
         inventoryRecordId: supply.record_id,
-        catalogItemId: supply.catalog_item_id,
-        catalogVersionKey: supply.catalog_version_key as never,
-        itemTitle: supply.item_title,
-        itemSubtitle: supply.item_subtitle,
-        versionSelection: supply.version_selection,
-        versionSummary: supply.version_summary,
-        storageLocationName: supply.storage_location_name,
-        shipFromCode: supply.ship_from_code,
         priceAmount: listing.priceAmount,
         quantityCap: listing.quantityCap,
+        listingIdOverride: seededListingId,
       },
       context,
-    });
+    );
 
     if (listing.finalStatus !== "draft") {
-      await services.listings.commandHandler({
-        streamId: `marketplace.listing-${listing.listingId}`,
-        command: { type: "PublishListing" },
+      await services.listings.publishListing(
+        {
+          accountId: identitySeedIds.seller.accountId,
+          listingId: seededListingId,
+        },
         context,
-      });
+      );
     }
 
     if (listing.finalStatus === "paused") {
-      await services.listings.commandHandler({
-        streamId: `marketplace.listing-${listing.listingId}`,
-        command: { type: "PauseListing" },
+      await services.listings.pauseListing(
+        {
+          accountId: identitySeedIds.seller.accountId,
+          listingId: seededListingId,
+        },
         context,
-      });
+      );
     }
 
     if (listing.finalStatus === "withdrawn") {
-      await services.listings.commandHandler({
-        streamId: `marketplace.listing-${listing.listingId}`,
-        command: { type: "WithdrawListing" },
+      await services.listings.withdrawListing(
+        {
+          accountId: identitySeedIds.seller.accountId,
+          listingId: seededListingId,
+        },
         context,
-      });
+      );
     }
   }
 

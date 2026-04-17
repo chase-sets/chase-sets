@@ -75,6 +75,21 @@
       "@chase-sets/catalog/web": [
         "./bounded-contexts/catalog/web.ts"
       ],
+      "@chase-sets/commercial-terms": [
+        "./bounded-contexts/commercial-terms/index.ts"
+      ],
+      "@chase-sets/commercial-terms/context": [
+        "./bounded-contexts/commercial-terms/context.json"
+      ],
+      "@chase-sets/commercial-terms/routes/*": [
+        "./bounded-contexts/commercial-terms/routes/*"
+      ],
+      "@chase-sets/commercial-terms/seed-support/*": [
+        "./bounded-contexts/commercial-terms/support/seed-support/*"
+      ],
+      "@chase-sets/commercial-terms/server": [
+        "./bounded-contexts/commercial-terms/server.ts"
+      ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
       ],

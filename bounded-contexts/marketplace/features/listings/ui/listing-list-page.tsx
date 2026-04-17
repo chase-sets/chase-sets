@@ -15,6 +15,7 @@ import {
 import type {
   MarketplaceListingInventoryRecordOption,
   MarketplaceListingListItem,
+  MarketplaceListingTermsPreview,
 } from "./contracts";
 
 function formatMoney(amount: string | null) {
@@ -50,13 +51,43 @@ function inventoryLabel(record: MarketplaceListingInventoryRecordOption) {
   return segments.join(" | ");
 }
 
+function renderFeeSummary(listing: MarketplaceListingListItem) {
+  if (!listing.marketplace_fee_amount && !listing.payment_fee_amount && !listing.seller_net_amount) {
+    return "Fee quote unavailable";
+  }
+
+  const segments = [
+    `Marketplace ${formatMoney(listing.marketplace_fee_amount)}`,
+    `Payment ${formatMoney(listing.payment_fee_amount)}`,
+    `Net ${formatMoney(listing.seller_net_amount)}`,
+  ];
+
+  return segments.join(" | ");
+}
+
+function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
+  return [
+    `Marketplace ${formatMoney(preview.marketplace_fee_amount)}`,
+    `Payment ${formatMoney(preview.payment_fee_amount)}`,
+    `Net ${formatMoney(preview.seller_net_amount)}`,
+  ].join(" | ");
+}
+
 export function MarketplaceListingListPage({
   data,
   inventoryRecords,
+  createForm,
+  createPreview,
   errorMessage,
 }: {
   data: { items: readonly MarketplaceListingListItem[] };
   inventoryRecords: readonly MarketplaceListingInventoryRecordOption[];
+  createForm?: {
+    inventoryRecordId?: string | null;
+    priceAmount?: string | null;
+    quantityCap?: string | null;
+  };
+  createPreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
 }) {
   return (
@@ -82,14 +113,13 @@ export function MarketplaceListingListPage({
         <Card>
           <form method="post">
             <Stack gap={3}>
-              <input type="hidden" name="intent" value="create-listing" />
               <label>
                 <Stack gap={1}>
                   <Text weight="semibold">Inventory record</Text>
                   <select
                     name="inventoryRecordId"
                     required
-                    defaultValue=""
+                    defaultValue={createForm?.inventoryRecordId ?? ""}
                     className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
                   >
                     <option value="" disabled>
@@ -108,18 +138,52 @@ export function MarketplaceListingListPage({
                 name="priceAmount"
                 placeholder="24.99"
                 inputMode="decimal"
+                defaultValue={createForm?.priceAmount ?? ""}
                 required
               />
               <NumberInput
                 label="Quantity cap"
                 name="quantityCap"
                 min="1"
+                defaultValue={createForm?.quantityCap ?? "1"}
                 required
               />
-              <Button type="submit">Create listing</Button>
+              <Stack gap={2}>
+                <Button type="submit" name="intent" value="create-listing">
+                  Create listing
+                </Button>
+                <Button type="submit" name="intent" value="preview-listing" tone="secondary">
+                  Preview fees
+                </Button>
+              </Stack>
             </Stack>
           </form>
         </Card>
+        {createPreview ? (
+          <Card>
+            <Stack gap={2}>
+              <Text weight="semibold">Listing fee preview</Text>
+              <Text size="sm" tone="secondary">
+                Account type: {createPreview.account_type}
+              </Text>
+              <Text size="sm" tone="secondary">
+                {renderPreviewSummary(createPreview)}
+              </Text>
+              <Text size="sm" tone="secondary">
+                Basis amount: {formatMoney(createPreview.basis_amount)}
+              </Text>
+              <Text size="sm" tone="secondary">
+                Terms schedule: {createPreview.schedule_id ?? "No schedule available"}
+              </Text>
+              <Text size="sm" tone="secondary">
+                Agreement override: {createPreview.agreement_id ?? "None"}
+              </Text>
+              <Text size="sm" tone="secondary">
+                If you create the listing now, this quote will be frozen on the listing.
+              </Text>
+            </Stack>
+          </Card>
+        ) : null}
       </PageSection>
 
       <PageSection title="Current Listings">
@@ -149,7 +213,14 @@ export function MarketplaceListingListPage({
             {
               key: "price",
               header: "Price",
-              cell: (row) => formatMoney(row.price_amount),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text weight="semibold">{formatMoney(row.price_amount)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {renderFeeSummary(row)}
+                  </Text>
+                </Stack>
+              ),
             },
             {
               key: "quantityCap",
@@ -171,6 +242,11 @@ export function MarketplaceListingListPage({
                   <Text size="sm" tone="secondary">
                     {row.ship_from_code ?? row.inventory_record_id}
                   </Text>
+                  {row.terms_resolved_at ? (
+                    <Text size="sm" tone="secondary">
+                      Terms resolved {new Date(row.terms_resolved_at).toLocaleString()}
+                    </Text>
+                  ) : null}
                 </Stack>
               ),
             },

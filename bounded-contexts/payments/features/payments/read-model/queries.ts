@@ -5,6 +5,9 @@ export type PaymentDetailRow = Readonly<{
   buyer_account_id: string;
   order_ids: readonly string[];
   amount: string;
+  marketplace_fee_amount: string;
+  payment_fee_amount: string;
+  seller_net_amount: string;
   currency_code: string;
   processor_name: string;
   processor_payment_reference: string;
@@ -40,6 +43,9 @@ const paymentSelect = `
     buyer_account_id,
     order_ids,
     amount::text AS amount,
+    marketplace_fee_amount::text AS marketplace_fee_amount,
+    payment_fee_amount::text AS payment_fee_amount,
+    seller_net_amount::text AS seller_net_amount,
     currency_code,
     processor_name,
     processor_payment_reference,

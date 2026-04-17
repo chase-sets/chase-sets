@@ -4,6 +4,7 @@ import type { WebContextRegistry } from "@chase-sets/platform-runtime/web";
 
 import authManifest from "@chase-sets/auth/context";
 import catalogManifest from "@chase-sets/catalog/context";
+import commercialTermsManifest from "@chase-sets/commercial-terms/context";
 import identityManifest from "@chase-sets/identity/context";
 
 export const webContextRegistry = [
@@ -16,6 +17,11 @@ export const webContextRegistry = [
     contextName: "catalog",
     packageName: "@chase-sets/catalog",
     manifest: catalogManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "commercial-terms",
+    packageName: "@chase-sets/commercial-terms",
+    manifest: commercialTermsManifest as WebContextRegistry[number]["manifest"],
   },
   {
     contextName: "identity",

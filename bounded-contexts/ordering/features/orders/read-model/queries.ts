@@ -40,6 +40,12 @@ export type OrderingOrderListRow = Readonly<{
   shipping_discount_amount: string;
   shipping_charge_amount: string;
   total_amount: string;
+  marketplace_fee_amount: string;
+  payment_fee_amount: string;
+  seller_net_amount: string;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -70,6 +76,12 @@ type BaseOrderPageRow = Readonly<{
   shipping_discount_amount: string;
   shipping_charge_amount: string;
   total_amount: string;
+  marketplace_fee_amount: string;
+  payment_fee_amount: string;
+  seller_net_amount: string;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -110,6 +122,12 @@ const baseOrderSelect = `
     page.shipping_discount_amount::text AS shipping_discount_amount,
     page.shipping_charge_amount::text AS shipping_charge_amount,
     page.total_amount::text AS total_amount,
+    page.marketplace_fee_amount::text AS marketplace_fee_amount,
+    page.payment_fee_amount::text AS payment_fee_amount,
+    page.seller_net_amount::text AS seller_net_amount,
+    page.terms_schedule_id,
+    page.terms_agreement_id,
+    page.terms_resolved_at,
     page.status,
     page.created_at,
     page.updated_at,

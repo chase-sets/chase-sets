@@ -5,6 +5,15 @@ import {
   initialOrderingOrderState,
 } from "./domain";
 
+const commercialTermsSnapshot = {
+  marketplaceFeeAmount: "1.00",
+  paymentFeeAmount: "0.50",
+  sellerNetAmount: "18.50",
+  termsScheduleId: "cts_default",
+  termsAgreementId: null,
+  termsResolvedAt: "2026-03-31T00:00:00.000Z",
+} as const;
+
 describe("ordering order domain", () => {
   it("creates and cancels a pending order", () => {
     const created = decideOrderingOrder(initialOrderingOrderState, {
@@ -20,6 +29,7 @@ describe("ordering order domain", () => {
       shippingDiscountAmount: "0.00",
       shippingChargeAmount: "4.99",
       totalAmount: "24.99",
+      commercialTermsSnapshot,
       lines: [
         {
           lineId: "oli_1" as never,
@@ -70,6 +80,7 @@ describe("ordering order domain", () => {
       shippingDiscountAmount: "0.00",
       shippingChargeAmount: "4.99",
       totalAmount: "24.99",
+      commercialTermsSnapshot,
       lines: [
         {
           lineId: "oli_1" as never,
@@ -127,6 +138,7 @@ describe("ordering order domain", () => {
         shippingDiscountAmount: "0.00",
         shippingChargeAmount: "4.99",
         totalAmount: "4.99",
+        commercialTermsSnapshot,
         lines: [],
         reservationRequests: [],
       }),

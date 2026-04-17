@@ -47,7 +47,11 @@ export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, void>
   routePrefix: "/api/marketplace",
   streamPrefix: "marketplace.",
   schemaSql: marketplaceSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<MarketplaceServices, PgTransactionalPool, void>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<
+    MarketplaceServices,
+    PgTransactionalPool,
+    void
+  >["apiMounts"],
   projectionGroups,
   createServices: (pool) => createMarketplaceServices(pool),
   buildApis: (services) => [buildMarketplaceApi(services)],
