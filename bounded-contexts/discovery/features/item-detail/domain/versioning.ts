@@ -43,7 +43,7 @@ export function getOrderedActiveDimensions(
   );
 }
 
-export function normalizeSelectedOptionssForSchema(
+export function normalizeProductSearchOptionsForSchema(
   schema: VersionSchema,
   selections: Record<string, string>,
 ): Record<string, string> {
@@ -64,15 +64,32 @@ export function normalizeSelectedOptionssForSchema(
       continue;
     }
 
-    if (dimension.required && allowedOptionIds.length > 0) {
-      nextSelections[dimension.dimensionId] = allowedOptionIds[0];
-      continue;
-    }
-
     delete nextSelections[dimension.dimensionId];
   }
 
   return nextSelections;
+}
+
+export function normalizeSelectedOptionssForSchema(
+  schema: VersionSchema,
+  selections: Record<string, string>,
+): Record<string, string> {
+  return normalizeProductSearchOptionsForSchema(schema, selections);
+}
+
+export function isProductSelectionComplete(
+  schema: VersionSchema,
+  selections: Record<string, string>,
+): boolean {
+  const normalizedSelections = normalizeProductSearchOptionsForSchema(schema, selections);
+
+  return getOrderedActiveDimensions(schema, normalizedSelections).every((dimension) => {
+    if (!dimension.required) {
+      return true;
+    }
+
+    return normalizedSelections[dimension.dimensionId] !== undefined;
+  });
 }
 
 export function summarizeSelections(
@@ -120,12 +137,18 @@ export function createDiscoveryProductDescriptor(input: Readonly<{
     };
   }
 
-  const normalizedSelection = normalizeSelectedOptionssForSchema(
+  const normalizedSelection = normalizeProductSearchOptionsForSchema(
     input.productSchema,
     Object.fromEntries(
       input.selection.map((entry) => [entry.dimensionId.trim(), entry.optionId.trim()]),
     ),
   );
+
+  for (const dimension of getOrderedActiveDimensions(input.productSchema, normalizedSelection)) {
+    if (dimension.required && normalizedSelection[dimension.dimensionId] === undefined) {
+      throw new Error(`Selection must include ${dimension.dimensionName}.`);
+    }
+  }
 
   const orderedSelection = getOrderedDimensions(input.productSchema)
     .map((dimension) => {

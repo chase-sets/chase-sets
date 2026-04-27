@@ -1,7 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Banner,
+  Badge,
   Breadcrumbs,
+  Button,
   Card,
   CommerceActionBar,
   Container,
@@ -22,7 +24,6 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import { Badge } from "@chase-sets/design-system";
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
@@ -33,13 +34,14 @@ import { ProductSelector } from "./version-selector";
 import {
   createDiscoveryProductDescriptor,
   getOrderedActiveDimensions,
-  normalizeSelectedOptionssForSchema,
+  isProductSelectionComplete,
+  normalizeProductSearchOptionsForSchema,
   summarizeSelections,
 } from "../domain/versioning";
 
 export type ItemDetailMarketplaceSectionContext = Readonly<{
   itemId: string;
-  selectedProductId: string;
+  selectedProductId: string | null;
   itemTitle: string;
   itemSubtitle: string | null;
   selectedVersionSelection: readonly { dimensionId: string; optionId: string }[];
@@ -89,9 +91,33 @@ function matchesSelectedVersion(
   listing: DiscoveryMarketListing,
   selections: Record<string, string>,
 ) {
-  return listing.selected_options.every(
-    (entry) => selections[entry.dimensionId] === entry.optionId,
+  const selectedEntries = Object.entries(selections);
+
+  if (selectedEntries.length === 0) {
+    return true;
+  }
+
+  return selectedEntries.every(([dimensionId, optionId]) =>
+    listing.selected_options.some(
+      (entry) => entry.dimensionId === dimensionId && entry.optionId === optionId,
+    ),
   );
+}
+
+function applyVersionFilter(
+  selections: Record<string, string>,
+  dimensionId: string,
+  optionId: string,
+) {
+  const nextSelections = { ...selections };
+
+  if (optionId) {
+    nextSelections[dimensionId] = optionId;
+  } else {
+    delete nextSelections[dimensionId];
+  }
+
+  return nextSelections;
 }
 
 export function ItemDetailPage({
@@ -106,7 +132,7 @@ export function ItemDetailPage({
   renderCommerce?: (context: ItemDetailMarketplaceSectionContext) => ReactNode;
 }) {
   const [selections, setSelections] = useState<Record<string, string>>(() =>
-    data?.product_schema ? normalizeSelectedOptionssForSchema(data.product_schema, {}) : {},
+    data?.product_schema ? normalizeProductSearchOptionsForSchema(data.product_schema, {}) : {},
   );
 
   useEffect(() => {
@@ -115,7 +141,7 @@ export function ItemDetailPage({
       return;
     }
 
-    setSelections(normalizeSelectedOptionssForSchema(data.product_schema, {}));
+    setSelections(normalizeProductSearchOptionsForSchema(data.product_schema, {}));
   }, [data]);
 
   if (error) {
@@ -167,11 +193,17 @@ export function ItemDetailPage({
     selectedVersion.length > 0
       ? selectedVersion.map((selection) => selection.optionLabel).join(" / ")
       : null;
-  const selectedProductId = createDiscoveryProductDescriptor({
-    catalogItemId: data.catalog_item_id,
-    productSchema: data.product_schema,
-    selection: selectedVersionSelection,
-  }).productId;
+  const hasActiveFilters = Object.keys(selections).length > 0;
+  const hasCompleteProductSelection = data.product_schema
+    ? isProductSelectionComplete(data.product_schema, selections)
+    : true;
+  const selectedProductId = hasCompleteProductSelection
+    ? createDiscoveryProductDescriptor({
+        catalogItemId: data.catalog_item_id,
+        productSchema: data.product_schema,
+        selection: selectedVersionSelection,
+      }).productId
+    : null;
   const categories = [
     ...new Map(
       data.categories.map((category) => [category.categoryId, category] as const),
@@ -229,7 +261,8 @@ export function ItemDetailPage({
     visibleListings,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerce = renderCommerce?.(marketplaceContext) ?? null;
-  const productSummary = selectedVersionSummary ?? "Standard product";
+  const productSummary = selectedVersionSummary ?? "All listings";
+  const marketDetail = hasActiveFilters ? "Filtered listings" : "All listings";
 
   return (
     <Stagger>
@@ -277,7 +310,7 @@ export function ItemDetailPage({
                     <Stack gap={3} id="select-version">
                       <Stack gap={1}>
                         <Text size="sm" weight="semibold">
-                          Select version
+                          Find a version
                         </Text>
                         <Text size="sm" tone="secondary">
                           {productSummary}
@@ -288,10 +321,10 @@ export function ItemDetailPage({
                         selections={selections}
                         onSelectionChange={(dimensionId, optionId) =>
                           setSelections((current) =>
-                            normalizeSelectedOptionssForSchema(data.product_schema!, {
-                              ...current,
-                              [dimensionId]: optionId,
-                            }),
+                            normalizeProductSearchOptionsForSchema(
+                              data.product_schema!,
+                              applyVersionFilter(current, dimensionId, optionId),
+                            ),
                           )
                         }
                       />
@@ -340,16 +373,13 @@ export function ItemDetailPage({
                     value: formatMoney(selectedMarketSummary.lowest_price_amount),
                     detail:
                       visibleListings.length > 0
-                        ? "Selected version"
+                        ? marketDetail
                         : "No visible supply",
                   },
                   {
                     label: "Active listings",
                     value: selectedMarketSummary.active_listing_count,
-                    detail:
-                      selectedMarketSummary.active_listing_count === 1
-                        ? "Listing matches this version"
-                        : "Listings match this version",
+                    detail: marketDetail,
                   },
                   {
                     label: "Visible quantity",
@@ -370,13 +400,20 @@ export function ItemDetailPage({
                 <CommerceActionBar
                   summary={productSummary}
                   primaryAction={
-                    <LinkButton href="#buy-box" size="sm">
-                      Add
+                    <LinkButton
+                      href={selectedProductId ? "#buy-box" : "#select-version"}
+                      size="sm"
+                    >
+                      {selectedProductId ? "Add" : "Select"}
                     </LinkButton>
                   }
                   secondaryAction={
-                    <LinkButton href="#make-offer" tone="secondary" size="sm">
-                      Offer
+                    <LinkButton
+                      href={selectedProductId ? "#make-offer" : "#select-version"}
+                      tone="secondary"
+                      size="sm"
+                    >
+                      {selectedProductId ? "Offer" : "Filter"}
                     </LinkButton>
                   }
                 />
@@ -395,6 +432,22 @@ export function ItemDetailPage({
               <Reveal preset="lift">
                 <PageSection title="Listings">
                   <Stack gap={3}>
+                    {hasActiveFilters ? (
+                      <Inline gap={2}>
+                        <Text size="sm" tone="secondary">
+                          {visibleListings.length} of {data.market_listings.length}{" "}
+                          listing{data.market_listings.length === 1 ? "" : "s"}
+                        </Text>
+                        <Button
+                          type="button"
+                          tone="ghost"
+                          size="sm"
+                          onClick={() => setSelections({})}
+                        >
+                          Clear filters
+                        </Button>
+                      </Inline>
+                    ) : null}
                     {visibleListings.length > 0 ? (
                       visibleListings.map((listing) => (
                         <Card key={listing.listing_id}>
@@ -427,18 +480,31 @@ export function ItemDetailPage({
                         title="No active listings"
                         description={
                           data.market_listings.length > 0
-                            ? "No active listings match the selected version."
+                            ? "No active listings match these filters."
                             : "Sellers have not published inventory for this item yet."
                         }
                         icon="package"
                         actions={
                           <>
-                            <LinkButton href="#make-offer" size="sm">
-                              Make offer
-                            </LinkButton>
-                            <LinkButton href="#select-version" tone="secondary" size="sm">
-                              Change version
-                            </LinkButton>
+                            {selectedProductId ? (
+                              <LinkButton href="#make-offer" size="sm">
+                                Make offer
+                              </LinkButton>
+                            ) : (
+                              <LinkButton href="#select-version" size="sm">
+                                Choose version
+                              </LinkButton>
+                            )}
+                            {hasActiveFilters ? (
+                              <Button
+                                type="button"
+                                tone="secondary"
+                                size="sm"
+                                onClick={() => setSelections({})}
+                              >
+                                Clear filters
+                              </Button>
+                            ) : null}
                           </>
                         }
                       />

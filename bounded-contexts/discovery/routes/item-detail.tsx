@@ -67,7 +67,7 @@ function MarketplaceOfferSubmissionSection({
   errorMessage,
 }: {
   catalogItemId: string;
-  productId: string;
+  productId: string | null;
   itemTitle: string;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
@@ -80,7 +80,7 @@ function MarketplaceOfferSubmissionSection({
         <Stack gap={3}>
           <input type="hidden" name="intent" value="submit-offer" />
           <input type="hidden" name="catalogItemId" value={catalogItemId} />
-          <input type="hidden" name="productId" value={productId} />
+          <input type="hidden" name="productId" value={productId ?? ""} />
           <input
             type="hidden"
             name="selectedOptions"
@@ -90,10 +90,12 @@ function MarketplaceOfferSubmissionSection({
           <Stack gap={1}>
             <Text weight="semibold">Make an offer</Text>
             <Text size="sm" tone="secondary">
-              {itemTitle} - {productSummary ?? "Standard product"}
+              {itemTitle} - {productSummary ?? "Choose a version"}
             </Text>
             <Text size="sm" tone="secondary">
-              {visibleListingCount} visible listing{visibleListingCount === 1 ? "" : "s"} match this version.
+              {productId
+                ? `${visibleListingCount} visible listing${visibleListingCount === 1 ? "" : "s"} match.`
+                : "Choose a version to make an offer."}
             </Text>
           </Stack>
           {errorMessage ? <Text>{errorMessage}</Text> : null}
@@ -106,7 +108,7 @@ function MarketplaceOfferSubmissionSection({
             required
           />
           <NumberInput label="Quantity requested" name="quantityRequested" min="1" required />
-          <Button type="submit" tone="secondary" block>
+          <Button type="submit" tone="secondary" disabled={!productId} block>
             Submit offer
           </Button>
         </Stack>
@@ -125,7 +127,7 @@ function OrderingAddToCartSection({
   errorMessage,
 }: {
   catalogItemId: string;
-  productId: string;
+  productId: string | null;
   itemTitle: string;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
@@ -138,7 +140,7 @@ function OrderingAddToCartSection({
         <Stack gap={3}>
           <input type="hidden" name="intent" value="add-to-cart" />
           <input type="hidden" name="catalogItemId" value={catalogItemId} />
-          <input type="hidden" name="productId" value={productId} />
+          <input type="hidden" name="productId" value={productId ?? ""} />
           <input
             type="hidden"
             name="selectedOptions"
@@ -148,12 +150,14 @@ function OrderingAddToCartSection({
           <Stack gap={1}>
             <Text weight="semibold">Buy this version</Text>
             <Text size="sm" tone="secondary">
-              {itemTitle} - {productSummary ?? "Standard product"}
+              {itemTitle} - {productSummary ?? "Choose a version"}
             </Text>
             <Text size="sm" tone="secondary">
-              {visibleListingCount} visible listing{visibleListingCount === 1 ? "" : "s"} match right now.
+              {productId
+                ? `${visibleListingCount} visible listing${visibleListingCount === 1 ? "" : "s"} match right now.`
+                : "Choose a version to add it to your cart."}
             </Text>
-            {visibleListingCount === 0 ? (
+            {productId && visibleListingCount === 0 ? (
               <Text size="sm" tone="secondary">
                 Add to cart saves buyer intent; checkout matches exact inventory when supply is available.
               </Text>
@@ -167,7 +171,7 @@ function OrderingAddToCartSection({
             defaultValue="1"
             required
           />
-          <Button type="submit" block>
+          <Button type="submit" disabled={!productId} block>
             Add to cart
           </Button>
         </Stack>

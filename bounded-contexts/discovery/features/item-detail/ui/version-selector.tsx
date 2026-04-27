@@ -10,6 +10,8 @@ import {
   getOrderedActiveDimensions,
 } from "../domain/versioning";
 
+const ANY_OPTION_VALUE = "__any__";
+
 function formatDimensionName(name: string): string {
   return name.toLowerCase() === "form" ? "Version type" : name;
 }
@@ -34,7 +36,22 @@ export function ProductSelector({
   return (
     <Stack gap={4}>
       {orderedDimensions.map((dimension) => {
-        const selected = selections[dimension.dimensionId] ?? "";
+        const selected = selections[dimension.dimensionId] ?? ANY_OPTION_VALUE;
+        const items = [
+          {
+            value: ANY_OPTION_VALUE,
+            label: "Any",
+          },
+          ...dimension.allowedOptions.map((option) => ({
+            value: option.optionId,
+            label: getOptionLabel(option),
+          })),
+        ];
+        const onValueChange = (value: string) =>
+          onSelectionChange(
+            dimension.dimensionId,
+            value === ANY_OPTION_VALUE ? "" : value,
+          );
 
         if (dimension.allowedOptions.length <= 5) {
           return (
@@ -43,14 +60,9 @@ export function ProductSelector({
                 {formatDimensionName(dimension.dimensionName)}
               </Text>
               <SegmentedControl
-                items={dimension.allowedOptions.map((option) => ({
-                  value: option.optionId,
-                  label: getOptionLabel(option),
-                }))}
+                items={items}
                 value={selected}
-                onValueChange={(value) =>
-                  onSelectionChange(dimension.dimensionId, value)
-                }
+                onValueChange={onValueChange}
               />
             </Stack>
           );
@@ -60,14 +72,9 @@ export function ProductSelector({
           <Select
             key={dimension.dimensionId}
             label={formatDimensionName(dimension.dimensionName)}
-            items={dimension.allowedOptions.map((option) => ({
-              value: option.optionId,
-              label: getOptionLabel(option),
-            }))}
+            items={items}
             value={selected}
-            onValueChange={(value) =>
-              onSelectionChange(dimension.dimensionId, value)
-            }
+            onValueChange={onValueChange}
           />
         );
       })}
