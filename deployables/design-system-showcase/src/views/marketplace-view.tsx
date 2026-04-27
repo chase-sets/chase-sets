@@ -2,6 +2,7 @@ import {
   Badge,
   Button,
   CategoryTile,
+  Divider,
   FeatureCard,
   Grid,
   Heading,
@@ -13,6 +14,7 @@ import {
   PageSection,
   ProductCard,
   PromoStrip,
+  Rating,
   SearchInput,
   SellerBadge,
   Stack,
@@ -24,6 +26,8 @@ import {
 import { demoProducts, marketplaceNav } from "../fixtures";
 
 export function MarketplaceView() {
+  const heroProduct = demoProducts[0];
+
   return (
     <MarketplaceShell
       brand={<SellerBadge name="Chase Sets" verified />}
@@ -43,6 +47,10 @@ export function MarketplaceView() {
           <Grid columns={{ base: 1, lg: 2 }} gap={6}>
             <Stack gap={5} justify="center">
               <Stack gap={3}>
+                <Inline gap={2}>
+                  <Badge tone="accent">Verified marketplace</Badge>
+                  <Badge tone="info">Collector owned</Badge>
+                </Inline>
                 <Heading level={1}>
                   Buy, sell, and discover the collectibles worth chasing.
                 </Heading>
@@ -57,30 +65,43 @@ export function MarketplaceView() {
                   Start Selling
                 </Button>
               </Inline>
-              <Inline gap={3}>
-                <Badge tone="accent">100K+ collectors</Badge>
-                <Badge tone="success">Verified sellers</Badge>
-              </Inline>
+              <StatGrid columns={{ base: 1, sm: 3 }}>
+                <Stat label="Active Listings" value="100K+" />
+                <Stat label="Collectors" value="75K+" />
+                <Stat label="Avg Rating" value="4.9" trend={<Rating value={5} size="sm" />} />
+              </StatGrid>
             </Stack>
-            <Grid columns={{ base: 2 }} gap={3}>
-              {demoProducts.slice(0, 4).map((product) => (
-                <ProductCard
-                  key={product.title}
-                  title={product.title}
-                  subtitle={product.subtitle}
-                  price={product.price}
-                  imageSrc={product.imageSrc}
-                  imageAlt={product.title}
-                  status={<Badge tone={product.status === "Hot" ? "warning" : "info"}>{product.status}</Badge>}
-                  actions={<IconButton label="Save item" icon="heart" size="sm" />}
-                />
-              ))}
-            </Grid>
+            <Stack gap={4}>
+              <ProductCard
+                title={heroProduct.title}
+                subtitle={heroProduct.subtitle}
+                price={heroProduct.price}
+                imageSrc={heroProduct.imageSrc}
+                imageAlt={heroProduct.title}
+                imageFit="contain"
+                status={<Badge tone="info">Featured</Badge>}
+                meta="Champion's Path #074"
+              />
+              <Surface tone="subtle" padding={4}>
+                <Stack gap={3}>
+                  <Inline gap={2}>
+                    <Icon name="shield" tone="accent" />
+                    <Text weight="semibold">Buyer protection on every order</Text>
+                  </Inline>
+                  <Divider />
+                  <Grid columns={{ base: 1, sm: 3 }} gap={3}>
+                    <Stat label="Verified Sellers" value="2K+" />
+                    <Stat label="Protected Orders" value="98%" />
+                    <Stat label="Avg Ship" value="1.2d" />
+                  </Grid>
+                </Stack>
+              </Surface>
+            </Stack>
           </Grid>
         </Surface>
       }
     >
-      <Surface padding={4}>
+      <Surface elevated padding={4}>
         <Stack gap={3}>
           <SearchInput
             label="Marketplace search"
@@ -97,7 +118,10 @@ export function MarketplaceView() {
         </Stack>
       </Surface>
 
-      <PageSection title="Featured Collectibles">
+      <PageSection
+        title="Featured Collectibles"
+        description="High-signal marketplace cards for comparing product, price, status, and action states."
+      >
         <Grid columns={{ base: 1, sm: 2, lg: 5 }} gap={3}>
           {demoProducts.map((product) => (
             <ProductCard
@@ -114,6 +138,17 @@ export function MarketplaceView() {
         </Grid>
       </PageSection>
 
+      <PageSection title="Trending Categories">
+        <Grid columns={{ base: 2, md: 5 }} gap={3}>
+          <CategoryTile icon="cards" label="Trading Cards" detail="120K+ items" />
+          <CategoryTile icon="book" label="Comics" detail="38K+ items" />
+          <CategoryTile icon="figure" label="Figures" detail="22K+ items" />
+          <CategoryTile icon="sneaker" label="Sneakers" detail="14K+ items" />
+          <CategoryTile icon="shirt" label="Memorabilia" detail="9K+ items" />
+          <CategoryTile icon="grid" label="All Categories" detail="Browse all" />
+        </Grid>
+      </PageSection>
+
       <PageSection title="How Chase Sets Works">
         <Grid columns={{ base: 1, md: 3 }} gap={4}>
           <FeatureCard icon="search" title="Discover" description="Explore verified collectibles from trusted sellers around the world." />
@@ -126,8 +161,15 @@ export function MarketplaceView() {
         <Stat label="Active Listings" value="100K+" />
         <Stat label="Happy Collectors" value="75K+" />
         <Stat label="Verified Sellers" value="2K+" />
-        <Stat label="Average Rating" value="4.9/5" />
+        <Stat label="Average Rating" value="4.9/5" trend={<Rating value={5} size="sm" />} />
       </StatGrid>
+
+      <Grid columns={{ base: 1, md: 4 }} gap={4}>
+        <FeatureCard icon="shield" title="Authenticity First" description="Collectibles are verified by trusted marketplace partners." />
+        <FeatureCard icon="lock" title="Buyer Protection" description="Secure payments and hassle-free returns on eligible orders." />
+        <FeatureCard icon="chart" title="Transparent Pricing" description="Real market data helps buyers and sellers move with confidence." />
+        <FeatureCard icon="users" title="Community Driven" description="Collectors, sellers, and enthusiasts all in one marketplace." />
+      </Grid>
 
       <PromoStrip
         icon="spark"

@@ -1,12 +1,15 @@
 import {
   Badge,
-  Card,
   EmptyState,
+  Grid,
   LinkButton,
   Page,
   PageHeader,
   PageSection,
   Stack,
+  Stat,
+  StatGrid,
+  Surface,
   Text,
 } from "@chase-sets/design-system";
 import type { OrderingOrderListItem } from "./contracts";
@@ -41,6 +44,9 @@ export function OrderingOrderListPage({
   orderDetailBasePath: string;
   orders: readonly OrderingOrderListItem[];
 }) {
+  const totalQuantity = orders.reduce((sum, order) => sum + order.total_quantity, 0);
+  const pendingCount = orders.filter((order) => order.status.includes("pending")).length;
+
   return (
     <Page>
       <PageHeader
@@ -49,8 +55,14 @@ export function OrderingOrderListPage({
         description="Review pending commercial commitments created by checkout or accepted offers."
       />
 
+      <StatGrid columns={{ base: 1, md: 3 }}>
+        <Stat label="Orders" value={orders.length} />
+        <Stat label="Items" value={totalQuantity} />
+        <Stat label="Pending" value={pendingCount} />
+      </StatGrid>
+
       <PageSection title="Orders">
-        <Stack gap={3}>
+        <Grid columns={{ base: 1, xl: 2 }} gap={3}>
           {orders.length === 0 ? (
             <EmptyState
               title={emptyTitle}
@@ -59,28 +71,34 @@ export function OrderingOrderListPage({
             />
           ) : (
             orders.map((order) => (
-              <Card key={order.order_id}>
-                <Stack gap={2}>
+              <Surface key={order.order_id} elevated>
+                <Stack gap={3}>
                   <Stack gap={1}>
                     <Text weight="semibold">Order {order.order_id}</Text>
                     <Badge tone={statusTone(order.status)}>{order.status}</Badge>
                   </Stack>
-                  <Text size="sm" tone="secondary">
-                    Quantity: {order.total_quantity} across {order.line_count} line
-                    {order.line_count === 1 ? "" : "s"}
-                  </Text>
-                  <Text>Total: {formatMoney(order.total_amount)}</Text>
-                  <Text size="sm" tone="secondary">
-                    Seller net: {formatMoney(order.seller_net_amount)}
-                  </Text>
+                  <Grid columns={{ base: 1, sm: 3 }} gap={3}>
+                    <Stack gap={1}>
+                      <Text size="sm" tone="secondary">Quantity</Text>
+                      <Text weight="semibold">{order.total_quantity}</Text>
+                    </Stack>
+                    <Stack gap={1}>
+                      <Text size="sm" tone="secondary">Total</Text>
+                      <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
+                    </Stack>
+                    <Stack gap={1}>
+                      <Text size="sm" tone="secondary">Seller net</Text>
+                      <Text>{formatMoney(order.seller_net_amount)}</Text>
+                    </Stack>
+                  </Grid>
                   <LinkButton href={`${orderDetailBasePath}/${order.order_id}`} tone="secondary">
                     Open order
                   </LinkButton>
                 </Stack>
-              </Card>
+              </Surface>
             ))
           )}
-        </Stack>
+        </Grid>
       </PageSection>
     </Page>
   );

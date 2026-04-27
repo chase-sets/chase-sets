@@ -13,7 +13,7 @@ import { ShowcaseThemeControl } from "../../src/showcase-theme-control";
 
 function resolveMode(pathname: string) {
   const segment = pathname.split("/").filter(Boolean)[0];
-  return segment === "admin" || segment === "components"
+  return segment === "admin" || segment === "checkout" || segment === "components"
     ? segment
     : "marketplace";
 }
@@ -53,6 +53,11 @@ export default function ShowcaseLayoutRoute() {
             {
               value: "admin",
               label: "Seller Dashboard",
+              content: null,
+            },
+            {
+              value: "checkout",
+              label: "Checkout",
               content: null,
             },
             {

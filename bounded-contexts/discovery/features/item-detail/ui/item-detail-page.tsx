@@ -24,6 +24,7 @@ import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
 } from "../../../support/client-support/contracts";
+import { discoveryAssetUrls } from "../../../support/client-support/assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 import { ProductSelector } from "./version-selector";
 import {
@@ -349,6 +350,10 @@ export function ItemDetailPage({
             secondary={
               <ImageGallery
                 images={images}
+                fallbackImage={{
+                  src: discoveryAssetUrls.defaultProductImage,
+                  alt: "Pokemon card back",
+                }}
                 emptyState={
                   <Stack gap={3} align="center">
                     <Surface tone="muted" padding={4}>

@@ -355,7 +355,7 @@ export function Surface({
     <Component
       {...rest}
       className={cx(
-        "surface-border rounded-tokenLg",
+        "surface-border min-w-0 max-w-full rounded-tokenLg",
         surfaceToneClasses[tone],
         resolveSystemProps({
           padding,

@@ -36,6 +36,6 @@ describe("marketplace search route", () => {
 
     const html = renderToString(<SearchRoute />);
 
-    expect(html).toContain("Search catalog items...");
+    expect(html).toContain("Search Pikachu, Spider-Man, Jordan, vintage packs...");
   });
 });

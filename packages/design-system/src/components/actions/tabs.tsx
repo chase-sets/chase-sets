@@ -48,7 +48,7 @@ export function Tabs({
       className="space-y-4"
     >
       <LayoutGroup id={groupId}>
-        <TabsPrimitive.List className="inline-flex w-full flex-wrap gap-2 rounded-tokenLg border border-muted bg-background p-2">
+        <TabsPrimitive.List className="grid w-full min-w-0 max-w-full grid-cols-2 gap-2 rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap">
           {items.map((item) => {
             const active = item.value === currentValue;
 
@@ -56,10 +56,10 @@ export function Tabs({
               <TabsPrimitive.Trigger
                 key={item.value}
                 value={item.value}
-                className="focus-ring relative inline-flex touch-target flex-1 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-4 py-2 text-sm font-semibold text-secondary transition data-[state=active]:text-accent"
+                className="focus-ring relative inline-flex touch-target min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-center text-sm font-semibold text-secondary transition data-[state=active]:text-accent md:flex-1 md:basis-0 md:px-4"
               >
                 {active ? renderActivePill(groupId, "accent") : null}
-                <span className="relative z-10">{item.label}</span>
+                <span className="relative z-10 min-w-0 break-words">{item.label}</span>
                 {item.badge ? (
                   <span className="relative z-10 rounded-full bg-background px-2 py-0.5 text-[0.7rem]">
                     {item.badge}

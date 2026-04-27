@@ -1,12 +1,17 @@
 import {
   Badge,
   Button,
-  Card,
+  CheckoutLayout,
+  CheckoutTrustPanel,
+  Divider,
+  Grid,
   LinkButton,
+  OrderSummary,
   Page,
   PageHeader,
   PageSection,
   Stack,
+  Surface,
   Text,
 } from "@chase-sets/design-system";
 import type { ReactNode } from "react";
@@ -52,6 +57,7 @@ export function OrderingOrderDetailPage({
     role === "buyer"
       ? order.seller_display_name ?? order.seller_account_id
       : order.buyer_display_name ?? order.buyer_account_id;
+  const canPay = order.status === "pending-payment" && paymentHref;
 
   return (
     <Page>
@@ -67,88 +73,148 @@ export function OrderingOrderDetailPage({
       />
 
       {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
-      ) : null}
-
-      <PageSection title="Summary">
-        <Card>
+        <Surface tone="subtle" elevated>
           <Stack gap={2}>
-            <Badge tone={statusTone(order.status)}>{order.status}</Badge>
-            <Text>Source: {order.source_type}</Text>
-            <Text>Shipping: {order.shipping_option}</Text>
-            <Text>Item subtotal: {formatMoney(order.item_subtotal_amount)}</Text>
-            <Text>Shipping charge: {formatMoney(order.shipping_charge_amount)}</Text>
-            <Text>Total: {formatMoney(order.total_amount)}</Text>
-            <Text>Marketplace fee: {formatMoney(order.marketplace_fee_amount)}</Text>
-            <Text>Payment fee: {formatMoney(order.payment_fee_amount)}</Text>
-            <Text>Seller net: {formatMoney(order.seller_net_amount)}</Text>
-            <Text>Terms schedule: {order.terms_schedule_id ?? "No schedule snapshot"}</Text>
-            <Text>Agreement override: {order.terms_agreement_id ?? "None"}</Text>
-            <Text>
-              Terms resolved at: {new Date(order.terms_resolved_at).toLocaleString()}
-            </Text>
-            {order.status === "pending-payment" && paymentHref ? (
-              <LinkButton href={paymentHref}>Pay now</LinkButton>
-            ) : null}
-            {isPendingStatus(order.status) ? (
-              <form method="post">
-                <Button type="submit" name="intent" value="cancel-order" tone="danger">
-                  Cancel order
-                </Button>
-              </form>
-            ) : null}
+            <Badge tone="danger">Order issue</Badge>
+            <Text>{errorMessage}</Text>
           </Stack>
-        </Card>
-      </PageSection>
-
-      {supplementarySection ? (
-        <PageSection title={supplementarySectionTitle}>
-          {supplementarySection}
-        </PageSection>
+        </Surface>
       ) : null}
 
-      <PageSection title="Lines">
-        <Stack gap={3}>
-          {order.lines.map((line) => (
-            <Card key={line.line_id}>
-              <Stack gap={1}>
-                <Text weight="semibold">{line.item_title}</Text>
-                {line.item_subtitle ? (
-                  <Text tone="secondary" size="sm">
-                    {line.item_subtitle}
-                  </Text>
+      <CheckoutLayout
+        summary={
+          <Stack gap={4}>
+            <OrderSummary
+              title="Order Summary"
+              lines={[
+                { label: "Status", value: <Badge tone={statusTone(order.status)}>{order.status}</Badge> },
+                { label: "Item subtotal", value: formatMoney(order.item_subtotal_amount) },
+                { label: "Shipping", value: formatMoney(order.shipping_charge_amount) },
+                { label: "Marketplace fee", value: formatMoney(order.marketplace_fee_amount) },
+                { label: "Payment fee", value: formatMoney(order.payment_fee_amount) },
+                { label: "Seller net", value: formatMoney(order.seller_net_amount) },
+              ]}
+              total={formatMoney(order.total_amount)}
+            />
+            <CheckoutTrustPanel
+              title={role === "buyer" ? "Buyer Protection" : "Seller Protection"}
+              items={[
+                {
+                  icon: "shield",
+                  title: "Resolved Terms",
+                  description: order.terms_schedule_id ?? "No schedule snapshot",
+                },
+                {
+                  icon: "truck",
+                  title: "Shipping Preference",
+                  description: order.shipping_option,
+                },
+                {
+                  icon: "lock",
+                  title: "Payment State",
+                  description: order.status,
+                },
+              ]}
+            />
+          </Stack>
+        }
+      >
+        <Stack gap={4}>
+          <Surface elevated glow>
+            <Stack gap={4}>
+              <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                <Stack gap={1}>
+                  <Text size="sm" tone="secondary">Source</Text>
+                  <Text weight="semibold">{order.source_type}</Text>
+                </Stack>
+                <Stack gap={1}>
+                  <Text size="sm" tone="secondary">Counterparty</Text>
+                  <Text weight="semibold">{counterpartLabel}</Text>
+                </Stack>
+                <Stack gap={1}>
+                  <Text size="sm" tone="secondary">Terms resolved</Text>
+                  <Text>{new Date(order.terms_resolved_at).toLocaleString()}</Text>
+                </Stack>
+              </Grid>
+              <Divider />
+              <Stack gap={3} direction={{ base: "column", sm: "row" }}>
+                {canPay ? <LinkButton href={paymentHref}>Pay now</LinkButton> : null}
+                {isPendingStatus(order.status) ? (
+                  <form method="post">
+                    <Button type="submit" name="intent" value="cancel-order" tone="danger">
+                      Cancel order
+                    </Button>
+                  </form>
                 ) : null}
-                <Text size="sm" tone="secondary">
-                  {line.product_summary ?? "Standard"}
-                </Text>
-                <Text>
-                  {line.quantity} x {formatMoney(line.unit_price_amount)} ={" "}
-                  {formatMoney(line.line_total_amount)}
-                </Text>
               </Stack>
-            </Card>
-          ))}
-        </Stack>
-      </PageSection>
+            </Stack>
+          </Surface>
 
-      <PageSection title="Inventory Holds">
-        <Stack gap={3}>
-          {order.inventory_holds.map((hold) => (
-            <Card key={hold.hold_id}>
-              <Stack gap={1}>
-                <Text weight="semibold">{hold.hold_id}</Text>
-                <Text size="sm" tone="secondary">
-                  Record {hold.inventory_record_id}
-                </Text>
-                <Text>Quantity: {hold.quantity}</Text>
-                <Text>Status: {hold.status}</Text>
-              </Stack>
-            </Card>
-          ))}
+          {supplementarySection ? (
+            <PageSection title={supplementarySectionTitle}>
+              {supplementarySection}
+            </PageSection>
+          ) : null}
+
+          <PageSection title="Lines">
+            <Stack gap={3}>
+              {order.lines.map((line) => (
+                <Surface key={line.line_id} elevated>
+                  <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                    <Stack gap={1}>
+                      <Text weight="semibold">{line.item_title}</Text>
+                      {line.item_subtitle ? (
+                        <Text tone="secondary" size="sm">
+                          {line.item_subtitle}
+                        </Text>
+                      ) : null}
+                      <Text size="sm" tone="secondary">
+                        {line.product_summary ?? "Standard"}
+                      </Text>
+                    </Stack>
+                    <Stack gap={1}>
+                      <Text size="sm" tone="secondary">Quantity</Text>
+                      <Text weight="semibold">{line.quantity}</Text>
+                    </Stack>
+                    <Stack gap={1}>
+                      <Text size="sm" tone="secondary">Line total</Text>
+                      <Text weight="semibold">
+                        {line.quantity} x {formatMoney(line.unit_price_amount)} ={" "}
+                        {formatMoney(line.line_total_amount)}
+                      </Text>
+                    </Stack>
+                  </Grid>
+                </Surface>
+              ))}
+            </Stack>
+          </PageSection>
+
+          <PageSection title="Inventory Holds">
+            <Stack gap={3}>
+              {order.inventory_holds.map((hold) => (
+                <Surface key={hold.hold_id} elevated>
+                  <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                    <Stack gap={1}>
+                      <Text weight="semibold">{hold.hold_id}</Text>
+                      <Text size="sm" tone="secondary">
+                        Record {hold.inventory_record_id}
+                      </Text>
+                    </Stack>
+                    <Stack gap={1}>
+                      <Text size="sm" tone="secondary">Quantity</Text>
+                      <Text>{hold.quantity}</Text>
+                    </Stack>
+                    <Stack gap={1}>
+                      <Text size="sm" tone="secondary">Status</Text>
+                      <Badge tone="accent">{hold.status}</Badge>
+                    </Stack>
+                  </Grid>
+                </Surface>
+              ))}
+            </Stack>
+          </PageSection>
         </Stack>
-      </PageSection>
+      </CheckoutLayout>
     </Page>
   );
 }

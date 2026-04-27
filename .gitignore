@@ -2,6 +2,8 @@
 node_modules/
 dist/
 build/
+artifacts/
+.react-router/
 .env
 .env.local
 !deployables/catalog-api/.env

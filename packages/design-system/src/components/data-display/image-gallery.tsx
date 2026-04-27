@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../utils/cx";
 
@@ -12,6 +12,7 @@ export interface ImageGalleryProps
   images: GalleryImage[];
   aspectRatio?: string;
   emptyState?: ReactNode;
+  fallbackImage?: GalleryImage;
   maxHeightClassName?: string;
 }
 
@@ -36,11 +37,51 @@ export function ImageGallery({
   images,
   aspectRatio = "3/4",
   emptyState,
+  fallbackImage,
   maxHeightClassName,
   ...rest
 }: ImageGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const active = images[activeIndex];
+  const [failedImageSources, setFailedImageSources] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  useEffect(() => {
+    if (activeIndex >= images.length) {
+      setActiveIndex(0);
+    }
+  }, [activeIndex, images.length]);
+
+  function resolveImage(image: GalleryImage | undefined): GalleryImage | undefined {
+    if (!image) {
+      return fallbackImage && !failedImageSources.has(fallbackImage.src)
+        ? fallbackImage
+        : undefined;
+    }
+
+    if (failedImageSources.has(image.src)) {
+      return fallbackImage && !failedImageSources.has(fallbackImage.src)
+        ? fallbackImage
+        : undefined;
+    }
+
+    return image;
+  }
+
+  function markImageFailed(src: string) {
+    setFailedImageSources((current) => {
+      if (current.has(src)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.add(src);
+      return next;
+    });
+  }
+
+  const hasProvidedImages = images.length > 0;
+  const active = resolveImage(hasProvidedImages ? images[activeIndex] : undefined);
   const galleryStyle = {
     aspectRatio,
     "--gallery-aspect-ratio": String(parseAspectRatio(aspectRatio)),
@@ -58,7 +99,7 @@ export function ImageGallery({
     constrainedFrameClasses,
   );
 
-  if (images.length === 0) {
+  if (!hasProvidedImages && !fallbackImage) {
     if (!emptyState) {
       return null;
     }
@@ -88,31 +129,39 @@ export function ImageGallery({
           <img
             src={active.src}
             alt={active.alt}
+            onError={() => markImageFailed(active.src)}
             className="h-full w-full object-contain"
           />
-        ) : null}
+        ) : emptyState ?? null}
       </div>
       {images.length > 1 ? (
         <div className="flex gap-2 overflow-x-auto">
-          {images.map((image, index) => (
-            <button
-              key={index}
-              type="button"
-              onClick={() => setActiveIndex(index)}
-              className={cx(
-                "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
-                index === activeIndex
-                  ? "border-accent shadow-tokenSm"
-                  : "border-muted hover:border-accent"
-              )}
-            >
-              <img
-                src={image.src}
-                alt={image.alt}
-                className="h-full w-full object-cover"
-              />
-            </button>
-          ))}
+          {images.map((image, index) => {
+            const thumbnail = resolveImage(image);
+
+            return (
+              <button
+                key={index}
+                type="button"
+                onClick={() => setActiveIndex(index)}
+                className={cx(
+                  "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
+                  index === activeIndex
+                    ? "border-accent shadow-tokenSm"
+                    : "border-muted hover:border-accent"
+                )}
+              >
+                {thumbnail ? (
+                  <img
+                    src={thumbnail.src}
+                    alt={thumbnail.alt}
+                    onError={() => markImageFailed(thumbnail.src)}
+                    className="h-full w-full object-cover"
+                  />
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       ) : null}
     </div>

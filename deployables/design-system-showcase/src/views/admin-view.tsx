@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   DataTable,
+  Divider,
   FeatureCard,
   Grid,
   Icon,
@@ -18,6 +19,7 @@ import {
   PriceDisplay,
   ProductCard,
   PromoStrip,
+  Rating,
   SellerBadge,
   Stack,
   Stat,
@@ -64,7 +66,8 @@ export function AdminView() {
             { label: "Total Sales", value: "$12,846.75", trend: "+18.7% vs prior period" },
             { label: "Active Listings", value: "128", trend: "+6.2% vs prior period" },
             { label: "Orders This Month", value: "42", trend: "+24.1% vs prior period" },
-            { label: "Conversion Rate", value: "4.36%", trend: "+0.8pp vs prior period" }
+            { label: "Conversion Rate", value: "4.36%", trend: "+0.8pp vs prior period" },
+            { label: "Pending Payouts", value: "$2,340.50", trend: "Available to transfer" }
           ]}
         />
 
@@ -75,12 +78,16 @@ export function AdminView() {
                 <Icon name="chart" tone="accent" />
                 <Text weight="semibold">Sales Performance</Text>
               </Inline>
-              <Stat label="Revenue" value="$12,846.75" trend="+18.7%" />
-              <Grid columns={{ base: 4 }} gap={2}>
+              <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                <Stat label="Revenue" value="$12,846.75" trend="+18.7%" />
+                <Stat label="Average Order" value="$305.87" trend="+11.4%" />
+              </Grid>
+              <Grid columns={{ base: 5 }} gap={2}>
                 <Surface tone="accent" padding={3} />
                 <Surface tone="accent" padding={4} />
                 <Surface tone="accent" padding={5} />
                 <Surface tone="accent" padding={6} />
+                <Surface tone="accent" padding={5} />
               </Grid>
             </Stack>
           </Surface>
@@ -105,6 +112,7 @@ export function AdminView() {
               rows={rows}
               columns={[
                 { key: "item", header: "Item", cell: (row) => row.item },
+                { key: "condition", header: "Condition", cell: (row) => <Badge tone="neutral">{row.condition}</Badge> },
                 { key: "status", header: "Status", cell: (row) => <Badge tone="info">{row.status}</Badge> },
                 { key: "price", header: "Amount", align: "right", cell: (row) => <PriceDisplay amount={row.price} /> }
               ]}
@@ -125,11 +133,17 @@ export function AdminView() {
                   <Text weight="semibold">Seller Reputation</Text>
                   <Badge tone="info">Verified Seller</Badge>
                 </Inline>
+                <Divider />
                 <Inline gap={3}>
                   <Text size="lg" weight="bold">4.9</Text>
-                  <Badge tone="warning">5 stars</Badge>
+                  <Rating value={5} size="sm" />
                 </Inline>
                 <Text size="sm" tone="secondary">Based on 248 reviews with excellent response and shipping speed.</Text>
+                <Grid columns={{ base: 3 }} gap={3}>
+                  <Stat label="Response" value="98%" trend="Excellent" />
+                  <Stat label="Shipping" value="1.2d" trend="Excellent" />
+                  <Stat label="Defects" value="0.6%" trend="Excellent" />
+                </Grid>
               </Stack>
             </Surface>
           </Stack>

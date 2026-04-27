@@ -52,6 +52,8 @@ export function Layout({ children }: { children: ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <link rel="canonical" href={canonicalUrl} />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="alternate icon" href="/favicon.ico" sizes="any" />
         <Links />
       </head>
       <body>
@@ -81,6 +83,8 @@ export function ErrorBoundary() {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Admin Error</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="alternate icon" href="/favicon.ico" sizes="any" />
         <Links />
       </head>
       <body>

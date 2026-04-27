@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import {
   AdminShell,
   ChaseRoot,
-  Text,
+  SellerBadge,
   type ColorMode,
   type NavigationItem,
 } from "@chase-sets/design-system";
@@ -23,7 +23,7 @@ export function IdentityAdminLayout({
   return (
     <ChaseRoot colorMode={colorMode}>
       <AdminShell
-        brand={<Text weight="semibold">Identity Admin</Text>}
+        brand={<SellerBadge name="Identity Ops" verified />}
         navItems={[...navItems]}
         activeKey={activeKey}
         actions={actions}

@@ -196,15 +196,125 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
   }
 };
 
+type SpacePrefix = "p" | "px" | "py" | "m" | "mx" | "my" | "gap";
+
+const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
+  p: {
+    0: "p-0",
+    1: "p-1",
+    2: "p-2",
+    3: "p-3",
+    4: "p-4",
+    5: "p-5",
+    6: "p-6",
+    7: "p-7",
+    8: "p-8",
+    9: "p-9",
+    10: "p-10",
+    11: "p-11",
+    12: "p-12"
+  },
+  px: {
+    0: "px-0",
+    1: "px-1",
+    2: "px-2",
+    3: "px-3",
+    4: "px-4",
+    5: "px-5",
+    6: "px-6",
+    7: "px-7",
+    8: "px-8",
+    9: "px-9",
+    10: "px-10",
+    11: "px-11",
+    12: "px-12"
+  },
+  py: {
+    0: "py-0",
+    1: "py-1",
+    2: "py-2",
+    3: "py-3",
+    4: "py-4",
+    5: "py-5",
+    6: "py-6",
+    7: "py-7",
+    8: "py-8",
+    9: "py-9",
+    10: "py-10",
+    11: "py-11",
+    12: "py-12"
+  },
+  m: {
+    0: "m-0",
+    1: "m-1",
+    2: "m-2",
+    3: "m-3",
+    4: "m-4",
+    5: "m-5",
+    6: "m-6",
+    7: "m-7",
+    8: "m-8",
+    9: "m-9",
+    10: "m-10",
+    11: "m-11",
+    12: "m-12"
+  },
+  mx: {
+    0: "mx-0",
+    1: "mx-1",
+    2: "mx-2",
+    3: "mx-3",
+    4: "mx-4",
+    5: "mx-5",
+    6: "mx-6",
+    7: "mx-7",
+    8: "mx-8",
+    9: "mx-9",
+    10: "mx-10",
+    11: "mx-11",
+    12: "mx-12"
+  },
+  my: {
+    0: "my-0",
+    1: "my-1",
+    2: "my-2",
+    3: "my-3",
+    4: "my-4",
+    5: "my-5",
+    6: "my-6",
+    7: "my-7",
+    8: "my-8",
+    9: "my-9",
+    10: "my-10",
+    11: "my-11",
+    12: "my-12"
+  },
+  gap: {
+    0: "gap-0",
+    1: "gap-1",
+    2: "gap-2",
+    3: "gap-3",
+    4: "gap-4",
+    5: "gap-5",
+    6: "gap-6",
+    7: "gap-7",
+    8: "gap-8",
+    9: "gap-9",
+    10: "gap-10",
+    11: "gap-11",
+    12: "gap-12"
+  }
+};
+
 export function resolveSpaceClass(
-  prefix: "p" | "px" | "py" | "m" | "mx" | "my" | "gap",
+  prefix: SpacePrefix,
   value?: SpaceToken
 ): string {
   if (value === undefined) {
     return "";
   }
 
-  return `${prefix}-${value}`;
+  return spaceClasses[prefix][value];
 }
 
 export function resolveTextAlignClass(value?: TextAlignValue): string {

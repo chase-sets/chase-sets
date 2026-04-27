@@ -42,7 +42,7 @@ describe("marketplace SSR routes", () => {
       </MemoryRouter>,
     );
 
-    expect(html).toContain("Marketplace");
+    expect(html).toContain("Chase Sets");
     expect(html).toContain("Search route outlet");
   });
 
@@ -302,7 +302,11 @@ describe("marketplace SSR routes", () => {
     } as never);
 
     expect(response.headers.get("Content-Type")).toContain("image/svg+xml");
-    await expect(response.text()).resolves.toContain("<svg");
+    const body = await response.text();
+
+    expect(body).toContain("<svg");
+    expect(body).toContain("logoGradient");
+    expect(body).toContain("#702cff");
   });
 
   it("absorbs the chrome devtools probe", () => {

@@ -19,6 +19,7 @@ import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
 } from "../support/request-support/api-client";
+import { discoveryAssetUrls } from "../support/client-support/assets";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
@@ -279,7 +280,9 @@ export const meta: MetaFunction<typeof loader> = ({ data }) =>
     description: data?.item?.description
       ? data.item.description
       : MARKETPLACE_DESCRIPTION,
-    imageUrl: data?.item?.image_urls[0],
+    imageUrl: data?.item
+      ? data.item.image_urls[0] ?? discoveryAssetUrls.defaultProductImage
+      : undefined,
     type: data?.item ? "product" : "website",
   });
 

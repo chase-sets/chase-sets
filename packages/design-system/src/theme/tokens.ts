@@ -91,15 +91,15 @@ export interface ThemeOverrides {
 
 export const chaseTheme: ThemeTokens = {
   colors: {
-    background: "#f6f8ff",
+    background: "#f4f7ff",
     surface: "#ffffff",
-    surface2: "#edf3ff",
-    surface3: "#e4ecfb",
-    elevatedSurface: "#f9fbff",
-    border: "#c7d3ea",
-    mutedBorder: "#dce5f5",
+    surface2: "#eef5ff",
+    surface3: "#e2ebfb",
+    elevatedSurface: "#ffffff",
+    border: "#b9c9e6",
+    mutedBorder: "#d8e3f5",
     textPrimary: "#07111f",
-    textSecondary: "#46546b",
+    textSecondary: "#3f4e64",
     textTertiary: "#65738a",
     textDisabled: "#9aa7b8",
     textInverse: "#f8fbff",
@@ -131,10 +131,10 @@ export const chaseTheme: ThemeTokens = {
     xl: "1.5rem"
   },
   shadows: {
-    sm: "0 10px 28px -18px rgba(15, 23, 42, 0.22)",
-    md: "0 18px 46px -24px rgba(30, 64, 175, 0.28)",
-    lg: "0 26px 70px -30px rgba(37, 99, 235, 0.36)",
-    overlay: "0 36px 100px -30px rgba(30, 64, 175, 0.42)"
+    sm: "0 10px 30px -20px rgba(15, 23, 42, 0.24)",
+    md: "0 18px 50px -26px rgba(30, 64, 175, 0.3)",
+    lg: "0 28px 74px -34px rgba(37, 99, 235, 0.38)",
+    overlay: "0 36px 104px -32px rgba(30, 64, 175, 0.44)"
   },
   zIndex: {
     sticky: "20",

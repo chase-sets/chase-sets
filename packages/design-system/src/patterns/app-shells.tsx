@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import { useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   BottomNav,
@@ -25,7 +25,8 @@ import {
   Stat,
   StatGrid
 } from "../components/data-display";
-import { Badge } from "../components/feedback";
+import { Badge, type BadgeProps } from "../components/feedback";
+import { ChaseSetsLogo } from "../brand/chase-sets-logo";
 import { Icon, type IconName } from "../icons";
 
 export interface PageProps
@@ -43,7 +44,7 @@ export function Page({
     <div
       {...rest}
       className={cx(
-        "mx-auto flex w-full flex-col gap-6 px-4 py-6 pb-24 md:px-6 md:pb-8",
+        "mx-auto flex w-full min-w-0 max-w-full flex-col gap-6 overflow-x-hidden px-4 py-6 pb-24 md:px-6 md:pb-8",
         layoutWidthClasses[width]
       )}
     >
@@ -70,9 +71,9 @@ export function PageHeader({
   return (
     <div
       {...rest}
-      className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"
+      className="flex min-w-0 max-w-full flex-col gap-4 md:flex-row md:items-end md:justify-between"
     >
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         {eyebrow ? (
           <div className="text-xs font-semibold uppercase text-accent">
             {eyebrow}
@@ -82,7 +83,7 @@ export function PageHeader({
           {title}
         </h1>
         {description ? (
-          <div className="max-w-3xl text-base text-secondary">{description}</div>
+          <div className="max-w-full text-base text-secondary md:max-w-3xl">{description}</div>
         ) : null}
       </div>
       {actions ? <ButtonGroup>{actions}</ButtonGroup> : null}
@@ -437,21 +438,32 @@ export function ConditionBadge({
 
 export interface SellerBadgeProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  logo?: ReactNode | false;
   name: ReactNode;
   verified?: boolean;
 }
 
 export function SellerBadge({
+  logo,
   name,
   verified = false,
   ...rest
 }: SellerBadgeProps) {
+  const resolvedLogo = logo === false ? null : logo ?? <ChaseSetsLogo decorative size={20} />;
+
   return (
     <div
       {...rest}
       className="inline-flex items-center gap-2 rounded-full border border-muted bg-elevated px-3 py-1.5 text-sm font-medium text-foreground shadow-tokenSm"
     >
-      <span>{name}</span>
+      <span className="inline-flex min-w-0 items-center gap-0">
+        {resolvedLogo ? (
+          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+            {resolvedLogo}
+          </span>
+        ) : null}
+        <span>{name}</span>
+      </span>
       {verified ? <Badge tone="success">Verified</Badge> : null}
     </div>
   );
@@ -462,6 +474,67 @@ export interface OrderSummaryLine {
   value: ReactNode;
 }
 
+export interface TokenSwatchProps {
+  label: ReactNode;
+  value: ReactNode;
+  color:
+    | "brandPrimary"
+    | "brandSecondary"
+    | "cyan"
+    | "indigo"
+    | "background"
+    | "surface"
+    | "surface2"
+    | "surface3"
+    | "border"
+    | "textPrimary"
+    | "textSecondary"
+    | "success"
+    | "warning"
+    | "danger";
+}
+
+const tokenSwatchClasses: Record<TokenSwatchProps["color"], string> = {
+  brandPrimary: "bg-accent",
+  brandSecondary: "bg-accent-2",
+  cyan: "bg-info",
+  indigo: "bg-indigo",
+  background: "bg-background",
+  surface: "bg-surface",
+  surface2: "bg-surface-2",
+  surface3: "bg-surface-3",
+  border: "bg-border",
+  textPrimary: "bg-foreground",
+  textSecondary: "bg-secondary",
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-danger"
+};
+
+export function TokenSwatch({
+  label,
+  value,
+  color
+}: TokenSwatchProps) {
+  return (
+    <Card variant="feature">
+      <div className="space-y-3">
+        <div
+          aria-hidden="true"
+          className={cx(
+            "h-10 rounded-tokenMd border border-muted shadow-tokenSm",
+            tokenSwatchClasses[color]
+          )}
+        />
+        <div>
+          <div className="text-sm font-semibold text-foreground">{label}</div>
+          <div className="font-mono text-xs text-secondary">{value}</div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export interface ProductCardProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   title: ReactNode;
@@ -470,9 +543,18 @@ export interface ProductCardProps
   imageSrc?: string;
   imageAlt?: string;
   imageFit?: "cover" | "contain";
+  fallbackImageSrc?: string;
+  fallbackImageAlt?: string;
+  fallbackImageFit?: "cover" | "contain";
+  href?: string;
+  target?: string;
+  rel?: string;
+  onSelect?: () => void;
+  selectLabel?: string;
   status?: ReactNode;
   meta?: ReactNode;
   actions?: ReactNode;
+  actionLabel?: ReactNode;
   children?: ReactNode;
 }
 
@@ -483,25 +565,62 @@ export function ProductCard({
   imageSrc,
   imageAlt,
   imageFit = "cover",
+  fallbackImageSrc,
+  fallbackImageAlt,
+  fallbackImageFit = "contain",
+  href,
+  target,
+  rel,
+  onSelect,
+  selectLabel,
   status,
   meta,
   actions,
+  actionLabel,
   children,
   ...rest
 }: ProductCardProps) {
-  return (
-    <Card {...rest} variant="product" interactive>
+  const motionSettings = useChaseMotion();
+  const [resolvedImageSrc, setResolvedImageSrc] = useState(
+    () => imageSrc ?? fallbackImageSrc,
+  );
+
+  useEffect(() => {
+    setResolvedImageSrc(imageSrc ?? fallbackImageSrc);
+  }, [imageSrc, fallbackImageSrc]);
+
+  const showingFallbackImage =
+    Boolean(fallbackImageSrc) && resolvedImageSrc === fallbackImageSrc;
+  const resolvedImageFit = showingFallbackImage ? fallbackImageFit : imageFit;
+  const resolvedImageAlt = showingFallbackImage
+    ? fallbackImageAlt ?? imageAlt ?? ""
+    : imageAlt ?? "";
+  const interactiveMotion = motionSettings.reducedMotion
+    ? {}
+    : {
+        whileHover: { y: -2, scale: 1.01 },
+        whileTap: { y: 0, scale: 0.99 },
+        transition: { duration: motionSettings.durations.base, ease: motionSettings.easing }
+      };
+  const content = (
       <div className="space-y-3">
         <div className="relative overflow-hidden rounded-tokenMd border border-muted bg-surface-2">
           {status ? <div className="absolute left-2 top-2 z-10">{status}</div> : null}
           <div className="flex aspect-[4/3] items-center justify-center">
-            {imageSrc ? (
+            {resolvedImageSrc ? (
               <img
-                src={imageSrc}
-                alt={imageAlt ?? ""}
+                src={resolvedImageSrc}
+                alt={resolvedImageAlt}
+                onError={() => {
+                  setResolvedImageSrc((current) =>
+                    fallbackImageSrc && current !== fallbackImageSrc
+                      ? fallbackImageSrc
+                      : undefined,
+                  );
+                }}
                 className={cx(
                   "h-full w-full",
-                  imageFit === "contain" ? "object-contain p-3" : "object-cover"
+                  resolvedImageFit === "contain" ? "object-contain p-3" : "object-cover"
                 )}
               />
             ) : (
@@ -521,7 +640,52 @@ export function ProductCard({
           {actions}
         </div>
         {children ? <div>{children}</div> : null}
+        {actionLabel ? (
+          <div className="inline-flex items-center gap-2 text-sm font-semibold text-accent">
+            <span>{actionLabel}</span>
+            <Icon name="chevronRight" size="sm" tone="accent" />
+          </div>
+        ) : null}
       </div>
+  );
+
+  const interactiveClassName = cx(
+    "focus-ring glass-surface block w-full overflow-hidden rounded-tokenLg border border-muted bg-surface p-4 text-left shadow-tokenSm transition hover:border-accent hover:shadow-tokenMd"
+  );
+
+  if (href) {
+    return (
+      <motion.a
+        {...(rest as unknown as Record<string, unknown>)}
+        href={href}
+        target={target}
+        rel={rel ?? (target === "_blank" ? "noreferrer" : undefined)}
+        className={interactiveClassName}
+        {...interactiveMotion}
+      >
+        {content}
+      </motion.a>
+    );
+  }
+
+  if (onSelect) {
+    return (
+      <motion.button
+        {...(rest as unknown as Record<string, unknown>)}
+        type="button"
+        aria-label={selectLabel}
+        className={interactiveClassName}
+        onClick={onSelect}
+        {...interactiveMotion}
+      >
+        {content}
+      </motion.button>
+    );
+  }
+
+  return (
+    <Card {...rest} variant="product" interactive>
+      {content}
     </Card>
   );
 }
@@ -531,6 +695,270 @@ export interface CategoryTileProps
   icon: IconName;
   label: ReactNode;
   detail?: ReactNode;
+}
+
+export type MarketplaceStatus =
+  | "available"
+  | "marketOnly"
+  | "unavailable"
+  | "verified"
+  | "watching";
+
+const marketplaceStatusLabels: Record<MarketplaceStatus, string> = {
+  available: "Available now",
+  marketOnly: "Market only",
+  unavailable: "Unavailable",
+  verified: "Verified",
+  watching: "Watching"
+};
+
+const marketplaceStatusTones: Record<MarketplaceStatus, BadgeProps["tone"]> = {
+  available: "success",
+  marketOnly: "neutral",
+  unavailable: "neutral",
+  verified: "success",
+  watching: "warning"
+};
+
+export interface MarketStatusBadgeProps
+  extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+  status: MarketplaceStatus;
+  label?: ReactNode;
+}
+
+export function MarketStatusBadge({
+  status,
+  label,
+  ...rest
+}: MarketStatusBadgeProps) {
+  return (
+    <Badge {...rest} tone={marketplaceStatusTones[status]}>
+      {label ?? marketplaceStatusLabels[status]}
+    </Badge>
+  );
+}
+
+export interface MarketplaceFacetItem {
+  id: string;
+  label: string;
+  count?: number;
+}
+
+export interface MarketplaceFacetRailProps {
+  title?: ReactNode;
+  description?: ReactNode;
+  allLabel?: string;
+  items: MarketplaceFacetItem[];
+  selectedId?: string;
+  onSelect: (id: string) => void;
+}
+
+export function MarketplaceFacetRail({
+  title = "Browse Categories",
+  description = "Narrow the marketplace by category and current catalog depth.",
+  allLabel = "All Categories",
+  items,
+  selectedId = "",
+  onSelect
+}: MarketplaceFacetRailProps) {
+  return (
+    <Card variant="feature">
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <div className="font-heading text-base font-semibold text-foreground">{title}</div>
+          {description ? <div className="text-sm text-secondary">{description}</div> : null}
+        </div>
+        <div className="h-px bg-border" />
+        <div className="space-y-2">
+          <Button
+            tone={!selectedId ? "primary" : "ghost"}
+            size="sm"
+            onClick={() => onSelect("")}
+            leadingIcon="grid"
+            block
+          >
+            {allLabel}
+          </Button>
+          {items.map((item) => (
+            <Button
+              key={item.id}
+              tone={selectedId === item.id ? "primary" : "ghost"}
+              size="sm"
+              onClick={() => onSelect(item.id)}
+              leadingIcon="tag"
+              block
+            >
+              {item.count == null ? item.label : `${item.label} (${item.count})`}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export interface MarketplaceFilterAction {
+  id: string;
+  label: ReactNode;
+  selected?: boolean;
+  onSelect: () => void;
+}
+
+export interface MarketplaceLandingMetric {
+  label: ReactNode;
+  value: ReactNode;
+  detail?: ReactNode;
+}
+
+export interface MarketplaceHeroBadge {
+  label: ReactNode;
+  tone?: BadgeProps["tone"];
+}
+
+export interface MarketplaceLandingHeroProps {
+  badges?: MarketplaceHeroBadge[];
+  title: ReactNode;
+  description?: ReactNode;
+  search: ReactNode;
+  filters?: MarketplaceFilterAction[];
+  metrics?: MarketplaceLandingMetric[];
+}
+
+export function MarketplaceLandingHero({
+  badges = [],
+  title,
+  description,
+  search,
+  filters = [],
+  metrics = []
+}: MarketplaceLandingHeroProps) {
+  return (
+    <Card variant="feature" glow>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="flex flex-col justify-center gap-5">
+          <div className="space-y-3">
+            {badges.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {badges.map((badge, index) => (
+                  <Badge key={index} tone={badge.tone ?? "accent"}>
+                    {badge.label}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+            <h1 className="font-display text-4xl font-semibold leading-tight text-foreground md:text-5xl">
+              {title}
+            </h1>
+            {description ? <div className="text-base text-secondary">{description}</div> : null}
+          </div>
+          {search}
+          {filters.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {filters.map((filter) => (
+                <Button
+                  key={filter.id}
+                  tone={filter.selected ? "primary" : "secondary"}
+                  size="sm"
+                  onClick={filter.onSelect}
+                  leadingIcon={filter.id ? "tag" : "grid"}
+                >
+                  {filter.label}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        {metrics.length > 0 ? (
+          <StatGrid columns={{ base: 1 }}>
+            {metrics.map((metric, index) => (
+              <Stat
+                key={index}
+                label={metric.label}
+                value={metric.value}
+                trend={metric.detail}
+              />
+            ))}
+          </StatGrid>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
+export interface MarketplaceProductCardProps {
+  href?: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  description?: ReactNode;
+  imageSrc?: string;
+  imageAlt?: string;
+  fallbackImageSrc?: string;
+  fallbackImageAlt?: string;
+  fallbackImageFit?: "cover" | "contain";
+  status: MarketplaceStatus;
+  price?: ReactNode;
+  meta?: ReactNode;
+  actionLabel?: ReactNode;
+  categoryTags?: ReactNode[];
+  metadataTags?: ReactNode[];
+}
+
+export function MarketplaceProductCard({
+  href,
+  title,
+  subtitle,
+  description,
+  imageSrc,
+  imageAlt,
+  fallbackImageSrc,
+  fallbackImageAlt,
+  fallbackImageFit = "contain",
+  status,
+  price,
+  meta,
+  actionLabel,
+  categoryTags = [],
+  metadataTags = []
+}: MarketplaceProductCardProps) {
+  return (
+    <ProductCard
+      href={href}
+      title={title}
+      subtitle={subtitle}
+      imageSrc={imageSrc}
+      imageAlt={imageAlt}
+      imageFit="cover"
+      fallbackImageSrc={fallbackImageSrc}
+      fallbackImageAlt={fallbackImageAlt}
+      fallbackImageFit={fallbackImageFit}
+      status={<MarketStatusBadge status={status} />}
+      price={price}
+      meta={meta}
+      actionLabel={actionLabel}
+    >
+      <div className="space-y-2">
+        {description ? <div className="text-sm text-secondary">{description}</div> : null}
+        {categoryTags.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {categoryTags.map((tag, index) => (
+              <Badge key={index} tone="accent">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+        {metadataTags.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {metadataTags.map((tag, index) => (
+              <Badge key={index} tone="neutral">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </ProductCard>
+  );
 }
 
 export function CategoryTile({

@@ -58,6 +58,8 @@ const identityLayoutRoutes = contextRoutes
   );
 
 export default [
+  route("favicon.svg", "routes/favicon-svg.ts"),
+  route("favicon.ico", "routes/favicon.ts"),
   route("/", "routes/index.tsx"),
   ...catalogRootRoutes,
   ...identityRootRoutes,

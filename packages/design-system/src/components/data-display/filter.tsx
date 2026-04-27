@@ -9,12 +9,14 @@ export interface FilterBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   actions?: ReactNode;
+  sticky?: boolean;
   stickyOffset?: string;
 }
 
 export function FilterBar({
   children,
   actions,
+  sticky = true,
   stickyOffset,
   ...rest
 }: FilterBarProps) {
@@ -31,10 +33,11 @@ export function FilterBar({
           ? undefined
           : { duration: motionSettings.durations.base, ease: motionSettings.easing }
       }
-      style={stickyOffset ? { top: stickyOffset } : undefined}
+      style={sticky && stickyOffset ? { top: stickyOffset } : undefined}
       className={cx(
-        "modern-surface sticky z-sticky flex flex-col gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:flex-row md:items-center md:justify-between",
-        !stickyOffset && "top-16"
+        "modern-surface flex flex-col gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:flex-row md:items-center md:justify-between",
+        sticky && "sticky z-sticky",
+        sticky && !stickyOffset && "top-16"
       )}
     >
       <div className="flex flex-1 flex-wrap gap-3">{children}</div>

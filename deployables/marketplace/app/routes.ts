@@ -27,6 +27,7 @@ const layoutContextRoutes = contextRoutes
 
 export default [
   ...rootContextRoutes,
+  route("favicon.svg", "routes/favicon-svg.ts"),
   route("favicon.ico", "routes/favicon.ts"),
   route(
     ".well-known/appspecific/com.chrome.devtools.json",

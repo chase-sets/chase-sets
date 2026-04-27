@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import {
   AdminShell,
   ChaseRoot,
-  Text,
+  SellerBadge,
   type ColorMode,
   type NavigationItem,
 } from "@chase-sets/design-system";
@@ -25,7 +25,7 @@ export function CatalogAdminLayout({
     <ChaseRoot colorMode={colorMode}>
       <CatalogAdminProviders>
         <AdminShell
-          brand={<Text weight="semibold">Catalog Admin</Text>}
+          brand={<SellerBadge name="Catalog Ops" verified />}
           navItems={[...navItems]}
           activeKey={activeKey}
           actions={actions}

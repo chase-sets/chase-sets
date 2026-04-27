@@ -14,13 +14,19 @@ import {
 } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
+  Badge,
   Button,
-  Card,
+  CheckoutLayout,
+  CheckoutTrustPanel,
+  Divider,
+  Grid,
   LinkButton,
+  OrderSummary,
   Page,
   PageHeader,
   PageSection,
   Stack,
+  Surface,
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -133,9 +139,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
   return (
     <Page>
       <PageHeader
-        eyebrow="Buyer"
+        eyebrow="Secure Checkout"
         title="Start payment"
-        description="Review the orders created by checkout, then initialize the Stripe payment flow."
+        description="Review the seller-specific orders created by checkout, then initialize the secure payment flow."
         actions={
           <LinkButton href="/account/orders" tone="secondary">
             Back to orders
@@ -143,60 +149,98 @@ export default function MarketplaceAccountPaymentNewRoute() {
         }
       />
 
-      <PageSection title="Checkout summary">
-        <Card>
-          <Stack gap={2}>
-            <Text weight="semibold">Orders: {data.orderIds.join(", ")}</Text>
-            <Text>Total due: {formatMoney(totalAmount)}</Text>
-            <Text>Marketplace fees: {formatMoney(marketplaceFeeAmount)}</Text>
-            <Text>Payment fees: {formatMoney(paymentFeeAmount)}</Text>
-            <Text>Seller net: {formatMoney(sellerNetAmount)}</Text>
-            <Text size="sm" tone="secondary">
-              Payment covers {data.orders.length} seller-specific order
-              {data.orders.length === 1 ? "" : "s"} created by checkout.
-            </Text>
-          </Stack>
-        </Card>
-      </PageSection>
-
-      <PageSection title="Payment setup">
-        <Card>
+      <CheckoutLayout
+        summary={
           <Stack gap={3}>
-            {actionData?.error ? <Text>{actionData.error}</Text> : null}
-            <Form method="post" ref={formRef}>
-              <input type="hidden" name="orderIds" value={data.orderIds.join(",")} />
-              <Button type="submit">
-                {navigation.state === "submitting" ? "Starting payment..." : "Continue to payment"}
-              </Button>
-            </Form>
-            <Text size="sm" tone="secondary">
-              Orders remain pending payment until Stripe confirms capture.
-            </Text>
+            <OrderSummary
+              title="Checkout Summary"
+              lines={[
+                { label: "Orders", value: data.orders.length },
+                { label: "Marketplace fees", value: formatMoney(marketplaceFeeAmount) },
+                { label: "Payment fees", value: formatMoney(paymentFeeAmount) },
+                { label: "Seller net", value: formatMoney(sellerNetAmount) },
+              ]}
+              total={formatMoney(totalAmount)}
+            />
+            <CheckoutTrustPanel
+              items={[
+                {
+                  icon: "lock",
+                  title: "Secure Payment",
+                  description: "Orders remain pending payment until Stripe confirms capture.",
+                },
+                {
+                  icon: "shield",
+                  title: "Buyer Protection",
+                  description: "Checkout preserves seller splits and marketplace fees.",
+                },
+                {
+                  icon: "creditCard",
+                  title: "Payment Setup",
+                  description: "The next step initializes the external processor flow.",
+                },
+              ]}
+            />
           </Stack>
-        </Card>
-      </PageSection>
-
-      <PageSection title="Orders">
-        <Stack gap={3}>
-          {data.orders.map((order) => (
-            <Card key={order.order_id}>
-              <Stack gap={1}>
-                <Text weight="semibold">Order {order.order_id}</Text>
+        }
+      >
+        <Stack gap={4}>
+          <Surface elevated glow>
+            <Stack gap={4}>
+              <Stack gap={2}>
+                <Badge tone="accent">Payment setup</Badge>
+                <Text weight="semibold">Ready to initialize payment</Text>
                 <Text size="sm" tone="secondary">
-                  Status: {order.status}
+                  Payment covers {data.orders.length} seller-specific order
+                  {data.orders.length === 1 ? "" : "s"} created by checkout.
                 </Text>
-                <Text>Total: {formatMoney(order.total_amount)}</Text>
-                <Text size="sm" tone="secondary">
-                  Seller net: {formatMoney(order.seller_net_amount)}
-                </Text>
-                <LinkButton href={`/account/orders/${order.order_id}`} tone="secondary">
-                  Open order
-                </LinkButton>
               </Stack>
-            </Card>
-          ))}
+              {actionData?.error ? (
+                <Surface tone="subtle">
+                  <Text>{actionData.error}</Text>
+                </Surface>
+              ) : null}
+              <Form method="post" ref={formRef}>
+                <Stack gap={3}>
+                  <input type="hidden" name="orderIds" value={data.orderIds.join(",")} />
+                  <Button type="submit" size="lg" leadingIcon="lock">
+                    {navigation.state === "submitting" ? "Starting payment..." : "Continue to payment"}
+                  </Button>
+                </Stack>
+              </Form>
+            </Stack>
+          </Surface>
+
+          <PageSection title="Orders">
+            <Stack gap={3}>
+              {data.orders.map((order) => (
+                <Surface key={order.order_id} elevated>
+                  <Stack gap={3}>
+                    <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                      <Stack gap={1}>
+                        <Text weight="semibold">Order {order.order_id}</Text>
+                        <Badge tone="accent">{order.status}</Badge>
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">Total</Text>
+                        <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">Seller net</Text>
+                        <Text>{formatMoney(order.seller_net_amount)}</Text>
+                      </Stack>
+                    </Grid>
+                    <Divider />
+                    <LinkButton href={`/account/orders/${order.order_id}`} tone="secondary">
+                      Open order
+                    </LinkButton>
+                  </Stack>
+                </Surface>
+              ))}
+            </Stack>
+          </PageSection>
         </Stack>
-      </PageSection>
+      </CheckoutLayout>
     </Page>
   );
 }

@@ -3,25 +3,32 @@ import { useState } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { BottomNav, Button, CopyButton, Tabs, TopNav } from "../components/actions";
-import { Card, DataTable, DetailPanel, ImageGallery, StatGrid } from "../components/data-display";
+import { Card, DataTable, DetailPanel, FilterBar, ImageGallery, StatGrid } from "../components/data-display";
 import { Accordion, Dialog, Rating, ToastRegion } from "../components/feedback";
-import { NativeSelect, PasswordInput, TagInput } from "../components/forms";
+import { NativeSelect, PasswordInput, SearchInput, TagInput } from "../components/forms";
 import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
+import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
 import {
   AdminShell,
+  MarketStatusBadge,
+  MarketplaceFacetRail,
+  MarketplaceLandingHero,
+  MarketplaceProductCard,
   MarketplaceShell,
   MetricStrip,
   OrderSummary,
   Page,
   ProductCard,
   SearchResultsLayout,
+  SellerBadge,
   SplitPane,
+  TokenSwatch,
   Wizard
 } from "../patterns/app-shells";
 import { Container, Grid, SkipLink } from "../primitives/layout";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
-import { resolveResponsiveClass } from "../utils/system";
+import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
 
 function ControlledToastHarness() {
   const [open, setOpen] = useState(true);
@@ -389,6 +396,28 @@ describe("design system", () => {
     expect(markup).toContain("lg:grid-cols-[18rem_minmax(0,1fr)]");
   });
 
+  it("renders the Chase Sets logo and uses it in seller badges", () => {
+    const logoMarkup = renderToString(<ChaseSetsLogo title="Chase Sets logo" />);
+    const badgeMarkup = renderToString(<SellerBadge name="Chase Sets" verified />);
+
+    expect(chaseSetsLogoSvg).toContain("logoGradient");
+    expect(logoMarkup).toContain('role="img"');
+    expect(logoMarkup).toContain("Chase Sets logo");
+    expect(badgeMarkup).toContain("Chase Sets");
+    expect(badgeMarkup).toContain("Verified");
+    expect(badgeMarkup).toContain("<svg");
+  });
+
+  it("allows filter bars to opt out of sticky positioning", () => {
+    const stickyMarkup = renderToString(<FilterBar>Sticky filters</FilterBar>);
+    const staticMarkup = renderToString(<FilterBar sticky={false}>Static filters</FilterBar>);
+
+    expect(stickyMarkup).toContain("sticky");
+    expect(stickyMarkup).toContain("top-16");
+    expect(staticMarkup).not.toContain("sticky");
+    expect(staticMarkup).not.toContain("top-16");
+  });
+
   it("renders split panes with named rail widths and optional sticky rails", () => {
     const markup = renderToString(
       <SplitPane
@@ -528,6 +557,12 @@ describe("design system", () => {
     expect(result).toContain("md:flex-col");
   });
 
+  it("resolves spacing classes from static maps", () => {
+    expect(resolveSpaceClass("gap", 5)).toBe("gap-5");
+    expect(resolveSpaceClass("p", 6)).toBe("p-6");
+    expect(resolveSpaceClass("px", 12)).toBe("px-12");
+  });
+
   it("renders Rating with correct number of stars", () => {
     const markup = renderToString(<Rating value={3} max={5} label="Product rating" />);
 
@@ -590,6 +625,19 @@ describe("design system", () => {
     expect(markup).toContain("Gallery placeholder");
     expect(markup).toContain("modern-surface");
     expect(markup).toContain("flex items-center justify-center");
+  });
+
+  it("renders ImageGallery fallback imagery when no images are provided", () => {
+    const markup = renderToString(
+      <ImageGallery
+        images={[]}
+        fallbackImage={{ src: "/fallback-card-back.png", alt: "Card back" }}
+        emptyState={<div>Gallery placeholder</div>}
+      />
+    );
+
+    expect(markup).toContain('src="/fallback-card-back.png"');
+    expect(markup).toContain('alt="Card back"');
   });
 
   it("renders ImageGallery with desktop height constraints when configured", () => {
@@ -694,6 +742,112 @@ describe("design system", () => {
     expect(markup).toContain("2020 Pikachu VMAX");
     expect(markup).toContain('alt="Pikachu card"');
     expect(markup).toContain("object-contain");
+  });
+
+  it("swaps ProductCard to the fallback image when the primary image fails", () => {
+    render(
+      <ChaseRoot>
+        <ProductCard
+          title="2020 Pikachu VMAX"
+          imageSrc="/missing-card.png"
+          imageAlt="Pikachu card"
+          fallbackImageSrc="/pokemon-card-back.png"
+          fallbackImageAlt="Pokemon card back"
+        />
+      </ChaseRoot>
+    );
+
+    fireEvent.error(screen.getByAltText("Pikachu card"));
+
+    const fallbackImage = screen.getByAltText("Pokemon card back");
+    expect(fallbackImage.getAttribute("src")).toBe("/pokemon-card-back.png");
+  });
+
+  it("renders ProductCard as a link when href is provided", () => {
+    const markup = renderToString(
+      <ProductCard
+        href="/items/pikachu"
+        title="2020 Pikachu VMAX"
+        price="$1,250"
+      />
+    );
+
+    expect(markup).toContain("<a");
+    expect(markup).toContain('href="/items/pikachu"');
+    expect(markup).toContain("2020 Pikachu VMAX");
+  });
+
+  it("renders ProductCard as a button when onSelect is provided", () => {
+    render(
+      <ChaseRoot>
+        <ProductCard
+          title="Selectable card"
+          selectLabel="Open selectable card"
+          onSelect={() => {}}
+        />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByRole("button", { name: "Open selectable card" })).toBeTruthy();
+  });
+
+  it("renders marketplace product cards with canonical status and action language", () => {
+    const markup = renderToString(
+      <MarketplaceProductCard
+        href="/items/pikachu"
+        title="Pikachu"
+        subtitle="Jungle 60/64"
+        description="Classic electric single"
+        status="available"
+        price="From $21.50"
+        meta="3 listings • 5 available"
+        actionLabel="View listings"
+        categoryTags={["Pokemon TCG", "Singles"]}
+        metadataTags={["jungle", "pikachu"]}
+      />
+    );
+
+    expect(markup).toContain("Available now");
+    expect(markup).toContain("From $21.50");
+    expect(markup).toContain("View listings");
+    expect(markup).toContain("Pokemon TCG");
+  });
+
+  it("renders marketplace facet rails and landing heroes from design-system patterns", () => {
+    const facetMarkup = renderToString(
+      <MarketplaceFacetRail
+        items={[{ id: "pokemon", label: "Pokemon TCG", count: 7 }]}
+        selectedId="pokemon"
+        onSelect={() => {}}
+      />
+    );
+    const heroMarkup = renderToString(
+      <MarketplaceLandingHero
+        badges={[{ label: "Verified supply", tone: "success" }]}
+        title="Find collectibles worth chasing."
+        description="Search live supply and compare active markets."
+        search={<SearchInput hideLabel label="Search" />}
+        filters={[{ id: "", label: "All", selected: true, onSelect: () => {} }]}
+        metrics={[{ label: "Available Now", value: 3, detail: "With active listings" }]}
+      />
+    );
+    const statusMarkup = renderToString(<MarketStatusBadge status="marketOnly" />);
+
+    expect(facetMarkup).toContain("Browse Categories");
+    expect(facetMarkup).toContain("Pokemon TCG (7)");
+    expect(heroMarkup).toContain("Find collectibles worth chasing.");
+    expect(heroMarkup).toContain("Available Now");
+    expect(statusMarkup).toContain("Market only");
+  });
+
+  it("renders token swatches for the spec board", () => {
+    const markup = renderToString(
+      <TokenSwatch label="Primary Blue" value="#3882F6" color="brandPrimary" />
+    );
+
+    expect(markup).toContain("Primary Blue");
+    expect(markup).toContain("#3882F6");
+    expect(markup).toContain("bg-accent");
   });
 
   it("renders NativeSelect with accessible label and placeholder", () => {

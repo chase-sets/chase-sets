@@ -8,12 +8,17 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   Badge,
   Button,
-  Card,
+  CheckoutLayout,
+  CheckoutTrustPanel,
+  Divider,
+  Grid,
   LinkButton,
+  OrderSummary,
   Page,
   PageHeader,
   PageSection,
   Stack,
+  Surface,
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -259,18 +264,29 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
   }
 
   return (
-    <Card>
+    <Surface elevated glow>
       <Stack gap={3}>
+        <Badge tone="accent">Stripe confirmation</Badge>
         <Text>
           Payment is ready. Enter your payment details and confirm to let Stripe capture the charge.
         </Text>
         <div ref={containerRef} />
-        {errorMessage ? <Text>{errorMessage}</Text> : null}
-        <Button type="button" onClick={handleConfirm} disabled={!isReady || isSubmitting}>
+        {errorMessage ? (
+          <Surface tone="subtle">
+            <Text>{errorMessage}</Text>
+          </Surface>
+        ) : null}
+        <Button
+          type="button"
+          onClick={handleConfirm}
+          disabled={!isReady || isSubmitting}
+          size="lg"
+          leadingIcon="lock"
+        >
           {isSubmitting ? "Confirming payment..." : "Confirm payment"}
         </Button>
       </Stack>
-    </Card>
+    </Surface>
   );
 }
 
@@ -280,9 +296,9 @@ export default function MarketplaceAccountPaymentRoute() {
   return (
     <Page>
       <PageHeader
-        eyebrow="Buyer"
+        eyebrow="Secure Checkout"
         title={`Payment ${data.payment.payment_id}`}
-        description="Payments owns external money movement while ordering owns the order state."
+        description="Track processor state, order coverage, marketplace fees, and seller net from one protected payment surface."
         actions={
           <LinkButton href="/account/orders" tone="secondary">
             Back to orders
@@ -290,61 +306,101 @@ export default function MarketplaceAccountPaymentRoute() {
         }
       />
 
-      <PageSection title="Summary">
-        <Card>
-          <Stack gap={2}>
-            <Badge tone={statusTone(data.payment.status)}>{data.payment.status}</Badge>
-            <Text>Total: {formatMoney(data.payment.amount)}</Text>
-            <Text>Marketplace fees: {formatMoney(data.payment.marketplace_fee_amount)}</Text>
-            <Text>Payment fees: {formatMoney(data.payment.payment_fee_amount)}</Text>
-            <Text>Seller net: {formatMoney(data.payment.seller_net_amount)}</Text>
-            <Text>Processor: {data.payment.processor_name}</Text>
-            <Text>Orders: {data.payment.order_ids.join(", ")}</Text>
-            {data.payment.failure_message ? <Text>{data.payment.failure_message}</Text> : null}
-            {data.payment.status === "failed" ? (
-              <LinkButton
-                href={`/account/payments/new?orderIds=${encodeURIComponent(data.payment.order_ids.join(","))}`}
-              >
-                Retry payment
-              </LinkButton>
-            ) : null}
+      <CheckoutLayout
+        summary={
+          <Stack gap={4}>
+            <OrderSummary
+              title="Payment Summary"
+              lines={[
+                { label: "Status", value: <Badge tone={statusTone(data.payment.status)}>{data.payment.status}</Badge> },
+                { label: "Marketplace fees", value: formatMoney(data.payment.marketplace_fee_amount) },
+                { label: "Payment fees", value: formatMoney(data.payment.payment_fee_amount) },
+                { label: "Seller net", value: formatMoney(data.payment.seller_net_amount) },
+                { label: "Processor", value: data.payment.processor_name },
+              ]}
+              total={formatMoney(data.payment.amount)}
+            />
+            <CheckoutTrustPanel
+              items={[
+                {
+                  icon: "lock",
+                  title: "Secure Processor Flow",
+                  description: "Stripe confirmation remains isolated to the payment step.",
+                },
+                {
+                  icon: "shield",
+                  title: "Order Coverage",
+                  description: `Covers ${data.payment.order_ids.length} seller-specific order${data.payment.order_ids.length === 1 ? "" : "s"}.`,
+                },
+                {
+                  icon: "creditCard",
+                  title: "Fee Transparency",
+                  description: "Marketplace and processor fees stay visible before and after capture.",
+                },
+              ]}
+            />
           </Stack>
-        </Card>
-      </PageSection>
-
-      {data.payment.status === "pending-confirmation" ? (
-        <PageSection title="Stripe confirmation">
-          {data.payment.processor_client_secret && data.payment.processor_publishable_key ? (
-            <StripeConfirmationCard payment={data.payment} />
-          ) : (
-            <Card>
-              <Text>Stripe payment confirmation is not configured for this environment.</Text>
-            </Card>
-          )}
-        </PageSection>
-      ) : null}
-
-      <PageSection title="Orders">
-        <Stack gap={3}>
-          {data.orders.map((order: OrderingOrderDetail) => (
-            <Card key={order.order_id}>
-              <Stack gap={1}>
-                <Text weight="semibold">Order {order.order_id}</Text>
-                <Text size="sm" tone="secondary">
-                  Status: {order.status}
-                </Text>
-                <Text>Total: {formatMoney(order.total_amount)}</Text>
-                <Text size="sm" tone="secondary">
-                  Seller net: {formatMoney(order.seller_net_amount)}
-                </Text>
-                <LinkButton href={`/account/orders/${order.order_id}`} tone="secondary">
-                  Open order
-                </LinkButton>
+        }
+      >
+        <Stack gap={4}>
+          {data.payment.failure_message ? (
+            <Surface tone="subtle" elevated>
+              <Stack gap={2}>
+                <Badge tone="danger">Payment issue</Badge>
+                <Text>{data.payment.failure_message}</Text>
+                {data.payment.status === "failed" ? (
+                  <LinkButton
+                    href={`/account/payments/new?orderIds=${encodeURIComponent(data.payment.order_ids.join(","))}`}
+                  >
+                    Retry payment
+                  </LinkButton>
+                ) : null}
               </Stack>
-            </Card>
-          ))}
+            </Surface>
+          ) : null}
+
+          {data.payment.status === "pending-confirmation" ? (
+            <PageSection title="Stripe Confirmation">
+              {data.payment.processor_client_secret && data.payment.processor_publishable_key ? (
+                <StripeConfirmationCard payment={data.payment} />
+              ) : (
+                <Surface tone="subtle" elevated>
+                  <Text>Stripe payment confirmation is not configured for this environment.</Text>
+                </Surface>
+              )}
+            </PageSection>
+          ) : null}
+
+          <PageSection title="Orders">
+            <Stack gap={3}>
+              {data.orders.map((order: OrderingOrderDetail) => (
+                <Surface key={order.order_id} elevated>
+                  <Stack gap={3}>
+                    <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                      <Stack gap={1}>
+                        <Text weight="semibold">Order {order.order_id}</Text>
+                        <Badge tone="accent">{order.status}</Badge>
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">Total</Text>
+                        <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
+                      </Stack>
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">Seller net</Text>
+                        <Text>{formatMoney(order.seller_net_amount)}</Text>
+                      </Stack>
+                    </Grid>
+                    <Divider />
+                    <LinkButton href={`/account/orders/${order.order_id}`} tone="secondary">
+                      Open order
+                    </LinkButton>
+                  </Stack>
+                </Surface>
+              ))}
+            </Stack>
+          </PageSection>
         </Stack>
-      </PageSection>
+      </CheckoutLayout>
     </Page>
   );
 }
