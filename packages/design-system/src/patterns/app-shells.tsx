@@ -108,7 +108,7 @@ export function PageSection({
     <section {...rest} className="space-y-4">
       {title ? (
         <div className="space-y-1">
-          <h2 className="font-heading text-2xl font-semibold text-foreground">{title}</h2>
+          <h2 className="font-heading text-xl font-semibold text-foreground">{title}</h2>
           {description ? (
             <div className="text-sm text-secondary">{description}</div>
           ) : null}
@@ -1137,6 +1137,114 @@ export function MetricStrip({
         />
       ))}
     </StatGrid>
+  );
+}
+
+export interface MarketplaceProductDetailLayoutProps {
+  summary: ReactNode;
+  media: ReactNode;
+  market: ReactNode;
+  commerce: ReactNode;
+  mobileActionBar?: ReactNode;
+  children?: ReactNode;
+}
+
+export function MarketplaceProductDetailLayout({
+  summary,
+  media,
+  market,
+  commerce,
+  mobileActionBar,
+  children
+}: MarketplaceProductDetailLayoutProps) {
+  return (
+    <>
+      <div className="grid gap-6 xl:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)_24rem] xl:items-start">
+        <div className="order-2 xl:order-1 xl:sticky xl:top-24">{media}</div>
+        <div className="order-1 min-w-0 xl:order-2">{summary}</div>
+        <aside className="order-4 min-w-0 xl:order-3 xl:sticky xl:top-24">
+          {commerce}
+        </aside>
+        <div className="order-3 min-w-0 xl:order-4 xl:col-start-2">{market}</div>
+        <div className="order-5 min-w-0 xl:col-start-2">{children}</div>
+      </div>
+      {mobileActionBar ? (
+        <div className="fixed inset-x-3 bottom-20 z-sticky xl:hidden md:bottom-4">
+          <div className="mx-auto max-w-3xl">{mobileActionBar}</div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+export interface MarketplaceMetricItem {
+  label: ReactNode;
+  value: ReactNode;
+  detail?: ReactNode;
+}
+
+export interface MarketplaceMetricStripProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  items: MarketplaceMetricItem[];
+}
+
+export function MarketplaceMetricStrip({
+  items,
+  ...rest
+}: MarketplaceMetricStripProps) {
+  return (
+    <div
+      {...rest}
+      className="grid grid-cols-2 gap-3"
+    >
+      {items.map((item, index) => (
+        <div
+          key={index}
+          className="rounded-tokenLg border border-muted bg-surface p-4 shadow-tokenSm"
+        >
+          <div className="text-xs font-semibold uppercase text-secondary">
+            {item.label}
+          </div>
+          <div className="mt-1 font-heading text-lg font-semibold text-foreground md:text-xl">
+            {item.value}
+          </div>
+          {item.detail ? (
+            <div className="mt-1 text-xs text-secondary">{item.detail}</div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export interface CommerceActionBarProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  summary: ReactNode;
+  primaryAction: ReactNode;
+  secondaryAction?: ReactNode;
+}
+
+export function CommerceActionBar({
+  summary,
+  primaryAction,
+  secondaryAction,
+  ...rest
+}: CommerceActionBarProps) {
+  return (
+    <div
+      {...rest}
+      className="modern-surface rounded-tokenLg border border-muted p-3 shadow-overlay"
+    >
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1 text-xs font-medium text-secondary">
+          {summary}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {secondaryAction}
+          {primaryAction}
+        </div>
+      </div>
+    </div>
   );
 }
 

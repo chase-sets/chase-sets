@@ -10,6 +10,10 @@ import {
   getOrderedActiveDimensions,
 } from "../domain/versioning";
 
+function formatDimensionName(name: string): string {
+  return name.toLowerCase() === "form" ? "Version type" : name;
+}
+
 interface ProductSelectorProps {
   schema: VersionSchema;
   selections: Record<string, string>;
@@ -35,7 +39,9 @@ export function ProductSelector({
         if (dimension.allowedOptions.length <= 5) {
           return (
             <Stack key={dimension.dimensionId} gap={2}>
-              <Text size="sm" weight="semibold">{dimension.dimensionName}</Text>
+              <Text size="sm" weight="semibold">
+                {formatDimensionName(dimension.dimensionName)}
+              </Text>
               <SegmentedControl
                 items={dimension.allowedOptions.map((option) => ({
                   value: option.optionId,
@@ -53,7 +59,7 @@ export function ProductSelector({
         return (
           <Select
             key={dimension.dimensionId}
-            label={dimension.dimensionName}
+            label={formatDimensionName(dimension.dimensionName)}
             items={dimension.allowedOptions.map((option) => ({
               value: option.optionId,
               label: getOptionLabel(option),

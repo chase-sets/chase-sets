@@ -14,6 +14,7 @@ export interface NavigationItem {
   badge?: string;
   href?: string;
   avatar?: ReactNode;
+  children?: NavigationItem[];
 }
 
 function renderNavigationItem(
@@ -21,7 +22,8 @@ function renderNavigationItem(
   active: boolean,
   orientation: "horizontal" | "vertical" | "rail",
   groupId?: string,
-  onSelect?: (key: string) => void
+  onSelect?: (key: string) => void,
+  activeKey?: string
 ) {
   const content = (
     <>
@@ -51,6 +53,31 @@ function renderNavigationItem(
       ? "bg-surface-2 text-accent shadow-tokenSm"
       : "text-secondary hover:bg-surface-2 hover:text-foreground"
   );
+
+  if (orientation === "horizontal" && item.children?.length) {
+    const childIsActive = active;
+
+    return (
+      <details key={item.key} className="group relative">
+        <summary
+          className={cx(
+            className,
+            "list-none [&::-webkit-details-marker]:hidden",
+            childIsActive && "bg-surface-2 text-accent shadow-tokenSm"
+          )}
+        >
+          {childIsActive && groupId ? renderActivePill(groupId) : null}
+          <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
+          <Icon name="chevronDown" size="sm" tone={childIsActive ? "accent" : "secondary"} />
+        </summary>
+        <div className="modern-surface absolute left-0 top-[calc(100%+0.5rem)] z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay">
+          {item.children.map((child) =>
+            renderNavigationItem(child, child.key === activeKey, "vertical", undefined, onSelect, activeKey)
+          )}
+        </div>
+      </details>
+    );
+  }
 
   if (item.href) {
     return (
@@ -176,7 +203,14 @@ export function TopNav({
           <LayoutGroup id={groupId}>
             <div className="hidden items-center gap-1 md:flex">
               {items.map((item) =>
-                renderNavigationItem(item, item.key === activeKey, "horizontal", groupId, onSelect)
+                renderNavigationItem(
+                  item,
+                  item.key === activeKey || Boolean(item.children?.some((child) => child.key === activeKey)),
+                  "horizontal",
+                  groupId,
+                  onSelect,
+                  activeKey
+                )
               )}
             </div>
           </LayoutGroup>
@@ -209,7 +243,7 @@ export function SideNav({
     >
       <LayoutGroup id={groupId}>
         {items.map((item) =>
-          renderNavigationItem(item, item.key === activeKey, "vertical", groupId, onSelect)
+          renderNavigationItem(item, item.key === activeKey, "vertical", groupId, onSelect, activeKey)
         )}
       </LayoutGroup>
     </nav>
@@ -271,7 +305,7 @@ export function NavRail({
     >
       <LayoutGroup id={groupId}>
         {items.map((item) =>
-          renderNavigationItem(item, item.key === activeKey, "rail", groupId, onSelect)
+          renderNavigationItem(item, item.key === activeKey, "rail", groupId, onSelect, activeKey)
         )}
       </LayoutGroup>
     </nav>

@@ -7,11 +7,10 @@ import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   Button,
   Card,
+  CurrencyInput,
   NumberInput,
-  PageSection,
   Stack,
   Text,
-  TextInput,
 } from "@chase-sets/design-system";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -76,45 +75,43 @@ function MarketplaceOfferSubmissionSection({
   errorMessage?: string | null;
 }) {
   return (
-    <PageSection title="Make An Offer">
-      <Card>
-        <form method="post">
-          <Stack gap={3}>
-            <input type="hidden" name="intent" value="submit-offer" />
-            <input type="hidden" name="catalogItemId" value={catalogItemId} />
-            <input type="hidden" name="productId" value={productId} />
-            <input
-              type="hidden"
-              name="selectedOptions"
-              value={JSON.stringify(selectedOptions)}
-            />
-            <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-            <Stack gap={1}>
-              <Text weight="semibold">{itemTitle}</Text>
-              <Text size="sm" tone="secondary">
-                {productSummary ?? "Standard product"}
-              </Text>
-              <Text size="sm" tone="secondary">
-                Matching visible listings for this product: {visibleListingCount}
-              </Text>
-              <Text size="sm" tone="secondary">
-                Offers are marketplace-wide in v1. They are not sent to a single seller.
-              </Text>
-            </Stack>
-            {errorMessage ? <Text>{errorMessage}</Text> : null}
-            <TextInput
-              label="Offer price"
-              name="priceAmount"
-              placeholder="24.99"
-              inputMode="decimal"
-              required
-            />
-            <NumberInput label="Quantity requested" name="quantityRequested" min="1" required />
-            <Button type="submit">Submit offer</Button>
+    <Card>
+      <form id="make-offer" method="post">
+        <Stack gap={3}>
+          <input type="hidden" name="intent" value="submit-offer" />
+          <input type="hidden" name="catalogItemId" value={catalogItemId} />
+          <input type="hidden" name="productId" value={productId} />
+          <input
+            type="hidden"
+            name="selectedOptions"
+            value={JSON.stringify(selectedOptions)}
+          />
+          <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+          <Stack gap={1}>
+            <Text weight="semibold">Make an offer</Text>
+            <Text size="sm" tone="secondary">
+              {itemTitle} - {productSummary ?? "Standard product"}
+            </Text>
+            <Text size="sm" tone="secondary">
+              {visibleListingCount} visible listing{visibleListingCount === 1 ? "" : "s"} match this version.
+            </Text>
           </Stack>
-        </form>
-      </Card>
-    </PageSection>
+          {errorMessage ? <Text>{errorMessage}</Text> : null}
+          <CurrencyInput
+            label="Offer price"
+            name="priceAmount"
+            placeholder="24.99"
+            min="0"
+            step="0.01"
+            required
+          />
+          <NumberInput label="Quantity requested" name="quantityRequested" min="1" required />
+          <Button type="submit" tone="secondary" block>
+            Submit offer
+          </Button>
+        </Stack>
+      </form>
+    </Card>
   );
 }
 
@@ -136,44 +133,46 @@ function OrderingAddToCartSection({
   errorMessage?: string | null;
 }) {
   return (
-    <PageSection title="Add To Cart">
-      <Card>
-        <form method="post">
-          <Stack gap={3}>
-            <input type="hidden" name="intent" value="add-to-cart" />
-            <input type="hidden" name="catalogItemId" value={catalogItemId} />
-            <input type="hidden" name="productId" value={productId} />
-            <input
-              type="hidden"
-              name="selectedOptions"
-              value={JSON.stringify(selectedOptions)}
-            />
-            <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-            <Stack gap={1}>
-              <Text weight="semibold">{itemTitle}</Text>
+    <Card glow={visibleListingCount > 0}>
+      <form id="buy-box" method="post">
+        <Stack gap={3}>
+          <input type="hidden" name="intent" value="add-to-cart" />
+          <input type="hidden" name="catalogItemId" value={catalogItemId} />
+          <input type="hidden" name="productId" value={productId} />
+          <input
+            type="hidden"
+            name="selectedOptions"
+            value={JSON.stringify(selectedOptions)}
+          />
+          <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+          <Stack gap={1}>
+            <Text weight="semibold">Buy this version</Text>
+            <Text size="sm" tone="secondary">
+              {itemTitle} - {productSummary ?? "Standard product"}
+            </Text>
+            <Text size="sm" tone="secondary">
+              {visibleListingCount} visible listing{visibleListingCount === 1 ? "" : "s"} match right now.
+            </Text>
+            {visibleListingCount === 0 ? (
               <Text size="sm" tone="secondary">
-                {productSummary ?? "Standard product"}
+                Add to cart saves buyer intent; checkout matches exact inventory when supply is available.
               </Text>
-              <Text size="sm" tone="secondary">
-                Matching visible listings right now: {visibleListingCount}
-              </Text>
-              <Text size="sm" tone="secondary">
-                Cart lines capture buyer intent. Exact listing and inventory matching happens at checkout.
-              </Text>
-            </Stack>
-            {errorMessage ? <Text>{errorMessage}</Text> : null}
-            <NumberInput
-              label="Quantity"
-              name="quantity"
-              min="1"
-              defaultValue="1"
-              required
-            />
-            <Button type="submit">Add to cart</Button>
+            ) : null}
           </Stack>
-        </form>
-      </Card>
-    </PageSection>
+          {errorMessage ? <Text>{errorMessage}</Text> : null}
+          <NumberInput
+            label="Quantity"
+            name="quantity"
+            min="1"
+            defaultValue="1"
+            required
+          />
+          <Button type="submit" block>
+            Add to cart
+          </Button>
+        </Stack>
+      </form>
+    </Card>
   );
 }
 
@@ -295,10 +294,10 @@ export default function DiscoveryItemDetailRoute() {
       data={data.item}
       notFound={data.notFound}
       error={data.error}
-      renderAfterListings={
+      renderCommerce={
         data.item
           ? (context) => (
-              <>
+              <Stack gap={4}>
                 <OrderingAddToCartSection
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
@@ -317,7 +316,7 @@ export default function DiscoveryItemDetailRoute() {
                   visibleListingCount={context.visibleListings.length}
                   errorMessage={actionData?.error ?? null}
                 />
-              </>
+              </Stack>
             )
           : undefined
       }
