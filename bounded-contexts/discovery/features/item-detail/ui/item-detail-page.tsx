@@ -25,20 +25,20 @@ import type {
   DiscoveryMarketListing,
 } from "../../../support/client-support/contracts";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
-import { VersionSelector } from "./version-selector";
+import { ProductSelector } from "./version-selector";
 import {
-  createDiscoveryCatalogVersionDescriptor,
+  createDiscoveryProductDescriptor,
   getOrderedActiveDimensions,
-  normalizeSelectionsForSchema,
+  normalizeSelectedOptionssForSchema,
   summarizeSelections,
 } from "../domain/versioning";
 
 export type ItemDetailMarketplaceSectionContext = Readonly<{
   itemId: string;
-  selectedCatalogVersionKey: string;
+  selectedProductId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  selectedVersionSelection: readonly { dimensionId: string; choiceId: string }[];
+  selectedVersionSelection: readonly { dimensionId: string; optionId: string }[];
   selectedVersionSummary: string | null;
   visibleListings: readonly DiscoveryMarketListing[];
 }>;
@@ -85,8 +85,8 @@ function matchesSelectedVersion(
   listing: DiscoveryMarketListing,
   selections: Record<string, string>,
 ) {
-  return listing.version_selection.every(
-    (entry) => selections[entry.dimensionId] === entry.choiceId,
+  return listing.selected_options.every(
+    (entry) => selections[entry.dimensionId] === entry.optionId,
   );
 }
 
@@ -102,16 +102,16 @@ export function ItemDetailPage({
   renderAfterListings?: (context: ItemDetailMarketplaceSectionContext) => ReactNode;
 }) {
   const [selections, setSelections] = useState<Record<string, string>>(() =>
-    data?.version_schema ? normalizeSelectionsForSchema(data.version_schema, {}) : {},
+    data?.product_schema ? normalizeSelectedOptionssForSchema(data.product_schema, {}) : {},
   );
 
   useEffect(() => {
-    if (!data?.version_schema) {
+    if (!data?.product_schema) {
       setSelections({});
       return;
     }
 
-    setSelections(normalizeSelectionsForSchema(data.version_schema, {}));
+    setSelections(normalizeSelectedOptionssForSchema(data.product_schema, {}));
   }, [data]);
 
   if (error) {
@@ -136,46 +136,46 @@ export function ItemDetailPage({
     src: url,
     alt: `${data.title} image ${index + 1}`,
   }));
-  const selectedVersion = data.version_schema
-    ? summarizeSelections(data.version_schema, selections)
+  const selectedVersion = data.product_schema
+    ? summarizeSelections(data.product_schema, selections)
     : [];
-  const selectedVersionSelection = data.version_schema
-    ? getOrderedActiveDimensions(data.version_schema, selections)
+  const selectedVersionSelection = data.product_schema
+    ? getOrderedActiveDimensions(data.product_schema, selections)
         .map((dimension) => {
-          const choiceId = selections[dimension.dimensionId];
+          const optionId = selections[dimension.dimensionId];
 
-          if (!choiceId) {
+          if (!optionId) {
             return null;
           }
 
           return {
             dimensionId: dimension.dimensionId,
-            choiceId,
+            optionId,
           };
         })
         .filter(
           (
             selection,
-          ): selection is { dimensionId: string; choiceId: string } => selection !== null,
+          ): selection is { dimensionId: string; optionId: string } => selection !== null,
         )
     : [];
   const selectedVersionSummary =
     selectedVersion.length > 0
       ? selectedVersion
-          .map((selection) => `${selection.dimensionName}: ${selection.choiceLabel}`)
+          .map((selection) => `${selection.dimensionName}: ${selection.optionLabel}`)
           .join(" | ")
       : null;
-  const selectedCatalogVersionKey = createDiscoveryCatalogVersionDescriptor({
-    catalogItemId: data.item_id,
-    versionSchema: data.version_schema,
+  const selectedProductId = createDiscoveryProductDescriptor({
+    catalogItemId: data.catalog_item_id,
+    productSchema: data.product_schema,
     selection: selectedVersionSelection,
-  }).catalogVersionKey;
+  }).productId;
   const categories = [...new Map(
     data.categories.map((category) => [category.categoryId, category] as const),
   ).values()];
   const tags = uniqueDisplayValues(data.tags);
   const visibleListings = data.market_listings.filter((listing) =>
-    data.version_schema ? matchesSelectedVersion(listing, selections) : true,
+    data.product_schema ? matchesSelectedVersion(listing, selections) : true,
   );
   const selectedMarketSummary =
     visibleListings.length > 0
@@ -263,19 +263,19 @@ export function ItemDetailPage({
                       ) : null}
                     </Stack>
 
-                    {data.version_schema && data.version_schema.dimensions.length > 0 ? (
+                    {data.product_schema && data.product_schema.dimensions.length > 0 ? (
                       <div className="space-y-3">
                         <Text size="sm" weight="semibold">
-                          Choose Version
+                          Choose Product
                         </Text>
-                        <VersionSelector
-                          schema={data.version_schema}
+                        <ProductSelector
+                          schema={data.product_schema}
                           selections={selections}
-                          onSelectionChange={(dimensionId, choiceId) =>
+                          onSelectionChange={(dimensionId, optionId) =>
                             setSelections((current) =>
-                              normalizeSelectionsForSchema(data.version_schema!, {
+                              normalizeSelectedOptionssForSchema(data.product_schema!, {
                                 ...current,
-                                [dimensionId]: choiceId,
+                                [dimensionId]: optionId,
                               }),
                             )
                           }
@@ -287,12 +287,12 @@ export function ItemDetailPage({
                       {selectedVersion.length > 0 ? (
                         <div className="space-y-2">
                           <Text size="sm" weight="semibold">
-                            Selected Version
+                            Selected Product
                           </Text>
                           <KeyValueList
                             items={selectedVersion.map((selection) => ({
                               key: selection.dimensionName,
-                              value: selection.choiceLabel,
+                              value: selection.optionLabel,
                             }))}
                           />
                         </div>
@@ -404,9 +404,9 @@ export function ItemDetailPage({
                         </Stack>
                         <Stack gap={1}>
                           <Text size="sm" tone="secondary">
-                            Version
+                            Product
                           </Text>
-                          <Text>{listing.version_summary ?? "Standard"}</Text>
+                          <Text>{listing.product_summary ?? "Standard"}</Text>
                         </Stack>
                       </Grid>
                     </Card>
@@ -416,7 +416,7 @@ export function ItemDetailPage({
                     title="No active listings"
                     description={
                       data.market_listings.length > 0
-                        ? "No active listings match the selected version."
+                        ? "No active listings match the selected product."
                         : "Sellers have not published inventory for this item yet."
                     }
                     icon="package"
@@ -428,8 +428,8 @@ export function ItemDetailPage({
 
           {renderAfterListings
             ? renderAfterListings({
-                itemId: data.item_id,
-                selectedCatalogVersionKey,
+                itemId: data.catalog_item_id,
+                selectedProductId,
                 itemTitle: data.title,
                 itemSubtitle: data.subtitle,
                 selectedVersionSelection,

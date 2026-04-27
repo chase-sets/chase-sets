@@ -32,10 +32,10 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
       );
     },
 
-    "catalog.dimension.choice-added": async (event) => {
+    "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { choiceId, code, labels, displayOrder, numericValue, status } = event.data as {
-        choiceId: string;
+      const { optionId, code, labels, displayOrder, numericValue, status } = event.data as {
+        optionId: string;
         code: string;
         labels: unknown;
         displayOrder: number;
@@ -44,18 +44,18 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
       };
 
       await db.query(
-        `INSERT INTO catalog_dimension_choices (choice_id, dimension_id, code, labels, display_order, numeric_value, status)
+        `INSERT INTO catalog_dimension_options (option_id, dimension_id, code, labels, display_order, numeric_value, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (dimension_id, choice_id) DO UPDATE
+         ON CONFLICT (dimension_id, option_id) DO UPDATE
          SET code = $3, labels = $4, display_order = $5, numeric_value = $6, status = $7`,
-        [choiceId, dimensionId, code, JSON.stringify(labels), displayOrder, numericValue, status],
+        [optionId, dimensionId, code, JSON.stringify(labels), displayOrder, numericValue, status],
       );
     },
 
-    "catalog.dimension.choice-revised": async (event) => {
+    "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { choiceId, code, labels, displayOrder, numericValue, status } = event.data as {
-        choiceId: string;
+      const { optionId, code, labels, displayOrder, numericValue, status } = event.data as {
+        optionId: string;
         code: string;
         labels: unknown;
         displayOrder: number;
@@ -64,42 +64,42 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
       };
 
       await db.query(
-        `UPDATE catalog_dimension_choices
+        `UPDATE catalog_dimension_options
          SET code = $3, labels = $4, display_order = $5, numeric_value = $6, status = $7
-         WHERE dimension_id = $1 AND choice_id = $2`,
-        [dimensionId, choiceId, code, JSON.stringify(labels), displayOrder, numericValue, status],
+         WHERE dimension_id = $1 AND option_id = $2`,
+        [dimensionId, optionId, code, JSON.stringify(labels), displayOrder, numericValue, status],
       );
     },
 
-    "catalog.dimension.choices-reordered": async (event) => {
+    "catalog.dimension.options-reordered": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { choiceIds } = event.data as { choiceIds: string[] };
+      const { optionIds } = event.data as { optionIds: string[] };
 
-      for (let i = 0; i < choiceIds.length; i++) {
+      for (let i = 0; i < optionIds.length; i++) {
         await db.query(
-          `UPDATE catalog_dimension_choices SET display_order = $3 WHERE dimension_id = $1 AND choice_id = $2`,
-          [dimensionId, choiceIds[i], i],
+          `UPDATE catalog_dimension_options SET display_order = $3 WHERE dimension_id = $1 AND option_id = $2`,
+          [dimensionId, optionIds[i], i],
         );
       }
     },
 
-    "catalog.dimension.choice-deprecated": async (event) => {
+    "catalog.dimension.option-deprecated": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { choiceId } = event.data as { choiceId: string };
+      const { optionId } = event.data as { optionId: string };
 
       await db.query(
-        `UPDATE catalog_dimension_choices SET status = 'deprecated' WHERE dimension_id = $1 AND choice_id = $2`,
-        [dimensionId, choiceId],
+        `UPDATE catalog_dimension_options SET status = 'deprecated' WHERE dimension_id = $1 AND option_id = $2`,
+        [dimensionId, optionId],
       );
     },
 
-    "catalog.dimension.choice-reactivated": async (event) => {
+    "catalog.dimension.option-reactivated": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { choiceId } = event.data as { choiceId: string };
+      const { optionId } = event.data as { optionId: string };
 
       await db.query(
-        `UPDATE catalog_dimension_choices SET status = 'active' WHERE dimension_id = $1 AND choice_id = $2`,
-        [dimensionId, choiceId],
+        `UPDATE catalog_dimension_options SET status = 'active' WHERE dimension_id = $1 AND option_id = $2`,
+        [dimensionId, optionId],
       );
     },
 

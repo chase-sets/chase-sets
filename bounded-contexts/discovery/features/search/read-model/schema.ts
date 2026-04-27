@@ -1,7 +1,7 @@
 export const discoverySearchSchemaSql = `CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS discovery_search_catalog_items (
-  item_id text PRIMARY KEY,
+  catalog_item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   description text NOT NULL DEFAULT '',
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS discovery_search_catalog_categories (
 );
 
 CREATE TABLE IF NOT EXISTS discovery_search_items (
-  item_id text PRIMARY KEY,
+  catalog_item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   description text NOT NULL DEFAULT '',

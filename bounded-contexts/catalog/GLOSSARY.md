@@ -1,278 +1,153 @@
-# Catalog & Marketplace — Ubiquitous Language Glossary
+# Catalog Glossary
 
-This document defines the canonical terminology used across the platform.  
-All engineering, product, documentation, and API contracts must use these terms consistently.
+## Purpose
 
----
+This glossary defines the formal concepts within the Catalog bounded context.
 
-# Catalog Domain
+Use these terms consistently across APIs, internal tools, docs, and formal UI copy:
 
-## Dimension
+- `Catalog Item`
+- `Dimension`
+- `Option`
+- `Product`
+- `Blueprint`
+- `Field`
+- `Component`
+- `Category`
 
-A selectable axis along which versions of an Item can differ.
+This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Search & Discovery.
 
-Examples:
+## Core Model
 
-- Condition
-- Form
-- Grading Company
-- Grade
-- Color
-- Size
-- Language
+The catalog is composed of four primary concepts:
 
-A Dimension defines the **space in which versions are formed**.
+- `Catalog Item` — the canonical parent definition of a thing
+- `Dimension` — a category of variation used to distinguish Products
+- `Option` — a specific selectable value of a Dimension
+- `Product` — a valid sellable combination of selected Options under a Catalog Item
 
----
+## Authoring Model
 
-## Choice
+The current implementation also uses four supporting authoring concepts:
 
-A selectable value within a Dimension.
+- `Blueprint` — the structural definition that determines applicable Fields, applicable Dimensions, and canonical Dimension order for Product resolution
+- `Field` — a descriptive attribute definition for Catalog Items that does not create Product variation
+- `Component` — a reusable bundle of Field and Dimension rules used to compose Blueprints
+- `Category` — a consumer-facing grouping for browsing and merchandising that does not affect Product identity
 
-Examples:
+These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
 
-- Condition → Near Mint
-- Form → Graded
-- Grade → 10
+## Product-Existence Model
 
-A Choice represents one possible state of a Dimension.
+The target glossary treats the set of existing Products as the source of truth for valid option combinations.
 
-Choices:
+In this migration pass, the codebase is hard-cut over to the new language, but the stronger product-existence semantics are not yet implemented. Valid combinations continue to be resolved through the current blueprint-driven rules, now described as product resolution.
 
-- Have localized display labels
-- Have display ordering
-- May optionally include numeric metadata (e.g., grade = 9.5, 10)
+## Relationships
 
----
+- A `Catalog Item` may have one or more Products.
+- A `Product` belongs to exactly one Catalog Item.
+- A `Product` is defined by its selected Options.
+- A `Dimension` may apply across many Catalog Items.
+- An `Option` belongs to exactly one Dimension.
+- A `Blueprint` defines the Fields and Dimensions that apply to a Catalog Item.
+- A `Field` describes a Catalog Item without changing Product identity.
+- A `Component` contributes reusable Field and Dimension rules to Blueprints.
+- A `Category` organizes Catalog Items without changing Product identity.
 
-## Field
+## Identity and IDs
 
-A descriptive attribute of an Item that does not create versions.
+Use these identifiers in APIs and schemas:
 
-Examples:
-
-- Manufacturer
-- Brand
-- Game
-- Set / Expansion
-- Release Date
-- HP
-- Artist
-- Weight
-
-Fields describe Items but do not define variation.
-
-Fields may have behavior flags (e.g., filterable, searchable), but remain a single entity type.
-
----
-
-## Field Value
-
-The value of a Field for a specific Item.
-
-Examples:
-
-- Release Date = 2020-10-01
-- Manufacturer = TPCI
-- HP = 330
-
-Field defines structure.  
-Field Value is the item-specific instance of that structure.
-
----
-
-## Component
-
-A reusable bundle of catalog configuration used to compose Blueprints.
-
-A Component may define:
-
-- Applicable Fields
-- Applicable Dimensions
-- Allowed Choice subsets
-- Required/optional behavior
-- Display hints
-
-Examples:
-
-- TCG Raw
-- TCG Graded
-- Pokémon Metadata
-- Apparel Basics
-
-Components are composable and do not use inheritance.
-
----
-
-## Blueprint
-
-The structural definition of a product type.
-
-A Blueprint defines:
-
-- Which Dimensions apply
-- Which Fields apply
-- Rules for forming valid Versions
-- Canonical ordering of Dimensions (for deterministic version identity)
-
-Examples:
-
-- Trading Card Single
-- Graded Card
-- Sealed Product
-- Apparel Item
-
-Blueprints define structure, not individual products.
-
----
-
-## Category
-
-A consumer-facing grouping used for browsing and merchandising.
-
-Examples:
-
-- Pokémon
-- Magic: The Gathering
-- Funko
-
-Categories organize Items but do not control version logic.
-
----
-
-## Item
-
-The root catalog record representing a specific thing being sold.
-
-Examples:
-
-- Charizard ex Promo
-- Pikachu Plush
-
-An Item:
-
-- References a Blueprint
-- Contains Field Values
-- Represents the base identity of the product
-
-Items exist independently of condition, grading, or other selections.
+- `catalog_item_id`
+- `product_id`
+- `dimension_id`
+- `option_id`
 
 Notes:
 
-- A catalog item is the browse parent, not the commerce sellable unit.
-- Commerce flows resolve sellable units from `CatalogItemId + CatalogVersionKey + normalized Selection`.
+- `product_id` identifies a catalog-defined Product, not a seller-specific listing or physical item.
+- Avoid formal `item_id` because it is ambiguous.
 
----
+## Modeling Rules
 
-## Selection
+- A Product must reference exactly one `catalog_item_id`.
+- A Product is defined by a valid set of selected Options.
+- Options must belong to their respective Dimension.
+- A Catalog Item cannot be sold without a Product.
 
-A set of chosen Choices across one or more Dimensions.
+## API Guidance
 
-Examples:
+Preferred field names:
 
-- Condition = Near Mint
-- Form = Graded, Grade = 10
+- `catalog_item_id`
+- `product_id`
+- `dimension_id`
+- `option_id`
+- `selected_options`
+- `product_schema`
+- `product_summary`
 
-A Selection:
+Avoid:
 
-- May be partial or complete
-- Represents user intent or configuration state
-- Has no independent identity
+- `item_id`
+- `entry_id`
+- `catalog_version_key`
+- `version_selection`
+- `version_schema`
+- `version_summary`
 
-Selections are used for validation and UI state.
+Canonical selection shape:
 
----
+```json
+[
+  {
+    "dimension_id": "dim_form",
+    "option_id": "opt_graded"
+  }
+]
+```
 
-## Version
+## Copy Guidance
 
-A complete and valid Selection for a specific Item.
+### API and Technical Documentation
 
-Examples:
+Use formal terms:
 
-- Raw Near Mint Charizard
-- PSA 10 Charizard
+- Catalog Item
+- Dimension
+- Option
+- Product
+- Blueprint
+- Field
+- Component
+- Category
 
-A Version:
+### Internal Tools
 
-- Represents a concrete sellable configuration
-- Has deterministic identity derived from Item + Selection
-- Is computed rather than stored as a primary entity
-- Is the canonical sellable unit used by Inventory, Marketplace, and Ordering
+Prefer the formal terms unless a simpler label is clearly better for usability.
 
-Version identity is based only on:
+### UI Copy
 
-- Item ID
-- Dimension IDs
-- Choice IDs
-- Canonical dimension ordering
+- `Item` may be used as shorthand for Catalog Item where it is unambiguous.
+- `Options` may be used for selection flows.
+- The UI does not need to expose the entire formal model if simpler wording is clearer.
 
-Labels and display order do not affect identity.
+## Boundary
 
----
+Catalog defines:
 
-# Marketplace Domain
+- the canonical structure of Catalog Items
+- the resolved set of valid Products
+- the relationship between Dimensions, Options, and Products
+- the authoring relationship between Blueprints, Fields, Components, Categories, and Catalog Items
 
-## Listing
+Catalog does not define:
 
-A seller’s offer for a specific Item Version.
+- listing aggregation
+- multi-select filtering
+- faceted search behavior
 
-A Listing includes:
+## One-Line Summary
 
-- Item reference
-- Version reference
-- Selection snapshot
-- Price
-- Quantity
-- Seller
-
-Listings represent market supply.
-
----
-
-## Bid (Offer)
-
-A buyer’s intent to purchase a specific Item Version.
-
-A Bid includes:
-
-- Item reference
-- Version reference
-- Selection snapshot
-- Price
-- Quantity
-- Buyer
-
-Bids represent market demand.
-
----
-
-# Conceptual Flow
-
-The relationships between entities:
-
-Dimension → Choice → Selection → Version → Listing/Bid
-↑
-Item
-↑
-Blueprint
-↑
-Component
-
-This progression reflects how:
-
-1. Structure is defined (Dimension, Field, Component, Blueprint)
-2. Items are created
-3. Selections are made
-4. Versions are formed
-5. Market activity occurs
-
----
-
-# Guiding Principles
-
-1. Dimensions create versions.
-2. Fields describe items.
-3. Selections represent intent.
-4. Versions represent sellable configurations.
-5. Listings and Bids always reference Versions.
-6. Identity is derived from stable IDs, never display labels.
+A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, and Categories support authoring and organizing that truth.

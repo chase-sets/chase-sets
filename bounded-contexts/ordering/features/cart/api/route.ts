@@ -40,17 +40,17 @@ function parseVersionSelection(value: unknown) {
   return Array.isArray(value)
     ? value
         .filter(
-          (selection): selection is { dimensionId: string; choiceId: string } =>
+          (selection): selection is { dimensionId: string; optionId: string } =>
             Boolean(
               selection &&
               typeof selection === "object" &&
               "dimensionId" in selection &&
-              "choiceId" in selection,
+              "optionId" in selection,
             ),
         )
         .map((selection) => ({
           dimensionId: String(selection.dimensionId ?? ""),
-          choiceId: String(selection.choiceId ?? ""),
+          optionId: String(selection.optionId ?? ""),
         }))
     : [];
 }
@@ -89,17 +89,17 @@ export function createBuyerCartRoutes(services: OrderingCartServices) {
         {
           buyerAccountId: access.actor.accountId as never,
           catalogItemId: String(body.catalogItemId ?? ""),
-          catalogVersionKey: String(body.catalogVersionKey ?? ""),
+          productId: String(body.productId ?? ""),
           itemTitle: String(body.itemTitle ?? ""),
           itemSubtitle:
             body.itemSubtitle === null || body.itemSubtitle === undefined
               ? null
               : String(body.itemSubtitle),
-          versionSelection: parseVersionSelection(body.versionSelection),
-          versionSummary:
-            body.versionSummary === null || body.versionSummary === undefined
+          selectedOptions: parseVersionSelection(body.selectedOptions),
+          productSummary:
+            body.productSummary === null || body.productSummary === undefined
               ? null
-              : String(body.versionSummary),
+              : String(body.productSummary),
           quantity: Number(body.quantity ?? 0),
         },
         context,

@@ -30,8 +30,8 @@ function formatApplicability(
   clauses: Array<{
     dimensionName?: string;
     dimensionId: string;
-    choices?: { code: string }[];
-    choiceIds?: string[];
+    options?: { code: string }[];
+    optionIds?: string[];
   }>,
 ): string {
   if (clauses.length === 0) {
@@ -40,11 +40,11 @@ function formatApplicability(
 
   return clauses
     .map((clause) => {
-      const choices =
-        clause.choices && clause.choices.length > 0
-          ? clause.choices.map((choice) => choice.code).join(" | ")
-          : (clause.choiceIds ?? []).join(" | ");
-      return `${clause.dimensionName ?? clause.dimensionId} = ${choices}`;
+      const options =
+        clause.options && clause.options.length > 0
+          ? clause.options.map((option) => option.code).join(" | ")
+          : (clause.optionIds ?? []).join(" | ");
+      return `${clause.dimensionName ?? clause.dimensionId} = ${options}`;
     })
     .join(", ");
 }
@@ -52,22 +52,22 @@ function formatApplicability(
 
 function parseApplicabilityClauses(
   value: string,
-): Array<{ dimensionId: string; choiceIds: string[] }> {
+): Array<{ dimensionId: string; optionIds: string[] }> {
   return value
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => {
-      const [dimensionId, choiceIds = ""] = entry.split("=");
+      const [dimensionId, optionIds = ""] = entry.split("=");
       return {
         dimensionId: dimensionId.trim(),
-        choiceIds: choiceIds
+        optionIds: optionIds
           .split("|")
-          .map((choiceId) => choiceId.trim())
+          .map((optionId) => optionId.trim())
           .filter(Boolean),
       };
     })
-    .filter((clause) => clause.dimensionId.length > 0 && clause.choiceIds.length > 0);
+    .filter((clause) => clause.dimensionId.length > 0 && clause.optionIds.length > 0);
 }
 
 function getTransitions(status: string): Transition[] {
@@ -93,12 +93,12 @@ interface DimensionRule {
   dimensionId: string;
   dimensionName: string;
   required: boolean;
-  allowedChoices: { choiceId: string; code: string }[];
+  allowedOptions: { optionId: string; code: string }[];
   appliesWhen: Array<{
     dimensionId: string;
     dimensionName: string;
-    choiceIds: string[];
-    choices: { choiceId: string; code: string }[];
+    optionIds: string[];
+    options: { optionId: string; code: string }[];
   }>;
 }
 
@@ -115,7 +115,7 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
   const [showAddDimension, setShowAddDimension] = useState(false);
   const [dimensionId, setDimensionId] = useState("");
   const [dimRequired, setDimRequired] = useState(false);
-  const [dimAllowedChoiceIds, setDimAllowedChoiceIds] = useState("");
+  const [dimAllowedOptionIds, setDimAllowedOptionIds] = useState("");
   const [dimAppliesWhen, setDimAppliesWhen] = useState("");
 
   // Edit component metadata
@@ -156,10 +156,10 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
       dimensionRules: (data?.dimension_rules ?? []).map((rule) => ({
         dimensionId: rule.dimensionId,
         required: rule.required,
-        allowedChoiceIds: rule.allowedChoices.map((choice) => choice.choiceId),
+        allowedOptionIds: rule.allowedOptions.map((option) => option.optionId),
         appliesWhen: rule.appliesWhen.map((clause) => ({
           dimensionId: clause.dimensionId,
-          choiceIds: clause.choiceIds,
+          optionIds: clause.optionIds,
         })),
       })),
     });
@@ -184,18 +184,18 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
   }
 
   async function handleAddDimensionRule() {
-    const allowedChoiceIds = dimAllowedChoiceIds.split(",").map((s) => s.trim()).filter(Boolean);
+    const allowedOptionIds = dimAllowedOptionIds.split(",").map((s) => s.trim()).filter(Boolean);
     await addDimensionRule(id, {
       dimensionId,
       required: dimRequired,
-      allowedChoiceIds: allowedChoiceIds.length > 0 ? allowedChoiceIds : undefined,
+      allowedOptionIds: allowedOptionIds.length > 0 ? allowedOptionIds : undefined,
       appliesWhen: parseApplicabilityClauses(dimAppliesWhen),
     });
     addToast("Dimension rule added", "success");
     setShowAddDimension(false);
     setDimensionId("");
     setDimRequired(false);
-    setDimAllowedChoiceIds("");
+    setDimAllowedOptionIds("");
     setDimAppliesWhen("");
     refresh();
   }
@@ -225,9 +225,9 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
     { key: "dimensionId", header: "Dimension", cell: (row) => row.dimensionName },
     { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
     {
-      key: "allowedChoices",
-      header: "Allowed Choices",
-      cell: (row) => row.allowedChoices.length > 0 ? row.allowedChoices.map((choice) => choice.code).join(", ") : "All",
+      key: "allowedOptions",
+      header: "Allowed Options",
+      cell: (row) => row.allowedOptions.length > 0 ? row.allowedOptions.map((option) => option.code).join(", ") : "All",
     },
     {
       key: "appliesWhen",
@@ -353,12 +353,12 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
           <TextInput label="Dimension ID" value={dimensionId} onChange={(e) => setDimensionId(e.target.value)} />
           <Checkbox label="Required" checked={dimRequired} onCheckedChange={(v) => setDimRequired(v === true)} />
           <TextInput
-            label="Allowed Choice IDs (comma-separated, leave empty for all)"
-            value={dimAllowedChoiceIds}
-            onChange={(e) => setDimAllowedChoiceIds(e.target.value)}
+            label="Allowed Option IDs (comma-separated, leave empty for all)"
+            value={dimAllowedOptionIds}
+            onChange={(e) => setDimAllowedOptionIds(e.target.value)}
           />
           <TextInput
-            label="Applies When (dimensionId=choiceId|choiceId, comma-separated)"
+            label="Applies When (dimensionId=optionId|optionId, comma-separated)"
             value={dimAppliesWhen}
             onChange={(e) => setDimAppliesWhen(e.target.value)}
           />
@@ -367,7 +367,6 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
-
 
 
 

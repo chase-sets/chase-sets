@@ -3,14 +3,14 @@ import type {
   VersionSchema,
 } from "../../../support/client-support/contracts";
 
-type VersionChoice = VersionDimension["allowedChoices"][number];
+type VersionChoice = VersionDimension["allowedOptions"][number];
 
-export function getChoiceLabel(choice: VersionChoice): string {
-  if (choice.labels && choice.labels.length > 0) {
-    return choice.labels[0].value;
+export function getOptionLabel(option: VersionChoice): string {
+  if (option.labels && option.labels.length > 0) {
+    return option.labels[0].value;
   }
 
-  return choice.code;
+  return option.code;
 }
 
 export function isDimensionActive(
@@ -18,10 +18,10 @@ export function isDimensionActive(
   selections: Record<string, string>,
 ): boolean {
   return dimension.appliesWhen.every((clause) => {
-    const selectedChoiceId = selections[clause.dimensionId];
+    const selectedOptionId = selections[clause.dimensionId];
     return (
-      selectedChoiceId !== undefined &&
-      clause.choiceIds.includes(selectedChoiceId)
+      selectedOptionId !== undefined &&
+      clause.optionIds.includes(selectedOptionId)
     );
   });
 }
@@ -43,7 +43,7 @@ export function getOrderedActiveDimensions(
   );
 }
 
-export function normalizeSelectionsForSchema(
+export function normalizeSelectedOptionssForSchema(
   schema: VersionSchema,
   selections: Record<string, string>,
 ): Record<string, string> {
@@ -57,15 +57,15 @@ export function normalizeSelectionsForSchema(
       continue;
     }
 
-    const allowedChoiceIds = dimension.allowedChoices.map((choice) => choice.choiceId);
-    const selectedChoiceId = nextSelections[dimension.dimensionId];
+    const allowedOptionIds = dimension.allowedOptions.map((option) => option.optionId);
+    const selectedOptionId = nextSelections[dimension.dimensionId];
 
-    if (selectedChoiceId !== undefined && allowedChoiceIds.includes(selectedChoiceId)) {
+    if (selectedOptionId !== undefined && allowedOptionIds.includes(selectedOptionId)) {
       continue;
     }
 
-    if (dimension.required && allowedChoiceIds.length > 0) {
-      nextSelections[dimension.dimensionId] = allowedChoiceIds[0];
+    if (dimension.required && allowedOptionIds.length > 0) {
+      nextSelections[dimension.dimensionId] = allowedOptionIds[0];
       continue;
     }
 
@@ -78,73 +78,73 @@ export function normalizeSelectionsForSchema(
 export function summarizeSelections(
   schema: VersionSchema,
   selections: Record<string, string>,
-): Array<{ dimensionName: string; choiceLabel: string }> {
+): Array<{ dimensionName: string; optionLabel: string }> {
   return getOrderedActiveDimensions(schema, selections)
     .map((dimension) => {
-      const selectedChoiceId = selections[dimension.dimensionId];
-      const selectedChoice = dimension.allowedChoices.find((choice) => choice.choiceId === selectedChoiceId);
+      const selectedOptionId = selections[dimension.dimensionId];
+      const selectedOption = dimension.allowedOptions.find((option) => option.optionId === selectedOptionId);
 
-      if (!selectedChoice) {
+      if (!selectedOption) {
         return null;
       }
 
       return {
         dimensionName: dimension.dimensionName,
-        choiceLabel: getChoiceLabel(selectedChoice),
+        optionLabel: getOptionLabel(selectedOption),
       };
     })
-    .filter((selection): selection is { dimensionName: string; choiceLabel: string } => selection !== null);
+    .filter((selection): selection is { dimensionName: string; optionLabel: string } => selection !== null);
 }
 
-export function createDiscoveryCatalogVersionDescriptor(input: Readonly<{
+export function createDiscoveryProductDescriptor(input: Readonly<{
   catalogItemId: string;
-  versionSchema: VersionSchema | null;
-  selection: readonly { dimensionId: string; choiceId: string }[];
+  productSchema: VersionSchema | null;
+  selection: readonly { dimensionId: string; optionId: string }[];
 }>): Readonly<{
-  catalogVersionKey: string;
-  selection: { dimensionId: string; choiceId: string }[];
+  productId: string;
+  selection: { dimensionId: string; optionId: string }[];
 }> {
   const catalogItemId = input.catalogItemId.trim();
   if (!catalogItemId) {
     throw new Error("Catalog item id is required.");
   }
 
-  if (!input.versionSchema || input.versionSchema.dimensions.length === 0) {
+  if (!input.productSchema || input.productSchema.dimensions.length === 0) {
     if (input.selection.length > 0) {
       throw new Error("Selection is not allowed for this catalog item.");
     }
 
     return {
-      catalogVersionKey: `${catalogItemId}::`,
+      productId: `${catalogItemId}::`,
       selection: [],
     };
   }
 
-  const normalizedSelection = normalizeSelectionsForSchema(
-    input.versionSchema,
+  const normalizedSelection = normalizeSelectedOptionssForSchema(
+    input.productSchema,
     Object.fromEntries(
-      input.selection.map((entry) => [entry.dimensionId.trim(), entry.choiceId.trim()]),
+      input.selection.map((entry) => [entry.dimensionId.trim(), entry.optionId.trim()]),
     ),
   );
 
-  const orderedSelection = getOrderedDimensions(input.versionSchema)
+  const orderedSelection = getOrderedDimensions(input.productSchema)
     .map((dimension) => {
-      const choiceId = normalizedSelection[dimension.dimensionId];
-      if (!choiceId) {
+      const optionId = normalizedSelection[dimension.dimensionId];
+      if (!optionId) {
         return null;
       }
 
       return {
         dimensionId: dimension.dimensionId,
-        choiceId,
+        optionId,
       };
     })
     .filter(
-      (entry): entry is { dimensionId: string; choiceId: string } => entry !== null,
+      (entry): entry is { dimensionId: string; optionId: string } => entry !== null,
     );
 
   return {
-    catalogVersionKey: `${catalogItemId}::${input.versionSchema.canonicalDimensionOrder
+    productId: `${catalogItemId}::${input.productSchema.canonicalDimensionOrder
       .map((entry) => `${entry.dimensionId}:${normalizedSelection[entry.dimensionId] ?? "-"}`)
       .join("|")}`,
     selection: orderedSelection,

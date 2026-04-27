@@ -273,16 +273,16 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
 export function createPublicListingRoutes(services: MarketplaceListingServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
-  app.get("/sellable-units/:catalogVersionKey/market-summary", async (c) => {
+  app.get("/products/:productId/market-summary", async (c) => {
     const summary = await services.getMarketSummaryForItem(
-      c.req.param("catalogVersionKey"),
+      c.req.param("productId"),
     );
     return c.json(summary);
   });
 
-  app.get("/sellable-units/:catalogVersionKey/listings", async (c) => {
+  app.get("/products/:productId/listings", async (c) => {
     const items = await services.listItemListings(
-      c.req.param("catalogVersionKey"),
+      c.req.param("productId"),
     );
     return c.json({
       items,

@@ -1,11 +1,11 @@
 export const inventoryCatalogItemSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_catalog_items (
-  item_id text PRIMARY KEY,
+  catalog_item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   blueprint_id text NULL,
   status text NOT NULL DEFAULT 'draft',
-  version_schema jsonb NULL,
+  product_schema jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -30,14 +30,14 @@ CREATE TABLE IF NOT EXISTS inventory_catalog_dimensions (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS inventory_catalog_dimension_choices (
-  choice_id text PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS inventory_catalog_dimension_options (
+  option_id text PRIMARY KEY,
   dimension_id text NOT NULL,
   code text NOT NULL DEFAULT '',
   labels jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS inventory_catalog_dimension_choices_dimension_idx
-  ON inventory_catalog_dimension_choices (dimension_id);
+CREATE INDEX IF NOT EXISTS inventory_catalog_dimension_options_dimension_idx
+  ON inventory_catalog_dimension_options (dimension_id);
 `;

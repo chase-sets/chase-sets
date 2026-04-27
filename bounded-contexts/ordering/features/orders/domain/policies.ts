@@ -5,16 +5,16 @@ import {
   normalizeMoneyAmount,
   numberToMoneyAmount,
   type ShippingOption,
-  type VersionSelectionEntry,
+  type VersionSelectedOptionEntry,
 } from "../../../support/runtime-support/common";
 
 export type MarketplaceDemand = Readonly<{
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSelection: readonly VersionSelectionEntry[];
-  versionSummary: string | null;
+  selectedOptions: readonly VersionSelectedOptionEntry[];
+  productSummary: string | null;
   quantity: number;
 }>;
 
@@ -23,11 +23,11 @@ export type MarketplaceSupplyCandidate = Readonly<{
   sellerAccountId: AccountId;
   inventoryRecordId: string;
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSelection: readonly VersionSelectionEntry[];
-  versionSummary: string | null;
+  selectedOptions: readonly VersionSelectedOptionEntry[];
+  productSummary: string | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
@@ -97,9 +97,9 @@ export function tieBreakPlanKey(orderIds: readonly string[]) {
 }
 
 export function demandKeyForLine(
-  line: Pick<MarketplaceDemand, "catalogVersionKey">,
+  line: Pick<MarketplaceDemand, "productId">,
 ) {
-  return buildDemandSignature(line.catalogVersionKey);
+  return buildDemandSignature(line.productId);
 }
 
 export function assertSupplyAvailable(

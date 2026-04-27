@@ -10,11 +10,11 @@ export function buildMarketplaceOfferProjectionHandlers(
         offerId: string;
         buyerAccountId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
+        productId: string;
         itemTitle: string;
         itemSubtitle: string | null;
-        versionSelection: unknown;
-        versionSummary: string | null;
+        selectedOptions: unknown;
+        productSummary: string | null;
         priceAmount: string;
         quantityRequested: number;
       };
@@ -23,12 +23,12 @@ export function buildMarketplaceOfferProjectionHandlers(
         `INSERT INTO marketplace_offer_pages (
           offer_id,
           buyer_account_id,
-          catalog_item_id,
-          catalog_version_key,
+          catalog_catalog_item_id,
+          product_id,
           item_title,
           item_subtitle,
-          version_selection,
-          version_summary,
+          selected_options,
+          product_summary,
           price_amount,
           quantity_requested,
           status,
@@ -41,12 +41,12 @@ export function buildMarketplaceOfferProjectionHandlers(
         )
         ON CONFLICT (offer_id) DO UPDATE SET
           buyer_account_id = EXCLUDED.buyer_account_id,
-          catalog_item_id = EXCLUDED.catalog_item_id,
-          catalog_version_key = EXCLUDED.catalog_version_key,
+          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+          product_id = EXCLUDED.product_id,
           item_title = EXCLUDED.item_title,
           item_subtitle = EXCLUDED.item_subtitle,
-          version_selection = EXCLUDED.version_selection,
-          version_summary = EXCLUDED.version_summary,
+          selected_options = EXCLUDED.selected_options,
+          product_summary = EXCLUDED.product_summary,
           price_amount = EXCLUDED.price_amount,
           quantity_requested = EXCLUDED.quantity_requested,
           status = EXCLUDED.status,
@@ -57,11 +57,11 @@ export function buildMarketplaceOfferProjectionHandlers(
           data.offerId,
           data.buyerAccountId,
           data.catalogItemId,
-          data.catalogVersionKey,
+          data.productId,
           data.itemTitle,
           data.itemSubtitle,
-          JSON.stringify(Array.isArray(data.versionSelection) ? data.versionSelection : []),
-          data.versionSummary,
+          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+          data.productSummary,
           data.priceAmount,
           data.quantityRequested,
           event.timing.recordedAt,

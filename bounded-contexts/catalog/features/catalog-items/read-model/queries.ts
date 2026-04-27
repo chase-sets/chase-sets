@@ -7,7 +7,7 @@ import {
 } from "../../../support/projection-support/list-query";
 
 export type CatalogItemListRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
@@ -18,7 +18,7 @@ export type CatalogItemListRow = Readonly<{
 }>;
 
 export type CatalogItemDetailRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -66,7 +66,7 @@ export async function listCatalogItems(
 
 export async function getCatalogItemDetail(db: PgQueryable, itemId: string) {
   const result = await db.query<CatalogItemDetailRow>(
-    `SELECT * FROM catalog_admin_catalog_item_detail_pages WHERE item_id = $1`,
+    `SELECT * FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`,
     [itemId],
   );
 

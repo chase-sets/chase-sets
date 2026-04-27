@@ -15,9 +15,9 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       };
 
       await db.query(
-        `INSERT INTO catalog_items (item_id, title, subtitle, description, status, updated_at)
+        `INSERT INTO catalog_items (catalog_item_id, title, subtitle, description, status, updated_at)
          VALUES ($1, $2, $3, $4, 'draft', $5)
-         ON CONFLICT (item_id) DO UPDATE SET title = $2, subtitle = $3, description = $4, updated_at = $5`,
+         ON CONFLICT (catalog_item_id) DO UPDATE SET title = $2, subtitle = $3, description = $4, updated_at = $5`,
         [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
       );
     },
@@ -27,7 +27,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const { blueprintId } = event.data as { blueprintId: string };
 
       await db.query(
-        `UPDATE catalog_items SET blueprint_id = $2, updated_at = $3 WHERE item_id = $1`,
+        `UPDATE catalog_items SET blueprint_id = $2, updated_at = $3 WHERE catalog_item_id = $1`,
         [itemId, blueprintId, event.timing.recordedAt],
       );
     },
@@ -44,7 +44,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
            WHERE fv->>'fieldId' != $2
          ) || $3::jsonb,
          updated_at = $4
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, fieldId, JSON.stringify([{ fieldId, value }]), event.timing.recordedAt],
       );
     },
@@ -60,7 +60,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
            FROM jsonb_array_elements(field_values) AS fv
            WHERE fv->>'fieldId' != $2
          ), updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, fieldId, event.timing.recordedAt],
       );
     },
@@ -72,7 +72,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       await db.query(
         `UPDATE catalog_items
          SET category_ids = category_ids || $2::jsonb, updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
       );
     },
@@ -88,7 +88,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
            FROM jsonb_array_elements(category_ids) AS cid
            WHERE cid #>> '{}' != $2
          ), updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, categoryId, event.timing.recordedAt],
       );
     },
@@ -97,7 +97,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
       await db.query(
-        `UPDATE catalog_items SET status = 'active', updated_at = $2 WHERE item_id = $1`,
+        `UPDATE catalog_items SET status = 'active', updated_at = $2 WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -107,7 +107,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const { title, subtitle, description } = event.data as { title: string; subtitle: string | null; description: string };
 
       await db.query(
-        `UPDATE catalog_items SET title = $2, subtitle = $3, description = $4, updated_at = $5 WHERE item_id = $1`,
+        `UPDATE catalog_items SET title = $2, subtitle = $3, description = $4, updated_at = $5 WHERE catalog_item_id = $1`,
         [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
       );
     },
@@ -117,7 +117,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const { tags } = event.data as { tags: string[] };
 
       await db.query(
-        `UPDATE catalog_items SET tags = $2, updated_at = $3 WHERE item_id = $1`,
+        `UPDATE catalog_items SET tags = $2, updated_at = $3 WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify(tags), event.timing.recordedAt],
       );
     },
@@ -127,7 +127,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const { imageUrls } = event.data as { imageUrls: string[] };
 
       await db.query(
-        `UPDATE catalog_items SET image_urls = $2, updated_at = $3 WHERE item_id = $1`,
+        `UPDATE catalog_items SET image_urls = $2, updated_at = $3 WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
       );
     },
@@ -136,7 +136,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
       await db.query(
-        `UPDATE catalog_items SET status = 'retired', updated_at = $2 WHERE item_id = $1`,
+        `UPDATE catalog_items SET status = 'retired', updated_at = $2 WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -145,7 +145,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
       await db.query(
-        `UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE item_id = $1`,
+        `UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },

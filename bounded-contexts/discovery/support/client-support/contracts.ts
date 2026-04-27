@@ -1,5 +1,5 @@
 export interface DiscoverySearchItem {
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -21,7 +21,7 @@ export interface DiscoverySearchResponse {
 
 export interface VersionApplicabilityClause {
   dimensionId: string;
-  choiceIds: string[];
+  optionIds: string[];
 }
 
 export interface VersionDimension {
@@ -29,8 +29,8 @@ export interface VersionDimension {
   dimensionName: string;
   required: boolean;
   appliesWhen: VersionApplicabilityClause[];
-  allowedChoices: Array<{
-    choiceId: string;
+  allowedOptions: Array<{
+    optionId: string;
     code: string;
     labels?: Array<{ locale: string; value: string }>;
   }>;
@@ -53,7 +53,7 @@ export interface CategoryRef {
 }
 
 export interface DiscoveryItemDetail {
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -64,7 +64,7 @@ export interface DiscoveryItemDetail {
   categories: CategoryRef[];
   tags: string[];
   image_urls: string[];
-  version_schema: VersionSchema | null;
+  product_schema: VersionSchema | null;
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];
   updated_at: string;
@@ -80,12 +80,12 @@ export interface DiscoveryMarketListing {
   listing_id: string;
   account_id: string;
   inventory_record_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string | null;
   item_subtitle: string | null;
-  version_selection: readonly { dimensionId: string; choiceId: string }[];
-  version_summary: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;

@@ -1,15 +1,15 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { VersionSelectionEntry } from "../../../support/runtime-support/common";
+import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 
 export type OrderingCartLineRow = Readonly<{
   buyer_account_id: string;
   line_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_selection: readonly VersionSelectionEntry[];
-  version_summary: string | null;
+  selected_options: readonly VersionSelectedOptionEntry[];
+  product_summary: string | null;
   quantity: number;
   created_at: string;
   updated_at: string;
@@ -18,12 +18,12 @@ export type OrderingCartLineRow = Readonly<{
 type CartLinePageRow = Readonly<{
   buyer_account_id: string;
   line_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_selection: unknown;
-  version_summary: string | null;
+  selected_options: unknown;
+  product_summary: string | null;
   quantity: number;
   created_at: string;
   updated_at: string;
@@ -32,8 +32,8 @@ type CartLinePageRow = Readonly<{
 function mapCartLineRow(row: CartLinePageRow): OrderingCartLineRow {
   return {
     ...row,
-    version_selection: Array.isArray(row.version_selection)
-      ? (row.version_selection as VersionSelectionEntry[])
+    selected_options: Array.isArray(row.selected_options)
+      ? (row.selected_options as VersionSelectedOptionEntry[])
       : [],
   };
 }
@@ -46,12 +46,12 @@ export async function listCartLines(
     `SELECT
        buyer_account_id,
        line_id,
-       catalog_item_id,
-       catalog_version_key,
+       catalog_catalog_item_id,
+       product_id,
        item_title,
        item_subtitle,
-       version_selection,
-       version_summary,
+       selected_options,
+       product_summary,
        quantity,
        created_at,
        updated_at

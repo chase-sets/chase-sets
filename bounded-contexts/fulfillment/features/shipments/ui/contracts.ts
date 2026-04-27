@@ -30,11 +30,11 @@ export interface FulfillmentShipmentListItem {
 export interface FulfillmentShipmentLine {
   line_id: string;
   order_line_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_summary: string | null;
+  product_summary: string | null;
   quantity: number;
 }
 

@@ -1,16 +1,16 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { VersionSelectionEntry } from "../../../support/runtime-support/common";
+import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 
 export type OrderingOrderLineRow = Readonly<{
   line_id: string;
   listing_id: string;
   inventory_record_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_selection: readonly VersionSelectionEntry[];
-  version_summary: string | null;
+  selected_options: readonly VersionSelectedOptionEntry[];
+  product_summary: string | null;
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
@@ -96,12 +96,12 @@ type OrderLinePageRow = Readonly<{
   line_id: string;
   listing_id: string;
   inventory_record_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_selection: unknown;
-  version_summary: string | null;
+  selected_options: unknown;
+  product_summary: string | null;
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
@@ -155,8 +155,8 @@ const baseOrderSelect = `
 function mapOrderLine(row: OrderLinePageRow): OrderingOrderLineRow {
   return {
     ...row,
-    version_selection: Array.isArray(row.version_selection)
-      ? (row.version_selection as VersionSelectionEntry[])
+    selected_options: Array.isArray(row.selected_options)
+      ? (row.selected_options as VersionSelectedOptionEntry[])
       : [],
   };
 }
@@ -212,12 +212,12 @@ export async function getBuyerOrder(
          line_id,
          listing_id,
          inventory_record_id,
-         catalog_item_id,
-         catalog_version_key,
+         catalog_catalog_item_id,
+         product_id,
          item_title,
          item_subtitle,
-         version_selection,
-         version_summary,
+         selected_options,
+         product_summary,
          unit_price_amount::text AS unit_price_amount,
          quantity,
          line_total_amount::text AS line_total_amount
@@ -300,12 +300,12 @@ export async function getSellerOrder(
          line_id,
          listing_id,
          inventory_record_id,
-         catalog_item_id,
-         catalog_version_key,
+         catalog_catalog_item_id,
+         product_id,
          item_title,
          item_subtitle,
-         version_selection,
-         version_summary,
+         selected_options,
+         product_summary,
          unit_price_amount::text AS unit_price_amount,
          quantity,
          line_total_amount::text AS line_total_amount

@@ -106,10 +106,10 @@ export function buildFulfillmentOrderProjectionHandlers(
         lines: Array<{
           lineId: string;
           catalogItemId: string;
-          catalogVersionKey: string;
+          productId: string;
           itemTitle: string;
           itemSubtitle: string | null;
-          versionSummary: string | null;
+          productSummary: string | null;
           quantity: number;
         }>;
       };
@@ -153,30 +153,30 @@ export function buildFulfillmentOrderProjectionHandlers(
              order_id,
              line_id,
              line_index,
-             catalog_item_id,
-             catalog_version_key,
+             catalog_catalog_item_id,
+             product_id,
              item_title,
              item_subtitle,
-             version_summary,
+             product_summary,
              quantity
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            ON CONFLICT (order_id, line_id) DO UPDATE SET
              line_index = EXCLUDED.line_index,
-             catalog_item_id = EXCLUDED.catalog_item_id,
-             catalog_version_key = EXCLUDED.catalog_version_key,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
              item_title = EXCLUDED.item_title,
              item_subtitle = EXCLUDED.item_subtitle,
-             version_summary = EXCLUDED.version_summary,
+             product_summary = EXCLUDED.product_summary,
              quantity = EXCLUDED.quantity`,
           [
             data.orderId,
             line.lineId,
             index,
             line.catalogItemId,
-            line.catalogVersionKey,
+            line.productId,
             line.itemTitle,
             line.itemSubtitle,
-            line.versionSummary,
+            line.productSummary,
             line.quantity,
           ],
         );

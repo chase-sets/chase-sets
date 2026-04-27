@@ -72,8 +72,8 @@ export function CatalogItemListPage({ initialData }: { initialData?: Parameters<
         loading={loading}
         error={error}
         columns={columns}
-        getRowId={(row) => row.item_id}
-        getHref={(row) => `/catalog-items/${row.item_id}`}
+        getRowId={(row) => row.catalog_item_id}
+        getHref={(row) => `/catalog-items/${row.catalog_item_id}`}
         search={search}
         onSearchChange={(v) => { setSearch(v); setPage(0); }}
         statusFilter={statusFilter}

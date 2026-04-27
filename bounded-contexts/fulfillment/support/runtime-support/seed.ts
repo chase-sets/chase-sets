@@ -13,11 +13,11 @@ type OrderSnapshot = Readonly<{
   shipping_option: string;
   lines: ReadonlyArray<{
     line_id: string;
-    catalog_item_id: string;
-    catalog_version_key: string;
+    catalog_catalog_item_id: string;
+    product_id: string;
     item_title: string;
     item_subtitle: string | null;
-    version_summary: string | null;
+    product_summary: string | null;
     quantity: number;
   }>;
 }>;
@@ -79,11 +79,11 @@ async function loadReferenceOrder(pool: PgTransactionalPool): Promise<OrderSnaps
   const linesResult = await pool.query<OrderSnapshot["lines"][number]>(
     `SELECT
        line_id,
-       catalog_item_id,
-       catalog_version_key,
+       catalog_catalog_item_id,
+       product_id,
        item_title,
        item_subtitle,
-       version_summary,
+       product_summary,
        quantity
      FROM fulfillment_order_source_lines
      WHERE order_id = $1
@@ -137,11 +137,11 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
         lines: order.lines.map((line, index) => ({
           lineId: `spl_seed_${shipmentId}_${index}` as never,
           orderLineId: line.line_id,
-          catalogItemId: line.catalog_item_id,
-          catalogVersionKey: line.catalog_version_key,
+          catalogItemId: line.catalog_catalog_item_id,
+          productId: line.product_id,
           itemTitle: line.item_title,
           itemSubtitle: line.item_subtitle,
-          versionSummary: line.version_summary,
+          productSummary: line.product_summary,
           quantity: line.quantity,
         })),
         createdAt,

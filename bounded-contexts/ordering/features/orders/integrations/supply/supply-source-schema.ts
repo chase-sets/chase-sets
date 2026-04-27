@@ -3,12 +3,12 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   listing_id text PRIMARY KEY,
   seller_account_id text NOT NULL,
   inventory_record_id text NOT NULL,
-  catalog_item_id text NOT NULL,
-  catalog_version_key text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
   item_title text NULL,
   item_subtitle text NULL,
-  version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
-  version_summary text NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_summary text NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount numeric(12, 2) NOT NULL,
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
 );
 
 CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_lookup_idx
-  ON ordering_market_listing_inputs (catalog_version_key, status, price_amount, updated_at);
+  ON ordering_market_listing_inputs (product_id, status, price_amount, updated_at);
 
 CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_record_idx
   ON ordering_market_listing_inputs (inventory_record_id, status, updated_at);
@@ -26,15 +26,15 @@ CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_record_idx
 CREATE TABLE IF NOT EXISTS ordering_inventory_record_inputs (
   record_id text PRIMARY KEY,
   seller_account_id text NOT NULL,
-  catalog_item_id text NOT NULL,
-  catalog_version_key text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
 );
 
 CREATE INDEX IF NOT EXISTS ordering_inventory_record_inputs_lookup_idx
-  ON ordering_inventory_record_inputs (seller_account_id, catalog_item_id, catalog_version_key);
+  ON ordering_inventory_record_inputs (seller_account_id, catalog_catalog_item_id, product_id);
 
 CREATE TABLE IF NOT EXISTS ordering_inventory_hold_inputs (
   hold_id text PRIMARY KEY,
@@ -54,12 +54,12 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
   seller_account_id text NOT NULL,
-  catalog_item_id text NOT NULL,
-  catalog_version_key text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
   item_title text NOT NULL,
   item_subtitle text NULL,
-  version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
-  version_summary text NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_summary text NULL,
   price_amount numeric(12, 2) NOT NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   accepted_at timestamptz NOT NULL,

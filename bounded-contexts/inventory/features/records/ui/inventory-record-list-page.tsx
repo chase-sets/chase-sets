@@ -13,10 +13,10 @@ import {
 } from "@chase-sets/design-system";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import {
-  getChoiceLabel,
+  getOptionLabel,
   isDimensionActive,
-  normalizeSelectionsForSchema,
-  type InventoryVersionSchema,
+  normalizeSelectedOptionssForSchema,
+  type InventoryProductSchema,
 } from "../integrations/catalog/versioning";
 import type { InventoryStorageLocation } from "../../storage-locations/ui/contracts";
 import type { InventoryRecordListItem } from "./contracts";
@@ -24,19 +24,19 @@ import type { InventoryRecordListItem } from "./contracts";
 const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
 
 function displayItemLabel(record: InventoryRecordListItem) {
-  return record.item_title ?? record.catalog_item_id;
+  return record.item_title ?? record.catalog_catalog_item_id;
 }
 
 function displayCost(record: InventoryRecordListItem) {
   return record.acquisition_cost_amount ? `$${record.acquisition_cost_amount}` : "Not set";
 }
 
-function getOrderedDimensions(schema: InventoryVersionSchema) {
+function getOrderedDimensions(schema: InventoryProductSchema) {
   return schema.canonicalDimensionOrder
     .map((entry) =>
       schema.dimensions.find((dimension) => dimension.dimensionId === entry.dimensionId),
     )
-    .filter((dimension): dimension is InventoryVersionSchema["dimensions"][number] => dimension !== undefined);
+    .filter((dimension): dimension is InventoryProductSchema["dimensions"][number] => dimension !== undefined);
 }
 
 export function InventoryRecordListPage({
@@ -54,7 +54,7 @@ export function InventoryRecordListPage({
   const [catalogItem, setCatalogItem] = useState<InventoryCatalogItemSnapshot | null>(null);
   const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
   const [catalogLookupPending, setCatalogLookupPending] = useState(false);
-  const [versionSelections, setVersionSelections] = useState<Record<string, string>>({});
+  const [selectedOptionss, setVersionSelections] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const trimmedCatalogItemId = catalogItemId.trim();
@@ -90,8 +90,8 @@ export function InventoryRecordListPage({
         setCatalogItem(item);
         setCatalogLookupError(null);
         setVersionSelections(
-          item.version_schema
-            ? normalizeSelectionsForSchema(item.version_schema, {})
+          item.product_schema
+            ? normalizeSelectedOptionssForSchema(item.product_schema, {})
             : {},
         );
       })
@@ -116,21 +116,21 @@ export function InventoryRecordListPage({
   }, [catalogItemApiBaseUrl, catalogItemId]);
 
   const serializedVersionSelection =
-    catalogItem?.version_schema
+    catalogItem?.product_schema
       ? JSON.stringify(
-          getOrderedDimensions(catalogItem.version_schema)
+          getOrderedDimensions(catalogItem.product_schema)
             .map((dimension) => {
-              const choiceId = versionSelections[dimension.dimensionId];
-              if (!choiceId) {
+              const optionId = selectedOptionss[dimension.dimensionId];
+              if (!optionId) {
                 return null;
               }
 
               return {
                 dimensionId: dimension.dimensionId,
-                choiceId,
+                optionId,
               };
             })
-            .filter((entry): entry is { dimensionId: string; choiceId: string } => entry !== null),
+            .filter((entry): entry is { dimensionId: string; optionId: string } => entry !== null),
         )
       : "[]";
 
@@ -165,9 +165,9 @@ export function InventoryRecordListPage({
                 placeholder="cat_..."
                 value={catalogItemId}
                 onChange={(event) => setCatalogItemId(event.target.value)}
-                description="Enter a catalog item ID to load version choices."
+                description="Enter a catalog item ID to load product options."
               />
-              <input type="hidden" name="versionSelection" value={serializedVersionSelection} />
+              <input type="hidden" name="selectedOptions" value={serializedVersionSelection} />
               {catalogLookupPending ? (
                 <Text size="sm" tone="secondary">
                   Loading catalog item...
@@ -182,10 +182,10 @@ export function InventoryRecordListPage({
                         {catalogItem.subtitle}
                       </Text>
                     ) : null}
-                    {catalogItem.version_schema &&
-                    catalogItem.version_schema.dimensions.length > 0 ? (
-                      getOrderedDimensions(catalogItem.version_schema).map((dimension) => {
-                        const active = isDimensionActive(dimension, versionSelections);
+                    {catalogItem.product_schema &&
+                    catalogItem.product_schema.dimensions.length > 0 ? (
+                      getOrderedDimensions(catalogItem.product_schema).map((dimension) => {
+                        const active = isDimensionActive(dimension, selectedOptionss);
                         if (!active) {
                           return null;
                         }
@@ -195,13 +195,13 @@ export function InventoryRecordListPage({
                             <Stack gap={1}>
                               <Text weight="semibold">{dimension.dimensionName}</Text>
                               <select
-                                name={`versionSelection:${dimension.dimensionId}`}
+                                name={`selectedOptions:${dimension.dimensionId}`}
                                 className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
-                                value={versionSelections[dimension.dimensionId] ?? ""}
+                                value={selectedOptionss[dimension.dimensionId] ?? ""}
                                 onChange={(event) =>
                                   setVersionSelections((current) =>
-                                    normalizeSelectionsForSchema(
-                                      catalogItem.version_schema!,
+                                    normalizeSelectedOptionssForSchema(
+                                      catalogItem.product_schema!,
                                       {
                                         ...current,
                                         [dimension.dimensionId]: event.target.value,
@@ -210,9 +210,9 @@ export function InventoryRecordListPage({
                                   )
                                 }
                               >
-                                {dimension.allowedChoices.map((choice) => (
-                                  <option key={choice.choiceId} value={choice.choiceId}>
-                                    {getChoiceLabel(choice)}
+                                {dimension.allowedOptions.map((option) => (
+                                  <option key={option.optionId} value={option.optionId}>
+                                    {getOptionLabel(option)}
                                   </option>
                                 ))}
                               </select>
@@ -222,7 +222,7 @@ export function InventoryRecordListPage({
                       })
                     ) : (
                       <Text size="sm" tone="secondary">
-                        This catalog item does not require a version selection.
+                        This catalog item does not require product options.
                       </Text>
                     )}
                   </Stack>
@@ -290,9 +290,9 @@ export function InventoryRecordListPage({
                           {row.item_subtitle}
                         </Text>
                       ) : null}
-                      {row.version_summary ? (
+                      {row.product_summary ? (
                         <Text tone="secondary" size="sm">
-                          {row.version_summary}
+                          {row.product_summary}
                         </Text>
                       ) : null}
                     </Stack>

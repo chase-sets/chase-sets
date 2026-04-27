@@ -1,7 +1,7 @@
 export const pricingRecommendationSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_recommendation_pages (
   recommendation_id text PRIMARY KEY,
-  catalog_item_id text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
   seller_account_id text NOT NULL,
   market_price_amount numeric(12, 2) NOT NULL,
   market_currency text NOT NULL,
@@ -18,7 +18,7 @@ CREATE INDEX IF NOT EXISTS pricing_recommendation_pages_seller_idx
 CREATE OR REPLACE VIEW pricing_recommendation_feed AS
 SELECT
   recommendation.recommendation_id,
-  recommendation.catalog_item_id,
+  recommendation.catalog_catalog_item_id,
   recommendation.seller_account_id,
   catalog_input.title AS catalog_item_title,
   catalog_input.subtitle AS catalog_item_subtitle,
@@ -41,11 +41,11 @@ SELECT
   recommendation.updated_at
 FROM pricing_recommendation_pages AS recommendation
 LEFT JOIN pricing_catalog_item_inputs AS catalog_input
-  ON catalog_input.item_id = recommendation.catalog_item_id
+  ON catalog_input.catalog_item_id = recommendation.catalog_catalog_item_id
 LEFT JOIN (
   SELECT
     record_input.seller_account_id,
-    record_input.catalog_item_id,
+    record_input.catalog_catalog_item_id,
     SUM(record_input.total_quantity)::integer AS stock_on_hand_quantity,
     COALESCE(
       SUM(
@@ -59,37 +59,37 @@ LEFT JOIN (
   FROM pricing_inventory_record_inputs AS record_input
   LEFT JOIN pricing_inventory_hold_inputs AS hold_input
     ON hold_input.record_id = record_input.record_id
-  GROUP BY record_input.seller_account_id, record_input.catalog_item_id
+  GROUP BY record_input.seller_account_id, record_input.catalog_catalog_item_id
 ) AS stock_signal
   ON stock_signal.seller_account_id = recommendation.seller_account_id
- AND stock_signal.catalog_item_id = recommendation.catalog_item_id
+ AND stock_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
 LEFT JOIN (
   SELECT
-    catalog_item_id,
+    catalog_catalog_item_id,
     COUNT(*) FILTER (WHERE status = 'active')::integer AS active_listing_count,
     MIN(price_amount) FILTER (WHERE status = 'active') AS lowest_listing_price_amount,
     COUNT(*) FILTER (WHERE status = 'submitted')::integer AS active_offer_count,
     MAX(price_amount) FILTER (WHERE status = 'submitted') AS highest_offer_price_amount
   FROM (
     SELECT
-      catalog_item_id,
+      catalog_catalog_item_id,
       price_amount,
       status
     FROM pricing_market_listing_inputs
     UNION ALL
     SELECT
-      catalog_item_id,
+      catalog_catalog_item_id,
       price_amount,
       status
     FROM pricing_market_offer_inputs
   ) AS market_inputs
-  GROUP BY catalog_item_id
+  GROUP BY catalog_catalog_item_id
 ) AS market_signal
-  ON market_signal.catalog_item_id = recommendation.catalog_item_id
+  ON market_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
 LEFT JOIN (
   SELECT
     seller_account_id,
-    catalog_item_id,
+    catalog_catalog_item_id,
     COALESCE(
       SUM(
         CASE
@@ -100,14 +100,14 @@ LEFT JOIN (
       0
     )::integer AS committed_order_quantity
   FROM pricing_order_signal_lines
-  GROUP BY seller_account_id, catalog_item_id
+  GROUP BY seller_account_id, catalog_catalog_item_id
 ) AS order_signal
   ON order_signal.seller_account_id = recommendation.seller_account_id
- AND order_signal.catalog_item_id = recommendation.catalog_item_id
+ AND order_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
 LEFT JOIN (
   SELECT
     order_signal.seller_account_id,
-    fulfillment_input.catalog_item_id,
+    fulfillment_input.catalog_catalog_item_id,
     COALESCE(
       SUM(
         CASE
@@ -129,8 +129,8 @@ LEFT JOIN (
   FROM pricing_fulfillment_signal_lines AS fulfillment_input
   INNER JOIN pricing_order_signal_lines AS order_signal
     ON order_signal.order_id = fulfillment_input.order_id
-  GROUP BY order_signal.seller_account_id, fulfillment_input.catalog_item_id
+  GROUP BY order_signal.seller_account_id, fulfillment_input.catalog_catalog_item_id
 ) AS fulfillment_signal
   ON fulfillment_signal.seller_account_id = recommendation.seller_account_id
- AND fulfillment_signal.catalog_item_id = recommendation.catalog_item_id;
+ AND fulfillment_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id;
 `;

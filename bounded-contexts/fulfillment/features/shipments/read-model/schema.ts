@@ -38,11 +38,11 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_line_pages (
   line_id text NOT NULL,
   line_index integer NOT NULL,
   order_line_id text NOT NULL,
-  catalog_item_id text NOT NULL,
-  catalog_version_key text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
   item_title text NOT NULL,
   item_subtitle text NULL,
-  version_summary text NULL,
+  product_summary text NULL,
   quantity integer NOT NULL,
   PRIMARY KEY (shipment_id, line_id)
 );

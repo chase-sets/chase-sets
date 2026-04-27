@@ -171,7 +171,7 @@ export async function seedCatalogItems(
     const streamId = `catalog.item-${item.itemId}`;
 
     await sendSeedCommand(services.items.commandHandler, streamId, {
-      type: "CreateItem",
+      type: "CreateCatalogItem",
       itemId: item.itemId,
       title: item.title,
       subtitle: item.subtitle,
@@ -179,13 +179,13 @@ export async function seedCatalogItems(
     });
 
     await sendSeedCommand(services.items.commandHandler, streamId, {
-      type: "AssignBlueprintToItem",
+      type: "AssignBlueprintToCatalogItem",
       blueprintId: blueprints[item.blueprintKey],
     });
 
     for (const [fieldKey, value] of item.fieldValues) {
       await sendSeedCommand(services.items.commandHandler, streamId, {
-        type: "SetItemFieldValue",
+        type: "SetCatalogItemFieldValue",
         fieldId: fields[fieldKey],
         value,
       });
@@ -193,18 +193,18 @@ export async function seedCatalogItems(
 
     for (const categoryKey of item.categoryKeys) {
       await sendSeedCommand(services.items.commandHandler, streamId, {
-        type: "AssignItemToCategory",
+        type: "AssignCatalogItemToCategory",
         categoryId: categories[categoryKey],
       });
     }
 
     await sendSeedCommand(services.items.commandHandler, streamId, {
-      type: "SetItemTags",
+      type: "SetCatalogItemTags",
       tags: item.tags,
     });
 
     await sendSeedCommand(services.items.commandHandler, streamId, {
-      type: "PublishItem",
+      type: "PublishCatalogItem",
       blueprintIsActive: true,
       requiredFieldIds: requiredFieldIdsByBlueprint[item.blueprintKey],
     });

@@ -10,8 +10,8 @@ export function buildInventoryRecordProjectionHandlers(
         recordId,
         accountId,
         catalogItemId,
-        catalogVersionKey,
-        versionSelection,
+        productId,
+        selectedOptions,
         storageLocationId,
         totalQuantity,
         acquisitionCostAmount,
@@ -19,8 +19,8 @@ export function buildInventoryRecordProjectionHandlers(
         recordId: string;
         accountId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
-        versionSelection: unknown;
+        productId: string;
+        selectedOptions: unknown;
         storageLocationId: string;
         totalQuantity: number;
         acquisitionCostAmount: string | null;
@@ -30,9 +30,9 @@ export function buildInventoryRecordProjectionHandlers(
         `INSERT INTO inventory_records (
            record_id,
            account_id,
-           catalog_item_id,
-           catalog_version_key,
-           version_selection,
+           catalog_catalog_item_id,
+           product_id,
+           selected_options,
            storage_location_id,
            total_quantity,
            last_stream_version,
@@ -43,9 +43,9 @@ export function buildInventoryRecordProjectionHandlers(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
          ON CONFLICT (record_id) DO UPDATE
          SET account_id = $2,
-             catalog_item_id = $3,
-             catalog_version_key = $4,
-             version_selection = $5,
+             catalog_catalog_item_id = $3,
+             product_id = $4,
+             selected_options = $5,
              storage_location_id = $6,
              total_quantity = $7,
              last_stream_version = $8,
@@ -56,8 +56,8 @@ export function buildInventoryRecordProjectionHandlers(
           recordId,
           accountId,
           catalogItemId,
-          catalogVersionKey,
-          JSON.stringify(Array.isArray(versionSelection) ? versionSelection : []),
+          productId,
+          JSON.stringify(Array.isArray(selectedOptions) ? selectedOptions : []),
           storageLocationId,
           totalQuantity,
           event.streamVersion,

@@ -22,7 +22,7 @@ import {
   detachComponent,
   setBlueprintFields,
   setBlueprintDimensions,
-  setBlueprintVersionRules,
+  setBlueprintProductResolutionRules,
   publishBlueprint,
   deprecateBlueprint,
   archiveBlueprint,
@@ -32,8 +32,8 @@ function formatApplicability(
   clauses: Array<{
     dimensionName?: string;
     dimensionId: string;
-    choices?: { code: string }[];
-    choiceIds?: string[];
+    options?: { code: string }[];
+    optionIds?: string[];
   }>,
 ): string {
   if (clauses.length === 0) {
@@ -42,41 +42,41 @@ function formatApplicability(
 
   return clauses
     .map((clause) => {
-      const choices =
-        clause.choices && clause.choices.length > 0
-          ? clause.choices.map((choice) => choice.code).join(" | ")
-          : (clause.choiceIds ?? []).join(" | ");
-      return `${clause.dimensionName ?? clause.dimensionId} = ${choices}`;
+      const options =
+        clause.options && clause.options.length > 0
+          ? clause.options.map((option) => option.code).join(" | ")
+          : (clause.optionIds ?? []).join(" | ");
+      return `${clause.dimensionName ?? clause.dimensionId} = ${options}`;
     })
     .join(", ");
 }
 
 function serializeApplicabilityClauses(
-  clauses: Array<{ dimensionId: string; choiceIds?: string[] }>,
+  clauses: Array<{ dimensionId: string; optionIds?: string[] }>,
 ): string {
   return clauses
-    .map((clause) => `${clause.dimensionId}=${(clause.choiceIds ?? []).join("|")}`)
+    .map((clause) => `${clause.dimensionId}=${(clause.optionIds ?? []).join("|")}`)
     .join(", ");
 }
 
 function parseApplicabilityClauses(
   value: string,
-): Array<{ dimensionId: string; choiceIds: string[] }> {
+): Array<{ dimensionId: string; optionIds: string[] }> {
   return value
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => {
-      const [dimensionId, choiceIds = ""] = entry.split("=");
+      const [dimensionId, optionIds = ""] = entry.split("=");
       return {
         dimensionId: dimensionId.trim(),
-        choiceIds: choiceIds
+        optionIds: optionIds
           .split("|")
-          .map((choiceId) => choiceId.trim())
+          .map((optionId) => optionId.trim())
           .filter(Boolean),
       };
     })
-    .filter((clause) => clause.dimensionId.length > 0 && clause.choiceIds.length > 0);
+    .filter((clause) => clause.dimensionId.length > 0 && clause.optionIds.length > 0);
 }
 
 function getTransitions(status: string): Transition[] {
@@ -102,12 +102,12 @@ interface DimensionRule {
   dimensionId: string;
   dimensionName: string;
   required: boolean;
-  allowedChoices: { choiceId: string; code: string }[];
+  allowedOptions: { optionId: string; code: string }[];
   appliesWhen: Array<{
     dimensionId: string;
     dimensionName: string;
-    choiceIds: string[];
-    choices: { choiceId: string; code: string }[];
+    optionIds: string[];
+    options: { optionId: string; code: string }[];
   }>;
 }
 
@@ -119,7 +119,7 @@ interface EditFieldRule {
 interface EditDimensionRule {
   dimensionId: string;
   required: boolean;
-  allowedChoiceIds: string;
+  allowedOptionIds: string;
   appliesWhen: string;
 }
 
@@ -128,7 +128,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
   const { addToast } = useToasts();
   const [showAttachComponent, setShowAttachComponent] = useState(false);
   const [componentId, setComponentId] = useState("");
-  const [showSetVersionRules, setShowSetVersionRules] = useState(false);
+  const [showSetProductResolutionRules, setShowSetProductResolutionRules] = useState(false);
   const [canonicalOrder, setCanonicalOrder] = useState("");
   const [editing, setEditing] = useState(false);
   const [editKey, setEditKey] = useState("");
@@ -184,11 +184,11 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
     refresh();
   }
 
-  async function handleSetVersionRules() {
+  async function handleSetProductResolutionRules() {
     const order = canonicalOrder.split(",").map((s) => s.trim()).filter(Boolean);
-    await setBlueprintVersionRules(id, order);
-    addToast("Version rules set", "success");
-    setShowSetVersionRules(false);
+    await setBlueprintProductResolutionRules(id, order);
+    addToast("Product resolution rules set", "success");
+    setShowSetProductResolutionRules(false);
     setCanonicalOrder("");
     refresh();
   }
@@ -216,10 +216,10 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
         ? dimensionRules.map((r) => ({
             dimensionId: r.dimensionId,
             required: r.required,
-            allowedChoiceIds: r.allowedChoices.map((choice) => choice.choiceId).join(", "),
+            allowedOptionIds: r.allowedOptions.map((option) => option.optionId).join(", "),
             appliesWhen: serializeApplicabilityClauses(r.appliesWhen),
           }))
-        : [{ dimensionId: "", required: false, allowedChoiceIds: "", appliesWhen: "" }],
+        : [{ dimensionId: "", required: false, allowedOptionIds: "", appliesWhen: "" }],
     );
     setShowSetDimRules(true);
   }
@@ -230,7 +230,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
       .map((r) => ({
         dimensionId: r.dimensionId,
         required: r.required,
-        allowedChoiceIds: r.allowedChoiceIds.split(",").map((s) => s.trim()).filter(Boolean),
+        allowedOptionIds: r.allowedOptionIds.split(",").map((s) => s.trim()).filter(Boolean),
         appliesWhen: parseApplicabilityClauses(r.appliesWhen),
       }));
     await setBlueprintDimensions(id, rules);
@@ -344,9 +344,9 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                     { key: "dimensionId", header: "Dimension", cell: (row) => row.dimensionName },
                     { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
                     {
-                      key: "allowedChoices",
-                      header: "Allowed Choices",
-                      cell: (row) => row.allowedChoices.length > 0 ? row.allowedChoices.map((choice) => choice.code).join(", ") : "All",
+                      key: "allowedOptions",
+                      header: "Allowed Options",
+                      cell: (row) => row.allowedOptions.length > 0 ? row.allowedOptions.map((option) => option.code).join(", ") : "All",
                     },
                     {
                       key: "appliesWhen",
@@ -360,7 +360,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
               </Stack>
             </PageSection>
 
-            <PageSection title="Version Rules">
+            <PageSection title="Product Resolution Rules">
               <Stack gap={3}>
                 <KeyValueList
                   items={[
@@ -371,9 +371,9 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                   <Inline>
                     <Button size="sm" onClick={() => {
                       setCanonicalOrder(canonicalDimensionOrder.map((dimension) => dimension.dimensionId).join(", "));
-                      setShowSetVersionRules(true);
+                      setShowSetProductResolutionRules(true);
                     }}>
-                      Set Version Rules
+                      Set Product Resolution Rules
                     </Button>
                   </Inline>
                 )}
@@ -406,11 +406,11 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
       </Dialog>
 
       <Dialog
-        open={showSetVersionRules}
-        onOpenChange={setShowSetVersionRules}
-        title="Set Version Rules"
+        open={showSetProductResolutionRules}
+        onOpenChange={setShowSetProductResolutionRules}
+        title="Set Product Resolution Rules"
         description="Enter dimension IDs separated by commas in the canonical order."
-        footer={<Button onClick={handleSetVersionRules}>Save</Button>}
+        footer={<Button onClick={handleSetProductResolutionRules}>Save</Button>}
       >
         <TextInput
           label="Canonical Dimension Order"
@@ -486,14 +486,14 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                 </Button>
               </Inline>
               <TextInput
-                label="Allowed Choice IDs (comma-separated, leave empty for all)"
-                value={rule.allowedChoiceIds}
+                label="Allowed Option IDs (comma-separated, leave empty for all)"
+                value={rule.allowedOptionIds}
                 onChange={(e) =>
-                  setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, allowedChoiceIds: e.target.value } : r)))
+                  setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, allowedOptionIds: e.target.value } : r)))
                 }
               />
               <TextInput
-                label="Applies When (dimensionId=choiceId|choiceId, comma-separated)"
+                label="Applies When (dimensionId=optionId|optionId, comma-separated)"
                 value={rule.appliesWhen}
                 onChange={(e) =>
                   setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, appliesWhen: e.target.value } : r)))
@@ -502,7 +502,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
             </Stack>
           ))}
           <Inline>
-            <Button size="sm" tone="secondary" onClick={() => setEditDimRules((prev) => [...prev, { dimensionId: "", required: false, allowedChoiceIds: "", appliesWhen: "" }])}>
+            <Button size="sm" tone="secondary" onClick={() => setEditDimRules((prev) => [...prev, { dimensionId: "", required: false, allowedOptionIds: "", appliesWhen: "" }])}>
               Add Rule
             </Button>
           </Inline>
@@ -511,8 +511,5 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
-
-
-
 
 

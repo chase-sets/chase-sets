@@ -160,14 +160,14 @@ describeWithDatabase("inventory api", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         catalogItemId: catalogSeedIds.items.charizardBaseSet,
-        versionSelection: [
+        selectedOptions: [
           {
             dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-            choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
           },
           {
             dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-            choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
           },
         ],
         storageLocationId: locationBody.id,
@@ -198,7 +198,7 @@ describeWithDatabase("inventory api", () => {
     const listBody = await listResponse.json();
     expect(listBody.items).toHaveLength(1);
     expect(listBody.items[0]).toMatchObject({
-      version_summary: "Form: Raw | Condition: Near Mint",
+      product_summary: "Form: Raw | Condition: Near Mint",
       total_quantity: 10,
       held_quantity: 3,
       available_quantity: 7,
@@ -250,14 +250,14 @@ describeWithDatabase("inventory api", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
-        versionSelection: [
+        selectedOptions: [
           {
             dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-            choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
           },
           {
             dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-            choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.excellent,
           },
         ],
         storageLocationId: locationBody.id,
@@ -367,14 +367,14 @@ describeWithDatabase("inventory api", () => {
       {
         accountId: "acc_other" as never,
         catalogItemId: catalogSeedIds.items.charizardBaseSet,
-        versionSelection: [
+        selectedOptions: [
           {
             dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-            choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
           },
           {
             dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-            choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
           },
         ],
         storageLocationId: location.storageLocationId,
@@ -415,7 +415,7 @@ describeWithDatabase("inventory api", () => {
     expect(new Set(records.items.map((item) => item.account_id))).toEqual(
       new Set([demoIdentitySeedIds.accountId]),
     );
-    expect(new Set(records.items.map((item) => item.catalog_item_id))).toEqual(
+    expect(new Set(records.items.map((item) => item.catalog_catalog_item_id))).toEqual(
       new Set(Object.values(catalogSeedIds.items)),
     );
 
@@ -425,7 +425,7 @@ describeWithDatabase("inventory api", () => {
     );
     expect(charizardRecord).toMatchObject({
       record_id: inventorySeedIds.records.charizardBaseSetNearMint,
-      catalog_item_id: catalogSeedIds.items.charizardBaseSet,
+      catalog_catalog_item_id: catalogSeedIds.items.charizardBaseSet,
       item_title: "Charizard",
       item_subtitle: "Base Set 4/102 Holo Rare",
       held_quantity: 1,
@@ -446,7 +446,7 @@ describeWithDatabase("inventory api", () => {
     );
     expect(pikachuRecord).toMatchObject({
       record_id: inventorySeedIds.records.pikachuJungleLightlyPlayed,
-      catalog_item_id: catalogSeedIds.items.pikachuJungle,
+      catalog_catalog_item_id: catalogSeedIds.items.pikachuJungle,
       item_title: "Pikachu",
       item_subtitle: "Jungle 60/64 Common",
       held_quantity: 0,

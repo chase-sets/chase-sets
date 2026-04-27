@@ -15,7 +15,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "CreateItem",
+        type: "CreateCatalogItem",
         itemId,
         title: body.title,
         subtitle: body.subtitle,
@@ -35,7 +35,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "AssignBlueprintToItem",
+        type: "AssignBlueprintToCatalogItem",
         blueprintId: body.blueprintId as BlueprintId,
       },
       context,
@@ -52,7 +52,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "SetItemFieldValue",
+        type: "SetCatalogItemFieldValue",
         fieldId: c.req.param("fieldId") as FieldId,
         value: body.value,
       },
@@ -70,7 +70,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "ClearItemFieldValue",
+        type: "ClearCatalogItemFieldValue",
         fieldId: c.req.param("fieldId") as FieldId,
         requiredFieldIds: body.requiredFieldIds as FieldId[] | undefined,
       },
@@ -87,7 +87,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "AssignItemToCategory",
+        type: "AssignCatalogItemToCategory",
         categoryId: c.req.param("categoryId") as CategoryId,
       },
       context,
@@ -103,7 +103,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "RemoveItemFromCategory",
+        type: "RemoveCatalogItemFromCategory",
         categoryId: c.req.param("categoryId") as CategoryId,
       },
       context,
@@ -120,7 +120,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "PublishItem",
+        type: "PublishCatalogItem",
         blueprintIsActive: body.blueprintIsActive,
         requiredFieldIds: body.requiredFieldIds as FieldId[],
       },
@@ -138,7 +138,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "ReviseItemMetadata",
+        type: "ReviseCatalogItemMetadata",
         title: body.title,
         subtitle: body.subtitle,
         description: body.description,
@@ -157,7 +157,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "SetItemTags",
+        type: "SetCatalogItemTags",
         tags: body.tags,
       },
       context,
@@ -174,7 +174,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
-        type: "SetItemImageUrls",
+        type: "SetCatalogItemImageUrls",
         imageUrls: body.imageUrls,
       },
       context,
@@ -189,7 +189,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
 
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
-      command: { type: "RetireItem" },
+      command: { type: "RetireCatalogItem" },
       context,
     });
 
@@ -202,7 +202,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
 
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
-      command: { type: "ArchiveItem" },
+      command: { type: "ArchiveCatalogItem" },
       context,
     });
 

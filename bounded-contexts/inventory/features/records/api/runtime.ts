@@ -10,9 +10,9 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryCatalogItemServices } from "../integrations/catalog/runtime";
 import {
-  createInventoryCatalogVersionDescriptor,
-  parseVersionSelectionInput,
-  type InventoryVersionSelectionEntry,
+  createInventoryProductDescriptor,
+  parseSelectedOptionsInput,
+  type InventorySelectedOptionEntry,
 } from "../integrations/catalog/versioning";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
@@ -38,7 +38,7 @@ export type InventoryRecordServices = Readonly<{
     params: Readonly<{
       accountId: AccountId;
       catalogItemId: string;
-      versionSelection: readonly InventoryVersionSelectionEntry[];
+      selectedOptions: readonly InventorySelectedOptionEntry[];
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
@@ -109,10 +109,10 @@ export function createInventoryRecordRuntime(
         );
       }
 
-      const catalogVersion = createInventoryCatalogVersionDescriptor({
+      const catalogVersion = createInventoryProductDescriptor({
         catalogItemId: params.catalogItemId,
-        versionSchema: catalogItem.version_schema,
-        selection: parseVersionSelectionInput(params.versionSelection),
+        productSchema: catalogItem.product_schema,
+        selection: parseSelectedOptionsInput(params.selectedOptions),
       });
 
       const recordId = createId("inv") as InventoryRecordId;
@@ -123,8 +123,8 @@ export function createInventoryRecordRuntime(
           recordId,
           accountId: params.accountId,
           catalogItemId: params.catalogItemId,
-          catalogVersionKey: catalogVersion.catalogVersionKey,
-          versionSelection: catalogVersion.selection,
+          productId: catalogVersion.productId,
+          selectedOptions: catalogVersion.selection,
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,

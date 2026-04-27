@@ -5,12 +5,12 @@ import {
   initialDimensionState,
   type DimensionEvent,
 } from "./domain";
-import type { ChoiceId, DimensionId } from "../../../ids";
+import type { OptionId, DimensionId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
 
 const dimId = "dim_test" as DimensionId;
-const choiceA = "chc_a" as ChoiceId;
-const choiceB = "chc_b" as ChoiceId;
+const optionA = "chc_a" as OptionId;
+const optionB = "chc_b" as OptionId;
 
 function createdState() {
   return givenEvents(initialDimensionState, evolveDimension, [
@@ -21,7 +21,7 @@ function createdState() {
 function activeState() {
   return givenEvents(initialDimensionState, evolveDimension, [
     { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "" } },
-    { type: "catalog.dimension.choice-added", data: { choiceId: choiceA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+    { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
     { type: "catalog.dimension.activated", data: {} },
   ] as DimensionEvent[]);
 }
@@ -54,37 +54,37 @@ describe("Dimension aggregate", () => {
       expect(events[0].type).toBe("catalog.dimension.revised");
     });
 
-    it("adds a choice", () => {
+    it("adds an option", () => {
       const events = decide(decideDimension, createdState(), {
-        type: "AddChoice" as const,
-        choiceId: choiceA,
+        type: "AddOption" as const,
+        optionId: optionA,
         code: "red",
         labels: [{ locale: "en", value: "Red" }],
       });
 
-      expect(events[0].type).toBe("catalog.dimension.choice-added");
-      expect(events[0].data).toMatchObject({ choiceId: choiceA, code: "red" });
+      expect(events[0].type).toBe("catalog.dimension.option-added");
+      expect(events[0].data).toMatchObject({ optionId: optionA, code: "red" });
     });
 
-    it("rejects duplicate choice IDs", () => {
+    it("rejects duplicate option IDs", () => {
       const state = givenEvents(createdState(), evolveDimension, [
-        { type: "catalog.dimension.choice-added", data: { choiceId: choiceA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
       ] as DimensionEvent[]);
 
       expectDomainError(
-        () => decide(decideDimension, state, { type: "AddChoice" as const, choiceId: choiceA, code: "blue", labels: [] }),
-        "Choice already exists on this dimension.",
+        () => decide(decideDimension, state, { type: "AddOption" as const, optionId: optionA, code: "blue", labels: [] }),
+        "Option already exists on this dimension.",
       );
     });
 
-    it("rejects duplicate choice codes", () => {
+    it("rejects duplicate option codes", () => {
       const state = givenEvents(createdState(), evolveDimension, [
-        { type: "catalog.dimension.choice-added", data: { choiceId: choiceA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
       ] as DimensionEvent[]);
 
       expectDomainError(
-        () => decide(decideDimension, state, { type: "AddChoice" as const, choiceId: choiceB, code: "red", labels: [] }),
-        "Choice codes must be unique within a dimension.",
+        () => decide(decideDimension, state, { type: "AddOption" as const, optionId: optionB, code: "red", labels: [] }),
+        "Option codes must be unique within a dimension.",
       );
     });
 
@@ -136,15 +136,15 @@ describe("Dimension aggregate", () => {
       );
     });
 
-    it("reorders choices", () => {
+    it("reorders options", () => {
       const state = givenEvents(createdState(), evolveDimension, [
-        { type: "catalog.dimension.choice-added", data: { choiceId: choiceA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
-        { type: "catalog.dimension.choice-added", data: { choiceId: choiceB, code: "blue", labels: [], displayOrder: 1, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionB, code: "blue", labels: [], displayOrder: 1, numericValue: null, status: "active" } },
       ] as DimensionEvent[]);
 
-      const events = decide(decideDimension, state, { type: "ReorderChoices" as const, choiceIds: [choiceB, choiceA] });
+      const events = decide(decideDimension, state, { type: "ReorderOptions" as const, optionIds: [optionB, optionA] });
 
-      expect(events[0].type).toBe("catalog.dimension.choices-reordered");
+      expect(events[0].type).toBe("catalog.dimension.options-reordered");
     });
   });
 
@@ -170,15 +170,14 @@ describe("Dimension aggregate", () => {
       expect(state.status).toBe("active");
     });
 
-    it("evolves choice-added event", () => {
+    it("evolves option-added event", () => {
       const state = evolveDimension(createdState(), {
-        type: "catalog.dimension.choice-added",
-        data: { choiceId: choiceA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" },
+        type: "catalog.dimension.option-added",
+        data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" },
       } as DimensionEvent);
 
-      expect(state.choices).toHaveLength(1);
-      expect(state.choices[0].id).toBe(choiceA);
+      expect(state.options).toHaveLength(1);
+      expect(state.options[0].id).toBe(optionA);
     });
   });
 });
-

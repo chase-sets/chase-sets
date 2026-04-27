@@ -11,18 +11,18 @@ export type OrderStatus =
   | "cancelled";
 export type OrderSourceType = "cart-checkout" | "offer-acceptance";
 
-export type VersionSelectionEntry = Readonly<{
+export type VersionSelectedOptionEntry = Readonly<{
   dimensionId: string;
-  choiceId: string;
+  optionId: string;
 }>;
 
 export type OrderingVersionApplicabilityClause = Readonly<{
   dimensionId: string;
-  choiceIds: string[];
+  optionIds: string[];
 }>;
 
 export type OrderingVersionChoice = Readonly<{
-  choiceId: string;
+  optionId: string;
   code: string;
   labels?: Array<{ locale: string; value: string }>;
 }>;
@@ -32,7 +32,7 @@ export type OrderingVersionDimension = Readonly<{
   dimensionName: string;
   required: boolean;
   appliesWhen: OrderingVersionApplicabilityClause[];
-  allowedChoices: OrderingVersionChoice[];
+  allowedOptions: OrderingVersionChoice[];
 }>;
 
 export type OrderingVersionSchema = Readonly<{
@@ -40,9 +40,9 @@ export type OrderingVersionSchema = Readonly<{
   dimensions: OrderingVersionDimension[];
 }>;
 
-export type OrderingCatalogVersionDescriptor = Readonly<{
-  catalogVersionKey: string;
-  selection: VersionSelectionEntry[];
+export type OrderingProductDescriptor = Readonly<{
+  productId: string;
+  selection: VersionSelectedOptionEntry[];
 }>;
 
 export class OrderingDomainError extends Error {
@@ -109,29 +109,29 @@ export function numberToMoneyAmount(value: number) {
 }
 
 export function normalizeVersionSelection(
-  value: readonly VersionSelectionEntry[],
-): VersionSelectionEntry[] {
+  value: readonly VersionSelectedOptionEntry[],
+): VersionSelectedOptionEntry[] {
   const normalized = value
     .map((entry) => ({
       dimensionId: normalizeRequiredText(
         entry.dimensionId,
-        "Version selection must include a dimension.",
+        "Selected options must include a dimension.",
       ),
-      choiceId: normalizeRequiredText(
-        entry.choiceId,
-        "Version selection must include a choice.",
+      optionId: normalizeRequiredText(
+        entry.optionId,
+        "Selected options must include an option.",
       ),
     }))
     .sort((left, right) =>
       left.dimensionId.localeCompare(right.dimensionId) ||
-      left.choiceId.localeCompare(right.choiceId),
+      left.optionId.localeCompare(right.optionId),
     );
 
   const seen = new Set<string>();
   for (const entry of normalized) {
     assert(
       !seen.has(entry.dimensionId),
-      "Version selection cannot include duplicate dimensions.",
+      "Selected options cannot include duplicate dimensions.",
     );
     seen.add(entry.dimensionId);
   }
@@ -139,18 +139,18 @@ export function normalizeVersionSelection(
   return normalized;
 }
 
-export function buildDemandSignature(catalogVersionKey: string) {
+export function buildDemandSignature(productId: string) {
   return normalizeRequiredText(
-    String(catalogVersionKey),
-    "Catalog version key is required.",
+    String(productId),
+    "Product id is required.",
   );
 }
 
 function selectionEntriesToRecord(
-  selection: readonly VersionSelectionEntry[],
+  selection: readonly VersionSelectedOptionEntry[],
 ): Record<string, string> {
   return Object.fromEntries(
-    selection.map((entry) => [entry.dimensionId, entry.choiceId]),
+    selection.map((entry) => [entry.dimensionId, entry.optionId]),
   );
 }
 
@@ -159,25 +159,25 @@ function isDimensionActive(
   selections: Record<string, string>,
 ) {
   return dimension.appliesWhen.every((clause) => {
-    const selectedChoiceId = selections[clause.dimensionId];
+    const selectedOptionId = selections[clause.dimensionId];
     return (
-      selectedChoiceId !== undefined &&
-      clause.choiceIds.includes(selectedChoiceId)
+      selectedOptionId !== undefined &&
+      clause.optionIds.includes(selectedOptionId)
     );
   });
 }
 
-export function createOrderingCatalogVersionDescriptor(input: Readonly<{
+export function createOrderingProductDescriptor(input: Readonly<{
   catalogItemId: string;
-  versionSchema: OrderingVersionSchema | null;
-  selection: readonly VersionSelectionEntry[];
-}>): OrderingCatalogVersionDescriptor {
+  productSchema: OrderingVersionSchema | null;
+  selection: readonly VersionSelectedOptionEntry[];
+}>): OrderingProductDescriptor {
   const catalogItemId = normalizeRequiredText(
     input.catalogItemId,
     "Catalog item id is required.",
   );
   const selection = normalizeVersionSelection(input.selection);
-  const schema = input.versionSchema;
+  const schema = input.productSchema;
 
   if (!schema || schema.dimensions.length === 0) {
     assert(
@@ -185,7 +185,7 @@ export function createOrderingCatalogVersionDescriptor(input: Readonly<{
       "Selection is not allowed for this catalog item.",
     );
     return {
-      catalogVersionKey: `${catalogItemId}::`,
+      productId: `${catalogItemId}::`,
       selection: [],
     };
   }
@@ -200,17 +200,17 @@ export function createOrderingCatalogVersionDescriptor(input: Readonly<{
       (dimension): dimension is OrderingVersionDimension => dimension !== undefined,
     )) {
     const active = isDimensionActive(dimension, selections);
-    const selectedChoiceId = selections[dimension.dimensionId];
+    const selectedOptionId = selections[dimension.dimensionId];
 
     if (!active) {
       assert(
-        selectedChoiceId === undefined,
+        selectedOptionId === undefined,
         "Selection cannot include inactive dimensions.",
       );
       continue;
     }
 
-    if (selectedChoiceId === undefined) {
+    if (selectedOptionId === undefined) {
       assert(
         !dimension.required,
         `Selection must include ${dimension.dimensionName}.`,
@@ -219,8 +219,8 @@ export function createOrderingCatalogVersionDescriptor(input: Readonly<{
     }
 
     assert(
-      dimension.allowedChoices.some((choice) => choice.choiceId === selectedChoiceId),
-      `Selection must use an allowed choice for ${dimension.dimensionName}.`,
+      dimension.allowedOptions.some((option) => option.optionId === selectedOptionId),
+      `Selection must use an allowed option for ${dimension.dimensionName}.`,
     );
   }
 
@@ -232,22 +232,22 @@ export function createOrderingCatalogVersionDescriptor(input: Readonly<{
   );
 
   return {
-    catalogVersionKey: `${catalogItemId}::${schema.canonicalDimensionOrder
+    productId: `${catalogItemId}::${schema.canonicalDimensionOrder
       .map((entry) => `${entry.dimensionId}:${selections[entry.dimensionId] ?? "-"}`)
       .join("|")}`,
     selection: schema.canonicalDimensionOrder
       .map((entry) => {
-        const choiceId = selections[entry.dimensionId];
-        if (!choiceId) {
+        const optionId = selections[entry.dimensionId];
+        if (!optionId) {
           return null;
         }
 
         return {
           dimensionId: entry.dimensionId,
-          choiceId,
+          optionId,
         };
       })
-      .filter((entry): entry is VersionSelectionEntry => entry !== null),
+      .filter((entry): entry is VersionSelectedOptionEntry => entry !== null),
   };
 }
 
@@ -263,4 +263,3 @@ export function normalizeShippingOption(value: string): ShippingOption {
       throw new OrderingDomainError("Shipping option is not supported.");
   }
 }
-

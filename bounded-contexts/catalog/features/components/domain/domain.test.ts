@@ -5,7 +5,7 @@ import {
   initialComponentState,
   type ComponentEvent,
 } from "./domain";
-import type { ComponentId, DimensionId, FieldId, ChoiceId } from "../../../ids";
+import type { ComponentId, DimensionId, FieldId, OptionId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
 
 const compId = "cmp_test" as ComponentId;
@@ -92,14 +92,14 @@ describe("Component aggregate", () => {
         type: "AddDimensionRuleToComponent" as const,
         dimensionId: dimA,
         required: true,
-        appliesWhen: [{ dimensionId: "dim_b" as DimensionId, choiceIds: ["chc_b" as ChoiceId, "chc_a" as ChoiceId, "chc_b" as ChoiceId] }],
+        appliesWhen: [{ dimensionId: "dim_b" as DimensionId, optionIds: ["chc_b" as OptionId, "chc_a" as OptionId, "chc_b" as OptionId] }],
       });
 
       expect(events[0]).toMatchObject({
         type: "catalog.component.dimension-rule-added",
         data: {
           dimensionId: dimA,
-          appliesWhen: [{ dimensionId: "dim_b", choiceIds: ["chc_a", "chc_b"] }],
+          appliesWhen: [{ dimensionId: "dim_b", optionIds: ["chc_a", "chc_b"] }],
         },
       });
     });
@@ -110,7 +110,7 @@ describe("Component aggregate", () => {
           type: "AddDimensionRuleToComponent" as const,
           dimensionId: dimA,
           required: true,
-          appliesWhen: [{ dimensionId: dimA, choiceIds: ["chc_a" as ChoiceId] }],
+          appliesWhen: [{ dimensionId: dimA, optionIds: ["chc_a" as OptionId] }],
         }),
         "Dimension rules cannot depend on their own dimension.",
       );
@@ -122,7 +122,7 @@ describe("Component aggregate", () => {
         key: "base-v2",
         name: "Base V2",
         fieldRules: [{ fieldId: fieldA, required: true }],
-        dimensionRules: [{ dimensionId: dimA, required: true, allowedChoiceIds: [] as ChoiceId[], appliesWhen: [] }],
+        dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [] as OptionId[], appliesWhen: [] }],
       });
 
       expect(events[0].type).toBe("catalog.component.rules-configured");

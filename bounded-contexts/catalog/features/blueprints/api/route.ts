@@ -112,7 +112,7 @@ export function blueprintRoutes(services: BlueprintServices) {
     return c.json({ id: blueprintId, version: result.version, status: result.state.status });
   });
 
-  app.put("/:id/version-rules", async (c) => {
+  app.put("/:id/product-resolution-rules", async (c) => {
     const blueprintId = c.req.param("id");
     const body = await c.req.json();
     const context = c.get("context");
@@ -120,7 +120,7 @@ export function blueprintRoutes(services: BlueprintServices) {
     const result = await services.commandHandler({
       streamId: `catalog.blueprint-${blueprintId}`,
       command: {
-        type: "SetBlueprintVersionRules",
+        type: "SetBlueprintProductResolutionRules",
         canonicalDimensionOrder: body.canonicalDimensionOrder,
       },
       context,

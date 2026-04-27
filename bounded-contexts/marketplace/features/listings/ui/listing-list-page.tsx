@@ -41,9 +41,9 @@ function statusTone(status: string) {
 
 function inventoryLabel(record: MarketplaceListingInventoryRecordOption) {
   const segments = [
-    record.item_title ?? record.catalog_item_id,
+    record.item_title ?? record.catalog_catalog_item_id,
     record.item_subtitle,
-    record.version_summary,
+    record.product_summary,
     `${record.available_quantity} available`,
     record.storage_location_name,
   ].filter(Boolean);
@@ -196,15 +196,15 @@ export function MarketplaceListingListPage({
               header: "Listing",
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text weight="semibold">{row.item_title ?? row.catalog_item_id}</Text>
+                  <Text weight="semibold">{row.item_title ?? row.catalog_catalog_item_id}</Text>
                   {row.item_subtitle ? (
                     <Text tone="secondary" size="sm">
                       {row.item_subtitle}
                     </Text>
                   ) : null}
-                  {row.version_summary ? (
+                  {row.product_summary ? (
                     <Text tone="secondary" size="sm">
-                      {row.version_summary}
+                      {row.product_summary}
                     </Text>
                   ) : null}
                 </Stack>

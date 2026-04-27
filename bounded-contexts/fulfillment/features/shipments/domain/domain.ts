@@ -28,10 +28,10 @@ export type FulfillmentShipmentLine = Readonly<{
   lineId: ShipmentLineId;
   orderLineId: string;
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSummary: string | null;
+  productSummary: string | null;
   quantity: number;
 }>;
 
@@ -241,16 +241,16 @@ function normalizeShipmentLines(lines: readonly FulfillmentShipmentLine[]) {
       line.catalogItemId,
       "Shipment lines must reference a catalog item.",
     ),
-    catalogVersionKey: normalizeRequiredText(
-      line.catalogVersionKey,
-      "Shipment lines must reference a catalog version key.",
+    productId: normalizeRequiredText(
+      line.productId,
+      "Shipment lines must reference a product id.",
     ),
     itemTitle: normalizeRequiredText(
       line.itemTitle,
       "Shipment lines must include an item title.",
     ),
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
-    versionSummary: normalizeOptionalText(line.versionSummary),
+    productSummary: normalizeOptionalText(line.productSummary),
     quantity: ensurePositiveInteger(
       line.quantity,
       "Shipment line quantity must be a positive whole number.",

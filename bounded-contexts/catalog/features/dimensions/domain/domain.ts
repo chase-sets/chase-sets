@@ -10,19 +10,19 @@ import {
   hasSameMembers,
   normalizeLocalizedText,
   type CatalogLifecycleStatus,
-  type ChoiceStatus,
+  type OptionStatus,
   type EmptyEventData,
   type LocalizedText,
 } from "../../../support/runtime-support/common";
-import type { ChoiceId, DimensionId } from "../../../ids";
+import type { OptionId, DimensionId } from "../../../ids";
 
-export type DimensionChoice = Readonly<{
-  id: ChoiceId;
+export type DimensionOption = Readonly<{
+  id: OptionId;
   code: string;
   labels: LocalizedText[];
   displayOrder: number;
   numericValue: number | null;
-  status: ChoiceStatus;
+  status: OptionStatus;
 }>;
 
 export type DimensionState = Readonly<{
@@ -31,7 +31,7 @@ export type DimensionState = Readonly<{
   name: string | null;
   description: string;
   status: CatalogLifecycleStatus;
-  choices: DimensionChoice[];
+  options: DimensionOption[];
 }>;
 
 export const initialDimensionState: DimensionState = {
@@ -40,7 +40,7 @@ export const initialDimensionState: DimensionState = {
   name: null,
   description: "",
   status: "draft",
-  choices: [],
+  options: [],
 };
 
 export type CreateDimensionCommand = Readonly<{
@@ -58,35 +58,35 @@ export type ReviseDimensionCommand = Readonly<{
   description?: string;
 }>;
 
-export type AddChoiceCommand = Readonly<{
-  type: "AddChoice";
-  choiceId: ChoiceId;
+export type AddOptionCommand = Readonly<{
+  type: "AddOption";
+  optionId: OptionId;
   code: string;
   labels: readonly LocalizedText[];
   numericValue?: number | null;
 }>;
 
-export type ReviseChoiceCommand = Readonly<{
-  type: "ReviseChoice";
-  choiceId: ChoiceId;
+export type ReviseOptionCommand = Readonly<{
+  type: "ReviseOption";
+  optionId: OptionId;
   code: string;
   labels: readonly LocalizedText[];
   numericValue?: number | null;
 }>;
 
-export type ReorderChoicesCommand = Readonly<{
-  type: "ReorderChoices";
-  choiceIds: readonly ChoiceId[];
+export type ReorderOptionsCommand = Readonly<{
+  type: "ReorderOptions";
+  optionIds: readonly OptionId[];
 }>;
 
-export type DeprecateChoiceCommand = Readonly<{
-  type: "DeprecateChoice";
-  choiceId: ChoiceId;
+export type DeprecateOptionCommand = Readonly<{
+  type: "DeprecateOption";
+  optionId: OptionId;
 }>;
 
-export type ReactivateChoiceCommand = Readonly<{
-  type: "ReactivateChoice";
-  choiceId: ChoiceId;
+export type ReactivateOptionCommand = Readonly<{
+  type: "ReactivateOption";
+  optionId: OptionId;
 }>;
 
 export type ActivateDimensionCommand = Readonly<{
@@ -104,22 +104,22 @@ export type ArchiveDimensionCommand = Readonly<{
 export type DimensionCommand =
   | CreateDimensionCommand
   | ReviseDimensionCommand
-  | AddChoiceCommand
-  | ReviseChoiceCommand
-  | ReorderChoicesCommand
-  | DeprecateChoiceCommand
-  | ReactivateChoiceCommand
+  | AddOptionCommand
+  | ReviseOptionCommand
+  | ReorderOptionsCommand
+  | DeprecateOptionCommand
+  | ReactivateOptionCommand
   | ActivateDimensionCommand
   | DeprecateDimensionCommand
   | ArchiveDimensionCommand;
 
-type ChoiceSnapshot = Readonly<{
-  choiceId: ChoiceId;
+type OptionSnapshot = Readonly<{
+  optionId: OptionId;
   code: string;
   labels: LocalizedText[];
   displayOrder: number;
   numericValue: number | null;
-  status: ChoiceStatus;
+  status: OptionStatus;
 }>;
 
 export type DimensionCreatedEvent = DomainEvent<
@@ -141,34 +141,34 @@ export type DimensionRevisedEvent = DomainEvent<
   }>
 >;
 
-export type ChoiceAddedEvent = DomainEvent<
-  "catalog.dimension.choice-added",
-  ChoiceSnapshot
+export type OptionAddedEvent = DomainEvent<
+  "catalog.dimension.option-added",
+  OptionSnapshot
 >;
 
-export type ChoiceRevisedEvent = DomainEvent<
-  "catalog.dimension.choice-revised",
-  ChoiceSnapshot
+export type OptionRevisedEvent = DomainEvent<
+  "catalog.dimension.option-revised",
+  OptionSnapshot
 >;
 
-export type ChoicesReorderedEvent = DomainEvent<
-  "catalog.dimension.choices-reordered",
+export type OptionsReorderedEvent = DomainEvent<
+  "catalog.dimension.options-reordered",
   Readonly<{
-    choiceIds: ChoiceId[];
+    optionIds: OptionId[];
   }>
 >;
 
-export type ChoiceDeprecatedEvent = DomainEvent<
-  "catalog.dimension.choice-deprecated",
+export type OptionDeprecatedEvent = DomainEvent<
+  "catalog.dimension.option-deprecated",
   Readonly<{
-    choiceId: ChoiceId;
+    optionId: OptionId;
   }>
 >;
 
-export type ChoiceReactivatedEvent = DomainEvent<
-  "catalog.dimension.choice-reactivated",
+export type OptionReactivatedEvent = DomainEvent<
+  "catalog.dimension.option-reactivated",
   Readonly<{
-    choiceId: ChoiceId;
+    optionId: OptionId;
   }>
 >;
 
@@ -190,11 +190,11 @@ export type DimensionArchivedEvent = DomainEvent<
 export type DimensionEvent =
   | DimensionCreatedEvent
   | DimensionRevisedEvent
-  | ChoiceAddedEvent
-  | ChoiceRevisedEvent
-  | ChoicesReorderedEvent
-  | ChoiceDeprecatedEvent
-  | ChoiceReactivatedEvent
+  | OptionAddedEvent
+  | OptionRevisedEvent
+  | OptionsReorderedEvent
+  | OptionDeprecatedEvent
+  | OptionReactivatedEvent
   | DimensionActivatedEvent
   | DimensionDeprecatedEvent
   | DimensionArchivedEvent;
@@ -233,105 +233,105 @@ export const decideDimension: AggregateDecider<
           },
         },
       ];
-    case "AddChoice":
+    case "AddOption":
       requireCreatedDimension(state);
-      assert(state.status !== "archived", "Archived dimensions cannot add choices.");
+      assert(state.status !== "archived", "Archived dimensions cannot add options.");
       assert(
-        !state.choices.some((choice) => choice.id === command.choiceId),
-        "Choice already exists on this dimension.",
+        !state.options.some((option) => option.id === command.optionId),
+        "Option already exists on this dimension.",
       );
       assert(
-        !state.choices.some((choice) => choice.code === command.code.trim()),
-        "Choice codes must be unique within a dimension.",
+        !state.options.some((option) => option.code === command.code.trim()),
+        "Option codes must be unique within a dimension.",
       );
 
       return [
         {
-          type: "catalog.dimension.choice-added",
+          type: "catalog.dimension.option-added",
           data: {
-            choiceId: command.choiceId,
+            optionId: command.optionId,
             code: command.code.trim(),
             labels: normalizeLocalizedText(command.labels),
-            displayOrder: state.choices.length,
+            displayOrder: state.options.length,
             numericValue: command.numericValue ?? null,
             status: "active",
           },
         },
       ];
-    case "ReviseChoice": {
+    case "ReviseOption": {
       requireCreatedDimension(state);
-      assert(state.status !== "archived", "Archived dimensions cannot revise choices.");
+      assert(state.status !== "archived", "Archived dimensions cannot revise options.");
 
-      const choice = findChoice(state, command.choiceId);
+      const option = findOption(state, command.optionId);
 
       assert(
-        !state.choices.some(
-          (existingChoice) =>
-            existingChoice.id !== command.choiceId &&
-            existingChoice.code === command.code.trim(),
+        !state.options.some(
+          (existingOption) =>
+            existingOption.id !== command.optionId &&
+            existingOption.code === command.code.trim(),
         ),
-        "Choice codes must remain unique within a dimension.",
+        "Option codes must remain unique within a dimension.",
       );
 
       return [
         {
-          type: "catalog.dimension.choice-revised",
+          type: "catalog.dimension.option-revised",
           data: {
-            choiceId: choice.id,
+            optionId: option.id,
             code: command.code.trim(),
             labels: normalizeLocalizedText(command.labels),
-            displayOrder: choice.displayOrder,
+            displayOrder: option.displayOrder,
             numericValue: command.numericValue ?? null,
-            status: choice.status,
+            status: option.status,
           },
         },
       ];
     }
-    case "ReorderChoices":
+    case "ReorderOptions":
       requireCreatedDimension(state);
       assert(
         state.status !== "archived",
-        "Archived dimensions cannot reorder choices.",
+        "Archived dimensions cannot reorder options.",
       );
       assert(
         hasSameMembers(
-          state.choices.map((choice) => choice.id),
-          command.choiceIds,
+          state.options.map((option) => option.id),
+          command.optionIds,
         ),
-        "Reordered choices must include exactly the current set of choices.",
+        "Reordered options must include exactly the current set of options.",
       );
 
       return [
         {
-          type: "catalog.dimension.choices-reordered",
+          type: "catalog.dimension.options-reordered",
           data: {
-            choiceIds: [...command.choiceIds],
+            optionIds: [...command.optionIds],
           },
         },
       ];
-    case "DeprecateChoice":
+    case "DeprecateOption":
       requireCreatedDimension(state);
 
-      findChoice(state, command.choiceId);
+      findOption(state, command.optionId);
 
       return [
         {
-          type: "catalog.dimension.choice-deprecated",
+          type: "catalog.dimension.option-deprecated",
           data: {
-            choiceId: command.choiceId,
+            optionId: command.optionId,
           },
         },
       ];
-    case "ReactivateChoice":
+    case "ReactivateOption":
       requireCreatedDimension(state);
 
-      findChoice(state, command.choiceId);
+      findOption(state, command.optionId);
 
       return [
         {
-          type: "catalog.dimension.choice-reactivated",
+          type: "catalog.dimension.option-reactivated",
           data: {
-            choiceId: command.choiceId,
+            optionId: command.optionId,
           },
         },
       ];
@@ -397,59 +397,59 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         name: event.data.name,
         description: event.data.description,
       };
-    case "catalog.dimension.choice-added":
+    case "catalog.dimension.option-added":
       return {
         ...state,
-        choices: sortChoices([
-          ...state.choices,
-          fromChoiceSnapshot(event.data),
+        options: sortOptions([
+          ...state.options,
+          fromOptionSnapshot(event.data),
         ]),
       };
-    case "catalog.dimension.choice-revised":
+    case "catalog.dimension.option-revised":
       return {
         ...state,
-        choices: sortChoices(
-          state.choices.map((choice) =>
-            choice.id === event.data.choiceId
-              ? fromChoiceSnapshot(event.data)
-              : choice,
+        options: sortOptions(
+          state.options.map((option) =>
+            option.id === event.data.optionId
+              ? fromOptionSnapshot(event.data)
+              : option,
           ),
         ),
       };
-    case "catalog.dimension.choices-reordered":
+    case "catalog.dimension.options-reordered":
       return {
         ...state,
-        choices: event.data.choiceIds.map((choiceId, index) => {
-          const choice = findChoice(state, choiceId);
+        options: event.data.optionIds.map((optionId, index) => {
+          const option = findOption(state, optionId);
 
           return {
-            ...choice,
+            ...option,
             displayOrder: index,
           };
         }),
       };
-    case "catalog.dimension.choice-deprecated":
+    case "catalog.dimension.option-deprecated":
       return {
         ...state,
-        choices: state.choices.map((choice) =>
-          choice.id === event.data.choiceId
+        options: state.options.map((option) =>
+          option.id === event.data.optionId
             ? {
-                ...choice,
+                ...option,
                 status: "deprecated",
               }
-            : choice,
+            : option,
         ),
       };
-    case "catalog.dimension.choice-reactivated":
+    case "catalog.dimension.option-reactivated":
       return {
         ...state,
-        choices: state.choices.map((choice) =>
-          choice.id === event.data.choiceId
+        options: state.options.map((option) =>
+          option.id === event.data.optionId
             ? {
-                ...choice,
+                ...option,
                 status: "active",
               }
-            : choice,
+            : option,
         ),
       };
     case "catalog.dimension.activated":
@@ -476,9 +476,9 @@ function requireCreatedDimension(state: DimensionState): void {
   assert(state.id !== null, "Dimension must be created first.");
 }
 
-function fromChoiceSnapshot(snapshot: ChoiceSnapshot): DimensionChoice {
+function fromOptionSnapshot(snapshot: OptionSnapshot): DimensionOption {
   return {
-    id: snapshot.choiceId,
+    id: snapshot.optionId,
     code: snapshot.code,
     labels: snapshot.labels,
     displayOrder: snapshot.displayOrder,
@@ -487,16 +487,16 @@ function fromChoiceSnapshot(snapshot: ChoiceSnapshot): DimensionChoice {
   };
 }
 
-function findChoice(state: DimensionState, choiceId: ChoiceId): DimensionChoice {
-  const choice = state.choices.find((existingChoice) => existingChoice.id === choiceId);
+function findOption(state: DimensionState, optionId: OptionId): DimensionOption {
+  const option = state.options.find((existingOption) => existingOption.id === optionId);
 
-  assert(choice !== undefined, "Choice does not exist on this dimension.");
+  assert(option !== undefined, "Option does not exist on this dimension.");
 
-  return choice;
+  return option;
 }
 
-function sortChoices(choices: readonly DimensionChoice[]): DimensionChoice[] {
-  return [...choices].sort(
+function sortOptions(options: readonly DimensionOption[]): DimensionOption[] {
+  return [...options].sort(
     (left, right) => left.displayOrder - right.displayOrder,
   );
 }

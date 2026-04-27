@@ -81,11 +81,11 @@ type SellerOrderDraft = Readonly<{
     listingId: string;
     inventoryRecordId: string;
     catalogItemId: string;
-    catalogVersionKey: string;
+    productId: string;
     itemTitle: string;
     itemSubtitle: string | null;
-    versionSelection: { dimensionId: string; choiceId: string }[];
-    versionSummary: string | null;
+    selectedOptions: { dimensionId: string; optionId: string }[];
+    productSummary: string | null;
     unitPriceAmount: string;
     quantity: number;
     lineTotalAmount: string;
@@ -124,11 +124,11 @@ export type OrderingOrderServices = Readonly<{
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
       catalogItemId: string;
-      catalogVersionKey: string;
+      productId: string;
       itemTitle: string;
       itemSubtitle: string | null;
-      versionSelection: { dimensionId: string; choiceId: string }[];
-      versionSummary: string | null;
+      selectedOptions: { dimensionId: string; optionId: string }[];
+      productSummary: string | null;
       priceAmount: string;
       quantityRequested: number;
       orderIdsOverride?: readonly OrderId[];
@@ -164,7 +164,7 @@ function groupDemands(cartLines: readonly OrderingCartLineRow[]) {
   const grouped = new Map<string, MarketplaceDemand & Readonly<{ quantity: number }>>();
 
   for (const line of cartLines) {
-    const key = buildDemandSignature(line.catalog_version_key);
+    const key = buildDemandSignature(line.product_id);
     const existing = grouped.get(key);
 
     if (existing) {
@@ -173,12 +173,12 @@ function groupDemands(cartLines: readonly OrderingCartLineRow[]) {
     }
 
       grouped.set(key, {
-        catalogItemId: line.catalog_item_id,
-        catalogVersionKey: line.catalog_version_key,
+        catalogItemId: line.catalog_catalog_item_id,
+        productId: line.product_id,
         itemTitle: line.item_title,
         itemSubtitle: line.item_subtitle,
-        versionSelection: line.version_selection,
-      versionSummary: line.version_summary,
+        selectedOptions: line.selected_options,
+      productSummary: line.product_summary,
       quantity: line.quantity,
     });
   }
@@ -270,11 +270,11 @@ function quotePlan(
         listingId: allocation.candidate.listingId,
         inventoryRecordId: allocation.candidate.inventoryRecordId,
         catalogItemId: allocation.candidate.catalogItemId,
-        catalogVersionKey: allocation.candidate.catalogVersionKey,
+        productId: allocation.candidate.productId,
         itemTitle: allocation.candidate.itemTitle,
         itemSubtitle: allocation.candidate.itemSubtitle,
-        versionSelection: [...allocation.candidate.versionSelection],
-        versionSummary: allocation.candidate.versionSummary,
+        selectedOptions: [...allocation.candidate.selectedOptions],
+        productSummary: allocation.candidate.productSummary,
         unitPriceAmount,
         quantity: allocation.quantity,
         lineTotalAmount,
@@ -481,11 +481,11 @@ export function createOrderingOrderRuntime(
       buyerAccountId: AccountId;
       sellerAccountId: AccountId;
       catalogItemId: string;
-      catalogVersionKey: string;
+      productId: string;
       itemTitle: string;
       itemSubtitle: string | null;
-      versionSelection: { dimensionId: string; choiceId: string }[];
-      versionSummary: string | null;
+      selectedOptions: { dimensionId: string; optionId: string }[];
+      productSummary: string | null;
       priceAmount: string;
       quantityRequested: number;
       orderIdsOverride?: readonly OrderId[];
@@ -495,11 +495,11 @@ export function createOrderingOrderRuntime(
     const demandGroups: MarketplaceDemand[] = [
       {
         catalogItemId: params.catalogItemId,
-        catalogVersionKey: params.catalogVersionKey,
+        productId: params.productId,
         itemTitle: params.itemTitle,
         itemSubtitle: params.itemSubtitle,
-        versionSelection: params.versionSelection,
-        versionSummary: params.versionSummary,
+        selectedOptions: params.selectedOptions,
+        productSummary: params.productSummary,
         quantity: params.quantityRequested,
       },
     ];

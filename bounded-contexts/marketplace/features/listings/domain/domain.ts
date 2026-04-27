@@ -43,11 +43,11 @@ export type MarketplaceListingState = Readonly<{
   accountId: AccountId | null;
   inventoryRecordId: string | null;
   catalogItemId: string | null;
-  catalogVersionKey: string | null;
+  productId: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  versionSummary: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string | null;
@@ -66,11 +66,11 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   accountId: null,
   inventoryRecordId: null,
   catalogItemId: null,
-  catalogVersionKey: null,
+  productId: null,
   itemTitle: null,
   itemSubtitle: null,
-  versionSelection: [],
-  versionSummary: null,
+  selectedOptions: [],
+  productSummary: null,
   storageLocationName: null,
   shipFromCode: null,
   priceAmount: null,
@@ -90,11 +90,11 @@ export type CreateListingCommand = Readonly<{
   accountId: AccountId;
   inventoryRecordId: string;
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string | null;
   itemSubtitle: string | null;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  versionSummary: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
@@ -142,11 +142,11 @@ export type ListingCreatedEvent = DomainEvent<
     accountId: AccountId;
     inventoryRecordId: string;
     catalogItemId: string;
-    catalogVersionKey: string;
+    productId: string;
     itemTitle: string | null;
     itemSubtitle: string | null;
-    versionSelection: { dimensionId: string; choiceId: string }[];
-    versionSummary: string | null;
+    selectedOptions: { dimensionId: string; optionId: string }[];
+    productSummary: string | null;
     storageLocationName: string | null;
     shipFromCode: string | null;
     priceAmount: string;
@@ -212,14 +212,14 @@ export const decideMarketplaceListing: AggregateDecider<
             accountId: command.accountId,
             inventoryRecordId: command.inventoryRecordId.trim(),
             catalogItemId: command.catalogItemId.trim(),
-            catalogVersionKey: command.catalogVersionKey,
+            productId: command.productId,
             itemTitle: command.itemTitle?.trim() ?? null,
             itemSubtitle: command.itemSubtitle?.trim() ?? null,
-            versionSelection: command.versionSelection.map((selection) => ({
+            selectedOptions: command.selectedOptions.map((selection) => ({
               dimensionId: selection.dimensionId.trim(),
-              choiceId: selection.choiceId.trim(),
+              optionId: selection.optionId.trim(),
             })),
-            versionSummary: command.versionSummary?.trim() ?? null,
+            productSummary: command.productSummary?.trim() ?? null,
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
             priceAmount: normalizeMoneyAmount(command.priceAmount),
@@ -335,11 +335,11 @@ export const evolveMarketplaceListing: AggregateEvolver<
         accountId: event.data.accountId,
         inventoryRecordId: event.data.inventoryRecordId,
         catalogItemId: event.data.catalogItemId,
-        catalogVersionKey: event.data.catalogVersionKey,
+        productId: event.data.productId,
         itemTitle: event.data.itemTitle,
         itemSubtitle: event.data.itemSubtitle,
-        versionSelection: event.data.versionSelection,
-        versionSummary: event.data.versionSummary,
+        selectedOptions: event.data.selectedOptions,
+        productSummary: event.data.productSummary,
         storageLocationName: event.data.storageLocationName,
         shipFromCode: event.data.shipFromCode,
         priceAmount: event.data.priceAmount,

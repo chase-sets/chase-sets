@@ -124,8 +124,8 @@ export function SearchPage({
             <>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {data.items.map((item) => (
-                  <Reveal key={item.item_id} preset="lift">
-                    <ItemCard item={item} href={`/items/${item.item_id}`} />
+                  <Reveal key={item.catalog_item_id} preset="lift">
+                    <ItemCard item={item} href={`/items/${item.catalog_item_id}`} />
                   </Reveal>
                 ))}
               </div>

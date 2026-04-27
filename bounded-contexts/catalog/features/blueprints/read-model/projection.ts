@@ -80,7 +80,7 @@ export function buildBlueprintProjectionHandlers(db: PgQueryable): ProjectorHand
       );
     },
 
-    "catalog.blueprint.version-rules-set": async (event) => {
+    "catalog.blueprint.product-resolution-rules-set": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { canonicalDimensionOrder } = event.data as { canonicalDimensionOrder: unknown };
 

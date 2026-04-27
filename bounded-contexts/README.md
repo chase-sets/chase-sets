@@ -179,12 +179,12 @@ Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
 - Identity is upstream for user and account references.
 - Catalog is upstream for canonical item references.
 - Discovery depends on Catalog for canonical item, category, blueprint, and field facts used to build browse/search views.
-- Inventory depends on Identity and Catalog sellable-unit structure.
+- Inventory depends on Identity and Catalog product structure.
 - Commercial Terms depends on Identity account references and account classification facts.
-- Marketplace depends on Identity, Auth journey entry points, Catalog sellable-unit identity, and Inventory availability signals.
+- Marketplace depends on Identity, Auth journey entry points, Catalog product identity, and Inventory availability signals.
 - Marketplace depends on Commercial Terms for resolved seller fee snapshots used in listing management.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
-- Ordering depends on Marketplace sellable-unit commitments, Commercial Terms resolution, Identity account references, and inventory reservation outcomes published after order commitment.
+- Ordering depends on Marketplace product commitments, Commercial Terms resolution, Identity account references, and inventory reservation outcomes published after order commitment.
 - Fulfillment depends on Ordering.
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
@@ -202,10 +202,10 @@ Each context may define rich internal domain events, but only a small, stable in
 
 These scenarios should map cleanly to one owner per decision:
 
-1. Inventory owns bulk stock ingestion and seller stock for a resolved sellable unit.
+1. Inventory owns bulk stock ingestion and seller stock for a resolved product.
 2. Commercial Terms owns fee schedules, negotiated overrides, and deterministic seller commercial snapshots.
-3. Marketplace owns listing publication and offer negotiation for sellable units.
-4. Ordering owns cart decomposition and order creation for committed sellable units.
+3. Marketplace owns listing publication and offer negotiation for products.
+4. Ordering owns cart decomposition and order creation for committed products.
 5. Fulfillment owns shipment state and tracking.
 6. Reputation owns post-transaction ratings, written feedback, and aggregate reputation summaries.
 7. Payments owns charge and refund execution.

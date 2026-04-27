@@ -37,12 +37,12 @@ CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   line_index integer NOT NULL,
   listing_id text NOT NULL,
   inventory_record_id text NOT NULL,
-  catalog_item_id text NOT NULL,
-  catalog_version_key text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
   item_title text NOT NULL,
   item_subtitle text NULL,
-  version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
-  version_summary text NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_summary text NULL,
   unit_price_amount numeric(12,2) NOT NULL,
   quantity integer NOT NULL CHECK (quantity > 0),
   line_total_amount numeric(12,2) NOT NULL,
@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS ordering_order_line_pages_order_idx
   ON ordering_order_line_pages (order_id, line_index ASC);
 
 CREATE INDEX IF NOT EXISTS ordering_order_line_pages_catalog_version_idx
-  ON ordering_order_line_pages (catalog_version_key);
+  ON ordering_order_line_pages (product_id);
 
 CREATE TABLE IF NOT EXISTS ordering_order_hold_pages (
   hold_id text PRIMARY KEY,

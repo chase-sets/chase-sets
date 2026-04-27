@@ -1,78 +1,78 @@
 import { assert } from "../../../../support/runtime-support/common";
 
-export type InventoryVersionSelectionEntry = Readonly<{
+export type InventorySelectedOptionEntry = Readonly<{
   dimensionId: string;
-  choiceId: string;
+  optionId: string;
 }>;
 
-export type InventoryVersionApplicabilityClause = Readonly<{
+export type InventoryProductApplicabilityClause = Readonly<{
   dimensionId: string;
-  choiceIds: string[];
+  optionIds: string[];
 }>;
 
-export type InventoryVersionChoice = Readonly<{
-  choiceId: string;
+export type InventoryProductOption = Readonly<{
+  optionId: string;
   code: string;
   labels?: Array<{ locale: string; value: string }>;
 }>;
 
-export type InventoryVersionDimension = Readonly<{
+export type InventoryProductDimension = Readonly<{
   dimensionId: string;
   dimensionName: string;
   required: boolean;
-  appliesWhen: InventoryVersionApplicabilityClause[];
-  allowedChoices: InventoryVersionChoice[];
+  appliesWhen: InventoryProductApplicabilityClause[];
+  allowedOptions: InventoryProductOption[];
 }>;
 
-export type InventoryVersionSchema = Readonly<{
+export type InventoryProductSchema = Readonly<{
   canonicalDimensionOrder: Array<{ dimensionId: string; dimensionName: string }>;
-  dimensions: InventoryVersionDimension[];
+  dimensions: InventoryProductDimension[];
 }>;
 
-export type InventoryCatalogVersionDescriptor = Readonly<{
-  catalogVersionKey: string;
-  selection: InventoryVersionSelectionEntry[];
+export type InventoryProductDescriptor = Readonly<{
+  productId: string;
+  selection: InventorySelectedOptionEntry[];
 }>;
 
-export function toInventoryRecordVersionSchema(
-  schema: InventoryVersionSchema | null,
-): InventoryVersionSchema | null {
+export function toInventoryRecordProductSchema(
+  schema: InventoryProductSchema | null,
+): InventoryProductSchema | null {
   return schema;
 }
 
-export function getChoiceLabel(choice: InventoryVersionChoice): string {
-  if (choice.labels && choice.labels.length > 0) {
-    return choice.labels[0].value;
+export function getOptionLabel(option: InventoryProductOption): string {
+  if (option.labels && option.labels.length > 0) {
+    return option.labels[0].value;
   }
 
-  return choice.code;
+  return option.code;
 }
 
 export function isDimensionActive(
-  dimension: InventoryVersionDimension,
+  dimension: InventoryProductDimension,
   selections: Record<string, string>,
 ): boolean {
   return dimension.appliesWhen.every((clause) => {
-    const selectedChoiceId = selections[clause.dimensionId];
+    const selectedOptionId = selections[clause.dimensionId];
     return (
-      selectedChoiceId !== undefined &&
-      clause.choiceIds.includes(selectedChoiceId)
+      selectedOptionId !== undefined &&
+      clause.optionIds.includes(selectedOptionId)
     );
   });
 }
 
 export function getOrderedDimensions(
-  schema: InventoryVersionSchema,
-): InventoryVersionDimension[] {
+  schema: InventoryProductSchema,
+): InventoryProductDimension[] {
   return schema.canonicalDimensionOrder
     .map((order) =>
       schema.dimensions.find((dimension) => dimension.dimensionId === order.dimensionId),
     )
-    .filter((dimension): dimension is InventoryVersionDimension => dimension !== undefined);
+    .filter((dimension): dimension is InventoryProductDimension => dimension !== undefined);
 }
 
-export function normalizeSelectionsForSchema(
-  schema: InventoryVersionSchema,
+export function normalizeSelectedOptionssForSchema(
+  schema: InventoryProductSchema,
   selections: Record<string, string>,
 ): Record<string, string> {
   const nextSelections = { ...selections };
@@ -85,15 +85,15 @@ export function normalizeSelectionsForSchema(
       continue;
     }
 
-    const allowedChoiceIds = dimension.allowedChoices.map((choice) => choice.choiceId);
-    const selectedChoiceId = nextSelections[dimension.dimensionId];
+    const allowedOptionIds = dimension.allowedOptions.map((option) => option.optionId);
+    const selectedOptionId = nextSelections[dimension.dimensionId];
 
-    if (selectedChoiceId !== undefined && allowedChoiceIds.includes(selectedChoiceId)) {
+    if (selectedOptionId !== undefined && allowedOptionIds.includes(selectedOptionId)) {
       continue;
     }
 
-    if (dimension.required && allowedChoiceIds.length > 0) {
-      nextSelections[dimension.dimensionId] = allowedChoiceIds[0];
+    if (dimension.required && allowedOptionIds.length > 0) {
+      nextSelections[dimension.dimensionId] = allowedOptionIds[0];
       continue;
     }
 
@@ -104,37 +104,37 @@ export function normalizeSelectionsForSchema(
 }
 
 export function selectionEntriesToRecord(
-  selection: readonly InventoryVersionSelectionEntry[],
+  selection: readonly InventorySelectedOptionEntry[],
 ): Record<string, string> {
   return Object.fromEntries(
-    selection.map((entry) => [entry.dimensionId, entry.choiceId]),
+    selection.map((entry) => [entry.dimensionId, entry.optionId]),
   );
 }
 
 export function recordToSelectionEntries(
-  schema: InventoryVersionSchema,
+  schema: InventoryProductSchema,
   selections: Record<string, string>,
-): InventoryVersionSelectionEntry[] {
+): InventorySelectedOptionEntry[] {
   return getOrderedDimensions(schema)
     .map((dimension) => {
-      const choiceId = selections[dimension.dimensionId];
-      if (!choiceId) {
+      const optionId = selections[dimension.dimensionId];
+      if (!optionId) {
         return null;
       }
 
       return {
         dimensionId: dimension.dimensionId,
-        choiceId,
+        optionId,
       };
     })
     .filter(
-      (entry): entry is InventoryVersionSelectionEntry => entry !== null,
+      (entry): entry is InventorySelectedOptionEntry => entry !== null,
     );
 }
 
-export function parseVersionSelectionInput(
+export function parseSelectedOptionsInput(
   value: unknown,
-): InventoryVersionSelectionEntry[] {
+): InventorySelectedOptionEntry[] {
   if (Array.isArray(value)) {
     return value
       .map((entry) => {
@@ -142,18 +142,18 @@ export function parseVersionSelectionInput(
           typeof entry === "object" &&
           entry !== null &&
           typeof (entry as Record<string, unknown>).dimensionId === "string" &&
-          typeof (entry as Record<string, unknown>).choiceId === "string"
+          typeof (entry as Record<string, unknown>).optionId === "string"
         ) {
           return {
             dimensionId: String((entry as Record<string, unknown>).dimensionId),
-            choiceId: String((entry as Record<string, unknown>).choiceId),
+            optionId: String((entry as Record<string, unknown>).optionId),
           };
         }
 
         return null;
       })
       .filter(
-        (entry): entry is InventoryVersionSelectionEntry => entry !== null,
+        (entry): entry is InventorySelectedOptionEntry => entry !== null,
       );
   }
 
@@ -163,24 +163,24 @@ export function parseVersionSelectionInput(
       return [];
     }
 
-    return parseVersionSelectionInput(JSON.parse(trimmed));
+    return parseSelectedOptionsInput(JSON.parse(trimmed));
   }
 
   return [];
 }
 
-export function createInventoryCatalogVersionDescriptor(input: Readonly<{
+export function createInventoryProductDescriptor(input: Readonly<{
   catalogItemId: string;
-  versionSchema: InventoryVersionSchema | null;
-  selection: readonly InventoryVersionSelectionEntry[];
-}>): InventoryCatalogVersionDescriptor {
+  productSchema: InventoryProductSchema | null;
+  selection: readonly InventorySelectedOptionEntry[];
+}>): InventoryProductDescriptor {
   const catalogItemId = input.catalogItemId.trim();
   assert(catalogItemId.length > 0, "Catalog item id is required.");
 
-  const selection = validateVersionSelection(input.versionSchema, input.selection);
-  if (!input.versionSchema || input.versionSchema.dimensions.length === 0) {
+  const selection = validateSelectedOptions(input.productSchema, input.selection);
+  if (!input.productSchema || input.productSchema.dimensions.length === 0) {
     return {
-      catalogVersionKey: `${catalogItemId}::`,
+      productId: `${catalogItemId}::`,
       selection: [],
     };
   }
@@ -188,21 +188,21 @@ export function createInventoryCatalogVersionDescriptor(input: Readonly<{
   const selections = selectionEntriesToRecord(selection);
 
   return {
-    catalogVersionKey: `${catalogItemId}::${input.versionSchema.canonicalDimensionOrder
+    productId: `${catalogItemId}::${input.productSchema.canonicalDimensionOrder
       .map((entry) => `${entry.dimensionId}:${selections[entry.dimensionId] ?? "-"}`)
       .join("|")}`,
-    selection: recordToSelectionEntries(input.versionSchema, selections),
+    selection: recordToSelectionEntries(input.productSchema, selections),
   };
 }
 
-export function validateVersionSelection(
-  schema: InventoryVersionSchema | null,
-  selection: readonly InventoryVersionSelectionEntry[],
-): InventoryVersionSelectionEntry[] {
+export function validateSelectedOptions(
+  schema: InventoryProductSchema | null,
+  selection: readonly InventorySelectedOptionEntry[],
+): InventorySelectedOptionEntry[] {
   if (!schema || schema.dimensions.length === 0) {
     assert(
       selection.length === 0,
-      "Version selection is not allowed for this catalog item.",
+      "Selected options are not allowed for this catalog item.",
     );
     return [];
   }
@@ -213,34 +213,34 @@ export function validateVersionSelection(
   for (const entry of selection) {
     assert(
       !seenDimensionIds.has(entry.dimensionId),
-      "Version selection may include each dimension at most once.",
+      "Selected options may include each dimension at most once.",
     );
     seenDimensionIds.add(entry.dimensionId);
   }
 
   for (const dimension of getOrderedDimensions(schema)) {
     const active = isDimensionActive(dimension, selections);
-    const selectedChoiceId = selections[dimension.dimensionId];
+    const selectedOptionId = selections[dimension.dimensionId];
 
     if (!active) {
       assert(
-        selectedChoiceId === undefined,
-        "Version selection cannot include inactive dimensions.",
+        selectedOptionId === undefined,
+        "Selected options cannot include inactive dimensions.",
       );
       continue;
     }
 
-    if (selectedChoiceId === undefined) {
+    if (selectedOptionId === undefined) {
       assert(
         !dimension.required,
-        `Version selection must include ${dimension.dimensionName}.`,
+        `Selected options must include ${dimension.dimensionName}.`,
       );
       continue;
     }
 
     assert(
-      dimension.allowedChoices.some((choice) => choice.choiceId === selectedChoiceId),
-      `Version selection must use an allowed choice for ${dimension.dimensionName}.`,
+      dimension.allowedOptions.some((option) => option.optionId === selectedOptionId),
+      `Selected options must use an allowed option for ${dimension.dimensionName}.`,
     );
   }
 
@@ -248,15 +248,15 @@ export function validateVersionSelection(
     selection.every((entry) =>
       schema.dimensions.some((dimension) => dimension.dimensionId === entry.dimensionId),
     ),
-    "Version selection cannot include unknown dimensions.",
+    "Selected options cannot include unknown dimensions.",
   );
 
   return recordToSelectionEntries(schema, selections);
 }
 
-export function summarizeVersionSelection(
-  schema: InventoryVersionSchema | null,
-  selection: readonly InventoryVersionSelectionEntry[],
+export function summarizeSelectedOptions(
+  schema: InventoryProductSchema | null,
+  selection: readonly InventorySelectedOptionEntry[],
 ): string {
   if (!schema || selection.length === 0) {
     return "";
@@ -266,19 +266,19 @@ export function summarizeVersionSelection(
 
   return getOrderedDimensions(schema)
     .map((dimension) => {
-      const choiceId = selections[dimension.dimensionId];
-      if (!choiceId) {
+      const optionId = selections[dimension.dimensionId];
+      if (!optionId) {
         return null;
       }
 
-      const choice = dimension.allowedChoices.find(
-        (candidate) => candidate.choiceId === choiceId,
+      const option = dimension.allowedOptions.find(
+        (candidate) => candidate.optionId === optionId,
       );
-      if (!choice) {
+      if (!option) {
         return null;
       }
 
-      return `${dimension.dimensionName}: ${getChoiceLabel(choice)}`;
+      return `${dimension.dimensionName}: ${getOptionLabel(option)}`;
     })
     .filter((entry): entry is string => entry !== null)
     .join(" | ");

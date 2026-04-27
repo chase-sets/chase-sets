@@ -2,7 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 
 export type DiscoveryItemDetailRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -13,7 +13,7 @@ export type DiscoveryItemDetailRow = Readonly<{
   categories: unknown;
   tags: unknown;
   image_urls: unknown;
-  version_schema: unknown;
+  product_schema: unknown;
   market_summary: Readonly<{
     lowest_price_amount: string | null;
     active_listing_count: number;
@@ -23,12 +23,12 @@ export type DiscoveryItemDetailRow = Readonly<{
     listing_id: string;
     account_id: string;
     inventory_record_id: string;
-    catalog_item_id: string;
-    catalog_version_key: string;
+    catalog_catalog_item_id: string;
+    product_id: string;
     item_title: string | null;
     item_subtitle: string | null;
-    version_selection: readonly { dimensionId: string; choiceId: string }[];
-    version_summary: string | null;
+    selected_options: readonly { dimensionId: string; optionId: string }[];
+    product_summary: string | null;
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
@@ -85,7 +85,7 @@ export async function getDiscoveryItemDetail(
   itemId: string,
 ): Promise<DiscoveryItemDetailRow | null> {
   const result = await db.query<BaseDiscoveryItemDetailRow>(
-    `SELECT * FROM discovery_item_detail_pages WHERE item_id = $1`,
+    `SELECT * FROM discovery_item_detail_pages WHERE catalog_item_id = $1`,
     [itemId],
   );
 
@@ -104,14 +104,14 @@ export async function getDiscoveryItemDetail(
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
      FROM discovery_market_listings
-     WHERE catalog_item_id = $1
+     WHERE catalog_catalog_item_id = $1
        AND status = 'active'`,
     [itemId],
   );
 
   const listingsResult = await db.query<
-    Omit<DiscoveryItemDetailRow["market_listings"][number], "version_selection"> & {
-      version_selection: unknown;
+    Omit<DiscoveryItemDetailRow["market_listings"][number], "selected_options"> & {
+      selected_options: unknown;
     }
   >(
     `SELECT
@@ -121,7 +121,7 @@ export async function getDiscoveryItemDetail(
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
-     WHERE listing.catalog_item_id = $1
+     WHERE listing.catalog_catalog_item_id = $1
        AND listing.status = 'active'
      ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
     [itemId],
@@ -145,8 +145,8 @@ export async function getDiscoveryItemDetail(
     market_summary: marketSummary,
     market_listings: listingsResult.rows.map((row) => ({
       ...row,
-      version_selection: Array.isArray(row.version_selection)
-        ? row.version_selection
+      selected_options: Array.isArray(row.selected_options)
+        ? row.selected_options
         : [],
     })),
   };

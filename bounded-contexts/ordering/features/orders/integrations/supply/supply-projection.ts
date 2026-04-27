@@ -7,11 +7,11 @@ type AcceptedOfferParams = Readonly<{
   buyerAccountId: string;
   sellerAccountId: string;
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  versionSummary: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
   priceAmount: string;
   quantityRequested: number;
   context: EventStoreContext;
@@ -30,11 +30,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         accountId: string;
         inventoryRecordId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
+        productId: string;
         itemTitle: string | null;
         itemSubtitle: string | null;
-        versionSelection: unknown;
-        versionSummary: string | null;
+        selectedOptions: unknown;
+        productSummary: string | null;
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
@@ -46,12 +46,12 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            listing_id,
            seller_account_id,
            inventory_record_id,
-           catalog_item_id,
-           catalog_version_key,
+           catalog_catalog_item_id,
+           product_id,
            item_title,
            item_subtitle,
-           version_selection,
-           version_summary,
+           selected_options,
+           product_summary,
            storage_location_name,
            ship_from_code,
            price_amount,
@@ -64,12 +64,12 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              inventory_record_id = EXCLUDED.inventory_record_id,
-             catalog_item_id = EXCLUDED.catalog_item_id,
-             catalog_version_key = EXCLUDED.catalog_version_key,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
              item_title = EXCLUDED.item_title,
              item_subtitle = EXCLUDED.item_subtitle,
-             version_selection = EXCLUDED.version_selection,
-             version_summary = EXCLUDED.version_summary,
+             selected_options = EXCLUDED.selected_options,
+             product_summary = EXCLUDED.product_summary,
              storage_location_name = EXCLUDED.storage_location_name,
              ship_from_code = EXCLUDED.ship_from_code,
              price_amount = EXCLUDED.price_amount,
@@ -81,11 +81,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.accountId,
           data.inventoryRecordId,
           data.catalogItemId,
-          data.catalogVersionKey,
+          data.productId,
           data.itemTitle,
           data.itemSubtitle,
-          JSON.stringify(Array.isArray(data.versionSelection) ? data.versionSelection : []),
-          data.versionSummary,
+          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+          data.productSummary,
           data.storageLocationName,
           data.shipFromCode,
           data.priceAmount,
@@ -161,12 +161,12 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            offer_id,
            buyer_account_id,
            seller_account_id,
-           catalog_item_id,
-           catalog_version_key,
+           catalog_catalog_item_id,
+           product_id,
            item_title,
            item_subtitle,
-           version_selection,
-           version_summary,
+           selected_options,
+           product_summary,
            price_amount,
            quantity_requested,
            accepted_at,
@@ -177,12 +177,12 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
-             catalog_item_id = EXCLUDED.catalog_item_id,
-             catalog_version_key = EXCLUDED.catalog_version_key,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
              item_title = EXCLUDED.item_title,
              item_subtitle = EXCLUDED.item_subtitle,
-             version_selection = EXCLUDED.version_selection,
-             version_summary = EXCLUDED.version_summary,
+             selected_options = EXCLUDED.selected_options,
+             product_summary = EXCLUDED.product_summary,
              price_amount = EXCLUDED.price_amount,
              quantity_requested = EXCLUDED.quantity_requested,
              accepted_at = EXCLUDED.accepted_at,
@@ -192,11 +192,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.buyerAccountId,
           data.sellerAccountId,
           data.catalogItemId,
-          data.catalogVersionKey,
+          data.productId,
           data.itemTitle,
           data.itemSubtitle,
-          JSON.stringify(Array.isArray(data.versionSelection) ? data.versionSelection : []),
-          data.versionSummary,
+          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+          data.productSummary,
           data.priceAmount,
           data.quantityRequested,
           data.acceptedAt,
@@ -224,7 +224,7 @@ export function buildOrderingInventorySupplyProjectionHandlers(
         recordId: string;
         accountId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
+        productId: string;
         totalQuantity: number;
       };
 
@@ -232,16 +232,16 @@ export function buildOrderingInventorySupplyProjectionHandlers(
         `INSERT INTO ordering_inventory_record_inputs (
            record_id,
            seller_account_id,
-           catalog_item_id,
-           catalog_version_key,
+           catalog_catalog_item_id,
+           product_id,
            total_quantity,
            updated_at,
            last_stream_version
          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (record_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
-             catalog_item_id = EXCLUDED.catalog_item_id,
-             catalog_version_key = EXCLUDED.catalog_version_key,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
              total_quantity = EXCLUDED.total_quantity,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
@@ -250,7 +250,7 @@ export function buildOrderingInventorySupplyProjectionHandlers(
           data.recordId,
           data.accountId,
           data.catalogItemId,
-          data.catalogVersionKey,
+          data.productId,
           data.totalQuantity,
           event.timing.recordedAt,
           event.streamVersion,

@@ -1,26 +1,26 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type {
-  InventoryVersionSchema,
+  InventoryProductSchema,
 } from "./versioning";
-import { toInventoryRecordVersionSchema } from "./versioning";
+import { toInventoryRecordProductSchema } from "./versioning";
 
 export type InventoryCatalogItemSnapshot = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
   status: string;
-  version_schema: InventoryVersionSchema | null;
+  product_schema: InventoryProductSchema | null;
   updated_at: string;
 }>;
 
 type InventoryCatalogItemRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
   status: string;
-  version_schema: unknown;
+  product_schema: unknown;
   updated_at: string;
 }>;
 
@@ -42,15 +42,15 @@ export async function getInventoryCatalogItem(
 
   const result = await db.query<InventoryCatalogItemRow>(
     `SELECT
-       item_id,
+       catalog_item_id,
        title,
        subtitle,
        blueprint_id,
        status,
-       version_schema,
+       product_schema,
        updated_at
      FROM inventory_catalog_items
-     WHERE item_id = $1`,
+     WHERE catalog_item_id = $1`,
     [itemId],
   );
 
@@ -61,9 +61,9 @@ export async function getInventoryCatalogItem(
 
   return {
     ...row,
-    version_schema: toInventoryRecordVersionSchema(
-      typeof row.version_schema === "object" && row.version_schema !== null
-        ? (row.version_schema as InventoryVersionSchema)
+    product_schema: toInventoryRecordProductSchema(
+      typeof row.product_schema === "object" && row.product_schema !== null
+        ? (row.product_schema as InventoryProductSchema)
         : null,
     ),
   };

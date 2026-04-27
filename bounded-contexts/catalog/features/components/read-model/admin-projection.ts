@@ -47,15 +47,15 @@ export async function refreshCatalogAdminComponentDetailPage(
     ...dimensionRules.map((rule) => rule.dimensionId),
     ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
   ])];
-  const choiceIds = dimensionRules.flatMap((rule) => [
-    ...(rule.allowedChoiceIds ?? []),
-    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.choiceIds ?? []),
+  const optionIds = dimensionRules.flatMap((rule) => [
+    ...(rule.allowedOptionIds ?? []),
+    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
-  const [fieldNames, dimensionNames, choiceCodes] = await Promise.all([
+  const [fieldNames, dimensionNames, optionCodes] = await Promise.all([
     loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds),
     loadNameMap(db, "catalog_dimensions", "dimension_id", "name", dimensionIds),
-    loadChoiceCodeMap(db, choiceIds),
+    loadChoiceCodeMap(db, optionIds),
   ]);
 
   const namedFieldRules = fieldRules.map((rule) => ({
@@ -68,17 +68,17 @@ export async function refreshCatalogAdminComponentDetailPage(
     dimensionId: rule.dimensionId,
     dimensionName: dimensionNames.get(rule.dimensionId) ?? rule.dimensionId,
     required: rule.required,
-    allowedChoices: (rule.allowedChoiceIds ?? []).map((choiceId) => ({
-      choiceId,
-      code: choiceCodes.get(choiceId) ?? choiceId,
+    allowedOptions: (rule.allowedOptionIds ?? []).map((optionId) => ({
+      optionId,
+      code: optionCodes.get(optionId) ?? optionId,
     })),
     appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
       dimensionId: clause.dimensionId,
       dimensionName: dimensionNames.get(clause.dimensionId) ?? clause.dimensionId,
-      choiceIds: clause.choiceIds ?? [],
-      choices: (clause.choiceIds ?? []).map((choiceId) => ({
-        choiceId,
-        code: choiceCodes.get(choiceId) ?? choiceId,
+      optionIds: clause.optionIds ?? [],
+      options: (clause.optionIds ?? []).map((optionId) => ({
+        optionId,
+        code: optionCodes.get(optionId) ?? optionId,
       })),
     })),
   }));
@@ -144,21 +144,21 @@ async function findComponentIdsByDimension(db: PgQueryable, dimensionId: string)
   return result.rows.map((row) => row.component_id);
 }
 
-async function findComponentIdsByChoice(db: PgQueryable, choiceId: string): Promise<string[]> {
+async function findComponentIdsByChoice(db: PgQueryable, optionId: string): Promise<string[]> {
   const result = await db.query<{ component_id: string }>(
     `SELECT component_id
      FROM catalog_components
      WHERE EXISTS (
        SELECT 1
        FROM jsonb_array_elements(dimension_rules) AS rule
-       WHERE (rule->'allowedChoiceIds') @> to_jsonb(ARRAY[$1]::text[])
+       WHERE (rule->'allowedOptionIds') @> to_jsonb(ARRAY[$1]::text[])
           OR EXISTS (
             SELECT 1
             FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause
-            WHERE (clause->'choiceIds') @> to_jsonb(ARRAY[$1]::text[])
+            WHERE (clause->'optionIds') @> to_jsonb(ARRAY[$1]::text[])
           )
      )`,
-    [choiceId],
+    [optionId],
   );
 
   return result.rows.map((row) => row.component_id);
@@ -177,8 +177,8 @@ export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): P
     await refreshComponentIds(db, await findComponentIdsByDimension(db, dimensionId));
   }
 
-  async function refreshChoiceDependents(choiceId: string) {
-    await refreshComponentIds(db, await findComponentIdsByChoice(db, choiceId));
+  async function refreshOptionDependents(optionId: string) {
+    await refreshComponentIds(db, await findComponentIdsByChoice(db, optionId));
   }
 
   return {
@@ -232,20 +232,20 @@ export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): P
     "catalog.dimension.revised": async (event) => {
       await refreshDimensionDependents(extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX));
     },
-    "catalog.dimension.choice-added": async (event) => {
-      await refreshChoiceDependents(event.data.choiceId as string);
+    "catalog.dimension.option-added": async (event) => {
+      await refreshOptionDependents(event.data.optionId as string);
     },
-    "catalog.dimension.choice-revised": async (event) => {
-      await refreshChoiceDependents(event.data.choiceId as string);
+    "catalog.dimension.option-revised": async (event) => {
+      await refreshOptionDependents(event.data.optionId as string);
     },
-    "catalog.dimension.choices-reordered": async () => {
-      // Choice order is not rendered in component detail pages.
+    "catalog.dimension.options-reordered": async () => {
+      // Option order is not rendered in component detail pages.
     },
-    "catalog.dimension.choice-deprecated": async (event) => {
-      await refreshChoiceDependents(event.data.choiceId as string);
+    "catalog.dimension.option-deprecated": async (event) => {
+      await refreshOptionDependents(event.data.optionId as string);
     },
-    "catalog.dimension.choice-reactivated": async (event) => {
-      await refreshChoiceDependents(event.data.choiceId as string);
+    "catalog.dimension.option-reactivated": async (event) => {
+      await refreshOptionDependents(event.data.optionId as string);
     },
     "catalog.dimension.activated": async (event) => {
       await refreshDimensionDependents(extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX));
@@ -258,6 +258,5 @@ export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): P
     },
   };
 }
-
 
 

@@ -1,10 +1,10 @@
 import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type { CatalogServices } from "../../../support/authoring-support/services";
-import type { ChoiceId, DimensionId } from "../../../ids";
+import type { OptionId, DimensionId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
 
-type DimensionChoiceDef = {
-  choiceId: ChoiceId;
+type DimensionOptionDef = {
+  optionId: OptionId;
   code: string;
   label: string;
   numericValue?: number;
@@ -21,7 +21,7 @@ type DimensionDef = {
   dimensionId: DimensionId;
   name: string;
   description: string;
-  choices: DimensionChoiceDef[];
+  options: DimensionOptionDef[];
 };
 
 const dimensionDefs: DimensionDef[] = [
@@ -30,14 +30,14 @@ const dimensionDefs: DimensionDef[] = [
     dimensionId: catalogSeedIds.dimensions.form.dimensionId as DimensionId,
     name: "Form",
     description: "How the card is offered as a sellable version",
-    choices: [
+    options: [
       {
-        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw as ChoiceId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw as OptionId,
         code: "raw",
         label: "Raw",
       },
       {
-        choiceId: catalogSeedIds.dimensions.form.choiceIds.graded as ChoiceId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.graded as OptionId,
         code: "graded",
         label: "Graded",
       },
@@ -48,9 +48,9 @@ const dimensionDefs: DimensionDef[] = [
     dimensionId: catalogSeedIds.dimensions.condition.dimensionId as DimensionId,
     name: "Condition",
     description: "Conditioning guideline for a raw, ungraded card",
-    choices: [
+    options: [
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.pristine as ChoiceId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.pristine as OptionId,
         code: "pristine",
         label: "Pristine",
         guideline: {
@@ -70,7 +70,7 @@ const dimensionDefs: DimensionDef[] = [
         },
       },
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.mint as ChoiceId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.mint as OptionId,
         code: "mint",
         label: "Mint",
         guideline: {
@@ -88,7 +88,7 @@ const dimensionDefs: DimensionDef[] = [
         },
       },
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint as ChoiceId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint as OptionId,
         code: "near-mint",
         label: "Near Mint",
         guideline: {
@@ -104,7 +104,7 @@ const dimensionDefs: DimensionDef[] = [
         },
       },
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent as ChoiceId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.excellent as OptionId,
         code: "excellent",
         label: "Excellent",
         guideline: {
@@ -119,7 +119,7 @@ const dimensionDefs: DimensionDef[] = [
         },
       },
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.good as ChoiceId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.good as OptionId,
         code: "good",
         label: "Good",
         guideline: {
@@ -135,7 +135,7 @@ const dimensionDefs: DimensionDef[] = [
         },
       },
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.poor as ChoiceId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.poor as OptionId,
         code: "poor",
         label: "Poor",
         guideline: {
@@ -151,7 +151,7 @@ const dimensionDefs: DimensionDef[] = [
         },
       },
       {
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.damaged as ChoiceId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.damaged as OptionId,
         code: "damaged",
         label: "Damaged",
         guideline: {
@@ -177,34 +177,34 @@ const dimensionDefs: DimensionDef[] = [
     name: "Grading Company",
     description:
       "Professional grading service that authenticated and graded the card",
-    choices: [
+    options: [
       {
-        choiceId: catalogSeedIds.dimensions.gradingCompany.choiceIds.psa as ChoiceId,
+        optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.psa as OptionId,
         code: "psa",
         label: "PSA",
       },
       {
-        choiceId: catalogSeedIds.dimensions.gradingCompany.choiceIds.bgs as ChoiceId,
+        optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.bgs as OptionId,
         code: "bgs",
         label: "BGS/Beckett",
       },
       {
-        choiceId: catalogSeedIds.dimensions.gradingCompany.choiceIds.cgc as ChoiceId,
+        optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.cgc as OptionId,
         code: "cgc",
         label: "CGC",
       },
       {
-        choiceId: catalogSeedIds.dimensions.gradingCompany.choiceIds.sgc as ChoiceId,
+        optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.sgc as OptionId,
         code: "sgc",
         label: "SGC",
       },
       {
-        choiceId: catalogSeedIds.dimensions.gradingCompany.choiceIds.ace as ChoiceId,
+        optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.ace as OptionId,
         code: "ace",
         label: "ACE",
       },
       {
-        choiceId: catalogSeedIds.dimensions.gradingCompany.choiceIds.tag as ChoiceId,
+        optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.tag as OptionId,
         code: "tag",
         label: "TAG",
       },
@@ -215,81 +215,81 @@ const dimensionDefs: DimensionDef[] = [
     dimensionId: catalogSeedIds.dimensions.grade.dimensionId as DimensionId,
     name: "Grade",
     description: "Numeric grade assigned by a professional grading company",
-    choices: [
+    options: [
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.pristine10 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.pristine10 as OptionId,
         code: "pristine-10",
         label: "Pristine 10",
         numericValue: 10.5,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.gemMint10 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.gemMint10 as OptionId,
         code: "gem-mint-10",
         label: "Gem Mint 10",
         numericValue: 10,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.mint95 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.mint95 as OptionId,
         code: "mint-9.5",
         label: "Mint 9.5",
         numericValue: 9.5,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.mint9 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.mint9 as OptionId,
         code: "mint-9",
         label: "Mint 9",
         numericValue: 9,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.nmMt85 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.nmMt85 as OptionId,
         code: "nm-mt-8.5",
         label: "NM-MT 8.5",
         numericValue: 8.5,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.nmMt8 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.nmMt8 as OptionId,
         code: "nm-mt-8",
         label: "NM-MT 8",
         numericValue: 8,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.nm7 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.nm7 as OptionId,
         code: "nm-7",
         label: "NM 7",
         numericValue: 7,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.ex6 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.ex6 as OptionId,
         code: "ex-6",
         label: "EX 6",
         numericValue: 6,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.ex5 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.ex5 as OptionId,
         code: "ex-5",
         label: "EX 5",
         numericValue: 5,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.vg4 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.vg4 as OptionId,
         code: "vg-4",
         label: "VG 4",
         numericValue: 4,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.good3 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.good3 as OptionId,
         code: "good-3",
         label: "Good 3",
         numericValue: 3,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.good2 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.good2 as OptionId,
         code: "good-2",
         label: "Good 2",
         numericValue: 2,
       },
       {
-        choiceId: catalogSeedIds.dimensions.grade.choiceIds.poor1 as ChoiceId,
+        optionId: catalogSeedIds.dimensions.grade.optionIds.poor1 as OptionId,
         code: "poor-1",
         label: "Poor 1",
         numericValue: 1,
@@ -300,7 +300,7 @@ const dimensionDefs: DimensionDef[] = [
 
 export type DimensionIds = Record<
   string,
-  { dimensionId: DimensionId; choiceIds: Record<string, ChoiceId> }
+  { dimensionId: DimensionId; optionIds: Record<string, OptionId> }
 >;
 
 export async function seedDimensions(
@@ -311,7 +311,7 @@ export async function seedDimensions(
 
   for (const def of dimensionDefs) {
     const streamId = `catalog.dimension-${def.dimensionId}`;
-    const choiceIds: Record<string, ChoiceId> = {};
+    const optionIds: Record<string, OptionId> = {};
 
     await sendSeedCommand(services.dimensions.commandHandler, streamId, {
       type: "CreateDimension",
@@ -321,15 +321,15 @@ export async function seedDimensions(
       description: def.description,
     });
 
-    for (const choice of def.choices) {
-      choiceIds[choice.code] = choice.choiceId;
+    for (const option of def.options) {
+      optionIds[option.code] = option.optionId;
 
       await sendSeedCommand(services.dimensions.commandHandler, streamId, {
-        type: "AddChoice",
-        choiceId: choice.choiceId,
-        code: choice.code,
-        labels: [{ locale: "en", value: choice.label }],
-        numericValue: choice.numericValue ?? null,
+        type: "AddOption",
+        optionId: option.optionId,
+        code: option.code,
+        labels: [{ locale: "en", value: option.label }],
+        numericValue: option.numericValue ?? null,
       });
     }
 
@@ -337,13 +337,12 @@ export async function seedDimensions(
       type: "ActivateDimension",
     });
 
-    result[def.key] = { dimensionId: def.dimensionId, choiceIds };
+    result[def.key] = { dimensionId: def.dimensionId, optionIds };
     console.log(
-      `  Dimension "${def.name}" created with ${def.choices.length} choices`,
+      `  Dimension "${def.name}" created with ${def.options.length} options`,
     );
   }
 
   return result;
 }
-
 

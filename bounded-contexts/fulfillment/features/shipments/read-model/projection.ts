@@ -16,10 +16,10 @@ export function buildFulfillmentShipmentProjectionHandlers(
           lineId: string;
           orderLineId: string;
           catalogItemId: string;
-          catalogVersionKey: string;
+          productId: string;
           itemTitle: string;
           itemSubtitle: string | null;
-          versionSummary: string | null;
+          productSummary: string | null;
           quantity: number;
         }>;
         createdAt: string;
@@ -80,11 +80,11 @@ export function buildFulfillmentShipmentProjectionHandlers(
              line_id,
              line_index,
              order_line_id,
-             catalog_item_id,
-             catalog_version_key,
+             catalog_catalog_item_id,
+             product_id,
              item_title,
              item_subtitle,
-             version_summary,
+             product_summary,
              quantity
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
@@ -95,10 +95,10 @@ export function buildFulfillmentShipmentProjectionHandlers(
             index,
             line.orderLineId,
             line.catalogItemId,
-            line.catalogVersionKey,
+            line.productId,
             line.itemTitle,
             line.itemSubtitle,
-            line.versionSummary,
+            line.productSummary,
             line.quantity,
           ],
         );

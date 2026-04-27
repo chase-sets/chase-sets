@@ -8,7 +8,7 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
-  createOrderingCatalogVersionDescriptor,
+  createOrderingProductDescriptor,
   type OrderingVersionSchema,
 } from "./common";
 import { orderingReservedSeedIds } from "../seed-support/ids";
@@ -17,22 +17,22 @@ import { createOrderingServices } from "./services";
 const rawNearMintVersionSelection = [
   {
     dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-    choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+    optionId: catalogSeedIds.dimensions.form.optionIds.raw,
   },
   {
     dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-    choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+    optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
   },
 ] as const;
 
 const rawExcellentVersionSelection = [
   {
     dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-    choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+    optionId: catalogSeedIds.dimensions.form.optionIds.raw,
   },
   {
     dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-    choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent,
+    optionId: catalogSeedIds.dimensions.condition.optionIds.excellent,
   },
 ] as const;
 
@@ -41,8 +41,8 @@ const checkoutCartLines = [
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
-    versionSelection: rawExcellentVersionSelection,
-    versionSummary: "Form: Raw | Condition: Excellent",
+    selectedOptions: rawExcellentVersionSelection,
+    productSummary: "Form: Raw | Condition: Excellent",
     quantity: 2,
   },
 ] as const;
@@ -52,8 +52,8 @@ const cancelledCartLines = [
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
-    versionSelection: rawExcellentVersionSelection,
-    versionSummary: "Form: Raw | Condition: Excellent",
+    selectedOptions: rawExcellentVersionSelection,
+    productSummary: "Form: Raw | Condition: Excellent",
     quantity: 1,
   },
 ] as const;
@@ -63,16 +63,16 @@ const activeCartLines = [
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
-    versionSelection: rawNearMintVersionSelection,
-    versionSummary: "Form: Raw | Condition: Near Mint",
+    selectedOptions: rawNearMintVersionSelection,
+    productSummary: "Form: Raw | Condition: Near Mint",
     quantity: 1,
   },
   {
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
-    versionSelection: rawExcellentVersionSelection,
-    versionSummary: "Form: Raw | Condition: Excellent",
+    selectedOptions: rawExcellentVersionSelection,
+    productSummary: "Form: Raw | Condition: Excellent",
     quantity: 1,
   },
 ] as const;
@@ -82,8 +82,8 @@ const acceptedOfferSeed = {
   catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
   itemTitle: "Twilight Masquerade Elite Trainer Box",
   itemSubtitle: "Sealed elite trainer box",
-  versionSelection: [] as const,
-  versionSummary: null,
+  selectedOptions: [] as const,
+  productSummary: null,
   priceAmount: "44.00",
   quantityRequested: 1,
 } as const;
@@ -137,37 +137,37 @@ async function addCartLines(
 ) {
   for (const line of lines) {
     const catalogItem = await services.db.query<{
-      version_schema: unknown;
+      product_schema: unknown;
     }>(
-      `SELECT version_schema
+      `SELECT product_schema
        FROM ordering_catalog_items
-       WHERE item_id = $1`,
+       WHERE catalog_item_id = $1`,
       [line.catalogItemId],
     );
-    const versionSchema = catalogItem.rows[0]?.version_schema ?? null;
+    const productSchema = catalogItem.rows[0]?.product_schema ?? null;
 
-    if (versionSchema === null) {
+    if (productSchema === null) {
       throw new Error(`Catalog item ${line.catalogItemId} not found for ordering seed.`);
     }
 
-    const catalogVersion = createOrderingCatalogVersionDescriptor({
+    const catalogVersion = createOrderingProductDescriptor({
       catalogItemId: line.catalogItemId,
-      versionSchema:
-        typeof versionSchema === "object" && versionSchema !== null
-          ? (versionSchema as OrderingVersionSchema)
+      productSchema:
+        typeof productSchema === "object" && productSchema !== null
+          ? (productSchema as OrderingVersionSchema)
           : null,
-      selection: line.versionSelection,
+      selection: line.selectedOptions,
     });
 
     await services.cart.addLine(
       {
         buyerAccountId,
         catalogItemId: line.catalogItemId,
-        catalogVersionKey: catalogVersion.catalogVersionKey,
+        productId: catalogVersion.productId,
         itemTitle: line.itemTitle,
         itemSubtitle: line.itemSubtitle,
-        versionSelection: catalogVersion.selection,
-        versionSummary: line.versionSummary,
+        selectedOptions: catalogVersion.selection,
+        productSummary: line.productSummary,
         quantity: line.quantity,
       },
       context,
@@ -175,27 +175,27 @@ async function addCartLines(
   }
 }
 
-async function getCatalogVersionKey(
+async function getProductId(
   services: ReturnType<typeof createOrderingServices>,
   catalogItemId: string,
-  selection: readonly { dimensionId: string; choiceId: string }[],
+  selection: readonly { dimensionId: string; optionId: string }[],
 ) {
-  const result = await services.db.query<{ version_schema: unknown }>(
-    `SELECT version_schema
+  const result = await services.db.query<{ product_schema: unknown }>(
+    `SELECT product_schema
      FROM ordering_catalog_items
-     WHERE item_id = $1`,
+     WHERE catalog_item_id = $1`,
     [catalogItemId],
   );
-  const versionSchema = result.rows[0]?.version_schema;
+  const productSchema = result.rows[0]?.product_schema;
 
-  return createOrderingCatalogVersionDescriptor({
+  return createOrderingProductDescriptor({
     catalogItemId,
-    versionSchema:
-      typeof versionSchema === "object" && versionSchema !== null
-        ? (versionSchema as OrderingVersionSchema)
+    productSchema:
+      typeof productSchema === "object" && productSchema !== null
+        ? (productSchema as OrderingVersionSchema)
         : null,
     selection,
-  }).catalogVersionKey;
+  }).productId;
 }
 
 export async function seedOrderingDatabase(pool: PgTransactionalPool) {
@@ -288,15 +288,15 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
         buyerAccountId,
         sellerAccountId: identitySeedIds.seller.accountId,
         catalogItemId: acceptedOfferSeed.catalogItemId,
-        catalogVersionKey: await getCatalogVersionKey(
+        productId: await getProductId(
           ordering,
           acceptedOfferSeed.catalogItemId,
-          acceptedOfferSeed.versionSelection,
+          acceptedOfferSeed.selectedOptions,
         ),
         itemTitle: acceptedOfferSeed.itemTitle,
         itemSubtitle: acceptedOfferSeed.itemSubtitle,
-        versionSelection: [...acceptedOfferSeed.versionSelection],
-        versionSummary: acceptedOfferSeed.versionSummary,
+        selectedOptions: [...acceptedOfferSeed.selectedOptions],
+        productSummary: acceptedOfferSeed.productSummary,
         priceAmount: acceptedOfferSeed.priceAmount,
         quantityRequested: acceptedOfferSeed.quantityRequested,
         orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],

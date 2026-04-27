@@ -9,8 +9,8 @@ export interface Dimension {
   updated_at: string;
 }
 
-export interface DimensionChoice {
-  choice_id: string;
+export interface DimensionOption {
+  option_id: string;
   dimension_id: string;
   code: string;
   labels: LocalizedText[] | null;
@@ -20,11 +20,10 @@ export interface DimensionChoice {
 }
 
 export interface DimensionDetail extends Dimension {
-  choices: DimensionChoice[];
+  options: DimensionOption[];
 }
 
-export interface ChoiceRef {
-  choiceId: string;
+export interface OptionRef {
+  optionId: string;
   code: string;
 }
-

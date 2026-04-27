@@ -8,12 +8,12 @@ const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
 type DimensionRule = Readonly<{
   dimensionId: string;
   required: boolean;
-  allowedChoiceIds?: string[];
-  appliesWhen?: Array<{ dimensionId: string; choiceIds?: string[] }>;
+  allowedOptionIds?: string[];
+  appliesWhen?: Array<{ dimensionId: string; optionIds?: string[] }>;
 }>;
 
 type InventoryCatalogItemRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
@@ -29,7 +29,7 @@ type InventoryCatalogBlueprintRow = Readonly<{
 }>;
 
 type ChoiceDetailRow = Readonly<{
-  choice_id: string;
+  option_id: string;
   code: string;
   labels: unknown;
 }>;
@@ -94,9 +94,9 @@ async function buildVersionSchema(
       ...canonicalDimensionOrder,
     ]),
   ];
-  const choiceIds = dimensionRules.flatMap((rule) => [
-    ...(rule.allowedChoiceIds ?? []),
-    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.choiceIds ?? []),
+  const optionIds = dimensionRules.flatMap((rule) => [
+    ...(rule.allowedOptionIds ?? []),
+    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
   const [dimensionNames, choiceRows] = await Promise.all([
@@ -107,17 +107,17 @@ async function buildVersionSchema(
       "name",
       dimensionIds,
     ),
-    choiceIds.length > 0
+    optionIds.length > 0
       ? db.query<ChoiceDetailRow>(
-          `SELECT choice_id, code, labels
-           FROM inventory_catalog_dimension_choices
-           WHERE choice_id = ANY($1)`,
-          [choiceIds],
+          `SELECT option_id, code, labels
+           FROM inventory_catalog_dimension_options
+           WHERE option_id = ANY($1)`,
+          [optionIds],
         ).then((result) => result.rows)
       : Promise.resolve([] as ChoiceDetailRow[]),
   ]);
 
-  const choiceMap = new Map(choiceRows.map((row) => [row.choice_id, row]));
+  const choiceMap = new Map(choiceRows.map((row) => [row.option_id, row]));
 
   return {
     canonicalDimensionOrder: canonicalDimensionOrder.map((dimensionId) => ({
@@ -130,14 +130,14 @@ async function buildVersionSchema(
       required: rule.required,
       appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
         dimensionId: clause.dimensionId,
-        choiceIds: clause.choiceIds ?? [],
+        optionIds: clause.optionIds ?? [],
       })),
-      allowedChoices: (rule.allowedChoiceIds ?? []).map((choiceId) => {
-        const detail = choiceMap.get(choiceId);
+      allowedOptions: (rule.allowedOptionIds ?? []).map((optionId) => {
+        const detail = choiceMap.get(optionId);
 
         return {
-          choiceId,
-          code: detail?.code ?? choiceId,
+          optionId,
+          code: detail?.code ?? optionId,
           labels: Array.isArray(detail?.labels) ? detail?.labels : [],
         };
       }),
@@ -150,9 +150,9 @@ async function refreshInventoryCatalogItem(
   itemId: string,
 ): Promise<void> {
   const result = await db.query<InventoryCatalogItemRow>(
-    `SELECT item_id, title, subtitle, blueprint_id, status, updated_at
+    `SELECT catalog_item_id, title, subtitle, blueprint_id, status, updated_at
      FROM inventory_catalog_items
-     WHERE item_id = $1`,
+     WHERE catalog_item_id = $1`,
     [itemId],
   );
 
@@ -161,18 +161,18 @@ async function refreshInventoryCatalogItem(
     return;
   }
 
-  const versionSchema = item.blueprint_id
+  const productSchema = item.blueprint_id
     ? await buildVersionSchema(db, item.blueprint_id)
     : null;
 
   await db.query(
     `UPDATE inventory_catalog_items
-     SET version_schema = $2,
+     SET product_schema = $2,
          updated_at = $3
-     WHERE item_id = $1`,
+     WHERE catalog_item_id = $1`,
     [
       itemId,
-      versionSchema === null ? null : JSON.stringify(versionSchema),
+      productSchema === null ? null : JSON.stringify(productSchema),
       item.updated_at,
     ],
   );
@@ -182,23 +182,23 @@ async function refreshItemsByBlueprint(
   db: PgQueryable,
   blueprintId: string,
 ): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM inventory_catalog_items WHERE blueprint_id = $1`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
   await Promise.all(
-    result.rows.map((row) => refreshInventoryCatalogItem(db, row.item_id)),
+    result.rows.map((row) => refreshInventoryCatalogItem(db, row.catalog_item_id)),
   );
 }
 
 async function refreshAllItems(db: PgQueryable): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM inventory_catalog_items ORDER BY item_id ASC`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM inventory_catalog_items ORDER BY catalog_item_id ASC`,
   );
 
   await Promise.all(
-    result.rows.map((row) => refreshInventoryCatalogItem(db, row.item_id)),
+    result.rows.map((row) => refreshInventoryCatalogItem(db, row.catalog_item_id)),
   );
 }
 
@@ -215,13 +215,13 @@ export function buildInventoryCatalogItemProjectionHandlers(
 
       await db.query(
         `INSERT INTO inventory_catalog_items (
-          item_id,
+          catalog_item_id,
           title,
           subtitle,
           status,
           updated_at
         ) VALUES ($1, $2, $3, 'draft', $4)
-        ON CONFLICT (item_id) DO UPDATE SET
+        ON CONFLICT (catalog_item_id) DO UPDATE SET
           title = EXCLUDED.title,
           subtitle = EXCLUDED.subtitle,
           updated_at = EXCLUDED.updated_at`,
@@ -238,7 +238,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
         `UPDATE inventory_catalog_items
          SET blueprint_id = $2,
              updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, blueprintId, event.timing.recordedAt],
       );
 
@@ -251,7 +251,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
         `UPDATE inventory_catalog_items
          SET status = 'active',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 
@@ -269,7 +269,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
          SET title = $2,
              subtitle = $3,
              updated_at = $4
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, title, subtitle, event.timing.recordedAt],
       );
 
@@ -282,7 +282,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
         `UPDATE inventory_catalog_items
          SET status = 'retired',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -293,7 +293,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
         `UPDATE inventory_catalog_items
          SET status = 'archived',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -358,7 +358,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
-    "catalog.blueprint.version-rules-set": async (event) => {
+    "catalog.blueprint.product-resolution-rules-set": async (event) => {
       const blueprintId = extractIdFromStreamId(
         event.streamId,
         BLUEPRINT_STREAM_PREFIX,
@@ -441,32 +441,32 @@ export function buildInventoryCatalogItemProjectionHandlers(
 
       await refreshAllItems(db);
     },
-    "catalog.dimension.choice-added": async (event) => {
+    "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(
         event.streamId,
         DIMENSION_STREAM_PREFIX,
       );
-      const { choiceId, code, labels } = event.data as {
-        choiceId: string;
+      const { optionId, code, labels } = event.data as {
+        optionId: string;
         code: string;
         labels: unknown;
       };
 
       await db.query(
-        `INSERT INTO inventory_catalog_dimension_choices (
-          choice_id,
+        `INSERT INTO inventory_catalog_dimension_options (
+          option_id,
           dimension_id,
           code,
           labels,
           updated_at
         ) VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (choice_id) DO UPDATE SET
+        ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
           labels = EXCLUDED.labels,
           updated_at = EXCLUDED.updated_at`,
         [
-          choiceId,
+          optionId,
           dimensionId,
           code,
           JSON.stringify(Array.isArray(labels) ? labels : []),
@@ -476,32 +476,32 @@ export function buildInventoryCatalogItemProjectionHandlers(
 
       await refreshAllItems(db);
     },
-    "catalog.dimension.choice-revised": async (event) => {
+    "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(
         event.streamId,
         DIMENSION_STREAM_PREFIX,
       );
-      const { choiceId, code, labels } = event.data as {
-        choiceId: string;
+      const { optionId, code, labels } = event.data as {
+        optionId: string;
         code: string;
         labels: unknown;
       };
 
       await db.query(
-        `INSERT INTO inventory_catalog_dimension_choices (
-          choice_id,
+        `INSERT INTO inventory_catalog_dimension_options (
+          option_id,
           dimension_id,
           code,
           labels,
           updated_at
         ) VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (choice_id) DO UPDATE SET
+        ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
           labels = EXCLUDED.labels,
           updated_at = EXCLUDED.updated_at`,
         [
-          choiceId,
+          optionId,
           dimensionId,
           code,
           JSON.stringify(Array.isArray(labels) ? labels : []),

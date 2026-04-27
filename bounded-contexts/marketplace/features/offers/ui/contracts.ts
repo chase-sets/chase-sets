@@ -1,12 +1,12 @@
 export interface MarketplaceOfferListItem {
   offer_id: string;
   buyer_account_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_selection: readonly { dimensionId: string; choiceId: string }[];
-  version_summary: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
   price_amount: string;
   quantity_requested: number;
   status: string;

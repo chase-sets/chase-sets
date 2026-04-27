@@ -2,21 +2,21 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceDemand, MarketplaceSupplyCandidate } from "../../domain/policies";
 
-type VersionSelectionEntry = Readonly<{
+type VersionSelectedOptionEntry = Readonly<{
   dimensionId: string;
-  choiceId: string;
+  optionId: string;
 }>;
 
 type OrderingSupplyCandidateRow = Readonly<{
   listing_id: string;
   seller_account_id: string;
   inventory_record_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string | null;
   item_subtitle: string | null;
-  version_selection: unknown;
-  version_summary: string | null;
+  selected_options: unknown;
+  product_summary: string | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -28,21 +28,21 @@ function normalizeOptionalText(value: string | null | undefined) {
   return value?.trim() ? value.trim() : null;
 }
 
-function normalizeVersionSelection(value: readonly VersionSelectionEntry[]) {
+function normalizeVersionSelection(value: readonly VersionSelectedOptionEntry[]) {
   return value
     .map((entry) => ({
       dimensionId: entry.dimensionId.trim(),
-      choiceId: entry.choiceId.trim(),
+      optionId: entry.optionId.trim(),
     }))
-    .filter((entry) => entry.dimensionId && entry.choiceId);
+    .filter((entry) => entry.dimensionId && entry.optionId);
 }
 
 export async function listOrderingSupplyCandidates(
   db: PgQueryable,
   demand: MarketplaceDemand & Readonly<{ sellerAccountId?: string }>,
 ): Promise<readonly MarketplaceSupplyCandidate[]> {
-  const normalizedSelection = normalizeVersionSelection(demand.versionSelection);
-  const values: unknown[] = [demand.catalogVersionKey.trim()];
+  const normalizedSelection = normalizeVersionSelection(demand.selectedOptions);
+  const values: unknown[] = [demand.productId.trim()];
   const sellerClause = demand.sellerAccountId
     ? "AND listing.seller_account_id = $2"
     : "";
@@ -56,12 +56,12 @@ export async function listOrderingSupplyCandidates(
        listing.listing_id,
        listing.seller_account_id,
        listing.inventory_record_id,
-       listing.catalog_item_id,
-       listing.catalog_version_key,
+       listing.catalog_catalog_item_id,
+       listing.product_id,
        listing.item_title,
        listing.item_subtitle,
-       listing.version_selection,
-       listing.version_summary,
+       listing.selected_options,
+       listing.product_summary,
        listing.storage_location_name,
        listing.ship_from_code,
        listing.price_amount::text AS price_amount,
@@ -84,7 +84,7 @@ export async function listOrderingSupplyCandidates(
      ) AS active_holds
        ON active_holds.record_id = record.record_id
      WHERE listing.status = 'active'
-       AND listing.catalog_version_key = $1
+       AND listing.product_id = $1
        ${sellerClause}
      ORDER BY
        listing.price_amount ASC,
@@ -98,14 +98,14 @@ export async function listOrderingSupplyCandidates(
       listingId: row.listing_id,
       sellerAccountId: row.seller_account_id as AccountId,
       inventoryRecordId: row.inventory_record_id,
-      catalogItemId: row.catalog_item_id,
-      catalogVersionKey: row.catalog_version_key,
+      catalogItemId: row.catalog_catalog_item_id,
+      productId: row.product_id,
       itemTitle: row.item_title ?? demand.itemTitle,
       itemSubtitle: normalizeOptionalText(row.item_subtitle ?? demand.itemSubtitle),
-      versionSelection: Array.isArray(row.version_selection)
-        ? normalizeVersionSelection(row.version_selection as VersionSelectionEntry[])
+      selectedOptions: Array.isArray(row.selected_options)
+        ? normalizeVersionSelection(row.selected_options as VersionSelectedOptionEntry[])
         : normalizedSelection,
-      versionSummary: normalizeOptionalText(row.version_summary ?? demand.versionSummary),
+      productSummary: normalizeOptionalText(row.product_summary ?? demand.productSummary),
       storageLocationName: row.storage_location_name,
       shipFromCode: row.ship_from_code,
       priceAmount: row.price_amount,

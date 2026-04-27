@@ -2,7 +2,7 @@ import type { BlueprintRef } from "../../blueprints/ui/contracts";
 import type { CategoryRef } from "../../categories/ui/contracts";
 
 export interface CatalogItemListItem {
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   blueprint: BlueprintRef | null;
@@ -12,7 +12,7 @@ export interface CatalogItemListItem {
 }
 
 export interface CatalogItemDetail {
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;

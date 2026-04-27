@@ -18,6 +18,7 @@ describe("platform host api registry", () => {
     expect(getApiHostContextNames(apiContextRegistry, "platform-api")).toEqual([
       "auth",
       "catalog",
+      "commercial-terms",
       "discovery",
       "fulfillment",
       "identity",

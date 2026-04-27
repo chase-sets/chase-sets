@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
-import type { CatalogItemId, ChoiceId, DimensionId } from "../../ids";
+import type { CatalogItemId, OptionId, DimensionId } from "../../ids";
 import {
-  resolveCatalogVersion,
-  toCatalogVersionSchema,
-  type VersionableBlueprint,
+  resolveProduct,
+  toProductSchema,
+  type ProductDefiningBlueprint,
 } from "./versioning";
 
-const itemId = "cat_charizard" as CatalogItemId;
+const catalogItemId = "cat_charizard" as CatalogItemId;
 const formDimensionId = "dim_form" as DimensionId;
 const conditionDimensionId = "dim_condition" as DimensionId;
 const gradingCompanyDimensionId = "dim_grading_company" as DimensionId;
 const gradeDimensionId = "dim_grade" as DimensionId;
 
-const rawChoiceId = "chc_form_raw" as ChoiceId;
-const gradedChoiceId = "chc_form_graded" as ChoiceId;
-const nearMintChoiceId = "chc_condition_nm" as ChoiceId;
-const psaChoiceId = "chc_company_psa" as ChoiceId;
-const gemMintChoiceId = "chc_grade_10" as ChoiceId;
+const rawOptionId = "chc_form_raw" as OptionId;
+const gradedOptionId = "chc_form_graded" as OptionId;
+const nearMintOptionId = "chc_condition_nm" as OptionId;
+const psaOptionId = "chc_company_psa" as OptionId;
+const gemMintOptionId = "chc_grade_10" as OptionId;
 
-const blueprint: VersionableBlueprint = {
+const blueprint: ProductDefiningBlueprint = {
   canonicalDimensionOrder: [
     formDimensionId,
     conditionDimensionId,
@@ -29,111 +29,111 @@ const blueprint: VersionableBlueprint = {
     {
       dimensionId: formDimensionId,
       required: true,
-      allowedChoiceIds: [rawChoiceId, gradedChoiceId],
+      allowedOptionIds: [rawOptionId, gradedOptionId],
     },
     {
       dimensionId: conditionDimensionId,
       required: true,
-      allowedChoiceIds: [nearMintChoiceId],
+      allowedOptionIds: [nearMintOptionId],
       appliesWhen: [
-        { dimensionId: formDimensionId, choiceIds: [rawChoiceId] },
+        { dimensionId: formDimensionId, optionIds: [rawOptionId] },
       ],
     },
     {
       dimensionId: gradingCompanyDimensionId,
       required: true,
-      allowedChoiceIds: [psaChoiceId],
+      allowedOptionIds: [psaOptionId],
       appliesWhen: [
-        { dimensionId: formDimensionId, choiceIds: [gradedChoiceId] },
+        { dimensionId: formDimensionId, optionIds: [gradedOptionId] },
       ],
     },
     {
       dimensionId: gradeDimensionId,
       required: true,
-      allowedChoiceIds: [gemMintChoiceId],
+      allowedOptionIds: [gemMintOptionId],
       appliesWhen: [
-        { dimensionId: formDimensionId, choiceIds: [gradedChoiceId] },
+        { dimensionId: formDimensionId, optionIds: [gradedOptionId] },
       ],
     },
   ],
 };
 
-describe("catalog versioning", () => {
-  it("resolves a raw card selection", () => {
-    const result = resolveCatalogVersion({
-      itemId,
+describe("catalog product resolution", () => {
+  it("resolves a raw card product", () => {
+    const result = resolveProduct({
+      catalogItemId,
       blueprint,
-      selection: [
-        { dimensionId: formDimensionId, choiceId: rawChoiceId },
-        { dimensionId: conditionDimensionId, choiceId: nearMintChoiceId },
+      selectedOptions: [
+        { dimensionId: formDimensionId, optionId: rawOptionId },
+        { dimensionId: conditionDimensionId, optionId: nearMintOptionId },
       ],
     });
 
-    expect(result.selection).toEqual([
-      { dimensionId: String(formDimensionId), choiceId: String(rawChoiceId) },
+    expect(result.selectedOptions).toEqual([
+      { dimensionId: String(formDimensionId), optionId: String(rawOptionId) },
       {
         dimensionId: String(conditionDimensionId),
-        choiceId: String(nearMintChoiceId),
+        optionId: String(nearMintOptionId),
       },
     ]);
-    expect(result.versionKey).toContain(`${String(gradingCompanyDimensionId)}:-`);
-    expect(result.versionKey).toContain(`${String(gradeDimensionId)}:-`);
+    expect(result.productId).toContain(`${String(gradingCompanyDimensionId)}:-`);
+    expect(result.productId).toContain(`${String(gradeDimensionId)}:-`);
   });
 
-  it("resolves a graded card selection", () => {
-    const result = resolveCatalogVersion({
-      itemId,
+  it("resolves a graded card product", () => {
+    const result = resolveProduct({
+      catalogItemId,
       blueprint,
-      selection: [
-        { dimensionId: formDimensionId, choiceId: gradedChoiceId },
-        { dimensionId: gradingCompanyDimensionId, choiceId: psaChoiceId },
-        { dimensionId: gradeDimensionId, choiceId: gemMintChoiceId },
+      selectedOptions: [
+        { dimensionId: formDimensionId, optionId: gradedOptionId },
+        { dimensionId: gradingCompanyDimensionId, optionId: psaOptionId },
+        { dimensionId: gradeDimensionId, optionId: gemMintOptionId },
       ],
     });
 
-    expect(result.selection).toEqual([
-      { dimensionId: String(formDimensionId), choiceId: String(gradedChoiceId) },
+    expect(result.selectedOptions).toEqual([
+      { dimensionId: String(formDimensionId), optionId: String(gradedOptionId) },
       {
         dimensionId: String(gradingCompanyDimensionId),
-        choiceId: String(psaChoiceId),
+        optionId: String(psaOptionId),
       },
-      { dimensionId: String(gradeDimensionId), choiceId: String(gemMintChoiceId) },
+      { dimensionId: String(gradeDimensionId), optionId: String(gemMintOptionId) },
     ]);
-    expect(result.versionKey).toContain(`${String(conditionDimensionId)}:-`);
+    expect(result.productId).toContain(`${String(conditionDimensionId)}:-`);
   });
 
-  it("rejects missing required dimensions for the active form", () => {
+  it("rejects missing required dimensions for the active product form", () => {
     expect(() =>
-      resolveCatalogVersion({
-        itemId,
+      resolveProduct({
+        catalogItemId,
         blueprint,
-        selection: [{ dimensionId: formDimensionId, choiceId: gradedChoiceId }],
+        selectedOptions: [{ dimensionId: formDimensionId, optionId: gradedOptionId }],
       }),
     ).toThrowError("Selections must include every required dimension.");
   });
 
-  it("rejects inactive dimensions in a selection", () => {
+  it("rejects inactive dimensions in a product selection", () => {
     expect(() =>
-      resolveCatalogVersion({
-        itemId,
+      resolveProduct({
+        catalogItemId,
         blueprint,
-        selection: [
-          { dimensionId: formDimensionId, choiceId: rawChoiceId },
-          { dimensionId: conditionDimensionId, choiceId: nearMintChoiceId },
-          { dimensionId: gradeDimensionId, choiceId: gemMintChoiceId },
+        selectedOptions: [
+          { dimensionId: formDimensionId, optionId: rawOptionId },
+          { dimensionId: conditionDimensionId, optionId: nearMintOptionId },
+          { dimensionId: gradeDimensionId, optionId: gemMintOptionId },
         ],
       }),
     ).toThrowError("Selections cannot include inactive dimensions.");
   });
 
   it("includes appliesWhen in the exported schema", () => {
-    const schema = toCatalogVersionSchema(blueprint);
+    const schema = toProductSchema(blueprint);
     expect(schema.dimensions.find((dimension) => dimension.dimensionId === String(conditionDimensionId)))
       .toMatchObject({
         appliesWhen: [
           {
             dimensionId: String(formDimensionId),
-            choiceIds: [String(rawChoiceId)],
+            optionIds: [String(rawOptionId)],
           },
         ],
       });

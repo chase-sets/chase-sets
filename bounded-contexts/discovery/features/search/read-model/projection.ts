@@ -10,7 +10,7 @@ const CATEGORY_STREAM_PREFIX = "catalog.category-";
 type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 
 type SearchCatalogItemRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -60,14 +60,14 @@ async function loadNameMap(
 
 async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<SearchCatalogItemRow>(
-    `SELECT * FROM discovery_search_catalog_items WHERE item_id = $1`,
+    `SELECT * FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
     [itemId],
   );
 
   const item = result.rows[0];
 
   if (!item) {
-    await db.query(`DELETE FROM discovery_search_items WHERE item_id = $1`, [itemId]);
+    await db.query(`DELETE FROM discovery_search_items WHERE catalog_item_id = $1`, [itemId]);
     return;
   }
 
@@ -81,7 +81,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
     await db.query(
       `UPDATE discovery_search_catalog_items
        SET category_ids = $2
-       WHERE item_id = $1`,
+       WHERE catalog_item_id = $1`,
       [itemId, JSON.stringify(categoryIds)],
     );
   }
@@ -128,7 +128,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
 
   await db.query(
     `INSERT INTO discovery_search_items (
-      item_id,
+      catalog_item_id,
       title,
       subtitle,
       description,
@@ -143,7 +143,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       search_text_simple,
       updated_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_tsvector('english', $12), to_tsvector('simple', $13), $14)
-    ON CONFLICT (item_id) DO UPDATE SET
+    ON CONFLICT (catalog_item_id) DO UPDATE SET
       title = EXCLUDED.title,
       subtitle = EXCLUDED.subtitle,
       description = EXCLUDED.description,
@@ -158,7 +158,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       search_text_simple = EXCLUDED.search_text_simple,
       updated_at = EXCLUDED.updated_at`,
     [
-      item.item_id,
+      item.catalog_item_id,
       item.title,
       item.subtitle,
       item.description,
@@ -179,31 +179,31 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
   await db.query(`TRUNCATE discovery_search_items`);
 
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM discovery_search_catalog_items ORDER BY item_id ASC`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM discovery_search_catalog_items ORDER BY catalog_item_id ASC`,
   );
 
   for (const row of result.rows) {
-    await refreshDiscoverySearchItem(db, row.item_id);
+    await refreshDiscoverySearchItem(db, row.catalog_item_id);
   }
 }
 
 async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM discovery_search_catalog_items WHERE blueprint_id = $1`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM discovery_search_catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
-  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.item_id)));
+  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
 }
 
 async function refreshItemsByCategory(db: PgQueryable, categoryId: string): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM discovery_search_catalog_items WHERE category_ids @> $1::jsonb`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM discovery_search_catalog_items WHERE category_ids @> $1::jsonb`,
     [JSON.stringify([categoryId])],
   );
 
-  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.item_id)));
+  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
 }
 
 export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -218,14 +218,14 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
 
       await db.query(
         `INSERT INTO discovery_search_catalog_items (
-          item_id,
+          catalog_item_id,
           title,
           subtitle,
           description,
           status,
           updated_at
         ) VALUES ($1, $2, $3, $4, 'draft', $5)
-        ON CONFLICT (item_id) DO UPDATE SET
+        ON CONFLICT (catalog_item_id) DO UPDATE SET
           title = EXCLUDED.title,
           subtitle = EXCLUDED.subtitle,
           description = EXCLUDED.description,
@@ -242,7 +242,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_search_catalog_items
          SET blueprint_id = $2, updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, blueprintId, event.timing.recordedAt],
       );
 
@@ -260,7 +260,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
            WHERE field_value->>'fieldId' != $2
          ) || $3::jsonb,
          updated_at = $4
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, fieldId, JSON.stringify([{ fieldId, value }]), event.timing.recordedAt],
       );
 
@@ -278,7 +278,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
            WHERE field_value->>'fieldId' != $2
          ),
          updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, fieldId, event.timing.recordedAt],
       );
 
@@ -295,7 +295,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
                ELSE category_ids || $2::jsonb
              END,
          updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
       );
 
@@ -313,7 +313,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
            WHERE category_id #>> '{}' != $2
          ),
          updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, categoryId, event.timing.recordedAt],
       );
 
@@ -325,7 +325,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_search_catalog_items
          SET status = 'active', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 
@@ -345,7 +345,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
              subtitle = $3,
              description = $4,
              updated_at = $5
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
       );
 
@@ -359,7 +359,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         `UPDATE discovery_search_catalog_items
          SET tags = $2,
              updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify(tags), event.timing.recordedAt],
       );
 
@@ -373,7 +373,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         `UPDATE discovery_search_catalog_items
          SET image_urls = $2,
              updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
       );
 
@@ -385,7 +385,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_search_catalog_items
          SET status = 'retired', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 
@@ -397,7 +397,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_search_catalog_items
          SET status = 'archived', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 

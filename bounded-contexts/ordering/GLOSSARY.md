@@ -8,8 +8,8 @@ A **Cart** is the buyer's in-progress checkout state before one or more orders a
 
 Notes:
 
-- Cart lines capture buyer intent for a sellable unit.
-- Cart lines reference one `CatalogItemId`, one `CatalogVersionKey`, and one normalized selection snapshot.
+- Cart lines capture buyer intent for a product.
+- Cart lines reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - Concrete listing and inventory matching happen when checkout commits.
 
 ## Order
@@ -23,12 +23,12 @@ Notes:
 
 ## Order Line
 
-An **Order Line** is a committed sellable unit, quantity, and price snapshot captured on an order.
+An **Order Line** is a committed product, quantity, and price snapshot captured on an order.
 
 Notes:
 
-- Order lines reference one `CatalogItemId`, one `CatalogVersionKey`, and one normalized selection snapshot.
-- If condition matters for the item, it appears only through the selected version dimensions.
+- Order lines reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
+- If condition matters for the item, it appears only through the selected product dimensions.
 
 ## Commercial Terms Snapshot
 

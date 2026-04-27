@@ -57,7 +57,7 @@ export function MarketplaceListingDetailPage({
     <Page>
       <PageHeader
         eyebrow="Seller"
-        title={listing.item_title ?? listing.catalog_item_id}
+        title={listing.item_title ?? listing.catalog_catalog_item_id}
         description="Manage seller listing pricing, quantity caps, and publication state."
         actions={
           <LinkButton href="/account/listings" tone="secondary">
@@ -78,9 +78,9 @@ export function MarketplaceListingDetailPage({
             {listing.item_subtitle ? (
               <Text tone="secondary">{listing.item_subtitle}</Text>
             ) : null}
-            {listing.version_summary ? (
+            {listing.product_summary ? (
               <Text size="sm" tone="secondary">
-                {listing.version_summary}
+                {listing.product_summary}
               </Text>
             ) : null}
             <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>

@@ -31,11 +31,11 @@ export function buildOrderingOrderProjectionHandlers(
           listingId: string;
           inventoryRecordId: string;
           catalogItemId: string;
-          catalogVersionKey: string;
+          productId: string;
           itemTitle: string;
           itemSubtitle: string | null;
-          versionSelection: unknown;
-          versionSummary: string | null;
+          selectedOptions: unknown;
+          productSummary: string | null;
           unitPriceAmount: string;
           quantity: number;
           lineTotalAmount: string;
@@ -130,12 +130,12 @@ export function buildOrderingOrderProjectionHandlers(
              line_index,
              listing_id,
              inventory_record_id,
-             catalog_item_id,
-             catalog_version_key,
+             catalog_catalog_item_id,
+             product_id,
              item_title,
              item_subtitle,
-             version_selection,
-             version_summary,
+             selected_options,
+             product_summary,
              unit_price_amount,
              quantity,
              line_total_amount
@@ -146,12 +146,12 @@ export function buildOrderingOrderProjectionHandlers(
            SET line_index = EXCLUDED.line_index,
                listing_id = EXCLUDED.listing_id,
                inventory_record_id = EXCLUDED.inventory_record_id,
-               catalog_item_id = EXCLUDED.catalog_item_id,
-               catalog_version_key = EXCLUDED.catalog_version_key,
+               catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+               product_id = EXCLUDED.product_id,
                item_title = EXCLUDED.item_title,
                item_subtitle = EXCLUDED.item_subtitle,
-               version_selection = EXCLUDED.version_selection,
-               version_summary = EXCLUDED.version_summary,
+               selected_options = EXCLUDED.selected_options,
+               product_summary = EXCLUDED.product_summary,
                unit_price_amount = EXCLUDED.unit_price_amount,
                quantity = EXCLUDED.quantity,
                line_total_amount = EXCLUDED.line_total_amount`,
@@ -162,11 +162,11 @@ export function buildOrderingOrderProjectionHandlers(
             line.listingId,
             line.inventoryRecordId,
             line.catalogItemId,
-            line.catalogVersionKey,
+            line.productId,
             line.itemTitle,
             line.itemSubtitle,
-            JSON.stringify(Array.isArray(line.versionSelection) ? line.versionSelection : []),
-            line.versionSummary,
+            JSON.stringify(Array.isArray(line.selectedOptions) ? line.selectedOptions : []),
+            line.productSummary,
             line.unitPriceAmount,
             line.quantity,
             line.lineTotalAmount,

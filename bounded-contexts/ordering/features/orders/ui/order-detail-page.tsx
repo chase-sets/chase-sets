@@ -121,7 +121,7 @@ export function OrderingOrderDetailPage({
                   </Text>
                 ) : null}
                 <Text size="sm" tone="secondary">
-                  {line.version_summary ?? "Standard"}
+                  {line.product_summary ?? "Standard"}
                 </Text>
                 <Text>
                   {line.quantity} x {formatMoney(line.unit_price_amount)} ={" "}

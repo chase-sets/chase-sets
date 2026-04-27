@@ -60,26 +60,26 @@ export async function seedComponents(
       type: "CreateComponent",
       componentId,
       key: "single-card-versioning",
-      name: "Single Card Versioning",
-      description: "Version-forming rules for raw and graded card variants",
+      name: "Single Card Product Resolution",
+      description: "Product-resolution rules for raw and graded card variants",
     });
 
     await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "AddDimensionRuleToComponent",
       dimensionId: formDimension.dimensionId,
       required: true,
-      allowedChoiceIds: Object.values(formDimension.choiceIds),
+      allowedOptionIds: Object.values(formDimension.optionIds),
     });
 
     await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "AddDimensionRuleToComponent",
       dimensionId: dimensions.condition.dimensionId,
       required: true,
-      allowedChoiceIds: Object.values(dimensions.condition.choiceIds),
+      allowedOptionIds: Object.values(dimensions.condition.optionIds),
       appliesWhen: [
         {
           dimensionId: formDimension.dimensionId,
-          choiceIds: [formDimension.choiceIds.raw],
+          optionIds: [formDimension.optionIds.raw],
         },
       ],
     });
@@ -90,11 +90,11 @@ export async function seedComponents(
         type: "AddDimensionRuleToComponent",
         dimensionId: dimension.dimensionId,
         required: true,
-        allowedChoiceIds: Object.values(dimension.choiceIds),
+        allowedOptionIds: Object.values(dimension.optionIds),
         appliesWhen: [
           {
             dimensionId: formDimension.dimensionId,
-            choiceIds: [formDimension.choiceIds.graded],
+            optionIds: [formDimension.optionIds.graded],
           },
         ],
       });
@@ -143,5 +143,4 @@ export async function seedComponents(
 
   return result;
 }
-
 

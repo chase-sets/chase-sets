@@ -32,24 +32,24 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   error: null,
 } as const;
 
-function parseVersionSelection(value: FormDataEntryValue | null) {
+function parseSelectedOptions(value: FormDataEntryValue | null) {
   try {
     const parsed = JSON.parse(String(value ?? "[]"));
 
     return Array.isArray(parsed)
       ? parsed
           .filter(
-            (selection): selection is { dimensionId: string; choiceId: string } =>
+            (selection): selection is { dimensionId: string; optionId: string } =>
               Boolean(
                 selection &&
                 typeof selection === "object" &&
                 "dimensionId" in selection &&
-                "choiceId" in selection,
+                "optionId" in selection,
               ),
           )
           .map((selection) => ({
             dimensionId: String(selection.dimensionId ?? ""),
-            choiceId: String(selection.choiceId ?? ""),
+            optionId: String(selection.optionId ?? ""),
           }))
       : [];
   } catch {
@@ -59,18 +59,18 @@ function parseVersionSelection(value: FormDataEntryValue | null) {
 
 function MarketplaceOfferSubmissionSection({
   catalogItemId,
-  catalogVersionKey,
+  productId,
   itemTitle,
-  versionSelection,
-  versionSummary,
+  selectedOptions,
+  productSummary,
   visibleListingCount,
   errorMessage,
 }: {
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  versionSummary: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
   visibleListingCount: number;
   errorMessage?: string | null;
 }) {
@@ -81,20 +81,20 @@ function MarketplaceOfferSubmissionSection({
           <Stack gap={3}>
             <input type="hidden" name="intent" value="submit-offer" />
             <input type="hidden" name="catalogItemId" value={catalogItemId} />
-            <input type="hidden" name="catalogVersionKey" value={catalogVersionKey} />
+            <input type="hidden" name="productId" value={productId} />
             <input
               type="hidden"
-              name="versionSelection"
-              value={JSON.stringify(versionSelection)}
+              name="selectedOptions"
+              value={JSON.stringify(selectedOptions)}
             />
-            <input type="hidden" name="versionSummary" value={versionSummary ?? ""} />
+            <input type="hidden" name="productSummary" value={productSummary ?? ""} />
             <Stack gap={1}>
               <Text weight="semibold">{itemTitle}</Text>
               <Text size="sm" tone="secondary">
-                {versionSummary ?? "Standard version"}
+                {productSummary ?? "Standard product"}
               </Text>
               <Text size="sm" tone="secondary">
-                Matching visible listings for this version: {visibleListingCount}
+                Matching visible listings for this product: {visibleListingCount}
               </Text>
               <Text size="sm" tone="secondary">
                 Offers are marketplace-wide in v1. They are not sent to a single seller.
@@ -119,18 +119,18 @@ function MarketplaceOfferSubmissionSection({
 
 function OrderingAddToCartSection({
   catalogItemId,
-  catalogVersionKey,
+  productId,
   itemTitle,
-  versionSelection,
-  versionSummary,
+  selectedOptions,
+  productSummary,
   visibleListingCount,
   errorMessage,
 }: {
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  versionSummary: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
   visibleListingCount: number;
   errorMessage?: string | null;
 }) {
@@ -141,17 +141,17 @@ function OrderingAddToCartSection({
           <Stack gap={3}>
             <input type="hidden" name="intent" value="add-to-cart" />
             <input type="hidden" name="catalogItemId" value={catalogItemId} />
-            <input type="hidden" name="catalogVersionKey" value={catalogVersionKey} />
+            <input type="hidden" name="productId" value={productId} />
             <input
               type="hidden"
-              name="versionSelection"
-              value={JSON.stringify(versionSelection)}
+              name="selectedOptions"
+              value={JSON.stringify(selectedOptions)}
             />
-            <input type="hidden" name="versionSummary" value={versionSummary ?? ""} />
+            <input type="hidden" name="productSummary" value={productSummary ?? ""} />
             <Stack gap={1}>
               <Text weight="semibold">{itemTitle}</Text>
               <Text size="sm" tone="secondary">
-                {versionSummary ?? "Standard version"}
+                {productSummary ?? "Standard product"}
               </Text>
               <Text size="sm" tone="secondary">
                 Matching visible listings right now: {visibleListingCount}
@@ -226,12 +226,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const item = await discoveryApi.getItemDetail(params.id!);
 
       await marketplaceApi.createBuyerOffer({
-        catalogItemId: item.item_id,
-        catalogVersionKey: String(formData.get("catalogVersionKey") ?? ""),
+        catalogItemId: item.catalog_item_id,
+        productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
-        versionSelection: parseVersionSelection(formData.get("versionSelection")),
-        versionSummary: String(formData.get("versionSummary") ?? "") || null,
+        selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+        productSummary: String(formData.get("productSummary") ?? "") || null,
         priceAmount: formData.get("priceAmount"),
         quantityRequested: Number(formData.get("quantityRequested") ?? 0),
       });
@@ -247,12 +247,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const item = await discoveryApi.getItemDetail(params.id!);
 
       await orderingApi.addCartLine({
-        catalogItemId: item.item_id,
-        catalogVersionKey: String(formData.get("catalogVersionKey") ?? ""),
+        catalogItemId: item.catalog_item_id,
+        productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
-        versionSelection: parseVersionSelection(formData.get("versionSelection")),
-        versionSummary: String(formData.get("versionSummary") ?? "") || null,
+        selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+        productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity: Number(formData.get("quantity") ?? 0),
       });
 
@@ -298,19 +298,19 @@ export default function DiscoveryItemDetailRoute() {
               <>
                 <OrderingAddToCartSection
                   catalogItemId={context.itemId}
-                  catalogVersionKey={context.selectedCatalogVersionKey}
+                  productId={context.selectedProductId}
                   itemTitle={context.itemTitle}
-                  versionSelection={context.selectedVersionSelection}
-                  versionSummary={context.selectedVersionSummary}
+                  selectedOptions={context.selectedVersionSelection}
+                  productSummary={context.selectedVersionSummary}
                   visibleListingCount={context.visibleListings.length}
                   errorMessage={actionData?.error ?? null}
                 />
                 <MarketplaceOfferSubmissionSection
                   catalogItemId={context.itemId}
-                  catalogVersionKey={context.selectedCatalogVersionKey}
+                  productId={context.selectedProductId}
                   itemTitle={context.itemTitle}
-                  versionSelection={context.selectedVersionSelection}
-                  versionSummary={context.selectedVersionSummary}
+                  selectedOptions={context.selectedVersionSelection}
+                  productSummary={context.selectedVersionSummary}
                   visibleListingCount={context.visibleListings.length}
                   errorMessage={actionData?.error ?? null}
                 />

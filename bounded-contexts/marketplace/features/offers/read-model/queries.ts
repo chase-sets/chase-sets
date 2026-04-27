@@ -3,12 +3,12 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 export type MarketplaceOfferListRow = Readonly<{
   offer_id: string;
   buyer_account_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_selection: readonly { dimensionId: string; choiceId: string }[];
-  version_summary: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
   price_amount: string;
   quantity_requested: number;
   status: string;
@@ -26,12 +26,12 @@ export type MarketplaceSellerOfferRow = MarketplaceOfferListRow &
 type MarketplaceOfferPageRow = Readonly<{
   offer_id: string;
   buyer_account_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_selection: unknown;
-  version_summary: string | null;
+  selected_options: unknown;
+  product_summary: string | null;
   price_amount: string;
   quantity_requested: number;
   status: string;
@@ -44,8 +44,8 @@ type MarketplaceOfferPageRow = Readonly<{
 function mapOfferRow(row: MarketplaceOfferPageRow): MarketplaceOfferListRow {
   return {
     ...row,
-    version_selection: Array.isArray(row.version_selection)
-      ? (row.version_selection as MarketplaceOfferListRow["version_selection"])
+    selected_options: Array.isArray(row.selected_options)
+      ? (row.selected_options as MarketplaceOfferListRow["selected_options"])
       : [],
   };
 }
@@ -59,7 +59,7 @@ const sellerVisibilitySql = `
       FROM marketplace_listing_pages AS listing
       WHERE listing.account_id = $1
         AND listing.status = 'active'
-        AND listing.catalog_version_key = offer.catalog_version_key
+        AND listing.product_id = offer.product_id
     )
   )
   OR (

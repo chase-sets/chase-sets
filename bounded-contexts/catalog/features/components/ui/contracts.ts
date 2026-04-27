@@ -1,4 +1,4 @@
-import type { ChoiceRef } from "../../dimensions/ui/contracts";
+import type { OptionRef } from "../../dimensions/ui/contracts";
 
 export interface Component {
   component_id: string;
@@ -10,8 +10,8 @@ export interface Component {
   dimension_rules: Array<{
     dimensionId: string;
     required: boolean;
-    allowedChoiceIds: string[];
-    appliesWhen: Array<{ dimensionId: string; choiceIds: string[] }>;
+    allowedOptionIds: string[];
+    appliesWhen: Array<{ dimensionId: string; optionIds: string[] }>;
   }>;
   updated_at: string;
 }
@@ -27,12 +27,12 @@ export interface ComponentDetail {
     dimensionId: string;
     dimensionName: string;
     required: boolean;
-    allowedChoices: ChoiceRef[];
+    allowedOptions: OptionRef[];
     appliesWhen: Array<{
       dimensionId: string;
       dimensionName: string;
-      choiceIds: string[];
-      choices: ChoiceRef[];
+      optionIds: string[];
+      options: OptionRef[];
     }>;
   }>;
   updated_at: string;

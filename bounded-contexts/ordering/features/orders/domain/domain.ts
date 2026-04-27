@@ -17,7 +17,7 @@ import {
   type OrderSourceType,
   type OrderStatus,
   type ShippingOption,
-  type VersionSelectionEntry,
+  type VersionSelectedOptionEntry,
 } from "../../../support/runtime-support/common";
 
 export type OrderingOrderLine = Readonly<{
@@ -25,11 +25,11 @@ export type OrderingOrderLine = Readonly<{
   listingId: string;
   inventoryRecordId: string;
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSelection: VersionSelectionEntry[];
-  versionSummary: string | null;
+  selectedOptions: VersionSelectedOptionEntry[];
+  productSummary: string | null;
   unitPriceAmount: string;
   quantity: number;
   lineTotalAmount: string;
@@ -270,17 +270,17 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
       line.catalogItemId,
       "Order lines must reference a catalog item.",
     ),
-    catalogVersionKey: normalizeRequiredText(
-      String(line.catalogVersionKey),
-      "Order lines must reference a catalog version key.",
+    productId: normalizeRequiredText(
+      String(line.productId),
+      "Order lines must reference a product id.",
     ),
     itemTitle: normalizeRequiredText(
       line.itemTitle,
       "Order lines must include an item title snapshot.",
     ),
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
-    versionSelection: normalizeVersionSelection(line.versionSelection),
-    versionSummary: normalizeOptionalText(line.versionSummary),
+    selectedOptions: normalizeVersionSelection(line.selectedOptions),
+    productSummary: normalizeOptionalText(line.productSummary),
     unitPriceAmount: normalizeMoneyAmount(line.unitPriceAmount, {
       fieldName: "Unit price",
     }),

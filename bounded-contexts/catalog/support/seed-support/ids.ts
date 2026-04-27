@@ -2,7 +2,7 @@ import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
 
 export type SeedCatalogItemId = TypedUlid<"cat">;
 export type SeedDimensionId = TypedUlid<"dim">;
-export type SeedChoiceId = TypedUlid<"chc">;
+export type SeedOptionId = TypedUlid<"chc">;
 export type SeedFieldId = TypedUlid<"fld">;
 export type SeedComponentId = TypedUlid<"cmp">;
 export type SeedBlueprintId = TypedUlid<"bpr">;
@@ -12,50 +12,50 @@ export const catalogSeedIds = {
   dimensions: {
     form: {
       dimensionId: "dim_seed_form" as SeedDimensionId,
-      choiceIds: {
-        raw: "chc_seed_form_raw" as SeedChoiceId,
-        graded: "chc_seed_form_graded" as SeedChoiceId,
+      optionIds: {
+        raw: "chc_seed_form_raw" as SeedOptionId,
+        graded: "chc_seed_form_graded" as SeedOptionId,
       },
     },
     condition: {
       dimensionId: "dim_seed_condition" as SeedDimensionId,
-      choiceIds: {
-        pristine: "chc_seed_condition_pristine" as SeedChoiceId,
-        mint: "chc_seed_condition_mint" as SeedChoiceId,
-        nearMint: "chc_seed_condition_near_mint" as SeedChoiceId,
-        excellent: "chc_seed_condition_excellent" as SeedChoiceId,
-        good: "chc_seed_condition_good" as SeedChoiceId,
-        poor: "chc_seed_condition_poor" as SeedChoiceId,
-        damaged: "chc_seed_condition_damaged" as SeedChoiceId,
+      optionIds: {
+        pristine: "chc_seed_condition_pristine" as SeedOptionId,
+        mint: "chc_seed_condition_mint" as SeedOptionId,
+        nearMint: "chc_seed_condition_near_mint" as SeedOptionId,
+        excellent: "chc_seed_condition_excellent" as SeedOptionId,
+        good: "chc_seed_condition_good" as SeedOptionId,
+        poor: "chc_seed_condition_poor" as SeedOptionId,
+        damaged: "chc_seed_condition_damaged" as SeedOptionId,
       },
     },
     gradingCompany: {
       dimensionId: "dim_seed_grading_company" as SeedDimensionId,
-      choiceIds: {
-        psa: "chc_seed_grading_company_psa" as SeedChoiceId,
-        bgs: "chc_seed_grading_company_bgs" as SeedChoiceId,
-        cgc: "chc_seed_grading_company_cgc" as SeedChoiceId,
-        sgc: "chc_seed_grading_company_sgc" as SeedChoiceId,
-        ace: "chc_seed_grading_company_ace" as SeedChoiceId,
-        tag: "chc_seed_grading_company_tag" as SeedChoiceId,
+      optionIds: {
+        psa: "chc_seed_grading_company_psa" as SeedOptionId,
+        bgs: "chc_seed_grading_company_bgs" as SeedOptionId,
+        cgc: "chc_seed_grading_company_cgc" as SeedOptionId,
+        sgc: "chc_seed_grading_company_sgc" as SeedOptionId,
+        ace: "chc_seed_grading_company_ace" as SeedOptionId,
+        tag: "chc_seed_grading_company_tag" as SeedOptionId,
       },
     },
     grade: {
       dimensionId: "dim_seed_grade" as SeedDimensionId,
-      choiceIds: {
-        pristine10: "chc_seed_grade_pristine_10" as SeedChoiceId,
-        gemMint10: "chc_seed_grade_gem_mint_10" as SeedChoiceId,
-        mint95: "chc_seed_grade_mint_95" as SeedChoiceId,
-        mint9: "chc_seed_grade_mint_9" as SeedChoiceId,
-        nmMt85: "chc_seed_grade_nm_mt_85" as SeedChoiceId,
-        nmMt8: "chc_seed_grade_nm_mt_8" as SeedChoiceId,
-        nm7: "chc_seed_grade_nm_7" as SeedChoiceId,
-        ex6: "chc_seed_grade_ex_6" as SeedChoiceId,
-        ex5: "chc_seed_grade_ex_5" as SeedChoiceId,
-        vg4: "chc_seed_grade_vg_4" as SeedChoiceId,
-        good3: "chc_seed_grade_good_3" as SeedChoiceId,
-        good2: "chc_seed_grade_good_2" as SeedChoiceId,
-        poor1: "chc_seed_grade_poor_1" as SeedChoiceId,
+      optionIds: {
+        pristine10: "chc_seed_grade_pristine_10" as SeedOptionId,
+        gemMint10: "chc_seed_grade_gem_mint_10" as SeedOptionId,
+        mint95: "chc_seed_grade_mint_95" as SeedOptionId,
+        mint9: "chc_seed_grade_mint_9" as SeedOptionId,
+        nmMt85: "chc_seed_grade_nm_mt_85" as SeedOptionId,
+        nmMt8: "chc_seed_grade_nm_mt_8" as SeedOptionId,
+        nm7: "chc_seed_grade_nm_7" as SeedOptionId,
+        ex6: "chc_seed_grade_ex_6" as SeedOptionId,
+        ex5: "chc_seed_grade_ex_5" as SeedOptionId,
+        vg4: "chc_seed_grade_vg_4" as SeedOptionId,
+        good3: "chc_seed_grade_good_3" as SeedOptionId,
+        good2: "chc_seed_grade_good_2" as SeedOptionId,
+        poor1: "chc_seed_grade_poor_1" as SeedOptionId,
       },
     },
   },

@@ -4,7 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { AccountId, InventoryRecordId } from "@chase-sets/primitives/typed-ids";
-import type { InventoryVersionSelectionEntry } from "../integrations/catalog/versioning";
+import type { InventorySelectedOptionEntry } from "../integrations/catalog/versioning";
 import {
   assert,
   assertNever,
@@ -17,8 +17,8 @@ export type InventoryRecordState = Readonly<{
   id: InventoryRecordId | null;
   accountId: AccountId | null;
   catalogItemId: string | null;
-  catalogVersionKey: string | null;
-  versionSelection: readonly InventoryVersionSelectionEntry[];
+  productId: string | null;
+  selectedOptions: readonly InventorySelectedOptionEntry[];
   storageLocationId: string | null;
   totalQuantity: number;
   acquisitionCostAmount: string | null;
@@ -28,8 +28,8 @@ export const initialInventoryRecordState: InventoryRecordState = {
   id: null,
   accountId: null,
   catalogItemId: null,
-  catalogVersionKey: null,
-  versionSelection: [],
+  productId: null,
+  selectedOptions: [],
   storageLocationId: null,
   totalQuantity: 0,
   acquisitionCostAmount: null,
@@ -40,8 +40,8 @@ export type CreateInventoryRecordCommand = Readonly<{
   recordId: InventoryRecordId;
   accountId: AccountId;
   catalogItemId: string;
-  catalogVersionKey: string;
-  versionSelection?: readonly InventoryVersionSelectionEntry[];
+  productId: string;
+  selectedOptions?: readonly InventorySelectedOptionEntry[];
   storageLocationId: string;
   totalQuantity: number;
   acquisitionCostAmount?: string | null;
@@ -63,8 +63,8 @@ export type InventoryRecordCreatedEvent = DomainEvent<
     recordId: InventoryRecordId;
     accountId: AccountId;
     catalogItemId: string;
-    catalogVersionKey: string;
-    versionSelection: InventoryVersionSelectionEntry[];
+    productId: string;
+    selectedOptions: InventorySelectedOptionEntry[];
     storageLocationId: string;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
@@ -103,10 +103,10 @@ export const decideInventoryRecord: AggregateDecider<
             recordId: command.recordId,
             accountId: command.accountId,
             catalogItemId: normalizeLabel(command.catalogItemId),
-            catalogVersionKey: command.catalogVersionKey,
-            versionSelection: (command.versionSelection ?? []).map((entry) => ({
+            productId: command.productId,
+            selectedOptions: (command.selectedOptions ?? []).map((entry) => ({
               dimensionId: normalizeLabel(entry.dimensionId),
-              choiceId: normalizeLabel(entry.choiceId),
+              optionId: normalizeLabel(entry.optionId),
             })),
             storageLocationId: normalizeLabel(command.storageLocationId),
             totalQuantity: command.totalQuantity,
@@ -150,8 +150,8 @@ export const evolveInventoryRecord: AggregateEvolver<
         id: event.data.recordId,
         accountId: event.data.accountId,
         catalogItemId: event.data.catalogItemId,
-        catalogVersionKey: event.data.catalogVersionKey,
-        versionSelection: event.data.versionSelection,
+        productId: event.data.productId,
+        selectedOptions: event.data.selectedOptions,
         storageLocationId: event.data.storageLocationId,
         totalQuantity: event.data.totalQuantity,
         acquisitionCostAmount: event.data.acquisitionCostAmount,

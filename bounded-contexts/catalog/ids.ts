@@ -4,7 +4,7 @@ export type CatalogItemId = TypedUlid<"cat">;
 
 export type DimensionId = TypedUlid<"dim">;
 
-export type ChoiceId = TypedUlid<"chc">;
+export type OptionId = TypedUlid<"chc">;
 
 export type FieldId = TypedUlid<"fld">;
 
@@ -14,8 +14,7 @@ export type BlueprintId = TypedUlid<"bpr">;
 
 export type CategoryId = TypedUlid<"ctg">;
 
-export type SelectionEntry = Readonly<{
+export type SelectedOptionEntry = Readonly<{
   dimensionId: DimensionId;
-  choiceId: ChoiceId;
+  optionId: OptionId;
 }>;
-

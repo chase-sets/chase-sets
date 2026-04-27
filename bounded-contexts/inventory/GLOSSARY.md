@@ -4,14 +4,14 @@ This glossary defines the canonical terminology for the Inventory bounded contex
 
 ## Inventory Record
 
-An **Inventory Record** is a seller's stock for one specific sellable unit and storage location.
+An **Inventory Record** is a seller's stock for one specific product and storage location.
 
 Notes:
 
 - Every inventory record belongs to exactly one seller account.
-- Every inventory record references one `CatalogItemId`, one `CatalogVersionKey`, and one normalized version selection snapshot.
+- Every inventory record references one `CatalogItemId`, one `ProductId`, and one normalized selected-options snapshot.
 - Every inventory record belongs to exactly one storage location.
-- If condition matters for the item, it is part of the selected dimensions for that sellable unit.
+- If condition matters for the item, it is part of the selected dimensions for that product.
 - Marketplace may reference inventory availability, but Inventory owns the stock truth.
 
 ## Total Quantity

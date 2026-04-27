@@ -42,7 +42,7 @@ describe("CatalogItem aggregate", () => {
   describe("decideCatalogItem", () => {
     it("creates an item", () => {
       const events = decide(decideCatalogItem, initialCatalogItemState, {
-        type: "CreateItem" as const,
+        type: "CreateCatalogItem" as const,
         itemId,
         title: "Test Card",
         subtitle: "Subtitle",
@@ -54,14 +54,14 @@ describe("CatalogItem aggregate", () => {
 
     it("rejects creating twice", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, createdState(), { type: "CreateItem" as const, itemId: "other" as CatalogItemId, title: "X" }),
+        () => decide(decideCatalogItem, createdState(), { type: "CreateCatalogItem" as const, itemId: "other" as CatalogItemId, title: "X" }),
         "Catalog item has already been created.",
       );
     });
 
     it("assigns a blueprint while draft", () => {
       const events = decide(decideCatalogItem, createdState(), {
-        type: "AssignBlueprintToItem" as const,
+        type: "AssignBlueprintToCatalogItem" as const,
         blueprintId: bpId,
       });
 
@@ -70,14 +70,14 @@ describe("CatalogItem aggregate", () => {
 
     it("rejects blueprint assignment after publish", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, activeState(), { type: "AssignBlueprintToItem" as const, blueprintId: "bpr_other" as BlueprintId }),
+        () => decide(decideCatalogItem, activeState(), { type: "AssignBlueprintToCatalogItem" as const, blueprintId: "bpr_other" as BlueprintId }),
         "Blueprint may only be assigned while draft.",
       );
     });
 
     it("sets a field value", () => {
       const events = decide(decideCatalogItem, createdState(), {
-        type: "SetItemFieldValue" as const,
+        type: "SetCatalogItemFieldValue" as const,
         fieldId: fieldA,
         value: "Red",
       });
@@ -90,21 +90,21 @@ describe("CatalogItem aggregate", () => {
         { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },
       ] as CatalogItemEvent[]);
 
-      const events = decide(decideCatalogItem, state, { type: "ClearItemFieldValue" as const, fieldId: fieldA });
+      const events = decide(decideCatalogItem, state, { type: "ClearCatalogItemFieldValue" as const, fieldId: fieldA });
 
       expect(events[0].type).toBe("catalog.catalog-item.field-value-cleared");
     });
 
     it("rejects clearing a non-existent field value", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, createdState(), { type: "ClearItemFieldValue" as const, fieldId: fieldA }),
+        () => decide(decideCatalogItem, createdState(), { type: "ClearCatalogItemFieldValue" as const, fieldId: fieldA }),
         "The item does not contain that field value.",
       );
     });
 
     it("assigns item to category", () => {
       const events = decide(decideCatalogItem, createdState(), {
-        type: "AssignItemToCategory" as const,
+        type: "AssignCatalogItemToCategory" as const,
         categoryId: catA,
       });
 
@@ -117,14 +117,14 @@ describe("CatalogItem aggregate", () => {
       ] as CatalogItemEvent[]);
 
       expectDomainError(
-        () => decide(decideCatalogItem, state, { type: "AssignItemToCategory" as const, categoryId: catA }),
+        () => decide(decideCatalogItem, state, { type: "AssignCatalogItemToCategory" as const, categoryId: catA }),
         "Item already belongs to that category.",
       );
     });
 
     it("publishes a draft item with all required fields", () => {
       const events = decide(decideCatalogItem, draftWithBlueprint(), {
-        type: "PublishItem" as const,
+        type: "PublishCatalogItem" as const,
         blueprintIsActive: true,
         requiredFieldIds: [fieldA],
       });
@@ -134,7 +134,7 @@ describe("CatalogItem aggregate", () => {
 
     it("rejects publish without blueprint", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, createdState(), { type: "PublishItem" as const, blueprintIsActive: true, requiredFieldIds: [] }),
+        () => decide(decideCatalogItem, createdState(), { type: "PublishCatalogItem" as const, blueprintIsActive: true, requiredFieldIds: [] }),
         "Items require a blueprint before publish.",
       );
     });
@@ -145,7 +145,7 @@ describe("CatalogItem aggregate", () => {
       ] as CatalogItemEvent[]);
 
       expectDomainError(
-        () => decide(decideCatalogItem, state, { type: "PublishItem" as const, blueprintIsActive: false, requiredFieldIds: [] }),
+        () => decide(decideCatalogItem, state, { type: "PublishCatalogItem" as const, blueprintIsActive: false, requiredFieldIds: [] }),
         "Items may only publish against active blueprints.",
       );
     });
@@ -156,14 +156,14 @@ describe("CatalogItem aggregate", () => {
       ] as CatalogItemEvent[]);
 
       expectDomainError(
-        () => decide(decideCatalogItem, state, { type: "PublishItem" as const, blueprintIsActive: true, requiredFieldIds: [fieldA] }),
+        () => decide(decideCatalogItem, state, { type: "PublishCatalogItem" as const, blueprintIsActive: true, requiredFieldIds: [fieldA] }),
         "Items must satisfy all required field rules before publish.",
       );
     });
 
     it("revises metadata on active item", () => {
       const events = decide(decideCatalogItem, activeState(), {
-        type: "ReviseItemMetadata" as const,
+        type: "ReviseCatalogItemMetadata" as const,
         title: "Updated Title",
         subtitle: "New Sub",
       });
@@ -172,7 +172,7 @@ describe("CatalogItem aggregate", () => {
     });
 
     it("lifecycle: active -> retired -> archived", () => {
-      const events = decide(decideCatalogItem, activeState(), { type: "RetireItem" as const });
+      const events = decide(decideCatalogItem, activeState(), { type: "RetireCatalogItem" as const });
 
       expect(events[0].type).toBe("catalog.catalog-item.retired");
 
@@ -180,7 +180,7 @@ describe("CatalogItem aggregate", () => {
         { type: "catalog.catalog-item.retired", data: {} },
       ] as CatalogItemEvent[]);
 
-      const archiveEvents = decide(decideCatalogItem, retiredState, { type: "ArchiveItem" as const });
+      const archiveEvents = decide(decideCatalogItem, retiredState, { type: "ArchiveCatalogItem" as const });
 
       expect(archiveEvents[0].type).toBe("catalog.catalog-item.archived");
     });
@@ -192,7 +192,7 @@ describe("CatalogItem aggregate", () => {
       ] as CatalogItemEvent[]);
 
       expectDomainError(
-        () => decide(decideCatalogItem, archivedState, { type: "SetItemFieldValue" as const, fieldId: fieldB, value: "x" }),
+        () => decide(decideCatalogItem, archivedState, { type: "SetCatalogItemFieldValue" as const, fieldId: fieldB, value: "x" }),
         "Archived items cannot be modified.",
       );
     });

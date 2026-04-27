@@ -15,7 +15,7 @@ export type DiscoverySearchParams = {
 export type ListResult<T> = { items: T[]; total: number };
 
 export type DiscoverySearchItemRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -44,26 +44,26 @@ async function getMarketSummariesForItems(
   }
 
   const result = await db.query<{
-    catalog_item_id: string;
+    catalog_catalog_item_id: string;
     lowest_price_amount: string | null;
     active_listing_count: number;
     total_visible_quantity: number;
   }>(
     `SELECT
-       catalog_item_id,
+       catalog_catalog_item_id,
        MIN(price_amount)::text AS lowest_price_amount,
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
      FROM discovery_market_listings
      WHERE status = 'active'
-       AND catalog_item_id = ANY($1::text[])
-     GROUP BY catalog_item_id`,
+       AND catalog_catalog_item_id = ANY($1::text[])
+     GROUP BY catalog_catalog_item_id`,
     [itemIds],
   );
 
   return new Map(
     result.rows.map((row) => [
-      row.catalog_item_id,
+      row.catalog_catalog_item_id,
       {
         lowest_price_amount: row.lowest_price_amount,
         active_listing_count: row.active_listing_count,
@@ -150,7 +150,7 @@ export async function searchDiscoveryItems(
   const offset = params.offset ?? 0;
 
   const countSql = `SELECT COUNT(*) AS count FROM discovery_search_items ${where}`;
-  const listSql = `SELECT item_id, title, subtitle, description, blueprint_id, blueprint_name, status, category_names, tags, image_urls, updated_at
+  const listSql = `SELECT catalog_item_id, title, subtitle, description, blueprint_id, blueprint_name, status, category_names, tags, image_urls, updated_at
     FROM discovery_search_items ${where}
     ORDER BY ${orderBy}
     LIMIT ${limit} OFFSET ${offset}`;
@@ -162,13 +162,13 @@ export async function searchDiscoveryItems(
 
   const marketSummaries = await getMarketSummariesForItems(
     db,
-    listResult.rows.map((row) => row.item_id),
+    listResult.rows.map((row) => row.catalog_item_id),
   );
 
   return {
     items: listResult.rows.map((row) => ({
       ...row,
-      market_summary: marketSummaries.get(row.item_id) ?? null,
+      market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
     })),
     total: Number.parseInt(countResult.rows[0].count, 10),
   };

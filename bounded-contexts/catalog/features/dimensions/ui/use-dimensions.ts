@@ -31,26 +31,25 @@ export function archiveDimension(id: string) {
   return api.archiveDimension<CommandResponse>(id);
 }
 
-export function addChoice(dimensionId: string, body: { choiceId: string; code: string; labels?: { locale: string; value: string }[]; numericValue?: number }) {
-  return api.addChoice<CommandResponse>(dimensionId, body);
+export function addOption(dimensionId: string, body: { optionId: string; code: string; labels?: { locale: string; value: string }[]; numericValue?: number }) {
+  return api.addOption<CommandResponse>(dimensionId, body);
 }
 
-export function reviseChoice(dimensionId: string, choiceId: string, body: { code: string; labels?: { locale: string; value: string }[]; numericValue?: number }) {
-  return api.reviseChoice<CommandResponse>(dimensionId, choiceId, body);
+export function reviseOption(dimensionId: string, optionId: string, body: { code: string; labels?: { locale: string; value: string }[]; numericValue?: number }) {
+  return api.reviseOption<CommandResponse>(dimensionId, optionId, body);
 }
 
-export function deprecateChoice(dimensionId: string, choiceId: string) {
-  return api.deprecateChoice<CommandResponse>(dimensionId, choiceId);
+export function deprecateOption(dimensionId: string, optionId: string) {
+  return api.deprecateOption<CommandResponse>(dimensionId, optionId);
 }
 
-export function reactivateChoice(dimensionId: string, choiceId: string) {
-  return api.reactivateChoice<CommandResponse>(dimensionId, choiceId);
+export function reactivateOption(dimensionId: string, optionId: string) {
+  return api.reactivateOption<CommandResponse>(dimensionId, optionId);
 }
 
-export function reorderChoices(dimensionId: string, choiceIds: string[]) {
-  return api.reorderChoices<CommandResponse>(dimensionId, choiceIds);
+export function reorderOptions(dimensionId: string, optionIds: string[]) {
+  return api.reorderOptions<CommandResponse>(dimensionId, optionIds);
 }
-
 
 
 

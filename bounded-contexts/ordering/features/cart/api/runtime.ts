@@ -14,7 +14,7 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { CartLineId } from "../../../support/runtime-support/common";
 import {
   OrderingDomainError,
-  createOrderingCatalogVersionDescriptor,
+  createOrderingProductDescriptor,
   type OrderingVersionSchema,
 } from "../../../support/runtime-support/common";
 import {
@@ -44,11 +44,11 @@ export type OrderingCartServices = Readonly<{
     params: Readonly<{
       buyerAccountId: AccountId;
       catalogItemId: string;
-      catalogVersionKey: string;
+      productId: string;
       itemTitle: string;
       itemSubtitle: string | null;
-      versionSelection: readonly { dimensionId: string; choiceId: string }[];
-      versionSummary: string | null;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      productSummary: string | null;
       quantity: number;
     }>,
     context: EventStoreContext,
@@ -92,13 +92,13 @@ export function createOrderingCartRuntime(
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
     const result = await deps.db.query<{
-      item_id: string;
+      catalog_item_id: string;
       status: string;
-      version_schema: unknown;
+      product_schema: unknown;
     }>(
-      `SELECT item_id, status, version_schema
+      `SELECT catalog_item_id, status, product_schema
        FROM ordering_catalog_items
-       WHERE item_id = $1`,
+       WHERE catalog_item_id = $1`,
       [catalogItemId],
     );
 
@@ -119,19 +119,19 @@ export function createOrderingCartRuntime(
         );
       }
 
-      const catalogVersion = createOrderingCatalogVersionDescriptor({
+      const catalogVersion = createOrderingProductDescriptor({
         catalogItemId: params.catalogItemId,
-        versionSchema:
-          typeof catalogItem.version_schema === "object" &&
-          catalogItem.version_schema !== null
-            ? (catalogItem.version_schema as OrderingVersionSchema)
+        productSchema:
+          typeof catalogItem.product_schema === "object" &&
+          catalogItem.product_schema !== null
+            ? (catalogItem.product_schema as OrderingVersionSchema)
             : null,
-        selection: params.versionSelection,
+        selection: params.selectedOptions,
       });
 
-      if (params.catalogVersionKey.trim() !== catalogVersion.catalogVersionKey) {
+      if (params.productId.trim() !== catalogVersion.productId) {
         throw new OrderingDomainError(
-          "Cart line catalog version key does not match the selected version.",
+          "Cart line product id does not match the selected options.",
         );
       }
 
@@ -143,11 +143,11 @@ export function createOrderingCartRuntime(
           buyerAccountId: params.buyerAccountId,
           lineId,
           catalogItemId: params.catalogItemId,
-          catalogVersionKey: catalogVersion.catalogVersionKey,
+          productId: catalogVersion.productId,
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,
-          versionSelection: catalogVersion.selection,
-          versionSummary: params.versionSummary,
+          selectedOptions: catalogVersion.selection,
+          productSummary: params.productSummary,
           quantity: params.quantity,
         },
         context,
@@ -203,4 +203,3 @@ export function createOrderingCartRuntime(
     ],
   };
 }
-

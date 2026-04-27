@@ -53,9 +53,9 @@ export function MarketplaceBuyerOfferDetailPage({
         <Card>
           <Stack gap={2}>
             {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
-            {offer.version_summary ? (
+            {offer.product_summary ? (
               <Text size="sm" tone="secondary">
-                {offer.version_summary}
+                {offer.product_summary}
               </Text>
             ) : null}
             <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>

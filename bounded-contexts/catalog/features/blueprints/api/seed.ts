@@ -57,38 +57,38 @@ export async function seedBlueprints(
         {
           dimensionId: formDimension.dimensionId,
           required: true,
-          allowedChoiceIds: Object.values(formDimension.choiceIds),
+          allowedOptionIds: Object.values(formDimension.optionIds),
         },
         {
           dimensionId: dimensions.condition.dimensionId,
           required: true,
-          allowedChoiceIds: Object.values(dimensions.condition.choiceIds),
+          allowedOptionIds: Object.values(dimensions.condition.optionIds),
           appliesWhen: [
             {
               dimensionId: formDimension.dimensionId,
-              choiceIds: [formDimension.choiceIds.raw],
+              optionIds: [formDimension.optionIds.raw],
             },
           ],
         },
         {
           dimensionId: dimensions["grading-company"].dimensionId,
           required: true,
-          allowedChoiceIds: Object.values(dimensions["grading-company"].choiceIds),
+          allowedOptionIds: Object.values(dimensions["grading-company"].optionIds),
           appliesWhen: [
             {
               dimensionId: formDimension.dimensionId,
-              choiceIds: [formDimension.choiceIds.graded],
+              optionIds: [formDimension.optionIds.graded],
             },
           ],
         },
         {
           dimensionId: dimensions.grade.dimensionId,
           required: true,
-          allowedChoiceIds: Object.values(dimensions.grade.choiceIds),
+          allowedOptionIds: Object.values(dimensions.grade.optionIds),
           appliesWhen: [
             {
               dimensionId: formDimension.dimensionId,
-              choiceIds: [formDimension.choiceIds.graded],
+              optionIds: [formDimension.optionIds.graded],
             },
           ],
         },
@@ -96,7 +96,7 @@ export async function seedBlueprints(
     });
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
-      type: "SetBlueprintVersionRules",
+      type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [
         formDimension.dimensionId,
         dimensions.condition.dimensionId,
@@ -148,7 +148,7 @@ export async function seedBlueprints(
     });
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
-      type: "SetBlueprintVersionRules",
+      type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [],
     });
 

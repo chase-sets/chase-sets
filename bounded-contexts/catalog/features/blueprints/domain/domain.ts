@@ -15,7 +15,7 @@ import {
 } from "../../../support/runtime-support/common";
 import type {
   BlueprintId,
-  ChoiceId,
+  OptionId,
   ComponentId,
   DimensionId,
   FieldId,
@@ -28,13 +28,13 @@ export type BlueprintFieldRule = Readonly<{
 
 export type BlueprintDimensionApplicabilityClause = Readonly<{
   dimensionId: DimensionId;
-  choiceIds: ChoiceId[];
+  optionIds: OptionId[];
 }>;
 
 export type BlueprintDimensionRule = Readonly<{
   dimensionId: DimensionId;
   required: boolean;
-  allowedChoiceIds: ChoiceId[];
+  allowedOptionIds: OptionId[];
   appliesWhen?: BlueprintDimensionApplicabilityClause[];
 }>;
 
@@ -97,8 +97,8 @@ export type SetBlueprintDimensionsCommand = Readonly<{
   dimensionRules: readonly BlueprintDimensionRule[];
 }>;
 
-export type SetBlueprintVersionRulesCommand = Readonly<{
-  type: "SetBlueprintVersionRules";
+export type SetBlueprintProductResolutionRulesCommand = Readonly<{
+  type: "SetBlueprintProductResolutionRules";
   canonicalDimensionOrder: readonly DimensionId[];
 }>;
 
@@ -121,7 +121,7 @@ export type BlueprintCommand =
   | DetachComponentFromBlueprintCommand
   | SetBlueprintFieldsCommand
   | SetBlueprintDimensionsCommand
-  | SetBlueprintVersionRulesCommand
+  | SetBlueprintProductResolutionRulesCommand
   | PublishBlueprintCommand
   | DeprecateBlueprintCommand
   | ArchiveBlueprintCommand;
@@ -173,8 +173,8 @@ export type BlueprintDimensionsSetEvent = DomainEvent<
   }>
 >;
 
-export type BlueprintVersionRulesSetEvent = DomainEvent<
-  "catalog.blueprint.version-rules-set",
+export type BlueprintProductResolutionRulesSetEvent = DomainEvent<
+  "catalog.blueprint.product-resolution-rules-set",
   Readonly<{
     canonicalDimensionOrder: DimensionId[];
   }>
@@ -202,7 +202,7 @@ export type BlueprintEvent =
   | BlueprintComponentDetachedEvent
   | BlueprintFieldsSetEvent
   | BlueprintDimensionsSetEvent
-  | BlueprintVersionRulesSetEvent
+  | BlueprintProductResolutionRulesSetEvent
   | BlueprintPublishedEvent
   | BlueprintDeprecatedEvent
   | BlueprintArchivedEvent;
@@ -293,7 +293,7 @@ export const decideBlueprint: AggregateDecider<
           },
         },
       ];
-    case "SetBlueprintVersionRules": {
+    case "SetBlueprintProductResolutionRules": {
       requireMutableBlueprint(state);
       const canonicalDimensionOrder = [...command.canonicalDimensionOrder];
 
@@ -302,12 +302,12 @@ export const decideBlueprint: AggregateDecider<
           state.dimensionRules.map((rule) => rule.dimensionId),
           canonicalDimensionOrder,
         ),
-        "Blueprint version rules must include exactly the current dimensions.",
+        "Blueprint product resolution rules must include exactly the current dimensions.",
       );
 
       return [
         {
-          type: "catalog.blueprint.version-rules-set",
+          type: "catalog.blueprint.product-resolution-rules-set",
           data: {
             canonicalDimensionOrder,
           },
@@ -414,7 +414,7 @@ export const evolveBlueprint: AggregateEvolver<BlueprintState, BlueprintEvent> =
             ),
         ),
       };
-    case "catalog.blueprint.version-rules-set":
+    case "catalog.blueprint.product-resolution-rules-set":
       return {
         ...state,
         canonicalDimensionOrder: [...event.data.canonicalDimensionOrder],
@@ -483,7 +483,7 @@ function normalizeDimensionRule(
   return {
     dimensionId: rule.dimensionId,
     required: rule.required,
-    allowedChoiceIds: toSortedUniqueList(rule.allowedChoiceIds),
+    allowedOptionIds: toSortedUniqueList(rule.allowedOptionIds),
     appliesWhen,
   };
 }
@@ -516,7 +516,7 @@ function normalizeDimensionApplicability(
 
     return {
       dimensionId: clause.dimensionId,
-      choiceIds: toSortedUniqueList(clause.choiceIds),
+      optionIds: toSortedUniqueList(clause.optionIds),
     };
   });
 

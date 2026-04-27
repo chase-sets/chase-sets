@@ -12,17 +12,17 @@ import {
   normalizeRequiredText,
   normalizeVersionSelection,
   type CartLineId,
-  type VersionSelectionEntry,
+  type VersionSelectedOptionEntry,
 } from "../../../support/runtime-support/common";
 
 export type OrderingCartLine = Readonly<{
   lineId: CartLineId;
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSelection: readonly VersionSelectionEntry[];
-  versionSummary: string | null;
+  selectedOptions: readonly VersionSelectedOptionEntry[];
+  productSummary: string | null;
   quantity: number;
 }>;
 
@@ -43,11 +43,11 @@ export type AddCartLineCommand = Readonly<{
   buyerAccountId: AccountId;
   lineId: CartLineId;
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSelection: readonly VersionSelectionEntry[];
-  versionSummary: string | null;
+  selectedOptions: readonly VersionSelectedOptionEntry[];
+  productSummary: string | null;
   quantity: number;
 }>;
 
@@ -79,11 +79,11 @@ export type CartLineAddedEvent = DomainEvent<
     buyerAccountId: AccountId;
     lineId: CartLineId;
     catalogItemId: string;
-    catalogVersionKey: string;
+    productId: string;
     itemTitle: string;
     itemSubtitle: string | null;
-    versionSelection: VersionSelectionEntry[];
-    versionSummary: string | null;
+    selectedOptions: VersionSelectedOptionEntry[];
+    productSummary: string | null;
     quantity: number;
   }>
 >;
@@ -148,17 +148,17 @@ export const decideOrderingCart: AggregateDecider<
               command.catalogItemId,
               "Cart lines must reference a catalog item.",
             ),
-            catalogVersionKey: normalizeRequiredText(
-              String(command.catalogVersionKey),
-              "Cart lines must reference a catalog version key.",
+            productId: normalizeRequiredText(
+              String(command.productId),
+              "Cart lines must reference a product id.",
             ),
             itemTitle: normalizeRequiredText(
               command.itemTitle,
               "Cart lines must include an item title snapshot.",
             ),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
-            versionSelection: normalizeVersionSelection(command.versionSelection),
-            versionSummary: normalizeOptionalText(command.versionSummary),
+            selectedOptions: normalizeVersionSelection(command.selectedOptions),
+            productSummary: normalizeOptionalText(command.productSummary),
             quantity: ensurePositiveInteger(
               command.quantity,
               "Cart quantity must be a positive whole number.",
@@ -223,11 +223,11 @@ export const evolveOrderingCart: AggregateEvolver<
           {
             lineId: event.data.lineId,
             catalogItemId: event.data.catalogItemId,
-            catalogVersionKey: event.data.catalogVersionKey,
+            productId: event.data.productId,
             itemTitle: event.data.itemTitle,
             itemSubtitle: event.data.itemSubtitle,
-            versionSelection: event.data.versionSelection,
-            versionSummary: event.data.versionSummary,
+            selectedOptions: event.data.selectedOptions,
+            productSummary: event.data.productSummary,
             quantity: event.data.quantity,
           },
         ],
@@ -257,4 +257,3 @@ export const evolveOrderingCart: AggregateEvolver<
       return assertNever(event);
   }
 };
-

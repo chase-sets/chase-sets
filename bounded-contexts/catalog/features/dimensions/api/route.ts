@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { DimensionServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
-import type { DimensionId, ChoiceId } from "../../../ids";
+import type { DimensionId, OptionId } from "../../../ids";
 
 
 export function dimensionRoutes(services: DimensionServices) {
@@ -46,7 +46,7 @@ export function dimensionRoutes(services: DimensionServices) {
     return c.json({ id: dimensionId, version: result.version, status: result.state.status });
   });
 
-  app.post("/:id/choices", async (c) => {
+  app.post("/:id/options", async (c) => {
     const dimensionId = c.req.param("id");
     const body = await c.req.json();
     const context = c.get("context");
@@ -54,8 +54,8 @@ export function dimensionRoutes(services: DimensionServices) {
     const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
-        type: "AddChoice",
-        choiceId: body.choiceId as ChoiceId,
+        type: "AddOption",
+        optionId: body.optionId as OptionId,
         code: body.code,
         labels: body.labels ?? [],
         numericValue: body.numericValue,
@@ -66,7 +66,7 @@ export function dimensionRoutes(services: DimensionServices) {
     return c.json({ id: dimensionId, version: result.version, status: result.state.status }, 201);
   });
 
-  app.put("/:id/choices/:choiceId", async (c) => {
+  app.put("/:id/options/:optionId", async (c) => {
     const dimensionId = c.req.param("id");
     const body = await c.req.json();
     const context = c.get("context");
@@ -74,8 +74,8 @@ export function dimensionRoutes(services: DimensionServices) {
     const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
-        type: "ReviseChoice",
-        choiceId: c.req.param("choiceId") as ChoiceId,
+        type: "ReviseOption",
+        optionId: c.req.param("optionId") as OptionId,
         code: body.code,
         labels: body.labels ?? [],
         numericValue: body.numericValue,
@@ -86,7 +86,7 @@ export function dimensionRoutes(services: DimensionServices) {
     return c.json({ id: dimensionId, version: result.version, status: result.state.status });
   });
 
-  app.put("/:id/choices/order", async (c) => {
+  app.put("/:id/options/order", async (c) => {
     const dimensionId = c.req.param("id");
     const body = await c.req.json();
     const context = c.get("context");
@@ -94,8 +94,8 @@ export function dimensionRoutes(services: DimensionServices) {
     const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
-        type: "ReorderChoices",
-        choiceIds: body.choiceIds as ChoiceId[],
+        type: "ReorderOptions",
+        optionIds: body.optionIds as OptionId[],
       },
       context,
     });
@@ -103,15 +103,15 @@ export function dimensionRoutes(services: DimensionServices) {
     return c.json({ id: dimensionId, version: result.version, status: result.state.status });
   });
 
-  app.post("/:id/choices/:choiceId/deprecate", async (c) => {
+  app.post("/:id/options/:optionId/deprecate", async (c) => {
     const dimensionId = c.req.param("id");
     const context = c.get("context");
 
     const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
-        type: "DeprecateChoice",
-        choiceId: c.req.param("choiceId") as ChoiceId,
+        type: "DeprecateOption",
+        optionId: c.req.param("optionId") as OptionId,
       },
       context,
     });
@@ -119,15 +119,15 @@ export function dimensionRoutes(services: DimensionServices) {
     return c.json({ id: dimensionId, version: result.version, status: result.state.status });
   });
 
-  app.post("/:id/choices/:choiceId/reactivate", async (c) => {
+  app.post("/:id/options/:optionId/reactivate", async (c) => {
     const dimensionId = c.req.param("id");
     const context = c.get("context");
 
     const result = await services.commandHandler({
       streamId: `catalog.dimension-${dimensionId}`,
       command: {
-        type: "ReactivateChoice",
-        choiceId: c.req.param("choiceId") as ChoiceId,
+        type: "ReactivateOption",
+        optionId: c.req.param("optionId") as OptionId,
       },
       context,
     });
@@ -193,7 +193,6 @@ export function dimensionRoutes(services: DimensionServices) {
 
   return app;
 }
-
 
 
 

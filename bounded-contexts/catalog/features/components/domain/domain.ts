@@ -12,7 +12,7 @@ import {
   type CatalogLifecycleStatus,
   type EmptyEventData,
 } from "../../../support/runtime-support/common";
-import type { ChoiceId, ComponentId, DimensionId, FieldId } from "../../../ids";
+import type { OptionId, ComponentId, DimensionId, FieldId } from "../../../ids";
 
 export type ComponentFieldRule = Readonly<{
   fieldId: FieldId;
@@ -21,13 +21,13 @@ export type ComponentFieldRule = Readonly<{
 
 export type ComponentDimensionApplicabilityClause = Readonly<{
   dimensionId: DimensionId;
-  choiceIds: ChoiceId[];
+  optionIds: OptionId[];
 }>;
 
 export type ComponentDimensionRule = Readonly<{
   dimensionId: DimensionId;
   required: boolean;
-  allowedChoiceIds: ChoiceId[];
+  allowedOptionIds: OptionId[];
   appliesWhen?: ComponentDimensionApplicabilityClause[];
 }>;
 
@@ -74,7 +74,7 @@ export type AddDimensionRuleToComponentCommand = Readonly<{
   type: "AddDimensionRuleToComponent";
   dimensionId: DimensionId;
   required: boolean;
-  allowedChoiceIds?: readonly ChoiceId[];
+  allowedOptionIds?: readonly OptionId[];
   appliesWhen?: readonly ComponentDimensionApplicabilityClause[];
 }>;
 
@@ -257,7 +257,7 @@ export const decideComponent: AggregateDecider<
           data: normalizeDimensionRule({
             dimensionId: command.dimensionId,
             required: command.required,
-            allowedChoiceIds: [...(command.allowedChoiceIds ?? [])],
+            allowedOptionIds: [...(command.allowedOptionIds ?? [])],
             appliesWhen: [...(command.appliesWhen ?? [])],
           }),
         },
@@ -443,7 +443,7 @@ function normalizeDimensionRule(
   return {
     dimensionId: rule.dimensionId,
     required: rule.required,
-    allowedChoiceIds: toSortedUniqueList(rule.allowedChoiceIds),
+    allowedOptionIds: toSortedUniqueList(rule.allowedOptionIds),
     appliesWhen,
   };
 }
@@ -476,7 +476,7 @@ function normalizeDimensionApplicability(
 
     return {
       dimensionId: clause.dimensionId,
-      choiceIds: toSortedUniqueList(clause.choiceIds),
+      optionIds: toSortedUniqueList(clause.optionIds),
     };
   });
 

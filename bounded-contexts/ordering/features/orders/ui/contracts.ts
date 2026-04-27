@@ -32,12 +32,12 @@ export interface OrderingOrderLine {
   line_id: string;
   listing_id: string;
   inventory_record_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_selection: readonly { dimensionId: string; choiceId: string }[];
-  version_summary: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;

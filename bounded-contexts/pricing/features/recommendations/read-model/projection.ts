@@ -18,7 +18,7 @@ export function buildPricingRecommendationProjectionHandlers(
       await db.query(
         `INSERT INTO pricing_recommendation_pages (
            recommendation_id,
-           catalog_item_id,
+           catalog_catalog_item_id,
            seller_account_id,
            market_price_amount,
            market_currency,
@@ -30,7 +30,7 @@ export function buildPricingRecommendationProjectionHandlers(
          ) VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $6)
          ON CONFLICT (recommendation_id)
          DO UPDATE SET
-           catalog_item_id = EXCLUDED.catalog_item_id,
+           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
            seller_account_id = EXCLUDED.seller_account_id,
            market_price_amount = EXCLUDED.market_price_amount,
            market_currency = EXCLUDED.market_currency,

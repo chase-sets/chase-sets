@@ -2,92 +2,92 @@ import { assert } from "./common";
 import type { Branded } from "@chase-sets/primitives/brand";
 import type {
   CatalogItemId,
-  ChoiceId,
+  OptionId,
   DimensionId,
-  SelectionEntry,
+  SelectedOptionEntry as TypedSelectedOptionEntry,
 } from "../../ids";
 
-export type CatalogVersionKey = Branded<string, "CatalogVersionKey">;
+export type ProductId = Branded<string, "ProductId">;
 
-export type CatalogSelectionEntry = Readonly<{
+export type ProductSelectionEntry = Readonly<{
   dimensionId: string;
-  choiceId: string;
+  optionId: string;
 }>;
 
-export type CatalogVersionDescriptor = Readonly<{
-  versionKey: CatalogVersionKey;
-  selection: CatalogSelectionEntry[];
+export type ProductDescriptor = Readonly<{
+  productId: ProductId;
+  selectedOptions: ProductSelectionEntry[];
 }>;
 
-export type CatalogVersionApplicabilityClause = Readonly<{
+export type ProductApplicabilityClause = Readonly<{
   dimensionId: string;
-  choiceIds: string[];
+  optionIds: string[];
 }>;
 
-export type CatalogVersionDimension = Readonly<{
+export type ProductDimension = Readonly<{
   dimensionId: string;
   required: boolean;
-  allowedChoiceIds: string[];
-  appliesWhen: CatalogVersionApplicabilityClause[];
+  allowedOptionIds: string[];
+  appliesWhen: ProductApplicabilityClause[];
 }>;
 
-export type CatalogVersionSchema = Readonly<{
+export type ProductSchema = Readonly<{
   canonicalDimensionOrder: string[];
-  dimensions: CatalogVersionDimension[];
+  dimensions: ProductDimension[];
 }>;
 
-export type CatalogVersionDimensionRule = Readonly<{
+export type ProductDimensionRule = Readonly<{
   dimensionId: DimensionId;
   required: boolean;
-  allowedChoiceIds: readonly ChoiceId[];
-  appliesWhen?: readonly CatalogVersionDimensionApplicabilityClause[];
+  allowedOptionIds: readonly OptionId[];
+  appliesWhen?: readonly ProductDimensionApplicabilityClause[];
 }>;
 
-export type CatalogVersionDimensionApplicabilityClause = Readonly<{
+export type ProductDimensionApplicabilityClause = Readonly<{
   dimensionId: DimensionId;
-  choiceIds: readonly ChoiceId[];
+  optionIds: readonly OptionId[];
 }>;
 
-export type VersionableBlueprint = Readonly<{
-  dimensionRules: readonly CatalogVersionDimensionRule[];
+export type ProductDefiningBlueprint = Readonly<{
+  dimensionRules: readonly ProductDimensionRule[];
   canonicalDimensionOrder: DimensionId[];
 }>;
 
-export type VersionResolutionInput = Readonly<{
-  itemId: CatalogItemId;
-  blueprint: VersionableBlueprint;
-  selection: readonly SelectionEntry[];
+export type ProductResolutionInput = Readonly<{
+  catalogItemId: CatalogItemId;
+  blueprint: ProductDefiningBlueprint;
+  selectedOptions: readonly TypedSelectedOptionEntry[];
 }>;
 
-export function resolveCatalogVersion(
-  input: VersionResolutionInput,
-): CatalogVersionDescriptor {
+export function resolveProduct(
+  input: ProductResolutionInput,
+): ProductDescriptor {
   assert(
     hasExactDimensionSet(
       input.blueprint.dimensionRules.map((rule) => rule.dimensionId),
       input.blueprint.canonicalDimensionOrder,
     ),
-    "Version resolution requires a canonical order for every blueprint dimension.",
+    "Product resolution requires a canonical order for every blueprint dimension.",
   );
 
-  const selection = normalizeSelection(input.selection);
-  const selectionByDimension = new Map<DimensionId, ChoiceId>(
-    selection.map((entry) => [entry.dimensionId, entry.choiceId]),
+  const selection = normalizeSelectedOptions(input.selectedOptions);
+  const selectionByDimension = new Map<DimensionId, OptionId>(
+    selection.map((entry) => [entry.dimensionId, entry.optionId]),
   );
 
   for (const dimensionRule of input.blueprint.dimensionRules) {
     const isActive = isDimensionRuleActive(dimensionRule, selectionByDimension);
-    const selectedChoiceId = selectionByDimension.get(dimensionRule.dimensionId);
+    const selectedOptionId = selectionByDimension.get(dimensionRule.dimensionId);
 
     if (!isActive) {
       assert(
-        selectedChoiceId === undefined,
+        selectedOptionId === undefined,
         "Selections cannot include inactive dimensions.",
       );
       continue;
     }
 
-    if (selectedChoiceId === undefined) {
+    if (selectedOptionId === undefined) {
       assert(
         !dimensionRule.required,
         "Selections must include every required dimension.",
@@ -95,10 +95,10 @@ export function resolveCatalogVersion(
       continue;
     }
 
-    if (dimensionRule.allowedChoiceIds.length > 0) {
+    if (dimensionRule.allowedOptionIds.length > 0) {
       assert(
-        dimensionRule.allowedChoiceIds.includes(selectedChoiceId),
-        "Selections must use only choices allowed by the blueprint.",
+        dimensionRule.allowedOptionIds.includes(selectedOptionId),
+        "Selections must use only options allowed by the blueprint.",
       );
     }
   }
@@ -114,36 +114,36 @@ export function resolveCatalogVersion(
 
   const orderedSelection = input.blueprint.canonicalDimensionOrder
     .map((dimensionId) => {
-      const choiceId = selectionByDimension.get(dimensionId);
+      const optionId = selectionByDimension.get(dimensionId);
 
-      if (choiceId === undefined) {
+      if (optionId === undefined) {
         return null;
       }
 
       return {
         dimensionId,
-        choiceId,
+        optionId,
       };
     })
-    .filter((entry): entry is SelectionEntry => entry !== null);
+    .filter((entry): entry is TypedSelectedOptionEntry => entry !== null);
 
   return {
-    versionKey: createCatalogVersionKey(
-      `${input.itemId}::${input.blueprint.canonicalDimensionOrder
+    productId: createProductId(
+      `${input.catalogItemId}::${input.blueprint.canonicalDimensionOrder
         .map((dimensionId) => {
-          const choiceId = selectionByDimension.get(dimensionId);
+          const optionId = selectionByDimension.get(dimensionId);
 
-          return `${dimensionId}:${choiceId ?? "-"}`;
+          return `${dimensionId}:${optionId ?? "-"}`;
         })
         .join("|")}`,
     ),
-    selection: orderedSelection.map(toCatalogSelectionEntry),
+    selectedOptions: orderedSelection.map(toProductSelectionEntry),
   };
 }
 
-export function toCatalogVersionSchema(
-  blueprint: VersionableBlueprint,
-): CatalogVersionSchema {
+export function toProductSchema(
+  blueprint: ProductDefiningBlueprint,
+): ProductSchema {
   return {
     canonicalDimensionOrder: blueprint.canonicalDimensionOrder.map((dimensionId) =>
       String(dimensionId),
@@ -151,24 +151,24 @@ export function toCatalogVersionSchema(
     dimensions: blueprint.dimensionRules.map((rule) => ({
       dimensionId: String(rule.dimensionId),
       required: rule.required,
-      allowedChoiceIds: rule.allowedChoiceIds.map((choiceId) => String(choiceId)),
+      allowedOptionIds: rule.allowedOptionIds.map((optionId) => String(optionId)),
       appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
         dimensionId: String(clause.dimensionId),
-        choiceIds: clause.choiceIds.map((choiceId) => String(choiceId)),
+        optionIds: clause.optionIds.map((optionId) => String(optionId)),
       })),
     })),
   };
 }
 
-export function normalizeSelection(
-  selection: readonly SelectionEntry[],
-): SelectionEntry[] {
+export function normalizeSelectedOptions(
+  selection: readonly TypedSelectedOptionEntry[],
+): TypedSelectedOptionEntry[] {
   const seenDimensionIds = new Set<string>();
 
   for (const entry of selection) {
     assert(
       !seenDimensionIds.has(entry.dimensionId),
-      "Selections may include at most one choice per dimension.",
+      "Selections may include at most one option per dimension.",
     );
     seenDimensionIds.add(entry.dimensionId);
   }
@@ -176,17 +176,17 @@ export function normalizeSelection(
   return [...selection];
 }
 
-export function toCatalogSelectionEntry(
-  selectionEntry: SelectionEntry,
-): CatalogSelectionEntry {
+export function toProductSelectionEntry(
+  selectionEntry: TypedSelectedOptionEntry,
+): ProductSelectionEntry {
   return {
     dimensionId: String(selectionEntry.dimensionId),
-    choiceId: String(selectionEntry.choiceId),
+    optionId: String(selectionEntry.optionId),
   };
 }
 
-export function createCatalogVersionKey(value: string): CatalogVersionKey {
-  return value as CatalogVersionKey;
+export function createProductId(value: string): ProductId {
+  return value as ProductId;
 }
 
 function hasExactDimensionSet(
@@ -211,15 +211,14 @@ function hasExactDimensionSet(
 }
 
 function isDimensionRuleActive(
-  rule: CatalogVersionDimensionRule,
-  selectionByDimension: ReadonlyMap<DimensionId, ChoiceId>,
+  rule: ProductDimensionRule,
+  selectionByDimension: ReadonlyMap<DimensionId, OptionId>,
 ): boolean {
   return (rule.appliesWhen ?? []).every((clause) => {
-    const selectedChoiceId = selectionByDimension.get(clause.dimensionId);
+    const selectedOptionId = selectionByDimension.get(clause.dimensionId);
     return (
-      selectedChoiceId !== undefined &&
-      clause.choiceIds.includes(selectedChoiceId)
+      selectedOptionId !== undefined &&
+      clause.optionIds.includes(selectedOptionId)
     );
   });
 }
-

@@ -38,22 +38,22 @@ function normalizeMoneyAmount(value: string): string {
 }
 
 function normalizeVersionSelection(
-  value: readonly { dimensionId: string; choiceId: string }[],
+  value: readonly { dimensionId: string; optionId: string }[],
 ) {
   const normalized = value
     .map((selection) => ({
       dimensionId: normalizeRequiredText(
         selection.dimensionId,
-        "Offer version selection must include a dimension.",
+        "Offer selected options must include a dimension.",
       ),
-      choiceId: normalizeRequiredText(
-        selection.choiceId,
-        "Offer version selection must include a choice.",
+      optionId: normalizeRequiredText(
+        selection.optionId,
+        "Offer selected options must include an option.",
       ),
     }))
     .sort((left, right) =>
       left.dimensionId.localeCompare(right.dimensionId) ||
-      left.choiceId.localeCompare(right.choiceId),
+      left.optionId.localeCompare(right.optionId),
     );
 
   const seen = new Set<string>();
@@ -61,7 +61,7 @@ function normalizeVersionSelection(
   for (const selection of normalized) {
     assert(
       !seen.has(selection.dimensionId),
-      "Offer version selection cannot include duplicate dimensions.",
+      "Offer selected options cannot include duplicate dimensions.",
     );
     seen.add(selection.dimensionId);
   }
@@ -75,11 +75,11 @@ export type MarketplaceOfferState = Readonly<{
   offerId: OfferId | null;
   buyerAccountId: AccountId | null;
   catalogItemId: string | null;
-  catalogVersionKey: string | null;
+  productId: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  versionSummary: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
   priceAmount: string | null;
   quantityRequested: number;
   status: OfferStatus;
@@ -91,11 +91,11 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   offerId: null,
   buyerAccountId: null,
   catalogItemId: null,
-  catalogVersionKey: null,
+  productId: null,
   itemTitle: null,
   itemSubtitle: null,
-  versionSelection: [],
-  versionSummary: null,
+  selectedOptions: [],
+  productSummary: null,
   priceAmount: null,
   quantityRequested: 0,
   status: "draft",
@@ -108,11 +108,11 @@ export type SubmitOfferCommand = Readonly<{
   offerId: OfferId;
   buyerAccountId: AccountId;
   catalogItemId: string;
-  catalogVersionKey: string;
+  productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  versionSummary: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
   priceAmount: string;
   quantityRequested: number;
 }>;
@@ -131,11 +131,11 @@ export type OfferSubmittedEvent = DomainEvent<
     offerId: OfferId;
     buyerAccountId: AccountId;
     catalogItemId: string;
-    catalogVersionKey: string;
+    productId: string;
     itemTitle: string;
     itemSubtitle: string | null;
-    versionSelection: { dimensionId: string; choiceId: string }[];
-    versionSummary: string | null;
+    selectedOptions: { dimensionId: string; optionId: string }[];
+    productSummary: string | null;
     priceAmount: string;
     quantityRequested: number;
   }>
@@ -148,11 +148,11 @@ export type OfferAcceptedEvent = DomainEvent<
     buyerAccountId: AccountId;
     sellerAccountId: AccountId;
     catalogItemId: string;
-    catalogVersionKey: string;
+    productId: string;
     itemTitle: string;
     itemSubtitle: string | null;
-    versionSelection: { dimensionId: string; choiceId: string }[];
-    versionSummary: string | null;
+    selectedOptions: { dimensionId: string; optionId: string }[];
+    productSummary: string | null;
     priceAmount: string;
     quantityRequested: number;
     acceptedAt: string;
@@ -180,14 +180,14 @@ export const decideMarketplaceOffer: AggregateDecider<
               command.catalogItemId,
               "Offer must reference a catalog item.",
             ),
-            catalogVersionKey: command.catalogVersionKey,
+            productId: command.productId,
             itemTitle: normalizeRequiredText(
               command.itemTitle,
               "Offer must include an item title snapshot.",
             ),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
-            versionSelection: normalizeVersionSelection(command.versionSelection),
-            versionSummary: normalizeOptionalText(command.versionSummary),
+            selectedOptions: normalizeVersionSelection(command.selectedOptions),
+            productSummary: normalizeOptionalText(command.productSummary),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
             quantityRequested: ensurePositiveInteger(
               command.quantityRequested,
@@ -208,11 +208,11 @@ export const decideMarketplaceOffer: AggregateDecider<
             buyerAccountId: state.buyerAccountId!,
             sellerAccountId: command.sellerAccountId,
             catalogItemId: state.catalogItemId!,
-            catalogVersionKey: state.catalogVersionKey!,
+            productId: state.productId!,
             itemTitle: state.itemTitle!,
             itemSubtitle: state.itemSubtitle,
-            versionSelection: [...state.versionSelection],
-            versionSummary: state.versionSummary,
+            selectedOptions: [...state.selectedOptions],
+            productSummary: state.productSummary,
             priceAmount: state.priceAmount!,
             quantityRequested: state.quantityRequested,
             acceptedAt: normalizeRequiredText(
@@ -236,11 +236,11 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       offerId: event.data.offerId,
       buyerAccountId: event.data.buyerAccountId,
       catalogItemId: event.data.catalogItemId,
-      catalogVersionKey: event.data.catalogVersionKey,
+      productId: event.data.productId,
       itemTitle: event.data.itemTitle,
       itemSubtitle: event.data.itemSubtitle,
-      versionSelection: event.data.versionSelection,
-      versionSummary: event.data.versionSummary,
+      selectedOptions: event.data.selectedOptions,
+      productSummary: event.data.productSummary,
       priceAmount: event.data.priceAmount,
       quantityRequested: event.data.quantityRequested,
       status: "submitted",
@@ -260,4 +260,3 @@ export const evolveMarketplaceOffer: AggregateEvolver<
 
   throw new Error(`Unhandled marketplace offer event: ${JSON.stringify(event)}`);
 };
-

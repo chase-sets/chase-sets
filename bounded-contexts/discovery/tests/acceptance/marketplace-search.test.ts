@@ -59,7 +59,7 @@ async function sendCommand<Command>(
 
 const itemSeed = {
   dimensionId: "dim_condition",
-  choiceId: "chc_nm",
+  optionId: "chc_nm",
   fieldId: "fld_name",
   blueprintId: "bpr_card",
   categoryId: "cat_pokemon",
@@ -123,8 +123,8 @@ describeWithDatabase("marketplace search", () => {
     });
 
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
-      type: "AddChoice",
-      choiceId: itemSeed.choiceId as never,
+      type: "AddOption",
+      optionId: itemSeed.optionId as never,
       code: "near-mint",
       labels: [{ locale: "en", value: "Near Mint" }],
       numericValue: null,
@@ -179,12 +179,12 @@ describeWithDatabase("marketplace search", () => {
       dimensionRules: [{
         dimensionId: itemSeed.dimensionId as never,
         required: true,
-        allowedChoiceIds: [itemSeed.choiceId as never],
+        allowedOptionIds: [itemSeed.optionId as never],
       }],
     });
 
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
-      type: "SetBlueprintVersionRules",
+      type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [itemSeed.dimensionId as never],
     });
 
@@ -193,7 +193,7 @@ describeWithDatabase("marketplace search", () => {
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
-      type: "CreateItem",
+      type: "CreateCatalogItem",
       itemId: itemSeed.itemId as never,
       title: "Charizard",
       subtitle: "Base Set",
@@ -201,33 +201,33 @@ describeWithDatabase("marketplace search", () => {
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
-      type: "AssignBlueprintToItem",
+      type: "AssignBlueprintToCatalogItem",
       blueprintId: itemSeed.blueprintId as never,
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
-      type: "SetItemFieldValue",
+      type: "SetCatalogItemFieldValue",
       fieldId: itemSeed.fieldId as never,
       value: "Charizard",
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
-      type: "AssignItemToCategory",
+      type: "AssignCatalogItemToCategory",
       categoryId: itemSeed.categoryId as never,
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
-      type: "SetItemTags",
+      type: "SetCatalogItemTags",
       tags: ["fire", "vintage"],
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
-      type: "SetItemImageUrls",
+      type: "SetCatalogItemImageUrls",
       imageUrls: ["https://images.example/charizard.png"],
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
-      type: "PublishItem",
+      type: "PublishCatalogItem",
       blueprintIsActive: true,
       requiredFieldIds: [itemSeed.fieldId as never],
     });
@@ -256,13 +256,13 @@ describeWithDatabase("marketplace search", () => {
     expect(categoryBody.items[0].item_count).toBe(1);
   });
 
-  it("projects conditional version rules and sealed products into item detail payloads", async () => {
+  it("projects conditional product resolution rules and sealed products into item detail payloads", async () => {
     const ids = {
       categoryId: "cat_pokemon",
       formDimensionId: "dim_form",
-      formRawChoiceId: "chc_form_raw",
+      formRawOptionId: "chc_form_raw",
       conditionDimensionId: "dim_condition",
-      conditionChoiceId: "chc_condition_nm",
+      conditionOptionId: "chc_condition_nm",
       cardBlueprintId: "bpr_card_single",
       sealedBlueprintId: "bpr_sealed",
       nameFieldId: "fld_name",
@@ -311,8 +311,8 @@ describeWithDatabase("marketplace search", () => {
       description: "Card form",
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.formDimensionId}`, {
-      type: "AddChoice",
-      choiceId: ids.formRawChoiceId as never,
+      type: "AddOption",
+      optionId: ids.formRawOptionId as never,
       code: "raw",
       labels: [{ locale: "en", value: "Raw" }],
       numericValue: null,
@@ -329,8 +329,8 @@ describeWithDatabase("marketplace search", () => {
       description: "Card condition",
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
-      type: "AddChoice",
-      choiceId: ids.conditionChoiceId as never,
+      type: "AddOption",
+      optionId: ids.conditionOptionId as never,
       code: "near-mint",
       labels: [{ locale: "en", value: "Near Mint" }],
       numericValue: null,
@@ -356,17 +356,17 @@ describeWithDatabase("marketplace search", () => {
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
       type: "SetBlueprintDimensions",
       dimensionRules: [
-        { dimensionId: ids.formDimensionId as never, required: true, allowedChoiceIds: [ids.formRawChoiceId as never] },
+        { dimensionId: ids.formDimensionId as never, required: true, allowedOptionIds: [ids.formRawOptionId as never] },
         {
           dimensionId: ids.conditionDimensionId as never,
           required: true,
-          allowedChoiceIds: [ids.conditionChoiceId as never],
-          appliesWhen: [{ dimensionId: ids.formDimensionId as never, choiceIds: [ids.formRawChoiceId as never] }],
+          allowedOptionIds: [ids.conditionOptionId as never],
+          appliesWhen: [{ dimensionId: ids.formDimensionId as never, optionIds: [ids.formRawOptionId as never] }],
         },
       ],
     });
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
-      type: "SetBlueprintVersionRules",
+      type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [ids.formDimensionId as never, ids.conditionDimensionId as never],
     });
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
@@ -392,7 +392,7 @@ describeWithDatabase("marketplace search", () => {
       dimensionRules: [],
     });
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.sealedBlueprintId}`, {
-      type: "SetBlueprintVersionRules",
+      type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [],
     });
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.sealedBlueprintId}`, {
@@ -400,63 +400,63 @@ describeWithDatabase("marketplace search", () => {
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
-      type: "CreateItem",
+      type: "CreateCatalogItem",
       itemId: ids.cardItemId as never,
       title: "Charizard",
       subtitle: "Base Set 4/102",
       description: "Classic single",
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
-      type: "AssignBlueprintToItem",
+      type: "AssignBlueprintToCatalogItem",
       blueprintId: ids.cardBlueprintId as never,
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
-      type: "SetItemFieldValue",
+      type: "SetCatalogItemFieldValue",
       fieldId: ids.nameFieldId as never,
       value: "Charizard",
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
-      type: "SetItemFieldValue",
+      type: "SetCatalogItemFieldValue",
       fieldId: ids.setFieldId as never,
       value: "Base Set",
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
-      type: "AssignItemToCategory",
+      type: "AssignCatalogItemToCategory",
       categoryId: ids.categoryId as never,
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
-      type: "PublishItem",
+      type: "PublishCatalogItem",
       blueprintIsActive: true,
       requiredFieldIds: [ids.nameFieldId as never, ids.setFieldId as never],
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
-      type: "CreateItem",
+      type: "CreateCatalogItem",
       itemId: ids.sealedItemId as never,
       title: "Twilight Masquerade ETB",
       subtitle: "Sealed product",
       description: "Sealed product",
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
-      type: "AssignBlueprintToItem",
+      type: "AssignBlueprintToCatalogItem",
       blueprintId: ids.sealedBlueprintId as never,
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
-      type: "SetItemFieldValue",
+      type: "SetCatalogItemFieldValue",
       fieldId: ids.setFieldId as never,
       value: "Twilight Masquerade",
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
-      type: "SetItemFieldValue",
+      type: "SetCatalogItemFieldValue",
       fieldId: ids.packCountFieldId as never,
       value: 9,
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
-      type: "AssignItemToCategory",
+      type: "AssignCatalogItemToCategory",
       categoryId: ids.categoryId as never,
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
-      type: "PublishItem",
+      type: "PublishCatalogItem",
       blueprintIsActive: true,
       requiredFieldIds: [ids.setFieldId as never, ids.packCountFieldId as never],
     });
@@ -470,27 +470,27 @@ describeWithDatabase("marketplace search", () => {
     expect(cardResponse.status).toBe(200);
     const cardBody = await cardResponse.json();
     expect(
-      cardBody.version_schema.dimensions.find((dimension: { dimensionId: string }) => dimension.dimensionId === ids.conditionDimensionId),
+      cardBody.product_schema.dimensions.find((dimension: { dimensionId: string }) => dimension.dimensionId === ids.conditionDimensionId),
     ).toMatchObject({
-      appliesWhen: [{ dimensionId: ids.formDimensionId, choiceIds: [ids.formRawChoiceId] }],
+      appliesWhen: [{ dimensionId: ids.formDimensionId, optionIds: [ids.formRawOptionId] }],
     });
 
     const sealedResponse = await app.request(`/api/marketplace/items/${ids.sealedItemId}`);
     expect(sealedResponse.status).toBe(200);
     const sealedBody = await sealedResponse.json();
-    expect(sealedBody.version_schema).toMatchObject({
+    expect(sealedBody.product_schema).toMatchObject({
       canonicalDimensionOrder: [],
       dimensions: [],
     });
   });
 
   it("can rebuild the search index idempotently", async () => {
-    await pools.discovery.query(`INSERT INTO discovery_search_catalog_items (item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
+    await pools.discovery.query(`INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
 
     await rebuildDiscoverySearchIndex(pools.discovery);
     await rebuildDiscoverySearchIndex(pools.discovery);
 
-    const result = await pools.discovery.query(`SELECT COUNT(*) AS count FROM discovery_search_items WHERE item_id = 'cat_test'`);
+    const result = await pools.discovery.query(`SELECT COUNT(*) AS count FROM discovery_search_items WHERE catalog_item_id = 'cat_test'`);
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });

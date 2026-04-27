@@ -8,7 +8,7 @@ export type CatalogLifecycleStatus =
 
 export type CatalogItemStatus = "draft" | "active" | "retired" | "archived";
 
-export type ChoiceStatus = "active" | "deprecated";
+export type OptionStatus = "active" | "deprecated";
 
 export type FieldValueType = "string" | "number" | "boolean" | "date" | "json";
 

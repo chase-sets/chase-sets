@@ -25,7 +25,7 @@ import {
   listSellerVisibleOffers,
 } from "../read-model/queries";
 import {
-  createMarketplaceCatalogVersionDescriptor,
+  createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
 } from "../domain/versioning";
 
@@ -40,11 +40,11 @@ export type MarketplaceOfferServices = Readonly<{
       offerId?: OfferId;
       buyerAccountId: AccountId;
       catalogItemId: string;
-      catalogVersionKey: string;
+      productId: string;
       itemTitle: string;
       itemSubtitle: string | null;
-      versionSelection: readonly { dimensionId: string; choiceId: string }[];
-      versionSummary: string | null;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      productSummary: string | null;
       priceAmount: string;
       quantityRequested: number;
     }>,
@@ -90,15 +90,15 @@ export function createMarketplaceOfferRuntime(
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
     const result = await deps.db.query<{
-      item_id: string;
+      catalog_item_id: string;
       title: string;
       subtitle: string | null;
       status: string;
-      version_schema: unknown;
+      product_schema: unknown;
     }>(
-      `SELECT item_id, title, subtitle, status, version_schema
+      `SELECT catalog_item_id, title, subtitle, status, product_schema
        FROM marketplace_catalog_items
-       WHERE item_id = $1`,
+       WHERE catalog_item_id = $1`,
       [catalogItemId],
     );
 
@@ -117,18 +117,18 @@ export function createMarketplaceOfferRuntime(
         throw new Error("Offers may only reference active catalog items.");
       }
 
-      const catalogVersion = createMarketplaceCatalogVersionDescriptor({
+      const catalogVersion = createMarketplaceProductDescriptor({
         catalogItemId: params.catalogItemId,
-        versionSchema:
-          typeof catalogItem.version_schema === "object" &&
-          catalogItem.version_schema !== null
-            ? (catalogItem.version_schema as MarketplaceVersionSchema)
+        productSchema:
+          typeof catalogItem.product_schema === "object" &&
+          catalogItem.product_schema !== null
+            ? (catalogItem.product_schema as MarketplaceVersionSchema)
             : null,
-        selection: params.versionSelection,
+        selection: params.selectedOptions,
       });
 
-      if (params.catalogVersionKey.trim() !== catalogVersion.catalogVersionKey) {
-        throw new Error("Offer catalog version key does not match the selected version.");
+      if (params.productId.trim() !== catalogVersion.productId) {
+        throw new Error("Offer product id does not match the selected options.");
       }
 
       const offerId = params.offerId ?? (createId("off") as OfferId);
@@ -139,11 +139,11 @@ export function createMarketplaceOfferRuntime(
           offerId,
           buyerAccountId: params.buyerAccountId,
           catalogItemId: params.catalogItemId,
-          catalogVersionKey: catalogVersion.catalogVersionKey,
+          productId: catalogVersion.productId,
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,
-          versionSelection: catalogVersion.selection,
-          versionSummary: params.versionSummary,
+          selectedOptions: catalogVersion.selection,
+          productSummary: params.productSummary,
           priceAmount: params.priceAmount,
           quantityRequested: params.quantityRequested,
         },
@@ -191,4 +191,3 @@ export function createMarketplaceOfferRuntime(
     ],
   };
 }
-

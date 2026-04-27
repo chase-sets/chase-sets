@@ -81,9 +81,9 @@ export function MarketplaceSellerOfferListPage({
                       {row.item_subtitle}
                     </Text>
                   ) : null}
-                  {row.version_summary ? (
+                  {row.product_summary ? (
                     <Text tone="secondary" size="sm">
-                      {row.version_summary}
+                      {row.product_summary}
                     </Text>
                   ) : null}
                 </Stack>

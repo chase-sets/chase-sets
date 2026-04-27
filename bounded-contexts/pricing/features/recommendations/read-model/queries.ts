@@ -2,7 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export type SellerRecommendationListItem = Readonly<{
   recommendation_id: string;
-  catalog_item_id: string;
+  catalog_catalog_item_id: string;
   seller_account_id: string;
   catalog_item_title: string | null;
   catalog_item_subtitle: string | null;
@@ -42,7 +42,7 @@ export async function listSellerRecommendations(
     db.query<SellerRecommendationListItem>(
       `SELECT
          recommendation_id,
-         catalog_item_id,
+         catalog_catalog_item_id,
          seller_account_id,
          catalog_item_title,
          catalog_item_subtitle,
@@ -85,7 +85,7 @@ export async function getSellerRecommendation(
   const result = await db.query<SellerRecommendationListItem>(
     `SELECT
        recommendation_id,
-       catalog_item_id,
+       catalog_catalog_item_id,
        seller_account_id,
        catalog_item_title,
        catalog_item_subtitle,

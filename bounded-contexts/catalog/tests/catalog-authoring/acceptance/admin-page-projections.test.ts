@@ -93,7 +93,7 @@ describeWithDatabase("Admin page projections", () => {
 
   it("serves inline page DTOs and fans out referenced name changes", async () => {
     const dimensionId = "dim_condition";
-    const choiceId = "chc_near_mint";
+    const optionId = "chc_near_mint";
     const fieldId = "fld_card_name";
     const componentId = "cmp_base_card_info";
     const blueprintId = "bpr_raw_pokemon_card";
@@ -109,8 +109,8 @@ describeWithDatabase("Admin page projections", () => {
       description: "Card condition",
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
-      type: "AddChoice",
-      choiceId,
+      type: "AddOption",
+      optionId,
       code: "near-mint",
       labels: [{ locale: "en", value: "Near Mint" }],
       numericValue: null,
@@ -144,7 +144,7 @@ describeWithDatabase("Admin page projections", () => {
       type: "AddDimensionRuleToComponent",
       dimensionId,
       required: true,
-      allowedChoiceIds: [choiceId],
+      allowedOptionIds: [optionId],
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, { type: "ActivateComponent" });
 
@@ -165,10 +165,10 @@ describeWithDatabase("Admin page projections", () => {
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "SetBlueprintDimensions",
-      dimensionRules: [{ dimensionId, required: true, allowedChoiceIds: [choiceId] }],
+      dimensionRules: [{ dimensionId, required: true, allowedOptionIds: [optionId] }],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
-      type: "SetBlueprintVersionRules",
+      type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [dimensionId],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
@@ -196,31 +196,31 @@ describeWithDatabase("Admin page projections", () => {
     await sendCommand(services.categories.commandHandler, `catalog.category-${childCategoryId}`, { type: "PublishCategory" });
 
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-      type: "CreateItem",
+      type: "CreateCatalogItem",
       itemId,
       title: "Charizard",
       subtitle: "Base Set",
       description: "A classic Charizard",
     });
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-      type: "AssignBlueprintToItem",
+      type: "AssignBlueprintToCatalogItem",
       blueprintId,
     });
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-      type: "SetItemFieldValue",
+      type: "SetCatalogItemFieldValue",
       fieldId,
       value: "Charizard",
     });
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-      type: "AssignItemToCategory",
+      type: "AssignCatalogItemToCategory",
       categoryId: childCategoryId,
     });
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-      type: "SetItemTags",
+      type: "SetCatalogItemTags",
       tags: ["featured", "vintage"],
     });
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-      type: "PublishItem",
+      type: "PublishCatalogItem",
       blueprintIsActive: true,
       requiredFieldIds: [fieldId],
     });
@@ -235,14 +235,14 @@ describeWithDatabase("Admin page projections", () => {
       dimensionName: "Condition",
       required: true,
     });
-    expect(componentDetail.json.dimension_rules[0].allowedChoices[0]).toMatchObject({ choiceId, code: "near-mint" });
+    expect(componentDetail.json.dimension_rules[0].allowedOptions[0]).toMatchObject({ optionId, code: "near-mint" });
     expect(componentDetail.json._resolved).toBeUndefined();
 
     const blueprintDetail = await getJson(`/api/catalog/blueprints/${blueprintId}`);
     expect(blueprintDetail.response.status).toBe(200);
     expect(blueprintDetail.json.components[0]).toMatchObject({ componentId, name: "Base Card Info" });
     expect(blueprintDetail.json.field_rules[0]).toMatchObject({ fieldId, fieldName: "Card Name" });
-    expect(blueprintDetail.json.dimension_rules[0].allowedChoices[0]).toMatchObject({ choiceId, code: "near-mint" });
+    expect(blueprintDetail.json.dimension_rules[0].allowedOptions[0]).toMatchObject({ optionId, code: "near-mint" });
     expect(blueprintDetail.json.canonical_dimension_order[0]).toMatchObject({ dimensionId, dimensionName: "Condition" });
 
     const categoryList = await getJson(`/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}&limit=1&offset=0`);
@@ -262,7 +262,7 @@ describeWithDatabase("Admin page projections", () => {
     expect(itemList.response.status).toBe(200);
     expect(itemList.json.total).toBe(1);
     expect(itemList.json.items[0]).toMatchObject({
-      item_id: itemId,
+      catalog_item_id: itemId,
       blueprint: { blueprintId, name: "Raw Pokemon Card" },
     });
     expect(itemList.json._resolvedNames).toBeUndefined();
@@ -294,8 +294,8 @@ describeWithDatabase("Admin page projections", () => {
       description: "Card condition",
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
-      type: "ReviseChoice",
-      choiceId,
+      type: "ReviseOption",
+      optionId,
       code: "mint",
       labels: [{ locale: "en", value: "Mint" }],
       numericValue: null,
@@ -306,7 +306,7 @@ describeWithDatabase("Admin page projections", () => {
       name: "Base Card Info V2",
       description: "Core fields",
       fieldRules: [{ fieldId, required: true }],
-      dimensionRules: [{ dimensionId, required: true, allowedChoiceIds: [choiceId] }],
+      dimensionRules: [{ dimensionId, required: true, allowedOptionIds: [optionId] }],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "ReviseBlueprint",
@@ -337,14 +337,14 @@ describeWithDatabase("Admin page projections", () => {
     expect(updatedComponent.json.name).toBe("Base Card Info V2");
     expect(updatedComponent.json.field_rules[0].fieldName).toBe("Card Title");
     expect(updatedComponent.json.dimension_rules[0].dimensionName).toBe("Card Condition");
-    expect(updatedComponent.json.dimension_rules[0].allowedChoices[0].code).toBe("mint");
+    expect(updatedComponent.json.dimension_rules[0].allowedOptions[0].code).toBe("mint");
 
     const updatedBlueprint = await getJson(`/api/catalog/blueprints/${blueprintId}`);
     expect(updatedBlueprint.json.name).toBe("Raw Pokemon Card V2");
     expect(updatedBlueprint.json.components[0].name).toBe("Base Card Info V2");
     expect(updatedBlueprint.json.field_rules[0].fieldName).toBe("Card Title");
     expect(updatedBlueprint.json.dimension_rules[0].dimensionName).toBe("Card Condition");
-    expect(updatedBlueprint.json.dimension_rules[0].allowedChoices[0].code).toBe("mint");
+    expect(updatedBlueprint.json.dimension_rules[0].allowedOptions[0].code).toBe("mint");
 
     const updatedCategoryList = await getJson(`/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}`);
     expect(updatedCategoryList.json.items[0].name).toBe("Generation I Singles");
@@ -365,9 +365,9 @@ describeWithDatabase("Admin page projections", () => {
 
   it("includes conditional applicability in component and blueprint DTOs", async () => {
     const formDimensionId = "dim_form";
-    const formRawChoiceId = "chc_form_raw";
+    const formRawOptionId = "chc_form_raw";
     const conditionDimensionId = "dim_condition";
-    const conditionChoiceId = "chc_condition_nm";
+    const conditionOptionId = "chc_condition_nm";
     const componentId = "cmp_single_card_versioning";
     const blueprintId = "bpr_card_single";
 
@@ -379,8 +379,8 @@ describeWithDatabase("Admin page projections", () => {
       description: "Card form",
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, {
-      type: "AddChoice",
-      choiceId: formRawChoiceId,
+      type: "AddOption",
+      optionId: formRawOptionId,
       code: "raw",
       labels: [{ locale: "en", value: "Raw" }],
       numericValue: null,
@@ -395,8 +395,8 @@ describeWithDatabase("Admin page projections", () => {
       description: "Card condition",
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, {
-      type: "AddChoice",
-      choiceId: conditionChoiceId,
+      type: "AddOption",
+      optionId: conditionOptionId,
       code: "near-mint",
       labels: [{ locale: "en", value: "Near Mint" }],
       numericValue: null,
@@ -408,20 +408,20 @@ describeWithDatabase("Admin page projections", () => {
       componentId,
       key: "single-card-versioning",
       name: "Single Card Versioning",
-      description: "Version rules",
+      description: "Product resolution rules",
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "AddDimensionRuleToComponent",
       dimensionId: formDimensionId,
       required: true,
-      allowedChoiceIds: [formRawChoiceId],
+      allowedOptionIds: [formRawOptionId],
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "AddDimensionRuleToComponent",
       dimensionId: conditionDimensionId,
       required: true,
-      allowedChoiceIds: [conditionChoiceId],
-      appliesWhen: [{ dimensionId: formDimensionId, choiceIds: [formRawChoiceId] }],
+      allowedOptionIds: [conditionOptionId],
+      appliesWhen: [{ dimensionId: formDimensionId, optionIds: [formRawOptionId] }],
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, { type: "ActivateComponent" });
 
@@ -439,17 +439,17 @@ describeWithDatabase("Admin page projections", () => {
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "SetBlueprintDimensions",
       dimensionRules: [
-        { dimensionId: formDimensionId, required: true, allowedChoiceIds: [formRawChoiceId] },
+        { dimensionId: formDimensionId, required: true, allowedOptionIds: [formRawOptionId] },
         {
           dimensionId: conditionDimensionId,
           required: true,
-          allowedChoiceIds: [conditionChoiceId],
-          appliesWhen: [{ dimensionId: formDimensionId, choiceIds: [formRawChoiceId] }],
+          allowedOptionIds: [conditionOptionId],
+          appliesWhen: [{ dimensionId: formDimensionId, optionIds: [formRawOptionId] }],
         },
       ],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
-      type: "SetBlueprintVersionRules",
+      type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [formDimensionId, conditionDimensionId],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
@@ -464,10 +464,10 @@ describeWithDatabase("Admin page projections", () => {
     expect(componentConditionRule.appliesWhen[0]).toMatchObject({
       dimensionId: formDimensionId,
       dimensionName: "Form",
-      choiceIds: [formRawChoiceId],
+      optionIds: [formRawOptionId],
     });
-    expect(componentConditionRule.appliesWhen[0].choices[0]).toMatchObject({
-      choiceId: formRawChoiceId,
+    expect(componentConditionRule.appliesWhen[0].options[0]).toMatchObject({
+      optionId: formRawOptionId,
       code: "raw",
     });
 
@@ -479,10 +479,10 @@ describeWithDatabase("Admin page projections", () => {
     expect(blueprintConditionRule.appliesWhen[0]).toMatchObject({
       dimensionId: formDimensionId,
       dimensionName: "Form",
-      choiceIds: [formRawChoiceId],
+      optionIds: [formRawOptionId],
     });
-    expect(blueprintConditionRule.appliesWhen[0].choices[0]).toMatchObject({
-      choiceId: formRawChoiceId,
+    expect(blueprintConditionRule.appliesWhen[0].options[0]).toMatchObject({
+      optionId: formRawOptionId,
       code: "raw",
     });
   });

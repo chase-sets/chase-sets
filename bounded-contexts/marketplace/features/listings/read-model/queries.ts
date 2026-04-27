@@ -4,12 +4,12 @@ export type MarketplaceListingListRow = Readonly<{
   listing_id: string;
   account_id: string;
   inventory_record_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string | null;
   item_subtitle: string | null;
-  version_selection: readonly { dimensionId: string; choiceId: string }[];
-  version_summary: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -41,12 +41,12 @@ type MarketplaceListingPageRow = Readonly<{
   listing_id: string;
   account_id: string;
   inventory_record_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string | null;
   item_subtitle: string | null;
-  version_selection: unknown;
-  version_summary: string | null;
+  selected_options: unknown;
+  product_summary: string | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -65,12 +65,12 @@ type MarketplaceListingPageRow = Readonly<{
 export type MarketplaceInventoryRecordSupply = Readonly<{
   record_id: string;
   account_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string | null;
   item_subtitle: string | null;
-  version_selection: readonly { dimensionId: string; choiceId: string }[];
-  version_summary: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
   storage_location_name: string;
   ship_from_code: string;
   available_quantity: number;
@@ -79,8 +79,8 @@ export type MarketplaceInventoryRecordSupply = Readonly<{
 function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRow {
   return {
     ...row,
-    version_selection: Array.isArray(row.version_selection)
-      ? (row.version_selection as MarketplaceListingListRow["version_selection"])
+    selected_options: Array.isArray(row.selected_options)
+      ? (row.selected_options as MarketplaceListingListRow["selected_options"])
       : [],
   };
 }
@@ -99,12 +99,12 @@ export async function getInventoryRecordSupply(
   const result = await db.query<{
     record_id: string;
     account_id: string;
-    catalog_item_id: string;
-    catalog_version_key: string;
+    catalog_catalog_item_id: string;
+    product_id: string;
     item_title: string | null;
     item_subtitle: string | null;
-    version_selection: unknown;
-    version_summary: string | null;
+    selected_options: unknown;
+    product_summary: string | null;
     storage_location_name: string;
     ship_from_code: string;
     available_quantity: number;
@@ -112,14 +112,14 @@ export async function getInventoryRecordSupply(
     `SELECT
        record.record_id,
        record.account_id,
-       record.catalog_item_id,
-       record.catalog_version_key,
+       record.catalog_catalog_item_id,
+       record.product_id,
        catalog_item.title AS item_title,
        catalog_item.subtitle AS item_subtitle,
-       record.version_selection,
+       record.selected_options,
        (
          CASE
-           WHEN catalog_item.version_schema IS NULL THEN NULL
+           WHEN catalog_item.product_schema IS NULL THEN NULL
            ELSE (
              SELECT string_agg(part, ' | ' ORDER BY ordinality)
              FROM (
@@ -127,25 +127,25 @@ export async function getInventoryRecordSupply(
                  ordinality,
                  COALESCE(dimension->>'dimensionName', dimension->>'dimensionId') || ': ' ||
                  COALESCE(
-                   choice->'labels'->0->>'value',
-                   choice->>'code',
-                   selection->>'choiceId'
+                   option->'labels'->0->>'value',
+                   option->>'code',
+                   selection->>'optionId'
                  ) AS part
-               FROM jsonb_array_elements(record.version_selection) WITH ORDINALITY AS selected(selection, ordinality)
+               FROM jsonb_array_elements(record.selected_options) WITH ORDINALITY AS selected(selection, ordinality)
                LEFT JOIN LATERAL (
                  SELECT dimension
-                 FROM jsonb_array_elements(COALESCE(catalog_item.version_schema->'dimensions', '[]'::jsonb)) AS dimension
+                 FROM jsonb_array_elements(COALESCE(catalog_item.product_schema->'dimensions', '[]'::jsonb)) AS dimension
                  WHERE dimension->>'dimensionId' = selection->>'dimensionId'
                ) matched_dimension ON TRUE
                LEFT JOIN LATERAL (
-                 SELECT choice
-                 FROM jsonb_array_elements(COALESCE(matched_dimension.dimension->'allowedChoices', '[]'::jsonb)) AS choice
-                 WHERE choice->>'choiceId' = selection->>'choiceId'
+                 SELECT option
+                 FROM jsonb_array_elements(COALESCE(matched_dimension.dimension->'allowedOptions', '[]'::jsonb)) AS option
+                 WHERE option->>'optionId' = selection->>'optionId'
                ) matched_choice ON TRUE
              ) parts
            )
          END
-       ) AS version_summary,
+       ) AS product_summary,
        location.name AS storage_location_name,
        location.ship_from_code,
        record.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
@@ -153,7 +153,7 @@ export async function getInventoryRecordSupply(
      INNER JOIN marketplace_supply_locations AS location
        ON location.storage_location_id = record.storage_location_id
      LEFT JOIN marketplace_catalog_items AS catalog_item
-       ON catalog_item.item_id = record.catalog_item_id
+       ON catalog_item.catalog_item_id = record.catalog_catalog_item_id
      LEFT JOIN (
        SELECT record_id, SUM(quantity)::integer AS held_quantity
        FROM marketplace_supply_holds
@@ -173,8 +173,8 @@ export async function getInventoryRecordSupply(
 
   return {
     ...row,
-    version_selection: Array.isArray(row.version_selection)
-      ? (row.version_selection as MarketplaceInventoryRecordSupply["version_selection"])
+    selected_options: Array.isArray(row.selected_options)
+      ? (row.selected_options as MarketplaceInventoryRecordSupply["selected_options"])
       : [],
   };
 }
@@ -269,7 +269,7 @@ export async function getSellerListing(
 
 export async function getMarketSummaryForItem(
   db: PgQueryable,
-  catalogVersionKey: string,
+  productId: string,
 ): Promise<MarketplaceMarketSummaryRow> {
   const result = await db.query<{
     lowest_price_amount: string | null;
@@ -281,9 +281,9 @@ export async function getMarketSummaryForItem(
        COUNT(*)::text AS active_listing_count,
        COALESCE(SUM(quantity_cap), 0)::text AS total_visible_quantity
      FROM marketplace_listing_pages
-     WHERE catalog_version_key = $1
+     WHERE product_id = $1
        AND status = 'active'`,
-    [catalogVersionKey],
+    [productId],
   );
 
   return {
@@ -295,7 +295,7 @@ export async function getMarketSummaryForItem(
 
 export async function listItemListings(
   db: PgQueryable,
-  catalogVersionKey: string,
+  productId: string,
 ): Promise<MarketplaceItemListingRow[]> {
   const result = await db.query<
     MarketplaceListingPageRow & {
@@ -310,10 +310,10 @@ export async function listItemListings(
      FROM marketplace_listing_pages AS listing
      LEFT JOIN marketplace_account_pages AS account
        ON account.account_id = listing.account_id
-     WHERE listing.catalog_version_key = $1
+     WHERE listing.product_id = $1
        AND listing.status = 'active'
      ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
-    [catalogVersionKey],
+    [productId],
   );
 
   return result.rows.map((row) => ({

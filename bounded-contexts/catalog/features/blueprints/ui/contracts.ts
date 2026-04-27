@@ -1,5 +1,5 @@
 import type { ComponentRef } from "../../components/ui/contracts";
-import type { ChoiceRef } from "../../dimensions/ui/contracts";
+import type { OptionRef } from "../../dimensions/ui/contracts";
 
 export interface Blueprint {
   blueprint_id: string;
@@ -12,8 +12,8 @@ export interface Blueprint {
   dimension_rules: Array<{
     dimensionId: string;
     required: boolean;
-    allowedChoiceIds: string[];
-    appliesWhen: Array<{ dimensionId: string; choiceIds: string[] }>;
+    allowedOptionIds: string[];
+    appliesWhen: Array<{ dimensionId: string; optionIds: string[] }>;
   }>;
   canonical_dimension_order: string[];
   updated_at: string;
@@ -31,12 +31,12 @@ export interface BlueprintDetail {
     dimensionId: string;
     dimensionName: string;
     required: boolean;
-    allowedChoices: ChoiceRef[];
+    allowedOptions: OptionRef[];
     appliesWhen: Array<{
       dimensionId: string;
       dimensionName: string;
-      choiceIds: string[];
-      choices: ChoiceRef[];
+      optionIds: string[];
+      options: OptionRef[];
     }>;
   }>;
   canonical_dimension_order: Array<{ dimensionId: string; dimensionName: string }>;

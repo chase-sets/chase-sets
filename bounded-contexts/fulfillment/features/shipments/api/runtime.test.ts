@@ -98,11 +98,11 @@ describe("fulfillment shipment runtime", () => {
             rows: [
               {
                 order_line_id: "oli_1",
-                catalog_item_id: "cat_1",
-                catalog_version_key: "cat_1::",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
                 item_title: "Charizard",
                 item_subtitle: null,
-                version_summary: null,
+                product_summary: null,
                 quantity: 1,
               },
             ],

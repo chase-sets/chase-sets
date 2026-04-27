@@ -2,12 +2,12 @@ export const marketplaceOfferSchemaSql = `
 CREATE TABLE IF NOT EXISTS marketplace_offer_pages (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
-  catalog_item_id text NOT NULL,
-  catalog_version_key text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
   item_title text NOT NULL,
   item_subtitle text NULL,
-  version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
-  version_summary text NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_summary text NULL,
   price_amount numeric(12,2) NOT NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   status text NOT NULL DEFAULT 'submitted',
@@ -20,12 +20,12 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_pages (
 CREATE INDEX IF NOT EXISTS marketplace_offer_pages_buyer_account_idx
   ON marketplace_offer_pages (buyer_account_id, updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS marketplace_offer_pages_catalog_item_idx
-  ON marketplace_offer_pages (catalog_item_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS marketplace_offer_pages_catalog_catalog_item_idx
+  ON marketplace_offer_pages (catalog_catalog_item_id, status, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS marketplace_offer_pages_catalog_version_idx
-  ON marketplace_offer_pages (catalog_version_key, status, updated_at DESC);
+  ON marketplace_offer_pages (product_id, status, updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS marketplace_offer_pages_version_selection_idx
-  ON marketplace_offer_pages USING gin (version_selection);
+CREATE INDEX IF NOT EXISTS marketplace_offer_pages_selected_options_idx
+  ON marketplace_offer_pages USING gin (selected_options);
 `;

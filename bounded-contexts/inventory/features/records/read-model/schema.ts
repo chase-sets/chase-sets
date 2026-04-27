@@ -2,9 +2,9 @@ export const inventoryRecordSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_records (
   record_id text PRIMARY KEY,
   account_id text NOT NULL,
-  catalog_item_id text NOT NULL,
-  catalog_version_key text NOT NULL,
-  version_selection jsonb NOT NULL DEFAULT '[]'::jsonb,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   storage_location_id text NOT NULL REFERENCES inventory_storage_locations(storage_location_id),
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
   last_stream_version bigint NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0),
@@ -20,5 +20,5 @@ CREATE INDEX IF NOT EXISTS inventory_records_storage_location_idx
   ON inventory_records (storage_location_id);
 
 CREATE INDEX IF NOT EXISTS inventory_records_catalog_version_idx
-  ON inventory_records (catalog_version_key);
+  ON inventory_records (product_id);
 `;

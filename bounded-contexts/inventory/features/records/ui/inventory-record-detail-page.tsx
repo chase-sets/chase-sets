@@ -14,7 +14,7 @@ import {
 import type { InventoryRecordDetail } from "./contracts";
 
 function displayItemLabel(record: InventoryRecordDetail) {
-  return record.item_title ?? record.catalog_item_id;
+  return record.item_title ?? record.catalog_catalog_item_id;
 }
 
 export function InventoryRecordDetailPage({
@@ -47,11 +47,11 @@ export function InventoryRecordDetailPage({
         <Card>
           <Stack gap={2}>
             <Text>
-              <strong>Catalog item:</strong> {record.catalog_item_id}
+              <strong>Catalog item:</strong> {record.catalog_catalog_item_id}
             </Text>
-            {record.version_summary ? (
+            {record.product_summary ? (
               <Text>
-                <strong>Version:</strong> {record.version_summary}
+                <strong>Product:</strong> {record.product_summary}
               </Text>
             ) : null}
             <Text>

@@ -12,7 +12,7 @@ import {
 import type { OrderingCartLine } from "./contracts";
 
 function formatLineLabel(line: OrderingCartLine) {
-  return [line.item_title, line.item_subtitle, line.version_summary]
+  return [line.item_title, line.item_subtitle, line.product_summary]
     .filter(Boolean)
     .join(" | ");
 }
@@ -29,7 +29,7 @@ export function OrderingCartPage({
       <PageHeader
         eyebrow="Buyer"
         title="Cart"
-        description="Review version-level purchase intent before checkout resolves live marketplace supply."
+        description="Review product-level purchase intent before checkout resolves live marketplace supply."
       />
 
       {errorMessage ? (
@@ -43,7 +43,7 @@ export function OrderingCartPage({
           {cartLines.length === 0 ? (
             <EmptyState
               title="Your cart is empty"
-              description="Browse the marketplace and add a version to start building a checkout."
+              description="Browse the marketplace and add a product to start building a checkout."
               icon="cart"
             />
           ) : (
@@ -53,7 +53,7 @@ export function OrderingCartPage({
                   <Stack gap={1}>
                     <Text weight="semibold">{formatLineLabel(line)}</Text>
                     <Text size="sm" tone="secondary">
-                      Catalog item: {line.catalog_item_id}
+                      Catalog item: {line.catalog_catalog_item_id}
                     </Text>
                   </Stack>
 

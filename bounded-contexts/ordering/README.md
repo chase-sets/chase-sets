@@ -4,13 +4,13 @@
 
 Ordering owns checkout normalization and the commercial commitment between buyer and seller.
 
-Cart lines and order lines are version-scoped commitments. Ordering carries the resolved sellable unit through checkout and order creation:
+Cart lines and order lines are product-scoped commitments. Ordering carries the resolved product through checkout and order creation:
 
 - `catalogItemId`
-- `catalogVersionKey`
-- normalized `versionSelection`
+- `productId`
+- normalized `selectedOptions`
 
-If an item uses a `condition` dimension, that condition is represented inside the selected dimensions and version summary. Ordering does not persist a separate condition field.
+If an item uses a `condition` dimension, that condition is represented inside the selected dimensions and product summary. Ordering does not persist a separate condition field.
 
 ## Owns
 
@@ -45,7 +45,7 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Incoming Dependencies
 
 - Identity for buyer and seller account references
-- Marketplace for active sellable-unit supply and accepted offer decisions
+- Marketplace for active product supply and accepted offer decisions
 - Inventory reservation outcome events for post-commitment hold execution and release
 
 ## Outgoing Integration Events
@@ -58,7 +58,7 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 1. Cart and checkout stay inside Ordering.
 2. Ordering freezes commercial terms at checkout time.
-3. Cart lines express buyer intent for a sellable unit; concrete listing and inventory matching happen only when commitment occurs.
+3. Cart lines express buyer intent for a product; concrete listing and inventory matching happen only when commitment occurs.
 4. A buyer checkout may produce one or more seller-specific orders.
 5. Inventory holds are placed only when an order is committed and released if the order is cancelled while pending.
 6. In v1, orders remain `Pending Payment` or `Cancelled`; confirmation and fulfillment-readiness stay out of scope.

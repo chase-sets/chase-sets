@@ -88,20 +88,20 @@ export function createMarketplaceApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async getMarketSummary(catalogVersionKey: string): Promise<MarketplaceMarketSummary> {
+    async getMarketSummary(productId: string): Promise<MarketplaceMarketSummary> {
       return parseJsonResponse(
-        await client["sellable-units"][":catalogVersionKey"]["market-summary"].$get({
-          param: { catalogVersionKey },
+        await client["products"][":productId"]["market-summary"].$get({
+          param: { productId },
           header: headers,
         }),
       );
     },
     async listItemListings(
-      catalogVersionKey: string,
+      productId: string,
     ): Promise<ListResponse<MarketplaceItemListing>> {
       return parseJsonResponse(
-        await client["sellable-units"][":catalogVersionKey"].listings.$get({
-          param: { catalogVersionKey },
+        await client["products"][":productId"].listings.$get({
+          param: { productId },
           header: headers,
         }),
       );

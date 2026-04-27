@@ -13,7 +13,7 @@ CREATE INDEX IF NOT EXISTS discovery_category_catalog_categories_parent_idx ON d
 CREATE INDEX IF NOT EXISTS discovery_category_catalog_categories_status_idx ON discovery_category_catalog_categories (status);
 
 CREATE TABLE IF NOT EXISTS discovery_category_catalog_items (
-  item_id text PRIMARY KEY,
+  catalog_item_id text PRIMARY KEY,
   category_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   status text NOT NULL DEFAULT 'draft',
   updated_at timestamptz NOT NULL DEFAULT now()

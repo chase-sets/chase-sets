@@ -1,20 +1,20 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { InventoryHoldRow } from "../../holds/read-model/queries";
 import {
-  summarizeVersionSelection,
-  type InventoryVersionSchema,
-  type InventoryVersionSelectionEntry,
+  summarizeSelectedOptions,
+  type InventoryProductSchema,
+  type InventorySelectedOptionEntry,
 } from "../integrations/catalog/versioning";
 
 export type InventoryRecordListRow = Readonly<{
   record_id: string;
   account_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string | null;
   item_subtitle: string | null;
-  version_selection: readonly InventoryVersionSelectionEntry[];
-  version_summary: string | null;
+  selected_options: readonly InventorySelectedOptionEntry[];
+  product_summary: string | null;
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
@@ -34,9 +34,9 @@ export type InventoryRecordDetailRow = InventoryRecordListRow &
 type BaseInventoryRecordRow = Readonly<{
   record_id: string;
   account_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
-  version_selection: unknown;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  selected_options: unknown;
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
@@ -49,10 +49,10 @@ type BaseInventoryRecordRow = Readonly<{
 }>;
 
 type CatalogItemSummaryRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
-  version_schema: unknown;
+  product_schema: unknown;
 }>;
 
 async function loadCatalogItemSummaries(
@@ -72,13 +72,13 @@ async function loadCatalogItemSummaries(
   }
 
   const result = await db.query<CatalogItemSummaryRow>(
-    `SELECT item_id, title, subtitle, version_schema
+    `SELECT catalog_item_id, title, subtitle, product_schema
      FROM inventory_catalog_items
-     WHERE item_id = ANY($1::text[])`,
+     WHERE catalog_item_id = ANY($1::text[])`,
     [catalogItemIds],
   );
 
-  return new Map(result.rows.map((row) => [row.item_id, row]));
+  return new Map(result.rows.map((row) => [row.catalog_item_id, row]));
 }
 
 function enrichInventoryRecordRows(
@@ -86,23 +86,23 @@ function enrichInventoryRecordRows(
   catalogItems: ReadonlyMap<string, CatalogItemSummaryRow>,
 ): InventoryRecordListRow[] {
   return rows.map((row) => {
-    const catalogItem = catalogItems.get(row.catalog_item_id);
-    const versionSelection = Array.isArray(row.version_selection)
-      ? (row.version_selection as InventoryVersionSelectionEntry[])
+    const catalogItem = catalogItems.get(row.catalog_catalog_item_id);
+    const selectedOptions = Array.isArray(row.selected_options)
+      ? (row.selected_options as InventorySelectedOptionEntry[])
       : [];
-    const versionSchema =
-      typeof catalogItem?.version_schema === "object" &&
-      catalogItem.version_schema !== null
-        ? (catalogItem.version_schema as InventoryVersionSchema)
+    const productSchema =
+      typeof catalogItem?.product_schema === "object" &&
+      catalogItem.product_schema !== null
+        ? (catalogItem.product_schema as InventoryProductSchema)
         : null;
 
     return {
       ...row,
       item_title: catalogItem?.title ?? null,
       item_subtitle: catalogItem?.subtitle ?? null,
-      version_selection: versionSelection,
-      version_summary:
-        summarizeVersionSelection(versionSchema, versionSelection) || null,
+      selected_options: selectedOptions,
+      product_summary:
+        summarizeSelectedOptions(productSchema, selectedOptions) || null,
     };
   });
 }
@@ -129,9 +129,9 @@ export async function listInventoryRecords(
       `SELECT
          record.record_id,
          record.account_id,
-         record.catalog_item_id,
-         record.catalog_version_key,
-         record.version_selection,
+         record.catalog_catalog_item_id,
+         record.product_id,
+         record.selected_options,
          record.storage_location_id,
          location.name AS storage_location_name,
          location.ship_from_code,
@@ -161,7 +161,7 @@ export async function listInventoryRecords(
 
   const catalogItems = await loadCatalogItemSummaries(
     db,
-    [...new Set(itemsResult.rows.map((row) => row.catalog_item_id))],
+    [...new Set(itemsResult.rows.map((row) => row.catalog_catalog_item_id))],
   );
   const items = enrichInventoryRecordRows(itemsResult.rows, catalogItems);
 
@@ -180,9 +180,9 @@ export async function getInventoryRecord(
     `SELECT
        record.record_id,
        record.account_id,
-       record.catalog_item_id,
-       record.catalog_version_key,
-       record.version_selection,
+       record.catalog_catalog_item_id,
+       record.product_id,
+       record.selected_options,
        record.storage_location_id,
        location.name AS storage_location_name,
        location.ship_from_code,
@@ -231,7 +231,7 @@ export async function getInventoryRecord(
     [recordId, accountId],
   );
 
-  const catalogItems = await loadCatalogItemSummaries(db, [row.catalog_item_id]);
+  const catalogItems = await loadCatalogItemSummaries(db, [row.catalog_catalog_item_id]);
   const [enriched] = enrichInventoryRecordRows([row], catalogItems);
 
   return {

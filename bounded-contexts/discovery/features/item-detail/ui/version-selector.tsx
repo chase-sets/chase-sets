@@ -6,21 +6,21 @@ import {
 } from "@chase-sets/design-system";
 import type { VersionSchema } from "../../../support/client-support/contracts";
 import {
-  getChoiceLabel,
+  getOptionLabel,
   getOrderedActiveDimensions,
 } from "../domain/versioning";
 
-interface VersionSelectorProps {
+interface ProductSelectorProps {
   schema: VersionSchema;
   selections: Record<string, string>;
-  onSelectionChange: (dimensionId: string, choiceId: string) => void;
+  onSelectionChange: (dimensionId: string, optionId: string) => void;
 }
 
-export function VersionSelector({
+export function ProductSelector({
   schema,
   selections,
   onSelectionChange,
-}: VersionSelectorProps) {
+}: ProductSelectorProps) {
   if (schema.dimensions.length === 0) {
     return null;
   }
@@ -32,14 +32,14 @@ export function VersionSelector({
       {orderedDimensions.map((dimension) => {
         const selected = selections[dimension.dimensionId] ?? "";
 
-        if (dimension.allowedChoices.length <= 5) {
+        if (dimension.allowedOptions.length <= 5) {
           return (
             <Stack key={dimension.dimensionId} gap={2}>
               <Text size="sm" weight="semibold">{dimension.dimensionName}</Text>
               <SegmentedControl
-                items={dimension.allowedChoices.map((choice) => ({
-                  value: choice.choiceId,
-                  label: getChoiceLabel(choice),
+                items={dimension.allowedOptions.map((option) => ({
+                  value: option.optionId,
+                  label: getOptionLabel(option),
                 }))}
                 value={selected}
                 onValueChange={(value) =>
@@ -54,9 +54,9 @@ export function VersionSelector({
           <Select
             key={dimension.dimensionId}
             label={dimension.dimensionName}
-            items={dimension.allowedChoices.map((choice) => ({
-              value: choice.choiceId,
-              label: getChoiceLabel(choice),
+            items={dimension.allowedOptions.map((option) => ({
+              value: option.optionId,
+              label: getOptionLabel(option),
             }))}
             value={selected}
             onValueChange={(value) =>

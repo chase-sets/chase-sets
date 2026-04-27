@@ -54,12 +54,12 @@
         "catalog.blueprint.created",
         "catalog.blueprint.revised",
         "catalog.blueprint.dimensions-set",
-        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.product-resolution-rules-set",
         "catalog.blueprint.published",
         "catalog.dimension.created",
         "catalog.dimension.revised",
-        "catalog.dimension.choice-added",
-        "catalog.dimension.choice-revised"
+        "catalog.dimension.option-added",
+        "catalog.dimension.option-revised"
       ],
       "order": 10
     },
@@ -160,7 +160,7 @@
         "ordering_catalog_items",
         "ordering_catalog_blueprints",
         "ordering_catalog_dimensions",
-        "ordering_catalog_dimension_choices"
+        "ordering_catalog_dimension_options"
       ],
       "requiredDuringBootstrap": true
     },

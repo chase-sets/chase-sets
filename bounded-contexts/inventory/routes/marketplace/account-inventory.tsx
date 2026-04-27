@@ -43,7 +43,7 @@ export async function action({ request }: ActionFunctionArgs) {
     if (intent === "create-record") {
       await api.createRecord({
         catalogItemId: formData.get("catalogItemId"),
-        versionSelection: formData.get("versionSelection"),
+        selectedOptions: formData.get("selectedOptions"),
         storageLocationId: formData.get("storageLocationId"),
         totalQuantity: Number(formData.get("totalQuantity") ?? 0),
         acquisitionCostAmount:

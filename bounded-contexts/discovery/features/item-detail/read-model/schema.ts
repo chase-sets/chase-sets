@@ -1,5 +1,5 @@
 export const discoveryItemDetailSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_items (
-  item_id text PRIMARY KEY,
+  catalog_item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   description text NOT NULL DEFAULT '',
@@ -41,18 +41,18 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_dimensions (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_dimension_choices (
-  choice_id text PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_dimension_options (
+  option_id text PRIMARY KEY,
   dimension_id text NOT NULL,
   code text NOT NULL,
   labels jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_dimension_choices_dimension_idx ON discovery_item_detail_catalog_dimension_choices (dimension_id);
+CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_dimension_options_dimension_idx ON discovery_item_detail_catalog_dimension_options (dimension_id);
 
 CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
-  item_id text PRIMARY KEY,
+  catalog_item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   description text NOT NULL DEFAULT '',
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   categories jsonb NOT NULL DEFAULT '[]'::jsonb,
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
-  version_schema jsonb NULL,
+  product_schema jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );`;
 

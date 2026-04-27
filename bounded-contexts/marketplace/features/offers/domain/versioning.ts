@@ -1,15 +1,15 @@
-export type MarketplaceVersionSelectionEntry = Readonly<{
+export type MarketplaceVersionSelectedOptionEntry = Readonly<{
   dimensionId: string;
-  choiceId: string;
+  optionId: string;
 }>;
 
 export type MarketplaceVersionApplicabilityClause = Readonly<{
   dimensionId: string;
-  choiceIds: string[];
+  optionIds: string[];
 }>;
 
 export type MarketplaceVersionChoice = Readonly<{
-  choiceId: string;
+  optionId: string;
   code: string;
   labels?: Array<{ locale: string; value: string }>;
 }>;
@@ -19,7 +19,7 @@ export type MarketplaceVersionDimension = Readonly<{
   dimensionName: string;
   required: boolean;
   appliesWhen: MarketplaceVersionApplicabilityClause[];
-  allowedChoices: MarketplaceVersionChoice[];
+  allowedOptions: MarketplaceVersionChoice[];
 }>;
 
 export type MarketplaceVersionSchema = Readonly<{
@@ -27,9 +27,9 @@ export type MarketplaceVersionSchema = Readonly<{
   dimensions: MarketplaceVersionDimension[];
 }>;
 
-export type MarketplaceCatalogVersionDescriptor = Readonly<{
-  catalogVersionKey: string;
-  selection: MarketplaceVersionSelectionEntry[];
+export type MarketplaceProductDescriptor = Readonly<{
+  productId: string;
+  selection: MarketplaceVersionSelectedOptionEntry[];
 }>;
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -45,10 +45,10 @@ function normalizeRequiredText(value: string, message: string) {
 }
 
 function selectionEntriesToRecord(
-  selection: readonly MarketplaceVersionSelectionEntry[],
+  selection: readonly MarketplaceVersionSelectedOptionEntry[],
 ): Record<string, string> {
   return Object.fromEntries(
-    selection.map((entry) => [entry.dimensionId, entry.choiceId]),
+    selection.map((entry) => [entry.dimensionId, entry.optionId]),
   );
 }
 
@@ -57,16 +57,16 @@ function isDimensionActive(
   selections: Record<string, string>,
 ) {
   return dimension.appliesWhen.every((clause) => {
-    const selectedChoiceId = selections[clause.dimensionId];
+    const selectedOptionId = selections[clause.dimensionId];
     return (
-      selectedChoiceId !== undefined &&
-      clause.choiceIds.includes(selectedChoiceId)
+      selectedOptionId !== undefined &&
+      clause.optionIds.includes(selectedOptionId)
     );
   });
 }
 
-function normalizeSelection(
-  selection: readonly MarketplaceVersionSelectionEntry[],
+function normalizeSelectedOptions(
+  selection: readonly MarketplaceVersionSelectedOptionEntry[],
 ) {
   const normalized = selection
     .map((entry) => ({
@@ -74,14 +74,14 @@ function normalizeSelection(
         entry.dimensionId,
         "Selection must include a dimension.",
       ),
-      choiceId: normalizeRequiredText(
-        entry.choiceId,
-        "Selection must include a choice.",
+      optionId: normalizeRequiredText(
+        entry.optionId,
+        "Selection must include an option.",
       ),
     }))
     .sort((left, right) =>
       left.dimensionId.localeCompare(right.dimensionId) ||
-      left.choiceId.localeCompare(right.choiceId),
+      left.optionId.localeCompare(right.optionId),
     );
 
   const seen = new Set<string>();
@@ -96,17 +96,17 @@ function normalizeSelection(
   return normalized;
 }
 
-export function createMarketplaceCatalogVersionDescriptor(input: Readonly<{
+export function createMarketplaceProductDescriptor(input: Readonly<{
   catalogItemId: string;
-  versionSchema: MarketplaceVersionSchema | null;
-  selection: readonly MarketplaceVersionSelectionEntry[];
-}>): MarketplaceCatalogVersionDescriptor {
+  productSchema: MarketplaceVersionSchema | null;
+  selection: readonly MarketplaceVersionSelectedOptionEntry[];
+}>): MarketplaceProductDescriptor {
   const catalogItemId = normalizeRequiredText(
     input.catalogItemId,
     "Catalog item id is required.",
   );
-  const schema = input.versionSchema;
-  const selection = normalizeSelection(input.selection);
+  const schema = input.productSchema;
+  const selection = normalizeSelectedOptions(input.selection);
 
   if (!schema || schema.dimensions.length === 0) {
     assert(
@@ -114,7 +114,7 @@ export function createMarketplaceCatalogVersionDescriptor(input: Readonly<{
       "Selection is not allowed for this catalog item.",
     );
     return {
-      catalogVersionKey: `${catalogItemId}::`,
+      productId: `${catalogItemId}::`,
       selection: [],
     };
   }
@@ -129,17 +129,17 @@ export function createMarketplaceCatalogVersionDescriptor(input: Readonly<{
       (dimension): dimension is MarketplaceVersionDimension => dimension !== undefined,
     )) {
     const active = isDimensionActive(dimension, selections);
-    const selectedChoiceId = selections[dimension.dimensionId];
+    const selectedOptionId = selections[dimension.dimensionId];
 
     if (!active) {
       assert(
-        selectedChoiceId === undefined,
+        selectedOptionId === undefined,
         "Selection cannot include inactive dimensions.",
       );
       continue;
     }
 
-    if (selectedChoiceId === undefined) {
+    if (selectedOptionId === undefined) {
       assert(
         !dimension.required,
         `Selection must include ${dimension.dimensionName}.`,
@@ -148,8 +148,8 @@ export function createMarketplaceCatalogVersionDescriptor(input: Readonly<{
     }
 
     assert(
-      dimension.allowedChoices.some((choice) => choice.choiceId === selectedChoiceId),
-      `Selection must use an allowed choice for ${dimension.dimensionName}.`,
+      dimension.allowedOptions.some((option) => option.optionId === selectedOptionId),
+      `Selection must use an allowed option for ${dimension.dimensionName}.`,
     );
   }
 
@@ -161,23 +161,23 @@ export function createMarketplaceCatalogVersionDescriptor(input: Readonly<{
   );
 
   return {
-    catalogVersionKey: `${catalogItemId}::${schema.canonicalDimensionOrder
+    productId: `${catalogItemId}::${schema.canonicalDimensionOrder
       .map((entry) => `${entry.dimensionId}:${selections[entry.dimensionId] ?? "-"}`)
       .join("|")}`,
     selection: schema.canonicalDimensionOrder
       .map((entry) => {
-        const choiceId = selections[entry.dimensionId];
-        if (!choiceId) {
+        const optionId = selections[entry.dimensionId];
+        if (!optionId) {
           return null;
         }
 
         return {
           dimensionId: entry.dimensionId,
-          choiceId,
+          optionId,
         };
       })
       .filter(
-        (entry): entry is MarketplaceVersionSelectionEntry => entry !== null,
+        (entry): entry is MarketplaceVersionSelectedOptionEntry => entry !== null,
       ),
   };
 }

@@ -31,12 +31,12 @@ export function setBlueprintFields(id: string, fieldRules: { fieldId: string; re
   return api.setBlueprintFields<CommandResponse>(id, fieldRules);
 }
 
-export function setBlueprintDimensions(id: string, dimensionRules: { dimensionId: string; required: boolean; allowedChoiceIds: string[]; appliesWhen: Array<{ dimensionId: string; choiceIds: string[] }> }[]) {
+export function setBlueprintDimensions(id: string, dimensionRules: { dimensionId: string; required: boolean; allowedOptionIds: string[]; appliesWhen: Array<{ dimensionId: string; optionIds: string[] }> }[]) {
   return api.setBlueprintDimensions<CommandResponse>(id, dimensionRules);
 }
 
-export function setBlueprintVersionRules(id: string, canonicalDimensionOrder: string[]) {
-  return api.setBlueprintVersionRules<CommandResponse>(id, canonicalDimensionOrder);
+export function setBlueprintProductResolutionRules(id: string, canonicalDimensionOrder: string[]) {
+  return api.setBlueprintProductResolutionRules<CommandResponse>(id, canonicalDimensionOrder);
 }
 
 export function publishBlueprint(id: string) {

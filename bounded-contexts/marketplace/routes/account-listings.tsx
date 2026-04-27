@@ -32,11 +32,11 @@ function toInventoryOption(
 ): MarketplaceListingInventoryRecordOption {
   return {
     record_id: record.record_id,
-    catalog_item_id: record.catalog_item_id,
-    catalog_version_key: record.catalog_version_key,
+    catalog_catalog_item_id: record.catalog_catalog_item_id,
+    product_id: record.product_id,
     item_title: record.item_title,
     item_subtitle: record.item_subtitle,
-    version_summary: record.version_summary,
+    product_summary: record.product_summary,
     storage_location_name: record.storage_location_name,
     ship_from_code: record.ship_from_code,
     available_quantity: record.available_quantity,

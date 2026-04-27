@@ -167,7 +167,7 @@ describe("marketplace SSR routes", () => {
         Promise.resolve(
           new Response(
             JSON.stringify({
-              item_id: "item-1",
+              catalog_item_id: "item-1",
               title: "Charizard ex",
               subtitle: "Illustration Rare",
               description: "Server rendered detail page.",
@@ -180,7 +180,7 @@ describe("marketplace SSR routes", () => {
               image_urls: [],
               market_summary: null,
               market_listings: [],
-              version_schema: null,
+              product_schema: null,
               updated_at: "2026-03-26T00:00:00.000Z",
             }),
             {

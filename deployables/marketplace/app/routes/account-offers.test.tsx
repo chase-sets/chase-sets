@@ -49,12 +49,12 @@ describe("marketplace offer routes", () => {
               {
                 offer_id: "off_1",
                 buyer_account_id: "acc_1",
-                catalog_item_id: "cat_charizard",
-                catalog_version_key: "cat_charizard::",
+                catalog_catalog_item_id: "cat_charizard",
+                product_id: "cat_charizard::",
                 item_title: "Charizard",
                 item_subtitle: null,
-                version_selection: [],
-                version_summary: null,
+                selected_options: [],
+                product_summary: null,
                 price_amount: "350.00",
                 quantity_requested: 1,
                 status: "submitted",
@@ -105,12 +105,12 @@ describe("marketplace offer routes", () => {
           jsonResponse({
             offer_id: "off_1",
             buyer_account_id: "acc_1",
-            catalog_item_id: "cat_charizard",
-            catalog_version_key: "cat_charizard::",
+            catalog_catalog_item_id: "cat_charizard",
+            product_id: "cat_charizard::",
             item_title: "Charizard",
             item_subtitle: null,
-            version_selection: [],
-            version_summary: null,
+            selected_options: [],
+            product_summary: null,
             price_amount: "350.00",
             quantity_requested: 1,
             status: "submitted",
@@ -159,12 +159,12 @@ describe("marketplace offer routes", () => {
                 offer_id: "off_1",
                 buyer_account_id: "acc_buyer",
                 buyer_display_name: "Buyer One",
-                catalog_item_id: "cat_charizard",
-                catalog_version_key: "cat_charizard::",
+                catalog_catalog_item_id: "cat_charizard",
+                product_id: "cat_charizard::",
                 item_title: "Charizard",
                 item_subtitle: null,
-                version_selection: [],
-                version_summary: null,
+                selected_options: [],
+                product_summary: null,
                 price_amount: "350.00",
                 quantity_requested: 1,
                 status: "submitted",
@@ -215,12 +215,12 @@ describe("marketplace offer routes", () => {
             offer_id: "off_1",
             buyer_account_id: "acc_buyer",
             buyer_display_name: "Buyer One",
-            catalog_item_id: "cat_charizard",
-            catalog_version_key: "cat_charizard::",
+            catalog_catalog_item_id: "cat_charizard",
+            product_id: "cat_charizard::",
             item_title: "Charizard",
             item_subtitle: null,
-            version_selection: [],
-            version_summary: null,
+            selected_options: [],
+            product_summary: null,
             price_amount: "350.00",
             quantity_requested: 1,
             status: "submitted",
@@ -266,7 +266,7 @@ describe("marketplace offer routes", () => {
         if (url.includes("/api/marketplace/items/item-1")) {
           return Promise.resolve(
             jsonResponse({
-              item_id: "item-1",
+              catalog_item_id: "item-1",
               title: "Charizard",
               subtitle: "Base Set 4/102 Holo Rare",
               description: "Item detail",
@@ -279,7 +279,7 @@ describe("marketplace offer routes", () => {
               image_urls: [],
               market_summary: null,
               market_listings: [],
-              version_schema: null,
+              product_schema: null,
               updated_at: "2026-03-31T00:00:00.000Z",
             }),
           );
@@ -291,9 +291,9 @@ describe("marketplace offer routes", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "submit-offer");
-    form.set("catalogVersionKey", "item-1::");
-    form.set("versionSelection", "[]");
-    form.set("versionSummary", "");
+    form.set("productId", "item-1::");
+    form.set("selectedOptions", "[]");
+    form.set("productSummary", "");
     form.set("priceAmount", "350.00");
     form.set("quantityRequested", "1");
 

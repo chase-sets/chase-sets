@@ -5,13 +5,13 @@ export type FieldRule = Readonly<{ fieldId: string; required: boolean }>;
 export type DimensionRule = Readonly<{
   dimensionId: string;
   required: boolean;
-  allowedChoiceIds?: string[];
+  allowedOptionIds?: string[];
   appliesWhen?: ApplicabilityClause[];
 }>;
 
 export type ApplicabilityClause = Readonly<{
   dimensionId: string;
-  choiceIds?: string[];
+  optionIds?: string[];
 }>;
 
 export type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
@@ -51,11 +51,11 @@ export async function loadChoiceCodeMap(
     return new Map();
   }
 
-  const result = await db.query<{ choice_id: string; code: string }>(
-    `SELECT choice_id, code FROM catalog_dimension_choices WHERE choice_id = ANY($1)`,
+  const result = await db.query<{ option_id: string; code: string }>(
+    `SELECT option_id, code FROM catalog_dimension_options WHERE option_id = ANY($1)`,
     [ids],
   );
 
-  return new Map(result.rows.map((row) => [row.choice_id, row.code]));
+  return new Map(result.rows.map((row) => [row.option_id, row.code]));
 }
 

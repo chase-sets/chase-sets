@@ -1,5 +1,5 @@
 export const catalogCatalogItemSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_items (
-  item_id text PRIMARY KEY,
+  catalog_item_id text PRIMARY KEY,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   description text NOT NULL DEFAULT '',
@@ -13,7 +13,7 @@ export const catalogCatalogItemSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_i
 );
 
 CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_list_pages (
-  item_id text PRIMARY KEY REFERENCES catalog_items(item_id) ON DELETE CASCADE,
+  catalog_item_id text PRIMARY KEY REFERENCES catalog_items(catalog_item_id) ON DELETE CASCADE,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   blueprint_id text NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_list_pages (
 );
 
 CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_detail_pages (
-  item_id text PRIMARY KEY REFERENCES catalog_items(item_id) ON DELETE CASCADE,
+  catalog_item_id text PRIMARY KEY REFERENCES catalog_items(catalog_item_id) ON DELETE CASCADE,
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   description text NOT NULL DEFAULT '',

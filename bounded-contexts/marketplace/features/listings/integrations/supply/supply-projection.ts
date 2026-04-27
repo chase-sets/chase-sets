@@ -4,12 +4,12 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 type DimensionRule = Readonly<{
   dimensionId: string;
   required: boolean;
-  allowedChoiceIds?: string[];
-  appliesWhen?: Array<{ dimensionId: string; choiceIds?: string[] }>;
+  allowedOptionIds?: string[];
+  appliesWhen?: Array<{ dimensionId: string; optionIds?: string[] }>;
 }>;
 
 type MarketplaceCatalogItemRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
@@ -25,7 +25,7 @@ type MarketplaceBlueprintRow = Readonly<{
 }>;
 
 type MarketplaceChoiceRow = Readonly<{
-  choice_id: string;
+  option_id: string;
   code: string;
   labels: unknown;
 }>;
@@ -90,9 +90,9 @@ async function buildVersionSchema(
       ...canonicalDimensionOrder,
     ]),
   ];
-  const choiceIds = dimensionRules.flatMap((rule) => [
-    ...(rule.allowedChoiceIds ?? []),
-    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.choiceIds ?? []),
+  const optionIds = dimensionRules.flatMap((rule) => [
+    ...(rule.allowedOptionIds ?? []),
+    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
   const [dimensionNames, choiceRows] = await Promise.all([
@@ -103,17 +103,17 @@ async function buildVersionSchema(
       "name",
       dimensionIds,
     ),
-    choiceIds.length > 0
+    optionIds.length > 0
       ? db.query<MarketplaceChoiceRow>(
-          `SELECT choice_id, code, labels
-           FROM marketplace_catalog_dimension_choices
-           WHERE choice_id = ANY($1)`,
-          [choiceIds],
+          `SELECT option_id, code, labels
+           FROM marketplace_catalog_dimension_options
+           WHERE option_id = ANY($1)`,
+          [optionIds],
         ).then((result) => result.rows)
       : Promise.resolve([] as MarketplaceChoiceRow[]),
   ]);
 
-  const choiceMap = new Map(choiceRows.map((row) => [row.choice_id, row]));
+  const choiceMap = new Map(choiceRows.map((row) => [row.option_id, row]));
 
   return {
     canonicalDimensionOrder: canonicalDimensionOrder.map((dimensionId) => ({
@@ -126,14 +126,14 @@ async function buildVersionSchema(
       required: rule.required,
       appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
         dimensionId: clause.dimensionId,
-        choiceIds: clause.choiceIds ?? [],
+        optionIds: clause.optionIds ?? [],
       })),
-      allowedChoices: (rule.allowedChoiceIds ?? []).map((choiceId) => {
-        const detail = choiceMap.get(choiceId);
+      allowedOptions: (rule.allowedOptionIds ?? []).map((optionId) => {
+        const detail = choiceMap.get(optionId);
 
         return {
-          choiceId,
-          code: detail?.code ?? choiceId,
+          optionId,
+          code: detail?.code ?? optionId,
           labels: Array.isArray(detail?.labels) ? detail?.labels : [],
         };
       }),
@@ -146,9 +146,9 @@ async function refreshMarketplaceCatalogItem(
   itemId: string,
 ): Promise<void> {
   const result = await db.query<MarketplaceCatalogItemRow>(
-    `SELECT item_id, title, subtitle, blueprint_id, status, updated_at
+    `SELECT catalog_item_id, title, subtitle, blueprint_id, status, updated_at
      FROM marketplace_catalog_items
-     WHERE item_id = $1`,
+     WHERE catalog_item_id = $1`,
     [itemId],
   );
 
@@ -157,18 +157,18 @@ async function refreshMarketplaceCatalogItem(
     return;
   }
 
-  const versionSchema = item.blueprint_id
+  const productSchema = item.blueprint_id
     ? await buildVersionSchema(db, item.blueprint_id)
     : null;
 
   await db.query(
     `UPDATE marketplace_catalog_items
-     SET version_schema = $2,
+     SET product_schema = $2,
          updated_at = $3
-     WHERE item_id = $1`,
+     WHERE catalog_item_id = $1`,
     [
       itemId,
-      versionSchema === null ? null : JSON.stringify(versionSchema),
+      productSchema === null ? null : JSON.stringify(productSchema),
       item.updated_at,
     ],
   );
@@ -178,23 +178,23 @@ async function refreshItemsByBlueprint(
   db: PgQueryable,
   blueprintId: string,
 ): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM marketplace_catalog_items WHERE blueprint_id = $1`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM marketplace_catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
   await Promise.all(
-    result.rows.map((row) => refreshMarketplaceCatalogItem(db, row.item_id)),
+    result.rows.map((row) => refreshMarketplaceCatalogItem(db, row.catalog_item_id)),
   );
 }
 
 async function refreshAllMarketplaceCatalogItems(db: PgQueryable): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM marketplace_catalog_items ORDER BY item_id ASC`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM marketplace_catalog_items ORDER BY catalog_item_id ASC`,
   );
 
   await Promise.all(
-    result.rows.map((row) => refreshMarketplaceCatalogItem(db, row.item_id)),
+    result.rows.map((row) => refreshMarketplaceCatalogItem(db, row.catalog_item_id)),
   );
 }
 
@@ -287,13 +287,13 @@ export function buildMarketplaceCatalogProjectionHandlers(
 
       await db.query(
         `INSERT INTO marketplace_catalog_items (
-          item_id,
+          catalog_item_id,
           title,
           subtitle,
           status,
           updated_at
         ) VALUES ($1, $2, $3, 'draft', $4)
-        ON CONFLICT (item_id) DO UPDATE SET
+        ON CONFLICT (catalog_item_id) DO UPDATE SET
           title = EXCLUDED.title,
           subtitle = EXCLUDED.subtitle,
           updated_at = EXCLUDED.updated_at`,
@@ -310,7 +310,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
         `UPDATE marketplace_catalog_items
          SET blueprint_id = $2,
              updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, blueprintId, event.timing.recordedAt],
       );
 
@@ -328,7 +328,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
          SET title = $2,
              subtitle = $3,
              updated_at = $4
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, title, subtitle, event.timing.recordedAt],
       );
 
@@ -341,7 +341,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
         `UPDATE marketplace_catalog_items
          SET status = 'active',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -352,7 +352,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
         `UPDATE marketplace_catalog_items
          SET status = 'retired',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -363,7 +363,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
         `UPDATE marketplace_catalog_items
          SET status = 'archived',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -428,7 +428,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
-    "catalog.blueprint.version-rules-set": async (event) => {
+    "catalog.blueprint.product-resolution-rules-set": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, "catalog.blueprint-");
       const { canonicalDimensionOrder } = event.data as {
         canonicalDimensionOrder: unknown;
@@ -501,29 +501,29 @@ export function buildMarketplaceCatalogProjectionHandlers(
 
       await refreshAllMarketplaceCatalogItems(db);
     },
-    "catalog.dimension.choice-added": async (event) => {
+    "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, "catalog.dimension-");
-      const { choiceId, code, labels } = event.data as {
-        choiceId: string;
+      const { optionId, code, labels } = event.data as {
+        optionId: string;
         code: string;
         labels: unknown;
       };
 
       await db.query(
-        `INSERT INTO marketplace_catalog_dimension_choices (
-          choice_id,
+        `INSERT INTO marketplace_catalog_dimension_options (
+          option_id,
           dimension_id,
           code,
           labels,
           updated_at
         ) VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (choice_id) DO UPDATE SET
+        ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
           labels = EXCLUDED.labels,
           updated_at = EXCLUDED.updated_at`,
         [
-          choiceId,
+          optionId,
           dimensionId,
           code,
           JSON.stringify(Array.isArray(labels) ? labels : []),
@@ -533,29 +533,29 @@ export function buildMarketplaceCatalogProjectionHandlers(
 
       await refreshAllMarketplaceCatalogItems(db);
     },
-    "catalog.dimension.choice-revised": async (event) => {
+    "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, "catalog.dimension-");
-      const { choiceId, code, labels } = event.data as {
-        choiceId: string;
+      const { optionId, code, labels } = event.data as {
+        optionId: string;
         code: string;
         labels: unknown;
       };
 
       await db.query(
-        `INSERT INTO marketplace_catalog_dimension_choices (
-          choice_id,
+        `INSERT INTO marketplace_catalog_dimension_options (
+          option_id,
           dimension_id,
           code,
           labels,
           updated_at
         ) VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (choice_id) DO UPDATE SET
+        ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
           labels = EXCLUDED.labels,
           updated_at = EXCLUDED.updated_at`,
         [
-          choiceId,
+          optionId,
           dimensionId,
           code,
           JSON.stringify(Array.isArray(labels) ? labels : []),
@@ -644,8 +644,8 @@ export function buildMarketplaceInventoryProjectionHandlers(
         recordId: string;
         accountId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
-        versionSelection: unknown;
+        productId: string;
+        selectedOptions: unknown;
         storageLocationId: string;
         totalQuantity: number;
         acquisitionCostAmount: string | null;
@@ -655,9 +655,9 @@ export function buildMarketplaceInventoryProjectionHandlers(
         `INSERT INTO marketplace_supply_records (
            record_id,
            account_id,
-           catalog_item_id,
-           catalog_version_key,
-           version_selection,
+           catalog_catalog_item_id,
+           product_id,
+           selected_options,
            storage_location_id,
            total_quantity,
            acquisition_cost_amount,
@@ -666,9 +666,9 @@ export function buildMarketplaceInventoryProjectionHandlers(
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (record_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
-           catalog_item_id = EXCLUDED.catalog_item_id,
-           catalog_version_key = EXCLUDED.catalog_version_key,
-           version_selection = EXCLUDED.version_selection,
+           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+           product_id = EXCLUDED.product_id,
+           selected_options = EXCLUDED.selected_options,
            storage_location_id = EXCLUDED.storage_location_id,
            total_quantity = EXCLUDED.total_quantity,
            acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
@@ -679,8 +679,8 @@ export function buildMarketplaceInventoryProjectionHandlers(
           data.recordId,
           data.accountId,
           data.catalogItemId,
-          data.catalogVersionKey,
-          JSON.stringify(Array.isArray(data.versionSelection) ? data.versionSelection : []),
+          data.productId,
+          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.storageLocationId,
           data.totalQuantity,
           data.acquisitionCostAmount,

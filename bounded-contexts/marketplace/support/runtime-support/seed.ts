@@ -5,7 +5,7 @@ import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { ListingId, OfferId } from "@chase-sets/primitives/typed-ids";
 import {
-  createMarketplaceCatalogVersionDescriptor,
+  createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
 import { createMarketplaceServices } from "./services";
@@ -24,8 +24,8 @@ type OfferSeed = Readonly<{
   catalogItemId: string;
   itemTitle: string;
   itemSubtitle: string | null;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
-  versionSummary: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
   priceAmount: string;
   quantityRequested: number;
 }>;
@@ -33,22 +33,22 @@ type OfferSeed = Readonly<{
 const rawNearMintVersionSelection = [
   {
     dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-    choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+    optionId: catalogSeedIds.dimensions.form.optionIds.raw,
   },
   {
     dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-    choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+    optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
   },
 ] as const;
 
 const rawExcellentVersionSelection = [
   {
     dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-    choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+    optionId: catalogSeedIds.dimensions.form.optionIds.raw,
   },
   {
     dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-    choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent,
+    optionId: catalogSeedIds.dimensions.condition.optionIds.excellent,
   },
 ] as const;
 
@@ -109,8 +109,8 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
-    versionSelection: rawNearMintVersionSelection,
-    versionSummary: "Form: Raw | Condition: Near Mint",
+    selectedOptions: rawNearMintVersionSelection,
+    productSummary: "Form: Raw | Condition: Near Mint",
     priceAmount: "350.00",
     quantityRequested: 1,
   },
@@ -119,8 +119,8 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
-    versionSelection: rawNearMintVersionSelection,
-    versionSummary: "Form: Raw | Condition: Near Mint",
+    selectedOptions: rawNearMintVersionSelection,
+    productSummary: "Form: Raw | Condition: Near Mint",
     priceAmount: "325.00",
     quantityRequested: 2,
   },
@@ -129,8 +129,8 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
-    versionSelection: rawExcellentVersionSelection,
-    versionSummary: "Form: Raw | Condition: Excellent",
+    selectedOptions: rawExcellentVersionSelection,
+    productSummary: "Form: Raw | Condition: Excellent",
     priceAmount: "18.25",
     quantityRequested: 4,
   },
@@ -139,8 +139,8 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
     itemTitle: "Lugia",
     itemSubtitle: "Neo Genesis 9/111 Holo Rare",
-    versionSelection: rawNearMintVersionSelection,
-    versionSummary: "Form: Raw | Condition: Near Mint",
+    selectedOptions: rawNearMintVersionSelection,
+    productSummary: "Form: Raw | Condition: Near Mint",
     priceAmount: "215.00",
     quantityRequested: 1,
   },
@@ -149,8 +149,8 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
     itemTitle: "Pikachu",
     itemSubtitle: "Prismatic Evolutions 025 Illustration Rare",
-    versionSelection: rawNearMintVersionSelection,
-    versionSummary: "Form: Raw | Condition: Near Mint",
+    selectedOptions: rawNearMintVersionSelection,
+    productSummary: "Form: Raw | Condition: Near Mint",
     priceAmount: "14.50",
     quantityRequested: 3,
   },
@@ -159,8 +159,8 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
     itemTitle: "Prismatic Evolutions Booster Pack",
     itemSubtitle: "Sealed booster pack",
-    versionSelection: [],
-    versionSummary: null,
+    selectedOptions: [],
+    productSummary: null,
     priceAmount: "5.25",
     quantityRequested: 10,
   },
@@ -169,8 +169,8 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     itemTitle: "Surging Sparks Booster Box",
     itemSubtitle: "Sealed booster box",
-    versionSelection: [],
-    versionSummary: null,
+    selectedOptions: [],
+    productSummary: null,
     priceAmount: "128.00",
     quantityRequested: 2,
   },
@@ -179,8 +179,8 @@ const offers: readonly OfferSeed[] = [
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     itemTitle: "Twilight Masquerade Elite Trainer Box",
     itemSubtitle: "Sealed elite trainer box",
-    versionSelection: [],
-    versionSummary: null,
+    selectedOptions: [],
+    productSummary: null,
     priceAmount: "44.00",
     quantityRequested: 1,
   },
@@ -199,27 +199,27 @@ async function drainProjectors(projectors: ReturnType<typeof createMarketplaceSe
   } while (processed > 0);
 }
 
-async function getCatalogVersionKey(
+async function getProductId(
   services: ReturnType<typeof createMarketplaceServices>,
   catalogItemId: string,
-  selection: readonly { dimensionId: string; choiceId: string }[],
+  selection: readonly { dimensionId: string; optionId: string }[],
 ) {
-  const result = await services.db.query<{ version_schema: unknown }>(
-    `SELECT version_schema
+  const result = await services.db.query<{ product_schema: unknown }>(
+    `SELECT product_schema
      FROM marketplace_catalog_items
-     WHERE item_id = $1`,
+     WHERE catalog_item_id = $1`,
     [catalogItemId],
   );
-  const versionSchema = result.rows[0]?.version_schema;
+  const productSchema = result.rows[0]?.product_schema;
 
-  return createMarketplaceCatalogVersionDescriptor({
+  return createMarketplaceProductDescriptor({
     catalogItemId,
-    versionSchema:
-      typeof versionSchema === "object" && versionSchema !== null
-        ? (versionSchema as MarketplaceVersionSchema)
+    productSchema:
+      typeof productSchema === "object" && productSchema !== null
+        ? (productSchema as MarketplaceVersionSchema)
         : null,
     selection,
-  }).catalogVersionKey;
+  }).productId;
 }
 
 function createSeedContext() {
@@ -319,15 +319,15 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
         offerId: offer.offerId,
         buyerAccountId: identitySeedIds.buyer.accountId,
         catalogItemId: offer.catalogItemId,
-        catalogVersionKey: await getCatalogVersionKey(
+        productId: await getProductId(
           services,
           offer.catalogItemId,
-          offer.versionSelection,
+          offer.selectedOptions,
         ),
         itemTitle: offer.itemTitle,
         itemSubtitle: offer.itemSubtitle,
-        versionSelection: offer.versionSelection,
-        versionSummary: offer.versionSummary,
+        selectedOptions: offer.selectedOptions,
+        productSummary: offer.productSummary,
         priceAmount: offer.priceAmount,
         quantityRequested: offer.quantityRequested,
       },

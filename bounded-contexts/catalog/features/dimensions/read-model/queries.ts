@@ -15,8 +15,8 @@ export type DimensionRow = Readonly<{
   updated_at: string;
 }>;
 
-export type DimensionChoiceRow = Readonly<{
-  choice_id: string;
+export type DimensionOptionRow = Readonly<{
+  option_id: string;
   dimension_id: string;
   code: string;
   labels: unknown;
@@ -43,12 +43,11 @@ export async function getDimension(db: PgQueryable, dimensionId: string) {
     return null;
   }
 
-  const choicesResult = await db.query<DimensionChoiceRow>(
-    `SELECT * FROM catalog_dimension_choices WHERE dimension_id = $1 ORDER BY display_order ASC`,
+  const optionsResult = await db.query<DimensionOptionRow>(
+    `SELECT * FROM catalog_dimension_options WHERE dimension_id = $1 ORDER BY display_order ASC`,
     [dimensionId],
   );
 
-  return { ...dimensionResult.rows[0], choices: choicesResult.rows };
+  return { ...dimensionResult.rows[0], options: optionsResult.rows };
 }
-
 

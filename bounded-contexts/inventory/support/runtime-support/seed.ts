@@ -10,7 +10,7 @@ import {
   type SeedInventoryRecordId,
   type SeedStorageLocationId,
 } from "@chase-sets/inventory/seed-support/ids";
-import { createInventoryCatalogVersionDescriptor } from "../../features/records/integrations/catalog/versioning";
+import { createInventoryProductDescriptor } from "../../features/records/integrations/catalog/versioning";
 import { createInventoryServices } from "./services";
 import { drainProjectors, sendSeedCommand } from "../seed-support/context";
 
@@ -26,7 +26,7 @@ type StorageLocationSeed = Readonly<{
 type InventoryRecordSeed = Readonly<{
   recordId: SeedInventoryRecordId;
   catalogItemId: SeedCatalogItemId;
-  versionSelection: readonly { dimensionId: string; choiceId: string }[];
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
   storageLocationId: SeedStorageLocationId;
   totalQuantity: number;
   acquisitionCostAmount: string;
@@ -66,14 +66,14 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.charizardBaseSetNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
-    versionSelection: [
+    selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
       },
       {
         dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
       },
     ],
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
@@ -83,14 +83,14 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.pikachuJungleLightlyPlayed,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
-    versionSelection: [
+    selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
       },
       {
         dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.excellent,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.excellent,
       },
     ],
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
@@ -100,14 +100,14 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.lugiaNeoGenesisNearMint,
     catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
-    versionSelection: [
+    selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
       },
       {
         dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
       },
     ],
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
@@ -117,14 +117,14 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.pikachuPrismaticEvolutionsNearMint,
     catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
-    versionSelection: [
+    selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-        choiceId: catalogSeedIds.dimensions.form.choiceIds.raw,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
       },
       {
         dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-        choiceId: catalogSeedIds.dimensions.condition.choiceIds.nearMint,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
       },
     ],
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
@@ -134,7 +134,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.prismaticEvolutionsBoosterPack,
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
-    versionSelection: [],
+    selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 24,
     acquisitionCostAmount: "4.10",
@@ -142,7 +142,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.surgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
-    versionSelection: [],
+    selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 6,
     acquisitionCostAmount: "119.00",
@@ -150,7 +150,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
   {
     recordId: inventorySeedIds.records.twilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
-    versionSelection: [],
+    selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 4,
     acquisitionCostAmount: "41.50",
@@ -236,10 +236,10 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       throw new Error(`Inventory seed could not load catalog item ${record.catalogItemId}.`);
     }
 
-    const catalogVersion = createInventoryCatalogVersionDescriptor({
+    const catalogVersion = createInventoryProductDescriptor({
       catalogItemId: record.catalogItemId,
-      versionSchema: catalogItem.version_schema,
-      selection: record.versionSelection,
+      productSchema: catalogItem.product_schema,
+      selection: record.selectedOptions,
     });
 
     await sendSeedCommand(services.records.commandHandler, streamId, {
@@ -247,8 +247,8 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       recordId: record.recordId,
       accountId: demoIdentitySeedIds.accountId,
       catalogItemId: record.catalogItemId,
-      catalogVersionKey: catalogVersion.catalogVersionKey,
-      versionSelection: catalogVersion.selection,
+      productId: catalogVersion.productId,
+      selectedOptions: catalogVersion.selection,
       storageLocationId: record.storageLocationId,
       totalQuantity: record.totalQuantity,
       acquisitionCostAmount: record.acquisitionCostAmount,

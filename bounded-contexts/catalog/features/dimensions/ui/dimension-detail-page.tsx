@@ -21,13 +21,13 @@ import {
   activateDimension,
   deprecateDimension,
   archiveDimension,
-  addChoice,
-  reviseChoice,
-  deprecateChoice,
-  reactivateChoice,
-  reorderChoices,
+  addOption,
+  reviseOption,
+  deprecateOption,
+  reactivateOption,
+  reorderOptions,
 } from "./use-dimensions";
-import type { DimensionChoice } from "./contracts";
+import type { DimensionOption } from "./contracts";
 
 function getTransitions(status: string): Transition[] {
   switch (status) {
@@ -42,7 +42,7 @@ function getTransitions(status: string): Transition[] {
   }
 }
 
-const choiceColumns: DataColumn<DimensionChoice>[] = [
+const optionColumns: DataColumn<DimensionOption>[] = [
   { key: "code", header: "Code", cell: (row) => row.code },
   {
     key: "labels",
@@ -72,19 +72,19 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
 
-  // Add choice
-  const [showAddChoice, setShowAddChoice] = useState(false);
-  const [choiceCode, setChoiceCode] = useState("");
-  const [choiceNumericValue, setChoiceNumericValue] = useState("");
-  const [choiceLabels, setChoiceLabels] = useState<LabelEntry[]>([{ locale: "en", value: "" }]);
+  // Add option
+  const [showAddOption, setShowAddOption] = useState(false);
+  const [optionCode, setOptionCode] = useState("");
+  const [optionNumericValue, setOptionNumericValue] = useState("");
+  const [optionLabels, setOptionLabels] = useState<LabelEntry[]>([{ locale: "en", value: "" }]);
 
-  // Edit choice
-  const [editingChoice, setEditingChoice] = useState<DimensionChoice | null>(null);
-  const [editChoiceCode, setEditChoiceCode] = useState("");
-  const [editChoiceNumericValue, setEditChoiceNumericValue] = useState("");
-  const [editChoiceLabels, setEditChoiceLabels] = useState<LabelEntry[]>([]);
+  // Edit option
+  const [editingOption, setEditingOption] = useState<DimensionOption | null>(null);
+  const [editOptionCode, setEditOptionCode] = useState("");
+  const [editOptionNumericValue, setEditOptionNumericValue] = useState("");
+  const [editOptionLabels, setEditOptionLabels] = useState<LabelEntry[]>([]);
 
-  // Reorder choices
+  // Reorder options
   const [showReorder, setShowReorder] = useState(false);
   const [reorderInput, setReorderInput] = useState("");
 
@@ -106,70 +106,70 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
     refresh();
   }
 
-  async function handleAddChoice() {
-    const choiceId = createId("chc");
-    const labels = choiceLabels.filter((l) => l.value.trim());
-    await addChoice(id, {
-      choiceId,
-      code: choiceCode,
+  async function handleAddOption() {
+    const optionId = createId("chc");
+    const labels = optionLabels.filter((l) => l.value.trim());
+    await addOption(id, {
+      optionId,
+      code: optionCode,
       labels: labels.length > 0 ? labels : undefined,
-      numericValue: choiceNumericValue ? Number(choiceNumericValue) : undefined,
+      numericValue: optionNumericValue ? Number(optionNumericValue) : undefined,
     });
-    addToast("Choice added", "success");
-    setShowAddChoice(false);
-    setChoiceCode("");
-    setChoiceNumericValue("");
-    setChoiceLabels([{ locale: "en", value: "" }]);
+    addToast("Option added", "success");
+    setShowAddOption(false);
+    setOptionCode("");
+    setOptionNumericValue("");
+    setOptionLabels([{ locale: "en", value: "" }]);
     refresh();
   }
 
-  async function handleReviseChoice() {
-    if (!editingChoice) return;
-    const labels = editChoiceLabels.filter((l) => l.value.trim());
-    await reviseChoice(id, editingChoice.choice_id, {
-      code: editChoiceCode,
+  async function handleReviseOption() {
+    if (!editingOption) return;
+    const labels = editOptionLabels.filter((l) => l.value.trim());
+    await reviseOption(id, editingOption.option_id, {
+      code: editOptionCode,
       labels: labels.length > 0 ? labels : undefined,
-      numericValue: editChoiceNumericValue ? Number(editChoiceNumericValue) : undefined,
+      numericValue: editOptionNumericValue ? Number(editOptionNumericValue) : undefined,
     });
-    addToast("Choice revised", "success");
-    setEditingChoice(null);
+    addToast("Option revised", "success");
+    setEditingOption(null);
     refresh();
   }
 
-  function startEditChoice(choice: DimensionChoice) {
-    setEditChoiceCode(choice.code);
-    setEditChoiceNumericValue(choice.numeric_value?.toString() ?? "");
-    setEditChoiceLabels(
-      choice.labels && choice.labels.length > 0
-        ? choice.labels.map((l) => ({ locale: l.locale, value: l.value }))
+  function startEditOption(option: DimensionOption) {
+    setEditOptionCode(option.code);
+    setEditOptionNumericValue(option.numeric_value?.toString() ?? "");
+    setEditOptionLabels(
+      option.labels && option.labels.length > 0
+        ? option.labels.map((l) => ({ locale: l.locale, value: l.value }))
         : [{ locale: "en", value: "" }],
     );
-    setEditingChoice(choice);
+    setEditingOption(option);
   }
 
-  async function handleDeprecateChoice(choiceId: string) {
-    await deprecateChoice(id, choiceId);
-    addToast("Choice deprecated", "success");
+  async function handleDeprecateOption(optionId: string) {
+    await deprecateOption(id, optionId);
+    addToast("Option deprecated", "success");
     refresh();
   }
 
-  async function handleReactivateChoice(choiceId: string) {
-    await reactivateChoice(id, choiceId);
-    addToast("Choice reactivated", "success");
+  async function handleReactivateOption(optionId: string) {
+    await reactivateOption(id, optionId);
+    addToast("Option reactivated", "success");
     refresh();
   }
 
-  async function handleReorderChoices() {
-    const choiceIds = reorderInput.split(",").map((s) => s.trim()).filter(Boolean);
-    await reorderChoices(id, choiceIds);
-    addToast("Choices reordered", "success");
+  async function handleReorderOptions() {
+    const optionIds = reorderInput.split(",").map((s) => s.trim()).filter(Boolean);
+    await reorderOptions(id, optionIds);
+    addToast("Options reordered", "success");
     setShowReorder(false);
     refresh();
   }
 
   function startReorder() {
     if (data) {
-      setReorderInput(data.choices.map((c) => c.choice_id).join(", "));
+      setReorderInput(data.options.map((option) => option.option_id).join(", "));
       setShowReorder(true);
     }
   }
@@ -257,39 +257,39 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
             />
 
             <PageSection
-              title="Choices"
-              description={`${data.choices.length} choice(s)`}
+              title="Options"
+              description={`${data.options.length} option(s)`}
             >
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline gap={2}>
-                    <Button size="sm" onClick={() => setShowAddChoice(true)}>Add Choice</Button>
-                    {data.choices.length > 1 && (
+                    <Button size="sm" onClick={() => setShowAddOption(true)}>Add Option</Button>
+                    {data.options.length > 1 && (
                       <Button size="sm" tone="secondary" onClick={startReorder}>Reorder</Button>
                     )}
                   </Inline>
                 )}
                 <DataTable
-                  rows={data.choices}
+                  rows={data.options}
                   columns={[
-                    ...choiceColumns,
+                    ...optionColumns,
                     {
                       key: "actions",
                       header: "Actions",
                       cell: (row) => (
                         <Inline gap={1}>
                           {data.status !== "archived" && (
-                            <Button size="sm" tone="secondary" onClick={() => startEditChoice(row)}>
+                            <Button size="sm" tone="secondary" onClick={() => startEditOption(row)}>
                               Edit
                             </Button>
                           )}
                           {row.status === "active" && (
-                            <Button size="sm" tone="secondary" onClick={() => handleDeprecateChoice(row.choice_id)}>
+                            <Button size="sm" tone="secondary" onClick={() => handleDeprecateOption(row.option_id)}>
                               Deprecate
                             </Button>
                           )}
                           {row.status === "deprecated" && (
-                            <Button size="sm" tone="secondary" onClick={() => handleReactivateChoice(row.choice_id)}>
+                            <Button size="sm" tone="secondary" onClick={() => handleReactivateOption(row.option_id)}>
                               Reactivate
                             </Button>
                           )}
@@ -297,9 +297,9 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
                       ),
                     },
                   ]}
-                  getRowId={(row) => row.choice_id}
-                  emptyTitle="No choices"
-                  emptyDescription="Add a choice to this dimension."
+                  getRowId={(row) => row.option_id}
+                  emptyTitle="No options"
+                  emptyDescription="Add an option to this dimension."
                 />
               </Stack>
             </PageSection>
@@ -308,40 +308,40 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       </EntityDetailPage>
 
       <Dialog
-        open={showAddChoice}
-        onOpenChange={setShowAddChoice}
-        title="Add Choice"
-        footer={<Button onClick={handleAddChoice}>Add</Button>}
+        open={showAddOption}
+        onOpenChange={setShowAddOption}
+        title="Add Option"
+        footer={<Button onClick={handleAddOption}>Add</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Code" value={choiceCode} onChange={(e) => setChoiceCode(e.target.value)} />
-          <TextInput label="Numeric Value (optional)" value={choiceNumericValue} onChange={(e) => setChoiceNumericValue(e.target.value)} />
-          {renderLabelsEditor(choiceLabels, setChoiceLabels)}
+          <TextInput label="Code" value={optionCode} onChange={(e) => setOptionCode(e.target.value)} />
+          <TextInput label="Numeric Value (optional)" value={optionNumericValue} onChange={(e) => setOptionNumericValue(e.target.value)} />
+          {renderLabelsEditor(optionLabels, setOptionLabels)}
         </Stack>
       </Dialog>
 
       <Dialog
-        open={editingChoice !== null}
-        onOpenChange={(open) => { if (!open) setEditingChoice(null); }}
-        title="Edit Choice"
-        footer={<Button onClick={handleReviseChoice}>Save</Button>}
+        open={editingOption !== null}
+        onOpenChange={(open) => { if (!open) setEditingOption(null); }}
+        title="Edit Option"
+        footer={<Button onClick={handleReviseOption}>Save</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Code" value={editChoiceCode} onChange={(e) => setEditChoiceCode(e.target.value)} />
-          <TextInput label="Numeric Value (optional)" value={editChoiceNumericValue} onChange={(e) => setEditChoiceNumericValue(e.target.value)} />
-          {renderLabelsEditor(editChoiceLabels, setEditChoiceLabels)}
+          <TextInput label="Code" value={editOptionCode} onChange={(e) => setEditOptionCode(e.target.value)} />
+          <TextInput label="Numeric Value (optional)" value={editOptionNumericValue} onChange={(e) => setEditOptionNumericValue(e.target.value)} />
+          {renderLabelsEditor(editOptionLabels, setEditOptionLabels)}
         </Stack>
       </Dialog>
 
       <Dialog
         open={showReorder}
         onOpenChange={setShowReorder}
-        title="Reorder Choices"
-        description="Enter choice IDs separated by commas in the desired order."
-        footer={<Button onClick={handleReorderChoices}>Save</Button>}
+        title="Reorder Options"
+        description="Enter option IDs separated by commas in the desired order."
+        footer={<Button onClick={handleReorderOptions}>Save</Button>}
       >
         <TextInput
-          label="Choice IDs"
+          label="Option IDs"
           value={reorderInput}
           onChange={(e) => setReorderInput(e.target.value)}
         />
@@ -362,7 +362,6 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
-
 
 
 

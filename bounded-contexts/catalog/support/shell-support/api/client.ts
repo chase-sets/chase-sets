@@ -109,40 +109,40 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async addChoice<T>(dimensionId: string, body: unknown): Promise<T> {
-      const response = await client.dimensions[":id"].choices.$post({
+    async addOption<T>(dimensionId: string, body: unknown): Promise<T> {
+      const response = await client.dimensions[":id"].options.$post({
         param: { id: dimensionId },
         json: body,
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
-    async reviseChoice<T>(dimensionId: string, choiceId: string, body: unknown): Promise<T> {
-      const response = await client.dimensions[":id"].choices[":choiceId"].$put({
-        param: { id: dimensionId, choiceId },
+    async reviseOption<T>(dimensionId: string, optionId: string, body: unknown): Promise<T> {
+      const response = await client.dimensions[":id"].options[":optionId"].$put({
+        param: { id: dimensionId, optionId },
         json: body,
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
-    async deprecateChoice<T>(dimensionId: string, choiceId: string): Promise<T> {
-      const response = await client.dimensions[":id"].choices[":choiceId"].deprecate.$post({
-        param: { id: dimensionId, choiceId },
+    async deprecateOption<T>(dimensionId: string, optionId: string): Promise<T> {
+      const response = await client.dimensions[":id"].options[":optionId"].deprecate.$post({
+        param: { id: dimensionId, optionId },
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
-    async reactivateChoice<T>(dimensionId: string, choiceId: string): Promise<T> {
-      const response = await client.dimensions[":id"].choices[":choiceId"].reactivate.$post({
-        param: { id: dimensionId, choiceId },
+    async reactivateOption<T>(dimensionId: string, optionId: string): Promise<T> {
+      const response = await client.dimensions[":id"].options[":optionId"].reactivate.$post({
+        param: { id: dimensionId, optionId },
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
-    async reorderChoices<T>(dimensionId: string, choiceIds: string[]): Promise<T> {
-      const response = await client.dimensions[":id"].choices.order.$put({
+    async reorderOptions<T>(dimensionId: string, optionIds: string[]): Promise<T> {
+      const response = await client.dimensions[":id"].options.order.$put({
         param: { id: dimensionId },
-        json: { choiceIds },
+        json: { optionIds },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -339,8 +339,8 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async setBlueprintVersionRules<T>(id: string, canonicalDimensionOrder: string[]): Promise<T> {
-      const response = await client.blueprints[":id"]["version-rules"].$put({
+    async setBlueprintProductResolutionRules<T>(id: string, canonicalDimensionOrder: string[]): Promise<T> {
+      const response = await client.blueprints[":id"]["product-resolution-rules"].$put({
         param: { id },
         json: { canonicalDimensionOrder },
         header: headers,

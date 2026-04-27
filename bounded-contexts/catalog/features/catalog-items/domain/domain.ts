@@ -45,85 +45,85 @@ export const initialCatalogItemState: CatalogItemState = {
   imageUrls: [],
 };
 
-export type CreateItemCommand = Readonly<{
-  type: "CreateItem";
+export type CreateCatalogItemCommand = Readonly<{
+  type: "CreateCatalogItem";
   itemId: CatalogItemId;
   title: string;
   subtitle?: string | null;
   description?: string;
 }>;
 
-export type AssignBlueprintToItemCommand = Readonly<{
-  type: "AssignBlueprintToItem";
+export type AssignBlueprintToCatalogItemCommand = Readonly<{
+  type: "AssignBlueprintToCatalogItem";
   blueprintId: BlueprintId;
 }>;
 
-export type SetItemFieldValueCommand = Readonly<{
-  type: "SetItemFieldValue";
+export type SetCatalogItemFieldValueCommand = Readonly<{
+  type: "SetCatalogItemFieldValue";
   fieldId: FieldId;
   value: CatalogValue;
 }>;
 
-export type ClearItemFieldValueCommand = Readonly<{
-  type: "ClearItemFieldValue";
+export type ClearCatalogItemFieldValueCommand = Readonly<{
+  type: "ClearCatalogItemFieldValue";
   fieldId: FieldId;
   requiredFieldIds?: readonly FieldId[];
 }>;
 
-export type AssignItemToCategoryCommand = Readonly<{
-  type: "AssignItemToCategory";
+export type AssignCatalogItemToCategoryCommand = Readonly<{
+  type: "AssignCatalogItemToCategory";
   categoryId: CategoryId;
 }>;
 
-export type RemoveItemFromCategoryCommand = Readonly<{
-  type: "RemoveItemFromCategory";
+export type RemoveCatalogItemFromCategoryCommand = Readonly<{
+  type: "RemoveCatalogItemFromCategory";
   categoryId: CategoryId;
 }>;
 
-export type PublishItemCommand = Readonly<{
-  type: "PublishItem";
+export type PublishCatalogItemCommand = Readonly<{
+  type: "PublishCatalogItem";
   blueprintIsActive: boolean;
   requiredFieldIds: readonly FieldId[];
 }>;
 
-export type ReviseItemMetadataCommand = Readonly<{
-  type: "ReviseItemMetadata";
+export type ReviseCatalogItemMetadataCommand = Readonly<{
+  type: "ReviseCatalogItemMetadata";
   title: string;
   subtitle?: string | null;
   description?: string;
 }>;
 
-export type SetItemTagsCommand = Readonly<{
-  type: "SetItemTags";
+export type SetCatalogItemTagsCommand = Readonly<{
+  type: "SetCatalogItemTags";
   tags: readonly string[];
 }>;
 
-export type SetItemImageUrlsCommand = Readonly<{
-  type: "SetItemImageUrls";
+export type SetCatalogItemImageUrlsCommand = Readonly<{
+  type: "SetCatalogItemImageUrls";
   imageUrls: readonly string[];
 }>;
 
-export type RetireItemCommand = Readonly<{
-  type: "RetireItem";
+export type RetireCatalogItemCommand = Readonly<{
+  type: "RetireCatalogItem";
 }>;
 
-export type ArchiveItemCommand = Readonly<{
-  type: "ArchiveItem";
+export type ArchiveCatalogItemCommand = Readonly<{
+  type: "ArchiveCatalogItem";
 }>;
 
 export type CatalogItemCommand =
-  | CreateItemCommand
-  | AssignBlueprintToItemCommand
-  | SetItemFieldValueCommand
-  | ClearItemFieldValueCommand
-  | AssignItemToCategoryCommand
-  | RemoveItemFromCategoryCommand
-  | PublishItemCommand
-  | ReviseItemMetadataCommand
-  | SetItemTagsCommand
-  | SetItemImageUrlsCommand
-  | RetireItemCommand
-  | ArchiveItemCommand;
+  | CreateCatalogItemCommand
+  | AssignBlueprintToCatalogItemCommand
+  | SetCatalogItemFieldValueCommand
+  | ClearCatalogItemFieldValueCommand
+  | AssignCatalogItemToCategoryCommand
+  | RemoveCatalogItemFromCategoryCommand
+  | PublishCatalogItemCommand
+  | ReviseCatalogItemMetadataCommand
+  | SetCatalogItemTagsCommand
+  | SetCatalogItemImageUrlsCommand
+  | RetireCatalogItemCommand
+  | ArchiveCatalogItemCommand;
 
 type ItemMetadata = Readonly<{
   title: string;
@@ -228,7 +228,7 @@ export const decideCatalogItem: AggregateDecider<
   CatalogItemEvent
 > = (state, command) => {
   switch (command.type) {
-    case "CreateItem":
+    case "CreateCatalogItem":
       assert(state.id === null, "Catalog item has already been created.");
 
       return [
@@ -242,7 +242,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "AssignBlueprintToItem":
+    case "AssignBlueprintToCatalogItem":
       requireCreatedItem(state);
       assert(state.status === "draft", "Blueprint may only be assigned while draft.");
 
@@ -254,7 +254,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "SetItemFieldValue":
+    case "SetCatalogItemFieldValue":
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be modified.");
 
@@ -267,7 +267,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "ClearItemFieldValue":
+    case "ClearCatalogItemFieldValue":
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be modified.");
       assert(
@@ -294,7 +294,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "AssignItemToCategory":
+    case "AssignCatalogItemToCategory":
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be modified.");
       assert(
@@ -310,7 +310,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "RemoveItemFromCategory":
+    case "RemoveCatalogItemFromCategory":
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be modified.");
       assert(
@@ -326,7 +326,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "PublishItem": {
+    case "PublishCatalogItem": {
       requireCreatedItem(state);
       assert(state.status === "draft", "Only draft items can be published.");
       assert(state.blueprintId !== null, "Items require a blueprint before publish.");
@@ -356,7 +356,7 @@ export const decideCatalogItem: AggregateDecider<
         },
       ];
     }
-    case "ReviseItemMetadata":
+    case "ReviseCatalogItemMetadata":
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be revised.");
 
@@ -370,7 +370,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "SetItemTags":
+    case "SetCatalogItemTags":
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be modified.");
 
@@ -382,7 +382,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "SetItemImageUrls":
+    case "SetCatalogItemImageUrls":
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be modified.");
 
@@ -394,7 +394,7 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
-    case "RetireItem":
+    case "RetireCatalogItem":
       requireCreatedItem(state);
       assert(state.status === "active", "Only active items can be retired.");
 
@@ -404,7 +404,7 @@ export const decideCatalogItem: AggregateDecider<
           data: EMPTY_EVENT_DATA,
         },
       ];
-    case "ArchiveItem":
+    case "ArchiveCatalogItem":
       requireCreatedItem(state);
       assert(state.status === "retired", "Only retired items can be archived.");
 

@@ -2,8 +2,8 @@ import { assert } from "./common";
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { CatalogItemStatus, CatalogValue } from "./common";
 import type {
-  CatalogVersionDescriptor,
-  CatalogVersionSchema,
+  ProductDescriptor,
+  ProductSchema,
 } from "./versioning";
 import type { CatalogItemId } from "../../ids";
 
@@ -20,8 +20,8 @@ export type CatalogItemSnapshot = Readonly<{
   blueprintId: string | null;
   fieldValues: CatalogItemFieldValueSnapshot[];
   categoryIds: string[];
-  versionSchema: CatalogVersionSchema;
-  sampleVersions?: CatalogVersionDescriptor[];
+  productSchema: ProductSchema;
+  sampleVersions?: ProductDescriptor[];
 }>;
 
 export type CatalogItemPublishedIntegrationEvent = DomainEvent<
@@ -63,8 +63,8 @@ export function createCatalogItemSnapshot(input: {
     }>[];
     categoryIds: readonly string[];
   }>;
-  versionSchema: CatalogVersionSchema;
-  sampleVersions?: readonly CatalogVersionDescriptor[];
+  productSchema: ProductSchema;
+  sampleVersions?: readonly ProductDescriptor[];
 }): CatalogItemSnapshot {
   const { item } = input;
 
@@ -82,7 +82,7 @@ export function createCatalogItemSnapshot(input: {
       value: fieldValue.value,
     })),
     categoryIds: item.categoryIds.map((categoryId) => String(categoryId)),
-    versionSchema: input.versionSchema,
+    productSchema: input.productSchema,
     sampleVersions:
       input.sampleVersions === undefined ? undefined : [...input.sampleVersions],
   };

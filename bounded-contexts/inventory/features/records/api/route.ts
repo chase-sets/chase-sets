@@ -44,7 +44,7 @@ export function inventoryRecordRoutes(
       {
         accountId: actor.accountId as never,
         catalogItemId: String(body.catalogItemId ?? ""),
-        versionSelection: body.versionSelection,
+        selectedOptions: body.selectedOptions,
         storageLocationId: String(body.storageLocationId ?? ""),
         totalQuantity: Number(body.totalQuantity ?? 0),
         acquisitionCostAmount:

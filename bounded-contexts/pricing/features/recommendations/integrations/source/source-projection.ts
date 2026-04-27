@@ -22,13 +22,13 @@ export function buildPricingCatalogInputProjectionHandlers(
 
       await db.query(
         `INSERT INTO pricing_catalog_item_inputs (
-           item_id,
+           catalog_item_id,
            title,
            subtitle,
            status,
            updated_at
          ) VALUES ($1, $2, $3, 'draft', $4)
-         ON CONFLICT (item_id) DO UPDATE
+         ON CONFLICT (catalog_item_id) DO UPDATE
          SET title = EXCLUDED.title,
              subtitle = EXCLUDED.subtitle,
              updated_at = EXCLUDED.updated_at`,
@@ -44,7 +44,7 @@ export function buildPricingCatalogInputProjectionHandlers(
          SET title = $2,
              subtitle = $3,
              updated_at = $4
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, data.title, data.subtitle, event.timing.recordedAt],
       );
     },
@@ -53,7 +53,7 @@ export function buildPricingCatalogInputProjectionHandlers(
         `UPDATE pricing_catalog_item_inputs
          SET status = 'active',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [
           extractIdFromStreamId(event.streamId, "catalog.item-"),
           event.timing.recordedAt,
@@ -65,7 +65,7 @@ export function buildPricingCatalogInputProjectionHandlers(
         `UPDATE pricing_catalog_item_inputs
          SET status = 'retired',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [
           extractIdFromStreamId(event.streamId, "catalog.item-"),
           event.timing.recordedAt,
@@ -77,7 +77,7 @@ export function buildPricingCatalogInputProjectionHandlers(
         `UPDATE pricing_catalog_item_inputs
          SET status = 'archived',
              updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [
           extractIdFromStreamId(event.streamId, "catalog.item-"),
           event.timing.recordedAt,
@@ -96,7 +96,7 @@ export function buildPricingInventoryInputProjectionHandlers(
         recordId: string;
         accountId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
+        productId: string;
         totalQuantity: number;
       };
 
@@ -104,16 +104,16 @@ export function buildPricingInventoryInputProjectionHandlers(
         `INSERT INTO pricing_inventory_record_inputs (
            record_id,
            seller_account_id,
-           catalog_item_id,
-           catalog_version_key,
+           catalog_catalog_item_id,
+           product_id,
            total_quantity,
            updated_at,
            last_stream_version
          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (record_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
-             catalog_item_id = EXCLUDED.catalog_item_id,
-             catalog_version_key = EXCLUDED.catalog_version_key,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
              total_quantity = EXCLUDED.total_quantity,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
@@ -122,7 +122,7 @@ export function buildPricingInventoryInputProjectionHandlers(
           data.recordId,
           data.accountId,
           data.catalogItemId,
-          data.catalogVersionKey,
+          data.productId,
           data.totalQuantity,
           event.timing.recordedAt,
           event.streamVersion,
@@ -212,7 +212,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
         listingId: string;
         accountId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
+        productId: string;
         priceAmount: string;
         quantityCap: number;
       };
@@ -221,8 +221,8 @@ export function buildPricingMarketplaceInputProjectionHandlers(
         `INSERT INTO pricing_market_listing_inputs (
            listing_id,
            seller_account_id,
-           catalog_item_id,
-           catalog_version_key,
+           catalog_catalog_item_id,
+           product_id,
            price_amount,
            quantity_cap,
            status,
@@ -230,8 +230,8 @@ export function buildPricingMarketplaceInputProjectionHandlers(
          ) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
-             catalog_item_id = EXCLUDED.catalog_item_id,
-             catalog_version_key = EXCLUDED.catalog_version_key,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
              quantity_cap = EXCLUDED.quantity_cap,
              updated_at = EXCLUDED.updated_at`,
@@ -239,7 +239,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
           data.listingId,
           data.accountId,
           data.catalogItemId,
-          data.catalogVersionKey,
+          data.productId,
           data.priceAmount,
           data.quantityCap,
           event.timing.recordedAt,
@@ -317,7 +317,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
         offerId: string;
         buyerAccountId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
+        productId: string;
         priceAmount: string;
         quantityRequested: number;
       };
@@ -327,8 +327,8 @@ export function buildPricingMarketplaceInputProjectionHandlers(
            offer_id,
            buyer_account_id,
            seller_account_id,
-           catalog_item_id,
-           catalog_version_key,
+           catalog_catalog_item_id,
+           product_id,
            price_amount,
            quantity_requested,
            status,
@@ -337,8 +337,8 @@ export function buildPricingMarketplaceInputProjectionHandlers(
          ) VALUES ($1, $2, NULL, $3, $4, $5, $6, 'submitted', NULL, $7)
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
-             catalog_item_id = EXCLUDED.catalog_item_id,
-             catalog_version_key = EXCLUDED.catalog_version_key,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
              quantity_requested = EXCLUDED.quantity_requested,
              status = EXCLUDED.status,
@@ -348,7 +348,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
           data.offerId,
           data.buyerAccountId,
           data.catalogItemId,
-          data.catalogVersionKey,
+          data.productId,
           data.priceAmount,
           data.quantityRequested,
           event.timing.recordedAt,
@@ -361,7 +361,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
         buyerAccountId: string;
         sellerAccountId: string;
         catalogItemId: string;
-        catalogVersionKey: string;
+        productId: string;
         priceAmount: string;
         quantityRequested: number;
         acceptedAt: string;
@@ -372,8 +372,8 @@ export function buildPricingMarketplaceInputProjectionHandlers(
            offer_id,
            buyer_account_id,
            seller_account_id,
-           catalog_item_id,
-           catalog_version_key,
+           catalog_catalog_item_id,
+           product_id,
            price_amount,
            quantity_requested,
            status,
@@ -383,8 +383,8 @@ export function buildPricingMarketplaceInputProjectionHandlers(
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
-             catalog_item_id = EXCLUDED.catalog_item_id,
-             catalog_version_key = EXCLUDED.catalog_version_key,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
              quantity_requested = EXCLUDED.quantity_requested,
              status = EXCLUDED.status,
@@ -395,7 +395,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
           data.buyerAccountId,
           data.sellerAccountId,
           data.catalogItemId,
-          data.catalogVersionKey,
+          data.productId,
           data.priceAmount,
           data.quantityRequested,
           data.acceptedAt,
@@ -417,7 +417,7 @@ export function buildPricingOrderingInputProjectionHandlers(
         lines: Array<{
           lineId: string;
           catalogItemId: string;
-          catalogVersionKey: string;
+          productId: string;
           unitPriceAmount: string;
           quantity: number;
         }>;
@@ -434,8 +434,8 @@ export function buildPricingOrderingInputProjectionHandlers(
              line_id,
              buyer_account_id,
              seller_account_id,
-             catalog_item_id,
-             catalog_version_key,
+             catalog_catalog_item_id,
+             product_id,
              unit_price_amount,
              quantity,
              status,
@@ -448,8 +448,8 @@ export function buildPricingOrderingInputProjectionHandlers(
            ON CONFLICT (order_id, line_id) DO UPDATE
            SET buyer_account_id = EXCLUDED.buyer_account_id,
                seller_account_id = EXCLUDED.seller_account_id,
-               catalog_item_id = EXCLUDED.catalog_item_id,
-               catalog_version_key = EXCLUDED.catalog_version_key,
+               catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+               product_id = EXCLUDED.product_id,
                unit_price_amount = EXCLUDED.unit_price_amount,
                quantity = EXCLUDED.quantity,
                status = EXCLUDED.status,
@@ -462,7 +462,7 @@ export function buildPricingOrderingInputProjectionHandlers(
             data.buyerAccountId,
             data.sellerAccountId,
             line.catalogItemId,
-            line.catalogVersionKey,
+            line.productId,
             line.unitPriceAmount,
             line.quantity,
             event.timing.recordedAt,
@@ -514,7 +514,7 @@ export function buildPricingFulfillmentInputProjectionHandlers(
         lines: Array<{
           lineId: string;
           catalogItemId: string;
-          catalogVersionKey: string;
+          productId: string;
           quantity: number;
         }>;
         createdAt: string;
@@ -531,8 +531,8 @@ export function buildPricingFulfillmentInputProjectionHandlers(
              shipment_id,
              line_id,
              order_id,
-             catalog_item_id,
-             catalog_version_key,
+             catalog_catalog_item_id,
+             product_id,
              quantity,
              status,
              delivered_at,
@@ -543,8 +543,8 @@ export function buildPricingFulfillmentInputProjectionHandlers(
            )
            ON CONFLICT (shipment_id, line_id) DO UPDATE
            SET order_id = EXCLUDED.order_id,
-               catalog_item_id = EXCLUDED.catalog_item_id,
-               catalog_version_key = EXCLUDED.catalog_version_key,
+               catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+               product_id = EXCLUDED.product_id,
                quantity = EXCLUDED.quantity,
                status = EXCLUDED.status,
                delivered_at = EXCLUDED.delivered_at,
@@ -555,7 +555,7 @@ export function buildPricingFulfillmentInputProjectionHandlers(
             line.lineId,
             data.orderId,
             line.catalogItemId,
-            line.catalogVersionKey,
+            line.productId,
             line.quantity,
             data.createdAt,
           ],

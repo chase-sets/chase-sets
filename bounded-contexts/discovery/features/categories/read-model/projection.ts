@@ -109,7 +109,7 @@ async function refreshChildCategories(db: PgQueryable, parentCategoryId: string)
 
 async function refreshCategoriesForItem(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<{ category_ids: unknown }>(
-    `SELECT category_ids FROM discovery_category_catalog_items WHERE item_id = $1`,
+    `SELECT category_ids FROM discovery_category_catalog_items WHERE catalog_item_id = $1`,
     [itemId],
   );
 
@@ -244,9 +244,9 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       const { itemId } = event.data as { itemId: string };
 
       await db.query(
-        `INSERT INTO discovery_category_catalog_items (item_id, updated_at)
+        `INSERT INTO discovery_category_catalog_items (catalog_item_id, updated_at)
          VALUES ($1, $2)
-         ON CONFLICT (item_id) DO UPDATE SET updated_at = EXCLUDED.updated_at`,
+         ON CONFLICT (catalog_item_id) DO UPDATE SET updated_at = EXCLUDED.updated_at`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -258,7 +258,7 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
         `UPDATE discovery_category_catalog_items
          SET category_ids = category_ids || $2::jsonb,
              updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
       );
 
@@ -276,7 +276,7 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
            WHERE category_id #>> '{}' != $2
          ),
          updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, categoryId, event.timing.recordedAt],
       );
 
@@ -288,7 +288,7 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       await db.query(
         `UPDATE discovery_category_catalog_items
          SET status = 'active', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 
@@ -300,7 +300,7 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       await db.query(
         `UPDATE discovery_category_catalog_items
          SET status = 'retired', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 
@@ -312,7 +312,7 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       await db.query(
         `UPDATE discovery_category_catalog_items
          SET status = 'archived', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 

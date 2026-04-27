@@ -12,12 +12,12 @@ type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 type DimensionRule = Readonly<{
   dimensionId: string;
   required: boolean;
-  allowedChoiceIds?: string[];
-  appliesWhen?: Array<{ dimensionId: string; choiceIds?: string[] }>;
+  allowedOptionIds?: string[];
+  appliesWhen?: Array<{ dimensionId: string; optionIds?: string[] }>;
 }>;
 
 type ItemDetailCatalogItemRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -38,7 +38,7 @@ type ItemDetailBlueprintRow = Readonly<{
 }>;
 
 type ChoiceDetailRow = Readonly<{
-  choice_id: string;
+  option_id: string;
   code: string;
   labels: unknown;
 }>;
@@ -97,9 +97,9 @@ async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise
     ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
     ...canonicalDimensionOrder,
   ])];
-  const choiceIds = dimensionRules.flatMap((rule) => [
-    ...(rule.allowedChoiceIds ?? []),
-    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.choiceIds ?? []),
+  const optionIds = dimensionRules.flatMap((rule) => [
+    ...(rule.allowedOptionIds ?? []),
+    ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
   const [dimensionNames, choiceRows] = await Promise.all([
@@ -110,17 +110,17 @@ async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise
       "name",
       dimensionIds,
     ),
-    choiceIds.length > 0
+    optionIds.length > 0
       ? db.query<ChoiceDetailRow>(
-          `SELECT choice_id, code, labels
-           FROM discovery_item_detail_catalog_dimension_choices
-           WHERE choice_id = ANY($1)`,
-          [choiceIds],
+          `SELECT option_id, code, labels
+           FROM discovery_item_detail_catalog_dimension_options
+           WHERE option_id = ANY($1)`,
+          [optionIds],
         ).then((result) => result.rows)
       : Promise.resolve([] as ChoiceDetailRow[]),
   ]);
 
-  const choiceMap = new Map(choiceRows.map((row) => [row.choice_id, row]));
+  const choiceMap = new Map(choiceRows.map((row) => [row.option_id, row]));
 
   return {
     canonicalDimensionOrder: canonicalDimensionOrder.map((dimensionId) => ({
@@ -133,13 +133,13 @@ async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise
       required: rule.required,
       appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
         dimensionId: clause.dimensionId,
-        choiceIds: clause.choiceIds ?? [],
+        optionIds: clause.optionIds ?? [],
       })),
-      allowedChoices: (rule.allowedChoiceIds ?? []).map((choiceId) => {
-        const detail = choiceMap.get(choiceId);
+      allowedOptions: (rule.allowedOptionIds ?? []).map((optionId) => {
+        const detail = choiceMap.get(optionId);
         return {
-          choiceId,
-          code: detail?.code ?? choiceId,
+          optionId,
+          code: detail?.code ?? optionId,
           labels: Array.isArray(detail?.labels) ? detail?.labels : [],
         };
       }),
@@ -149,14 +149,14 @@ async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise
 
 async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<ItemDetailCatalogItemRow>(
-    `SELECT * FROM discovery_item_detail_catalog_items WHERE item_id = $1`,
+    `SELECT * FROM discovery_item_detail_catalog_items WHERE catalog_item_id = $1`,
     [itemId],
   );
 
   const item = result.rows[0];
 
   if (!item) {
-    await db.query(`DELETE FROM discovery_item_detail_pages WHERE item_id = $1`, [itemId]);
+    await db.query(`DELETE FROM discovery_item_detail_pages WHERE catalog_item_id = $1`, [itemId]);
     return;
   }
 
@@ -171,7 +171,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
     await db.query(
       `UPDATE discovery_item_detail_catalog_items
        SET category_ids = $2
-       WHERE item_id = $1`,
+       WHERE catalog_item_id = $1`,
       [itemId, JSON.stringify(categoryIds)],
     );
   }
@@ -202,13 +202,13 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       : Promise.resolve(new Map<string, string>()),
   ]);
 
-  const versionSchema = item.blueprint_id
+  const productSchema = item.blueprint_id
     ? await buildVersionSchema(db, item.blueprint_id)
     : null;
 
   await db.query(
     `INSERT INTO discovery_item_detail_pages (
-      item_id,
+      catalog_item_id,
       title,
       subtitle,
       description,
@@ -219,10 +219,10 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       categories,
       tags,
       image_urls,
-      version_schema,
+      product_schema,
       updated_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-    ON CONFLICT (item_id) DO UPDATE SET
+    ON CONFLICT (catalog_item_id) DO UPDATE SET
       title = EXCLUDED.title,
       subtitle = EXCLUDED.subtitle,
       description = EXCLUDED.description,
@@ -233,10 +233,10 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       categories = EXCLUDED.categories,
       tags = EXCLUDED.tags,
       image_urls = EXCLUDED.image_urls,
-      version_schema = EXCLUDED.version_schema,
+      product_schema = EXCLUDED.product_schema,
       updated_at = EXCLUDED.updated_at`,
     [
-      item.item_id,
+      item.catalog_item_id,
       item.title,
       item.subtitle,
       item.description,
@@ -263,36 +263,36 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       ),
       JSON.stringify(tags),
       JSON.stringify(imageUrls),
-      versionSchema === null ? null : JSON.stringify(versionSchema),
+      productSchema === null ? null : JSON.stringify(productSchema),
       item.updated_at,
     ],
   );
 }
 
 async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM discovery_item_detail_catalog_items WHERE blueprint_id = $1`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM discovery_item_detail_catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
-  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.item_id)));
+  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.catalog_item_id)));
 }
 
 async function refreshItemsByCategory(db: PgQueryable, categoryId: string): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM discovery_item_detail_catalog_items WHERE category_ids @> $1::jsonb`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM discovery_item_detail_catalog_items WHERE category_ids @> $1::jsonb`,
     [JSON.stringify([categoryId])],
   );
 
-  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.item_id)));
+  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.catalog_item_id)));
 }
 
 async function refreshAllItems(db: PgQueryable): Promise<void> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM discovery_item_detail_catalog_items ORDER BY item_id ASC`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM discovery_item_detail_catalog_items ORDER BY catalog_item_id ASC`,
   );
 
-  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.item_id)));
+  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.catalog_item_id)));
 }
 
 export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -307,14 +307,14 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_items (
-          item_id,
+          catalog_item_id,
           title,
           subtitle,
           description,
           status,
           updated_at
         ) VALUES ($1, $2, $3, $4, 'draft', $5)
-        ON CONFLICT (item_id) DO UPDATE SET
+        ON CONFLICT (catalog_item_id) DO UPDATE SET
           title = EXCLUDED.title,
           subtitle = EXCLUDED.subtitle,
           description = EXCLUDED.description,
@@ -331,7 +331,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_item_detail_catalog_items
          SET blueprint_id = $2, updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, blueprintId, event.timing.recordedAt],
       );
 
@@ -349,7 +349,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
            WHERE field_value->>'fieldId' != $2
          ) || $3::jsonb,
          updated_at = $4
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, fieldId, JSON.stringify([{ fieldId, value }]), event.timing.recordedAt],
       );
 
@@ -367,7 +367,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
            WHERE field_value->>'fieldId' != $2
          ),
          updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, fieldId, event.timing.recordedAt],
       );
 
@@ -384,7 +384,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
                ELSE category_ids || $2::jsonb
              END,
              updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
       );
 
@@ -402,7 +402,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
            WHERE category_id #>> '{}' != $2
          ),
          updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, categoryId, event.timing.recordedAt],
       );
 
@@ -414,7 +414,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_item_detail_catalog_items
          SET status = 'active', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 
@@ -434,7 +434,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
              subtitle = $3,
              description = $4,
              updated_at = $5
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
       );
 
@@ -448,7 +448,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         `UPDATE discovery_item_detail_catalog_items
          SET tags = $2,
              updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify(tags), event.timing.recordedAt],
       );
 
@@ -462,7 +462,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         `UPDATE discovery_item_detail_catalog_items
          SET image_urls = $2,
              updated_at = $3
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
       );
 
@@ -474,7 +474,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_item_detail_catalog_items
          SET status = 'retired', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 
@@ -486,7 +486,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_item_detail_catalog_items
          SET status = 'archived', updated_at = $2
-         WHERE item_id = $1`,
+         WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
 
@@ -550,7 +550,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
-    "catalog.blueprint.version-rules-set": async (event) => {
+    "catalog.blueprint.product-resolution-rules-set": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
       const { canonicalDimensionOrder } = event.data as { canonicalDimensionOrder: unknown };
 
@@ -665,60 +665,59 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
 
       await refreshAllItems(db);
     },
-    "catalog.dimension.choice-added": async (event) => {
+    "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
-      const { choiceId, code, labels } = event.data as {
-        choiceId: string;
+      const { optionId, code, labels } = event.data as {
+        optionId: string;
         code: string;
         labels: unknown;
       };
 
       await db.query(
-        `INSERT INTO discovery_item_detail_catalog_dimension_choices (
-          choice_id,
+        `INSERT INTO discovery_item_detail_catalog_dimension_options (
+          option_id,
           dimension_id,
           code,
           labels,
           updated_at
         ) VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (choice_id) DO UPDATE SET
+        ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
           labels = EXCLUDED.labels,
           updated_at = EXCLUDED.updated_at`,
-        [choiceId, dimensionId, code, JSON.stringify(Array.isArray(labels) ? labels : []), event.timing.recordedAt],
+        [optionId, dimensionId, code, JSON.stringify(Array.isArray(labels) ? labels : []), event.timing.recordedAt],
       );
 
       await refreshAllItems(db);
     },
-    "catalog.dimension.choice-revised": async (event) => {
+    "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
-      const { choiceId, code, labels } = event.data as {
-        choiceId: string;
+      const { optionId, code, labels } = event.data as {
+        optionId: string;
         code: string;
         labels: unknown;
       };
 
       await db.query(
-        `INSERT INTO discovery_item_detail_catalog_dimension_choices (
-          choice_id,
+        `INSERT INTO discovery_item_detail_catalog_dimension_options (
+          option_id,
           dimension_id,
           code,
           labels,
           updated_at
         ) VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (choice_id) DO UPDATE SET
+        ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
           labels = EXCLUDED.labels,
           updated_at = EXCLUDED.updated_at`,
-        [choiceId, dimensionId, code, JSON.stringify(Array.isArray(labels) ? labels : []), event.timing.recordedAt],
+        [optionId, dimensionId, code, JSON.stringify(Array.isArray(labels) ? labels : []), event.timing.recordedAt],
       );
 
       await refreshAllItems(db);
     },
   };
 }
-
 
 

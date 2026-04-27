@@ -63,14 +63,14 @@
         "catalog.blueprint.created",
         "catalog.blueprint.revised",
         "catalog.blueprint.dimensions-set",
-        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.product-resolution-rules-set",
         "catalog.blueprint.published",
         "catalog.field.created",
         "catalog.field.configured",
         "catalog.dimension.created",
         "catalog.dimension.revised",
-        "catalog.dimension.choice-added",
-        "catalog.dimension.choice-revised"
+        "catalog.dimension.option-added",
+        "catalog.dimension.option-revised"
       ],
       "order": 10
     },
@@ -102,14 +102,14 @@
         "catalog.blueprint.created",
         "catalog.blueprint.revised",
         "catalog.blueprint.dimensions-set",
-        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.product-resolution-rules-set",
         "catalog.blueprint.published",
         "catalog.field.created",
         "catalog.field.configured",
         "catalog.dimension.created",
         "catalog.dimension.revised",
-        "catalog.dimension.choice-added",
-        "catalog.dimension.choice-revised"
+        "catalog.dimension.option-added",
+        "catalog.dimension.option-revised"
       ],
       "order": 10
     },
@@ -141,14 +141,14 @@
         "catalog.blueprint.created",
         "catalog.blueprint.revised",
         "catalog.blueprint.dimensions-set",
-        "catalog.blueprint.version-rules-set",
+        "catalog.blueprint.product-resolution-rules-set",
         "catalog.blueprint.published",
         "catalog.field.created",
         "catalog.field.configured",
         "catalog.dimension.created",
         "catalog.dimension.revised",
-        "catalog.dimension.choice-added",
-        "catalog.dimension.choice-revised"
+        "catalog.dimension.option-added",
+        "catalog.dimension.option-revised"
       ],
       "order": 10
     },
@@ -223,7 +223,7 @@
         "discovery_item_detail_catalog_categories",
         "discovery_item_detail_catalog_fields",
         "discovery_item_detail_catalog_dimensions",
-        "discovery_item_detail_catalog_dimension_choices",
+        "discovery_item_detail_catalog_dimension_options",
         "discovery_item_detail_pages"
       ],
       "requiredDuringBootstrap": true

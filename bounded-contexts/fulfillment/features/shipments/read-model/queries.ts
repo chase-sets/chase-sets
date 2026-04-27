@@ -3,11 +3,11 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 export type FulfillmentShipmentLineRow = Readonly<{
   line_id: string;
   order_line_id: string;
-  catalog_item_id: string;
-  catalog_version_key: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
   item_title: string;
   item_subtitle: string | null;
-  version_summary: string | null;
+  product_summary: string | null;
   quantity: number;
 }>;
 
@@ -148,11 +148,11 @@ export async function getBuyerShipment(
       `SELECT
          line_id,
          order_line_id,
-         catalog_item_id,
-         catalog_version_key,
+         catalog_catalog_item_id,
+         product_id,
          item_title,
          item_subtitle,
-         version_summary,
+         product_summary,
          quantity
        FROM fulfillment_shipment_line_pages
        WHERE shipment_id = $1
@@ -228,11 +228,11 @@ export async function getSellerShipment(
       `SELECT
          line_id,
          order_line_id,
-         catalog_item_id,
-         catalog_version_key,
+         catalog_catalog_item_id,
+         product_id,
          item_title,
          item_subtitle,
-         version_summary,
+         product_summary,
          quantity
        FROM fulfillment_shipment_line_pages
        WHERE shipment_id = $1

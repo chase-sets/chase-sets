@@ -14,7 +14,7 @@ const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const FIELD_STREAM_PREFIX = "catalog.field-";
 
 type BaseCatalogItemRow = Readonly<{
-  item_id: string;
+  catalog_item_id: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -29,14 +29,14 @@ type BaseCatalogItemRow = Readonly<{
 
 async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<BaseCatalogItemRow>(
-    `SELECT * FROM catalog_items WHERE item_id = $1`,
+    `SELECT * FROM catalog_items WHERE catalog_item_id = $1`,
     [itemId],
   );
 
   const item = result.rows[0];
 
   if (!item) {
-    await db.query(`DELETE FROM catalog_admin_catalog_item_list_pages WHERE item_id = $1`, [itemId]);
+    await db.query(`DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = $1`, [itemId]);
     return;
   }
 
@@ -46,7 +46,7 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
 
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_list_pages (
-      item_id,
+      catalog_item_id,
       title,
       subtitle,
       blueprint_id,
@@ -55,7 +55,7 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
       tags,
       updated_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    ON CONFLICT (item_id) DO UPDATE SET
+    ON CONFLICT (catalog_item_id) DO UPDATE SET
       title = EXCLUDED.title,
       subtitle = EXCLUDED.subtitle,
       blueprint_id = EXCLUDED.blueprint_id,
@@ -64,7 +64,7 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
       tags = EXCLUDED.tags,
       updated_at = EXCLUDED.updated_at`,
     [
-      item.item_id,
+      item.catalog_item_id,
       item.title,
       item.subtitle,
       item.blueprint_id,
@@ -80,14 +80,14 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
 
 async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<BaseCatalogItemRow>(
-    `SELECT * FROM catalog_items WHERE item_id = $1`,
+    `SELECT * FROM catalog_items WHERE catalog_item_id = $1`,
     [itemId],
   );
 
   const item = result.rows[0];
 
   if (!item) {
-    await db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE item_id = $1`, [itemId]);
+    await db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`, [itemId]);
     return;
   }
 
@@ -116,7 +116,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
 
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_detail_pages (
-      item_id,
+      catalog_item_id,
       title,
       subtitle,
       description,
@@ -129,7 +129,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       image_urls,
       updated_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-    ON CONFLICT (item_id) DO UPDATE SET
+    ON CONFLICT (catalog_item_id) DO UPDATE SET
       title = EXCLUDED.title,
       subtitle = EXCLUDED.subtitle,
       description = EXCLUDED.description,
@@ -142,7 +142,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       image_urls = EXCLUDED.image_urls,
       updated_at = EXCLUDED.updated_at`,
     [
-      item.item_id,
+      item.catalog_item_id,
       item.title,
       item.subtitle,
       item.description,
@@ -174,30 +174,30 @@ export async function refreshCatalogAdminCatalogItemPages(
 }
 
 async function findCatalogItemIdsByField(db: PgQueryable, fieldId: string): Promise<string[]> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM catalog_items WHERE field_values @> $1::jsonb`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM catalog_items WHERE field_values @> $1::jsonb`,
     [JSON.stringify([{ fieldId }])],
   );
 
-  return result.rows.map((row) => row.item_id);
+  return result.rows.map((row) => row.catalog_item_id);
 }
 
 async function findCatalogItemIdsByBlueprint(db: PgQueryable, blueprintId: string): Promise<string[]> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM catalog_items WHERE blueprint_id = $1`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
-  return result.rows.map((row) => row.item_id);
+  return result.rows.map((row) => row.catalog_item_id);
 }
 
 async function findCatalogItemIdsByCategory(db: PgQueryable, categoryId: string): Promise<string[]> {
-  const result = await db.query<{ item_id: string }>(
-    `SELECT item_id FROM catalog_items WHERE category_ids @> $1::jsonb`,
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM catalog_items WHERE category_ids @> $1::jsonb`,
     [JSON.stringify([categoryId])],
   );
 
-  return result.rows.map((row) => row.item_id);
+  return result.rows.map((row) => row.catalog_item_id);
 }
 
 async function refreshCatalogItemIds(db: PgQueryable, itemIds: readonly string[]): Promise<void> {

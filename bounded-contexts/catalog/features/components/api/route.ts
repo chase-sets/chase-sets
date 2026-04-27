@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { ComponentServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
-import type { ComponentId, FieldId, DimensionId, ChoiceId } from "../../../ids";
+import type { ComponentId, FieldId, DimensionId, OptionId } from "../../../ids";
 
 
 export function componentRoutes(services: ComponentServices) {
@@ -72,7 +72,7 @@ export function componentRoutes(services: ComponentServices) {
         type: "AddDimensionRuleToComponent",
         dimensionId: body.dimensionId as DimensionId,
         required: body.required,
-        allowedChoiceIds: body.allowedChoiceIds as ChoiceId[] | undefined,
+        allowedOptionIds: body.allowedOptionIds as OptionId[] | undefined,
         appliesWhen: body.appliesWhen,
       },
       context,
