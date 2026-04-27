@@ -4,7 +4,7 @@ This glossary defines the canonical terminology for the Pricing bounded context.
 
 ## Price Signal
 
-A **Price Signal** is an observed market input used to estimate fair value.
+A **Price Signal** is an observed market input used to estimate fair value for a resolved product.
 
 Examples:
 
@@ -14,11 +14,11 @@ Examples:
 
 ## Market Price Estimate
 
-A **Market Price Estimate** is the modeled fair-value output for a catalog item over a defined time window.
+A **Market Price Estimate** is the modeled fair-value output for a resolved product over a defined time window.
 
 ## Liquidity Estimate
 
-A **Liquidity Estimate** is the modeled expectation of how quickly or reliably an item can transact.
+A **Liquidity Estimate** is the modeled expectation of how quickly or reliably a resolved product can transact.
 
 ## Repricing Policy
 

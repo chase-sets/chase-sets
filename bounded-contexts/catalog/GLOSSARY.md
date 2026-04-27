@@ -15,7 +15,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Component`
 - `Category`
 
-This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Search & Discovery.
+This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
 ## Core Model
 

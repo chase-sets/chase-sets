@@ -115,20 +115,24 @@ Secondary public surfaces must be real, stable contracts. A surface should eithe
 Allowed public surfaces:
 
 - `.`
+- `./context`
 - `./client`
 - `./server`
 - `./web`
 - `./routes/*`
 - `./seed-support/*`
+- `./host-config`
 
 Surface meanings:
 
 - `.` is the deployable plug-in contract only
+- `./context` is the context manifest contract used by structure checks and composition tooling
 - `./client` is browser-safe transport clients, DTOs, and API errors
 - `./server` is the provider-owned request and SSR surface for same-context use and approved cross-context request composition
 - `./web` is deployable-facing shell, layout, provider, and browser-entry code only
 - `./routes/*` is the feature-route surface consumed by manifest-driven deployable composition
 - `./seed-support/*` is seed, bootstrap, and test-only support
+- `./host-config` is an Auth-specific host integration surface for authentication entry points
 
 Private route and request helpers must stay inside the owning bounded context under explicit support folders, not as ad hoc top-level files.
 
@@ -159,6 +163,16 @@ Shared IDs in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/type
 
 - `AccountId`
 - `UserId`
+- `MembershipId`
+- `RoleId`
+- `InvitationId`
+- `ConsentId`
+- `ContactMethodId`
+- `VerificationId`
+- `CredentialId`
+- `AuthenticationMethodId`
+- `SessionId`
+- `ApiKeyId`
 - `InventoryRecordId`
 - `ListingId`
 - `OfferId`
@@ -172,6 +186,14 @@ Shared IDs in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/type
 Catalog-owned IDs in [`catalog/ids.ts`](./catalog/ids.ts):
 
 - `CatalogItemId`
+- `DimensionId`
+- `OptionId`
+- `FieldId`
+- `ComponentId`
+- `BlueprintId`
+- `CategoryId`
+
+Catalog also owns the `SelectedOptionEntry` shape used to describe resolved product selections. `product_id` is derived from catalog truth and used at API boundaries, but it is not currently exported as a shared typed ID.
 
 ## Upstream and Downstream Relationships
 

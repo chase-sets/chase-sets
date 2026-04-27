@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Pricing owns fair-value estimation, seller repricing intelligence, and liquidity modeling.
+Pricing owns product-scoped fair-value estimation, seller repricing intelligence, and liquidity modeling.
 
 ## Owns
 
@@ -33,7 +33,7 @@ Pricing terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Catalog for canonical item identity
+- Catalog for canonical item identity, product resolution, and selected-option facts
 - Inventory for availability and seller stock posture
 - Marketplace for active listing and offer behavior
 - Ordering for completed order pricing

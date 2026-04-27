@@ -6,9 +6,9 @@ Commercial Terms owns the marketplace fee and payment fee policies that determin
 
 ## Owns
 
-- Default commercial term schedules by account type
+- Default Commercial Terms schedules by account type
 - Account-specific commercial agreements
-- Commercial term resolution for listings and orders
+- Commercial Terms resolution for listings and orders
 - Seller-side marketplace fee amounts
 - Seller-side payment fee amounts
 - Seller net calculations
@@ -41,7 +41,6 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Invariants
 
-1. Commercial term resolution is deterministic for a seller account and timestamp.
+1. Commercial Terms resolution is deterministic for a seller account and timestamp.
 2. Account-specific agreements override default schedules when both are active.
 3. Marketplace and Payments consume resolved snapshots but do not own the underlying policy.
-

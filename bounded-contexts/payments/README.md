@@ -32,7 +32,7 @@ Payments terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Ordering for commercial terms and order references
+- Ordering for order references and frozen Commercial Terms snapshots
 - Fulfillment for issue signals that justify refunds
 
 ## Runtime Configuration
