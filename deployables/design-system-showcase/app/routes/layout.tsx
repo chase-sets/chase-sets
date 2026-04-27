@@ -5,10 +5,9 @@ import {
   type ColorMode,
   type ReducedMotionSetting,
   Page,
-  PageHeader,
   Surface,
   Tabs,
-  ToastRegion,
+  Text,
 } from "@chase-sets/design-system";
 import { ShowcaseThemeControl } from "../../src/showcase-theme-control";
 
@@ -24,25 +23,20 @@ export default function ShowcaseLayoutRoute() {
   const navigate = useNavigate();
   const [colorMode, setColorMode] = useState<ColorMode>("system");
   const [reducedMotion, setReducedMotion] = useState<ReducedMotionSetting>("user");
-  const [isDemoToastOpen, setIsDemoToastOpen] = useState(true);
   const showcaseMode = resolveMode(location.pathname);
 
   return (
     <ChaseRoot colorMode={colorMode} reducedMotion={reducedMotion}>
       <Page>
-        <Surface elevated>
-          <PageHeader
-            eyebrow="Design system"
-            title="One package, shared marketplace and admin surfaces"
-            description="The showcase validates theme tokens, layout primitives, and responsive application shells from a single explicit stylesheet contract."
-            actions={
-              <ShowcaseThemeControl
-                colorMode={colorMode}
-                onColorModeChange={setColorMode}
-                reducedMotion={reducedMotion}
-                onReducedMotionChange={setReducedMotion}
-              />
-            }
+        <Surface padding={3}>
+          <Text size="sm" tone="secondary">
+            Showcase controls
+          </Text>
+          <ShowcaseThemeControl
+            colorMode={colorMode}
+            onColorModeChange={setColorMode}
+            reducedMotion={reducedMotion}
+            onReducedMotionChange={setReducedMotion}
           />
         </Surface>
         <Tabs
@@ -58,31 +52,18 @@ export default function ShowcaseLayoutRoute() {
             },
             {
               value: "admin",
-              label: "Admin",
+              label: "Seller Dashboard",
               content: null,
             },
             {
               value: "components",
-              label: "Components",
+              label: "Design System",
               content: null,
             },
           ]}
         />
       </Page>
       <Outlet />
-      <ToastRegion
-        items={[
-          {
-            id: "demo-toast",
-            title: "Design system ready",
-            description:
-              "Marketplace and admin surfaces are rendering from a shared package with an explicit stylesheet import.",
-            tone: "success",
-            open: isDemoToastOpen,
-            onOpenChange: setIsDemoToastOpen,
-          },
-        ]}
-      />
     </ChaseRoot>
   );
 }

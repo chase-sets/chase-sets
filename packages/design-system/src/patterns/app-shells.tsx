@@ -26,6 +26,7 @@ import {
   StatGrid
 } from "../components/data-display";
 import { Badge } from "../components/feedback";
+import { Icon, type IconName } from "../icons";
 
 export interface PageProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -73,11 +74,11 @@ export function PageHeader({
     >
       <div className="space-y-2">
         {eyebrow ? (
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+          <div className="text-xs font-semibold uppercase text-accent">
             {eyebrow}
           </div>
         ) : null}
-        <h1 className="font-display text-4xl font-semibold tracking-tight text-foreground md:text-5xl">
+        <h1 className="font-display text-4xl font-semibold text-foreground md:text-5xl">
           {title}
         </h1>
         {description ? (
@@ -254,7 +255,7 @@ export function AdminShell({
       <SkipLink />
       <TopNav
         brand={brand}
-        items={navItems}
+        items={[]}
         activeKey={activeKey}
         actions={actions}
         width={width}
@@ -262,12 +263,12 @@ export function AdminShell({
       <main
         id="main-content"
         className={cx(
-          "mx-auto grid min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-6 pb-24 lg:grid-cols-[16rem_minmax(0,1fr)] lg:pb-8",
+          "mx-auto grid min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-5 pb-24 lg:grid-cols-[16rem_minmax(0,1fr)] lg:py-6 lg:pb-8",
           layoutWidthClasses[width]
         )}
       >
         <div className="hidden lg:block">
-          <div className="sticky top-24 self-start">
+          <div className="sticky top-20 self-start">
             <SideNav items={navItems} activeKey={activeKey} />
           </div>
         </div>
@@ -459,6 +460,200 @@ export function SellerBadge({
 export interface OrderSummaryLine {
   label: ReactNode;
   value: ReactNode;
+}
+
+export interface ProductCardProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  price?: ReactNode;
+  imageSrc?: string;
+  imageAlt?: string;
+  imageFit?: "cover" | "contain";
+  status?: ReactNode;
+  meta?: ReactNode;
+  actions?: ReactNode;
+  children?: ReactNode;
+}
+
+export function ProductCard({
+  title,
+  subtitle,
+  price,
+  imageSrc,
+  imageAlt,
+  imageFit = "cover",
+  status,
+  meta,
+  actions,
+  children,
+  ...rest
+}: ProductCardProps) {
+  return (
+    <Card {...rest} variant="product" interactive>
+      <div className="space-y-3">
+        <div className="relative overflow-hidden rounded-tokenMd border border-muted bg-surface-2">
+          {status ? <div className="absolute left-2 top-2 z-10">{status}</div> : null}
+          <div className="flex aspect-[4/3] items-center justify-center">
+            {imageSrc ? (
+              <img
+                src={imageSrc}
+                alt={imageAlt ?? ""}
+                className={cx(
+                  "h-full w-full",
+                  imageFit === "contain" ? "object-contain p-3" : "object-cover"
+                )}
+              />
+            ) : (
+              <Icon name="image" size="lg" tone="secondary" />
+            )}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="text-sm font-semibold leading-snug text-foreground">{title}</div>
+          {subtitle ? <div className="text-xs text-secondary">{subtitle}</div> : null}
+        </div>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            {price ? <div className="font-heading text-xl font-semibold text-foreground">{price}</div> : null}
+            {meta ? <div className="mt-1 text-xs text-secondary">{meta}</div> : null}
+          </div>
+          {actions}
+        </div>
+        {children ? <div>{children}</div> : null}
+      </div>
+    </Card>
+  );
+}
+
+export interface CategoryTileProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  icon: IconName;
+  label: ReactNode;
+  detail?: ReactNode;
+}
+
+export function CategoryTile({
+  icon,
+  label,
+  detail,
+  ...rest
+}: CategoryTileProps) {
+  return (
+    <Card {...rest} variant="feature" interactive>
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="rounded-tokenLg border border-accent/40 bg-accent/10 p-3 text-accent shadow-tokenSm">
+          <Icon name={icon} size="lg" tone="accent" />
+        </div>
+        <div>
+          <div className="text-sm font-semibold text-foreground">{label}</div>
+          {detail ? <div className="mt-1 text-xs text-secondary">{detail}</div> : null}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export interface FeatureCardProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+  icon: IconName;
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+}
+
+export function FeatureCard({
+  icon,
+  title,
+  description,
+  action,
+  ...rest
+}: FeatureCardProps) {
+  return (
+    <Card {...rest} variant="feature">
+      <div className="flex gap-4">
+        <div className="shrink-0 text-accent">
+          <Icon name={icon} size="lg" tone="accent" />
+        </div>
+        <div className="space-y-2">
+          <div className="font-heading text-lg font-semibold text-foreground">{title}</div>
+          {description ? <div className="text-sm leading-relaxed text-secondary">{description}</div> : null}
+          {action ? <div>{action}</div> : null}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export interface PromoStripProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+  icon?: IconName;
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+}
+
+export function PromoStrip({
+  icon = "spark",
+  title,
+  description,
+  action,
+  ...rest
+}: PromoStripProps) {
+  return (
+    <div
+      {...rest}
+      className="glass-surface glow-accent flex flex-col gap-4 rounded-tokenLg border border-accent/40 p-5 md:flex-row md:items-center md:justify-between"
+    >
+      <div className="flex items-center gap-4">
+        <div className="brand-gradient rounded-tokenLg p-3 text-accent-contrast shadow-tokenMd">
+          <Icon name={icon} size="lg" tone="inverse" />
+        </div>
+        <div>
+          <div className="font-heading text-xl font-semibold text-foreground">{title}</div>
+          {description ? <div className="mt-1 text-sm text-secondary">{description}</div> : null}
+        </div>
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  );
+}
+
+export interface CheckoutTrustPanelProps {
+  title?: ReactNode;
+  items: Array<{
+    icon: IconName;
+    title: ReactNode;
+    description?: ReactNode;
+  }>;
+}
+
+export function CheckoutTrustPanel({
+  title = "Buyer Protection",
+  items
+}: CheckoutTrustPanelProps) {
+  return (
+    <DetailPanel
+      title={
+        <span className="inline-flex items-center gap-3">
+          <Icon name="shield" size="lg" tone="accent" />
+          {title}
+        </span>
+      }
+    >
+      <div className="space-y-4">
+        {items.map((item, index) => (
+          <div key={index} className="flex gap-3">
+            <Icon name={item.icon} size="sm" tone="accent" />
+            <div>
+              <div className="text-sm font-semibold text-foreground">{item.title}</div>
+              {item.description ? <div className="text-sm text-secondary">{item.description}</div> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </DetailPanel>
+  );
 }
 
 export interface OrderSummaryProps {

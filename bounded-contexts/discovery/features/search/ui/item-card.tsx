@@ -1,12 +1,11 @@
 import {
-  Card,
-  Icon,
+  Badge,
+  ProductCard,
   Text,
   Stack,
   Inline,
 } from "@chase-sets/design-system";
 import { Link } from "react-router";
-import { Badge } from "@chase-sets/design-system";
 import type { DiscoverySearchItem } from "../../../support/client-support/contracts";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 
@@ -21,25 +20,26 @@ export function ItemCard({
   const tags = uniqueDisplayValues(item.tags).slice(0, 3);
 
   return (
-    <Link to={href} className="block">
-      <Card
-        interactive
-        media={
-          item.image_urls.length > 0 ? (
-            <img
-              src={item.image_urls[0]}
-              alt={item.title}
-              className="h-48 w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-48 w-full items-center justify-center bg-background">
-              <Icon name="package" size="lg" tone="secondary" />
-            </div>
-          )
+    <Link to={href}>
+      <ProductCard
+        title={item.title}
+        subtitle={item.subtitle}
+        imageSrc={item.image_urls[0]}
+        imageAlt={item.title}
+        meta={
+          item.market_summary
+            ? `${item.market_summary.active_listing_count} listing${
+                item.market_summary.active_listing_count === 1 ? "" : "s"
+              }`
+            : undefined
+        }
+        price={
+          item.market_summary
+            ? `From $${item.market_summary.lowest_price_amount ?? "-"}`
+            : undefined
         }
       >
         <Stack gap={2}>
-          <Text weight="semibold">{item.title}</Text>
           {item.subtitle && (
             <Text tone="secondary" size="sm">{item.subtitle}</Text>
           )}
@@ -73,7 +73,7 @@ export function ItemCard({
             </Stack>
           ) : null}
         </Stack>
-      </Card>
+      </ProductCard>
     </Link>
   );
 }

@@ -13,6 +13,7 @@ import {
   resolveSpaceClass,
   resolveSystemProps,
   type AlignValue,
+  type ColumnCount,
   type DirectionValue,
   type JustifyValue,
   type SpaceToken,
@@ -208,14 +209,18 @@ export function Cluster({
 export interface GridProps
   extends PropsWithChildren,
     Omit<FrameProps, "children"> {
-  columns?: ResponsiveValue<1 | 2 | 3 | 4>;
+  columns?: ResponsiveValue<ColumnCount>;
   gap?: SpaceToken;
+  align?: ResponsiveValue<AlignValue>;
+  justify?: ResponsiveValue<JustifyValue>;
 }
 
 export function Grid({
   children,
   columns = { base: 1, md: 2, xl: 3 },
   gap = 4,
+  align,
+  justify,
   ...rest
 }: GridProps) {
   return (
@@ -224,6 +229,8 @@ export function Grid({
       className={cx(
         "grid",
         resolveColumnsClass(columns),
+        resolveAlignClass(align),
+        resolveJustifyClass(justify),
         resolveSpaceClass("gap", gap)
       )}
     >
@@ -317,14 +324,16 @@ export interface SurfaceProps
     Omit<FrameProps, "children">,
     SystemProps {
   element?: BoxElement;
-  tone?: "default" | "muted" | "accent";
+  tone?: "default" | "muted" | "accent" | "subtle";
   elevated?: boolean;
+  glow?: boolean;
 }
 
 const surfaceToneClasses: Record<NonNullable<SurfaceProps["tone"]>, string> = {
-  default: "modern-surface bg-elevated",
-  muted: "bg-background",
-  accent: "bg-accent text-accent-contrast"
+  default: "glass-surface bg-elevated",
+  muted: "bg-surface-2",
+  accent: "brand-gradient text-accent-contrast",
+  subtle: "bg-surface border-muted"
 };
 
 export function Surface({
@@ -332,6 +341,7 @@ export function Surface({
   element = "div",
   tone = "default",
   elevated = false,
+  glow = false,
   padding = 4,
   paddingX,
   paddingY,
@@ -354,7 +364,8 @@ export function Surface({
           gap,
           textAlign
         }),
-        elevated ? "shadow-tokenLg" : "shadow-tokenSm"
+        elevated ? "shadow-tokenLg" : "shadow-tokenSm",
+        glow && "glow-accent"
       )}
     >
       {children}

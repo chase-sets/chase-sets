@@ -243,14 +243,14 @@ export function ItemDetailPage({
                         </Text>
                       ) : null}
 
-                      <div className="space-y-2">
+                      <Stack gap={2}>
                         <Heading level={1}>{data.title}</Heading>
                         {data.subtitle ? (
                           <Text size="lg" tone="secondary">
                             {data.subtitle}
                           </Text>
                         ) : null}
-                      </div>
+                      </Stack>
 
                       {categories.length > 0 ? (
                         <Inline gap={2}>
@@ -264,7 +264,7 @@ export function ItemDetailPage({
                     </Stack>
 
                     {data.product_schema && data.product_schema.dimensions.length > 0 ? (
-                      <div className="space-y-3">
+                      <Stack gap={3}>
                         <Text size="sm" weight="semibold">
                           Choose Product
                         </Text>
@@ -280,12 +280,12 @@ export function ItemDetailPage({
                             )
                           }
                         />
-                      </div>
+                      </Stack>
                     ) : null}
 
                     <Grid columns={{ base: 1, xl: 2 }} gap={4}>
                       {selectedVersion.length > 0 ? (
-                        <div className="space-y-2">
+                        <Stack gap={2}>
                           <Text size="sm" weight="semibold">
                             Selected Product
                           </Text>
@@ -295,16 +295,16 @@ export function ItemDetailPage({
                               value: selection.optionLabel,
                             }))}
                           />
-                        </div>
+                        </Stack>
                       ) : null}
 
                       {metadataItems.length > 0 ? (
-                        <div className="space-y-2">
+                        <Stack gap={2}>
                           <Text size="sm" weight="semibold">
                             Item Facts
                           </Text>
                           <KeyValueList items={metadataItems} />
-                        </div>
+                        </Stack>
                       ) : null}
                     </Grid>
 
@@ -349,19 +349,18 @@ export function ItemDetailPage({
             secondary={
               <ImageGallery
                 images={images}
-                maxHeightClassName="lg:[--gallery-max-height:min(62vh,28rem)]"
                 emptyState={
-                  <div className="space-y-3 text-center">
-                    <div className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full border border-dashed border-muted bg-background">
+                  <Stack gap={3} align="center">
+                    <Surface tone="muted" padding={4}>
                       <Icon name="image" size="lg" tone="secondary" />
-                    </div>
-                    <div className="space-y-1">
+                    </Surface>
+                    <Stack gap={1} align="center">
                       <Text weight="semibold">Image coming soon</Text>
                       <Text size="sm" tone="secondary">
                         Catalog imagery has not been added yet.
                       </Text>
-                    </div>
-                  </div>
+                    </Stack>
+                  </Stack>
                 }
               />
             }

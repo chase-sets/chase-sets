@@ -13,6 +13,7 @@ export interface NavigationItem {
   icon?: IconName;
   badge?: string;
   href?: string;
+  avatar?: ReactNode;
 }
 
 function renderNavigationItem(
@@ -24,7 +25,7 @@ function renderNavigationItem(
 ) {
   const content = (
     <>
-      {item.icon ? (
+      {item.avatar ? item.avatar : item.icon ? (
         <Icon
           name={item.icon}
           size="sm"
@@ -35,7 +36,7 @@ function renderNavigationItem(
         {item.label}
       </span>
       {item.badge ? (
-        <span className="rounded-full bg-background px-2 py-0.5 text-[0.7rem] font-semibold text-secondary">
+        <span className="rounded-full bg-accent px-2 py-0.5 text-[0.7rem] font-semibold text-accent-contrast">
           {item.badge}
         </span>
       ) : null}
@@ -47,8 +48,8 @@ function renderNavigationItem(
     orientation === "vertical" && "w-full justify-between",
     orientation === "rail" && "w-full flex-col justify-center py-3",
     active
-      ? "bg-background text-accent shadow-tokenSm"
-      : "text-secondary hover:bg-background hover:text-foreground"
+      ? "bg-surface-2 text-accent shadow-tokenSm"
+      : "text-secondary hover:bg-surface-2 hover:text-foreground"
   );
 
   if (item.href) {
@@ -92,7 +93,7 @@ function renderBottomNavigationItem(
         {item.badge ? (
           <span
             aria-hidden="true"
-            className="absolute -right-2 -top-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-background px-1 text-[0.65rem] font-semibold leading-none text-secondary shadow-tokenSm"
+            className="absolute -right-2 -top-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.65rem] font-semibold leading-none text-accent-contrast shadow-tokenSm"
           >
             {item.badge}
           </span>
@@ -108,8 +109,8 @@ function renderBottomNavigationItem(
   const className = cx(
     "focus-ring relative inline-flex w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-tokenMd px-3 py-3 text-sm font-medium transition",
     active
-      ? "bg-background text-accent shadow-tokenSm"
-      : "text-secondary hover:bg-background hover:text-foreground"
+      ? "bg-surface-2 text-accent shadow-tokenSm"
+      : "text-secondary hover:bg-surface-2 hover:text-foreground"
   );
 
   if (item.href) {
@@ -162,7 +163,7 @@ export function TopNav({
   return (
     <nav
       {...rest}
-      className="sticky top-0 z-sticky border-b border-muted bg-elevated/95 px-4 py-3 shadow-tokenSm backdrop-blur-md"
+      className="sticky top-0 z-sticky border-b border-muted bg-background/88 px-4 py-3 shadow-tokenSm backdrop-blur-xl"
     >
       <div
         className={cx(
@@ -204,7 +205,7 @@ export function SideNav({
   return (
     <nav
       {...rest}
-      className="modern-surface flex h-full flex-col gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm"
+      className="glass-surface flex h-full flex-col gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm"
     >
       <LayoutGroup id={groupId}>
         {items.map((item) =>
@@ -235,7 +236,7 @@ export function BottomNav({
   return (
     <nav
       {...rest}
-      className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-elevated/95 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-md md:hidden"
+      className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/88 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl md:hidden"
     >
       <LayoutGroup id={groupId}>
         <div className={cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width])}>
@@ -266,7 +267,7 @@ export function NavRail({
   return (
     <nav
       {...rest}
-      className="modern-surface hidden h-full w-24 flex-col gap-2 rounded-tokenLg border border-muted p-2 md:flex"
+      className="glass-surface hidden h-full w-24 flex-col gap-2 rounded-tokenLg border border-muted p-2 md:flex"
     >
       <LayoutGroup id={groupId}>
         {items.map((item) =>

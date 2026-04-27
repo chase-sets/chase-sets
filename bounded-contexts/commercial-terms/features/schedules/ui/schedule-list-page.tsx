@@ -11,6 +11,7 @@ import {
   Text,
   TextInput,
   NumberInput,
+  NativeSelect,
 } from "@chase-sets/design-system";
 import type { CommercialTermsScheduleViewModel } from "./contracts";
 
@@ -44,21 +45,17 @@ export function ScheduleListPage({
           <form method="post">
             <Stack gap={3}>
               <TextInput label="Label" name="label" required />
-              <label>
-                <Stack gap={1}>
-                  <Text weight="semibold">Account Type</Text>
-                  <select
-                    name="accountType"
-                    required
-                    defaultValue="business"
-                    className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
-                  >
-                    <option value="personal">Personal</option>
-                    <option value="business">Business</option>
-                    <option value="enterprise">Enterprise</option>
-                  </select>
-                </Stack>
-              </label>
+              <NativeSelect
+                label="Account Type"
+                name="accountType"
+                required
+                defaultValue="business"
+                items={[
+                  { value: "personal", label: "Personal" },
+                  { value: "business", label: "Business" },
+                  { value: "enterprise", label: "Enterprise" },
+                ]}
+              />
               <NumberInput
                 label="Marketplace Fee (bps)"
                 name="marketplaceFeePercentageBps"
@@ -87,20 +84,16 @@ export function ScheduleListPage({
                 defaultValue="0.30"
                 required
               />
-              <label>
-                <Stack gap={1}>
-                  <Text weight="semibold">Status</Text>
-                  <select
-                    name="status"
-                    required
-                    defaultValue="active"
-                    className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </Stack>
-              </label>
+              <NativeSelect
+                label="Status"
+                name="status"
+                required
+                defaultValue="active"
+                items={[
+                  { value: "active", label: "Active" },
+                  { value: "inactive", label: "Inactive" },
+                ]}
+              />
               <TextInput
                 label="Effective From"
                 name="effectiveFrom"

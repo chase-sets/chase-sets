@@ -28,6 +28,7 @@ export interface DataTableProps<T>
   onSelectionChange?: (keys: Set<string>) => void;
   loading?: boolean;
   loadingRows?: number;
+  density?: "comfortable" | "compact";
 }
 
 const skeletonWidths = ["w-3/4", "w-1/2", "w-2/3", "w-5/6", "w-2/5"] as const;
@@ -46,9 +47,10 @@ export function DataTable<T>({
   onSelectionChange,
   loading = false,
   loadingRows = 5,
+  density: densityProp,
   ...rest
 }: DataTableProps<T>) {
-  const density = useDensity();
+  const density = densityProp ?? useDensity();
   const cellPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
   const headPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
   if (!loading && rows.length === 0) {
@@ -108,10 +110,10 @@ export function DataTable<T>({
   }
 
   const table = (
-    <div className="modern-surface overflow-x-auto rounded-tokenLg border border-muted shadow-tokenSm">
+    <div className="glass-surface overflow-x-auto rounded-tokenLg border border-muted shadow-tokenSm">
       <table className="min-w-full border-collapse text-left text-sm">
         <thead>
-          <tr className="border-b border-muted bg-background">
+          <tr className="border-b border-muted bg-surface-2">
             {selectable ? (
               <th className={cx("w-12", headPad)}>
                 <input
@@ -174,7 +176,7 @@ export function DataTable<T>({
                     key={rowId}
                     className={cx(
                       "border-b border-muted transition-colors last:border-b-0",
-                      isSelected ? "bg-background" : "hover:bg-background/60"
+                      isSelected ? "bg-surface-2" : "hover:bg-surface-2/70"
                     )}
                   >
                     {selectable ? (
@@ -211,7 +213,7 @@ export function DataTable<T>({
     <div role="list" className="space-y-3 md:hidden">
       {loading
         ? Array.from({ length: loadingRows }, (_, i) => (
-            <div key={`skeleton-card-${i}`} className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm">
+            <div key={`skeleton-card-${i}`} className="glass-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm">
               <div className="space-y-3">
                 {columns.map((column, colIndex) => (
                   <div key={column.key} className="flex items-start justify-between gap-4">
@@ -232,7 +234,7 @@ export function DataTable<T>({
             <div
               key={getRowId ? getRowId(row, rowIndex) : String(rowIndex)}
               role="listitem"
-              className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
+              className="glass-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
             >
               <div className="space-y-3">
                 {columns.map((column) => (

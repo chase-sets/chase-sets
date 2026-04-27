@@ -11,6 +11,7 @@ import {
   Text,
   TextInput,
   NumberInput,
+  NativeSelect,
 } from "@chase-sets/design-system";
 import type {
   MarketplaceListingInventoryRecordOption,
@@ -113,26 +114,17 @@ export function MarketplaceListingListPage({
         <Card>
           <form method="post">
             <Stack gap={3}>
-              <label>
-                <Stack gap={1}>
-                  <Text weight="semibold">Inventory record</Text>
-                  <select
-                    name="inventoryRecordId"
-                    required
-                    defaultValue={createForm?.inventoryRecordId ?? ""}
-                    className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
-                  >
-                    <option value="" disabled>
-                      Select inventory
-                    </option>
-                    {inventoryRecords.map((record) => (
-                      <option key={record.record_id} value={record.record_id}>
-                        {inventoryLabel(record)}
-                      </option>
-                    ))}
-                  </select>
-                </Stack>
-              </label>
+              <NativeSelect
+                label="Inventory record"
+                name="inventoryRecordId"
+                required
+                defaultValue={createForm?.inventoryRecordId ?? ""}
+                placeholder="Select inventory"
+                items={inventoryRecords.map((record) => ({
+                  value: record.record_id,
+                  label: inventoryLabel(record),
+                }))}
+              />
               <TextInput
                 label="Price"
                 name="priceAmount"

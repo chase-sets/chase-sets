@@ -151,7 +151,9 @@ const justifyClasses: BreakpointClassMap<JustifyValue> = {
   }
 };
 
-const columnsClasses: BreakpointClassMap<1 | 2 | 3 | 4> = {
+export type ColumnCount = 1 | 2 | 3 | 4 | 5;
+
+const columnsClasses: BreakpointClassMap<ColumnCount> = {
   1: {
     base: "grid-cols-1",
     sm: "sm:grid-cols-1",
@@ -183,6 +185,14 @@ const columnsClasses: BreakpointClassMap<1 | 2 | 3 | 4> = {
     lg: "lg:grid-cols-4",
     xl: "xl:grid-cols-4",
     "2xl": "2xl:grid-cols-4"
+  },
+  5: {
+    base: "grid-cols-5",
+    sm: "sm:grid-cols-5",
+    md: "md:grid-cols-5",
+    lg: "lg:grid-cols-5",
+    xl: "xl:grid-cols-5",
+    "2xl": "2xl:grid-cols-5"
   }
 };
 
@@ -245,7 +255,7 @@ export function resolveJustifyClass(
 }
 
 export function resolveColumnsClass(
-  value?: ResponsiveValue<1 | 2 | 3 | 4>
+  value?: ResponsiveValue<ColumnCount>
 ): string {
   return resolveResponsiveClass(value, columnsClasses);
 }

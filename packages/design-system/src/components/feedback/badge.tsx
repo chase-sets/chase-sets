@@ -18,7 +18,7 @@ export function Badge({
     <span
       {...rest}
       className={cx(
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm",
         softToneClasses[tone]
       )}
     >
@@ -47,7 +47,7 @@ export function Tag({
     <span
       {...rest}
       className={cx(
-        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold",
+        "inline-flex items-center gap-2 rounded-tokenMd border px-3 py-1 text-xs font-semibold shadow-tokenSm",
         softToneClasses[tone]
       )}
     >

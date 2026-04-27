@@ -4,9 +4,9 @@ import {
   type ColorMode,
   type ReducedMotionSetting,
   Page,
-  PageHeader,
   Surface,
   Tabs,
+  Text,
   ToastRegion
 } from "@chase-sets/design-system";
 import { ShowcaseThemeControl } from "./showcase-theme-control";
@@ -16,51 +16,56 @@ import { MarketplaceView } from "./views/marketplace-view";
 
 type ShowcaseMode = "marketplace" | "admin" | "components";
 
+function resolveInitialShowcaseMode(): ShowcaseMode {
+  if (typeof window === "undefined") {
+    return "marketplace";
+  }
+
+  const view = new URLSearchParams(window.location.search).get("view");
+  return view === "admin" || view === "components" ? view : "marketplace";
+}
+
 export function App() {
   const [colorMode, setColorMode] = useState<ColorMode>("system");
   const [reducedMotion, setReducedMotion] = useState<ReducedMotionSetting>("user");
-  const [showcaseMode, setShowcaseMode] = useState<ShowcaseMode>("marketplace");
-  const [isDemoToastOpen, setIsDemoToastOpen] = useState(true);
+  const [showcaseMode, setShowcaseMode] = useState<ShowcaseMode>(resolveInitialShowcaseMode);
+  const [isDemoToastOpen, setIsDemoToastOpen] = useState(false);
 
   return (
     <ChaseRoot colorMode={colorMode} reducedMotion={reducedMotion}>
       <Page>
-        <Surface elevated>
-          <PageHeader
-            eyebrow="Design system"
-            title="One package, shared marketplace and admin surfaces"
-            description="The showcase validates theme tokens, layout primitives, and responsive application shells from a single explicit stylesheet contract."
-            actions={
-              <ShowcaseThemeControl
-                colorMode={colorMode}
-                onColorModeChange={setColorMode}
-                reducedMotion={reducedMotion}
-                onReducedMotionChange={setReducedMotion}
-              />
-            }
+        <Surface padding={3}>
+          <Tabs
+            value={showcaseMode}
+            onValueChange={(value) => setShowcaseMode(value as ShowcaseMode)}
+            items={[
+              {
+                value: "marketplace",
+                label: "Marketplace",
+                content: null
+              },
+              {
+                value: "admin",
+                label: "Seller Dashboard",
+                content: null
+              },
+              {
+                value: "components",
+                label: "Design System",
+                content: null
+              }
+            ]}
+          />
+          <Text size="sm" tone="secondary">
+            Showcase controls
+          </Text>
+          <ShowcaseThemeControl
+            colorMode={colorMode}
+            onColorModeChange={setColorMode}
+            reducedMotion={reducedMotion}
+            onReducedMotionChange={setReducedMotion}
           />
         </Surface>
-        <Tabs
-          value={showcaseMode}
-          onValueChange={(value) => setShowcaseMode(value as ShowcaseMode)}
-          items={[
-            {
-              value: "marketplace",
-              label: "Marketplace",
-              content: null
-            },
-            {
-              value: "admin",
-              label: "Admin",
-              content: null
-            },
-            {
-              value: "components",
-              label: "Components",
-              content: null
-            }
-          ]}
-        />
       </Page>
       {showcaseMode === "marketplace" ? (
         <MarketplaceView />

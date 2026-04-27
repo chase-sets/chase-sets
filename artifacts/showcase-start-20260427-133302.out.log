@@ -1,0 +1,11 @@
+
+> @chase-sets/app-design-system-showcase@0.1.0 start
+> react-router-serve ./build/server/index.js
+
+[react-router-serve] http://localhost:6171 (http://192.168.86.40:6171)
+GET /components 200 - - 81.262 ms
+GET /components 200 - - 25.959 ms
+GET /components 200 - - 31.476 ms
+GET /favicon.ico 404 - - 34.074 ms
+GET /components 200 - - 19.222 ms
+GET /__manifest?paths=%2Fadmin&version=f6d590c4 200 - - 3.695 ms

@@ -8,12 +8,16 @@ export interface CardProps
   children?: ReactNode;
   media?: ReactNode;
   interactive?: boolean;
+  variant?: "default" | "product" | "feature" | "stat";
+  glow?: boolean;
 }
 
 export function Card({
   children,
   media,
   interactive = false,
+  variant = "default",
+  glow = false,
   ...rest
 }: CardProps) {
   const motionSettings = useChaseMotion();
@@ -32,8 +36,12 @@ export function Card({
       {...nativeProps}
       {...interactiveMotion}
       className={cx(
-        "modern-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm",
+        "glass-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm",
+        variant === "product" && "bg-surface",
+        variant === "feature" && "bg-surface-2",
+        variant === "stat" && "bg-surface-2",
         interactive && "cursor-pointer transition hover:border-accent hover:shadow-tokenMd",
+        glow && "glow-accent",
         !media && "p-4"
       )}
     >

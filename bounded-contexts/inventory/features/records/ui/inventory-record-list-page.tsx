@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Button,
   Card,
   DataTable,
   LinkButton,
@@ -10,6 +11,7 @@ import {
   Text,
   TextInput,
   NumberInput,
+  NativeSelect,
 } from "@chase-sets/design-system";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import {
@@ -191,33 +193,27 @@ export function InventoryRecordListPage({
                         }
 
                         return (
-                          <label key={dimension.dimensionId}>
-                            <Stack gap={1}>
-                              <Text weight="semibold">{dimension.dimensionName}</Text>
-                              <select
-                                name={`selectedOptions:${dimension.dimensionId}`}
-                                className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
-                                value={selectedOptionss[dimension.dimensionId] ?? ""}
-                                onChange={(event) =>
-                                  setVersionSelections((current) =>
-                                    normalizeSelectedOptionssForSchema(
-                                      catalogItem.product_schema!,
-                                      {
-                                        ...current,
-                                        [dimension.dimensionId]: event.target.value,
-                                      },
-                                    ),
-                                  )
-                                }
-                              >
-                                {dimension.allowedOptions.map((option) => (
-                                  <option key={option.optionId} value={option.optionId}>
-                                    {getOptionLabel(option)}
-                                  </option>
-                                ))}
-                              </select>
-                            </Stack>
-                          </label>
+                          <NativeSelect
+                            key={dimension.dimensionId}
+                            label={dimension.dimensionName}
+                            name={`selectedOptions:${dimension.dimensionId}`}
+                            value={selectedOptionss[dimension.dimensionId] ?? ""}
+                            onChange={(event) =>
+                              setVersionSelections((current) =>
+                                normalizeSelectedOptionssForSchema(
+                                  catalogItem.product_schema!,
+                                  {
+                                    ...current,
+                                    [dimension.dimensionId]: event.target.value,
+                                  },
+                                ),
+                              )
+                            }
+                            items={dimension.allowedOptions.map((option) => ({
+                              value: option.optionId,
+                              label: getOptionLabel(option),
+                            }))}
+                          />
                         );
                       })
                     ) : (
@@ -233,29 +229,17 @@ export function InventoryRecordListPage({
                   {catalogLookupError}
                 </Text>
               ) : null}
-              <label>
-                <Stack gap={1}>
-                  <Text weight="semibold">Storage location</Text>
-                  <select
-                    name="storageLocationId"
-                    required
-                    className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
-                    defaultValue=""
-                  >
-                    <option value="" disabled>
-                      Select a location
-                    </option>
-                    {locations.map((location) => (
-                      <option
-                        key={location.storage_location_id}
-                        value={location.storage_location_id}
-                      >
-                        {location.name} ({location.ship_from_code})
-                      </option>
-                    ))}
-                  </select>
-                </Stack>
-              </label>
+              <NativeSelect
+                label="Storage location"
+                name="storageLocationId"
+                required
+                defaultValue=""
+                placeholder="Select a location"
+                items={locations.map((location) => ({
+                  value: location.storage_location_id,
+                  label: `${location.name} (${location.ship_from_code})`,
+                }))}
+              />
               <NumberInput label="Total quantity" name="totalQuantity" required min="1" />
               <TextInput
                 label="Acquisition cost"
@@ -263,9 +247,7 @@ export function InventoryRecordListPage({
                 placeholder="4.25"
                 inputMode="decimal"
               />
-              <button type="submit" className="sr-only">
-                Create record
-              </button>
+              <Button type="submit">Create record</Button>
               <LinkButton href="/account/inventory/locations" tone="ghost">
                 Need a location first?
               </LinkButton>

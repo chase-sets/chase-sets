@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type SelectHTMLAttributes } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
@@ -10,6 +10,55 @@ export interface SelectItem {
   label: string;
   description?: string;
   disabled?: boolean;
+}
+
+export interface NativeSelectProps
+  extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "className" | "style" | "size">,
+    BaseInputProps {
+  items: SelectItem[];
+  placeholder?: string;
+}
+
+export function NativeSelect({
+  id,
+  label,
+  description,
+  error,
+  required,
+  hideLabel,
+  items,
+  placeholder,
+  ...rest
+}: NativeSelectProps) {
+  const fallbackId = useId();
+  const inputId = id ?? fallbackId;
+
+  return (
+    <FieldChrome
+      label={label}
+      description={description}
+      error={error}
+      required={required}
+      hideLabel={hideLabel}
+      htmlFor={inputId}
+    >
+      <select
+        {...rest}
+        id={inputId}
+        required={required}
+        aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+        aria-invalid={!!error || undefined}
+        className={cx(controlClass, !!error && controlErrorClass)}
+      >
+        {placeholder ? <option value="">{placeholder}</option> : null}
+        {items.map((item) => (
+          <option key={item.value} value={item.value} disabled={item.disabled}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+    </FieldChrome>
+  );
 }
 
 export interface SelectProps extends BaseInputProps {

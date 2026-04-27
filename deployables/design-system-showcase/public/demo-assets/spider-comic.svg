@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 430">
+  <rect width="320" height="430" rx="24" fill="#111827"/>
+  <rect x="22" y="22" width="276" height="386" rx="16" fill="#0f172a" stroke="#ef4444" stroke-width="8"/>
+  <text x="44" y="74" fill="#f8fafc" font-family="Arial" font-size="30" font-weight="900">AMAZING</text>
+  <text x="44" y="112" fill="#ef4444" font-family="Arial" font-size="42" font-weight="900">SPIDER</text>
+  <circle cx="164" cy="230" r="92" fill="#f8fafc"/>
+  <path d="M92 224c42-68 100-68 144 0M92 250c42 48 100 48 144 0" stroke="#111827" stroke-width="10" fill="none"/>
+  <circle cx="138" cy="222" r="24" fill="#ef4444"/>
+  <circle cx="190" cy="222" r="24" fill="#ef4444"/>
+</svg>

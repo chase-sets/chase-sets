@@ -78,12 +78,12 @@ export interface HeadingProps extends FrameProps {
 }
 
 const headingClasses: Record<NonNullable<HeadingProps["level"]>, string> = {
-  1: "font-display text-4xl font-semibold leading-tight tracking-tight md:text-5xl md:leading-[1.15]",
-  2: "font-heading text-3xl font-semibold leading-tight tracking-tight md:text-4xl md:leading-tight",
-  3: "font-heading text-2xl font-semibold leading-snug tracking-tight md:text-3xl md:leading-tight",
-  4: "font-heading text-xl font-semibold leading-snug tracking-tight md:text-2xl md:leading-snug",
-  5: "font-heading text-lg font-semibold leading-snug tracking-tight",
-  6: "font-heading text-base font-semibold leading-snug tracking-tight"
+  1: "font-display text-4xl font-semibold leading-tight md:text-5xl md:leading-[1.15]",
+  2: "font-heading text-3xl font-semibold leading-tight md:text-4xl md:leading-tight",
+  3: "font-heading text-2xl font-semibold leading-snug md:text-3xl md:leading-tight",
+  4: "font-heading text-xl font-semibold leading-snug md:text-2xl md:leading-snug",
+  5: "font-heading text-lg font-semibold leading-snug",
+  6: "font-heading text-base font-semibold leading-snug"
 };
 
 export function Heading({

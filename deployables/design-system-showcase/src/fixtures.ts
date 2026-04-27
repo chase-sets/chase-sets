@@ -10,15 +10,21 @@ export interface InventoryRow {
 
 export const marketplaceNav = [
   { key: "browse", label: "Browse", icon: "search" },
-  { key: "sets", label: "Sets", icon: "spark" },
+  { key: "categories", label: "Categories", icon: "grid" },
+  { key: "how", label: "How it Works", icon: "help" },
+  { key: "sell", label: "Sell", icon: "tag" },
   { key: "cart", label: "Cart", icon: "cart", badge: "3" },
   { key: "account", label: "Account", icon: "user" }
 ] satisfies NavigationItem[];
 
 export const adminNav = [
-  { key: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { key: "inventory", label: "Inventory", icon: "package" },
-  { key: "pricing", label: "Pricing", icon: "spark" },
+  { key: "overview", label: "Overview", icon: "home" },
+  { key: "listings", label: "Listings", icon: "package" },
+  { key: "orders", label: "Orders", icon: "bag" },
+  { key: "analytics", label: "Analytics", icon: "chart" },
+  { key: "payouts", label: "Payouts", icon: "wallet" },
+  { key: "messages", label: "Messages", icon: "message", badge: "2" },
+  { key: "reviews", label: "Reviews", icon: "star" },
   { key: "settings", label: "Settings", icon: "settings" }
 ] satisfies NavigationItem[];
 
@@ -80,5 +86,68 @@ export const showcaseIconNames = [
   "truck",
   "clock",
   "eye",
-  "eyeOff"
+  "eyeOff",
+  "home",
+  "bell",
+  "message",
+  "help",
+  "calendar",
+  "tag",
+  "shield",
+  "cards",
+  "book",
+  "figure",
+  "sneaker",
+  "shirt",
+  "grid",
+  "lock",
+  "creditCard",
+  "chart",
+  "users",
+  "rocket",
+  "externalLink",
+  "moreVertical",
+  "badgeCheck",
+  "flame",
+  "wallet",
+  "bag",
+  "store"
 ] as const satisfies readonly IconName[];
+
+export const demoProducts = [
+  {
+    title: "2020 Pikachu VMAX",
+    subtitle: "PSA 10",
+    price: "$1,250",
+    imageSrc: "/demo-assets/pikachu-card.svg",
+    status: "Verified"
+  },
+  {
+    title: "Amazing Spider-Man #300",
+    subtitle: "CGC 9.6",
+    price: "$1,650",
+    imageSrc: "/demo-assets/spider-comic.svg",
+    status: "Hot"
+  },
+  {
+    title: "Dragon Ball Z Goku",
+    subtitle: "S.H.Figuarts",
+    price: "$275",
+    imageSrc: "/demo-assets/figure.svg",
+    status: "Hot"
+  },
+  {
+    title: "Air Jordan 1 Retro High",
+    subtitle: "Chicago (2015)",
+    price: "$850",
+    imageSrc: "/demo-assets/sneaker.svg",
+    status: "Verified"
+  },
+  {
+    title: "Michael Jordan Jersey",
+    subtitle: "Autographed",
+    price: "$2,450",
+    imageSrc: "/demo-assets/jersey.svg",
+    status: "Verified"
+  }
+];

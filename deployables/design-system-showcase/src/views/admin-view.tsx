@@ -1,371 +1,172 @@
-import { useState } from "react";
 import {
   ActivityList,
   AdminShell,
-  AlertDialog,
-  Banner,
-  BulkActionBar,
+  Avatar,
+  Badge,
   Button,
-  Caption,
-  Card,
-  Checkbox,
-  CheckboxGroup,
-  CodeText,
-  ConditionBadge,
-  CurrencyInput,
   DataTable,
-  DetailPanel,
-  EmptyState,
-  Fieldset,
-  FileDropzone,
-  FormSection,
+  FeatureCard,
   Grid,
+  Icon,
+  IconButton,
   Inline,
-  InlineMessage,
-  InspectorLayout,
-  KeyValueList,
-  LoadingSpinner,
-  Menu,
+  LinkText,
   MetricStrip,
-  NumberInput,
   Page,
   PageHeader,
   PageSection,
   PriceDisplay,
-  ProgressBar,
-  SelectionToolbar,
+  ProductCard,
+  PromoStrip,
   SellerBadge,
-  Skeleton,
-  Slider,
   Stack,
   Stat,
-  StatGrid,
   Surface,
-  Switch,
-  Text,
-  TextInput,
-  Textarea,
-  Timeline
+  Text
 } from "@chase-sets/design-system";
-import { adminNav, inventoryRows } from "../fixtures";
+import { adminNav, demoProducts } from "../fixtures";
+
+const rows = demoProducts.map((product, index) => ({
+  item: product.title,
+  condition: index === 1 ? "CGC 9.6" : index === 3 ? "Excellent" : "Mint",
+  price: [1250, 1650, 275, 850, 2450][index],
+  watchers: [42, 28, 33, 15, 57][index],
+  stock: [1, 1, 3, 2, 1][index],
+  status: "Active"
+}));
 
 export function AdminView() {
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [sliderValue, setSliderValue] = useState(75);
-  const [selectedItems, setSelectedItems] = useState(2);
-
   return (
     <AdminShell
-      brand={<SellerBadge name="Chase Sets Ops" verified />}
+      brand={<SellerBadge name="Chase Picks" verified />}
       navItems={adminNav}
-      activeKey="inventory"
+      activeKey="overview"
       actions={
-        <Inline gap={2}>
-          <Menu
-            trigger={<Button tone="secondary" leadingIcon="menu">Actions</Button>}
-            items={[
-              {
-                key: "export",
-                label: "Export inventory",
-                description: "Download as CSV"
-              },
-              {
-                key: "import",
-                label: "Bulk import",
-                description: "Upload listing spreadsheet"
-              },
-              {
-                key: "archive",
-                label: "Archive sold",
-                description: "Move zero-stock to archive",
-                destructive: true
-              }
-            ]}
-          />
-          <Button>New listing</Button>
+        <Inline gap={3}>
+          <IconButton label="Notifications" icon="bell" />
+          <IconButton label="Messages" icon="message" />
+          <Inline gap={2}>
+            <Avatar name="Alex R." src="/demo-assets/avatar-alex.svg" />
+            <Text size="sm" weight="semibold">Alex R.</Text>
+          </Inline>
         </Inline>
       }
     >
       <Page>
         <PageHeader
-          eyebrow="Admin"
-          title="Inventory, pricing, and fulfillment in one responsive surface"
-          description="The same library covers dashboard stats, dense data tables, and form-heavy listing editors."
-        />
-
-        <Banner
-          tone="info"
-          title="Platform maintenance scheduled"
-          description="Marketplace indexing will be paused Sunday 2am-4am CST. Listings remain live."
-          actions={
-            <Button tone="secondary" size="sm">
-              View details
-            </Button>
-          }
+          title="Seller Dashboard"
+          description="Manage listings, track performance, and grow your collectibles business."
+          actions={<Button leadingIcon="calendar" tone="secondary">May 12 - Jun 11</Button>}
         />
 
         <MetricStrip
           items={[
-            { label: "Live listings", value: "8,420", trend: "+6.1% week over week" },
-            { label: "Pending orders", value: "126", trend: "12 need same-day shipment" },
-            { label: "Margin lift", value: "4.8%", trend: "vs competitor benchmark" },
-            { label: "Low stock SKUs", value: "19", trend: "Restock recommended" }
+            { label: "Total Sales", value: "$12,846.75", trend: "+18.7% vs prior period" },
+            { label: "Active Listings", value: "128", trend: "+6.2% vs prior period" },
+            { label: "Orders This Month", value: "42", trend: "+24.1% vs prior period" },
+            { label: "Conversion Rate", value: "4.36%", trend: "+0.8pp vs prior period" }
           ]}
         />
 
-        <PageSection title="Fulfillment Progress">
-          <Grid columns={{ base: 1, md: 2 }} gap={4}>
-            <Card>
+        <Grid columns={{ base: 1, lg: 2 }} gap={4}>
+          <Surface elevated>
+            <Stack gap={4}>
+              <Inline gap={3}>
+                <Icon name="chart" tone="accent" />
+                <Text weight="semibold">Sales Performance</Text>
+              </Inline>
+              <Stat label="Revenue" value="$12,846.75" trend="+18.7%" />
+              <Grid columns={{ base: 4 }} gap={2}>
+                <Surface tone="accent" padding={3} />
+                <Surface tone="accent" padding={4} />
+                <Surface tone="accent" padding={5} />
+                <Surface tone="accent" padding={6} />
+              </Grid>
+            </Stack>
+          </Surface>
+          <Surface elevated>
+            <Stack gap={4}>
+              <Inline gap={3}>
+                <Icon name="cards" tone="accent" />
+                <Text weight="semibold">Category Performance</Text>
+              </Inline>
+              <FeatureCard icon="cards" title="Trading Cards" description="$5,426.20 in sales" />
+              <FeatureCard icon="book" title="Comics" description="$2,341.75 in sales" />
+              <FeatureCard icon="sneaker" title="Sneakers" description="$1,987.40 in sales" />
+              <LinkText href="#" trailingIcon="chevronRight">View full analytics</LinkText>
+            </Stack>
+          </Surface>
+        </Grid>
+
+        <Grid columns={{ base: 1, xl: 2 }} gap={4}>
+          <PageSection title="Recent Orders">
+            <DataTable
+              density="compact"
+              rows={rows}
+              columns={[
+                { key: "item", header: "Item", cell: (row) => row.item },
+                { key: "status", header: "Status", cell: (row) => <Badge tone="info">{row.status}</Badge> },
+                { key: "price", header: "Amount", align: "right", cell: (row) => <PriceDisplay amount={row.price} /> }
+              ]}
+            />
+          </PageSection>
+          <Stack gap={4}>
+            <Surface elevated>
               <Stack gap={3}>
-                <Text weight="semibold">Daily shipment quota</Text>
-                <ProgressBar value={sliderValue} tone="accent" />
-                <Caption>{sliderValue} of 100 orders shipped today</Caption>
+                <Text weight="semibold">Payouts</Text>
+                <PriceDisplay amount={2340.5} emphasis />
+                <Text size="sm" tone="secondary">Next payout Jun 14, 2024 through PayPal.</Text>
+                <Button block>Transfer Now</Button>
               </Stack>
-            </Card>
-            <Card>
+            </Surface>
+            <Surface elevated>
               <Stack gap={3}>
-                <Text weight="semibold">Processing pipeline</Text>
-                <Inline gap={2}>
-                  <LoadingSpinner size="sm" label="Syncing" />
-                  <Caption>14 orders syncing with carrier API</Caption>
+                <Inline gap={3}>
+                  <Text weight="semibold">Seller Reputation</Text>
+                  <Badge tone="info">Verified Seller</Badge>
                 </Inline>
-                <Skeleton height="sm" />
-                <Skeleton height="md" />
+                <Inline gap={3}>
+                  <Text size="lg" weight="bold">4.9</Text>
+                  <Badge tone="warning">5 stars</Badge>
+                </Inline>
+                <Text size="sm" tone="secondary">Based on 248 reviews with excellent response and shipping speed.</Text>
               </Stack>
-            </Card>
+            </Surface>
+          </Stack>
+        </Grid>
+
+        <PageSection title="Active Listings">
+          <Grid columns={{ base: 1, md: 3 }} gap={3}>
+            {demoProducts.slice(0, 3).map((product) => (
+              <ProductCard
+                key={product.title}
+                title={product.title}
+                subtitle={product.subtitle}
+                price={product.price}
+                imageSrc={product.imageSrc}
+                imageAlt={product.title}
+                status={<Badge tone="success">Active</Badge>}
+                actions={<IconButton label="Listing actions" icon="moreVertical" size="sm" />}
+              />
+            ))}
           </Grid>
         </PageSection>
 
-        <PageSection title="Inventory Table">
-          <DataTable
-            rows={inventoryRows}
-            columns={[
-              {
-                key: "sku",
-                header: "SKU",
-                cell: (row) => <CodeText>{row.sku}</CodeText>
-              },
-              {
-                key: "card",
-                header: "Card",
-                mobileLabel: "Listing",
-                cell: (row) => row.card
-              },
-              {
-                key: "condition",
-                header: "Condition",
-                cell: (row) => <ConditionBadge condition={row.condition} />
-              },
-              {
-                key: "price",
-                header: "Price",
-                align: "right",
-                cell: (row) => <PriceDisplay amount={row.price} />
-              },
-              {
-                key: "stock",
-                header: "Stock",
-                align: "right",
-                cell: (row) => row.stock
-              }
+        <Grid columns={{ base: 1, lg: 2 }} gap={4}>
+          <ActivityList
+            items={[
+              { title: "New order received", description: "2020 Pikachu VMAX PSA 10", timestamp: "2m ago" },
+              { title: "Item shipped", description: "Air Jordan 1 Retro High Chicago", timestamp: "18m ago" },
+              { title: "New review", description: "Fast shipping and item as described.", timestamp: "45m ago" }
             ]}
           />
-          {selectedItems > 0 ? (
-            <BulkActionBar
-              count={selectedItems}
-              actions={
-                <>
-                  <Button
-                    tone="secondary"
-                    size="sm"
-                    onClick={() => setSelectedItems(0)}
-                  >
-                    Deselect
-                  </Button>
-                  <Button
-                    tone="danger"
-                    size="sm"
-                    onClick={() => setShowDeleteDialog(true)}
-                  >
-                    Remove listings
-                  </Button>
-                </>
-              }
-            />
-          ) : null}
-          <SelectionToolbar
-            count={3}
-            actions={
-              <>
-                <Button tone="secondary" size="sm">
-                  Reprice
-                </Button>
-                <Button tone="secondary" size="sm">
-                  Export
-                </Button>
-              </>
-            }
+          <PromoStrip
+            icon="tag"
+            title="List more. Sell more."
+            description="Listings with high-quality photos sell up to 2.5x faster."
+            action={<Button>Create New Listing</Button>}
           />
-        </PageSection>
-
-        <InspectorLayout
-          main={
-            <FormSection
-              title="Listing Editor"
-              description="The listing editor composes entirely from form primitives and layout surfaces."
-            >
-              <Fieldset
-                legend="Core listing data"
-                description="Market-ready metadata with no custom CSS."
-              >
-                <TextInput
-                  label="Listing title"
-                  defaultValue="Charizard ex - 199/165"
-                />
-                <CurrencyInput label="Unit price" defaultValue="29.95" />
-                <NumberInput label="Quantity" defaultValue="14" />
-                <Textarea
-                  label="Seller notes"
-                  placeholder="Condition details, special offers..."
-                  rows={3}
-                />
-              </Fieldset>
-              <Fieldset
-                legend="Categorization"
-                description="Help buyers find this listing."
-              >
-                <CheckboxGroup
-                  label="Listing tags"
-                  items={[
-                    {
-                      value: "chase",
-                      label: "Chase card",
-                      description: "High-demand pull"
-                    },
-                    { value: "alt-art", label: "Alternate art" },
-                    { value: "promo", label: "Promo / event exclusive" }
-                  ]}
-                  values={["chase"]}
-                />
-              </Fieldset>
-              <Fieldset
-                legend="Operational settings"
-                description="Bulk-safe admin controls."
-              >
-                <Checkbox
-                  label="Eligible for rapid ship"
-                  description="Prioritize this listing in same-day fulfillment queues."
-                  defaultChecked
-                />
-                <Switch
-                  label="Auto repricing"
-                  description="Keep this listing aligned to the target spread."
-                  defaultChecked
-                />
-                <Slider
-                  label="Target margin"
-                  value={sliderValue}
-                  onValueChange={setSliderValue}
-                  min={0}
-                  max={100}
-                />
-                <FileDropzone
-                  label="Product assets"
-                  description="Optional scans or listing collateral."
-                />
-                <InlineMessage tone="success" icon="check">
-                  All required fields are complete. This listing is ready to
-                  publish.
-                </InlineMessage>
-              </Fieldset>
-            </FormSection>
-          }
-          inspector={
-            <DetailPanel title="Listing Preview">
-              <KeyValueList
-                items={[
-                  { key: "SKU", value: "CS-001" },
-                  { key: "Condition", value: "Near Mint" },
-                  { key: "Set", value: "Surging Sparks" },
-                  { key: "Listed", value: "Mar 1, 2026" }
-                ]}
-              />
-              <StatGrid>
-                <Stat
-                  label="Expected margin"
-                  value="28%"
-                  trend="Healthy after shipping rebate"
-                />
-                <Stat label="Velocity" value="2.1/day" trend="Trending up" />
-              </StatGrid>
-              <PageSection title="Publish Health">
-                <EmptyState
-                  title="No blocking issues"
-                  description="Required metadata is present and pricing rules are valid."
-                  icon="check"
-                />
-              </PageSection>
-            </DetailPanel>
-          }
-        />
-
-        <PageSection title="Order Activity">
-          <Grid columns={{ base: 1, lg: 2 }} gap={4}>
-            <Surface>
-              <Timeline
-                items={[
-                  {
-                    title: "Order #1042 shipped",
-                    description: "Charizard ex sent via USPS Priority",
-                    timestamp: "2 hours ago"
-                  },
-                  {
-                    title: "Pricing rule triggered",
-                    description: "Iono adjusted from $13.50 to $12.50",
-                    timestamp: "4 hours ago"
-                  },
-                  {
-                    title: "New listing published",
-                    description: "Mewtwo VSTAR added to inventory",
-                    timestamp: "Yesterday"
-                  }
-                ]}
-              />
-            </Surface>
-            <Surface>
-              <ActivityList
-                items={[
-                  {
-                    title: "Bulk import completed",
-                    description: "42 listings added",
-                    actor: "System",
-                    timestamp: "1h ago"
-                  },
-                  {
-                    title: "Price override",
-                    description: "Manual price set on CS-014",
-                    actor: "Todd S.",
-                    timestamp: "3h ago"
-                  }
-                ]}
-              />
-            </Surface>
-          </Grid>
-        </PageSection>
-
-        <AlertDialog
-          open={showDeleteDialog}
-          onOpenChange={setShowDeleteDialog}
-          title="Remove selected listings?"
-          description="This will delist the selected items from the marketplace. Inventory records are preserved."
-          confirmLabel="Remove"
-          cancelLabel="Keep listings"
-          tone="danger"
-          onConfirm={() => {
-            setSelectedItems(0);
-            setShowDeleteDialog(false);
-          }}
-        />
+        </Grid>
       </Page>
     </AdminShell>
   );

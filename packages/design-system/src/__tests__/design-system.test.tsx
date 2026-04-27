@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { BottomNav, Button, CopyButton, Tabs, TopNav } from "../components/actions";
 import { Card, DataTable, DetailPanel, ImageGallery, StatGrid } from "../components/data-display";
 import { Accordion, Dialog, Rating, ToastRegion } from "../components/feedback";
-import { PasswordInput, TagInput } from "../components/forms";
+import { NativeSelect, PasswordInput, TagInput } from "../components/forms";
 import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
 import {
   AdminShell,
@@ -13,11 +13,12 @@ import {
   MetricStrip,
   OrderSummary,
   Page,
+  ProductCard,
   SearchResultsLayout,
   SplitPane,
   Wizard
 } from "../patterns/app-shells";
-import { Container, SkipLink } from "../primitives/layout";
+import { Container, Grid, SkipLink } from "../primitives/layout";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
 import { resolveResponsiveClass } from "../utils/system";
@@ -664,6 +665,50 @@ describe("design system", () => {
 
     expect(markup).toContain("Clickable card");
     expect(markup).toContain("cursor-pointer");
+  });
+
+  it("renders Grid alignment variants", () => {
+    const markup = renderToString(
+      <Grid columns={{ base: 1, md: 4 }} align="start" justify="center">
+        <div>Aligned child</div>
+      </Grid>
+    );
+
+    expect(markup).toContain("md:grid-cols-4");
+    expect(markup).toContain("items-start");
+    expect(markup).toContain("justify-center");
+  });
+
+  it("renders ProductCard with contained image fit", () => {
+    const markup = renderToString(
+      <ProductCard
+        title="2020 Pikachu VMAX"
+        subtitle="PSA 10"
+        price="$1,250"
+        imageSrc="/demo-assets/pikachu-card.svg"
+        imageAlt="Pikachu card"
+        imageFit="contain"
+      />
+    );
+
+    expect(markup).toContain("2020 Pikachu VMAX");
+    expect(markup).toContain('alt="Pikachu card"');
+    expect(markup).toContain("object-contain");
+  });
+
+  it("renders NativeSelect with accessible label and placeholder", () => {
+    render(
+      <ChaseRoot>
+        <NativeSelect
+          label="Condition"
+          placeholder="Choose condition"
+          items={[{ value: "nm", label: "Near Mint" }]}
+        />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByLabelText("Condition")).toBeTruthy();
+    expect(screen.getByText("Choose condition")).toBeTruthy();
   });
 
   it("renders DataTable with sortable column headers", () => {

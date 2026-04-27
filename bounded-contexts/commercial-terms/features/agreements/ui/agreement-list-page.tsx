@@ -11,6 +11,7 @@ import {
   Text,
   TextInput,
   NumberInput,
+  NativeSelect,
 } from "@chase-sets/design-system";
 import type { CommercialAgreementViewModel } from "./contracts";
 
@@ -73,20 +74,16 @@ export function AgreementListPage({
                 defaultValue="0.25"
                 required
               />
-              <label>
-                <Stack gap={1}>
-                  <Text weight="semibold">Status</Text>
-                  <select
-                    name="status"
-                    required
-                    defaultValue="active"
-                    className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </Stack>
-              </label>
+              <NativeSelect
+                label="Status"
+                name="status"
+                required
+                defaultValue="active"
+                items={[
+                  { value: "active", label: "Active" },
+                  { value: "inactive", label: "Inactive" },
+                ]}
+              />
               <TextInput
                 label="Effective From"
                 name="effectiveFrom"

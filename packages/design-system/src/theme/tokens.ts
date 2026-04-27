@@ -20,19 +20,30 @@ export interface ThemeTokens {
   colors: {
     background: string;
     surface: string;
+    surface2: string;
+    surface3: string;
     elevatedSurface: string;
     border: string;
     mutedBorder: string;
     textPrimary: string;
     textSecondary: string;
+    textTertiary: string;
+    textDisabled: string;
     textInverse: string;
+    brandPrimary: string;
+    brandSecondary: string;
+    cyan: string;
+    indigo: string;
     accent: string;
+    accent2: string;
     accentContrast: string;
     success: string;
     warning: string;
     danger: string;
     info: string;
     focusRing: string;
+    glowAccent: string;
+    glowBlue: string;
   };
   typography: {
     display: string;
@@ -80,39 +91,50 @@ export interface ThemeOverrides {
 
 export const chaseTheme: ThemeTokens = {
   colors: {
-    background: "#f5f7fb",
+    background: "#f6f8ff",
     surface: "#ffffff",
-    elevatedSurface: "#fcfdff",
-    border: "#d7e0ea",
-    mutedBorder: "#e7edf5",
-    textPrimary: "#0f172a",
-    textSecondary: "#475569",
-    textInverse: "#f8fafc",
-    accent: "#0f766e",
-    accentContrast: "#f0fdfa",
-    success: "#15803d",
-    warning: "#b45309",
-    danger: "#be123c",
-    info: "#1d4ed8",
-    focusRing: "#14b8a6"
+    surface2: "#edf3ff",
+    surface3: "#e4ecfb",
+    elevatedSurface: "#f9fbff",
+    border: "#c7d3ea",
+    mutedBorder: "#dce5f5",
+    textPrimary: "#07111f",
+    textSecondary: "#46546b",
+    textTertiary: "#65738a",
+    textDisabled: "#9aa7b8",
+    textInverse: "#f8fbff",
+    brandPrimary: "#3882f6",
+    brandSecondary: "#8b5cf6",
+    cyan: "#06b6d4",
+    indigo: "#6366f1",
+    accent: "#3882f6",
+    accent2: "#8b5cf6",
+    accentContrast: "#ffffff",
+    success: "#16a34a",
+    warning: "#d97706",
+    danger: "#dc2626",
+    info: "#2563eb",
+    focusRing: "#38bdf8",
+    glowAccent: "rgba(56, 130, 246, 0.34)",
+    glowBlue: "rgba(139, 92, 246, 0.26)"
   },
   typography: {
-    display: "Fraunces",
-    heading: "Fraunces",
-    body: "Plus Jakarta Sans",
+    display: "Space Grotesk",
+    heading: "Space Grotesk",
+    body: "Space Grotesk",
     mono: "IBM Plex Mono"
   },
   radius: {
-    sm: "0.5rem",
-    md: "0.875rem",
-    lg: "1.25rem",
-    xl: "1.75rem"
+    sm: "0.375rem",
+    md: "0.75rem",
+    lg: "1rem",
+    xl: "1.5rem"
   },
   shadows: {
-    sm: "0 10px 30px -18px rgba(15, 23, 42, 0.14)",
-    md: "0 20px 40px -22px rgba(15, 23, 42, 0.18)",
-    lg: "0 28px 60px -24px rgba(15, 23, 42, 0.22)",
-    overlay: "0 36px 90px -28px rgba(15, 23, 42, 0.32)"
+    sm: "0 10px 28px -18px rgba(15, 23, 42, 0.22)",
+    md: "0 18px 46px -24px rgba(30, 64, 175, 0.28)",
+    lg: "0 26px 70px -30px rgba(37, 99, 235, 0.36)",
+    overlay: "0 36px 100px -30px rgba(30, 64, 175, 0.42)"
   },
   zIndex: {
     sticky: "20",
@@ -140,29 +162,40 @@ export const chaseTheme: ThemeTokens = {
 
 export const chaseDarkTheme: ThemeTokens = {
   colors: {
-    background: "#08111f",
-    surface: "#0f1b2d",
-    elevatedSurface: "#13233a",
-    border: "#20324d",
-    mutedBorder: "#2b415f",
-    textPrimary: "#e5eef8",
-    textSecondary: "#94a3b8",
-    textInverse: "#08111f",
-    accent: "#2dd4bf",
-    accentContrast: "#042f2e",
-    success: "#4ade80",
+    background: "#05070c",
+    surface: "#080f18",
+    surface2: "#0b1524",
+    surface3: "#121826",
+    elevatedSurface: "#101b2d",
+    border: "#232b3a",
+    mutedBorder: "#171c2b",
+    textPrimary: "#f5f7fa",
+    textSecondary: "#a1a7b3",
+    textTertiary: "#667280",
+    textDisabled: "#3b4152",
+    textInverse: "#05070c",
+    brandPrimary: "#3882f6",
+    brandSecondary: "#8b5cf6",
+    cyan: "#06b6d4",
+    indigo: "#6366f1",
+    accent: "#3882f6",
+    accent2: "#8b5cf6",
+    accentContrast: "#ffffff",
+    success: "#22c55e",
     warning: "#f59e0b",
-    danger: "#fb7185",
-    info: "#60a5fa",
-    focusRing: "#5eead4"
+    danger: "#ef4444",
+    info: "#38bdf8",
+    focusRing: "#38bdf8",
+    glowAccent: "rgba(59, 130, 246, 0.56)",
+    glowBlue: "rgba(139, 92, 246, 0.4)"
   },
   typography: chaseTheme.typography,
   radius: chaseTheme.radius,
   shadows: {
-    sm: "0 14px 32px -22px rgba(2, 6, 23, 0.6)",
-    md: "0 24px 50px -24px rgba(2, 6, 23, 0.68)",
-    lg: "0 32px 70px -26px rgba(2, 6, 23, 0.72)",
-    overlay: "0 42px 110px -24px rgba(2, 6, 23, 0.82)"
+    sm: "0 8px 28px -18px rgba(0, 0, 0, 0.88)",
+    md: "0 16px 52px -26px rgba(0, 0, 0, 0.9)",
+    lg: "0 28px 90px -34px rgba(56, 130, 246, 0.42)",
+    overlay: "0 42px 120px -28px rgba(0, 0, 0, 0.94)"
   },
   zIndex: chaseTheme.zIndex,
   motion: chaseTheme.motion,
@@ -209,19 +242,30 @@ export function resolveTheme(
 const tokenMap: [string, (theme: ThemeTokens | ThemeOverrides) => string | undefined][] = [
   ["--color-background", (t) => t.colors?.background],
   ["--color-surface", (t) => t.colors?.surface],
+  ["--color-surface-2", (t) => t.colors?.surface2],
+  ["--color-surface-3", (t) => t.colors?.surface3],
   ["--color-elevated-surface", (t) => t.colors?.elevatedSurface],
   ["--color-border", (t) => t.colors?.border],
   ["--color-muted-border", (t) => t.colors?.mutedBorder],
   ["--color-text-primary", (t) => t.colors?.textPrimary],
   ["--color-text-secondary", (t) => t.colors?.textSecondary],
+  ["--color-text-tertiary", (t) => t.colors?.textTertiary],
+  ["--color-text-disabled", (t) => t.colors?.textDisabled],
   ["--color-text-inverse", (t) => t.colors?.textInverse],
+  ["--color-brand-primary", (t) => t.colors?.brandPrimary],
+  ["--color-brand-secondary", (t) => t.colors?.brandSecondary],
+  ["--color-cyan", (t) => t.colors?.cyan],
+  ["--color-indigo", (t) => t.colors?.indigo],
   ["--color-accent", (t) => t.colors?.accent],
+  ["--color-accent-2", (t) => t.colors?.accent2],
   ["--color-accent-contrast", (t) => t.colors?.accentContrast],
   ["--color-success", (t) => t.colors?.success],
   ["--color-warning", (t) => t.colors?.warning],
   ["--color-danger", (t) => t.colors?.danger],
   ["--color-info", (t) => t.colors?.info],
   ["--color-focus-ring", (t) => t.colors?.focusRing],
+  ["--glow-accent", (t) => t.colors?.glowAccent],
+  ["--glow-blue", (t) => t.colors?.glowBlue],
   ["--font-display", (t) => t.typography?.display],
   ["--font-heading", (t) => t.typography?.heading],
   ["--font-body", (t) => t.typography?.body],

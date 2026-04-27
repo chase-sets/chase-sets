@@ -12,6 +12,8 @@ import {
   Stagger,
   Inline,
   Text,
+  SearchResultsLayout,
+  Grid,
 } from "@chase-sets/design-system";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchResponse } from "../../../support/client-support/contracts";
@@ -73,15 +75,15 @@ export function SearchPage({
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)]">
-      <div className="hidden lg:block">
+    <SearchResultsLayout
+      filters={
         <SearchFilters
           categories={categories}
           selectedCategory={category}
           onCategoryChange={onCategoryChange}
         />
-      </div>
-
+      }
+    >
       <Stack gap={4}>
         <FilterBar>
           <SearchInput
@@ -122,13 +124,13 @@ export function SearchPage({
             />
           ) : data ? (
             <>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <Grid columns={{ base: 1, sm: 2, xl: 3 }}>
                 {data.items.map((item) => (
                   <Reveal key={item.catalog_item_id} preset="lift">
                     <ItemCard item={item} href={`/items/${item.catalog_item_id}`} />
                   </Reveal>
                 ))}
-              </div>
+              </Grid>
               {totalPages > 1 ? (
                 <Inline align="center">
                   <Pagination
@@ -142,6 +144,6 @@ export function SearchPage({
           ) : null}
         </Stagger>
       </Stack>
-    </div>
+    </SearchResultsLayout>
   );
 }

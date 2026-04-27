@@ -8,6 +8,7 @@ import {
   PageSection,
   Stack,
   Text,
+  NativeSelect,
 } from "@chase-sets/design-system";
 import type { OrderingCartLine } from "./contracts";
 
@@ -94,20 +95,16 @@ export function OrderingCartPage({
             <form method="post">
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="checkout-cart" />
-                <label>
-                  <Stack gap={1}>
-                    <Text weight="semibold">Shipping option</Text>
-                    <select
-                      name="shippingOption"
-                      defaultValue="standard"
-                      className="min-h-11 rounded-tokenMd border border-border bg-background px-4 py-3 text-sm text-foreground"
-                    >
-                      <option value="standard">Standard</option>
-                      <option value="expedited">Expedited</option>
-                      <option value="priority">Priority</option>
-                    </select>
-                  </Stack>
-                </label>
+                <NativeSelect
+                  label="Shipping option"
+                  name="shippingOption"
+                  defaultValue="standard"
+                  items={[
+                    { value: "standard", label: "Standard" },
+                    { value: "expedited", label: "Expedited" },
+                    { value: "priority", label: "Priority" },
+                  ]}
+                />
                 <Button type="submit">Checkout cart</Button>
               </Stack>
             </form>
