@@ -546,7 +546,7 @@ export function ItemDetailPage({
     bestSellerOffer,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerceSections = renderCommerce?.(marketplaceContext) ?? null;
-  const commerce = commerceSections
+  const commerceContent = commerceSections
     ? marketIntent === "sell" && commerceSections.sell
       ? commerceSections.sell
       : (
@@ -556,6 +556,22 @@ export function ItemDetailPage({
         </Stack>
       )
     : null;
+  const commerce = commerceContent ? (
+    <Stack gap={3}>
+      <SegmentedControl
+        aria-label="Choose market intent"
+        items={[
+          { value: "buy", label: "Buy" },
+          { value: "sell", label: "Sell" },
+        ]}
+        value={marketIntent}
+        onValueChange={(value) =>
+          setMarketIntent(value === "sell" ? "sell" : "buy")
+        }
+      />
+      {commerceContent}
+    </Stack>
+  ) : null;
   const productSummary =
     explicitSelectedProductSummary ?? (singleMatchingListing ? "1 matching listing" : "All listings");
   const mobileCommerceSummary = selectedProductSummary ?? "Choose options";
@@ -814,19 +830,6 @@ export function ItemDetailPage({
             }
           >
             <Stack gap={6}>
-              <Inline gap={2}>
-                <SegmentedControl
-                  items={[
-                    { value: "buy", label: "Buy" },
-                    { value: "sell", label: "Sell" },
-                  ]}
-                  value={marketIntent}
-                  onValueChange={(value) =>
-                    setMarketIntent(value === "sell" ? "sell" : "buy")
-                  }
-                />
-              </Inline>
-
               {marketIntent === "buy" ? (
                 <Reveal preset="lift">
                   <PageSection title="Listings">

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 import {
@@ -203,7 +203,13 @@ describe("item detail commerce panel", () => {
     expect(screen.getAllByText("1 active listing").length).toBeGreaterThan(0);
     expect(screen.queryByText("Ash Ketchum")).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Sell" }));
+    const marketIntent = screen.getByRole("tablist", {
+      name: "Choose market intent",
+    });
+
+    expect(within(marketIntent).getByRole("tab", { name: "Buy" })).toBeTruthy();
+
+    fireEvent.click(within(marketIntent).getByRole("tab", { name: "Sell" }));
 
     expect(screen.getByText("Sell to buyer offer")).toBeTruthy();
     expect(screen.getByText("1 matching offer")).toBeTruthy();
@@ -224,7 +230,11 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "Sell" }));
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Sell" }),
+    );
 
     expect(screen.getByText("Best offer")).toBeTruthy();
     expect(screen.getByText("Can fulfill")).toBeTruthy();
