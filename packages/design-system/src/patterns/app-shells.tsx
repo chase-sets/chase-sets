@@ -1168,14 +1168,17 @@ export function MarketplaceProductDetailLayout({
             {children}
           </div>
         </div>
-        <aside className="order-4 min-w-0 xl:order-3 xl:sticky xl:top-24">
+        <aside className="order-4 hidden min-w-0 xl:order-3 xl:block xl:sticky xl:top-24">
           {commerce}
         </aside>
       </div>
       {mobileActionBar ? (
-        <div className="fixed inset-x-3 bottom-20 z-sticky xl:hidden md:bottom-4">
-          <div className="mx-auto max-w-3xl">{mobileActionBar}</div>
-        </div>
+        <>
+          <div aria-hidden="true" className="h-24 xl:hidden" />
+          <div className="fixed inset-x-3 bottom-20 z-sticky xl:hidden md:bottom-4">
+            <div className="mx-auto max-w-3xl">{mobileActionBar}</div>
+          </div>
+        </>
       ) : null}
     </>
   );
@@ -1280,12 +1283,14 @@ export interface CommerceActionBarProps
   summary: ReactNode;
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
+  tertiaryAction?: ReactNode;
 }
 
 export function CommerceActionBar({
   summary,
   primaryAction,
   secondaryAction,
+  tertiaryAction,
   ...rest
 }: CommerceActionBarProps) {
   return (
@@ -1293,13 +1298,19 @@ export function CommerceActionBar({
       {...rest}
       className="modern-surface rounded-tokenLg border border-muted p-3 shadow-overlay"
     >
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1 text-xs font-medium text-secondary">
           {summary}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {secondaryAction}
+        <div
+          className={cx(
+            "grid shrink-0 gap-2 sm:flex sm:items-center [&>*]:w-full sm:[&>*]:w-auto",
+            tertiaryAction ? "grid-cols-3" : "grid-cols-2"
+          )}
+        >
           {primaryAction}
+          {secondaryAction}
+          {tertiaryAction}
         </div>
       </div>
     </div>

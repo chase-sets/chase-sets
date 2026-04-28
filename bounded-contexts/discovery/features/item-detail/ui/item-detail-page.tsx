@@ -7,6 +7,7 @@ import {
   Card,
   CommerceActionBar,
   Container,
+  Drawer,
   EmptyState,
   Grid,
   Heading,
@@ -51,6 +52,14 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
   visibleSellerOffers: readonly DiscoverySellerOffer[];
   bestListing: DiscoveryMarketListing | null;
   bestSellerOffer: DiscoverySellerOffer | null;
+}>;
+
+export type ItemDetailCommerceSections = Readonly<{
+  desktop: ReactNode;
+  buy: ReactNode;
+  offer: ReactNode;
+  sell?: ReactNode;
+  sellLabel?: string;
 }>;
 
 function formatFieldValue(value: unknown): string {
@@ -262,12 +271,17 @@ export function ItemDetailPage({
   error?: string | null;
   sellerOffers?: readonly DiscoverySellerOffer[];
   showSellerOffers?: boolean;
-  renderCommerce?: (context: ItemDetailMarketplaceSectionContext) => ReactNode;
+  renderCommerce?: (
+    context: ItemDetailMarketplaceSectionContext,
+  ) => ItemDetailCommerceSections | null;
 }) {
   const [selections, setSelections] = useState<Record<string, string>>(() =>
     getInitialSelections(data),
   );
   const [offerFilter, setOfferFilter] = useState<"all" | "fulfillable">("all");
+  const [activeMobileCommerce, setActiveMobileCommerce] = useState<
+    "buy" | "offer" | "sell" | null
+  >(null);
 
   useEffect(() => {
     setSelections(getInitialSelections(data));
@@ -443,12 +457,28 @@ export function ItemDetailPage({
     bestListing,
     bestSellerOffer,
   } satisfies ItemDetailMarketplaceSectionContext;
-  const commerce = renderCommerce?.(marketplaceContext) ?? null;
+  const commerceSections = renderCommerce?.(marketplaceContext) ?? null;
+  const commerce = commerceSections?.desktop ?? null;
   const productSummary =
     explicitSelectedProductSummary ?? (singleMatchingListing ? "1 matching listing" : "All listings");
+  const mobileCommerceSummary = selectedProductSummary ?? "Choose options";
   const marketNote =
     selectedProductSummary ??
     (hasActiveFilters ? "Filtered active listings" : "All active listings");
+  const activeMobileCommerceContent =
+    activeMobileCommerce === "buy"
+      ? commerceSections?.buy
+      : activeMobileCommerce === "offer"
+        ? commerceSections?.offer
+        : activeMobileCommerce === "sell"
+          ? commerceSections?.sell
+          : null;
+  const activeMobileCommerceTitle =
+    activeMobileCommerce === "buy"
+      ? "Buy now"
+      : activeMobileCommerce === "offer"
+        ? "Make offer"
+        : commerceSections?.sellLabel ?? "Sell";
 
   return (
     <Stagger>
@@ -517,28 +547,45 @@ export function ItemDetailPage({
               </Stack>
             }
             media={
-              <ImageGallery
-                images={images}
-                aspectRatio="5/7"
-                fallbackImage={{
-                  src: discoveryAssetUrls.defaultProductImage,
-                  alt: "Pokemon card back",
-                }}
-                maxHeightClassName="[--gallery-max-height:34rem]"
-                emptyState={
-                  <Stack gap={3} align="center">
-                    <Surface tone="muted" padding={4}>
-                      <Icon name="image" size="lg" tone="secondary" />
-                    </Surface>
-                    <Stack gap={1} align="center">
-                      <Text weight="semibold">Image coming soon</Text>
-                      <Text size="sm" tone="secondary">
-                        Catalog imagery has not been added yet.
-                      </Text>
+              <Stack gap={5}>
+                <ImageGallery
+                  images={images}
+                  aspectRatio="5/7"
+                  fallbackImage={{
+                    src: discoveryAssetUrls.defaultProductImage,
+                    alt: "Pokemon card back",
+                  }}
+                  maxHeightClassName="[--gallery-max-height:34rem]"
+                  emptyState={
+                    <Stack gap={3} align="center">
+                      <Surface tone="muted" padding={4}>
+                        <Icon name="image" size="lg" tone="secondary" />
+                      </Surface>
+                      <Stack gap={1} align="center">
+                        <Text weight="semibold">Image coming soon</Text>
+                        <Text size="sm" tone="secondary">
+                          Catalog imagery has not been added yet.
+                        </Text>
+                      </Stack>
                     </Stack>
-                  </Stack>
-                }
-              />
+                  }
+                />
+
+                {data.description ? (
+                  <PageSection title="Description">
+                    <Text>{data.description}</Text>
+                  </PageSection>
+                ) : null}
+
+                {detailItems.length > 0 ? (
+                  <PageSection title="Details">
+                    <KeyValueList
+                      density="compact"
+                      items={detailItems}
+                    />
+                  </PageSection>
+                ) : null}
+              </Stack>
             }
             market={
               <MarketplaceMarketSummary
@@ -563,26 +610,72 @@ export function ItemDetailPage({
             commerce={commerce}
             mobileActionBar={
               commerce ? (
-                <CommerceActionBar
-                  summary={productSummary}
-                  primaryAction={
-                    <LinkButton
-                      href={selectedProductId ? "#buy-box" : "#select-options"}
-                      size="sm"
-                    >
-                      {selectedProductId ? "Add" : "Select"}
-                    </LinkButton>
-                  }
-                  secondaryAction={
-                    <LinkButton
-                      href={selectedProductId ? "#make-offer" : "#select-options"}
-                      tone="secondary"
-                      size="sm"
-                    >
-                      {selectedProductId ? "Offer" : "Filter"}
-                    </LinkButton>
-                  }
-                />
+                <>
+                  <CommerceActionBar
+                    summary={mobileCommerceSummary}
+                    primaryAction={
+                      selectedProductId ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => setActiveMobileCommerce("buy")}
+                        >
+                          Buy now
+                        </Button>
+                      ) : (
+                        <LinkButton href="#select-options" size="sm">
+                          Select options
+                        </LinkButton>
+                      )
+                    }
+                    secondaryAction={
+                      selectedProductId ? (
+                        <Button
+                          type="button"
+                          tone="secondary"
+                          size="sm"
+                          onClick={() => setActiveMobileCommerce("offer")}
+                        >
+                          Make offer
+                        </Button>
+                      ) : (
+                        <LinkButton href="#select-options" tone="secondary" size="sm">
+                          Choose to offer
+                        </LinkButton>
+                      )
+                    }
+                    tertiaryAction={
+                      commerceSections?.sell ? (
+                        selectedProductId ? (
+                          <Button
+                            type="button"
+                            tone="secondary"
+                            size="sm"
+                            onClick={() => setActiveMobileCommerce("sell")}
+                          >
+                            {commerceSections.sellLabel ?? "Sell"}
+                          </Button>
+                        ) : (
+                          <LinkButton href="#select-options" tone="secondary" size="sm">
+                            Choose to sell
+                          </LinkButton>
+                        )
+                      ) : null
+                    }
+                  />
+                  <Drawer
+                    open={Boolean(activeMobileCommerce && activeMobileCommerceContent)}
+                    onOpenChange={(open) => {
+                      if (!open) {
+                        setActiveMobileCommerce(null);
+                      }
+                    }}
+                    title={activeMobileCommerceTitle}
+                    description={mobileCommerceSummary}
+                  >
+                    {activeMobileCommerceContent}
+                  </Drawer>
+                </>
               ) : null
             }
           >
@@ -770,25 +863,6 @@ export function ItemDetailPage({
                         />
                       )}
                     </Stack>
-                  </PageSection>
-                </Reveal>
-              ) : null}
-
-              {data.description ? (
-                <Reveal preset="lift">
-                  <PageSection title="Description">
-                    <Text>{data.description}</Text>
-                  </PageSection>
-                </Reveal>
-              ) : null}
-
-              {detailItems.length > 0 ? (
-                <Reveal preset="lift">
-                  <PageSection title="Details">
-                    <KeyValueList
-                      density="compact"
-                      items={detailItems}
-                    />
                   </PageSection>
                 </Reveal>
               ) : null}

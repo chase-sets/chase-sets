@@ -105,6 +105,7 @@ function parseSelectedOptions(value: FormDataEntryValue | null) {
 }
 
 function MarketplaceOfferSubmissionSection({
+  formId = "make-offer",
   catalogItemId,
   productId,
   itemTitle,
@@ -113,6 +114,7 @@ function MarketplaceOfferSubmissionSection({
   visibleListingCount,
   errorMessage,
 }: {
+  formId?: string;
   catalogItemId: string;
   productId: string | null;
   itemTitle: string;
@@ -123,7 +125,7 @@ function MarketplaceOfferSubmissionSection({
 }) {
   return (
     <Card>
-      <form id="make-offer" method="post">
+      <form id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="intent" value="submit-offer" />
           <input type="hidden" name="catalogItemId" value={catalogItemId} />
@@ -165,6 +167,7 @@ function MarketplaceOfferSubmissionSection({
 }
 
 function OrderingAddToCartSection({
+  formId = "buy-box",
   catalogItemId,
   productId,
   bestListing,
@@ -174,6 +177,7 @@ function OrderingAddToCartSection({
   visibleListingCount,
   errorMessage,
 }: {
+  formId?: string;
   catalogItemId: string;
   productId: string | null;
   bestListing: { listing_id: string; price_amount: string; seller_display_name: string | null; visible_quantity: number } | null;
@@ -185,7 +189,7 @@ function OrderingAddToCartSection({
 }) {
   return (
     <Card glow={visibleListingCount > 0}>
-      <form id="buy-box" method="post">
+      <form id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="catalogItemId" value={catalogItemId} />
           <input type="hidden" name="productId" value={productId ?? ""} />
@@ -264,11 +268,13 @@ function OrderingAddToCartSection({
 }
 
 function MarketplaceSellerOfferSection({
+  formId = "sell-box",
   bestOffer,
   productId,
   matchingOfferCount,
   errorMessage,
 }: {
+  formId?: string;
   bestOffer: {
     offer_id: string;
     buyer_display_name: string | null;
@@ -285,7 +291,7 @@ function MarketplaceSellerOfferSection({
 }) {
   return (
     <Card glow={Boolean(bestOffer?.can_fulfill)}>
-      <form id="sell-box" method="post">
+      <form id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="offerId" value={bestOffer?.offer_id ?? ""} />
           <Stack gap={1}>
@@ -376,6 +382,7 @@ export function MarketplaceSellerRegistrationSection({
 }
 
 function MarketplaceListingSubmissionSection({
+  formId = "list-box",
   productId,
   productSummary,
   bestListing,
@@ -383,6 +390,7 @@ function MarketplaceListingSubmissionSection({
   inventoryRecords,
   errorMessage,
 }: {
+  formId?: string;
   productId: string | null;
   productSummary: string | null;
   bestListing: {
@@ -407,7 +415,7 @@ function MarketplaceListingSubmissionSection({
 
   return (
     <Card glow={Boolean(listing)}>
-      <form id="list-box" method="post">
+      <form id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="productId" value={productId ?? ""} />
           <input type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
@@ -772,59 +780,79 @@ export default function DiscoveryItemDetailRoute() {
                       listing.product_id === context.selectedProductId,
                   ) ?? null
                 : null;
+              const renderBuy = (formId: string) => (
+                <OrderingAddToCartSection
+                  formId={formId}
+                  catalogItemId={context.itemId}
+                  productId={context.selectedProductId}
+                  bestListing={context.bestListing}
+                  itemTitle={context.itemTitle}
+                  selectedOptions={context.selectedProductOptions}
+                  productSummary={context.selectedProductSummary}
+                  visibleListingCount={context.visibleListings.length}
+                  errorMessage={actionData?.error ?? null}
+                />
+              );
+              const renderOffer = (formId: string) => (
+                <MarketplaceOfferSubmissionSection
+                  formId={formId}
+                  catalogItemId={context.itemId}
+                  productId={context.selectedProductId}
+                  itemTitle={context.itemTitle}
+                  selectedOptions={context.selectedProductOptions}
+                  productSummary={context.selectedProductSummary}
+                  visibleListingCount={context.visibleListings.length}
+                  errorMessage={actionData?.error ?? null}
+                />
+              );
+              const renderSeller = (formIdPrefix: string) =>
+                data.canUseSellerFeatures ? (
+                  <Stack gap={4}>
+                    <MarketplaceSellerOfferSection
+                      formId={`${formIdPrefix}-sell-box`}
+                      bestOffer={context.bestSellerOffer}
+                      productId={context.selectedProductId}
+                      matchingOfferCount={context.visibleSellerOffers.length}
+                      errorMessage={actionData?.error ?? null}
+                    />
+                    <MarketplaceListingSubmissionSection
+                      formId={`${formIdPrefix}-list-box`}
+                      productId={context.selectedProductId}
+                      productSummary={context.selectedProductSummary}
+                      bestListing={context.bestListing}
+                      ownListing={ownListing}
+                      inventoryRecords={data.sellerInventoryRecords}
+                      errorMessage={actionData?.error ?? null}
+                    />
+                  </Stack>
+                ) : (
+                  <MarketplaceSellerRegistrationSection
+                    productSummary={context.selectedProductSummary}
+                    registerHref={data.registerToSellHref}
+                  />
+                );
+              const desktopBuyer = (
+                <Stack gap={4}>
+                  {renderBuy("buy-box")}
+                  {renderOffer("make-offer")}
+                </Stack>
+              );
+              const desktopSeller = renderSeller("desktop");
 
               return (
-                <ItemCommercePanel
-                  showSellerTab={data.showSellerTab}
-                  buyer={
-                    <Stack gap={4}>
-                      <OrderingAddToCartSection
-                        catalogItemId={context.itemId}
-                        productId={context.selectedProductId}
-                        bestListing={context.bestListing}
-                        itemTitle={context.itemTitle}
-                        selectedOptions={context.selectedProductOptions}
-                        productSummary={context.selectedProductSummary}
-                        visibleListingCount={context.visibleListings.length}
-                        errorMessage={actionData?.error ?? null}
-                      />
-                      <MarketplaceOfferSubmissionSection
-                        catalogItemId={context.itemId}
-                        productId={context.selectedProductId}
-                        itemTitle={context.itemTitle}
-                        selectedOptions={context.selectedProductOptions}
-                        productSummary={context.selectedProductSummary}
-                        visibleListingCount={context.visibleListings.length}
-                        errorMessage={actionData?.error ?? null}
-                      />
-                    </Stack>
-                  }
-                  seller={
-                    data.canUseSellerFeatures ? (
-                      <Stack gap={4}>
-                        <MarketplaceSellerOfferSection
-                          bestOffer={context.bestSellerOffer}
-                          productId={context.selectedProductId}
-                          matchingOfferCount={context.visibleSellerOffers.length}
-                          errorMessage={actionData?.error ?? null}
-                        />
-                        <MarketplaceListingSubmissionSection
-                          productId={context.selectedProductId}
-                          productSummary={context.selectedProductSummary}
-                          bestListing={context.bestListing}
-                          ownListing={ownListing}
-                          inventoryRecords={data.sellerInventoryRecords}
-                          errorMessage={actionData?.error ?? null}
-                        />
-                      </Stack>
-                    ) : (
-                      <MarketplaceSellerRegistrationSection
-                        productSummary={context.selectedProductSummary}
-                        registerHref={data.registerToSellHref}
-                      />
-                    )
-                  }
-                />
+                {
+                  desktop: (
+                    <ItemCommercePanel
+                      showSellerTab={data.showSellerTab}
+                      buyer={desktopBuyer}
+                      seller={desktopSeller}
+                    />
+                  ),
+                  buy: renderBuy("mobile-buy-box"),
+                  offer: renderOffer("mobile-make-offer"),
+                  sell: data.showSellerTab ? renderSeller("mobile") : undefined,
+                  sellLabel: data.canUseSellerFeatures ? "Sell" : "Sell",
+                }
               );
             }
           : undefined
