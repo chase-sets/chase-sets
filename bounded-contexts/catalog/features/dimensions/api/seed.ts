@@ -29,7 +29,7 @@ const dimensionDefs: DimensionDef[] = [
     key: "form",
     dimensionId: catalogSeedIds.dimensions.form.dimensionId as DimensionId,
     name: "Form",
-    description: "How the card is offered as a sellable version",
+    description: "How the card is offered as a sellable Product",
     options: [
       {
         optionId: catalogSeedIds.dimensions.form.optionIds.raw as OptionId,
@@ -345,4 +345,3 @@ export async function seedDimensions(
 
   return result;
 }
-

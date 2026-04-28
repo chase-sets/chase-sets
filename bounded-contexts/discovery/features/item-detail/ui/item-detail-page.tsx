@@ -30,22 +30,22 @@ import type {
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
-import { ProductSelector } from "./version-selector";
+import { ProductSelector } from "./product-selector";
 import {
   createDiscoveryProductDescriptor,
   getOrderedActiveDimensions,
   isProductSelectionComplete,
   normalizeProductSearchOptionsForSchema,
   summarizeSelections,
-} from "../domain/versioning";
+} from "../domain/product-resolution";
 
 export type ItemDetailMarketplaceSectionContext = Readonly<{
   itemId: string;
   selectedProductId: string | null;
   itemTitle: string;
   itemSubtitle: string | null;
-  selectedVersionSelection: readonly { dimensionId: string; optionId: string }[];
-  selectedVersionSummary: string | null;
+  selectedProductOptions: readonly { dimensionId: string; optionId: string }[];
+  selectedProductSummary: string | null;
   visibleListings: readonly DiscoveryMarketListing[];
 }>;
 
@@ -87,7 +87,7 @@ function formatMoney(value: string | null): string {
   return value ? `$${value}` : "Unavailable";
 }
 
-function matchesSelectedVersion(
+function matchesSelectedOptions(
   listing: DiscoveryMarketListing,
   selections: Record<string, string>,
 ) {
@@ -104,7 +104,7 @@ function matchesSelectedVersion(
   );
 }
 
-function applyVersionFilter(
+function applyOptionFilter(
   selections: Record<string, string>,
   dimensionId: string,
   optionId: string,
@@ -166,10 +166,10 @@ export function ItemDetailPage({
     src: url,
     alt: `${data.title} image ${index + 1}`,
   }));
-  const selectedVersion = data.product_schema
+  const explicitSelectedOptions = data.product_schema
     ? summarizeSelections(data.product_schema, selections)
     : [];
-  const selectedVersionSelection = data.product_schema
+  const explicitSelectedProductOptions = data.product_schema
     ? getOrderedActiveDimensions(data.product_schema, selections)
         .map((dimension) => {
           const optionId = selections[dimension.dimensionId];
@@ -189,21 +189,14 @@ export function ItemDetailPage({
           ): selection is { dimensionId: string; optionId: string } => selection !== null,
         )
     : [];
-  const selectedVersionSummary =
-    selectedVersion.length > 0
-      ? selectedVersion.map((selection) => selection.optionLabel).join(" / ")
+  const explicitSelectedProductSummary =
+    explicitSelectedOptions.length > 0
+      ? explicitSelectedOptions.map((selection) => selection.optionLabel).join(" / ")
       : null;
   const hasActiveFilters = Object.keys(selections).length > 0;
   const hasCompleteProductSelection = data.product_schema
     ? isProductSelectionComplete(data.product_schema, selections)
     : true;
-  const selectedProductId = hasCompleteProductSelection
-    ? createDiscoveryProductDescriptor({
-        catalogItemId: data.catalog_item_id,
-        productSchema: data.product_schema,
-        selection: selectedVersionSelection,
-      }).productId
-    : null;
   const categories = [
     ...new Map(
       data.categories.map((category) => [category.categoryId, category] as const),
@@ -211,8 +204,25 @@ export function ItemDetailPage({
   ];
   const tags = uniqueDisplayValues(data.tags);
   const visibleListings = data.market_listings.filter((listing) =>
-    data.product_schema ? matchesSelectedVersion(listing, selections) : true,
+    data.product_schema ? matchesSelectedOptions(listing, selections) : true,
   );
+  const singleMatchingListing =
+    !hasCompleteProductSelection && visibleListings.length === 1
+      ? visibleListings[0]
+      : null;
+  const selectedProductId = hasCompleteProductSelection
+    ? createDiscoveryProductDescriptor({
+        catalogItemId: data.catalog_item_id,
+        productSchema: data.product_schema,
+        selection: explicitSelectedProductOptions,
+      }).productId
+    : singleMatchingListing?.product_id ?? null;
+  const selectedProductOptions =
+    hasCompleteProductSelection || !singleMatchingListing
+      ? explicitSelectedProductOptions
+      : singleMatchingListing.selected_options;
+  const selectedProductSummary =
+    explicitSelectedProductSummary ?? singleMatchingListing?.product_summary ?? null;
   const selectedMarketSummary = {
     lowest_price_amount: visibleListings.reduce<string | null>((lowest, listing) => {
       if (lowest === null) {
@@ -251,17 +261,25 @@ export function ItemDetailPage({
       value: formatUpdatedAt(data.updated_at),
     },
   ];
+  const detailItems = [
+    ...data.field_values.map((fieldValue) => ({
+      key: fieldValue.fieldName,
+      value: formatFieldValue(fieldValue.value),
+    })),
+    ...metadataItems,
+  ];
   const marketplaceContext = {
     itemId: data.catalog_item_id,
     selectedProductId,
     itemTitle: data.title,
     itemSubtitle: data.subtitle,
-    selectedVersionSelection,
-    selectedVersionSummary,
+    selectedProductOptions,
+    selectedProductSummary,
     visibleListings,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerce = renderCommerce?.(marketplaceContext) ?? null;
-  const productSummary = selectedVersionSummary ?? "All listings";
+  const productSummary =
+    explicitSelectedProductSummary ?? (singleMatchingListing ? "1 matching listing" : "All listings");
   const marketDetail = hasActiveFilters ? "Filtered listings" : "All listings";
 
   return (
@@ -273,7 +291,7 @@ export function ItemDetailPage({
         ]}
       />
 
-      <Container width="wide" paddingX={0}>
+      <Container width="expanded" paddingX={0}>
         <Reveal preset="lift">
           <MarketplaceProductDetailLayout
             summary={
@@ -307,10 +325,10 @@ export function ItemDetailPage({
 
                 {data.product_schema && data.product_schema.dimensions.length > 0 ? (
                   <Card variant="feature">
-                    <Stack gap={3} id="select-version">
+                    <Stack gap={3} id="select-options">
                       <Stack gap={1}>
                         <Text size="sm" weight="semibold">
-                          Find a version
+                          Choose options
                         </Text>
                         <Text size="sm" tone="secondary">
                           {productSummary}
@@ -323,22 +341,13 @@ export function ItemDetailPage({
                           setSelections((current) =>
                             normalizeProductSearchOptionsForSchema(
                               data.product_schema!,
-                              applyVersionFilter(current, dimensionId, optionId),
+                              applyOptionFilter(current, dimensionId, optionId),
                             ),
                           )
                         }
                       />
                     </Stack>
                   </Card>
-                ) : null}
-
-                {metadataItems.length > 0 ? (
-                  <Stack gap={2}>
-                    <Text size="sm" weight="semibold">
-                      Item facts
-                    </Text>
-                    <KeyValueList density="compact" items={metadataItems} />
-                  </Stack>
                 ) : null}
               </Stack>
             }
@@ -401,7 +410,7 @@ export function ItemDetailPage({
                   summary={productSummary}
                   primaryAction={
                     <LinkButton
-                      href={selectedProductId ? "#buy-box" : "#select-version"}
+                      href={selectedProductId ? "#buy-box" : "#select-options"}
                       size="sm"
                     >
                       {selectedProductId ? "Add" : "Select"}
@@ -409,7 +418,7 @@ export function ItemDetailPage({
                   }
                   secondaryAction={
                     <LinkButton
-                      href={selectedProductId ? "#make-offer" : "#select-version"}
+                      href={selectedProductId ? "#make-offer" : "#select-options"}
                       tone="secondary"
                       size="sm"
                     >
@@ -421,23 +430,24 @@ export function ItemDetailPage({
             }
           >
             <Stack gap={6}>
-              {data.description ? (
-                <Reveal preset="lift">
-                  <PageSection title="Description">
-                    <Text>{data.description}</Text>
-                  </PageSection>
-                </Reveal>
-              ) : null}
-
               <Reveal preset="lift">
                 <PageSection title="Listings">
                   <Stack gap={3}>
-                    {hasActiveFilters ? (
-                      <Inline gap={2}>
-                        <Text size="sm" tone="secondary">
+                    <Inline gap={2}>
+                      <Text size="sm" tone="secondary">
+                        {hasActiveFilters ? (
+                          <>
                           {visibleListings.length} of {data.market_listings.length}{" "}
                           listing{data.market_listings.length === 1 ? "" : "s"}
-                        </Text>
+                          </>
+                        ) : (
+                          <>
+                            {visibleListings.length} active listing
+                            {visibleListings.length === 1 ? "" : "s"}
+                          </>
+                        )}
+                      </Text>
+                      {hasActiveFilters ? (
                         <Button
                           type="button"
                           tone="ghost"
@@ -446,12 +456,12 @@ export function ItemDetailPage({
                         >
                           Clear filters
                         </Button>
-                      </Inline>
-                    ) : null}
+                      ) : null}
+                    </Inline>
                     {visibleListings.length > 0 ? (
                       visibleListings.map((listing) => (
                         <Card key={listing.listing_id}>
-                          <Grid columns={{ base: 1, md: 4 }} gap={3}>
+                          <Grid columns={{ base: 1, md: 3 }} gap={3}>
                             <Stack gap={1}>
                               <Text weight="semibold">
                                 {formatMoney(listing.price_amount)}
@@ -491,8 +501,8 @@ export function ItemDetailPage({
                                 Make offer
                               </LinkButton>
                             ) : (
-                              <LinkButton href="#select-version" size="sm">
-                                Choose version
+                              <LinkButton href="#select-options" size="sm">
+                                Choose options
                               </LinkButton>
                             )}
                             {hasActiveFilters ? (
@@ -513,15 +523,20 @@ export function ItemDetailPage({
                 </PageSection>
               </Reveal>
 
-              {data.field_values.length > 0 ? (
+              {data.description ? (
+                <Reveal preset="lift">
+                  <PageSection title="Description">
+                    <Text>{data.description}</Text>
+                  </PageSection>
+                </Reveal>
+              ) : null}
+
+              {detailItems.length > 0 ? (
                 <Reveal preset="lift">
                   <PageSection title="Details">
                     <KeyValueList
                       density="compact"
-                      items={data.field_values.map((fieldValue) => ({
-                        key: fieldValue.fieldName,
-                        value: formatFieldValue(fieldValue.value),
-                      }))}
+                      items={detailItems}
                     />
                   </PageSection>
                 </Reveal>

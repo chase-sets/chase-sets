@@ -1,11 +1,11 @@
 import type {
-  VersionDimension,
-  VersionSchema,
+  ProductDimension,
+  ProductSchema,
 } from "../../../support/client-support/contracts";
 
-type VersionChoice = VersionDimension["allowedOptions"][number];
+type ProductOptionChoice = ProductDimension["allowedOptions"][number];
 
-export function getOptionLabel(option: VersionChoice): string {
+export function getOptionLabel(option: ProductOptionChoice): string {
   if (option.labels && option.labels.length > 0) {
     return option.labels[0].value;
   }
@@ -14,7 +14,7 @@ export function getOptionLabel(option: VersionChoice): string {
 }
 
 export function isDimensionActive(
-  dimension: VersionDimension,
+  dimension: ProductDimension,
   selections: Record<string, string>,
 ): boolean {
   return dimension.appliesWhen.every((clause) => {
@@ -26,25 +26,25 @@ export function isDimensionActive(
   });
 }
 
-export function getOrderedDimensions(schema: VersionSchema): VersionDimension[] {
+export function getOrderedDimensions(schema: ProductSchema): ProductDimension[] {
   return schema.canonicalDimensionOrder
     .map((order) =>
       schema.dimensions.find((dimension) => dimension.dimensionId === order.dimensionId),
     )
-    .filter((dimension): dimension is VersionDimension => dimension !== undefined);
+    .filter((dimension): dimension is ProductDimension => dimension !== undefined);
 }
 
 export function getOrderedActiveDimensions(
-  schema: VersionSchema,
+  schema: ProductSchema,
   selections: Record<string, string>,
-): VersionDimension[] {
+): ProductDimension[] {
   return getOrderedDimensions(schema).filter((dimension) =>
     isDimensionActive(dimension, selections),
   );
 }
 
 export function normalizeProductSearchOptionsForSchema(
-  schema: VersionSchema,
+  schema: ProductSchema,
   selections: Record<string, string>,
 ): Record<string, string> {
   const nextSelections = { ...selections };
@@ -71,14 +71,14 @@ export function normalizeProductSearchOptionsForSchema(
 }
 
 export function normalizeSelectedOptionssForSchema(
-  schema: VersionSchema,
+  schema: ProductSchema,
   selections: Record<string, string>,
 ): Record<string, string> {
   return normalizeProductSearchOptionsForSchema(schema, selections);
 }
 
 export function isProductSelectionComplete(
-  schema: VersionSchema,
+  schema: ProductSchema,
   selections: Record<string, string>,
 ): boolean {
   const normalizedSelections = normalizeProductSearchOptionsForSchema(schema, selections);
@@ -93,7 +93,7 @@ export function isProductSelectionComplete(
 }
 
 export function summarizeSelections(
-  schema: VersionSchema,
+  schema: ProductSchema,
   selections: Record<string, string>,
 ): Array<{ dimensionName: string; optionLabel: string }> {
   return getOrderedActiveDimensions(schema, selections)
@@ -115,7 +115,7 @@ export function summarizeSelections(
 
 export function createDiscoveryProductDescriptor(input: Readonly<{
   catalogItemId: string;
-  productSchema: VersionSchema | null;
+  productSchema: ProductSchema | null;
   selection: readonly { dimensionId: string; optionId: string }[];
 }>): Readonly<{
   productId: string;

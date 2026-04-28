@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { VersionSchema } from "../support/client-support/contracts";
+import type { ProductSchema } from "../support/client-support/contracts";
 import {
   createDiscoveryProductDescriptor,
   isProductSelectionComplete,
   normalizeProductSearchOptionsForSchema,
-} from "../features/item-detail/domain/versioning";
+} from "../features/item-detail/domain/product-resolution";
 
-const schema: VersionSchema = {
+const schema: ProductSchema = {
   canonicalDimensionOrder: [
     { dimensionId: "form", dimensionName: "Form" },
     { dimensionId: "condition", dimensionName: "Condition" },

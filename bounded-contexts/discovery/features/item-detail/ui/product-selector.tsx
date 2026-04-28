@@ -4,20 +4,20 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { VersionSchema } from "../../../support/client-support/contracts";
+import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   getOptionLabel,
   getOrderedActiveDimensions,
-} from "../domain/versioning";
+} from "../domain/product-resolution";
 
 const ANY_OPTION_VALUE = "__any__";
 
 function formatDimensionName(name: string): string {
-  return name.toLowerCase() === "form" ? "Version type" : name;
+  return name;
 }
 
 interface ProductSelectorProps {
-  schema: VersionSchema;
+  schema: ProductSchema;
   selections: Record<string, string>;
   onSelectionChange: (dimensionId: string, optionId: string) => void;
 }

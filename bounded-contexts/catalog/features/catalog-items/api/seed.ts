@@ -46,7 +46,7 @@ export async function seedCatalogItems(
       title: "Charizard",
       subtitle: "Base Set 4/102 Holo Rare",
       description:
-        "The iconic Base Set Charizard, seeded as a single catalog item whose sellable versions vary by form, condition, and grade.",
+        "The iconic Base Set Charizard, seeded as a single Catalog Item whose sellable Products vary by Form, Condition, and Grade.",
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "4/102"],
@@ -103,7 +103,7 @@ export async function seedCatalogItems(
       title: "Pikachu",
       subtitle: "Prismatic Evolutions 025 Illustration Rare",
       description:
-        "A modern Pikachu single from Prismatic Evolutions with form-driven versioning instead of duplicated raw and graded catalog entries.",
+        "A modern Pikachu single from Prismatic Evolutions with Form-based Products instead of duplicated raw and graded Catalog Items.",
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "025"],
@@ -212,5 +212,4 @@ export async function seedCatalogItems(
     console.log(`  Item "${item.title}" created and published`);
   }
 }
-
 

@@ -19,16 +19,16 @@ export interface DiscoverySearchResponse {
   count: number;
 }
 
-export interface VersionApplicabilityClause {
+export interface ProductApplicabilityClause {
   dimensionId: string;
   optionIds: string[];
 }
 
-export interface VersionDimension {
+export interface ProductDimension {
   dimensionId: string;
   dimensionName: string;
   required: boolean;
-  appliesWhen: VersionApplicabilityClause[];
+  appliesWhen: ProductApplicabilityClause[];
   allowedOptions: Array<{
     optionId: string;
     code: string;
@@ -36,9 +36,9 @@ export interface VersionDimension {
   }>;
 }
 
-export interface VersionSchema {
+export interface ProductSchema {
   canonicalDimensionOrder: Array<{ dimensionId: string; dimensionName: string }>;
-  dimensions: VersionDimension[];
+  dimensions: ProductDimension[];
 }
 
 export interface FieldValue {
@@ -64,7 +64,7 @@ export interface DiscoveryItemDetail {
   categories: CategoryRef[];
   tags: string[];
   image_urls: string[];
-  product_schema: VersionSchema | null;
+  product_schema: ProductSchema | null;
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];
   updated_at: string;

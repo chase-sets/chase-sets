@@ -52,14 +52,14 @@ export async function seedComponents(
   }
 
   {
-    const componentId = catalogSeedIds.components.singleCardVersioning as ComponentId;
+    const componentId = catalogSeedIds.components.singleCardProductResolution as ComponentId;
     const streamId = `catalog.component-${componentId}`;
     const formDimension = dimensions.form;
 
     await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "CreateComponent",
       componentId,
-      key: "single-card-versioning",
+      key: "single-card-product-resolution",
       name: "Single Card Product Resolution",
       description: "Product-resolution rules for raw and graded card variants",
     });
@@ -104,8 +104,8 @@ export async function seedComponents(
       type: "ActivateComponent",
     });
 
-    result["single-card-versioning"] = componentId;
-    console.log('  Component "Single Card Versioning" created');
+    result["single-card-product-resolution"] = componentId;
+    console.log('  Component "Single Card Product Resolution" created');
   }
 
   {
@@ -143,4 +143,3 @@ export async function seedComponents(
 
   return result;
 }
-

@@ -126,7 +126,7 @@ export function MarketplaceSellerOfferListPage({
             },
           ]}
           emptyTitle="No matching offers"
-          emptyDescription="Marketplace-wide demand appears here when buyers submit offers for versions you actively list."
+          emptyDescription="Marketplace-wide demand appears here when buyers submit offers for Products you actively list."
         />
       </PageSection>
     </Page>

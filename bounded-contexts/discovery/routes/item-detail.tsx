@@ -90,12 +90,12 @@ function MarketplaceOfferSubmissionSection({
           <Stack gap={1}>
             <Text weight="semibold">Make an offer</Text>
             <Text size="sm" tone="secondary">
-              {itemTitle} - {productSummary ?? "Choose a version"}
+              {itemTitle} - {productSummary ?? "Choose options"}
             </Text>
             <Text size="sm" tone="secondary">
               {productId
                 ? `${visibleListingCount} visible listing${visibleListingCount === 1 ? "" : "s"} match.`
-                : "Choose a version to make an offer."}
+                : "Choose options to make an offer."}
             </Text>
           </Stack>
           {errorMessage ? <Text>{errorMessage}</Text> : null}
@@ -148,14 +148,14 @@ function OrderingAddToCartSection({
           />
           <input type="hidden" name="productSummary" value={productSummary ?? ""} />
           <Stack gap={1}>
-            <Text weight="semibold">Buy this version</Text>
+            <Text weight="semibold">Buy this product</Text>
             <Text size="sm" tone="secondary">
-              {itemTitle} - {productSummary ?? "Choose a version"}
+              {itemTitle} - {productSummary ?? "Choose options"}
             </Text>
             <Text size="sm" tone="secondary">
               {productId
                 ? `${visibleListingCount} visible listing${visibleListingCount === 1 ? "" : "s"} match right now.`
-                : "Choose a version to add it to your cart."}
+                : "Choose options to add this product to your cart."}
             </Text>
             {productId && visibleListingCount === 0 ? (
               <Text size="sm" tone="secondary">
@@ -306,8 +306,8 @@ export default function DiscoveryItemDetailRoute() {
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   itemTitle={context.itemTitle}
-                  selectedOptions={context.selectedVersionSelection}
-                  productSummary={context.selectedVersionSummary}
+                  selectedOptions={context.selectedProductOptions}
+                  productSummary={context.selectedProductSummary}
                   visibleListingCount={context.visibleListings.length}
                   errorMessage={actionData?.error ?? null}
                 />
@@ -315,8 +315,8 @@ export default function DiscoveryItemDetailRoute() {
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   itemTitle={context.itemTitle}
-                  selectedOptions={context.selectedVersionSelection}
-                  productSummary={context.selectedVersionSummary}
+                  selectedOptions={context.selectedProductOptions}
+                  productSummary={context.selectedProductSummary}
                   visibleListingCount={context.visibleListings.length}
                   errorMessage={actionData?.error ?? null}
                 />

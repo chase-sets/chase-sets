@@ -75,7 +75,7 @@ export function MarketplaceSellerOfferDetailPage({
               <Text>
                 {offer.status === "accepted"
                   ? "This offer has already been accepted and converted into an order."
-                  : "This view is read-only in v1."}
+                  : "This view is read-only for now."}
               </Text>
             )}
           </Stack>

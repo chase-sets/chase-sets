@@ -368,7 +368,7 @@ describeWithDatabase("Admin page projections", () => {
     const formRawOptionId = "chc_form_raw";
     const conditionDimensionId = "dim_condition";
     const conditionOptionId = "chc_condition_nm";
-    const componentId = "cmp_single_card_versioning";
+    const componentId = "cmp_single_card_product_resolution";
     const blueprintId = "bpr_card_single";
 
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, {
@@ -406,8 +406,8 @@ describeWithDatabase("Admin page projections", () => {
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "CreateComponent",
       componentId,
-      key: "single-card-versioning",
-      name: "Single Card Versioning",
+      key: "single-card-product-resolution",
+      name: "Single Card Product Resolution",
       description: "Product resolution rules",
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {

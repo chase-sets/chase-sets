@@ -78,7 +78,7 @@ async function loadNameMap(
   return new Map(result.rows.map((row) => [row.id, row.name]));
 }
 
-async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise<unknown | null> {
+async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise<unknown | null> {
   const blueprintResult = await db.query<ItemDetailBlueprintRow>(
     `SELECT * FROM discovery_item_detail_catalog_blueprints WHERE blueprint_id = $1`,
     [blueprintId],
@@ -203,7 +203,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
   ]);
 
   const productSchema = item.blueprint_id
-    ? await buildVersionSchema(db, item.blueprint_id)
+      ? await buildProductSchema(db, item.blueprint_id)
     : null;
 
   await db.query(
@@ -719,5 +719,4 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
   };
 }
-
 

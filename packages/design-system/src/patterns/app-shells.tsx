@@ -1159,14 +1159,18 @@ export function MarketplaceProductDetailLayout({
 }: MarketplaceProductDetailLayoutProps) {
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)_24rem] xl:items-start">
+      <div className="grid gap-6 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)_24rem] xl:items-start 2xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)_26rem]">
         <div className="order-2 xl:order-1 xl:sticky xl:top-24">{media}</div>
-        <div className="order-1 min-w-0 xl:order-2">{summary}</div>
+        <div className="order-1 min-w-0 xl:order-2">
+          <div className="space-y-6">
+            {summary}
+            {market}
+            {children}
+          </div>
+        </div>
         <aside className="order-4 min-w-0 xl:order-3 xl:sticky xl:top-24">
           {commerce}
         </aside>
-        <div className="order-3 min-w-0 xl:order-4 xl:col-start-2">{market}</div>
-        <div className="order-5 min-w-0 xl:col-start-2">{children}</div>
       </div>
       {mobileActionBar ? (
         <div className="fixed inset-x-3 bottom-20 z-sticky xl:hidden md:bottom-4">
@@ -1195,12 +1199,12 @@ export function MarketplaceMetricStrip({
   return (
     <div
       {...rest}
-      className="grid grid-cols-2 gap-3"
+      className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4"
     >
       {items.map((item, index) => (
         <div
           key={index}
-          className="rounded-tokenLg border border-muted bg-surface p-4 shadow-tokenSm"
+          className="rounded-tokenLg border border-muted bg-surface p-3 shadow-tokenSm"
         >
           <div className="text-xs font-semibold uppercase text-secondary">
             {item.label}

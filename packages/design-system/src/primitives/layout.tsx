@@ -70,12 +70,13 @@ export interface ContainerProps
   width?: LayoutWidth;
 }
 
-export type LayoutWidth = "narrow" | "content" | "wide" | "full";
+export type LayoutWidth = "narrow" | "content" | "wide" | "expanded" | "full";
 
 export const layoutWidthClasses: Record<LayoutWidth, string> = {
   narrow: "max-w-3xl",
   content: "max-w-5xl",
   wide: "max-w-7xl",
+  expanded: "max-w-screen-2xl",
   full: "max-w-none"
 };
 

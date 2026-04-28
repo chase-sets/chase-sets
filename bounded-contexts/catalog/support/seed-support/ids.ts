@@ -71,7 +71,8 @@ export const catalogSeedIds = {
   },
   components: {
     singleCardIdentity: "cmp_seed_single_card_identity" as SeedComponentId,
-    singleCardVersioning: "cmp_seed_single_card_versioning" as SeedComponentId,
+    singleCardProductResolution:
+      "cmp_seed_single_card_product_resolution" as SeedComponentId,
     sealedProductIdentity: "cmp_seed_sealed_product_identity" as SeedComponentId,
   },
   blueprints: {

@@ -13,6 +13,7 @@ import {
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceLandingHero,
+  MarketplaceProductDetailLayout,
   MarketplaceProductCard,
   MarketplaceShell,
   MetricStrip,
@@ -315,11 +316,15 @@ describe("design system", () => {
   it("renders containers full width by default and allows width overrides", () => {
     const defaultMarkup = renderToString(<Container>Container body</Container>);
     const wideMarkup = renderToString(<Container width="wide">Container body</Container>);
+    const expandedMarkup = renderToString(
+      <Container width="expanded">Container body</Container>
+    );
 
     expect(defaultMarkup).toContain("max-w-none");
     expect(defaultMarkup).not.toContain("max-w-5xl");
     expect(defaultMarkup).not.toContain("max-w-7xl");
     expect(wideMarkup).toContain("max-w-7xl");
+    expect(expandedMarkup).toContain("max-w-screen-2xl");
   });
 
   it("renders pages full width by default and allows width overrides", () => {
@@ -528,6 +533,29 @@ describe("design system", () => {
     expect(markup).toContain("Sidebar content");
     expect(markup).toContain("Marketplace body");
     expect(markup).toContain("lg:grid-cols-[18rem_minmax(0,1fr)]");
+  });
+
+  it("renders marketplace product details with expanded desktop content columns", () => {
+    const markup = renderToString(
+      <MarketplaceProductDetailLayout
+        summary={<div>Summary</div>}
+        media={<div>Media</div>}
+        market={<div>Market metrics</div>}
+        commerce={<div>Commerce</div>}
+      >
+        <div>Detail content</div>
+      </MarketplaceProductDetailLayout>
+    );
+
+    expect(markup).toContain(
+      "xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)_24rem]"
+    );
+    expect(markup).toContain(
+      "2xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)_26rem]"
+    );
+    expect(markup).toContain("space-y-6");
+    expect(markup).toContain("Market metrics");
+    expect(markup).toContain("Detail content");
   });
 
   it("resolves responsive classes from maps", () => {

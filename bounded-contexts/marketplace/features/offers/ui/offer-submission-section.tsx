@@ -44,7 +44,7 @@ export function MarketplaceOfferSubmissionSection({
                 Matching visible listings for this product: {visibleListingCount}
               </Text>
               <Text size="sm" tone="secondary">
-                Offers are marketplace-wide in v1. They are not sent to a single seller.
+                Offers are marketplace-wide. They are not sent to a single seller.
               </Text>
             </Stack>
             {errorMessage ? <Text>{errorMessage}</Text> : null}

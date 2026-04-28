@@ -14,6 +14,12 @@ type Pages = {
   "/": {
     params: {};
   };
+  "/favicon.svg": {
+    params: {};
+  };
+  "/favicon.ico": {
+    params: {};
+  };
   "/catalog/account-select": {
     params: {};
   };
@@ -155,7 +161,15 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/catalog/account-select" | "/catalog/sign-in" | "/catalog/sign-out" | "/identity/account-select" | "/identity/sign-in" | "/identity/sign-out" | "/catalog" | "/catalog/blueprints" | "/catalog/blueprints/:id" | "/catalog/catalog-items" | "/catalog/catalog-items/:id" | "/catalog/categories" | "/catalog/categories/:id" | "/catalog/components" | "/catalog/components/:id" | "/catalog/dimensions" | "/catalog/dimensions/:id" | "/catalog/fields" | "/catalog/fields/:id" | "/identity" | "/identity/sessions" | "/identity/sessions/:id" | "/identity/commercial-terms/schedules" | "/identity/commercial-terms/schedules/:id" | "/identity/commercial-terms/agreements" | "/identity/commercial-terms/agreements/:id" | "/identity/accounts" | "/identity/accounts/:id" | "/identity/api-keys" | "/identity/api-keys/:id" | "/identity/invitations" | "/identity/invitations/:id" | "/identity/memberships" | "/identity/memberships/:id" | "/identity/users" | "/identity/users/:id";
+    page: "/" | "/favicon.svg" | "/favicon.ico" | "/catalog/account-select" | "/catalog/sign-in" | "/catalog/sign-out" | "/identity/account-select" | "/identity/sign-in" | "/identity/sign-out" | "/catalog" | "/catalog/blueprints" | "/catalog/blueprints/:id" | "/catalog/catalog-items" | "/catalog/catalog-items/:id" | "/catalog/categories" | "/catalog/categories/:id" | "/catalog/components" | "/catalog/components/:id" | "/catalog/dimensions" | "/catalog/dimensions/:id" | "/catalog/fields" | "/catalog/fields/:id" | "/identity" | "/identity/sessions" | "/identity/sessions/:id" | "/identity/commercial-terms/schedules" | "/identity/commercial-terms/schedules/:id" | "/identity/commercial-terms/agreements" | "/identity/commercial-terms/agreements/:id" | "/identity/accounts" | "/identity/accounts/:id" | "/identity/api-keys" | "/identity/api-keys/:id" | "/identity/invitations" | "/identity/invitations/:id" | "/identity/memberships" | "/identity/memberships/:id" | "/identity/users" | "/identity/users/:id";
+  };
+  "routes/favicon-svg.ts": {
+    id: "routes/favicon-svg";
+    page: "/favicon.svg";
+  };
+  "routes/favicon.ts": {
+    id: "routes/favicon";
+    page: "/favicon.ico";
   };
   "routes/index.tsx": {
     id: "routes/index";
@@ -317,6 +331,8 @@ type RouteFiles = {
 
 type RouteModules = {
   "root": typeof import("./app/root.tsx");
+  "routes/favicon-svg": typeof import("./app/routes/favicon-svg.ts");
+  "routes/favicon": typeof import("./app/routes/favicon.ts");
   "routes/index": typeof import("./app/routes/index.tsx");
   "../../../bounded-contexts/auth/routes/catalog-admin/account-select": unknown;
   "../../../bounded-contexts/auth/routes/catalog-admin/sign-in": unknown;

@@ -28,10 +28,10 @@ export async function seedBlueprints(
       key: "pokemon-card-single",
       name: "Pokemon Card Single",
       description:
-        "Template for a specific printed Pokemon card with raw and graded sellable versions",
+        "Template for a specific printed Pokemon card with raw and graded Products",
     });
 
-    for (const compKey of ["single-card-identity", "single-card-versioning"] as const) {
+    for (const compKey of ["single-card-identity", "single-card-product-resolution"] as const) {
       await sendSeedCommand(services.blueprints.commandHandler, streamId, {
         type: "AttachComponentToBlueprint",
         componentId: components[compKey],
@@ -162,5 +162,3 @@ export async function seedBlueprints(
 
   return result;
 }
-
-

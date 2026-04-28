@@ -14,6 +14,9 @@ type Pages = {
   "/": {
     params: {};
   };
+  "/favicon.svg": {
+    params: {};
+  };
   "/favicon.ico": {
     params: {};
   };
@@ -176,7 +179,11 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/account/select" | "/register" | "/sign-in" | "/sign-out" | "/items/:id" | "/search" | "/account/fulfillment" | "/account/fulfillment/:shipmentId" | "/account/shipments/:shipmentId" | "/account/shipments" | "/account" | "/account/consents" | "/account/security" | "/account/team" | "/account/inventory" | "/account/inventory/locations" | "/account/inventory/records/:recordId" | "/account/listings/:listingId" | "/account/listings" | "/account/market-offers/:offerId" | "/account/market-offers" | "/account/offers/:offerId" | "/account/offers" | "/account/cart" | "/account/orders/:orderId" | "/account/orders" | "/account/sales/:orderId" | "/account/sales" | "/account/payments/:paymentId" | "/account/payments/new" | "/account/orders/:orderId/review" | "/account/reviews/received" | "/account/reputation" | "/account/reviews/:reviewId" | "/account/sales/:orderId/review" | "/account/reviews/written" | "/account/payouts/:payoutId" | "/account/payouts" | "/account/settlement";
+    page: "/" | "/favicon.svg" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/account/select" | "/register" | "/sign-in" | "/sign-out" | "/items/:id" | "/search" | "/account/fulfillment" | "/account/fulfillment/:shipmentId" | "/account/shipments/:shipmentId" | "/account/shipments" | "/account" | "/account/consents" | "/account/security" | "/account/team" | "/account/inventory" | "/account/inventory/locations" | "/account/inventory/records/:recordId" | "/account/listings/:listingId" | "/account/listings" | "/account/market-offers/:offerId" | "/account/market-offers" | "/account/offers/:offerId" | "/account/offers" | "/account/cart" | "/account/orders/:orderId" | "/account/orders" | "/account/sales/:orderId" | "/account/sales" | "/account/payments/:paymentId" | "/account/payments/new" | "/account/orders/:orderId/review" | "/account/reviews/received" | "/account/reputation" | "/account/reviews/:reviewId" | "/account/sales/:orderId/review" | "/account/reviews/written" | "/account/payouts/:payoutId" | "/account/payouts" | "/account/settlement";
+  };
+  "routes/favicon-svg.ts": {
+    id: "routes/favicon-svg";
+    page: "/favicon.svg";
   };
   "routes/favicon.ts": {
     id: "routes/favicon";
@@ -362,6 +369,7 @@ type RouteFiles = {
 
 type RouteModules = {
   "root": typeof import("./app/root.tsx");
+  "routes/favicon-svg": typeof import("./app/routes/favicon-svg.ts");
   "routes/favicon": typeof import("./app/routes/favicon.ts");
   "routes/chrome-devtools": typeof import("./app/routes/chrome-devtools.ts");
   "routes/robots": typeof import("./app/routes/robots.ts");
