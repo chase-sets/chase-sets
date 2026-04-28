@@ -42,6 +42,7 @@ export interface MarketplaceListingInventoryRecordOption {
   product_id: string;
   item_title: string | null;
   item_subtitle: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   storage_location_name: string;
   ship_from_code: string;

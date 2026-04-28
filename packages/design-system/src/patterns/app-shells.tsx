@@ -1221,6 +1221,60 @@ export function MarketplaceMetricStrip({
   );
 }
 
+export interface MarketplaceMarketSummaryFact {
+  label: ReactNode;
+  value: ReactNode;
+}
+
+export interface MarketplaceMarketSummaryProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  priceLabel?: ReactNode;
+  price: ReactNode;
+  facts: MarketplaceMarketSummaryFact[];
+  note?: ReactNode;
+}
+
+export function MarketplaceMarketSummary({
+  priceLabel = "Lowest ask",
+  price,
+  facts,
+  note,
+  ...rest
+}: MarketplaceMarketSummaryProps) {
+  return (
+    <div
+      {...rest}
+      className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold uppercase text-secondary">
+            {priceLabel}
+          </div>
+          <div className="mt-1 font-heading text-2xl font-semibold text-foreground">
+            {price}
+          </div>
+          {note ? <div className="mt-1 text-sm text-secondary">{note}</div> : null}
+        </div>
+        {facts.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:min-w-[22rem]">
+            {facts.map((fact, index) => (
+              <div key={index}>
+                <div className="text-xs font-semibold uppercase text-secondary">
+                  {fact.label}
+                </div>
+                <div className="mt-1 text-sm font-semibold text-foreground">
+                  {fact.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export interface CommerceActionBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   summary: ReactNode;

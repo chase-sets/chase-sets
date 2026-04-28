@@ -19,10 +19,13 @@ import {
 } from "../domain/domain";
 import { buildMarketplaceOfferProjectionHandlers } from "../read-model/projection";
 import {
+  addSellerOfferCartItem,
   getBuyerOffer,
   getSellerVisibleOffer,
+  listSellerOfferCart,
   listBuyerOffers,
   listSellerVisibleOffers,
+  removeSellerOfferCartItems,
 } from "../read-model/queries";
 import {
   createMarketplaceProductDescriptor,
@@ -57,6 +60,24 @@ export type MarketplaceOfferServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ offerId: OfferId; version: number }>;
+  addSellerOfferCartItem: (
+    params: Readonly<{
+      offerId: OfferId;
+      sellerAccountId: AccountId;
+    }>,
+  ) => Promise<void>;
+  listSellerOfferCart: (
+    sellerAccountId: string,
+  ) => ReturnType<typeof listSellerOfferCart>;
+  acceptSellerOfferCart: (
+    params: Readonly<{
+      sellerAccountId: AccountId;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{
+    acceptedOfferIds: readonly OfferId[];
+    skipped: readonly { offerId: string; reason: string }[];
+  }>;
   listBuyerOffers: (
     params: Parameters<typeof listBuyerOffers>[1],
   ) => ReturnType<typeof listBuyerOffers>;
@@ -162,6 +183,9 @@ export function createMarketplaceOfferRuntime(
       if (!offer) {
         throw new Error("Offer not found.");
       }
+      if (!offer.can_fulfill) {
+        throw new Error("Seller does not have enough active supply to accept this offer.");
+      }
 
       const result = await commandHandler({
         streamId: `marketplace.offer-${params.offerId}`,
@@ -174,6 +198,56 @@ export function createMarketplaceOfferRuntime(
       });
 
       return { offerId: params.offerId, version: result.version };
+    },
+    addSellerOfferCartItem: async (params) => {
+      await addSellerOfferCartItem(deps.db, {
+        sellerAccountId: params.sellerAccountId,
+        offerId: params.offerId,
+        addedAt: new Date().toISOString(),
+      });
+    },
+    listSellerOfferCart: (sellerAccountId) =>
+      listSellerOfferCart(deps.db, sellerAccountId),
+    acceptSellerOfferCart: async (params, context) => {
+      const items = await listSellerOfferCart(deps.db, params.sellerAccountId);
+      const acceptedOfferIds: OfferId[] = [];
+      const skipped: Array<{ offerId: string; reason: string }> = [];
+
+      for (const item of items) {
+        if (item.status !== "submitted") {
+          skipped.push({ offerId: item.offer_id, reason: "Offer is no longer submitted." });
+          continue;
+        }
+        if (!item.can_fulfill) {
+          skipped.push({ offerId: item.offer_id, reason: "Not enough active supply." });
+          continue;
+        }
+
+        try {
+          await commandHandler({
+            streamId: `marketplace.offer-${item.offer_id}`,
+            command: {
+              type: "AcceptOffer",
+              sellerAccountId: params.sellerAccountId,
+              acceptedAt: new Date().toISOString(),
+            },
+            context,
+          });
+          acceptedOfferIds.push(item.offer_id as OfferId);
+        } catch (error) {
+          skipped.push({
+            offerId: item.offer_id,
+            reason: error instanceof Error ? error.message : "Offer could not be accepted.",
+          });
+        }
+      }
+
+      await removeSellerOfferCartItems(deps.db, {
+        sellerAccountId: params.sellerAccountId,
+        offerIds: acceptedOfferIds,
+      });
+
+      return { acceptedOfferIds, skipped };
     },
     listBuyerOffers: (params) => listBuyerOffers(deps.db, params),
     getBuyerOffer: (offerId, buyerAccountId) =>

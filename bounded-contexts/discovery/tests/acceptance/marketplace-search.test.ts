@@ -262,7 +262,8 @@ describeWithDatabase("marketplace search", () => {
       formDimensionId: "dim_form",
       formRawOptionId: "chc_form_raw",
       conditionDimensionId: "dim_condition",
-      conditionOptionId: "chc_condition_nm",
+      conditionNearMintOptionId: "chc_condition_nm",
+      conditionExcellentOptionId: "chc_condition_excellent",
       cardBlueprintId: "bpr_card_single",
       sealedBlueprintId: "bpr_sealed",
       nameFieldId: "fld_name",
@@ -327,13 +328,21 @@ describeWithDatabase("marketplace search", () => {
       key: "condition",
       name: "Condition",
       description: "Card condition",
+      valueKind: "ordered",
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
       type: "AddOption",
-      optionId: ids.conditionOptionId as never,
+      optionId: ids.conditionNearMintOptionId as never,
       code: "near-mint",
       labels: [{ locale: "en", value: "Near Mint" }],
-      numericValue: null,
+      numericValue: 5,
+    });
+    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
+      type: "AddOption",
+      optionId: ids.conditionExcellentOptionId as never,
+      code: "excellent",
+      labels: [{ locale: "en", value: "Excellent" }],
+      numericValue: 4,
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
       type: "ActivateDimension",
@@ -360,7 +369,7 @@ describeWithDatabase("marketplace search", () => {
         {
           dimensionId: ids.conditionDimensionId as never,
           required: true,
-          allowedOptionIds: [ids.conditionOptionId as never],
+          allowedOptionIds: [ids.conditionExcellentOptionId as never, ids.conditionNearMintOptionId as never],
           appliesWhen: [{ dimensionId: ids.formDimensionId as never, optionIds: [ids.formRawOptionId as never] }],
         },
       ],
@@ -472,7 +481,12 @@ describeWithDatabase("marketplace search", () => {
     expect(
       cardBody.product_schema.dimensions.find((dimension: { dimensionId: string }) => dimension.dimensionId === ids.conditionDimensionId),
     ).toMatchObject({
+      valueKind: "ordered",
       appliesWhen: [{ dimensionId: ids.formDimensionId, optionIds: [ids.formRawOptionId] }],
+      allowedOptions: [
+        { optionId: ids.conditionNearMintOptionId, displayOrder: 0, numericValue: 5 },
+        { optionId: ids.conditionExcellentOptionId, displayOrder: 1, numericValue: 4 },
+      ],
     });
 
     const sealedResponse = await app.request(`/api/marketplace/items/${ids.sealedItemId}`);

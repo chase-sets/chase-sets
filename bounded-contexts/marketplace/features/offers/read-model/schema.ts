@@ -28,4 +28,15 @@ CREATE INDEX IF NOT EXISTS marketplace_offer_pages_catalog_version_idx
 
 CREATE INDEX IF NOT EXISTS marketplace_offer_pages_selected_options_idx
   ON marketplace_offer_pages USING gin (selected_options);
+
+CREATE TABLE IF NOT EXISTS marketplace_seller_offer_cart_pages (
+  seller_account_id text NOT NULL,
+  offer_id text NOT NULL,
+  added_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (seller_account_id, offer_id)
+);
+
+CREATE INDEX IF NOT EXISTS marketplace_seller_offer_cart_pages_seller_idx
+  ON marketplace_seller_offer_cart_pages (seller_account_id, updated_at DESC);
 `;

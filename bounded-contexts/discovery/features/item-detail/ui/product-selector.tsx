@@ -19,12 +19,14 @@ function formatDimensionName(name: string): string {
 interface ProductSelectorProps {
   schema: ProductSchema;
   selections: Record<string, string>;
+  optionSummaries?: Record<string, Record<string, string>>;
   onSelectionChange: (dimensionId: string, optionId: string) => void;
 }
 
 export function ProductSelector({
   schema,
   selections,
+  optionSummaries = {},
   onSelectionChange,
 }: ProductSelectorProps) {
   if (schema.dimensions.length === 0) {
@@ -45,6 +47,7 @@ export function ProductSelector({
           ...dimension.allowedOptions.map((option) => ({
             value: option.optionId,
             label: getOptionLabel(option),
+            description: optionSummaries[dimension.dimensionId]?.[option.optionId],
           })),
         ];
         const onValueChange = (value: string) =>
@@ -60,7 +63,17 @@ export function ProductSelector({
                 {formatDimensionName(dimension.dimensionName)}
               </Text>
               <SegmentedControl
-                items={items}
+                items={items.map((item) => {
+                  const description =
+                    "description" in item ? item.description : undefined;
+
+                  return {
+                    ...item,
+                    label: description
+                      ? `${item.label} · ${description}`
+                      : item.label,
+                  };
+                })}
                 value={selected}
                 onValueChange={onValueChange}
               />

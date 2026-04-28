@@ -432,6 +432,74 @@ describe("ordering order runtime", () => {
     });
   });
 
+  it("creates buy-now orders from the requested listing only", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createSupplyDb((params) => {
+      expect(params?.[0]).toBe("lst_buy_now");
+      return [
+        {
+          listingId: "lst_buy_now",
+          sellerAccountId: "acc_seller",
+          inventoryRecordId: "inv_buy_now",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          storageLocationName: "North shelf",
+          shipFromCode: "CHI",
+          priceAmount: "12.00",
+          availableQuantity: 2,
+          updatedAt: "2026-03-31T00:00:00.000Z",
+        },
+      ];
+    });
+
+    const services = createOrderingOrderRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      carts: {
+        listCartLines: async () => [],
+        checkout: async () => ({ version: 1 }),
+      } as never,
+      commercialTermsResolver,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+
+    await services.buyNow(
+      {
+        buyerAccountId: "acc_buyer" as never,
+        listingId: "lst_buy_now",
+        productId: "cat_1::",
+        quantity: 1,
+        shippingOption: "standard",
+      },
+      context,
+    );
+
+    const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
+    expect(createdEvent?.payload).toMatchObject({
+      sourceType: "buy-now",
+      sourceReferenceId: "lst_buy_now",
+      lines: [
+        expect.objectContaining({
+          listingId: "lst_buy_now",
+          inventoryRecordId: "inv_buy_now",
+          unitPriceAmount: "12.00",
+        }),
+      ],
+    });
+  });
+
   it("releases inventory reservations when a buyer cancels a pending order", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
 

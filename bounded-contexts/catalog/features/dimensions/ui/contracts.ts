@@ -5,6 +5,7 @@ export interface Dimension {
   key: string;
   name: string;
   description: string;
+  value_kind: "unordered" | "ordered" | "numeric";
   status: string;
   updated_at: string;
 }
@@ -26,4 +27,6 @@ export interface DimensionDetail extends Dimension {
 export interface OptionRef {
   optionId: string;
   code: string;
+  displayOrder?: number;
+  numericValue?: number | null;
 }

@@ -68,6 +68,37 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
     }
   });
 
+  app.post("/orders/buy-now", async (c) => {
+    const access = requireOrderAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: "Authentication context missing." }, 401);
+    }
+
+    const body = await c.req.json();
+
+    try {
+      const result = await services.buyNow(
+        {
+          buyerAccountId: access.actor.accountId as never,
+          listingId: String(body.listingId ?? ""),
+          productId: String(body.productId ?? ""),
+          quantity: Number(body.quantity ?? 0),
+          shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
+        },
+        context,
+      );
+
+      return c.json({ orderIds: result.orderIds }, 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
   app.get("/orders", async (c) => {
     const access = requireOrderAccess(c, "orders.view");
     if (access.response) {

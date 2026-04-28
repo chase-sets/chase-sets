@@ -68,18 +68,28 @@ export async function refreshCatalogAdminComponentDetailPage(
     dimensionId: rule.dimensionId,
     dimensionName: dimensionNames.get(rule.dimensionId) ?? rule.dimensionId,
     required: rule.required,
-    allowedOptions: (rule.allowedOptionIds ?? []).map((optionId) => ({
-      optionId,
-      code: optionCodes.get(optionId) ?? optionId,
-    })),
+    allowedOptions: (rule.allowedOptionIds ?? []).map((optionId) => {
+      const option = optionCodes.get(optionId);
+      return {
+        optionId,
+        code: option?.code ?? optionId,
+        displayOrder: option?.displayOrder,
+        numericValue: option?.numericValue,
+      };
+    }),
     appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
       dimensionId: clause.dimensionId,
       dimensionName: dimensionNames.get(clause.dimensionId) ?? clause.dimensionId,
       optionIds: clause.optionIds ?? [],
-      options: (clause.optionIds ?? []).map((optionId) => ({
-        optionId,
-        code: optionCodes.get(optionId) ?? optionId,
-      })),
+      options: (clause.optionIds ?? []).map((optionId) => {
+        const option = optionCodes.get(optionId);
+        return {
+          optionId,
+          code: option?.code ?? optionId,
+          displayOrder: option?.displayOrder,
+          numericValue: option?.numericValue,
+        };
+      }),
     })),
   }));
 
@@ -238,8 +248,8 @@ export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): P
     "catalog.dimension.option-revised": async (event) => {
       await refreshOptionDependents(event.data.optionId as string);
     },
-    "catalog.dimension.options-reordered": async () => {
-      // Option order is not rendered in component detail pages.
+    "catalog.dimension.options-reordered": async (event) => {
+      await refreshDimensionDependents(extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX));
     },
     "catalog.dimension.option-deprecated": async (event) => {
       await refreshOptionDependents(event.data.optionId as string);
@@ -258,5 +268,4 @@ export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): P
     },
   };
 }
-
 

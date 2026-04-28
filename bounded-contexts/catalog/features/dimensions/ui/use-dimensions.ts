@@ -11,11 +11,11 @@ export function useDimension(id: string, initialData?: DimensionDetail | null) {
   return useFetch(() => api.getDimension<DimensionDetail>(id), [id], initialData);
 }
 
-export function createDimension(body: { dimensionId: string; key: string; name: string; description?: string }) {
+export function createDimension(body: { dimensionId: string; key: string; name: string; description?: string; valueKind?: string }) {
   return api.createDimension<CommandResponse>(body);
 }
 
-export function reviseDimension(id: string, body: { key: string; name: string; description?: string }) {
+export function reviseDimension(id: string, body: { key: string; name: string; description?: string; valueKind?: string }) {
   return api.reviseDimension<CommandResponse>(id, body);
 }
 
@@ -50,7 +50,6 @@ export function reactivateOption(dimensionId: string, optionId: string) {
 export function reorderOptions(dimensionId: string, optionIds: string[]) {
   return api.reorderOptions<CommandResponse>(dimensionId, optionIds);
 }
-
 
 
 

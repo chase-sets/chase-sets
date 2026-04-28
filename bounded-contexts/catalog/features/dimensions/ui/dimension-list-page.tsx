@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import {
   Button,
   Dialog,
+  Select,
   Stack,
   StatusPill,
   TextInput,
@@ -16,6 +17,7 @@ import type { Dimension } from "./contracts";
 const columns: DataColumn<Dimension>[] = [
   { key: "key", header: "Key", cell: (row) => row.key },
   { key: "name", header: "Name", cell: (row) => row.name },
+  { key: "value_kind", header: "Value Kind", cell: (row) => row.value_kind },
   { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
 ];
 
@@ -24,6 +26,12 @@ const statusOptions = [
   { label: "Active", value: "active" },
   { label: "Deprecated", value: "deprecated" },
   { label: "Archived", value: "archived" },
+];
+
+const valueKindOptions = [
+  { label: "Unordered", value: "unordered" },
+  { label: "Ordered", value: "ordered" },
+  { label: "Numeric", value: "numeric" },
 ];
 
 export function DimensionListPage({ initialData }: { initialData?: Parameters<typeof useDimensionList>[1] }) {
@@ -46,15 +54,17 @@ export function DimensionListPage({ initialData }: { initialData?: Parameters<ty
   const [key, setKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [valueKind, setValueKind] = useState("unordered");
 
   async function handleCreate() {
     const dimensionId = createId("dim");
-    await createDimension({ dimensionId, key, name, description: description || undefined });
+    await createDimension({ dimensionId, key, name, description: description || undefined, valueKind });
     addToast("Dimension created", "success");
     setShowCreate(false);
     setKey("");
     setName("");
     setDescription("");
+    setValueKind("unordered");
     refresh();
   }
 
@@ -92,12 +102,17 @@ export function DimensionListPage({ initialData }: { initialData?: Parameters<ty
           <TextInput label="Key" value={key} onChange={(e) => setKey(e.target.value)} />
           <TextInput label="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <TextInput label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <Select
+            label="Value Kind"
+            items={valueKindOptions}
+            value={valueKind}
+            onValueChange={setValueKind}
+          />
         </Stack>
       </Dialog>
     </>
   );
 }
-
 
 
 

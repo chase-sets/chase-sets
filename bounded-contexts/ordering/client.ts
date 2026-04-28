@@ -103,6 +103,14 @@ export function createOrderingApiClient({
         }),
       );
     },
+    async buyNow(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.buyer.orders["buy-now"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async listBuyerOrders(
       query = "",
     ): Promise<ListResponse<OrderingOrderListItem>> {

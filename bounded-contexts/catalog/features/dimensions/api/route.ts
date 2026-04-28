@@ -20,6 +20,7 @@ export function dimensionRoutes(services: DimensionServices) {
         key: body.key,
         name: body.name,
         description: body.description,
+        valueKind: body.valueKind,
       },
       context,
     });
@@ -39,6 +40,7 @@ export function dimensionRoutes(services: DimensionServices) {
         key: body.key,
         name: body.name,
         description: body.description,
+        valueKind: body.valueKind,
       },
       context,
     });
@@ -193,6 +195,5 @@ export function dimensionRoutes(services: DimensionServices) {
 
   return app;
 }
-
 
 

@@ -38,16 +38,28 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_fields (
 CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_dimensions (
   dimension_id text PRIMARY KEY,
   name text NOT NULL,
+  value_kind text NOT NULL DEFAULT 'unordered',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE discovery_item_detail_catalog_dimensions
+  ADD COLUMN IF NOT EXISTS value_kind text NOT NULL DEFAULT 'unordered';
 
 CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_dimension_options (
   option_id text PRIMARY KEY,
   dimension_id text NOT NULL,
   code text NOT NULL,
   labels jsonb NOT NULL DEFAULT '[]'::jsonb,
+  display_order integer NOT NULL DEFAULT 0,
+  numeric_value numeric NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE discovery_item_detail_catalog_dimension_options
+  ADD COLUMN IF NOT EXISTS display_order integer NOT NULL DEFAULT 0;
+
+ALTER TABLE discovery_item_detail_catalog_dimension_options
+  ADD COLUMN IF NOT EXISTS numeric_value numeric NULL;
 
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_dimension_options_dimension_idx ON discovery_item_detail_catalog_dimension_options (dimension_id);
 
@@ -66,4 +78,3 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   product_schema jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );`;
-

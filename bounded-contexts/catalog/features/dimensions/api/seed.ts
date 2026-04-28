@@ -21,6 +21,7 @@ type DimensionDef = {
   dimensionId: DimensionId;
   name: string;
   description: string;
+  valueKind: "unordered" | "ordered" | "numeric";
   options: DimensionOptionDef[];
 };
 
@@ -30,6 +31,7 @@ const dimensionDefs: DimensionDef[] = [
     dimensionId: catalogSeedIds.dimensions.form.dimensionId as DimensionId,
     name: "Form",
     description: "How the card is offered as a sellable Product",
+    valueKind: "unordered",
     options: [
       {
         optionId: catalogSeedIds.dimensions.form.optionIds.raw as OptionId,
@@ -48,11 +50,13 @@ const dimensionDefs: DimensionDef[] = [
     dimensionId: catalogSeedIds.dimensions.condition.dimensionId as DimensionId,
     name: "Condition",
     description: "Conditioning guideline for a raw, ungraded card",
+    valueKind: "ordered",
     options: [
       {
         optionId: catalogSeedIds.dimensions.condition.optionIds.pristine as OptionId,
         code: "pristine",
         label: "Pristine",
+        numericValue: 7,
         guideline: {
           summary:
             "No visible flaws to the naked eye under normal inspection. Card remains flawless when tilted under strong light. No noticeable centering issues.",
@@ -73,6 +77,7 @@ const dimensionDefs: DimensionDef[] = [
         optionId: catalogSeedIds.dimensions.condition.optionIds.mint as OptionId,
         code: "mint",
         label: "Mint",
+        numericValue: 6,
         guideline: {
           summary:
             "Card appears flawless under normal viewing conditions. Extremely minor imperfections may exist but require deliberate angled lighting to detect.",
@@ -91,6 +96,7 @@ const dimensionDefs: DimensionDef[] = [
         optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint as OptionId,
         code: "near-mint",
         label: "Near Mint",
+        numericValue: 5,
         guideline: {
           summary:
             "Card appears clean and well preserved at first glance. Minor imperfections may be visible on close inspection.",
@@ -107,6 +113,7 @@ const dimensionDefs: DimensionDef[] = [
         optionId: catalogSeedIds.dimensions.condition.optionIds.excellent as OptionId,
         code: "excellent",
         label: "Excellent",
+        numericValue: 4,
         guideline: {
           summary: "Noticeable wear but the card still presents well overall.",
           possibleIssues: [
@@ -122,6 +129,7 @@ const dimensionDefs: DimensionDef[] = [
         optionId: catalogSeedIds.dimensions.condition.optionIds.good as OptionId,
         code: "good",
         label: "Good",
+        numericValue: 3,
         guideline: {
           summary:
             "Clear wear is visible across multiple areas of the card but the card remains visually complete and structurally intact.",
@@ -138,6 +146,7 @@ const dimensionDefs: DimensionDef[] = [
         optionId: catalogSeedIds.dimensions.condition.optionIds.poor as OptionId,
         code: "poor",
         label: "Poor",
+        numericValue: 2,
         guideline: {
           summary:
             "Significant visible wear across much of the card, though the card remains structurally intact.",
@@ -154,6 +163,7 @@ const dimensionDefs: DimensionDef[] = [
         optionId: catalogSeedIds.dimensions.condition.optionIds.damaged as OptionId,
         code: "damaged",
         label: "Damaged",
+        numericValue: 1,
         guideline: {
           summary:
             "Card has structural damage but remains identifiable and authentic.",
@@ -177,6 +187,7 @@ const dimensionDefs: DimensionDef[] = [
     name: "Grading Company",
     description:
       "Professional grading service that authenticated and graded the card",
+    valueKind: "unordered",
     options: [
       {
         optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.psa as OptionId,
@@ -215,6 +226,7 @@ const dimensionDefs: DimensionDef[] = [
     dimensionId: catalogSeedIds.dimensions.grade.dimensionId as DimensionId,
     name: "Grade",
     description: "Numeric grade assigned by a professional grading company",
+    valueKind: "numeric",
     options: [
       {
         optionId: catalogSeedIds.dimensions.grade.optionIds.pristine10 as OptionId,
@@ -300,7 +312,7 @@ const dimensionDefs: DimensionDef[] = [
 
 export type DimensionIds = Record<
   string,
-  { dimensionId: DimensionId; optionIds: Record<string, OptionId> }
+  { dimensionId: DimensionId; optionIds: Record<string, OptionId>; orderedOptionIds: OptionId[] }
 >;
 
 export async function seedDimensions(
@@ -312,6 +324,7 @@ export async function seedDimensions(
   for (const def of dimensionDefs) {
     const streamId = `catalog.dimension-${def.dimensionId}`;
     const optionIds: Record<string, OptionId> = {};
+    const orderedOptionIds: OptionId[] = [];
 
     await sendSeedCommand(services.dimensions.commandHandler, streamId, {
       type: "CreateDimension",
@@ -319,10 +332,12 @@ export async function seedDimensions(
       key: def.key,
       name: def.name,
       description: def.description,
+      valueKind: def.valueKind,
     });
 
     for (const option of def.options) {
       optionIds[option.code] = option.optionId;
+      orderedOptionIds.push(option.optionId);
 
       await sendSeedCommand(services.dimensions.commandHandler, streamId, {
         type: "AddOption",
@@ -337,7 +352,7 @@ export async function seedDimensions(
       type: "ActivateDimension",
     });
 
-    result[def.key] = { dimensionId: def.dimensionId, optionIds };
+    result[def.key] = { dimensionId: def.dimensionId, optionIds, orderedOptionIds };
     console.log(
       `  Dimension "${def.name}" created with ${def.options.length} options`,
     );

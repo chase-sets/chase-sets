@@ -179,6 +179,126 @@ export async function getInventoryRecordSupply(
   };
 }
 
+export async function listSellerInventoryRecordSupply(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; catalogItemId?: string; limit?: number; offset?: number }>,
+): Promise<{ items: MarketplaceInventoryRecordSupply[]; total: number }> {
+  const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
+  const offset = Math.max(0, params.offset ?? 0);
+  const values: unknown[] = [params.accountId];
+  const catalogCondition = params.catalogItemId ? "AND record.catalog_catalog_item_id = $2" : "";
+
+  if (params.catalogItemId) {
+    values.push(params.catalogItemId);
+  }
+
+  const limitIndex = values.length + 1;
+  const offsetIndex = values.length + 2;
+
+  const selectSql = `
+    SELECT
+      record.record_id,
+      record.account_id,
+      record.catalog_catalog_item_id,
+      record.product_id,
+      catalog_item.title AS item_title,
+      catalog_item.subtitle AS item_subtitle,
+      record.selected_options,
+      (
+        CASE
+          WHEN catalog_item.product_schema IS NULL THEN NULL
+          ELSE (
+            SELECT string_agg(part, ' | ' ORDER BY ordinality)
+            FROM (
+              SELECT
+                ordinality,
+                COALESCE(dimension->>'dimensionName', dimension->>'dimensionId') || ': ' ||
+                COALESCE(
+                  option->'labels'->0->>'value',
+                  option->>'code',
+                  selection->>'optionId'
+                ) AS part
+              FROM jsonb_array_elements(record.selected_options) WITH ORDINALITY AS selected(selection, ordinality)
+              LEFT JOIN LATERAL (
+                SELECT dimension
+                FROM jsonb_array_elements(COALESCE(catalog_item.product_schema->'dimensions', '[]'::jsonb)) AS dimension
+                WHERE dimension->>'dimensionId' = selection->>'dimensionId'
+              ) matched_dimension ON TRUE
+              LEFT JOIN LATERAL (
+                SELECT option
+                FROM jsonb_array_elements(COALESCE(matched_dimension.dimension->'allowedOptions', '[]'::jsonb)) AS option
+                WHERE option->>'optionId' = selection->>'optionId'
+              ) matched_choice ON TRUE
+            ) parts
+          )
+        END
+      ) AS product_summary,
+      location.name AS storage_location_name,
+      location.ship_from_code,
+      record.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
+    FROM marketplace_supply_records AS record
+    INNER JOIN marketplace_supply_locations AS location
+      ON location.storage_location_id = record.storage_location_id
+    LEFT JOIN marketplace_catalog_items AS catalog_item
+      ON catalog_item.catalog_item_id = record.catalog_catalog_item_id
+    LEFT JOIN (
+      SELECT record_id, SUM(quantity)::integer AS held_quantity
+      FROM marketplace_supply_holds
+      WHERE status = 'active'
+      GROUP BY record_id
+    ) AS active_holds
+      ON active_holds.record_id = record.record_id
+    WHERE record.account_id = $1
+      ${catalogCondition}
+      AND record.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0`;
+
+  const [countResult, itemsResult] = await Promise.all([
+    db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM marketplace_supply_records AS record
+       LEFT JOIN (
+         SELECT record_id, SUM(quantity)::integer AS held_quantity
+         FROM marketplace_supply_holds
+         WHERE status = 'active'
+         GROUP BY record_id
+       ) AS active_holds
+         ON active_holds.record_id = record.record_id
+       WHERE record.account_id = $1
+         ${catalogCondition}
+         AND record.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0`,
+      values,
+    ),
+    db.query<{
+      record_id: string;
+      account_id: string;
+      catalog_catalog_item_id: string;
+      product_id: string;
+      item_title: string | null;
+      item_subtitle: string | null;
+      selected_options: unknown;
+      product_summary: string | null;
+      storage_location_name: string;
+      ship_from_code: string;
+      available_quantity: number;
+    }>(
+      `${selectSql}
+       ORDER BY catalog_item.title ASC, record.product_id ASC, record.record_id ASC
+       LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+      [...values, limit, offset],
+    ),
+  ]);
+
+  return {
+    items: itemsResult.rows.map((row) => ({
+      ...row,
+      selected_options: Array.isArray(row.selected_options)
+        ? (row.selected_options as MarketplaceInventoryRecordSupply["selected_options"])
+        : [],
+    })),
+    total: Number(countResult.rows[0]?.count ?? 0),
+  };
+}
+
 export async function getActiveQuantityCapForInventoryRecord(
   db: PgQueryable,
   inventoryRecordId: string,

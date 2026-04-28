@@ -68,14 +68,14 @@ export async function seedComponents(
       type: "AddDimensionRuleToComponent",
       dimensionId: formDimension.dimensionId,
       required: true,
-      allowedOptionIds: Object.values(formDimension.optionIds),
+      allowedOptionIds: formDimension.orderedOptionIds,
     });
 
     await sendSeedCommand(services.components.commandHandler, streamId, {
       type: "AddDimensionRuleToComponent",
       dimensionId: dimensions.condition.dimensionId,
       required: true,
-      allowedOptionIds: Object.values(dimensions.condition.optionIds),
+      allowedOptionIds: dimensions.condition.orderedOptionIds,
       appliesWhen: [
         {
           dimensionId: formDimension.dimensionId,
@@ -90,7 +90,7 @@ export async function seedComponents(
         type: "AddDimensionRuleToComponent",
         dimensionId: dimension.dimensionId,
         required: true,
-        allowedOptionIds: Object.values(dimension.optionIds),
+        allowedOptionIds: dimension.orderedOptionIds,
         appliesWhen: [
           {
             dimensionId: formDimension.dimensionId,

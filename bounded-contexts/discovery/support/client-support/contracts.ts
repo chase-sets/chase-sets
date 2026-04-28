@@ -27,12 +27,15 @@ export interface ProductApplicabilityClause {
 export interface ProductDimension {
   dimensionId: string;
   dimensionName: string;
+  valueKind: "unordered" | "ordered" | "numeric";
   required: boolean;
   appliesWhen: ProductApplicabilityClause[];
   allowedOptions: Array<{
     optionId: string;
     code: string;
     labels?: Array<{ locale: string; value: string }>;
+    displayOrder: number;
+    numericValue: number | null;
   }>;
 }
 
@@ -95,4 +98,39 @@ export interface DiscoveryMarketListing {
   visible_quantity: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface DiscoverySellerOffer {
+  offer_id: string;
+  buyer_account_id: string;
+  buyer_display_name: string | null;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string;
+  item_subtitle: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
+  price_amount: string;
+  quantity_requested: number;
+  status: string;
+  accepted_seller_account_id: string | null;
+  accepted_at: string | null;
+  seller_available_quantity: number;
+  can_fulfill: boolean;
+  in_sell_list: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscoverySellerInventoryRecord {
+  record_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string | null;
+  item_subtitle: string | null;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
+  storage_location_name: string;
+  ship_from_code: string;
+  available_quantity: number;
 }

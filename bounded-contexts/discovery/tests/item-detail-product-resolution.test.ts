@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ProductSchema } from "../support/client-support/contracts";
 import {
   createDiscoveryProductDescriptor,
+  getOrderedActiveDimensions,
   isProductSelectionComplete,
   normalizeProductSearchOptionsForSchema,
 } from "../features/item-detail/domain/product-resolution";
@@ -15,21 +16,23 @@ const schema: ProductSchema = {
     {
       dimensionId: "form",
       dimensionName: "Form",
+      valueKind: "unordered",
       required: true,
       appliesWhen: [],
       allowedOptions: [
-        { optionId: "raw", code: "raw", labels: [{ locale: "en", value: "Raw" }] },
-        { optionId: "graded", code: "graded", labels: [{ locale: "en", value: "Graded" }] },
+        { optionId: "raw", code: "raw", labels: [{ locale: "en", value: "Raw" }], displayOrder: 0, numericValue: null },
+        { optionId: "graded", code: "graded", labels: [{ locale: "en", value: "Graded" }], displayOrder: 1, numericValue: null },
       ],
     },
     {
       dimensionId: "condition",
       dimensionName: "Condition",
+      valueKind: "ordered",
       required: true,
       appliesWhen: [{ dimensionId: "form", optionIds: ["raw"] }],
       allowedOptions: [
-        { optionId: "near_mint", code: "near-mint", labels: [{ locale: "en", value: "Near Mint" }] },
-        { optionId: "excellent", code: "excellent", labels: [{ locale: "en", value: "Excellent" }] },
+        { optionId: "near_mint", code: "near-mint", labels: [{ locale: "en", value: "Near Mint" }], displayOrder: 0, numericValue: 5 },
+        { optionId: "excellent", code: "excellent", labels: [{ locale: "en", value: "Excellent" }], displayOrder: 1, numericValue: 4 },
       ],
     },
   ],
@@ -74,5 +77,17 @@ describe("item detail product search options", () => {
         { dimensionId: "condition", optionId: "near_mint" },
       ],
     });
+  });
+
+  it("keeps ordered dimension options in schema order with values", () => {
+    const condition = getOrderedActiveDimensions(schema, { form: "raw" }).find(
+      (dimension) => dimension.dimensionId === "condition",
+    );
+
+    expect(condition?.valueKind).toBe("ordered");
+    expect(condition?.allowedOptions.map((option) => [option.optionId, option.numericValue])).toEqual([
+      ["near_mint", 5],
+      ["excellent", 4],
+    ]);
   });
 });

@@ -7,6 +7,7 @@ import {
   Inline,
   KeyValueList,
   PageSection,
+  Select,
   Stack,
   StatusPill,
   TextInput,
@@ -57,6 +58,12 @@ const optionColumns: DataColumn<DimensionOption>[] = [
   { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
 ];
 
+const valueKindOptions = [
+  { label: "Unordered", value: "unordered" },
+  { label: "Ordered", value: "ordered" },
+  { label: "Numeric", value: "numeric" },
+];
+
 interface LabelEntry {
   locale: string;
   value: string;
@@ -71,6 +78,7 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
   const [editKey, setEditKey] = useState("");
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editValueKind, setEditValueKind] = useState("unordered");
 
   // Add option
   const [showAddOption, setShowAddOption] = useState(false);
@@ -100,7 +108,7 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
   }
 
   async function handleRevise() {
-    await reviseDimension(id, { key: editKey, name: editName, description: editDescription || undefined });
+    await reviseDimension(id, { key: editKey, name: editName, description: editDescription || undefined, valueKind: editValueKind });
     addToast("Dimension revised", "success");
     setEditing(false);
     refresh();
@@ -179,6 +187,7 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       setEditKey(data.key);
       setEditName(data.name);
       setEditDescription(data.description ?? "");
+      setEditValueKind(data.value_kind);
       setEditing(true);
     }
   }
@@ -251,6 +260,7 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
                 { key: "Key", value: data.key },
                 { key: "Name", value: data.name },
                 { key: "Description", value: data.description ?? "—" },
+                { key: "Value Kind", value: data.value_kind },
                 { key: "Status", value: data.status },
                 { key: "Updated", value: data.updated_at },
               ]}
@@ -357,12 +367,17 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
           <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
           <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
           <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          <Select
+            label="Value Kind"
+            items={valueKindOptions}
+            value={editValueKind}
+            onValueChange={setEditValueKind}
+          />
         </Stack>
       </Dialog>
     </>
   );
 }
-
 
 
 

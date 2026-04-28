@@ -13,6 +13,7 @@ import {
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceLandingHero,
+  MarketplaceMarketSummary,
   MarketplaceProductDetailLayout,
   MarketplaceProductCard,
   MarketplaceShell,
@@ -556,6 +557,25 @@ describe("design system", () => {
     expect(markup).toContain("space-y-6");
     expect(markup).toContain("Market metrics");
     expect(markup).toContain("Detail content");
+  });
+
+  it("renders marketplace market summaries as compact buyer signals", () => {
+    const markup = renderToString(
+      <MarketplaceMarketSummary
+        price="$21.50"
+        note="Raw / Excellent"
+        facts={[
+          { label: "Available", value: "3" },
+          { label: "Sellers", value: "1" }
+        ]}
+      />
+    );
+
+    expect(markup).toContain("$21.50");
+    expect(markup).toContain("Raw / Excellent");
+    expect(markup).toContain("Available");
+    expect(markup).toContain("Sellers");
+    expect(markup).toContain("lg:flex-row");
   });
 
   it("resolves responsive classes from maps", () => {

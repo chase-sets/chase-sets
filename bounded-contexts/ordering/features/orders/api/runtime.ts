@@ -18,6 +18,7 @@ import {
   normalizeMoneyAmount,
   numberToMoneyAmount,
   type OrderLineId,
+  type OrderSourceType,
   type OrderStatus,
   type ShippingOption,
 } from "../../../support/runtime-support/common";
@@ -37,6 +38,7 @@ import {
 } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { listOrderingSupplyCandidates } from "../integrations/supply/supply-queries";
+import { getOrderingSupplyCandidateByListingId } from "../integrations/supply/supply-queries";
 import type { CommercialTermsResolver } from "../../../api";
 import {
   decideOrderingOrder,
@@ -68,7 +70,7 @@ type DemandPlan = Readonly<{
 
 type SellerOrderDraft = Readonly<{
   sellerAccountId: string;
-  sourceType: "cart-checkout" | "offer-acceptance";
+  sourceType: OrderSourceType;
   sourceReferenceId: string | null;
   shippingOption: ShippingOption;
   itemSubtotalAmount: string;
@@ -113,6 +115,17 @@ export type OrderingOrderServices = Readonly<{
   checkoutCart: (
     params: Readonly<{
       buyerAccountId: AccountId;
+      shippingOption: ShippingOption;
+      orderIdsOverride?: readonly OrderId[];
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ orderIds: readonly OrderId[] }>;
+  buyNow: (
+    params: Readonly<{
+      buyerAccountId: AccountId;
+      listingId: string;
+      productId: string;
+      quantity: number;
       shippingOption: ShippingOption;
       orderIdsOverride?: readonly OrderId[];
     }>,
@@ -236,7 +249,7 @@ function quotePlan(
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
   priceOverrideAmount?: string,
-  sourceType: "cart-checkout" | "offer-acceptance" = "cart-checkout",
+  sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
 ): CheckoutPlan {
   const groupedBySeller = new Map<
@@ -337,7 +350,7 @@ function chooseBestPlan(
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
   priceOverrideAmount?: string,
-  sourceType: "cart-checkout" | "offer-acceptance" = "cart-checkout",
+  sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
 ) {
   let bestPlan: CheckoutPlan | null = null;
@@ -547,6 +560,56 @@ export function createOrderingOrderRuntime(
         params.orderIdsOverride,
       );
       await deps.carts.checkout(params.buyerAccountId, context);
+
+      return { orderIds };
+    },
+    buyNow: async (params, context) => {
+      const candidate = await getOrderingSupplyCandidateByListingId(
+        deps.db,
+        params.listingId,
+      );
+      if (!candidate) {
+        throw new OrderingDomainError("Listing is not available for buy now.");
+      }
+      if (candidate.productId !== params.productId.trim()) {
+        throw new OrderingDomainError(
+          "Buy now listing does not match the selected product.",
+        );
+      }
+      assertSupplyAvailable(
+        [candidate],
+        params.quantity,
+        `Not enough active supply is available for ${candidate.itemTitle}.`,
+      );
+
+      const demand: MarketplaceDemand & Readonly<{ quantity: number }> = {
+        catalogItemId: candidate.catalogItemId,
+        productId: candidate.productId,
+        itemTitle: candidate.itemTitle,
+        itemSubtitle: candidate.itemSubtitle,
+        selectedOptions: candidate.selectedOptions,
+        productSummary: candidate.productSummary,
+        quantity: params.quantity,
+      };
+      const plan = quotePlan(
+        [
+          {
+            demand,
+            allocations: [{ candidate, quantity: params.quantity }],
+          },
+        ],
+        params.shippingOption,
+        deps.shippingQuotePolicy,
+        undefined,
+        "buy-now",
+        candidate.listingId,
+      );
+      const orderIds = await createOrdersFromPlan(
+        params.buyerAccountId,
+        plan,
+        context,
+        params.orderIdsOverride,
+      );
 
       return { orderIds };
     },

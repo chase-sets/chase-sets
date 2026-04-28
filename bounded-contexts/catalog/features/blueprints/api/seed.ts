@@ -57,12 +57,12 @@ export async function seedBlueprints(
         {
           dimensionId: formDimension.dimensionId,
           required: true,
-          allowedOptionIds: Object.values(formDimension.optionIds),
+          allowedOptionIds: formDimension.orderedOptionIds,
         },
         {
           dimensionId: dimensions.condition.dimensionId,
           required: true,
-          allowedOptionIds: Object.values(dimensions.condition.optionIds),
+          allowedOptionIds: dimensions.condition.orderedOptionIds,
           appliesWhen: [
             {
               dimensionId: formDimension.dimensionId,
@@ -73,7 +73,7 @@ export async function seedBlueprints(
         {
           dimensionId: dimensions["grading-company"].dimensionId,
           required: true,
-          allowedOptionIds: Object.values(dimensions["grading-company"].optionIds),
+          allowedOptionIds: dimensions["grading-company"].orderedOptionIds,
           appliesWhen: [
             {
               dimensionId: formDimension.dimensionId,
@@ -84,7 +84,7 @@ export async function seedBlueprints(
         {
           dimensionId: dimensions.grade.dimensionId,
           required: true,
-          allowedOptionIds: Object.values(dimensions.grade.optionIds),
+          allowedOptionIds: dimensions.grade.orderedOptionIds,
           appliesWhen: [
             {
               dimensionId: formDimension.dimensionId,

@@ -25,11 +25,14 @@ export type DimensionOption = Readonly<{
   status: OptionStatus;
 }>;
 
+export type DimensionValueKind = "unordered" | "ordered" | "numeric";
+
 export type DimensionState = Readonly<{
   id: DimensionId | null;
   key: string | null;
   name: string | null;
   description: string;
+  valueKind: DimensionValueKind;
   status: CatalogLifecycleStatus;
   options: DimensionOption[];
 }>;
@@ -39,6 +42,7 @@ export const initialDimensionState: DimensionState = {
   key: null,
   name: null,
   description: "",
+  valueKind: "unordered",
   status: "draft",
   options: [],
 };
@@ -49,6 +53,7 @@ export type CreateDimensionCommand = Readonly<{
   key: string;
   name: string;
   description?: string;
+  valueKind?: DimensionValueKind;
 }>;
 
 export type ReviseDimensionCommand = Readonly<{
@@ -56,6 +61,7 @@ export type ReviseDimensionCommand = Readonly<{
   key: string;
   name: string;
   description?: string;
+  valueKind?: DimensionValueKind;
 }>;
 
 export type AddOptionCommand = Readonly<{
@@ -129,6 +135,7 @@ export type DimensionCreatedEvent = DomainEvent<
     key: string;
     name: string;
     description: string;
+    valueKind?: DimensionValueKind;
   }>
 >;
 
@@ -138,6 +145,7 @@ export type DimensionRevisedEvent = DomainEvent<
     key: string;
     name: string;
     description: string;
+    valueKind?: DimensionValueKind;
   }>
 >;
 
@@ -208,6 +216,8 @@ export const decideDimension: AggregateDecider<
     case "CreateDimension":
       assert(state.id === null, "Dimension has already been created.");
 
+      assertValueKind(command.valueKind ?? "unordered");
+
       return [
         {
           type: "catalog.dimension.created",
@@ -216,12 +226,16 @@ export const decideDimension: AggregateDecider<
             key: command.key.trim(),
             name: command.name.trim(),
             description: command.description?.trim() ?? "",
+            valueKind: command.valueKind ?? "unordered",
           },
         },
       ];
     case "ReviseDimension":
       requireCreatedDimension(state);
       assert(state.status !== "archived", "Archived dimensions cannot be revised.");
+
+      assertValueKind(command.valueKind ?? state.valueKind);
+      assertNumericDimensionHasValues(command.valueKind ?? state.valueKind, state.options);
 
       return [
         {
@@ -230,6 +244,7 @@ export const decideDimension: AggregateDecider<
             key: command.key.trim(),
             name: command.name.trim(),
             description: command.description?.trim() ?? state.description,
+            valueKind: command.valueKind ?? state.valueKind,
           },
         },
       ];
@@ -244,6 +259,7 @@ export const decideDimension: AggregateDecider<
         !state.options.some((option) => option.code === command.code.trim()),
         "Option codes must be unique within a dimension.",
       );
+      assertNumericValueIsPresentForNumericDimension(state.valueKind, command.numericValue ?? null);
 
       return [
         {
@@ -263,6 +279,7 @@ export const decideDimension: AggregateDecider<
       assert(state.status !== "archived", "Archived dimensions cannot revise options.");
 
       const option = findOption(state, command.optionId);
+      const numericValue = command.numericValue ?? null;
 
       assert(
         !state.options.some(
@@ -272,6 +289,7 @@ export const decideDimension: AggregateDecider<
         ),
         "Option codes must remain unique within a dimension.",
       );
+      assertNumericValueIsPresentForNumericDimension(state.valueKind, numericValue);
 
       return [
         {
@@ -281,7 +299,7 @@ export const decideDimension: AggregateDecider<
             code: command.code.trim(),
             labels: normalizeLocalizedText(command.labels),
             displayOrder: option.displayOrder,
-            numericValue: command.numericValue ?? null,
+            numericValue,
             status: option.status,
           },
         },
@@ -325,7 +343,10 @@ export const decideDimension: AggregateDecider<
     case "ReactivateOption":
       requireCreatedDimension(state);
 
-      findOption(state, command.optionId);
+      assertNumericValueIsPresentForNumericDimension(
+        state.valueKind,
+        findOption(state, command.optionId).numericValue,
+      );
 
       return [
         {
@@ -388,6 +409,7 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         key: event.data.key,
         name: event.data.name,
         description: event.data.description,
+        valueKind: event.data.valueKind ?? "unordered",
         status: "draft",
       };
     case "catalog.dimension.revised":
@@ -396,6 +418,7 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
         key: event.data.key,
         name: event.data.name,
         description: event.data.description,
+        valueKind: event.data.valueKind ?? "unordered",
       };
     case "catalog.dimension.option-added":
       return {
@@ -498,5 +521,37 @@ function findOption(state: DimensionState, optionId: OptionId): DimensionOption 
 function sortOptions(options: readonly DimensionOption[]): DimensionOption[] {
   return [...options].sort(
     (left, right) => left.displayOrder - right.displayOrder,
+  );
+}
+
+function assertValueKind(valueKind: string): asserts valueKind is DimensionValueKind {
+  assert(
+    valueKind === "unordered" || valueKind === "ordered" || valueKind === "numeric",
+    "Dimension value kind must be unordered, ordered, or numeric.",
+  );
+}
+
+function assertNumericValueIsPresentForNumericDimension(
+  valueKind: DimensionValueKind,
+  numericValue: number | null,
+): void {
+  if (valueKind !== "numeric") {
+    return;
+  }
+
+  assert(numericValue !== null, "Numeric dimensions require numeric values for options.");
+}
+
+function assertNumericDimensionHasValues(
+  valueKind: DimensionValueKind,
+  options: readonly DimensionOption[],
+): void {
+  if (valueKind !== "numeric") {
+    return;
+  }
+
+  assert(
+    options.every((option) => option.status !== "active" || option.numericValue !== null),
+    "Numeric dimensions require numeric values for active options.",
   );
 }

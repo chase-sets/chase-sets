@@ -21,6 +21,9 @@ export type MarketplaceOfferListRow = Readonly<{
 export type MarketplaceSellerOfferRow = MarketplaceOfferListRow &
   Readonly<{
     buyer_display_name: string | null;
+    seller_available_quantity: number;
+    can_fulfill: boolean;
+    in_sell_list: boolean;
   }>;
 
 type MarketplaceOfferPageRow = Readonly<{
@@ -67,6 +70,69 @@ const sellerVisibilitySql = `
     AND offer.accepted_seller_account_id = $1
   )
 )`;
+
+const sellerOfferSelectSql = `
+  offer.*,
+  buyer.display_name AS buyer_display_name,
+  COALESCE((
+    SELECT SUM(
+      LEAST(
+        listing.quantity_cap,
+        GREATEST(
+          record.total_quantity - COALESCE(active_holds.held_quantity, 0),
+          0
+        )
+      )
+    )::integer
+    FROM marketplace_listing_pages AS listing
+    INNER JOIN marketplace_supply_records AS record
+      ON record.record_id = listing.inventory_record_id
+    LEFT JOIN (
+      SELECT record_id, SUM(quantity)::integer AS held_quantity
+      FROM marketplace_supply_holds
+      WHERE status = 'active'
+      GROUP BY record_id
+    ) AS active_holds
+      ON active_holds.record_id = record.record_id
+    WHERE listing.account_id = $1
+      AND listing.status = 'active'
+      AND listing.product_id = offer.product_id
+  ), 0)::integer AS seller_available_quantity,
+  EXISTS (
+    SELECT 1
+    FROM marketplace_seller_offer_cart_pages AS cart
+    WHERE cart.seller_account_id = $1
+      AND cart.offer_id = offer.offer_id
+  ) AS in_sell_list`;
+
+function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
+  return `
+    (seller_offer.status = 'submitted'
+      AND seller_offer.seller_available_quantity >= seller_offer.quantity_requested) DESC,
+    seller_offer.price_amount::numeric DESC,
+    seller_offer.quantity_requested DESC,
+    ${tieBreakerSql}`;
+}
+
+type MarketplaceSellerOfferPageRow = MarketplaceOfferPageRow & {
+  buyer_display_name: string | null;
+  seller_available_quantity: number;
+  in_sell_list: boolean;
+};
+
+function mapSellerOfferRow(row: MarketplaceSellerOfferPageRow): MarketplaceSellerOfferRow {
+  const offer = mapOfferRow(row);
+
+  return {
+    ...offer,
+    buyer_display_name: row.buyer_display_name,
+    seller_available_quantity: row.seller_available_quantity,
+    can_fulfill:
+      offer.status === "submitted" &&
+      row.seller_available_quantity >= offer.quantity_requested,
+    in_sell_list: row.in_sell_list,
+  };
+}
 
 export async function listBuyerOffers(
   db: PgQueryable,
@@ -130,30 +196,28 @@ export async function listSellerVisibleOffers(
          AND ${sellerVisibilitySql}`,
       [params.sellerAccountId],
     ),
-    db.query<
-      MarketplaceOfferPageRow & {
-        buyer_display_name: string | null;
-      }
-    >(
-      `SELECT
-         offer.*,
-         buyer.display_name AS buyer_display_name
-       FROM marketplace_offer_pages AS offer
-       LEFT JOIN marketplace_account_pages AS buyer
-         ON buyer.account_id = offer.buyer_account_id
-       WHERE offer.status = 'submitted'
-         AND ${sellerVisibilitySql}
-       ORDER BY offer.updated_at DESC, offer.offer_id DESC
+    db.query<MarketplaceSellerOfferPageRow>(
+      `SELECT *
+       FROM (
+         SELECT
+           ${sellerOfferSelectSql}
+         FROM marketplace_offer_pages AS offer
+         LEFT JOIN marketplace_account_pages AS buyer
+           ON buyer.account_id = offer.buyer_account_id
+         WHERE offer.status = 'submitted'
+           AND ${sellerVisibilitySql}
+       ) AS seller_offer
+       ORDER BY
+         ${sellerOfferOutcomeOrderSql(
+           "seller_offer.created_at ASC, seller_offer.offer_id ASC",
+         )}
        LIMIT $2 OFFSET $3`,
       [params.sellerAccountId, limit, offset],
     ),
   ]);
 
   return {
-    items: itemsResult.rows.map((row) => ({
-      ...mapOfferRow(row),
-      buyer_display_name: row.buyer_display_name,
-    })),
+    items: itemsResult.rows.map(mapSellerOfferRow),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -163,14 +227,9 @@ export async function getSellerVisibleOffer(
   offerId: string,
   sellerAccountId: string,
 ): Promise<MarketplaceSellerOfferRow | null> {
-  const result = await db.query<
-    MarketplaceOfferPageRow & {
-      buyer_display_name: string | null;
-    }
-  >(
+  const result = await db.query<MarketplaceSellerOfferPageRow>(
     `SELECT
-       offer.*,
-       buyer.display_name AS buyer_display_name
+       ${sellerOfferSelectSql}
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
@@ -182,10 +241,68 @@ export async function getSellerVisibleOffer(
 
   const row = result.rows[0];
 
-  return row
-    ? {
-        ...mapOfferRow(row),
-        buyer_display_name: row.buyer_display_name,
-      }
-    : null;
+  return row ? mapSellerOfferRow(row) : null;
+}
+
+export async function addSellerOfferCartItem(
+  db: PgQueryable,
+  params: Readonly<{ sellerAccountId: string; offerId: string; addedAt: string }>,
+): Promise<void> {
+  const offer = await getSellerVisibleOffer(db, params.offerId, params.sellerAccountId);
+  if (!offer) {
+    throw new Error("Offer not found.");
+  }
+
+  await db.query(
+    `INSERT INTO marketplace_seller_offer_cart_pages (
+       seller_account_id,
+       offer_id,
+       added_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $3)
+     ON CONFLICT (seller_account_id, offer_id) DO UPDATE SET
+       updated_at = EXCLUDED.updated_at`,
+    [params.sellerAccountId, params.offerId, params.addedAt],
+  );
+}
+
+export async function listSellerOfferCart(
+  db: PgQueryable,
+  sellerAccountId: string,
+): Promise<MarketplaceSellerOfferRow[]> {
+  const result = await db.query<MarketplaceSellerOfferPageRow>(
+    `SELECT *
+     FROM (
+       SELECT
+         ${sellerOfferSelectSql},
+         cart.updated_at AS cart_updated_at
+       FROM marketplace_seller_offer_cart_pages AS cart
+       INNER JOIN marketplace_offer_pages AS offer
+         ON offer.offer_id = cart.offer_id
+       LEFT JOIN marketplace_account_pages AS buyer
+         ON buyer.account_id = offer.buyer_account_id
+       WHERE cart.seller_account_id = $1
+     ) AS seller_offer
+     ORDER BY
+       ${sellerOfferOutcomeOrderSql("seller_offer.cart_updated_at DESC")}`,
+    [sellerAccountId],
+  );
+
+  return result.rows.map(mapSellerOfferRow);
+}
+
+export async function removeSellerOfferCartItems(
+  db: PgQueryable,
+  params: Readonly<{ sellerAccountId: string; offerIds: readonly string[] }>,
+): Promise<void> {
+  if (params.offerIds.length === 0) {
+    return;
+  }
+
+  await db.query(
+    `DELETE FROM marketplace_seller_offer_cart_pages
+     WHERE seller_account_id = $1
+       AND offer_id = ANY($2)`,
+    [params.sellerAccountId, params.offerIds],
+  );
 }

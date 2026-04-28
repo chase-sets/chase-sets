@@ -37,8 +37,20 @@ describe("Dimension aggregate", () => {
       });
 
       expect(events).toEqual([
-        { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "" } },
+        { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "", valueKind: "unordered" } },
       ]);
+    });
+
+    it("creates an ordered dimension", () => {
+      const events = decide(decideDimension, initialDimensionState, {
+        type: "CreateDimension" as const,
+        dimensionId: dimId,
+        key: "condition",
+        name: "Condition",
+        valueKind: "ordered",
+      });
+
+      expect(events[0].data).toMatchObject({ valueKind: "ordered" });
     });
 
     it("rejects creating a dimension twice", () => {
@@ -54,6 +66,37 @@ describe("Dimension aggregate", () => {
       expect(events[0].type).toBe("catalog.dimension.revised");
     });
 
+    it("revises dimension value kind when active options have numeric values", () => {
+      const state = givenEvents(createdState(), evolveDimension, [
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: 1, status: "active" } },
+      ] as DimensionEvent[]);
+
+      const events = decide(decideDimension, state, {
+        type: "ReviseDimension" as const,
+        key: "score",
+        name: "Score",
+        valueKind: "numeric",
+      });
+
+      expect(events[0].data).toMatchObject({ valueKind: "numeric" });
+    });
+
+    it("rejects numeric dimensions with active options missing numeric values", () => {
+      const state = givenEvents(createdState(), evolveDimension, [
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+      ] as DimensionEvent[]);
+
+      expectDomainError(
+        () => decide(decideDimension, state, {
+          type: "ReviseDimension" as const,
+          key: "score",
+          name: "Score",
+          valueKind: "numeric",
+        }),
+        "Numeric dimensions require numeric values for active options.",
+      );
+    });
+
     it("adds an option", () => {
       const events = decide(decideDimension, createdState(), {
         type: "AddOption" as const,
@@ -63,7 +106,19 @@ describe("Dimension aggregate", () => {
       });
 
       expect(events[0].type).toBe("catalog.dimension.option-added");
-      expect(events[0].data).toMatchObject({ optionId: optionA, code: "red" });
+      expect(events[0].data).toMatchObject({ optionId: optionA, code: "red", numericValue: null });
+    });
+
+    it("preserves option numeric values", () => {
+      const events = decide(decideDimension, createdState(), {
+        type: "AddOption" as const,
+        optionId: optionA,
+        code: "red",
+        labels: [{ locale: "en", value: "Red" }],
+        numericValue: 7,
+      });
+
+      expect(events[0].data).toMatchObject({ optionId: optionA, numericValue: 7 });
     });
 
     it("rejects duplicate option IDs", () => {

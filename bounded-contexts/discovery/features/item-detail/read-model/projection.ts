@@ -41,6 +41,14 @@ type ChoiceDetailRow = Readonly<{
   option_id: string;
   code: string;
   labels: unknown;
+  display_order: number;
+  numeric_value: number | null;
+}>;
+
+type DimensionDetailRow = Readonly<{
+  dimension_id: string;
+  name: string;
+  value_kind: "unordered" | "ordered" | "numeric";
 }>;
 
 function extractIdFromStreamId(streamId: string, prefix: string): string {
@@ -102,17 +110,18 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
     ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
   ]);
 
-  const [dimensionNames, choiceRows] = await Promise.all([
-    loadNameMap(
-      db,
-      "discovery_item_detail_catalog_dimensions",
-      "dimension_id",
-      "name",
-      dimensionIds,
-    ),
+  const [dimensionRows, choiceRows] = await Promise.all([
+    dimensionIds.length > 0
+      ? db.query<DimensionDetailRow>(
+          `SELECT dimension_id, name, value_kind
+           FROM discovery_item_detail_catalog_dimensions
+           WHERE dimension_id = ANY($1)`,
+          [dimensionIds],
+        ).then((result) => result.rows)
+      : Promise.resolve([] as DimensionDetailRow[]),
     optionIds.length > 0
       ? db.query<ChoiceDetailRow>(
-          `SELECT option_id, code, labels
+          `SELECT option_id, code, labels, display_order, numeric_value::float8 AS numeric_value
            FROM discovery_item_detail_catalog_dimension_options
            WHERE option_id = ANY($1)`,
           [optionIds],
@@ -120,29 +129,39 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
       : Promise.resolve([] as ChoiceDetailRow[]),
   ]);
 
+  const dimensionMap = new Map(dimensionRows.map((row) => [row.dimension_id, row]));
   const choiceMap = new Map(choiceRows.map((row) => [row.option_id, row]));
 
   return {
     canonicalDimensionOrder: canonicalDimensionOrder.map((dimensionId) => ({
       dimensionId,
-      dimensionName: dimensionNames.get(dimensionId) ?? dimensionId,
+      dimensionName: dimensionMap.get(dimensionId)?.name ?? dimensionId,
     })),
     dimensions: dimensionRules.map((rule) => ({
       dimensionId: rule.dimensionId,
-      dimensionName: dimensionNames.get(rule.dimensionId) ?? rule.dimensionId,
+      dimensionName: dimensionMap.get(rule.dimensionId)?.name ?? rule.dimensionId,
+      valueKind: dimensionMap.get(rule.dimensionId)?.value_kind ?? "unordered",
       required: rule.required,
       appliesWhen: (rule.appliesWhen ?? []).map((clause) => ({
         dimensionId: clause.dimensionId,
         optionIds: clause.optionIds ?? [],
       })),
-      allowedOptions: (rule.allowedOptionIds ?? []).map((optionId) => {
-        const detail = choiceMap.get(optionId);
-        return {
-          optionId,
-          code: detail?.code ?? optionId,
-          labels: Array.isArray(detail?.labels) ? detail?.labels : [],
-        };
-      }),
+      allowedOptions: (rule.allowedOptionIds ?? [])
+        .map((optionId, fallbackOrder) => {
+          const detail = choiceMap.get(optionId);
+          return {
+            optionId,
+            code: detail?.code ?? optionId,
+            labels: Array.isArray(detail?.labels) ? detail?.labels : [],
+            displayOrder: detail?.display_order ?? fallbackOrder,
+            numericValue: detail?.numeric_value ?? null,
+          };
+        })
+        .sort(
+          (left, right) =>
+            left.displayOrder - right.displayOrder ||
+            left.code.localeCompare(right.code),
+        ),
     })),
   };
 }
@@ -637,40 +656,51 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
 
     "catalog.dimension.created": async (event) => {
-      const { dimensionId, name } = event.data as { dimensionId: string; name: string };
+      const { dimensionId, name, valueKind } = event.data as {
+        dimensionId: string;
+        name: string;
+        valueKind?: "unordered" | "ordered" | "numeric";
+      };
 
       await db.query(
-        `INSERT INTO discovery_item_detail_catalog_dimensions (dimension_id, name, updated_at)
-         VALUES ($1, $2, $3)
+        `INSERT INTO discovery_item_detail_catalog_dimensions (dimension_id, name, value_kind, updated_at)
+         VALUES ($1, $2, COALESCE($3, 'unordered'), $4)
          ON CONFLICT (dimension_id) DO UPDATE SET
            name = EXCLUDED.name,
+           value_kind = COALESCE($3, discovery_item_detail_catalog_dimensions.value_kind),
            updated_at = EXCLUDED.updated_at`,
-        [dimensionId, name, event.timing.recordedAt],
+        [dimensionId, name, valueKind ?? "unordered", event.timing.recordedAt],
       );
 
       await refreshAllItems(db);
     },
     "catalog.dimension.revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
-      const { name } = event.data as { name: string };
+      const { name, valueKind } = event.data as {
+        name: string;
+        valueKind?: "unordered" | "ordered" | "numeric";
+      };
 
       await db.query(
-        `INSERT INTO discovery_item_detail_catalog_dimensions (dimension_id, name, updated_at)
-         VALUES ($1, $2, $3)
+        `INSERT INTO discovery_item_detail_catalog_dimensions (dimension_id, name, value_kind, updated_at)
+         VALUES ($1, $2, COALESCE($3, 'unordered'), $4)
          ON CONFLICT (dimension_id) DO UPDATE SET
            name = EXCLUDED.name,
+           value_kind = COALESCE($3, discovery_item_detail_catalog_dimensions.value_kind),
            updated_at = EXCLUDED.updated_at`,
-        [dimensionId, name, event.timing.recordedAt],
+        [dimensionId, name, valueKind ?? null, event.timing.recordedAt],
       );
 
       await refreshAllItems(db);
     },
     "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
-      const { optionId, code, labels } = event.data as {
+      const { optionId, code, labels, displayOrder, numericValue } = event.data as {
         optionId: string;
         code: string;
         labels: unknown;
+        displayOrder?: number;
+        numericValue?: number | null;
       };
 
       await db.query(
@@ -679,24 +709,38 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
           dimension_id,
           code,
           labels,
+          display_order,
+          numeric_value,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
           labels = EXCLUDED.labels,
+          display_order = EXCLUDED.display_order,
+          numeric_value = EXCLUDED.numeric_value,
           updated_at = EXCLUDED.updated_at`,
-        [optionId, dimensionId, code, JSON.stringify(Array.isArray(labels) ? labels : []), event.timing.recordedAt],
+        [
+          optionId,
+          dimensionId,
+          code,
+          JSON.stringify(Array.isArray(labels) ? labels : []),
+          displayOrder ?? 0,
+          numericValue ?? null,
+          event.timing.recordedAt,
+        ],
       );
 
       await refreshAllItems(db);
     },
     "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
-      const { optionId, code, labels } = event.data as {
+      const { optionId, code, labels, displayOrder, numericValue } = event.data as {
         optionId: string;
         code: string;
         labels: unknown;
+        displayOrder?: number;
+        numericValue?: number | null;
       };
 
       await db.query(
@@ -705,18 +749,44 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
           dimension_id,
           code,
           labels,
+          display_order,
+          numeric_value,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
           labels = EXCLUDED.labels,
+          display_order = EXCLUDED.display_order,
+          numeric_value = EXCLUDED.numeric_value,
           updated_at = EXCLUDED.updated_at`,
-        [optionId, dimensionId, code, JSON.stringify(Array.isArray(labels) ? labels : []), event.timing.recordedAt],
+        [
+          optionId,
+          dimensionId,
+          code,
+          JSON.stringify(Array.isArray(labels) ? labels : []),
+          displayOrder ?? 0,
+          numericValue ?? null,
+          event.timing.recordedAt,
+        ],
       );
+
+      await refreshAllItems(db);
+    },
+    "catalog.dimension.options-reordered": async (event) => {
+      const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
+      const { optionIds } = event.data as { optionIds: string[] };
+
+      for (let i = 0; i < optionIds.length; i++) {
+        await db.query(
+          `UPDATE discovery_item_detail_catalog_dimension_options
+           SET display_order = $3, updated_at = $4
+           WHERE dimension_id = $1 AND option_id = $2`,
+          [dimensionId, optionIds[i], i, event.timing.recordedAt],
+        );
+      }
 
       await refreshAllItems(db);
     },
   };
 }
-

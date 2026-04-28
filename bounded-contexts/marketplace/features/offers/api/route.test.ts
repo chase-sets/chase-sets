@@ -44,11 +44,20 @@ function createServices(): MarketplaceOfferServices {
   const getBuyerOffer = vi.fn(async () => null);
   const listSellerVisibleOffers = vi.fn(async () => ({ items: [], total: 0 }));
   const getSellerVisibleOffer = vi.fn(async () => null);
+  const addSellerOfferCartItem = vi.fn(async () => undefined);
+  const listSellerOfferCart = vi.fn(async () => []);
+  const acceptSellerOfferCart = vi.fn(async () => ({
+    acceptedOfferIds: ["off_1" as never],
+    skipped: [],
+  }));
 
   return {
     commandHandler: vi.fn(async () => ({ version: 1 })),
     submitOffer,
     acceptOffer,
+    addSellerOfferCartItem,
+    listSellerOfferCart,
+    acceptSellerOfferCart,
     listBuyerOffers,
     getBuyerOffer,
     listSellerVisibleOffers,
@@ -141,6 +150,9 @@ describe("marketplace offer routes", () => {
       accepted_seller_account_id: null,
       accepted_at: null,
       buyer_display_name: "Buyer One",
+      seller_available_quantity: 1,
+      can_fulfill: true,
+      in_sell_list: false,
       created_at: "2026-03-31T00:00:00.000Z",
       updated_at: "2026-03-31T00:00:00.000Z",
     });
@@ -200,6 +212,70 @@ describe("marketplace offer routes", () => {
         offerId: "off_1",
         sellerAccountId: "acc_seller",
       },
+      expect.any(Object),
+    );
+  });
+
+  it("adds a seller-visible offer to the sell list", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/seller/offer-cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offerId: "off_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.addSellerOfferCartItem).toHaveBeenCalledWith({
+      offerId: "off_1",
+      sellerAccountId: "acc_seller",
+    });
+  });
+
+  it("accepts the seller sell list", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/seller/offer-cart/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      acceptedOfferIds: ["off_1"],
+      skipped: [],
+    });
+    expect(services.acceptSellerOfferCart).toHaveBeenCalledWith(
+      { sellerAccountId: "acc_seller" },
       expect.any(Object),
     );
   });

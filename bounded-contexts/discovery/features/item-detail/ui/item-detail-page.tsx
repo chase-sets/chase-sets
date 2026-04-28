@@ -15,7 +15,7 @@ import {
   Inline,
   KeyValueList,
   LinkButton,
-  MarketplaceMetricStrip,
+  MarketplaceMarketSummary,
   MarketplaceProductDetailLayout,
   PageSection,
   Reveal,
@@ -27,6 +27,7 @@ import {
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
+  DiscoverySellerOffer,
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
@@ -47,6 +48,9 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
   selectedProductOptions: readonly { dimensionId: string; optionId: string }[];
   selectedProductSummary: string | null;
   visibleListings: readonly DiscoveryMarketListing[];
+  visibleSellerOffers: readonly DiscoverySellerOffer[];
+  bestListing: DiscoveryMarketListing | null;
+  bestSellerOffer: DiscoverySellerOffer | null;
 }>;
 
 function formatFieldValue(value: unknown): string {
@@ -120,28 +124,153 @@ function applyOptionFilter(
   return nextSelections;
 }
 
+function selectionsFromListing(
+  listing: DiscoveryMarketListing | undefined,
+): Record<string, string> {
+  if (!listing) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    listing.selected_options.map((entry) => [entry.dimensionId, entry.optionId]),
+  );
+}
+
+function getInitialSelections(data: DiscoveryItemDetail | null): Record<string, string> {
+  if (!data?.product_schema) {
+    return {};
+  }
+
+  const selections =
+    data.market_listings.length === 1
+      ? selectionsFromListing(data.market_listings[0])
+      : {};
+
+  return normalizeProductSearchOptionsForSchema(data.product_schema, selections);
+}
+
+function formatListingCount(count: number): string {
+  return `${count} listing${count === 1 ? "" : "s"}`;
+}
+
+function formatSellerCount(count: number): string {
+  return `${count} seller${count === 1 ? "" : "s"}`;
+}
+
+function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | null {
+  return listings.reduce<string | null>((lowest, listing) => {
+    if (lowest === null) {
+      return listing.price_amount;
+    }
+
+    return Number.parseFloat(listing.price_amount) < Number.parseFloat(lowest)
+      ? listing.price_amount
+      : lowest;
+  }, null);
+}
+
+function getBestSellerOffer(
+  offers: readonly DiscoverySellerOffer[],
+): DiscoverySellerOffer | null {
+  return sortSellerOffersForReview(
+    offers.filter((offer) => offer.status === "submitted" && offer.can_fulfill),
+  )[0] ?? null;
+}
+
+function sortSellerOffersForReview(
+  offers: readonly DiscoverySellerOffer[],
+): DiscoverySellerOffer[] {
+  return [...offers].sort((left, right) => {
+    const fulfillableDelta = Number(right.can_fulfill) - Number(left.can_fulfill);
+    if (fulfillableDelta !== 0) {
+      return fulfillableDelta;
+    }
+
+    const priceDelta =
+      Number.parseFloat(right.price_amount) - Number.parseFloat(left.price_amount);
+    if (priceDelta !== 0) {
+      return priceDelta;
+    }
+
+    const quantityDelta = right.quantity_requested - left.quantity_requested;
+    if (quantityDelta !== 0) {
+      return quantityDelta;
+    }
+
+    return (
+      new Date(left.created_at).getTime() - new Date(right.created_at).getTime() ||
+      left.offer_id.localeCompare(right.offer_id)
+    );
+  });
+}
+
+function buildProductOptionSummaries({
+  listings,
+  productSchema,
+  selections,
+}: {
+  listings: readonly DiscoveryMarketListing[];
+  productSchema: NonNullable<DiscoveryItemDetail["product_schema"]>;
+  selections: Record<string, string>;
+}): Record<string, Record<string, string>> {
+  return Object.fromEntries(
+    getOrderedActiveDimensions(productSchema, selections).map((dimension) => {
+      const selectionsWithoutDimension = { ...selections };
+      delete selectionsWithoutDimension[dimension.dimensionId];
+
+      const matchingOtherSelections = listings.filter((listing) =>
+        matchesSelectedOptions(listing, selectionsWithoutDimension),
+      );
+
+      return [
+        dimension.dimensionId,
+        Object.fromEntries(
+          dimension.allowedOptions.map((option) => {
+            const matchingOption = matchingOtherSelections.filter((listing) =>
+              listing.selected_options.some(
+                (entry) =>
+                  entry.dimensionId === dimension.dimensionId &&
+                  entry.optionId === option.optionId,
+              ),
+            );
+
+            return [
+              option.optionId,
+              matchingOption.length > 0
+                ? `${matchingOption.length} from ${formatMoney(
+                    getLowestPrice(matchingOption),
+                  )}`
+                : "none",
+            ];
+          }),
+        ),
+      ];
+    }),
+  );
+}
+
 export function ItemDetailPage({
   data,
   notFound = false,
   error = null,
+  sellerOffers = [],
+  showSellerOffers = false,
   renderCommerce,
 }: {
   data: DiscoveryItemDetail | null;
   notFound?: boolean;
   error?: string | null;
+  sellerOffers?: readonly DiscoverySellerOffer[];
+  showSellerOffers?: boolean;
   renderCommerce?: (context: ItemDetailMarketplaceSectionContext) => ReactNode;
 }) {
   const [selections, setSelections] = useState<Record<string, string>>(() =>
-    data?.product_schema ? normalizeProductSearchOptionsForSchema(data.product_schema, {}) : {},
+    getInitialSelections(data),
   );
+  const [offerFilter, setOfferFilter] = useState<"all" | "fulfillable">("all");
 
   useEffect(() => {
-    if (!data?.product_schema) {
-      setSelections({});
-      return;
-    }
-
-    setSelections(normalizeProductSearchOptionsForSchema(data.product_schema, {}));
+    setSelections(getInitialSelections(data));
   }, [data]);
 
   if (error) {
@@ -206,6 +335,7 @@ export function ItemDetailPage({
   const visibleListings = data.market_listings.filter((listing) =>
     data.product_schema ? matchesSelectedOptions(listing, selections) : true,
   );
+  const selectedListing = visibleListings.length === 1 ? visibleListings[0] : null;
   const singleMatchingListing =
     !hasCompleteProductSelection && visibleListings.length === 1
       ? visibleListings[0]
@@ -223,23 +353,56 @@ export function ItemDetailPage({
       : singleMatchingListing.selected_options;
   const selectedProductSummary =
     explicitSelectedProductSummary ?? singleMatchingListing?.product_summary ?? null;
+  const bestListing =
+    selectedProductId
+      ? visibleListings.find((listing) => listing.product_id === selectedProductId) ?? null
+      : null;
+  const matchingSellerOffers = sortSellerOffersForReview(sellerOffers
+    .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
+    .filter((offer) =>
+      selectedProductId
+        ? offer.product_id === selectedProductId
+        : data.product_schema
+          ? matchesSelectedOptions(
+              {
+                selected_options: offer.selected_options,
+              } as DiscoveryMarketListing,
+              selections,
+            )
+          : true,
+    )
+  );
+  const visibleSellerOffers = matchingSellerOffers.filter((offer) =>
+    offerFilter === "fulfillable" ? offer.can_fulfill : true,
+  );
+  const bestSellerOffer = getBestSellerOffer(matchingSellerOffers);
+  const sellerCount = new Set(
+    visibleListings.map((listing) => listing.account_id),
+  ).size;
   const selectedMarketSummary = {
-    lowest_price_amount: visibleListings.reduce<string | null>((lowest, listing) => {
-      if (lowest === null) {
-        return listing.price_amount;
-      }
-
-      return Number.parseFloat(listing.price_amount) < Number.parseFloat(lowest)
-        ? listing.price_amount
-        : lowest;
-    }, null),
+    lowest_price_amount: getLowestPrice(visibleListings),
     active_listing_count: visibleListings.length,
     total_visible_quantity: visibleListings.reduce(
       (sum, listing) => sum + listing.visible_quantity,
       0,
     ),
   };
+  const optionSummaries = data.product_schema
+    ? buildProductOptionSummaries({
+        listings: data.market_listings,
+        productSchema: data.product_schema,
+        selections,
+      })
+    : {};
   const metadataItems = [
+    ...(categories.length > 0
+      ? [
+          {
+            key: "Categories",
+            value: categories.map((category) => category.name).join(", "),
+          },
+        ]
+      : []),
     ...(tags.length > 0
       ? [
           {
@@ -276,11 +439,16 @@ export function ItemDetailPage({
     selectedProductOptions,
     selectedProductSummary,
     visibleListings,
+    visibleSellerOffers: matchingSellerOffers,
+    bestListing,
+    bestSellerOffer,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerce = renderCommerce?.(marketplaceContext) ?? null;
   const productSummary =
     explicitSelectedProductSummary ?? (singleMatchingListing ? "1 matching listing" : "All listings");
-  const marketDetail = hasActiveFilters ? "Filtered listings" : "All listings";
+  const marketNote =
+    selectedProductSummary ??
+    (hasActiveFilters ? "Filtered active listings" : "All active listings");
 
   return (
     <Stagger>
@@ -312,15 +480,6 @@ export function ItemDetailPage({
                     ) : null}
                   </Stack>
 
-                  {categories.length > 0 ? (
-                    <Inline gap={2}>
-                      {categories.map((category) => (
-                        <Badge key={category.categoryId} tone="accent">
-                          {category.name}
-                        </Badge>
-                      ))}
-                    </Inline>
-                  ) : null}
                 </Stack>
 
                 {data.product_schema && data.product_schema.dimensions.length > 0 ? (
@@ -337,6 +496,7 @@ export function ItemDetailPage({
                       <ProductSelector
                         schema={data.product_schema}
                         selections={selections}
+                        optionSummaries={optionSummaries}
                         onSelectionChange={(dimensionId, optionId) =>
                           setSelections((current) =>
                             normalizeProductSearchOptionsForSchema(
@@ -346,6 +506,11 @@ export function ItemDetailPage({
                           )
                         }
                       />
+                      {selectedListing?.product_summary ? (
+                        <Text size="sm" tone="secondary">
+                          Matched listing: {selectedListing.product_summary}
+                        </Text>
+                      ) : null}
                     </Stack>
                   </Card>
                 ) : null}
@@ -354,6 +519,7 @@ export function ItemDetailPage({
             media={
               <ImageGallery
                 images={images}
+                aspectRatio="5/7"
                 fallbackImage={{
                   src: discoveryAssetUrls.defaultProductImage,
                   alt: "Pokemon card back",
@@ -375,30 +541,21 @@ export function ItemDetailPage({
               />
             }
             market={
-              <MarketplaceMetricStrip
-                items={[
+              <MarketplaceMarketSummary
+                price={formatMoney(selectedMarketSummary.lowest_price_amount)}
+                note={marketNote}
+                facts={[
                   {
-                    label: "Lowest ask",
-                    value: formatMoney(selectedMarketSummary.lowest_price_amount),
-                    detail:
-                      visibleListings.length > 0
-                        ? marketDetail
-                        : "No visible supply",
-                  },
-                  {
-                    label: "Active listings",
-                    value: selectedMarketSummary.active_listing_count,
-                    detail: marketDetail,
-                  },
-                  {
-                    label: "Visible quantity",
+                    label: "Available",
                     value: selectedMarketSummary.total_visible_quantity,
-                    detail: "Available before checkout matching",
                   },
                   {
-                    label: "Recent sale",
-                    value: "Unavailable",
-                    detail: "Sales history is not published yet",
+                    label: "Listings",
+                    value: formatListingCount(selectedMarketSummary.active_listing_count),
+                  },
+                  {
+                    label: "Sellers",
+                    value: formatSellerCount(sellerCount),
                   },
                 ]}
               />
@@ -459,32 +616,41 @@ export function ItemDetailPage({
                       ) : null}
                     </Inline>
                     {visibleListings.length > 0 ? (
-                      visibleListings.map((listing) => (
-                        <Card key={listing.listing_id}>
-                          <Grid columns={{ base: 1, md: 3 }} gap={3}>
-                            <Stack gap={1}>
-                              <Text weight="semibold">
-                                {formatMoney(listing.price_amount)}
-                              </Text>
-                              <Text size="sm" tone="secondary">
-                                {listing.seller_display_name ?? "Seller"}
-                              </Text>
-                            </Stack>
-                            <Stack gap={1}>
-                              <Text size="sm" tone="secondary">
-                                Visible quantity
-                              </Text>
-                              <Text>{listing.visible_quantity}</Text>
-                            </Stack>
-                            <Stack gap={1}>
-                              <Text size="sm" tone="secondary">
-                                Product
-                              </Text>
-                              <Text>{listing.product_summary ?? "Standard"}</Text>
-                            </Stack>
-                          </Grid>
-                        </Card>
-                      ))
+                      visibleListings.map((listing) => {
+                        const isSelected = listing.product_id === selectedProductId;
+
+                        return (
+                          <Card key={listing.listing_id} glow={isSelected}>
+                            <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                              <Stack gap={1}>
+                                <Inline gap={2}>
+                                  <Text weight="semibold">
+                                    {formatMoney(listing.price_amount)}
+                                  </Text>
+                                  {isSelected ? (
+                                    <Badge tone="success">Selected</Badge>
+                                  ) : null}
+                                </Inline>
+                                <Text size="sm" tone="secondary">
+                                  {listing.seller_display_name ?? "Seller"}
+                                </Text>
+                              </Stack>
+                              <Stack gap={1}>
+                                <Text size="sm" tone="secondary">
+                                  Available
+                                </Text>
+                                <Text>{listing.visible_quantity}</Text>
+                              </Stack>
+                              <Stack gap={1}>
+                                <Text size="sm" tone="secondary">
+                                  Product
+                                </Text>
+                                <Text>{listing.product_summary ?? "Standard"}</Text>
+                              </Stack>
+                            </Grid>
+                          </Card>
+                        );
+                      })
                     ) : (
                       <EmptyState
                         title="No active listings"
@@ -522,6 +688,91 @@ export function ItemDetailPage({
                   </Stack>
                 </PageSection>
               </Reveal>
+
+              {showSellerOffers ? (
+                <Reveal preset="lift">
+                  <PageSection title="Offers">
+                    <Stack gap={3}>
+                      <Inline gap={2}>
+                        <Text size="sm" tone="secondary">
+                          {visibleSellerOffers.length} matching offer
+                          {visibleSellerOffers.length === 1 ? "" : "s"}
+                        </Text>
+                        <Button
+                          type="button"
+                          tone={offerFilter === "all" ? "primary" : "secondary"}
+                          size="sm"
+                          onClick={() => setOfferFilter("all")}
+                        >
+                          All offers
+                        </Button>
+                        <Button
+                          type="button"
+                          tone={offerFilter === "fulfillable" ? "primary" : "secondary"}
+                          size="sm"
+                          onClick={() => setOfferFilter("fulfillable")}
+                        >
+                          Can fulfill
+                        </Button>
+                      </Inline>
+                      {visibleSellerOffers.length > 0 ? (
+                        visibleSellerOffers.map((offer) => {
+                          const isBest = bestSellerOffer?.offer_id === offer.offer_id;
+
+                          return (
+                            <Card key={offer.offer_id} glow={isBest}>
+                              <Grid columns={{ base: 1, md: 4 }} gap={3}>
+                                <Stack gap={1}>
+                                  <Inline gap={2}>
+                                    <Text weight="semibold">
+                                      {formatMoney(offer.price_amount)}
+                                    </Text>
+                                    {isBest ? <Badge tone="success">Best offer</Badge> : null}
+                                  </Inline>
+                                  <Text size="sm" tone="secondary">
+                                    {offer.buyer_display_name ?? offer.buyer_account_id}
+                                  </Text>
+                                </Stack>
+                                <Stack gap={1}>
+                                  <Text size="sm" tone="secondary">
+                                    Quantity
+                                  </Text>
+                                  <Text>{offer.quantity_requested}</Text>
+                                </Stack>
+                                <Stack gap={1}>
+                                  <Text size="sm" tone="secondary">
+                                    Product
+                                  </Text>
+                                  <Text>{offer.product_summary ?? "Standard"}</Text>
+                                </Stack>
+                                <Stack gap={1}>
+                                  <Text size="sm" tone="secondary">
+                                    Status
+                                  </Text>
+                                  <Inline gap={2}>
+                                    <Badge tone={offer.can_fulfill ? "success" : "warning"}>
+                                      {offer.can_fulfill ? "Can fulfill" : "Needs supply"}
+                                    </Badge>
+                                    {offer.in_sell_list ? (
+                                      <Badge tone="accent">In sell list</Badge>
+                                    ) : null}
+                                  </Inline>
+                                </Stack>
+                              </Grid>
+                            </Card>
+                          );
+                        })
+                      ) : (
+                        <EmptyState
+                          title="No matching offers"
+                          description="Buyer offers that match this product and your seller supply will appear here."
+                          icon="package"
+                        />
+                      )}
+                    </Stack>
+                  </PageSection>
+                </Reveal>
+              ) : null}
 
               {data.description ? (
                 <Reveal preset="lift">

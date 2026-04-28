@@ -107,13 +107,14 @@ describeWithDatabase("Admin page projections", () => {
       key: "condition",
       name: "Condition",
       description: "Card condition",
+      valueKind: "ordered",
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "AddOption",
       optionId,
       code: "near-mint",
       labels: [{ locale: "en", value: "Near Mint" }],
-      numericValue: null,
+      numericValue: 5,
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, { type: "ActivateDimension" });
 
@@ -227,6 +228,15 @@ describeWithDatabase("Admin page projections", () => {
 
     await drainProjectors();
 
+    const dimensionDetail = await getJson(`/api/catalog/dimensions/${dimensionId}`);
+    expect(dimensionDetail.response.status).toBe(200);
+    expect(dimensionDetail.json).toMatchObject({ value_kind: "ordered" });
+    expect(dimensionDetail.json.options[0]).toMatchObject({
+      option_id: optionId,
+      display_order: 0,
+      numeric_value: 5,
+    });
+
     const componentDetail = await getJson(`/api/catalog/components/${componentId}`);
     expect(componentDetail.response.status).toBe(200);
     expect(componentDetail.json.field_rules[0]).toMatchObject({ fieldId, fieldName: "Card Name", required: true });
@@ -235,14 +245,24 @@ describeWithDatabase("Admin page projections", () => {
       dimensionName: "Condition",
       required: true,
     });
-    expect(componentDetail.json.dimension_rules[0].allowedOptions[0]).toMatchObject({ optionId, code: "near-mint" });
+    expect(componentDetail.json.dimension_rules[0].allowedOptions[0]).toMatchObject({
+      optionId,
+      code: "near-mint",
+      displayOrder: 0,
+      numericValue: 5,
+    });
     expect(componentDetail.json._resolved).toBeUndefined();
 
     const blueprintDetail = await getJson(`/api/catalog/blueprints/${blueprintId}`);
     expect(blueprintDetail.response.status).toBe(200);
     expect(blueprintDetail.json.components[0]).toMatchObject({ componentId, name: "Base Card Info" });
     expect(blueprintDetail.json.field_rules[0]).toMatchObject({ fieldId, fieldName: "Card Name" });
-    expect(blueprintDetail.json.dimension_rules[0].allowedOptions[0]).toMatchObject({ optionId, code: "near-mint" });
+    expect(blueprintDetail.json.dimension_rules[0].allowedOptions[0]).toMatchObject({
+      optionId,
+      code: "near-mint",
+      displayOrder: 0,
+      numericValue: 5,
+    });
     expect(blueprintDetail.json.canonical_dimension_order[0]).toMatchObject({ dimensionId, dimensionName: "Condition" });
 
     const categoryList = await getJson(`/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}&limit=1&offset=0`);

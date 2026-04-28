@@ -65,9 +65,18 @@ export function MarketplaceSellerOfferDetailPage({
             <Text>Buyer: {offer.buyer_display_name ?? offer.buyer_account_id}</Text>
             <Text>Offer price: {formatMoney(offer.price_amount)}</Text>
             <Text>Quantity requested: {offer.quantity_requested}</Text>
+            <Text>Active supply available: {offer.seller_available_quantity}</Text>
+            <Badge tone={offer.can_fulfill ? "success" : "warning"}>
+              {offer.can_fulfill ? "Can fulfill" : "Needs supply"}
+            </Badge>
             {canAccept && offer.status === "submitted" ? (
               <form method="post">
-                <Button type="submit" name="intent" value="accept-offer">
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="accept-offer"
+                  disabled={!offer.can_fulfill}
+                >
                   Accept offer
                 </Button>
               </form>

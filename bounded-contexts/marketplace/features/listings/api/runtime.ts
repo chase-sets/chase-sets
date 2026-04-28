@@ -27,6 +27,7 @@ import {
   getSellerListing,
   listActiveListingsForInventoryRecord,
   listItemListings,
+  listSellerInventoryRecordSupply,
   listSellerListings,
 } from "../read-model/queries";
 
@@ -91,6 +92,9 @@ export type MarketplaceListingServices = Readonly<{
   listSellerListings: (
     params: Parameters<typeof listSellerListings>[1],
   ) => ReturnType<typeof listSellerListings>;
+  listSellerInventoryRecordSupply: (
+    params: Parameters<typeof listSellerInventoryRecordSupply>[1],
+  ) => ReturnType<typeof listSellerInventoryRecordSupply>;
   getSellerListing: (
     listingId: string,
     accountId: string,
@@ -335,6 +339,8 @@ export function createMarketplaceListingRuntime(
       return { listingId: params.listingId, version: result.version };
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),
+    listSellerInventoryRecordSupply: (params) =>
+      listSellerInventoryRecordSupply(deps.db, params),
     getSellerListing: (listingId, accountId) =>
       getSellerListing(deps.db, listingId, accountId),
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),

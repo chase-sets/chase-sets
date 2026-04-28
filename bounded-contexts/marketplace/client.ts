@@ -20,6 +20,7 @@ export type {
 import type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
+  MarketplaceListingInventoryRecordOption,
   MarketplaceListingListItem,
   MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
@@ -111,6 +112,16 @@ export function createMarketplaceApiClient({
     ): Promise<ListResponse<MarketplaceListingListItem>> {
       return parseJsonResponse(
         await client.seller.listings.$get({
+          query: queryFromString(query),
+          header: headers,
+        }),
+      );
+    },
+    async listSellerListingInventory(
+      query = "",
+    ): Promise<ListResponse<MarketplaceListingInventoryRecordOption>> {
+      return parseJsonResponse(
+        await client.seller["listing-inventory"].$get({
           query: queryFromString(query),
           header: headers,
         }),
@@ -235,6 +246,29 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.seller.offers[":id"].accept.$post({
           param: { id },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async getSellerOfferCart(): Promise<ListResponse<MarketplaceSellerOfferListItem>> {
+      return parseJsonResponse(
+        await client.seller["offer-cart"].$get({
+          header: headers,
+        }),
+      );
+    },
+    async addSellerOfferCartItem(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.seller["offer-cart"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async acceptSellerOfferCart() {
+      return parseJsonResponse(
+        await client.seller["offer-cart"].accept.$post({
           json: {},
           header: headers,
         }),

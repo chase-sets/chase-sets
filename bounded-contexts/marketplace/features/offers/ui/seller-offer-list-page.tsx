@@ -1,5 +1,6 @@
 import {
   Badge,
+  Button,
   Card,
   DataTable,
   LinkButton,
@@ -41,9 +42,11 @@ function formatTimestamp(value: string) {
 
 export function MarketplaceSellerOfferListPage({
   data,
+  cartData,
   errorMessage,
 }: {
   data: { items: readonly MarketplaceSellerOfferListItem[] };
+  cartData?: { items: readonly MarketplaceSellerOfferListItem[] };
   errorMessage?: string | null;
 }) {
   return (
@@ -64,6 +67,27 @@ export function MarketplaceSellerOfferListPage({
           <Text>{errorMessage}</Text>
         </Card>
       ) : null}
+
+      <PageSection title="Sell List">
+        <Card>
+          <Stack gap={3}>
+            <Text tone="secondary" size="sm">
+              {cartData?.items.length ?? 0} offer
+              {(cartData?.items.length ?? 0) === 1 ? "" : "s"} queued for seller review.
+            </Text>
+            <form method="post">
+              <Button
+                type="submit"
+                name="intent"
+                value="accept-sell-list"
+                disabled={!cartData || cartData.items.length === 0}
+              >
+                Accept sell list
+              </Button>
+            </form>
+          </Stack>
+        </Card>
+      </PageSection>
 
       <PageSection title="Matching Demand">
         <DataTable
@@ -103,12 +127,27 @@ export function MarketplaceSellerOfferListPage({
               key: "quantity",
               header: "Quantity",
               align: "right",
-              cell: (row) => row.quantity_requested,
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text>{row.quantity_requested}</Text>
+                  <Text size="sm" tone="secondary">
+                    {row.seller_available_quantity} available
+                  </Text>
+                </Stack>
+              ),
             },
             {
               key: "status",
               header: "Status",
-              cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                  <Badge tone={row.can_fulfill ? "success" : "warning"}>
+                    {row.can_fulfill ? "Can fulfill" : "Needs supply"}
+                  </Badge>
+                  {row.in_sell_list ? <Badge tone="accent">In sell list</Badge> : null}
+                </Stack>
+              ),
             },
             {
               key: "updated",

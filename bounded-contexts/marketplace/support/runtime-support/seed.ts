@@ -135,6 +135,16 @@ const offers: readonly OfferSeed[] = [
     quantityRequested: 4,
   },
   {
+    offerId: marketplaceReservedSeedIds.offers.pikachuJungleQuickSale,
+    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    itemTitle: "Pikachu",
+    itemSubtitle: "Jungle 60/64 Common",
+    selectedOptions: rawExcellentVersionSelection,
+    productSummary: "Form: Raw | Condition: Excellent",
+    priceAmount: "17.75",
+    quantityRequested: 2,
+  },
+  {
     offerId: marketplaceReservedSeedIds.offers.lugiaNeoGenesisCollector,
     catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
     itemTitle: "Lugia",

@@ -10,6 +10,8 @@ export interface MarketplaceOfferListItem {
   price_amount: string;
   quantity_requested: number;
   status: string;
+  accepted_seller_account_id: string | null;
+  accepted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -18,6 +20,9 @@ export interface MarketplaceBuyerOfferDetail extends MarketplaceOfferListItem {}
 
 export interface MarketplaceSellerOfferListItem extends MarketplaceOfferListItem {
   buyer_display_name: string | null;
+  seller_available_quantity: number;
+  can_fulfill: boolean;
+  in_sell_list: boolean;
 }
 
 export interface MarketplaceSellerOfferDetail

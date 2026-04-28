@@ -9,7 +9,7 @@ export type OrderStatus =
   | "pending-payment"
   | "ready-for-fulfillment"
   | "cancelled";
-export type OrderSourceType = "cart-checkout" | "offer-acceptance";
+export type OrderSourceType = "cart-checkout" | "offer-acceptance" | "buy-now";
 
 export type VersionSelectedOptionEntry = Readonly<{
   dimensionId: string;

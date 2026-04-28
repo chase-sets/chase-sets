@@ -36,6 +36,7 @@ function toInventoryOption(
     product_id: record.product_id,
     item_title: record.item_title,
     item_subtitle: record.item_subtitle,
+    selected_options: record.selected_options,
     product_summary: record.product_summary,
     storage_location_name: record.storage_location_name,
     ship_from_code: record.ship_from_code,

@@ -63,6 +63,29 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
     });
   });
 
+  app.get("/listing-inventory", async (c) => {
+    const access = requireSellerAccess(c, "listings.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const limit = Number(c.req.query("limit") ?? 50);
+    const offset = Number(c.req.query("offset") ?? 0);
+    const catalogItemId = c.req.query("catalogItemId");
+    const result = await services.listSellerInventoryRecordSupply({
+      accountId: access.actor.accountId,
+      catalogItemId: catalogItemId && catalogItemId.trim() ? catalogItemId : undefined,
+      limit,
+      offset,
+    });
+
+    return c.json({
+      items: result.items,
+      total: result.total,
+      count: result.items.length,
+    });
+  });
+
   app.post("/listings/preview", async (c) => {
     const access = requireSellerAccess(c, "listings.manage");
     if (access.response) {

@@ -3,9 +3,13 @@ export const catalogDimensionSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_dim
   key text NOT NULL,
   name text NOT NULL,
   description text NOT NULL DEFAULT '',
+  value_kind text NOT NULL DEFAULT 'unordered',
   status text NOT NULL DEFAULT 'draft',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE catalog_dimensions
+  ADD COLUMN IF NOT EXISTS value_kind text NOT NULL DEFAULT 'unordered';
 
 CREATE TABLE IF NOT EXISTS catalog_dimension_options (
   option_id text NOT NULL,
@@ -17,4 +21,3 @@ CREATE TABLE IF NOT EXISTS catalog_dimension_options (
   status text NOT NULL DEFAULT 'active',
   PRIMARY KEY (dimension_id, option_id)
 );`;
-

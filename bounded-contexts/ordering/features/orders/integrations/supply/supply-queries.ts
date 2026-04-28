@@ -114,3 +114,69 @@ export async function listOrderingSupplyCandidates(
     }))
     .filter((row) => row.availableQuantity > 0);
 }
+
+export async function getOrderingSupplyCandidateByListingId(
+  db: PgQueryable,
+  listingId: string,
+): Promise<MarketplaceSupplyCandidate | null> {
+  const result = await db.query<OrderingSupplyCandidateRow>(
+    `SELECT
+       listing.listing_id,
+       listing.seller_account_id,
+       listing.inventory_record_id,
+       listing.catalog_catalog_item_id,
+       listing.product_id,
+       listing.item_title,
+       listing.item_subtitle,
+       listing.selected_options,
+       listing.product_summary,
+       listing.storage_location_name,
+       listing.ship_from_code,
+       listing.price_amount::text AS price_amount,
+       LEAST(
+         listing.quantity_cap,
+         GREATEST(
+           record.total_quantity - COALESCE(active_holds.held_quantity, 0),
+           0
+         )
+       ) AS available_quantity,
+       listing.updated_at
+     FROM ordering_market_listing_inputs AS listing
+     INNER JOIN ordering_inventory_record_inputs AS record
+       ON record.record_id = listing.inventory_record_id
+     LEFT JOIN (
+       SELECT record_id, SUM(quantity)::integer AS held_quantity
+       FROM ordering_inventory_hold_inputs
+       WHERE status = 'active'
+       GROUP BY record_id
+     ) AS active_holds
+       ON active_holds.record_id = record.record_id
+     WHERE listing.status = 'active'
+       AND listing.listing_id = $1`,
+    [listingId],
+  );
+
+  const row = result.rows[0];
+  if (!row || row.available_quantity <= 0) {
+    return null;
+  }
+
+  return {
+    listingId: row.listing_id,
+    sellerAccountId: row.seller_account_id as AccountId,
+    inventoryRecordId: row.inventory_record_id,
+    catalogItemId: row.catalog_catalog_item_id,
+    productId: row.product_id,
+    itemTitle: row.item_title ?? "Item",
+    itemSubtitle: normalizeOptionalText(row.item_subtitle),
+    selectedOptions: Array.isArray(row.selected_options)
+      ? normalizeVersionSelection(row.selected_options as VersionSelectedOptionEntry[])
+      : [],
+    productSummary: normalizeOptionalText(row.product_summary),
+    storageLocationName: row.storage_location_name,
+    shipFromCode: row.ship_from_code,
+    priceAmount: row.price_amount,
+    availableQuantity: row.available_quantity,
+    updatedAt: row.updated_at,
+  };
+}

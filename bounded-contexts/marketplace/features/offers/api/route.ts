@@ -213,5 +213,77 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
     }
   });
 
+  app.get("/offer-cart", async (c) => {
+    const access = requireOfferAccess(c, "offers.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    const items = await services.listSellerOfferCart(access.actor.accountId);
+
+    return c.json({
+      items,
+      total: items.length,
+      count: items.length,
+    });
+  });
+
+  app.post("/offer-cart", async (c) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    const body = await c.req.json();
+
+    try {
+      await services.addSellerOfferCartItem({
+        sellerAccountId: access.actor.accountId as never,
+        offerId: String(body.offerId ?? "") as never,
+      });
+
+      return c.json({ id: String(body.offerId ?? "") }, 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
+  app.post("/offer-cart/accept", async (c) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json({ error: "Forbidden." }, 403);
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: "Authentication context missing." }, 401);
+    }
+
+    try {
+      const result = await services.acceptSellerOfferCart(
+        {
+          sellerAccountId: access.actor.accountId as never,
+        },
+        context,
+      );
+
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
   return app;
 }
