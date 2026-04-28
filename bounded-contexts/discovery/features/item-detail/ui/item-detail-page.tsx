@@ -20,6 +20,7 @@ import {
   MarketplaceProductDetailLayout,
   PageSection,
   Reveal,
+  SegmentedControl,
   Stack,
   Stagger,
   Surface,
@@ -28,6 +29,7 @@ import {
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
+  DiscoveryMarketOffer,
   DiscoverySellerOffer,
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
@@ -49,13 +51,14 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
   selectedProductOptions: readonly { dimensionId: string; optionId: string }[];
   selectedProductSummary: string | null;
   visibleListings: readonly DiscoveryMarketListing[];
+  visibleMarketOffers: readonly DiscoveryMarketOffer[];
   visibleSellerOffers: readonly DiscoverySellerOffer[];
   bestListing: DiscoveryMarketListing | null;
+  bestMarketOffer: DiscoveryMarketOffer | null;
   bestSellerOffer: DiscoverySellerOffer | null;
 }>;
 
 export type ItemDetailCommerceSections = Readonly<{
-  desktop: ReactNode;
   buy: ReactNode;
   offer: ReactNode;
   sell?: ReactNode;
@@ -166,6 +169,14 @@ function formatSellerCount(count: number): string {
   return `${count} seller${count === 1 ? "" : "s"}`;
 }
 
+function formatOfferCount(count: number): string {
+  return `${count} offer${count === 1 ? "" : "s"}`;
+}
+
+function formatBuyerCount(count: number): string {
+  return `${count} buyer${count === 1 ? "" : "s"}`;
+}
+
 function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | null {
   return listings.reduce<string | null>((lowest, listing) => {
     if (lowest === null) {
@@ -176,6 +187,24 @@ function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | n
       ? listing.price_amount
       : lowest;
   }, null);
+}
+
+function getHighestOfferPrice(offers: readonly DiscoveryMarketOffer[]): string | null {
+  return offers.reduce<string | null>((highest, offer) => {
+    if (highest === null) {
+      return offer.price_amount;
+    }
+
+    return Number.parseFloat(offer.price_amount) > Number.parseFloat(highest)
+      ? offer.price_amount
+      : highest;
+  }, null);
+}
+
+function getBestMarketOffer(
+  offers: readonly DiscoveryMarketOffer[],
+): DiscoveryMarketOffer | null {
+  return offers.find((offer) => offer.status === "submitted") ?? offers[0] ?? null;
 }
 
 function getBestSellerOffer(
@@ -211,6 +240,17 @@ function sortSellerOffersForReview(
       left.offer_id.localeCompare(right.offer_id)
     );
   });
+}
+
+function offerStatusTone(status: string): "accent" | "neutral" | "success" {
+  switch (status) {
+    case "submitted":
+      return "accent";
+    case "accepted":
+      return "success";
+    default:
+      return "neutral";
+  }
 }
 
 function buildProductOptionSummaries({
@@ -263,14 +303,12 @@ export function ItemDetailPage({
   notFound = false,
   error = null,
   sellerOffers = [],
-  showSellerOffers = false,
   renderCommerce,
 }: {
   data: DiscoveryItemDetail | null;
   notFound?: boolean;
   error?: string | null;
   sellerOffers?: readonly DiscoverySellerOffer[];
-  showSellerOffers?: boolean;
   renderCommerce?: (
     context: ItemDetailMarketplaceSectionContext,
   ) => ItemDetailCommerceSections | null;
@@ -278,7 +316,7 @@ export function ItemDetailPage({
   const [selections, setSelections] = useState<Record<string, string>>(() =>
     getInitialSelections(data),
   );
-  const [offerFilter, setOfferFilter] = useState<"all" | "fulfillable">("all");
+  const [marketIntent, setMarketIntent] = useState<"buy" | "sell">("buy");
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<
     "buy" | "offer" | "sell" | null
   >(null);
@@ -401,6 +439,20 @@ export function ItemDetailPage({
     selectedProductId
       ? visibleListings.find((listing) => listing.product_id === selectedProductId) ?? null
       : null;
+  const matchingMarketOffers = (data.market_offers ?? [])
+    .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
+    .filter((offer) =>
+      selectedProductId
+        ? offer.product_id === selectedProductId
+        : data.product_schema
+          ? matchesSelectedOptions(
+              {
+                selected_options: offer.selected_options,
+              } as DiscoveryMarketListing,
+              selections,
+            )
+          : true,
+    );
   const matchingSellerOffers = sortSellerOffersForReview(sellerOffers
     .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
     .filter((offer) =>
@@ -416,12 +468,16 @@ export function ItemDetailPage({
           : true,
     )
   );
-  const visibleSellerOffers = matchingSellerOffers.filter((offer) =>
-    offerFilter === "fulfillable" ? offer.can_fulfill : true,
+  const sellerOfferById = new Map(
+    matchingSellerOffers.map((offer) => [offer.offer_id, offer] as const),
   );
+  const bestMarketOffer = getBestMarketOffer(matchingMarketOffers);
   const bestSellerOffer = getBestSellerOffer(matchingSellerOffers);
   const sellerCount = new Set(
     visibleListings.map((listing) => listing.account_id),
+  ).size;
+  const buyerCount = new Set(
+    matchingMarketOffers.map((offer) => offer.buyer_account_id),
   ).size;
   const selectedMarketSummary = {
     lowest_price_amount: getLowestPrice(visibleListings),
@@ -483,18 +539,69 @@ export function ItemDetailPage({
     selectedProductOptions,
     selectedProductSummary,
     visibleListings,
+    visibleMarketOffers: matchingMarketOffers,
     visibleSellerOffers: matchingSellerOffers,
     bestListing,
+    bestMarketOffer,
     bestSellerOffer,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerceSections = renderCommerce?.(marketplaceContext) ?? null;
-  const commerce = commerceSections?.desktop ?? null;
+  const commerce = commerceSections
+    ? marketIntent === "sell" && commerceSections.sell
+      ? commerceSections.sell
+      : (
+        <Stack gap={4}>
+          {commerceSections.buy}
+          {commerceSections.offer}
+        </Stack>
+      )
+    : null;
   const productSummary =
     explicitSelectedProductSummary ?? (singleMatchingListing ? "1 matching listing" : "All listings");
   const mobileCommerceSummary = selectedProductSummary ?? "Choose options";
   const marketNote =
-    selectedProductSummary ??
-    (hasActiveFilters ? "Filtered active listings" : "All active listings");
+    marketIntent === "sell"
+      ? selectedProductSummary ??
+        (hasActiveFilters ? "Filtered buyer offers" : "All buyer offers")
+      : selectedProductSummary ??
+        (hasActiveFilters ? "Filtered active listings" : "All active listings");
+  const marketSummaryPrice =
+    marketIntent === "sell"
+      ? formatMoney(getHighestOfferPrice(matchingMarketOffers))
+      : formatMoney(selectedMarketSummary.lowest_price_amount);
+  const marketSummaryFacts =
+    marketIntent === "sell"
+      ? [
+          {
+            label: "Requested",
+            value: matchingMarketOffers.reduce(
+              (sum, offer) => sum + offer.quantity_requested,
+              0,
+            ),
+          },
+          {
+            label: "Offers",
+            value: formatOfferCount(matchingMarketOffers.length),
+          },
+          {
+            label: "Buyers",
+            value: formatBuyerCount(buyerCount),
+          },
+        ]
+      : [
+          {
+            label: "Available",
+            value: selectedMarketSummary.total_visible_quantity,
+          },
+          {
+            label: "Listings",
+            value: formatListingCount(selectedMarketSummary.active_listing_count),
+          },
+          {
+            label: "Sellers",
+            value: formatSellerCount(sellerCount),
+          },
+        ];
   const activeMobileCommerceContent =
     activeMobileCommerce === "buy"
       ? commerceSections?.buy
@@ -696,22 +803,9 @@ export function ItemDetailPage({
             }
             market={
               <MarketplaceMarketSummary
-                price={formatMoney(selectedMarketSummary.lowest_price_amount)}
+                price={marketSummaryPrice}
                 note={marketNote}
-                facts={[
-                  {
-                    label: "Available",
-                    value: selectedMarketSummary.total_visible_quantity,
-                  },
-                  {
-                    label: "Listings",
-                    value: formatListingCount(selectedMarketSummary.active_listing_count),
-                  },
-                  {
-                    label: "Sellers",
-                    value: formatSellerCount(sellerCount),
-                  },
-                ]}
+                facts={marketSummaryFacts}
               />
             }
             commerce={commerce}
@@ -720,137 +814,145 @@ export function ItemDetailPage({
             }
           >
             <Stack gap={6}>
-              <Reveal preset="lift">
-                <PageSection title="Listings">
-                  <Stack gap={3}>
-                    <Inline gap={2}>
-                      <Text size="sm" tone="secondary">
+              <Inline gap={2}>
+                <SegmentedControl
+                  items={[
+                    { value: "buy", label: "Buy" },
+                    { value: "sell", label: "Sell" },
+                  ]}
+                  value={marketIntent}
+                  onValueChange={(value) =>
+                    setMarketIntent(value === "sell" ? "sell" : "buy")
+                  }
+                />
+              </Inline>
+
+              {marketIntent === "buy" ? (
+                <Reveal preset="lift">
+                  <PageSection title="Listings">
+                    <Stack gap={3}>
+                      <Inline gap={2}>
+                        <Text size="sm" tone="secondary">
+                          {hasActiveFilters ? (
+                            <>
+                              {visibleListings.length} of {data.market_listings.length}{" "}
+                              listing{data.market_listings.length === 1 ? "" : "s"}
+                            </>
+                          ) : (
+                            <>
+                              {visibleListings.length} active listing
+                              {visibleListings.length === 1 ? "" : "s"}
+                            </>
+                          )}
+                        </Text>
                         {hasActiveFilters ? (
-                          <>
-                          {visibleListings.length} of {data.market_listings.length}{" "}
-                          listing{data.market_listings.length === 1 ? "" : "s"}
-                          </>
-                        ) : (
-                          <>
-                            {visibleListings.length} active listing
-                            {visibleListings.length === 1 ? "" : "s"}
-                          </>
-                        )}
-                      </Text>
-                      {hasActiveFilters ? (
-                        <Button
-                          type="button"
-                          tone="ghost"
-                          size="sm"
-                          onClick={() => setSelections({})}
-                        >
-                          Clear filters
-                        </Button>
-                      ) : null}
-                    </Inline>
-                    {visibleListings.length > 0 ? (
-                      visibleListings.map((listing) => {
-                        const isSelected = listing.product_id === selectedProductId;
+                          <Button
+                            type="button"
+                            tone="ghost"
+                            size="sm"
+                            onClick={() => setSelections({})}
+                          >
+                            Clear filters
+                          </Button>
+                        ) : null}
+                      </Inline>
+                      {visibleListings.length > 0 ? (
+                        visibleListings.map((listing) => {
+                          const isSelected = listing.product_id === selectedProductId;
 
-                        return (
-                          <Card key={listing.listing_id} glow={isSelected}>
-                            <Grid columns={{ base: 1, md: 3 }} gap={3}>
-                              <Stack gap={1}>
-                                <Inline gap={2}>
-                                  <Text weight="semibold">
-                                    {formatMoney(listing.price_amount)}
+                          return (
+                            <Card key={listing.listing_id} glow={isSelected}>
+                              <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                                <Stack gap={1}>
+                                  <Inline gap={2}>
+                                    <Text weight="semibold">
+                                      {formatMoney(listing.price_amount)}
+                                    </Text>
+                                    {isSelected ? (
+                                      <Badge tone="success">Selected</Badge>
+                                    ) : null}
+                                  </Inline>
+                                  <Text size="sm" tone="secondary">
+                                    {listing.seller_display_name ?? "Seller"}
                                   </Text>
-                                  {isSelected ? (
-                                    <Badge tone="success">Selected</Badge>
-                                  ) : null}
-                                </Inline>
-                                <Text size="sm" tone="secondary">
-                                  {listing.seller_display_name ?? "Seller"}
-                                </Text>
-                              </Stack>
-                              <Stack gap={1}>
-                                <Text size="sm" tone="secondary">
-                                  Available
-                                </Text>
-                                <Text>{listing.visible_quantity}</Text>
-                              </Stack>
-                              <Stack gap={1}>
-                                <Text size="sm" tone="secondary">
-                                  Product
-                                </Text>
-                                <Text>{listing.product_summary ?? "Standard"}</Text>
-                              </Stack>
-                            </Grid>
-                          </Card>
-                        );
-                      })
-                    ) : (
-                      <EmptyState
-                        title="No active listings"
-                        description={
-                          data.market_listings.length > 0
-                            ? "No active listings match these filters."
-                            : "Sellers have not published inventory for this item yet."
-                        }
-                        icon="package"
-                        actions={
-                          <>
-                            {selectedProductId ? (
-                              <LinkButton href="#make-offer" size="sm">
-                                Make offer
-                              </LinkButton>
-                            ) : (
-                              <LinkButton href="#select-options" size="sm">
-                                Choose options
-                              </LinkButton>
-                            )}
-                            {hasActiveFilters ? (
-                              <Button
-                                type="button"
-                                tone="secondary"
-                                size="sm"
-                                onClick={() => setSelections({})}
-                              >
-                                Clear filters
-                              </Button>
-                            ) : null}
-                          </>
-                        }
-                      />
-                    )}
-                  </Stack>
-                </PageSection>
-              </Reveal>
-
-              {showSellerOffers ? (
+                                </Stack>
+                                <Stack gap={1}>
+                                  <Text size="sm" tone="secondary">
+                                    Available
+                                  </Text>
+                                  <Text>{listing.visible_quantity}</Text>
+                                </Stack>
+                                <Stack gap={1}>
+                                  <Text size="sm" tone="secondary">
+                                    Product
+                                  </Text>
+                                  <Text>{listing.product_summary ?? "Standard"}</Text>
+                                </Stack>
+                              </Grid>
+                            </Card>
+                          );
+                        })
+                      ) : (
+                        <EmptyState
+                          title="No active listings"
+                          description={
+                            data.market_listings.length > 0
+                              ? "No active listings match these filters."
+                              : "Sellers have not published inventory for this item yet."
+                          }
+                          icon="package"
+                          actions={
+                            <>
+                              {selectedProductId ? (
+                                <LinkButton href="#make-offer" size="sm">
+                                  Make offer
+                                </LinkButton>
+                              ) : (
+                                <LinkButton href="#select-options" size="sm">
+                                  Choose options
+                                </LinkButton>
+                              )}
+                              {hasActiveFilters ? (
+                                <Button
+                                  type="button"
+                                  tone="secondary"
+                                  size="sm"
+                                  onClick={() => setSelections({})}
+                                >
+                                  Clear filters
+                                </Button>
+                              ) : null}
+                            </>
+                          }
+                        />
+                      )}
+                    </Stack>
+                  </PageSection>
+                </Reveal>
+              ) : (
                 <Reveal preset="lift">
                   <PageSection title="Offers">
                     <Stack gap={3}>
                       <Inline gap={2}>
                         <Text size="sm" tone="secondary">
-                          {visibleSellerOffers.length} matching offer
-                          {visibleSellerOffers.length === 1 ? "" : "s"}
+                          {matchingMarketOffers.length} matching offer
+                          {matchingMarketOffers.length === 1 ? "" : "s"}
                         </Text>
-                        <Button
-                          type="button"
-                          tone={offerFilter === "all" ? "primary" : "secondary"}
-                          size="sm"
-                          onClick={() => setOfferFilter("all")}
-                        >
-                          All offers
-                        </Button>
-                        <Button
-                          type="button"
-                          tone={offerFilter === "fulfillable" ? "primary" : "secondary"}
-                          size="sm"
-                          onClick={() => setOfferFilter("fulfillable")}
-                        >
-                          Can fulfill
-                        </Button>
+                        {hasActiveFilters ? (
+                          <Button
+                            type="button"
+                            tone="ghost"
+                            size="sm"
+                            onClick={() => setSelections({})}
+                          >
+                            Clear filters
+                          </Button>
+                        ) : null}
                       </Inline>
-                      {visibleSellerOffers.length > 0 ? (
-                        visibleSellerOffers.map((offer) => {
-                          const isBest = bestSellerOffer?.offer_id === offer.offer_id;
+                      {matchingMarketOffers.length > 0 ? (
+                        matchingMarketOffers.map((offer) => {
+                          const sellerOffer = sellerOfferById.get(offer.offer_id);
+                          const isBest = bestMarketOffer?.offer_id === offer.offer_id;
 
                           return (
                             <Card key={offer.offer_id} glow={isBest}>
@@ -858,12 +960,12 @@ export function ItemDetailPage({
                                 <Stack gap={1}>
                                   <Inline gap={2}>
                                     <Text weight="semibold">
-                                      {formatMoney(offer.price_amount)}
-                                    </Text>
-                                    {isBest ? <Badge tone="success">Best offer</Badge> : null}
-                                  </Inline>
-                                  <Text size="sm" tone="secondary">
-                                    {offer.buyer_display_name ?? offer.buyer_account_id}
+                                    {formatMoney(offer.price_amount)}
+                                  </Text>
+                                  {isBest ? <Badge tone="success">Best offer</Badge> : null}
+                                </Inline>
+                                <Text size="sm" tone="secondary">
+                                  {offer.buyer_display_name ?? offer.buyer_account_id}
                                   </Text>
                                 </Stack>
                                 <Stack gap={1}>
@@ -883,10 +985,15 @@ export function ItemDetailPage({
                                     Status
                                   </Text>
                                   <Inline gap={2}>
-                                    <Badge tone={offer.can_fulfill ? "success" : "warning"}>
-                                      {offer.can_fulfill ? "Can fulfill" : "Needs supply"}
+                                    <Badge tone={offerStatusTone(offer.status)}>
+                                      {offer.status}
                                     </Badge>
-                                    {offer.in_sell_list ? (
+                                    {sellerOffer ? (
+                                      <Badge tone={sellerOffer.can_fulfill ? "success" : "warning"}>
+                                        {sellerOffer.can_fulfill ? "Can fulfill" : "Needs supply"}
+                                      </Badge>
+                                    ) : null}
+                                    {sellerOffer?.in_sell_list ? (
                                       <Badge tone="accent">In sell list</Badge>
                                     ) : null}
                                   </Inline>
@@ -898,14 +1005,18 @@ export function ItemDetailPage({
                       ) : (
                         <EmptyState
                           title="No matching offers"
-                          description="Buyer offers that match this product and your seller supply will appear here."
+                          description={
+                            data.market_offers.length > 0
+                              ? "No buyer offers match these filters."
+                              : "Buyers have not placed offers for this item yet."
+                          }
                           icon="package"
                         />
                       )}
                     </Stack>
                   </PageSection>
                 </Reveal>
-              ) : null}
+              )}
             </Stack>
           </MarketplaceProductDetailLayout>
           {mobileCommerceDrawer}

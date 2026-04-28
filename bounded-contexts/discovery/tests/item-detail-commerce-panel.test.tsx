@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 import {
   ItemCommercePanel,
@@ -8,8 +10,12 @@ import {
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
+  DiscoveryMarketOffer,
+  DiscoverySellerOffer,
   ProductSchema,
 } from "../support/client-support/contracts";
+
+afterEach(() => cleanup());
 
 const baseListing: DiscoveryMarketListing = {
   listing_id: "listing_charizard",
@@ -30,6 +36,32 @@ const baseListing: DiscoveryMarketListing = {
   visible_quantity: 2,
   created_at: "2026-04-28T00:00:00.000Z",
   updated_at: "2026-04-28T00:00:00.000Z",
+};
+
+const baseMarketOffer: DiscoveryMarketOffer = {
+  offer_id: "offer_charizard",
+  buyer_account_id: "buyer_1",
+  buyer_display_name: "Ash Ketchum",
+  catalog_catalog_item_id: "cat_charizard",
+  product_id: "cat_charizard::",
+  item_title: "Charizard",
+  item_subtitle: "Base Set 4/102 Holo Rare",
+  selected_options: [],
+  product_summary: "Raw / Near Mint",
+  price_amount: "350.00",
+  quantity_requested: 1,
+  status: "submitted",
+  accepted_seller_account_id: null,
+  accepted_at: null,
+  created_at: "2026-04-28T00:00:00.000Z",
+  updated_at: "2026-04-28T00:00:00.000Z",
+};
+
+const baseSellerOffer: DiscoverySellerOffer = {
+  ...baseMarketOffer,
+  seller_available_quantity: 2,
+  can_fulfill: true,
+  in_sell_list: false,
 };
 
 const requiredSchema: ProductSchema = {
@@ -72,6 +104,7 @@ function createItem(
     product_schema: null,
     market_summary: null,
     market_listings: [baseListing],
+    market_offers: [baseMarketOffer],
     updated_at: "2026-04-28T00:00:00.000Z",
     ...overrides,
   };
@@ -109,7 +142,6 @@ describe("item detail commerce panel", () => {
       <ItemDetailPage
         data={createItem()}
         renderCommerce={() => ({
-          desktop: <div>Desktop commerce panel</div>,
           buy: <div>Mobile buy action</div>,
           offer: <div>Mobile offer action</div>,
           sell: <div>Mobile sell action</div>,
@@ -120,7 +152,7 @@ describe("item detail commerce panel", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
     expect(screen.getByRole("dialog", { name: "Buy selected product" })).toBeTruthy();
-    expect(screen.getByText("Mobile buy action")).toBeTruthy();
+    expect(screen.getAllByText("Mobile buy action").length).toBeGreaterThan(0);
   });
 
   it("sends incomplete mobile selections back to the option chooser", () => {
@@ -131,7 +163,6 @@ describe("item detail commerce panel", () => {
           market_listings: [],
         })}
         renderCommerce={() => ({
-          desktop: <div>Desktop commerce panel</div>,
           buy: <div>Mobile buy action</div>,
           offer: <div>Mobile offer action</div>,
           sell: <div>Mobile sell action</div>,
@@ -155,5 +186,47 @@ describe("item detail commerce panel", () => {
         .getAllByRole("link", { name: "Choose to sell" })
         .every((link) => link.getAttribute("href") === "#select-options"),
     ).toBe(true);
+  });
+
+  it("switches market sections with the Buy and Sell intent", () => {
+    render(
+      <ItemDetailPage
+        data={createItem()}
+        renderCommerce={() => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: <div>Sell to buyer offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getAllByText("1 active listing").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Ash Ketchum")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Sell" }));
+
+    expect(screen.getByText("Sell to buyer offer")).toBeTruthy();
+    expect(screen.getByText("1 matching offer")).toBeTruthy();
+    expect(screen.getByText("Ash Ketchum")).toBeTruthy();
+    expect(screen.queryByText("1 active listing")).toBeNull();
+  });
+
+  it("shows seller-specific fulfillment badges when eligible seller offer data is available", () => {
+    render(
+      <ItemDetailPage
+        data={createItem()}
+        sellerOffers={[baseSellerOffer]}
+        renderCommerce={() => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: <div>Sell to buyer offer</div>,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Sell" }));
+
+    expect(screen.getByText("Best offer")).toBeTruthy();
+    expect(screen.getByText("Can fulfill")).toBeTruthy();
   });
 });

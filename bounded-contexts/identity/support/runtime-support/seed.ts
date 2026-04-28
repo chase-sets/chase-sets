@@ -42,7 +42,56 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     // Table may not exist yet. Proceed with seeding.
   }
 
-  const { seller, buyer, support, suspended, invitations, apiKeys } = identitySeedIds;
+  const {
+    seller,
+    buyer,
+    valueBuyer,
+    highRollerBuyer,
+    cardVaultSeller,
+    sealedSeller,
+    support,
+    suspended,
+    invitations,
+    apiKeys,
+  } = identitySeedIds;
+  const additionalMarketAccounts = [
+    {
+      seed: valueBuyer,
+      name: "Value Buyer",
+      accountType: "personal",
+      displayName: "Binder Builder",
+      primaryEmail: "value-buyer@chasesets.test",
+      givenName: "Value",
+      familyName: "Buyer",
+    },
+    {
+      seed: highRollerBuyer,
+      name: "High Roller Buyer",
+      accountType: "business",
+      displayName: "Top Loader Capital",
+      primaryEmail: "high-roller@chasesets.test",
+      givenName: "High",
+      familyName: "Roller",
+    },
+    {
+      seed: cardVaultSeller,
+      name: "Card Vault Seller",
+      accountType: "business",
+      displayName: "Card Vault",
+      primaryEmail: "card-vault@chasesets.test",
+      givenName: "Card",
+      familyName: "Vault",
+    },
+    {
+      seed: sealedSeller,
+      name: "Sealed Seller",
+      accountType: "business",
+      displayName: "Pack Runners",
+      primaryEmail: "sealed-seller@chasesets.test",
+      givenName: "Pack",
+      familyName: "Runner",
+    },
+  ] as const;
 
   await services.accounts.commandHandler({
     streamId: `identity.account-${seller.accountId}`,
@@ -93,6 +142,19 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: { type: "SuspendAccount" },
     context,
   });
+  for (const persona of additionalMarketAccounts) {
+    await services.accounts.commandHandler({
+      streamId: `identity.account-${persona.seed.accountId}`,
+      command: {
+        type: "CreateAccount",
+        accountId: persona.seed.accountId,
+        name: persona.name,
+        accountType: persona.accountType,
+        displayName: persona.displayName,
+      },
+      context,
+    });
+  }
 
   await services.users.commandHandler({
     streamId: `identity.user-${seller.userId}`,
@@ -244,6 +306,36 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: { type: "SuspendUser" },
     context,
   });
+  for (const persona of additionalMarketAccounts) {
+    await services.users.commandHandler({
+      streamId: `identity.user-${persona.seed.userId}`,
+      command: {
+        type: "CreateUser",
+        userId: persona.seed.userId,
+        displayName: persona.name,
+        primaryEmail: persona.primaryEmail,
+        givenName: persona.givenName,
+        familyName: persona.familyName,
+      },
+      context,
+    });
+    await services.users.commandHandler({
+      streamId: `identity.user-${persona.seed.userId}`,
+      command: {
+        type: "EnableAuthMethod",
+        authMethod: "password",
+      },
+      context,
+    });
+    await services.users.commandHandler({
+      streamId: `identity.user-${persona.seed.userId}`,
+      command: {
+        type: "AttachPasswordCredential",
+        credentialId: persona.seed.credentialId,
+      },
+      context,
+    });
+  }
 
   await services.memberships.commandHandler({
     streamId: `identity.membership-${seller.membershipId}`,
@@ -307,8 +399,28 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     },
     context,
   });
+  for (const persona of additionalMarketAccounts) {
+    await services.memberships.commandHandler({
+      streamId: `identity.membership-${persona.seed.membershipId}`,
+      command: {
+        type: "GrantMembership",
+        membershipId: persona.seed.membershipId,
+        userId: persona.seed.userId,
+        accountId: persona.seed.accountId,
+        roleKey: "owner",
+      },
+      context,
+    });
+  }
 
-  for (const consent of [seller, buyer]) {
+  for (const consent of [
+    seller,
+    buyer,
+    valueBuyer,
+    highRollerBuyer,
+    cardVaultSeller,
+    sealedSeller,
+  ]) {
     await services.consents.commandHandler({
       streamId: `identity.consent-${consent.consentId}`,
       command: {

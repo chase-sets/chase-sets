@@ -47,7 +47,6 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   sellerOffers: [],
   sellerInventoryRecords: [],
   sellerAccountId: null,
-  showSellerOffers: false,
   showSellerTab: true,
   canUseSellerFeatures: false,
   registerToSellHref: "/register",
@@ -532,7 +531,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       sellerOffers: [],
       sellerInventoryRecords: [],
       sellerAccountId: null,
-      showSellerOffers: false,
       showSellerTab: false,
       canUseSellerFeatures: false,
       registerToSellHref: buildRegisterToSellHref(request),
@@ -582,7 +580,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       sellerOffers,
       sellerInventoryRecords,
       sellerAccountId: canSellOnItem ? actor?.accountId ?? null : null,
-      showSellerOffers: canReviewSellerOffers || canSellOnItem,
       showSellerTab: true,
       canUseSellerFeatures: canReviewSellerOffers || canSellOnItem,
       registerToSellHref: buildRegisterToSellHref(request),
@@ -595,7 +592,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         sellerOffers: [],
         sellerInventoryRecords: [],
         sellerAccountId: null,
-        showSellerOffers: false,
         showSellerTab: false,
         canUseSellerFeatures: false,
         registerToSellHref: buildRegisterToSellHref(request),
@@ -609,7 +605,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       sellerOffers: [],
       sellerInventoryRecords: [],
       sellerAccountId: null,
-      showSellerOffers: false,
       showSellerTab: false,
       canUseSellerFeatures: false,
       registerToSellHref: buildRegisterToSellHref(request),
@@ -771,7 +766,6 @@ export default function DiscoveryItemDetailRoute() {
     <ItemDetailPage
       data={data.item}
       sellerOffers={data.sellerOffers}
-      showSellerOffers={data.showSellerOffers}
       notFound={data.notFound}
       error={data.error}
       renderCommerce={
@@ -836,26 +830,11 @@ export default function DiscoveryItemDetailRoute() {
                     registerHref={data.registerToSellHref}
                   />
                 );
-              const desktopBuyer = (
-                <Stack gap={4}>
-                  {renderBuy("buy-box")}
-                  {renderOffer("make-offer")}
-                </Stack>
-              );
-              const desktopSeller = renderSeller("desktop");
-
               return (
                 {
-                  desktop: (
-                    <ItemCommercePanel
-                      showSellerTab={data.showSellerTab}
-                      buyer={desktopBuyer}
-                      seller={desktopSeller}
-                    />
-                  ),
-                  buy: renderBuy("mobile-buy-box", "plain"),
-                  offer: renderOffer("mobile-make-offer"),
-                  sell: data.showSellerTab ? renderSeller("mobile") : undefined,
+                  buy: renderBuy("buy-box"),
+                  offer: renderOffer("make-offer"),
+                  sell: data.showSellerTab ? renderSeller("sell") : undefined,
                   sellLabel: data.canUseSellerFeatures ? "Sell" : "Sell",
                 }
               );

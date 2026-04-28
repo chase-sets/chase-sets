@@ -181,7 +181,9 @@
         "marketplace.listing.quantity-cap-updated",
         "marketplace.listing.published",
         "marketplace.listing.paused",
-        "marketplace.listing.withdrawn"
+        "marketplace.listing.withdrawn",
+        "marketplace.offer.submitted",
+        "marketplace.offer.accepted"
       ],
       "order": 30
     }
@@ -236,7 +238,8 @@
       ],
       "ownedTables": [
         "discovery_market_accounts",
-        "discovery_market_listings"
+        "discovery_market_listings",
+        "discovery_market_offers"
       ],
       "requiredDuringBootstrap": true
     }

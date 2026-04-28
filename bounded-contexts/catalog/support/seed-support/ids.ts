@@ -116,6 +116,8 @@ export const catalogSeedIds = {
     charizardBaseSet: "cat_seed_charizard_base_set" as SeedCatalogItemId,
     pikachuJungle: "cat_seed_pikachu_jungle" as SeedCatalogItemId,
     lugiaNeoGenesis: "cat_seed_lugia_neo_genesis" as SeedCatalogItemId,
+    mewtwoBlackStarPromo: "cat_seed_mewtwo_black_star_promo" as SeedCatalogItemId,
+    bulbasaurBaseSet: "cat_seed_bulbasaur_base_set" as SeedCatalogItemId,
     pikachuPrismaticEvolutions: "cat_seed_pikachu_prismatic_evolutions" as SeedCatalogItemId,
     prismaticEvolutionsBoosterPack:
       "cat_seed_prismatic_evolutions_booster_pack" as SeedCatalogItemId,

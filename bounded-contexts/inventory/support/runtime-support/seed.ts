@@ -3,7 +3,11 @@ import {
   catalogSeedIds,
   type SeedCatalogItemId,
 } from "@chase-sets/catalog/seed-support/ids";
-import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import {
+  demoIdentitySeedIds,
+  identitySeedIds,
+} from "@chase-sets/identity/seed-support/ids";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   inventorySeedIds,
   type SeedInventoryHoldId,
@@ -18,6 +22,7 @@ const DEMO_RELEASED_AT = "2026-03-31T00:00:00.000Z";
 
 type StorageLocationSeed = Readonly<{
   storageLocationId: SeedStorageLocationId;
+  accountId?: AccountId;
   name: string;
   description?: string;
   shipFromCode: string;
@@ -25,6 +30,7 @@ type StorageLocationSeed = Readonly<{
 
 type InventoryRecordSeed = Readonly<{
   recordId: SeedInventoryRecordId;
+  accountId?: AccountId;
   catalogItemId: SeedCatalogItemId;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   storageLocationId: SeedStorageLocationId;
@@ -59,6 +65,20 @@ const storageLocations: readonly StorageLocationSeed[] = [
     name: "Archived overflow",
     description: "Retired overflow storage kept for audit history",
     shipFromCode: "CHI-OLD-9",
+  },
+  {
+    storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
+    accountId: identitySeedIds.cardVaultSeller.accountId,
+    name: "Card Vault back room",
+    description: "Vintage singles and curated binder inventory",
+    shipFromCode: "STL-VAULT-4",
+  },
+  {
+    storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
+    accountId: identitySeedIds.sealedSeller.accountId,
+    name: "Sealed case wall",
+    description: "Fast-pick sealed product cases",
+    shipFromCode: "IND-CASE-2",
   },
 ];
 
@@ -115,6 +135,23 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "180.00",
   },
   {
+    recordId: inventorySeedIds.records.mewtwoBlackStarPromoNearMint,
+    catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
+    selectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+      },
+      {
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+      },
+    ],
+    storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
+    totalQuantity: 5,
+    acquisitionCostAmount: "34.00",
+  },
+  {
     recordId: inventorySeedIds.records.pikachuPrismaticEvolutionsNearMint,
     catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
     selectedOptions: [
@@ -154,6 +191,96 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 4,
     acquisitionCostAmount: "41.50",
+  },
+  {
+    recordId: inventorySeedIds.records.cardVaultCharizardNearMint,
+    accountId: identitySeedIds.cardVaultSeller.accountId,
+    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    selectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+      },
+      {
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+      },
+    ],
+    storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
+    totalQuantity: 4,
+    acquisitionCostAmount: "292.00",
+  },
+  {
+    recordId: inventorySeedIds.records.cardVaultPikachuExcellent,
+    accountId: identitySeedIds.cardVaultSeller.accountId,
+    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    selectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+      },
+      {
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.excellent,
+      },
+    ],
+    storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
+    totalQuantity: 14,
+    acquisitionCostAmount: "11.75",
+  },
+  {
+    recordId: inventorySeedIds.records.cardVaultMewtwoNearMint,
+    accountId: identitySeedIds.cardVaultSeller.accountId,
+    catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
+    selectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+      },
+      {
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+      },
+    ],
+    storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
+    totalQuantity: 5,
+    acquisitionCostAmount: "32.00",
+  },
+  {
+    recordId: inventorySeedIds.records.cardVaultTwilightMasqueradeEliteTrainerBox,
+    accountId: identitySeedIds.cardVaultSeller.accountId,
+    catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    selectedOptions: [],
+    storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
+    totalQuantity: 6,
+    acquisitionCostAmount: "40.50",
+  },
+  {
+    recordId: inventorySeedIds.records.sealedSellerPrismaticEvolutionsBoosterPack,
+    accountId: identitySeedIds.sealedSeller.accountId,
+    catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+    selectedOptions: [],
+    storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
+    totalQuantity: 96,
+    acquisitionCostAmount: "4.00",
+  },
+  {
+    recordId: inventorySeedIds.records.sealedSellerSurgingSparksBoosterBox,
+    accountId: identitySeedIds.sealedSeller.accountId,
+    catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
+    selectedOptions: [],
+    storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
+    totalQuantity: 10,
+    acquisitionCostAmount: "116.00",
+  },
+  {
+    recordId: inventorySeedIds.records.sealedSellerTwilightMasqueradeEliteTrainerBox,
+    accountId: identitySeedIds.sealedSeller.accountId,
+    catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    selectedOptions: [],
+    storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
+    totalQuantity: 8,
+    acquisitionCostAmount: "39.50",
   },
 ];
 
@@ -207,7 +334,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
     await sendSeedCommand(services.storageLocations.commandHandler, streamId, {
       type: "CreateStorageLocation",
       storageLocationId: location.storageLocationId,
-      accountId: demoIdentitySeedIds.accountId,
+      accountId: location.accountId ?? demoIdentitySeedIds.accountId,
       name: location.name,
       description: location.description,
       shipFromCode: location.shipFromCode,
@@ -245,7 +372,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
     await sendSeedCommand(services.records.commandHandler, streamId, {
       type: "CreateInventoryRecord",
       recordId: record.recordId,
-      accountId: demoIdentitySeedIds.accountId,
+      accountId: record.accountId ?? demoIdentitySeedIds.accountId,
       catalogItemId: record.catalogItemId,
       productId: catalogVersion.productId,
       selectedOptions: catalogVersion.selection,

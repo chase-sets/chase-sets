@@ -99,6 +99,44 @@ export async function seedCatalogItems(
       tags: ["lugia", "neo-genesis", "vintage"],
     },
     {
+      itemId: catalogSeedIds.items.mewtwoBlackStarPromo as CatalogItemId,
+      title: "Mewtwo",
+      subtitle: "Black Star Promo 3",
+      description:
+        "A Black Star Promo Mewtwo used by the marketplace seed as a listings-only market case.",
+      blueprintKey: "pokemon-card-single",
+      fieldValues: [
+        ["card-number", "3"],
+        ["card-name", "Mewtwo"],
+        ["set-name", "Wizards Black Star Promos"],
+        ["rarity", "Promo"],
+        ["language", "English"],
+        ["artist", "Ken Sugimori"],
+        ["release-year", 1999],
+      ],
+      categoryKeys: ["pokemon-tcg", "singles", "gen-1", "psychic"],
+      tags: ["mewtwo", "promo", "vintage"],
+    },
+    {
+      itemId: catalogSeedIds.items.bulbasaurBaseSet as CatalogItemId,
+      title: "Bulbasaur",
+      subtitle: "Base Set 44/102 Common",
+      description:
+        "A catalog-only item used by the marketplace seed to keep a no-listings-and-no-offers case available.",
+      blueprintKey: "pokemon-card-single",
+      fieldValues: [
+        ["card-number", "44/102"],
+        ["card-name", "Bulbasaur"],
+        ["set-name", "Base Set"],
+        ["rarity", "Common"],
+        ["language", "English"],
+        ["artist", "Mitsuhiro Arita"],
+        ["release-year", 1999],
+      ],
+      categoryKeys: ["pokemon-tcg", "singles", "gen-1", "grass"],
+      tags: ["base-set", "bulbasaur", "vintage"],
+    },
+    {
       itemId: catalogSeedIds.items.pikachuPrismaticEvolutions as CatalogItemId,
       title: "Pikachu",
       subtitle: "Prismatic Evolutions 025 Illustration Rare",
@@ -212,4 +250,3 @@ export async function seedCatalogItems(
     console.log(`  Item "${item.title}" created and published`);
   }
 }
-

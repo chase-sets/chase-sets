@@ -39,12 +39,30 @@ export type DiscoveryItemDetailRow = Readonly<{
     created_at: string;
     updated_at: string;
   }>[];
+  market_offers: readonly Readonly<{
+    offer_id: string;
+    buyer_account_id: string;
+    buyer_display_name: string | null;
+    catalog_catalog_item_id: string;
+    product_id: string;
+    item_title: string;
+    item_subtitle: string | null;
+    selected_options: readonly { dimensionId: string; optionId: string }[];
+    product_summary: string | null;
+    price_amount: string;
+    quantity_requested: number;
+    status: string;
+    accepted_seller_account_id: string | null;
+    accepted_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>[];
   updated_at: string;
 }>;
 
 type BaseDiscoveryItemDetailRow = Omit<
   DiscoveryItemDetailRow,
-  "market_summary" | "market_listings"
+  "market_summary" | "market_listings" | "market_offers"
 >;
 
 function asArray<T>(value: unknown): T[] {
@@ -127,6 +145,28 @@ export async function getDiscoveryItemDetail(
     [itemId],
   );
 
+  const offersResult = await db.query<
+    Omit<DiscoveryItemDetailRow["market_offers"][number], "selected_options"> & {
+      selected_options: unknown;
+    }
+  >(
+    `SELECT
+       offer.*,
+       account.seller_display_name AS buyer_display_name
+     FROM discovery_market_offers AS offer
+     LEFT JOIN discovery_market_accounts AS account
+       ON account.account_id = offer.buyer_account_id
+     WHERE offer.catalog_catalog_item_id = $1
+       AND offer.status IN ('submitted', 'accepted')
+     ORDER BY
+       (offer.status = 'submitted') DESC,
+       offer.price_amount::numeric DESC,
+       offer.quantity_requested DESC,
+       offer.created_at ASC,
+       offer.offer_id ASC`,
+    [itemId],
+  );
+
   const summaryRow = summaryResult.rows[0];
   const marketSummary =
     summaryRow && summaryRow.active_listing_count > 0
@@ -149,7 +189,12 @@ export async function getDiscoveryItemDetail(
         ? row.selected_options
         : [],
     })),
+    market_offers: offersResult.rows.map((row) => ({
+      ...row,
+      selected_options: Array.isArray(row.selected_options)
+        ? row.selected_options
+        : [],
+    })),
   };
 }
-
 
