@@ -117,7 +117,7 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Buy now" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy now" })[0]);
 
     expect(screen.getByRole("dialog", { name: "Buy now" })).toBeTruthy();
     expect(screen.getByText("Mobile buy action")).toBeTruthy();
@@ -140,11 +140,20 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Buy now" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Select options" }).getAttribute("href"))
-      .toBe("#select-options");
-    expect(screen.getByRole("link", { name: "Choose to offer" }).getAttribute("href"))
-      .toBe("#select-options");
-    expect(screen.getByRole("link", { name: "Choose to sell" }).getAttribute("href"))
-      .toBe("#select-options");
+    expect(
+      screen
+        .getAllByRole("link", { name: "Select options" })
+        .every((link) => link.getAttribute("href") === "#select-options"),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByRole("link", { name: "Choose to offer" })
+        .every((link) => link.getAttribute("href") === "#select-options"),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByRole("link", { name: "Choose to sell" })
+        .every((link) => link.getAttribute("href") === "#select-options"),
+    ).toBe(true);
   });
 });

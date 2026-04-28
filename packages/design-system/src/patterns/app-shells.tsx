@@ -1173,12 +1173,9 @@ export function MarketplaceProductDetailLayout({
         </aside>
       </div>
       {mobileActionBar ? (
-        <>
-          <div aria-hidden="true" className="h-24 xl:hidden" />
-          <div className="fixed inset-x-3 bottom-20 z-sticky xl:hidden md:bottom-4">
-            <div className="mx-auto max-w-3xl">{mobileActionBar}</div>
-          </div>
-        </>
+        <div className="fixed inset-x-3 bottom-20 z-sticky xl:hidden md:bottom-4">
+          <div className="mx-auto max-w-3xl">{mobileActionBar}</div>
+        </div>
       ) : null}
     </>
   );

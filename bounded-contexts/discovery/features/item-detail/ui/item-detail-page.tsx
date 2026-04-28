@@ -282,10 +282,40 @@ export function ItemDetailPage({
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<
     "buy" | "offer" | "sell" | null
   >(null);
+  const [
+    embeddedMobileCommerceNode,
+    setEmbeddedMobileCommerceNode,
+  ] = useState<HTMLDivElement | null>(null);
+  const [
+    isEmbeddedMobileCommerceVisible,
+    setIsEmbeddedMobileCommerceVisible,
+  ] = useState(false);
 
   useEffect(() => {
     setSelections(getInitialSelections(data));
   }, [data]);
+
+  useEffect(() => {
+    if (
+      !embeddedMobileCommerceNode ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      setIsEmbeddedMobileCommerceVisible(false);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsEmbeddedMobileCommerceVisible(entry.isIntersecting),
+      {
+        rootMargin: "0px 0px -128px 0px",
+        threshold: 0.35,
+      },
+    );
+
+    observer.observe(embeddedMobileCommerceNode);
+
+    return () => observer.disconnect();
+  }, [embeddedMobileCommerceNode]);
 
   if (error) {
     return <Banner tone="danger" title="Error" description={error} />;
@@ -479,6 +509,74 @@ export function ItemDetailPage({
       : activeMobileCommerce === "offer"
         ? "Make offer"
         : commerceSections?.sellLabel ?? "Sell";
+  const mobileCommerceActionBar = commerce ? (
+    <CommerceActionBar
+      summary={mobileCommerceSummary}
+      primaryAction={
+        selectedProductId ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setActiveMobileCommerce("buy")}
+          >
+            Buy now
+          </Button>
+        ) : (
+          <LinkButton href="#select-options" size="sm">
+            Select options
+          </LinkButton>
+        )
+      }
+      secondaryAction={
+        selectedProductId ? (
+          <Button
+            type="button"
+            tone="secondary"
+            size="sm"
+            onClick={() => setActiveMobileCommerce("offer")}
+          >
+            Make offer
+          </Button>
+        ) : (
+          <LinkButton href="#select-options" tone="secondary" size="sm">
+            Choose to offer
+          </LinkButton>
+        )
+      }
+      tertiaryAction={
+        commerceSections?.sell ? (
+          selectedProductId ? (
+            <Button
+              type="button"
+              tone="secondary"
+              size="sm"
+              onClick={() => setActiveMobileCommerce("sell")}
+            >
+              {commerceSections.sellLabel ?? "Sell"}
+            </Button>
+          ) : (
+            <LinkButton href="#select-options" tone="secondary" size="sm">
+              Choose to sell
+            </LinkButton>
+          )
+        ) : null
+      }
+    />
+  ) : null;
+  const mobileCommerceDrawer = commerce ? (
+    <Drawer
+      open={Boolean(activeMobileCommerce && activeMobileCommerceContent)}
+      onOpenChange={(open) => {
+        if (!open) {
+          setActiveMobileCommerce(null);
+        }
+      }}
+      title={activeMobileCommerceTitle}
+      description={mobileCommerceSummary}
+    >
+      {activeMobileCommerceContent}
+    </Drawer>
+  ) : null;
 
   return (
     <Stagger>
@@ -585,6 +683,15 @@ export function ItemDetailPage({
                     />
                   </PageSection>
                 ) : null}
+
+                {mobileCommerceActionBar ? (
+                  <div
+                    ref={setEmbeddedMobileCommerceNode}
+                    className="xl:hidden"
+                  >
+                    {mobileCommerceActionBar}
+                  </div>
+                ) : null}
               </Stack>
             }
             market={
@@ -609,74 +716,7 @@ export function ItemDetailPage({
             }
             commerce={commerce}
             mobileActionBar={
-              commerce ? (
-                <>
-                  <CommerceActionBar
-                    summary={mobileCommerceSummary}
-                    primaryAction={
-                      selectedProductId ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => setActiveMobileCommerce("buy")}
-                        >
-                          Buy now
-                        </Button>
-                      ) : (
-                        <LinkButton href="#select-options" size="sm">
-                          Select options
-                        </LinkButton>
-                      )
-                    }
-                    secondaryAction={
-                      selectedProductId ? (
-                        <Button
-                          type="button"
-                          tone="secondary"
-                          size="sm"
-                          onClick={() => setActiveMobileCommerce("offer")}
-                        >
-                          Make offer
-                        </Button>
-                      ) : (
-                        <LinkButton href="#select-options" tone="secondary" size="sm">
-                          Choose to offer
-                        </LinkButton>
-                      )
-                    }
-                    tertiaryAction={
-                      commerceSections?.sell ? (
-                        selectedProductId ? (
-                          <Button
-                            type="button"
-                            tone="secondary"
-                            size="sm"
-                            onClick={() => setActiveMobileCommerce("sell")}
-                          >
-                            {commerceSections.sellLabel ?? "Sell"}
-                          </Button>
-                        ) : (
-                          <LinkButton href="#select-options" tone="secondary" size="sm">
-                            Choose to sell
-                          </LinkButton>
-                        )
-                      ) : null
-                    }
-                  />
-                  <Drawer
-                    open={Boolean(activeMobileCommerce && activeMobileCommerceContent)}
-                    onOpenChange={(open) => {
-                      if (!open) {
-                        setActiveMobileCommerce(null);
-                      }
-                    }}
-                    title={activeMobileCommerceTitle}
-                    description={mobileCommerceSummary}
-                  >
-                    {activeMobileCommerceContent}
-                  </Drawer>
-                </>
-              ) : null
+              isEmbeddedMobileCommerceVisible ? null : mobileCommerceActionBar
             }
           >
             <Stack gap={6}>
@@ -868,6 +908,7 @@ export function ItemDetailPage({
               ) : null}
             </Stack>
           </MarketplaceProductDetailLayout>
+          {mobileCommerceDrawer}
         </Reveal>
       </Container>
     </Stagger>
