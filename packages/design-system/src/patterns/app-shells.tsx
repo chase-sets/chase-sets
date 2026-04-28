@@ -44,7 +44,7 @@ export function Page({
     <div
       {...rest}
       className={cx(
-        "mx-auto flex w-full min-w-0 max-w-full flex-col gap-6 overflow-x-hidden px-4 py-6 pb-24 md:px-6 md:pb-8",
+        "mx-auto flex w-full min-w-0 max-w-full flex-col gap-6 overflow-x-clip px-4 py-6 pb-24 md:px-6 md:pb-8",
         layoutWidthClasses[width]
       )}
     >

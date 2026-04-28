@@ -113,7 +113,7 @@ export function ChaseRoot({
               data-density={density}
               data-reduced-motion={resolvedReducedMotion ? "true" : "false"}
               className={cx(
-                "chase-root relative isolate min-h-screen w-full min-w-0 max-w-full overflow-x-hidden bg-background font-body text-foreground"
+                "chase-root relative isolate min-h-screen w-full min-w-0 max-w-full overflow-x-clip bg-background font-body text-foreground"
               )}
               style={resolveThemeOverrideStyle(theme)}
             >

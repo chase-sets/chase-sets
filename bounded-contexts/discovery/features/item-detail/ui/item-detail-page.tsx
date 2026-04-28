@@ -505,7 +505,7 @@ export function ItemDetailPage({
           : null;
   const activeMobileCommerceTitle =
     activeMobileCommerce === "buy"
-      ? "Buy now"
+      ? "Buy selected product"
       : activeMobileCommerce === "offer"
         ? "Make offer"
         : commerceSections?.sellLabel ?? "Sell";
@@ -519,7 +519,7 @@ export function ItemDetailPage({
             size="sm"
             onClick={() => setActiveMobileCommerce("buy")}
           >
-            Buy now
+            Buy
           </Button>
         ) : (
           <LinkButton href="#select-options" size="sm">

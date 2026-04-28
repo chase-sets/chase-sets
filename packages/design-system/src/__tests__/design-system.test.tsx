@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { BottomNav, Button, CopyButton, Tabs, TopNav } from "../components/actions";
 import { Card, DataTable, DetailPanel, FilterBar, ImageGallery, StatGrid } from "../components/data-display";
 import { Accordion, Dialog, Rating, ToastRegion } from "../components/feedback";
-import { NativeSelect, PasswordInput, SearchInput, TagInput } from "../components/forms";
+import { Combobox, NativeSelect, PasswordInput, SearchInput, TagInput } from "../components/forms";
 import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
 import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
 import {
@@ -198,6 +198,33 @@ describe("design system", () => {
 
     expect(screen.getByText("Review listing")).toBeTruthy();
     expect(screen.getByText("Content body")).toBeTruthy();
+  });
+
+  it("uses motion-safe scroll areas for overlay content", () => {
+    render(
+      <ChaseRoot>
+        <Dialog open title="Review listing">
+          Content body
+        </Dialog>
+      </ChaseRoot>
+    );
+
+    expect(document.querySelector(".motion-safe-scroll-area")?.textContent)
+      .toContain("Content body");
+
+    render(
+      <ChaseRoot>
+        <Combobox
+          label="Condition"
+          items={[{ value: "nm", label: "Near Mint" }]}
+        />
+      </ChaseRoot>
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Condition" }));
+
+    expect(screen.getByRole("listbox").getAttribute("class"))
+      .toContain("motion-safe-scroll-area");
   });
 
   it("renders motion primitives safely on the server", () => {

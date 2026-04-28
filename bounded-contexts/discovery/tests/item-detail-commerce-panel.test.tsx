@@ -117,9 +117,9 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Buy now" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    expect(screen.getByRole("dialog", { name: "Buy now" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Buy selected product" })).toBeTruthy();
     expect(screen.getByText("Mobile buy action")).toBeTruthy();
   });
 

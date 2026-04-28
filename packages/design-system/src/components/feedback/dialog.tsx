@@ -112,7 +112,9 @@ function renderDialogFrame({
             />
           </DialogPrimitive.Close>
         </div>
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <div className="motion-safe-scroll-area mt-4 min-h-0 flex-1">
+          {children}
+        </div>
         {footer ? <div className="mt-4">{footer}</div> : null}
         </motion.div>
       </DialogPrimitive.Content>

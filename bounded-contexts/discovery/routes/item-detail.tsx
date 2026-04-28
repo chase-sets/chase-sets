@@ -168,6 +168,7 @@ function MarketplaceOfferSubmissionSection({
 
 function OrderingAddToCartSection({
   formId = "buy-box",
+  frame = "card",
   catalogItemId,
   productId,
   bestListing,
@@ -178,6 +179,7 @@ function OrderingAddToCartSection({
   errorMessage,
 }: {
   formId?: string;
+  frame?: "card" | "plain";
   catalogItemId: string;
   productId: string | null;
   bestListing: { listing_id: string; price_amount: string; seller_display_name: string | null; visible_quantity: number } | null;
@@ -187,21 +189,21 @@ function OrderingAddToCartSection({
   visibleListingCount: number;
   errorMessage?: string | null;
 }) {
-  return (
-    <Card glow={visibleListingCount > 0}>
-      <form id={formId} method="post">
-        <Stack gap={3}>
-          <input type="hidden" name="catalogItemId" value={catalogItemId} />
-          <input type="hidden" name="productId" value={productId ?? ""} />
-          <input
-            type="hidden"
-            name="selectedOptions"
-            value={JSON.stringify(selectedOptions)}
-          />
-          <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-          {bestListing ? (
-            <input type="hidden" name="listingId" value={bestListing.listing_id} />
-          ) : null}
+  const form = (
+    <form id={formId} method="post">
+      <Stack gap={3}>
+        <input type="hidden" name="catalogItemId" value={catalogItemId} />
+        <input type="hidden" name="productId" value={productId ?? ""} />
+        <input
+          type="hidden"
+          name="selectedOptions"
+          value={JSON.stringify(selectedOptions)}
+        />
+        <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+        {bestListing ? (
+          <input type="hidden" name="listingId" value={bestListing.listing_id} />
+        ) : null}
+        {frame === "card" ? (
           <Stack gap={1}>
             <Text weight="semibold">Buy selected product</Text>
             <Text size="sm" tone="secondary">
@@ -224,47 +226,49 @@ function OrderingAddToCartSection({
               </Text>
             ) : null}
           </Stack>
-          {errorMessage ? <Text>{errorMessage}</Text> : null}
-          <NumberInput
-            label="Quantity"
-            name="quantity"
-            min="1"
-            defaultValue="1"
-            required
-          />
-          <NativeSelect
-            label="Shipping"
-            name="shippingOption"
-            defaultValue="standard"
-            items={[
-              { value: "standard", label: "Standard insured" },
-              { value: "expedited", label: "Expedited" },
-              { value: "priority", label: "Priority signature" },
-            ]}
-          />
-          <Button
-            type="submit"
-            name="intent"
-            value="buy-now"
-            disabled={!productId || !bestListing}
-            block
-          >
-            Buy now
-          </Button>
-          <Button
-            type="submit"
-            name="intent"
-            value="add-to-cart"
-            tone="secondary"
-            disabled={!productId}
-            block
-          >
-            Add to cart
-          </Button>
-        </Stack>
-      </form>
-    </Card>
+        ) : null}
+        {errorMessage ? <Text>{errorMessage}</Text> : null}
+        <NumberInput
+          label="Quantity"
+          name="quantity"
+          min="1"
+          defaultValue="1"
+          required
+        />
+        <NativeSelect
+          label="Shipping"
+          name="shippingOption"
+          defaultValue="standard"
+          items={[
+            { value: "standard", label: "Standard insured" },
+            { value: "expedited", label: "Expedited" },
+            { value: "priority", label: "Priority signature" },
+          ]}
+        />
+        <Button
+          type="submit"
+          name="intent"
+          value="buy-now"
+          disabled={!productId || !bestListing}
+          block
+        >
+          Buy now
+        </Button>
+        <Button
+          type="submit"
+          name="intent"
+          value="add-to-cart"
+          tone="secondary"
+          disabled={!productId}
+          block
+        >
+          Add to cart
+        </Button>
+      </Stack>
+    </form>
   );
+
+  return frame === "plain" ? form : <Card glow={visibleListingCount > 0}>{form}</Card>;
 }
 
 function MarketplaceSellerOfferSection({
@@ -780,9 +784,10 @@ export default function DiscoveryItemDetailRoute() {
                       listing.product_id === context.selectedProductId,
                   ) ?? null
                 : null;
-              const renderBuy = (formId: string) => (
+              const renderBuy = (formId: string, frame: "card" | "plain" = "card") => (
                 <OrderingAddToCartSection
                   formId={formId}
+                  frame={frame}
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   bestListing={context.bestListing}
@@ -848,7 +853,7 @@ export default function DiscoveryItemDetailRoute() {
                       seller={desktopSeller}
                     />
                   ),
-                  buy: renderBuy("mobile-buy-box"),
+                  buy: renderBuy("mobile-buy-box", "plain"),
                   offer: renderOffer("mobile-make-offer"),
                   sell: data.showSellerTab ? renderSeller("mobile") : undefined,
                   sellLabel: data.canUseSellerFeatures ? "Sell" : "Sell",

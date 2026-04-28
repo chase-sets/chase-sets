@@ -84,7 +84,7 @@ export function Combobox({
                 id={listboxId}
                 role="listbox"
                 aria-label={typeof label === "string" ? label : "Options"}
-                className="max-h-60 space-y-1 overflow-y-auto"
+                className="motion-safe-scroll-area max-h-60 space-y-1"
               >
                 {filtered.length === 0 ? (
                   <div className="rounded-tokenMd bg-background px-3 py-2 text-sm text-secondary">
