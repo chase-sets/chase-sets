@@ -1,4 +1,5 @@
 import { type HTMLAttributes, type ReactNode } from "react";
+import { Fieldset as BaseFieldset } from "@base-ui/react/fieldset";
 
 export interface FieldsetProps
   extends Omit<HTMLAttributes<HTMLFieldSetElement>, "className" | "style"> {
@@ -14,15 +15,17 @@ export function Fieldset({
   ...rest
 }: FieldsetProps) {
   return (
-    <fieldset {...rest} className="modern-surface space-y-4 rounded-tokenLg border border-muted p-4">
+    <BaseFieldset.Root {...rest} className="modern-surface space-y-4 rounded-tokenLg border border-muted p-4">
       <div className="space-y-1">
-        <legend className="text-sm font-semibold text-foreground">{legend}</legend>
+        <BaseFieldset.Legend className="text-sm font-semibold text-foreground">
+          {legend}
+        </BaseFieldset.Legend>
         {description ? (
           <div className="text-xs text-secondary">{description}</div>
         ) : null}
       </div>
       {children}
-    </fieldset>
+    </BaseFieldset.Root>
   );
 }
 

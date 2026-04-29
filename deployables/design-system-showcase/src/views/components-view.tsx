@@ -16,6 +16,8 @@ import {
   IconButton,
   Inline,
   NativeSelect,
+  NavigationMenu,
+  NumberField,
   OrderSummary,
   Page,
   PageHeader,
@@ -32,7 +34,14 @@ import {
   Switch,
   Text,
   TextInput,
-  TokenSwatch
+  TokenSwatch,
+  Toggle,
+  ToggleGroup,
+  Toolbar,
+  ToolbarButton,
+  ToolbarInput,
+  ToolbarSeparator,
+  Autocomplete
 } from "@chase-sets/design-system";
 import { demoProducts, showcaseIconNames } from "../fixtures";
 
@@ -180,6 +189,21 @@ export function ComponentsView() {
 
             <Stack gap={3}>
               <Heading level={4}>Navigation</Heading>
+              <NavigationMenu
+                items={[
+                  { value: "market", label: "Market", href: "#market", active: true },
+                  {
+                    value: "seller",
+                    label: "Seller",
+                    content: (
+                      <Stack gap={2}>
+                        <Text size="sm">Inventory, orders, payouts, and offer workflows.</Text>
+                        <Button tone="secondary" size="sm">Open dashboard</Button>
+                      </Stack>
+                    )
+                  }
+                ]}
+              />
               <SegmentedControl
                 value="all"
                 items={[
@@ -193,6 +217,27 @@ export function ComponentsView() {
                 Focus, hover, active, and disabled states are token-driven.
               </Text>
             </Stack>
+
+            <Stack gap={3}>
+              <Heading level={4}>Toolbar</Heading>
+              <Toolbar label="Listing tools">
+                <ToolbarButton icon="search">Find</ToolbarButton>
+                <ToolbarButton icon="settings">Tune</ToolbarButton>
+                <ToolbarSeparator />
+                <ToolbarInput aria-label="Filter tools" placeholder="Filter" />
+              </Toolbar>
+              <Inline gap={2}>
+                <Toggle icon="heart" aria-label="Watch listing" />
+                <ToggleGroup
+                  label="View density"
+                  defaultValue={["comfortable"]}
+                  items={[
+                    { value: "compact", label: "Compact" },
+                    { value: "comfortable", label: "Comfort" }
+                  ]}
+                />
+              </Inline>
+            </Stack>
           </Grid>
         </Surface>
       </PageSection>
@@ -203,11 +248,26 @@ export function ComponentsView() {
             <SearchInput label="Search Bar" placeholder="Search for cards, comics, figures..." />
             <TextInput label="Text Field" placeholder="Enter item title" />
             <Select
-              label="Radix Select"
+              label="Base UI Select"
               items={[
                 { value: "all", label: "All Categories" },
                 { value: "cards", label: "Trading Cards" }
               ]}
+            />
+            <Autocomplete
+              label="Autocomplete"
+              items={[
+                { value: "charizard", label: "Charizard" },
+                { value: "pikachu", label: "Pikachu" },
+                { value: "mewtwo", label: "Mewtwo" }
+              ]}
+              placeholder="Find a character"
+            />
+            <NumberField
+              label="Quantity"
+              defaultValue={1}
+              min={1}
+              max={99}
             />
             <NativeSelect
               label="Native Select"

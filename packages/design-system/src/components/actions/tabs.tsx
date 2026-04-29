@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { useState, useId } from "react";
+import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { renderActivePill } from "./shared";
+import { cx } from "../../utils/cx";
 
 export interface TabItem {
   value: string;
@@ -12,8 +13,14 @@ export interface TabItem {
 }
 
 export interface TabsProps
-  extends Omit<TabsPrimitive.TabsProps, "className" | "style"> {
+  extends Omit<
+    ComponentProps<typeof TabsPrimitive.Root>,
+    "children" | "className" | "style" | "onValueChange"
+  > {
   items: TabItem[];
+  activationMode?: "automatic" | "manual";
+  dir?: "ltr" | "rtl";
+  onValueChange?: (value: string) => void;
 }
 
 export function Tabs({
@@ -43,8 +50,6 @@ export function Tabs({
       value={currentValue}
       onValueChange={handleValueChange}
       orientation={orientation}
-      dir={dir}
-      activationMode={activationMode}
       className="space-y-4"
     >
       <LayoutGroup id={groupId}>
@@ -53,10 +58,13 @@ export function Tabs({
             const active = item.value === currentValue;
 
             return (
-              <TabsPrimitive.Trigger
+              <TabsPrimitive.Tab
                 key={item.value}
                 value={item.value}
-                className="focus-ring relative inline-flex touch-target min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-center text-sm font-semibold text-secondary transition data-[state=active]:text-accent md:flex-1 md:basis-0 md:px-4"
+                className={(state) => cx(
+                  "focus-ring relative inline-flex touch-target min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-center text-sm font-semibold text-secondary transition md:flex-1 md:basis-0 md:px-4",
+                  state.active && "text-accent"
+                )}
               >
                 {active ? renderActivePill(groupId, "accent") : null}
                 <span className="relative z-10 min-w-0 break-words">{item.label}</span>
@@ -65,7 +73,7 @@ export function Tabs({
                     {item.badge}
                   </span>
                 ) : null}
-              </TabsPrimitive.Trigger>
+              </TabsPrimitive.Tab>
             );
           })}
         </TabsPrimitive.List>
@@ -78,13 +86,13 @@ export function Tabs({
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.18 }}
         >
-          <TabsPrimitive.Content
+          <TabsPrimitive.Panel
             value={currentValue}
-            forceMount
+            keepMounted
             className="focus-visible:outline-none"
           >
             {items.find((item) => item.value === currentValue)?.content}
-          </TabsPrimitive.Content>
+          </TabsPrimitive.Panel>
         </motion.div>
       </AnimatePresence>
     </TabsPrimitive.Root>

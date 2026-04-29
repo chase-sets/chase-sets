@@ -1,4 +1,5 @@
-import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
+import { Radio } from "@base-ui/react/radio";
+import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
 import { FieldChrome, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
@@ -28,10 +29,10 @@ export function RadioGroup({
       required={required}
       hideLabel={hideLabel}
     >
-      <RadioGroupPrimitive.Root
+      <RadioGroupPrimitive
         value={value}
         defaultValue={defaultValue}
-        onValueChange={onValueChange}
+        onValueChange={(nextValue) => onValueChange?.(nextValue)}
         className="space-y-2"
       >
         {items.map((item) => (
@@ -39,12 +40,12 @@ export function RadioGroup({
             key={item.value}
             className="modern-surface flex cursor-pointer items-start gap-3 rounded-tokenMd border border-muted p-3"
           >
-            <RadioGroupPrimitive.Item
+            <Radio.Root
               value={item.value}
               className="focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-background"
             >
-              <RadioGroupPrimitive.Indicator className="h-2.5 w-2.5 rounded-full bg-accent" />
-            </RadioGroupPrimitive.Item>
+              <Radio.Indicator className="h-2.5 w-2.5 rounded-full bg-accent" />
+            </Radio.Root>
             <div className="space-y-1">
               <div className="text-sm font-medium text-foreground">{item.label}</div>
               {item.description ? (
@@ -53,7 +54,7 @@ export function RadioGroup({
             </div>
           </label>
         ))}
-      </RadioGroupPrimitive.Root>
+      </RadioGroupPrimitive>
     </FieldChrome>
   );
 }

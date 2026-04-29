@@ -1,4 +1,5 @@
 import { type HTMLAttributes, type ReactNode } from "react";
+import { Field as BaseField } from "@base-ui/react/field";
 import { cx } from "../../utils/cx";
 
 export interface FieldChromeProps {
@@ -41,9 +42,9 @@ export function FieldChrome({
   const hintId = fieldHintId(htmlFor);
 
   return (
-    <div {...rest} className="space-y-2">
+    <BaseField.Root {...rest} invalid={!!error} className="space-y-2">
       {label ? (
-        <label
+        <BaseField.Label
           htmlFor={htmlFor}
           className={cx(
             "block text-sm font-medium text-foreground",
@@ -52,15 +53,19 @@ export function FieldChrome({
         >
           {label}
           {required ? <span className="ml-1 text-accent">*</span> : null}
-        </label>
+        </BaseField.Label>
       ) : null}
       {children}
       {error ? (
-        <div id={hintId} role="alert" className="text-xs font-medium text-danger">{error}</div>
+        <BaseField.Error id={hintId} match className="text-xs font-medium text-danger">
+          {error}
+        </BaseField.Error>
       ) : description ? (
-        <div id={hintId} className="text-xs text-secondary">{description}</div>
+        <BaseField.Description id={hintId} className="text-xs text-secondary">
+          {description}
+        </BaseField.Description>
       ) : null}
-    </div>
+    </BaseField.Root>
   );
 }
 

@@ -1,26 +1,25 @@
-import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, type ComponentProps, type HTMLAttributes, type ReactNode } from "react";
+import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { motion } from "motion/react";
-import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { Icon } from "../../icons";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 
 const AnimatedAccordionContent = forwardRef<
   HTMLDivElement,
-  React.ComponentProps<typeof motion.div> & { "data-state"?: "open" | "closed" }
->(function AnimatedAccordionContent({ children, ...rest }, ref) {
+  ComponentProps<"div"> & { open: boolean }
+>(function AnimatedAccordionContent({ children, open, ...rest }, ref) {
   const motionSettings = useChaseMotion();
-  const isOpen = rest["data-state"] === "open";
 
   return (
     <motion.div
-      {...rest}
+      {...(rest as ComponentProps<typeof motion.div>)}
       ref={ref}
       initial={false}
       animate={
         motionSettings.reducedMotion
           ? undefined
-          : isOpen
+          : open
             ? { height: "auto", opacity: 1 }
             : { height: 0, opacity: 0 }
       }
@@ -59,7 +58,7 @@ export function Accordion({
   const rootProps =
     type === "multiple"
       ? {
-          type: "multiple" as const,
+          multiple: true,
           defaultValue: Array.isArray(defaultValue)
             ? defaultValue
             : defaultValue
@@ -67,9 +66,8 @@ export function Accordion({
               : undefined
         }
       : {
-          type: "single" as const,
-          collapsible,
-          defaultValue: typeof defaultValue === "string" ? defaultValue : undefined
+          multiple: false,
+          defaultValue: typeof defaultValue === "string" ? [defaultValue] : undefined
         };
 
   return (
@@ -88,20 +86,23 @@ export function Accordion({
           )}
         >
           <AccordionPrimitive.Header>
-            <AccordionPrimitive.Trigger className="focus-ring flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-foreground transition hover:bg-background [&[data-state=open]>span]:rotate-180">
+            <AccordionPrimitive.Trigger className="focus-ring flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-foreground transition hover:bg-background">
               <span className="flex-1">{item.trigger}</span>
               <span className="inline-flex shrink-0 transition-transform duration-200">
                 <Icon name="chevronDown" size="sm" tone="secondary" />
               </span>
             </AccordionPrimitive.Trigger>
           </AccordionPrimitive.Header>
-          <AccordionPrimitive.Content forceMount asChild>
-            <AnimatedAccordionContent className="overflow-hidden">
+          <AccordionPrimitive.Panel
+            keepMounted
+            render={(props, state) => (
+              <AnimatedAccordionContent {...props} open={state.open} className={cx("overflow-hidden", props.className)} />
+            )}
+          >
               <div className="px-4 pb-4 text-sm text-secondary">
               {item.content}
               </div>
-            </AnimatedAccordionContent>
-          </AccordionPrimitive.Content>
+          </AccordionPrimitive.Panel>
         </AccordionPrimitive.Item>
       ))}
     </AccordionPrimitive.Root>

@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
-import { motion } from "motion/react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useChaseMotion, usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { renderButtonTrigger, renderMotionDiv } from "../../utils/base-ui";
 import { IconButton } from "../actions";
 import { useControllableOpen } from "./shared";
-import { resolveOverlayMotion, resolveOverlayFade } from "./motion-overlay";
 
 function renderDialogFrame({
   open,
@@ -71,29 +70,28 @@ function renderDialogFrame({
 
   return (
     <>
-      <DialogPrimitive.Overlay forceMount asChild>
-        <motion.div
-          initial={overlayAnimation.initial}
-          animate={overlayAnimation.animate}
-          transition={overlayAnimation.transition}
-          className="fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]"
-        />
-      </DialogPrimitive.Overlay>
-      <DialogPrimitive.Content
-        forceMount
-        asChild
+      <DialogPrimitive.Backdrop
+        render={renderMotionDiv({
+          initial: overlayAnimation.initial,
+          animate: overlayAnimation.animate,
+          transition: overlayAnimation.transition,
+          className: "fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]"
+        })}
+      />
+      <DialogPrimitive.Popup
+        render={renderMotionDiv({
+          initial: frameAnimation.initial,
+          animate: frameAnimation.animate,
+          transition: frameAnimation.transition,
+          className: (baseClassName) => cx(
+              "modern-surface fixed z-modal flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col rounded-tokenXl border border-muted p-5 shadow-overlay focus-visible:outline-none md:w-full md:max-w-2xl",
+              kind === "dialog" && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
+              kind === "drawer" &&
+                "inset-x-4 bottom-4 md:inset-y-4 md:right-4 md:left-auto md:w-[28rem]",
+              baseClassName
+            )
+        })}
       >
-        <motion.div
-          initial={frameAnimation.initial}
-          animate={frameAnimation.animate}
-          transition={frameAnimation.transition}
-          className={cx(
-            "modern-surface fixed z-modal flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col rounded-tokenXl border border-muted p-5 shadow-overlay focus-visible:outline-none md:w-full md:max-w-2xl",
-            kind === "dialog" && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
-            kind === "drawer" &&
-              "inset-x-4 bottom-4 md:inset-y-4 md:right-4 md:left-auto md:w-[28rem]"
-          )}
-        >
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <DialogPrimitive.Title className="font-heading text-xl font-semibold text-foreground">
@@ -103,21 +101,20 @@ function renderDialogFrame({
               {description ?? "Dialog content"}
             </DialogPrimitive.Description>
           </div>
-          <DialogPrimitive.Close asChild>
-            <IconButton
+          <DialogPrimitive.Close
+            render={<IconButton
               label={closeLabel}
               icon="close"
               tone="ghost"
               onClick={onDismiss}
-            />
-          </DialogPrimitive.Close>
+            />}
+          />
         </div>
         <div className="motion-safe-scroll-area mt-4 min-h-0 flex-1">
           {children}
         </div>
         {footer ? <div className="mt-4">{footer}</div> : null}
-        </motion.div>
-      </DialogPrimitive.Content>
+      </DialogPrimitive.Popup>
     </>
   );
 }
@@ -154,7 +151,7 @@ export function Dialog({
       open={resolvedOpen}
       onOpenChange={setResolvedOpen}
     >
-      {trigger ? <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger> : null}
+      {trigger ? <DialogPrimitive.Trigger render={renderButtonTrigger(trigger)} /> : null}
       <DialogPrimitive.Portal container={overlayNode ?? undefined}>
         {renderDialogFrame({
           open: resolvedOpen,
@@ -195,7 +192,7 @@ export function Drawer({
       open={resolvedOpen}
       onOpenChange={setResolvedOpen}
     >
-      {trigger ? <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger> : null}
+      {trigger ? <DialogPrimitive.Trigger render={renderButtonTrigger(trigger)} /> : null}
       <DialogPrimitive.Portal container={overlayNode ?? undefined}>
         {renderDialogFrame({
           open: resolvedOpen,

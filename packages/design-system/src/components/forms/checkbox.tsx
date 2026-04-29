@@ -1,9 +1,11 @@
 import { useId } from "react";
-import type { CheckedState } from "@radix-ui/react-checkbox";
-import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
+import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox";
 import { Icon } from "../../icons";
+import { cx } from "../../utils/cx";
 import { FieldChrome, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
+
+type CheckedState = boolean | "indeterminate";
 
 export interface CheckboxProps extends BaseInputProps {
   checked?: CheckedState;
@@ -39,14 +41,19 @@ export function Checkbox({
       >
         <CheckboxPrimitive.Root
           id={inputId}
-          checked={checked}
-          defaultChecked={defaultChecked}
-          onCheckedChange={onCheckedChange}
+          checked={checked === "indeterminate" ? false : checked}
+          defaultChecked={defaultChecked === "indeterminate" ? false : defaultChecked}
+          indeterminate={checked === "indeterminate" || defaultChecked === "indeterminate"}
+          onCheckedChange={(nextChecked) => onCheckedChange?.(nextChecked)}
           disabled={disabled}
-          className="focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-elevated data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[disabled]:opacity-60"
+          className={(state) => cx(
+            "focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-elevated",
+            (state.checked || state.indeterminate) && "border-accent bg-accent",
+            state.disabled && "opacity-60"
+          )}
         >
           <CheckboxPrimitive.Indicator>
-            <Icon name="check" size="sm" tone="inverse" />
+            <Icon name={checked === "indeterminate" ? "minus" : "check"} size="sm" tone="inverse" />
           </CheckboxPrimitive.Indicator>
         </CheckboxPrimitive.Root>
         <div className="space-y-1">

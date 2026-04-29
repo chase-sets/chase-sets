@@ -7,6 +7,15 @@ export type { TabItem, TabsProps } from "./tabs";
 export { SegmentedControl } from "./segmented-control";
 export type { SegmentedControlItem, SegmentedControlProps } from "./segmented-control";
 
+export { Toggle, ToggleGroup } from "./toggle";
+export type { ToggleProps, ToggleGroupItem, ToggleGroupProps } from "./toggle";
+
+export { Toolbar, ToolbarButton, ToolbarInput, ToolbarSeparator } from "./toolbar";
+export type { ToolbarProps, ToolbarButtonProps, ToolbarInputProps } from "./toolbar";
+
+export { NavigationMenu } from "./navigation-menu";
+export type { NavigationMenuItem, NavigationMenuProps } from "./navigation-menu";
+
 export { Breadcrumbs } from "./breadcrumbs";
 export type { BreadcrumbItem, BreadcrumbsProps } from "./breadcrumbs";
 

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
-import { motion } from "motion/react";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { useChaseMotion, usePortalRoots } from "../../theme/provider";
+import { renderInlineTrigger, renderMotionDiv } from "../../utils/base-ui";
 import { resolveOverlayMotion } from "./motion-overlay";
 
 export interface TooltipProps {
@@ -24,25 +24,23 @@ export function Tooltip({
   );
 
   return (
-    <TooltipPrimitive.Provider delayDuration={150}>
+    <TooltipPrimitive.Provider delay={150}>
       <TooltipPrimitive.Root open={open} onOpenChange={setOpen}>
-        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Trigger render={renderInlineTrigger(children)} />
         <TooltipPrimitive.Portal container={overlayNode ?? undefined}>
-          <TooltipPrimitive.Content
-            sideOffset={8}
-            forceMount
-            asChild
-          >
-            <motion.div
-              initial={motionProps.initial}
-              animate={motionProps.animate}
-              transition={motionProps.transition}
-              className="z-popover rounded-tokenMd bg-foreground px-3 py-2 text-xs font-medium text-inverse shadow-overlay"
+          <TooltipPrimitive.Positioner sideOffset={8} className="z-popover">
+            <TooltipPrimitive.Popup
+              render={renderMotionDiv({
+                initial: motionProps.initial,
+                animate: motionProps.animate,
+                transition: motionProps.transition,
+                className: "rounded-tokenMd bg-foreground px-3 py-2 text-xs font-medium text-inverse shadow-overlay"
+              })}
             >
-              {content}
-              <TooltipPrimitive.Arrow className="fill-foreground" />
-            </motion.div>
-          </TooltipPrimitive.Content>
+                {content}
+                <TooltipPrimitive.Arrow className="fill-foreground" />
+            </TooltipPrimitive.Popup>
+          </TooltipPrimitive.Positioner>
         </TooltipPrimitive.Portal>
       </TooltipPrimitive.Root>
     </TooltipPrimitive.Provider>

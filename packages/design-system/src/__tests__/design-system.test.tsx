@@ -1,11 +1,37 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { BottomNav, Button, CopyButton, SegmentedControl, Tabs, TopNav } from "../components/actions";
+import { describe, expect, it, vi } from "vitest";
+import {
+  BottomNav,
+  Button,
+  CopyButton,
+  NavigationMenu,
+  SegmentedControl,
+  Tabs,
+  Toggle,
+  ToggleGroup,
+  Toolbar,
+  ToolbarButton,
+  ToolbarInput,
+  ToolbarSeparator,
+  TopNav
+} from "../components/actions";
 import { Card, DataTable, DetailPanel, FilterBar, ImageGallery, StatGrid } from "../components/data-display";
-import { Accordion, Dialog, Rating, ToastRegion } from "../components/feedback";
-import { Combobox, NativeSelect, PasswordInput, SearchInput, TagInput } from "../components/forms";
+import { Accordion, Dialog, Menu, Rating, ToastRegion, Tooltip } from "../components/feedback";
+import {
+  Checkbox,
+  Combobox,
+  Autocomplete,
+  NativeSelect,
+  NumberField,
+  PasswordInput,
+  SearchInput,
+  Select,
+  Switch,
+  TagInput
+} from "../components/forms";
 import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
 import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
 import {
@@ -82,6 +108,18 @@ function MotionStatus() {
       <span>{reducedMotion ? "reduced" : "full"}</span>
       <span>{motionSettings.reducedMotionSetting}</span>
     </div>
+  );
+}
+
+function DialogInteractionHarness({ title }: { title: string }) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <ChaseRoot>
+      <Dialog open={open} onOpenChange={setOpen} title={title}>
+        Dialog body
+      </Dialog>
+    </ChaseRoot>
   );
 }
 
@@ -203,8 +241,8 @@ describe("design system", () => {
     expect(screen.getByText("Content body")).toBeTruthy();
   });
 
-  it("uses motion-safe scroll areas for overlay content", () => {
-    render(
+  it("uses motion-safe scroll areas for overlay content", async () => {
+    const { unmount } = render(
       <ChaseRoot>
         <Dialog open title="Review listing">
           Content body
@@ -215,6 +253,8 @@ describe("design system", () => {
     expect(document.querySelector(".motion-safe-scroll-area")?.textContent)
       .toContain("Content body");
 
+    unmount();
+
     render(
       <ChaseRoot>
         <Combobox
@@ -224,10 +264,218 @@ describe("design system", () => {
       </ChaseRoot>
     );
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Condition" }));
+    fireEvent.click(screen.getByRole("button", { name: "Condition" }));
 
-    expect(screen.getByRole("listbox").getAttribute("class"))
+    expect((await screen.findByRole("listbox")).getAttribute("class"))
       .toContain("motion-safe-scroll-area");
+  });
+
+  it("selects values from Base UI select popups", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <Select
+          label="Condition"
+          items={[
+            { value: "lp", label: "Lightly Played" },
+            { value: "nm", label: "Near Mint" }
+          ]}
+          onValueChange={onValueChange}
+        />
+      </ChaseRoot>
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Condition" }));
+    const option = await screen.findByRole("option", { name: "Near Mint" });
+
+    await user.click(option);
+
+    expect(onValueChange).toHaveBeenCalledWith("nm");
+  });
+
+  it("closes dialogs with Escape and backdrop interaction", async () => {
+    const { unmount } = render(<DialogInteractionHarness title="Escape dialog" />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Escape dialog" })).toBeNull();
+    });
+
+    unmount();
+    render(<DialogInteractionHarness title="Backdrop dialog" />);
+
+    const backdrop = document.querySelector(".fixed.inset-0.z-modal");
+    expect(backdrop).toBeTruthy();
+
+    fireEvent.pointerDown(backdrop as Element);
+    fireEvent.click(backdrop as Element);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Backdrop dialog" })).toBeNull();
+    });
+  });
+
+  it("fires menu item selections", async () => {
+    const onSelect = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <Menu
+          trigger={<Button>Actions</Button>}
+          items={[{ key: "duplicate", label: "Duplicate listing", onSelect }]}
+        />
+      </ChaseRoot>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Duplicate listing" }));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates checkbox and switch state through Base UI callbacks", () => {
+    const onCheckedChange = vi.fn();
+    const onSwitchChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <Checkbox label="Accept terms" onCheckedChange={onCheckedChange} />
+        <Switch label="Auto price" onCheckedChange={onSwitchChange} />
+      </ChaseRoot>
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Accept terms" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Auto price" }));
+
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
+    expect(onSwitchChange).toHaveBeenCalledWith(true);
+  });
+
+  it("shows and hides tooltips from trigger focus", async () => {
+    render(
+      <ChaseRoot>
+        <Tooltip content="Price includes marketplace fees">
+          <button type="button">Fee help</button>
+        </Tooltip>
+      </ChaseRoot>
+    );
+
+    fireEvent.focus(screen.getByRole("button", { name: "Fee help" }));
+
+    expect(await screen.findByText("Price includes marketplace fees")).toBeTruthy();
+
+    fireEvent.blur(screen.getByRole("button", { name: "Fee help" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Price includes marketplace fees")).toBeNull();
+    });
+  });
+
+  it("selects autocomplete options", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <Autocomplete
+          label="Character"
+          items={[
+            { value: "charizard", label: "Charizard" },
+            { value: "pikachu", label: "Pikachu" }
+          ]}
+          onValueChange={onValueChange}
+        />
+      </ChaseRoot>
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Character" }));
+    await user.click(await screen.findByRole("option", { name: "Pikachu" }));
+
+    expect(onValueChange).toHaveBeenCalledWith("Pikachu");
+  });
+
+  it("increments number fields through Base UI controls", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <NumberField
+          label="Quantity"
+          defaultValue={1}
+          onValueChange={onValueChange}
+          incrementLabel="Increase quantity"
+          decrementLabel="Decrease quantity"
+        />
+      </ChaseRoot>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Increase quantity" }));
+
+    expect(onValueChange).toHaveBeenCalledWith(2);
+  });
+
+  it("updates toggle and toggle group state", async () => {
+    const user = userEvent.setup();
+    const onPressedChange = vi.fn();
+    const onValueChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <Toggle aria-label="Watch listing" onPressedChange={onPressedChange} />
+        <ToggleGroup
+          label="View mode"
+          items={[
+            { value: "grid", label: "Grid" },
+            { value: "list", label: "List" }
+          ]}
+          onValueChange={onValueChange}
+        />
+      </ChaseRoot>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Watch listing" }));
+    await user.click(screen.getByRole("button", { name: "List" }));
+
+    expect(onPressedChange).toHaveBeenCalledWith(true);
+    expect(onValueChange).toHaveBeenCalledWith(["list"]);
+  });
+
+  it("renders toolbar and navigation menu wrappers", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ChaseRoot>
+        <Toolbar label="Listing tools">
+          <ToolbarButton icon="search">Find</ToolbarButton>
+          <ToolbarSeparator />
+          <ToolbarInput aria-label="Filter listings" />
+        </Toolbar>
+        <NavigationMenu
+          items={[
+            { value: "browse", label: "Browse", href: "#browse", active: true },
+            {
+              value: "sell",
+              label: "Sell",
+              content: <div>Seller workflows</div>
+            }
+          ]}
+        />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByRole("toolbar", { name: "Listing tools" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Find" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Filter listings" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Browse" }).getAttribute("href")).toBe("#browse");
+
+    await user.click(screen.getByRole("button", { name: "Sell" }));
+
+    expect(await screen.findByText("Seller workflows")).toBeTruthy();
   });
 
   it("renders motion primitives safely on the server", () => {

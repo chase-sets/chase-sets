@@ -28,6 +28,7 @@ import {
 import { Badge, Drawer, type BadgeProps, type DrawerProps } from "../components/feedback";
 import { ChaseSetsLogo } from "../brand/chase-sets-logo";
 import { Icon, type IconName } from "../icons";
+import { toMotionDomProps } from "../utils/motion-props";
 
 export interface PageProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -358,7 +359,7 @@ export function SelectionToolbar({
   ...rest
 }: SelectionToolbarProps) {
   const motionSettings = useChaseMotion();
-  const nativeProps = rest as unknown as Record<string, unknown>;
+  const nativeProps = toMotionDomProps(rest);
 
   return (
     <motion.div
@@ -656,7 +657,7 @@ export function ProductCard({
   if (href) {
     return (
       <motion.a
-        {...(rest as unknown as Record<string, unknown>)}
+        {...toMotionDomProps(rest)}
         href={href}
         target={target}
         rel={rel ?? (target === "_blank" ? "noreferrer" : undefined)}
@@ -671,7 +672,7 @@ export function ProductCard({
   if (onSelect) {
     return (
       <motion.button
-        {...(rest as unknown as Record<string, unknown>)}
+        {...toMotionDomProps(rest)}
         type="button"
         aria-label={selectLabel}
         className={interactiveClassName}

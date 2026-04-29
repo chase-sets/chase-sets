@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { motion } from "motion/react";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { Icon, type IconName } from "../../icons";
 import { useChaseMotion, usePortalRoots } from "../../theme/provider";
+import { renderButtonTrigger, renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
 import { resolveOverlayMotion } from "./motion-overlay";
 
@@ -30,14 +30,16 @@ export interface MenuProps {
 
 function renderMenuItem(item: MenuItem) {
   return (
-    <DropdownMenuPrimitive.Item
+    <MenuPrimitive.Item
       key={item.key}
       disabled={item.disabled}
-      className={cx(
-        "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none data-[highlighted]:bg-background data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
+      className={(state) => cx(
+        "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none",
+        state.highlighted && "bg-background",
+        state.disabled && "cursor-not-allowed opacity-50",
         item.destructive ? "text-danger" : "text-foreground"
       )}
-      onSelect={item.onSelect}
+      onClick={item.onSelect}
     >
       {item.icon ? (
         <Icon
@@ -55,7 +57,7 @@ function renderMenuItem(item: MenuItem) {
       {item.shortcut ? (
         <span className="ml-auto text-xs text-secondary">{item.shortcut}</span>
       ) : null}
-    </DropdownMenuPrimitive.Item>
+    </MenuPrimitive.Item>
   );
 }
 
@@ -75,40 +77,36 @@ export function Menu({
   );
 
   return (
-    <DropdownMenuPrimitive.Root open={open} onOpenChange={setOpen}>
-      <DropdownMenuPrimitive.Trigger asChild>
-        {trigger}
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal container={overlayNode ?? undefined}>
-        <DropdownMenuPrimitive.Content
-          sideOffset={8}
-          forceMount
-          asChild
-        >
-          <motion.div
-            initial={motionProps.initial}
-            animate={motionProps.animate}
-            transition={motionProps.transition}
-            className="modern-surface z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay"
+    <MenuPrimitive.Root open={open} onOpenChange={setOpen}>
+      <MenuPrimitive.Trigger render={renderButtonTrigger(trigger)} />
+      <MenuPrimitive.Portal container={overlayNode ?? undefined}>
+        <MenuPrimitive.Positioner sideOffset={8} className="z-dropdown">
+          <MenuPrimitive.Popup
+            render={renderMotionDiv({
+              initial: motionProps.initial,
+              animate: motionProps.animate,
+              transition: motionProps.transition,
+              className: "modern-surface min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay"
+            })}
           >
             {groups
               ? groups.map((group, groupIndex) => (
-                  <DropdownMenuPrimitive.Group key={groupIndex}>
+                  <MenuPrimitive.Group key={groupIndex}>
                     {group.label ? (
-                      <DropdownMenuPrimitive.Label className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-secondary">
+                      <MenuPrimitive.GroupLabel className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-secondary">
                         {group.label}
-                      </DropdownMenuPrimitive.Label>
+                      </MenuPrimitive.GroupLabel>
                     ) : null}
                     {group.items.map(renderMenuItem)}
                     {groupIndex < groups.length - 1 ? (
-                      <DropdownMenuPrimitive.Separator className="my-1 h-px bg-muted" />
+                      <MenuPrimitive.Separator className="my-1 h-px bg-muted" />
                     ) : null}
-                  </DropdownMenuPrimitive.Group>
+                  </MenuPrimitive.Group>
                 ))
               : items?.map(renderMenuItem)}
-          </motion.div>
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+          </MenuPrimitive.Popup>
+        </MenuPrimitive.Positioner>
+      </MenuPrimitive.Portal>
+    </MenuPrimitive.Root>
   );
 }

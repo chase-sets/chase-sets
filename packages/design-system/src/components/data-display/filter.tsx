@@ -2,6 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { motion } from "motion/react";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { toMotionDomProps } from "../../utils/motion-props";
 import { Button } from "../actions";
 import { Drawer, type DrawerProps } from "../feedback";
 
@@ -21,7 +22,7 @@ export function FilterBar({
   ...rest
 }: FilterBarProps) {
   const motionSettings = useChaseMotion();
-  const nativeProps = rest as unknown as Record<string, unknown>;
+  const nativeProps = toMotionDomProps(rest);
 
   return (
     <motion.div
@@ -87,7 +88,7 @@ export function BulkActionBar({
   ...rest
 }: BulkActionBarProps) {
   const motionSettings = useChaseMotion();
-  const nativeProps = rest as unknown as Record<string, unknown>;
+  const nativeProps = toMotionDomProps(rest);
 
   return (
     <motion.div

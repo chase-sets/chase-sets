@@ -2,9 +2,9 @@ import type {
   AnchorHTMLAttributes,
   HTMLAttributes,
   ImgHTMLAttributes,
+  LabelHTMLAttributes,
   ReactNode
 } from "react";
-import * as LabelPrimitive from "@radix-ui/react-label";
 import { Icon, type IconName } from "../icons";
 import { cx } from "../utils/cx";
 import { resolveTextAlignClass, type TextAlignValue } from "../utils/system";
@@ -105,7 +105,7 @@ export function Heading({
 }
 
 export interface LabelProps
-  extends Omit<LabelPrimitive.LabelProps, "className" | "style"> {
+  extends Omit<LabelHTMLAttributes<HTMLLabelElement>, "className" | "style"> {
   muted?: boolean;
 }
 
@@ -114,7 +114,7 @@ export function Label({
   ...rest
 }: LabelProps) {
   return (
-    <LabelPrimitive.Root
+    <label
       {...rest}
       className={cx(
         "text-sm font-medium",

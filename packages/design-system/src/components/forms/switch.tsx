@@ -1,5 +1,6 @@
 import { useId } from "react";
-import * as SwitchPrimitive from "@radix-ui/react-switch";
+import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
+import { cx } from "../../utils/cx";
 import { FieldChrome, type BaseInputProps } from "./shared";
 
 export interface SwitchProps extends BaseInputProps {
@@ -47,11 +48,20 @@ export function Switch({
           id={inputId}
           checked={checked}
           defaultChecked={defaultChecked}
-          onCheckedChange={onCheckedChange}
+          onCheckedChange={(nextChecked) => onCheckedChange?.(nextChecked)}
           disabled={disabled}
-          className="focus-ring relative inline-flex h-7 w-12 items-center rounded-full bg-muted transition data-[state=checked]:bg-accent data-[disabled]:opacity-60"
+          className={(state) => cx(
+            "focus-ring relative inline-flex h-7 w-12 items-center rounded-full bg-muted transition",
+            state.checked && "bg-accent",
+            state.disabled && "opacity-60"
+          )}
         >
-          <SwitchPrimitive.Thumb className="block h-5 w-5 translate-x-1 rounded-full bg-elevated shadow-tokenSm transition data-[state=checked]:translate-x-6" />
+          <SwitchPrimitive.Thumb
+            className={(state) => cx(
+              "block h-5 w-5 translate-x-1 rounded-full bg-elevated shadow-tokenSm transition",
+              state.checked && "translate-x-6"
+            )}
+          />
         </SwitchPrimitive.Root>
       </label>
     </FieldChrome>

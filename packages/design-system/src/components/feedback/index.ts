@@ -19,8 +19,22 @@ export type { TooltipProps } from "./tooltip";
 export { Menu } from "./menu";
 export type { MenuItem, MenuGroup, MenuProps } from "./menu";
 
-export { ToastRegion } from "./toast";
-export type { ToastItem, ToastRegionProps } from "./toast";
+export {
+  ToastProvider,
+  ToastRegion,
+  defaultToastManager,
+  showToast,
+  toastManager,
+  useToast
+} from "./toast";
+export type {
+  ShowToastOptions,
+  ToastData,
+  ToastItem,
+  ToastManager,
+  ToastProviderProps,
+  ToastRegionProps
+} from "./toast";
 
 export { LoadingSpinner, ProgressBar, Skeleton } from "./loading";
 export type { LoadingSpinnerProps, ProgressBarProps, SkeletonProps } from "./loading";

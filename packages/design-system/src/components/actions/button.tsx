@@ -10,6 +10,7 @@ import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
 import { useChaseMotion, useDensity } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { toMotionDomProps } from "../../utils/motion-props";
 import type { ButtonTone, ButtonSize } from "./shared";
 import {
   buttonBaseClass,
@@ -81,7 +82,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     motionSettings.interactiveScale,
     motionSettings.interactiveLift
   );
-  const nativeProps = rest as unknown as Record<string, unknown>;
+  const nativeProps = toMotionDomProps(rest);
   const isDisabled = disabled || loading;
 
   return (
@@ -137,7 +138,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       motionSettings.interactiveScale,
       motionSettings.interactiveLift
     );
-    const nativeProps = rest as unknown as Record<string, unknown>;
+    const nativeProps = toMotionDomProps(rest);
 
     return (
       <motion.button
@@ -187,7 +188,7 @@ export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(
       motionSettings.interactiveScale,
       motionSettings.interactiveLift
     );
-    const nativeProps = rest as unknown as Record<string, unknown>;
+    const nativeProps = toMotionDomProps(rest);
 
     return (
       <motion.a

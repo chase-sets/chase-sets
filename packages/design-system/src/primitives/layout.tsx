@@ -1,8 +1,6 @@
-import type { HTMLAttributes, PropsWithChildren, ReactNode } from "react";
-import * as AspectRatioPrimitive from "@radix-ui/react-aspect-ratio";
-import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
-import * as SeparatorPrimitive from "@radix-ui/react-separator";
-import * as VisuallyHiddenPrimitive from "@radix-ui/react-visually-hidden";
+import type { ComponentProps, HTMLAttributes, PropsWithChildren, ReactNode } from "react";
+import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
+import { Separator as SeparatorPrimitive } from "@base-ui/react/separator";
 import type { ResponsiveValue } from "../theme/tokens";
 import { cx } from "../utils/cx";
 import {
@@ -314,9 +312,9 @@ export function AspectRatio({
   ...rest
 }: AspectRatioProps) {
   return (
-    <AspectRatioPrimitive.Root {...rest} ratio={ratio}>
+    <div {...rest} style={{ aspectRatio: ratio }}>
       {children}
-    </AspectRatioPrimitive.Root>
+    </div>
   );
 }
 
@@ -375,7 +373,9 @@ export function Surface({
 }
 
 export interface DividerProps
-  extends Omit<SeparatorPrimitive.SeparatorProps, "className" | "style"> {}
+  extends Omit<ComponentProps<typeof SeparatorPrimitive>, "className" | "style"> {
+  decorative?: boolean;
+}
 
 export function Divider({
   orientation = "horizontal",
@@ -383,9 +383,9 @@ export function Divider({
   ...rest
 }: DividerProps) {
   return (
-    <SeparatorPrimitive.Root
+    <SeparatorPrimitive
       {...rest}
-      decorative={decorative}
+      aria-hidden={decorative || undefined}
       orientation={orientation}
       className={cx(
         "shrink-0 bg-border",
@@ -397,7 +397,7 @@ export function Divider({
 
 export interface ScrollAreaProps
   extends PropsWithChildren,
-    Omit<ScrollAreaPrimitive.ScrollAreaProps, "className" | "style" | "children"> {
+    Omit<ComponentProps<typeof ScrollAreaPrimitive.Root>, "className" | "style" | "children"> {
   height?: "auto" | "sm" | "md" | "lg" | "full";
 }
 
@@ -451,9 +451,9 @@ export function VisuallyHidden({
   ...rest
 }: VisuallyHiddenProps) {
   return (
-    <VisuallyHiddenPrimitive.Root {...rest}>
+    <span {...rest} className="sr-only">
       {children}
-    </VisuallyHiddenPrimitive.Root>
+    </span>
   );
 }
 

@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { Icon } from "../../icons";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { toMotionDomProps } from "../../utils/motion-props";
 import type { ButtonTone, ButtonSize } from "./shared";
 import {
   buttonBaseClass,
@@ -38,7 +39,7 @@ export function CopyButton({
     motionSettings.interactiveScale,
     motionSettings.interactiveLift
   );
-  const nativeProps = rest as unknown as Record<string, unknown>;
+  const nativeProps = toMotionDomProps(rest);
 
   const handleClick = useCallback(() => {
     navigator.clipboard.writeText(value).then(() => {

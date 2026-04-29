@@ -2,6 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { motion } from "motion/react";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { toMotionDomProps } from "../../utils/motion-props";
 
 export interface CardProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -29,7 +30,7 @@ export function Card({
           transition: { duration: motionSettings.durations.base, ease: motionSettings.easing }
         }
       : undefined;
-  const nativeProps = rest as unknown as Record<string, unknown>;
+  const nativeProps = toMotionDomProps(rest);
 
   return (
     <motion.div

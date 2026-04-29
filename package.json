@@ -25,7 +25,7 @@
         "test:fast": "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db",
         "test:db": "node ./scripts/run-workspaces.mjs test --test-profile=db",
         "build": "node ./scripts/run-workspaces.mjs build",
-        "verify": "npm run sync:workspace-metadata && npm run check:structure && npm run typecheck && npm run test:fast && npm run build",
+        "verify": "npm run sync:workspace-metadata && npm run check:structure && npm run check:ui-migration && npm run typecheck && npm run test:fast && npm run build",
         "verify:db": "npm run test:db",
         "verify:design-system-contracts": "npm run verify:source --workspace @chase-sets/app-design-system-showcase",
         "dev:platform-api": "npm run dev --workspace @chase-sets/app-platform-api",
@@ -36,7 +36,8 @@
         "test:platform": "npm run test --workspace @chase-sets/app-platform-api",
         "check:structure": "node ./scripts/check-structure.mjs",
         "check:structure:ci": "STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT=violation npm run check:structure",
-        "check:structure:budget": "node ./scripts/structure-metrics-budget.mjs"
+        "check:structure:budget": "node ./scripts/structure-metrics-budget.mjs",
+        "check:ui-migration": "node ./scripts/check-design-system-migration.mjs"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.2.2",

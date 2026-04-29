@@ -5,6 +5,8 @@ export { TextInput, type TextInputProps, NumberInput, type NumberInputProps, Cur
 export { Textarea, type TextareaProps } from "./textarea";
 export { Select, NativeSelect, type NativeSelectProps, type SelectItem, type SelectProps } from "./select";
 export { Combobox, type ComboboxProps } from "./combobox";
+export { Autocomplete, type AutocompleteItem, type AutocompleteProps } from "./autocomplete";
+export { NumberField, type NumberFieldProps } from "./number-field";
 export { Checkbox, type CheckboxProps, CheckboxGroup, type CheckboxGroupProps } from "./checkbox";
 export { RadioGroup, type RadioGroupProps } from "./radio-group";
 export { Switch, type SwitchProps } from "./switch";

@@ -1,6 +1,6 @@
-import { useId, type SelectHTMLAttributes } from "react";
-import * as SelectPrimitive from "@radix-ui/react-select";
-import { Icon } from "../../icons";
+import { useId, useMemo, type SelectHTMLAttributes } from "react";
+import { Select as SelectPrimitive } from "@base-ui/react/select";
+import { Icon as ChaseIcon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
@@ -86,6 +86,10 @@ export function Select({
 }: SelectProps) {
   const fallbackId = useId();
   const { overlayNode } = usePortalRoots();
+  const itemLabels = useMemo(
+    () => Object.fromEntries(items.map((item) => [item.value, item.label])),
+    [items]
+  );
 
   return (
     <FieldChrome
@@ -97,9 +101,14 @@ export function Select({
       htmlFor={fallbackId}
     >
       <SelectPrimitive.Root
+        items={itemLabels}
         value={value}
         defaultValue={defaultValue}
-        onValueChange={onValueChange}
+        onValueChange={(nextValue) => {
+          if (nextValue !== null) {
+            onValueChange?.(nextValue);
+          }
+        }}
         disabled={disabled}
       >
         <SelectPrimitive.Trigger
@@ -114,21 +123,23 @@ export function Select({
         >
           <SelectPrimitive.Value placeholder={placeholder} />
           <SelectPrimitive.Icon>
-            <Icon name="chevronDown" size="sm" tone="secondary" />
+            <ChaseIcon name="chevronDown" size="sm" tone="secondary" />
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal container={overlayNode ?? undefined}>
-          <SelectPrimitive.Content
-            position="popper"
-            className="modern-surface z-popover min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-tokenLg border border-muted shadow-overlay"
-          >
-            <SelectPrimitive.Viewport className="p-2">
+          <SelectPrimitive.Positioner sideOffset={8} className="z-popover min-w-[var(--anchor-width)]">
+            <SelectPrimitive.Popup className="modern-surface overflow-hidden rounded-tokenLg border border-muted shadow-overlay">
+            <SelectPrimitive.List className="p-2">
               {items.map((item) => (
                 <SelectPrimitive.Item
                   key={item.value}
                   value={item.value}
                   disabled={item.disabled}
-                  className="focus-ring relative flex cursor-pointer select-none items-center rounded-tokenMd px-3 py-2 text-sm text-foreground outline-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-background"
+                  className={(state) => cx(
+                    "focus-ring relative flex cursor-pointer select-none items-center rounded-tokenMd px-3 py-2 text-sm text-foreground outline-none",
+                    state.disabled && "cursor-not-allowed opacity-50",
+                    state.highlighted && "bg-background"
+                  )}
                 >
                   <SelectPrimitive.ItemText>
                     <div className="space-y-0.5">
@@ -140,10 +151,14 @@ export function Select({
                       ) : null}
                     </div>
                   </SelectPrimitive.ItemText>
+                  <SelectPrimitive.ItemIndicator className="ml-auto">
+                    <ChaseIcon name="check" size="sm" tone="accent" />
+                  </SelectPrimitive.ItemIndicator>
                 </SelectPrimitive.Item>
               ))}
-            </SelectPrimitive.Viewport>
-          </SelectPrimitive.Content>
+            </SelectPrimitive.List>
+            </SelectPrimitive.Popup>
+          </SelectPrimitive.Positioner>
         </SelectPrimitive.Portal>
       </SelectPrimitive.Root>
     </FieldChrome>

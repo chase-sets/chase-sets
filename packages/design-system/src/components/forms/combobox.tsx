@@ -1,5 +1,5 @@
-import { useId, useState } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { useId, useMemo, useState } from "react";
+import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
@@ -28,12 +28,13 @@ export function Combobox({
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const triggerId = useId();
+  const inputId = useId();
   const listboxId = useId();
-  const searchId = useId();
   const selected = items.find((item) => item.value === value);
-  const filtered = items.filter((item) =>
-    item.label.toLowerCase().includes(query.toLowerCase())
+  const itemValues = useMemo(() => items.map((item) => item.value), [items]);
+  const filteredItems = useMemo(
+    () => items.filter((item) => item.label.toLowerCase().includes(query.toLowerCase())),
+    [items, query]
   );
   const { overlayNode } = usePortalRoots();
 
@@ -44,78 +45,86 @@ export function Combobox({
       error={error}
       required={required}
       hideLabel={hideLabel}
-      htmlFor={triggerId}
+      htmlFor={inputId}
     >
-      <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-        <PopoverPrimitive.Trigger
-          id={triggerId}
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={listboxId}
-          aria-haspopup="listbox"
-          aria-describedby={(error || description) ? fieldHintId(triggerId) : undefined}
-          aria-invalid={!!error || undefined}
+      <ComboboxPrimitive.Root
+        items={itemValues}
+        value={value ?? null}
+        inputValue={query}
+        open={open}
+        onOpenChange={setOpen}
+        onInputValueChange={setQuery}
+        onValueChange={(nextValue) => {
+          if (nextValue !== null) {
+            onValueChange?.(nextValue);
+            setQuery(items.find((item) => item.value === nextValue)?.label ?? "");
+          }
+        }}
+        itemToStringLabel={(itemValue) =>
+          items.find((item) => item.value === itemValue)?.label ?? String(itemValue)
+        }
+        filter={(itemValue, inputValue) =>
+          (items.find((item) => item.value === itemValue)?.label ?? String(itemValue))
+            .toLowerCase()
+            .includes(inputValue.toLowerCase())
+        }
+      >
+        <ComboboxPrimitive.InputGroup
           className={cx(
             controlClass,
             !!error && controlErrorClass,
-            "inline-flex items-center justify-between gap-2 text-left"
+            "inline-flex items-center justify-between gap-2 p-0"
           )}
         >
-          <span>{selected?.label ?? placeholder}</span>
-          <Icon name="chevronDown" size="sm" tone="secondary" />
-        </PopoverPrimitive.Trigger>
-        <PopoverPrimitive.Portal container={overlayNode ?? undefined}>
-          <PopoverPrimitive.Content
-            sideOffset={8}
-            className="modern-surface z-popover w-[var(--radix-popover-trigger-width)] rounded-tokenLg border border-muted p-3 shadow-overlay"
-          >
-            <div className="space-y-3">
-              <input
-                id={searchId}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={placeholder}
-                aria-label="Filter options"
-                aria-autocomplete="list"
-                aria-controls={listboxId}
-                className={controlClass}
-              />
-              <div
+          <ComboboxPrimitive.Input
+            id={inputId}
+            placeholder={selected?.label ?? placeholder}
+            aria-controls={listboxId}
+            aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+            aria-invalid={!!error || undefined}
+            className="min-w-0 flex-1 bg-transparent px-4 py-2.5 outline-none"
+          />
+          <ComboboxPrimitive.Trigger className="focus-ring mr-2 inline-flex h-8 w-8 items-center justify-center rounded-tokenSm">
+            <Icon name="chevronDown" size="sm" tone="secondary" />
+          </ComboboxPrimitive.Trigger>
+        </ComboboxPrimitive.InputGroup>
+        <ComboboxPrimitive.Portal container={overlayNode ?? undefined}>
+          <ComboboxPrimitive.Positioner sideOffset={8} className="z-popover w-[var(--anchor-width)]">
+            <ComboboxPrimitive.Popup className="modern-surface rounded-tokenLg border border-muted p-3 shadow-overlay">
+              <ComboboxPrimitive.List
                 id={listboxId}
-                role="listbox"
                 aria-label={typeof label === "string" ? label : "Options"}
                 className="motion-safe-scroll-area max-h-60 space-y-1"
               >
-                {filtered.length === 0 ? (
-                  <div className="rounded-tokenMd bg-background px-3 py-2 text-sm text-secondary">
+                {filteredItems.length === 0 ? (
+                  <ComboboxPrimitive.Empty className="rounded-tokenMd bg-background px-3 py-2 text-sm text-secondary">
                     {noMatchesLabel}
-                  </div>
+                  </ComboboxPrimitive.Empty>
                 ) : (
-                  filtered.map((item) => (
-                    <button
+                  filteredItems.map((item, index) => (
+                    <ComboboxPrimitive.Item
                       key={item.value}
-                      type="button"
-                      role="option"
-                      aria-selected={item.value === value}
-                      className="focus-ring flex w-full items-center justify-between rounded-tokenMd px-3 py-2 text-left text-sm text-foreground hover:bg-background"
-                      onClick={() => {
-                        onValueChange?.(item.value);
-                        setOpen(false);
-                        setQuery("");
-                      }}
+                      index={index}
+                      value={item.value}
+                      disabled={item.disabled}
+                      className={(state) => cx(
+                        "focus-ring flex w-full cursor-pointer items-center justify-between rounded-tokenMd px-3 py-2 text-left text-sm text-foreground",
+                        state.highlighted && "bg-background",
+                        state.disabled && "cursor-not-allowed opacity-50"
+                      )}
                     >
                       <span>{item.label}</span>
-                      {item.value === value ? (
+                      <ComboboxPrimitive.ItemIndicator>
                         <Icon name="check" size="sm" tone="accent" />
-                      ) : null}
-                    </button>
+                      </ComboboxPrimitive.ItemIndicator>
+                    </ComboboxPrimitive.Item>
                   ))
                 )}
-              </div>
-            </div>
-          </PopoverPrimitive.Content>
-        </PopoverPrimitive.Portal>
-      </PopoverPrimitive.Root>
+              </ComboboxPrimitive.List>
+            </ComboboxPrimitive.Popup>
+          </ComboboxPrimitive.Positioner>
+        </ComboboxPrimitive.Portal>
+      </ComboboxPrimitive.Root>
     </FieldChrome>
   );
 }

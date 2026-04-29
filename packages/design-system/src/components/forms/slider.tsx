@@ -1,4 +1,4 @@
-import * as SliderPrimitive from "@radix-ui/react-slider";
+import { Slider as SliderPrimitive } from "@base-ui/react/slider";
 import { FieldChrome, type BaseInputProps } from "./shared";
 
 export interface SliderProps extends BaseInputProps {
@@ -23,9 +23,6 @@ export function Slider({
   max = 100,
   step = 1
 }: SliderProps) {
-  const resolvedValue = value === undefined ? undefined : [value];
-  const resolvedDefault = defaultValue === undefined ? undefined : [defaultValue];
-
   return (
     <FieldChrome
       label={label}
@@ -39,15 +36,17 @@ export function Slider({
           min={min}
           max={max}
           step={step}
-          value={resolvedValue}
-          defaultValue={resolvedDefault}
-          onValueChange={(values) => onValueChange?.(values[0] ?? min)}
+          value={value}
+          defaultValue={defaultValue}
+          onValueChange={(nextValue) => onValueChange?.(nextValue)}
           className="relative flex h-6 w-full items-center"
         >
-          <SliderPrimitive.Track className="relative h-2 w-full rounded-full bg-muted">
-            <SliderPrimitive.Range className="absolute h-full rounded-full bg-accent" />
-          </SliderPrimitive.Track>
-          <SliderPrimitive.Thumb className="focus-ring block h-5 w-5 rounded-full border border-accent bg-elevated shadow-tokenSm" />
+          <SliderPrimitive.Control className="relative flex h-6 w-full items-center">
+            <SliderPrimitive.Track className="relative h-2 w-full rounded-full bg-muted">
+              <SliderPrimitive.Indicator className="absolute h-full rounded-full bg-accent" />
+            </SliderPrimitive.Track>
+            <SliderPrimitive.Thumb className="focus-ring block h-5 w-5 rounded-full border border-accent bg-elevated shadow-tokenSm" />
+          </SliderPrimitive.Control>
         </SliderPrimitive.Root>
         <div className="flex justify-between text-xs text-secondary">
           <span>{min}</span>
