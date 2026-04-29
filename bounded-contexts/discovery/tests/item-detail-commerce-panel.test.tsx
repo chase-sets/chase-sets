@@ -64,6 +64,31 @@ const baseSellerOffer: DiscoverySellerOffer = {
   in_sell_list: false,
 };
 
+const alternateListing: DiscoveryMarketListing = {
+  ...baseListing,
+  listing_id: "listing_charizard_alt",
+  account_id: "seller_2",
+  inventory_record_id: "inventory_2",
+  seller_display_name: "Card Vault",
+  price_amount: "410.00",
+  visible_quantity: 1,
+};
+
+const alternateMarketOffer: DiscoveryMarketOffer = {
+  ...baseMarketOffer,
+  offer_id: "offer_charizard_alt",
+  buyer_account_id: "buyer_2",
+  buyer_display_name: "Misty",
+  price_amount: "360.00",
+};
+
+const alternateSellerOffer: DiscoverySellerOffer = {
+  ...alternateMarketOffer,
+  seller_available_quantity: 1,
+  can_fulfill: true,
+  in_sell_list: false,
+};
+
 const requiredSchema: ProductSchema = {
   canonicalDimensionOrder: [{ dimensionId: "form", dimensionName: "Form" }],
   dimensions: [
@@ -79,6 +104,25 @@ const requiredSchema: ProductSchema = {
           code: "raw",
           labels: [{ locale: "en", value: "Raw" }],
           displayOrder: 0,
+          numericValue: null,
+        },
+      ],
+    },
+  ],
+};
+
+const variantSchema: ProductSchema = {
+  ...requiredSchema,
+  dimensions: [
+    {
+      ...requiredSchema.dimensions[0],
+      allowedOptions: [
+        ...requiredSchema.dimensions[0].allowedOptions,
+        {
+          optionId: "graded",
+          code: "graded",
+          labels: [{ locale: "en", value: "Graded" }],
+          displayOrder: 1,
           numericValue: null,
         },
       ],
@@ -236,7 +280,192 @@ describe("item detail commerce panel", () => {
       ).getByRole("tab", { name: "Sell" }),
     );
 
-    expect(screen.getByText("Best offer")).toBeTruthy();
+    expect(screen.getByText("Selected")).toBeTruthy();
     expect(screen.getByText("Can fulfill")).toBeTruthy();
+  });
+
+  it("highlights the initial selected listing and attributes the buy panel to it", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [baseListing, alternateListing],
+        })}
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input
+                data-testid="selected-listing-id"
+                name="listingId"
+                readOnly
+                value={context.selectedListing?.listing_id ?? ""}
+              />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Chase Sets/ }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
+      "value",
+      "listing_charizard",
+    );
+  });
+
+  it("changes the selected listing when another listing is clicked", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [baseListing, alternateListing],
+        })}
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input
+                data-testid="selected-listing-id"
+                name="listingId"
+                readOnly
+                value={context.selectedListing?.listing_id ?? ""}
+              />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Card Vault/ }));
+
+    expect(
+      screen.getByRole("button", { name: /Card Vault/ }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
+      "value",
+      "listing_charizard_alt",
+    );
+  });
+
+  it("keeps add to cart available for a selected product without a listing", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({ market_listings: [] })}
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input
+                data-testid="selected-listing-id"
+                readOnly
+                value={context.selectedListing?.listing_id ?? "none"}
+              />
+              <button type="submit" disabled={!context.selectedProductId}>
+                Add to cart
+              </button>
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "none");
+    expect(screen.getByRole("button", { name: "Add to cart" })).not.toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("changes the selected offer when another offer is clicked", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [baseListing],
+          market_offers: [baseMarketOffer, alternateMarketOffer],
+        })}
+        sellerOffers={[baseSellerOffer, alternateSellerOffer]}
+        renderCommerce={(context) => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: (
+            <form>
+              <input
+                data-testid="selected-offer-id"
+                name="offerId"
+                readOnly
+                value={context.selectedSellerOffer?.offer_id ?? ""}
+              />
+            </form>
+          ),
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Sell" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: /Misty/ }));
+
+    expect(
+      screen.getByRole("button", { name: /Misty/ }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty(
+      "value",
+      "offer_charizard_alt",
+    );
+  });
+
+  it("selecting a listing updates the selected product options", () => {
+    const rawListing: DiscoveryMarketListing = {
+      ...baseListing,
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw",
+    };
+    const gradedListing: DiscoveryMarketListing = {
+      ...alternateListing,
+      product_id: "cat_charizard::form:graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      product_summary: "Graded / PSA 9",
+    };
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: variantSchema,
+          market_listings: [rawListing, gradedListing],
+          market_offers: [],
+        })}
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <div>Selected product {context.selectedProductSummary ?? "none"}</div>
+              <input
+                data-testid="selected-options"
+                readOnly
+                value={JSON.stringify(context.selectedProductOptions)}
+              />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Card Vault/ }));
+
+    expect(screen.getByText("Selected product Graded")).toBeTruthy();
+    expect(screen.getByTestId("selected-options")).toHaveProperty(
+      "value",
+      JSON.stringify([{ dimensionId: "form", optionId: "graded" }]),
+    );
   });
 });

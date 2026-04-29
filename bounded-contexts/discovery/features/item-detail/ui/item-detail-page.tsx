@@ -1,4 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   Banner,
   Badge,
@@ -53,6 +58,9 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
   visibleListings: readonly DiscoveryMarketListing[];
   visibleMarketOffers: readonly DiscoveryMarketOffer[];
   visibleSellerOffers: readonly DiscoverySellerOffer[];
+  selectedListing: DiscoveryMarketListing | null;
+  selectedMarketOffer: DiscoveryMarketOffer | null;
+  selectedSellerOffer: DiscoverySellerOffer | null;
   bestListing: DiscoveryMarketListing | null;
   bestMarketOffer: DiscoveryMarketOffer | null;
   bestSellerOffer: DiscoverySellerOffer | null;
@@ -104,7 +112,9 @@ function formatMoney(value: string | null): string {
 }
 
 function matchesSelectedOptions(
-  listing: DiscoveryMarketListing,
+  listing: Readonly<{
+    selected_options: readonly { dimensionId: string; optionId: string }[];
+  }>,
   selections: Record<string, string>,
 ) {
   const selectedEntries = Object.entries(selections);
@@ -137,7 +147,11 @@ function applyOptionFilter(
 }
 
 function selectionsFromListing(
-  listing: DiscoveryMarketListing | undefined,
+  listing:
+    | Readonly<{
+        selected_options: readonly { dimensionId: string; optionId: string }[];
+      }>
+    | undefined,
 ): Record<string, string> {
   if (!listing) {
     return {};
@@ -146,6 +160,18 @@ function selectionsFromListing(
   return Object.fromEntries(
     listing.selected_options.map((entry) => [entry.dimensionId, entry.optionId]),
   );
+}
+
+function handleSelectionKeyDown(
+  event: KeyboardEvent<HTMLDivElement>,
+  select: () => void,
+) {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+
+  event.preventDefault();
+  select();
 }
 
 function getInitialSelections(data: DiscoveryItemDetail | null): Record<string, string> {
@@ -316,6 +342,8 @@ export function ItemDetailPage({
   const [selections, setSelections] = useState<Record<string, string>>(() =>
     getInitialSelections(data),
   );
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [marketIntent, setMarketIntent] = useState<"buy" | "sell">("buy");
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<
     "buy" | "offer" | "sell" | null
@@ -331,6 +359,8 @@ export function ItemDetailPage({
 
   useEffect(() => {
     setSelections(getInitialSelections(data));
+    setSelectedListingId(null);
+    setSelectedOfferId(null);
   }, [data]);
 
   useEffect(() => {
@@ -417,60 +447,74 @@ export function ItemDetailPage({
   const visibleListings = data.market_listings.filter((listing) =>
     data.product_schema ? matchesSelectedOptions(listing, selections) : true,
   );
-  const selectedListing = visibleListings.length === 1 ? visibleListings[0] : null;
+  const selectedListing =
+    visibleListings.find((listing) => listing.listing_id === selectedListingId) ??
+    visibleListings[0] ??
+    null;
   const singleMatchingListing =
     !hasCompleteProductSelection && visibleListings.length === 1
       ? visibleListings[0]
       : null;
-  const selectedProductId = hasCompleteProductSelection
+  const initialSelectedProductId = hasCompleteProductSelection
     ? createDiscoveryProductDescriptor({
         catalogItemId: data.catalog_item_id,
         productSchema: data.product_schema,
         selection: explicitSelectedProductOptions,
       }).productId
-    : singleMatchingListing?.product_id ?? null;
-  const selectedProductOptions =
-    hasCompleteProductSelection || !singleMatchingListing
-      ? explicitSelectedProductOptions
-      : singleMatchingListing.selected_options;
-  const selectedProductSummary =
-    explicitSelectedProductSummary ?? singleMatchingListing?.product_summary ?? null;
-  const bestListing =
-    selectedProductId
-      ? visibleListings.find((listing) => listing.product_id === selectedProductId) ?? null
-      : null;
+    : selectedListing?.product_id ?? singleMatchingListing?.product_id ?? null;
   const matchingMarketOffers = (data.market_offers ?? [])
     .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
     .filter((offer) =>
-      selectedProductId
-        ? offer.product_id === selectedProductId
+      initialSelectedProductId
+        ? offer.product_id === initialSelectedProductId
         : data.product_schema
-          ? matchesSelectedOptions(
-              {
-                selected_options: offer.selected_options,
-              } as DiscoveryMarketListing,
-              selections,
-            )
+          ? matchesSelectedOptions(offer, selections)
           : true,
     );
   const matchingSellerOffers = sortSellerOffersForReview(sellerOffers
     .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
     .filter((offer) =>
-      selectedProductId
-        ? offer.product_id === selectedProductId
+      initialSelectedProductId
+        ? offer.product_id === initialSelectedProductId
         : data.product_schema
-          ? matchesSelectedOptions(
-              {
-                selected_options: offer.selected_options,
-              } as DiscoveryMarketListing,
-              selections,
-            )
+          ? matchesSelectedOptions(offer, selections)
           : true,
     )
   );
   const sellerOfferById = new Map(
     matchingSellerOffers.map((offer) => [offer.offer_id, offer] as const),
   );
+  const selectedMarketOffer =
+    matchingMarketOffers.find((offer) => offer.offer_id === selectedOfferId) ??
+    matchingMarketOffers[0] ??
+    null;
+  const selectedSellerOffer = selectedMarketOffer
+    ? matchingSellerOffers.find(
+        (offer) => offer.offer_id === selectedMarketOffer.offer_id,
+      ) ?? null
+    : matchingSellerOffers[0] ?? null;
+  const selectedProductId =
+    initialSelectedProductId ??
+    (marketIntent === "sell" ? selectedMarketOffer?.product_id ?? null : null);
+  const selectedOfferForProduct =
+    marketIntent === "sell" ? selectedMarketOffer : null;
+  const selectedProductOptions =
+    hasCompleteProductSelection || (!selectedListing && !selectedOfferForProduct && !singleMatchingListing)
+      ? explicitSelectedProductOptions
+      : selectedListing?.selected_options ??
+        selectedOfferForProduct?.selected_options ??
+        singleMatchingListing?.selected_options ??
+        explicitSelectedProductOptions;
+  const selectedProductSummary =
+    explicitSelectedProductSummary ??
+    selectedListing?.product_summary ??
+    selectedOfferForProduct?.product_summary ??
+    singleMatchingListing?.product_summary ??
+    null;
+  const bestListing =
+    selectedProductId
+      ? visibleListings.find((listing) => listing.product_id === selectedProductId) ?? null
+      : null;
   const bestMarketOffer = getBestMarketOffer(matchingMarketOffers);
   const bestSellerOffer = getBestSellerOffer(matchingSellerOffers);
   const sellerCount = new Set(
@@ -541,6 +585,9 @@ export function ItemDetailPage({
     visibleListings,
     visibleMarketOffers: matchingMarketOffers,
     visibleSellerOffers: matchingSellerOffers,
+    selectedListing,
+    selectedMarketOffer,
+    selectedSellerOffer,
     bestListing,
     bestMarketOffer,
     bestSellerOffer,
@@ -573,7 +620,8 @@ export function ItemDetailPage({
     </Stack>
   ) : null;
   const productSummary =
-    explicitSelectedProductSummary ?? (singleMatchingListing ? "1 matching listing" : "All listings");
+    selectedProductSummary ??
+    (singleMatchingListing ? "1 matching listing" : "All listings");
   const mobileCommerceSummary = selectedProductSummary ?? "Choose options";
   const marketNote =
     marketIntent === "sell"
@@ -861,10 +909,33 @@ export function ItemDetailPage({
                       </Inline>
                       {visibleListings.length > 0 ? (
                         visibleListings.map((listing) => {
-                          const isSelected = listing.product_id === selectedProductId;
+                          const isSelected =
+                            selectedListing?.listing_id === listing.listing_id;
+                          const selectListing = () => {
+                            setSelectedListingId(listing.listing_id);
+                            if (data.product_schema) {
+                              setSelections(
+                                normalizeProductSearchOptionsForSchema(
+                                  data.product_schema,
+                                  selectionsFromListing(listing),
+                                ),
+                              );
+                            }
+                          };
 
                           return (
-                            <Card key={listing.listing_id} glow={isSelected}>
+                            <Card
+                              key={listing.listing_id}
+                              glow={isSelected}
+                              interactive
+                              role="button"
+                              tabIndex={0}
+                              aria-pressed={isSelected}
+                              onClick={selectListing}
+                              onKeyDown={(event) =>
+                                handleSelectionKeyDown(event, selectListing)
+                              }
+                            >
                               <Grid columns={{ base: 1, md: 3 }} gap={3}>
                                 <Stack gap={1}>
                                   <Inline gap={2}>
@@ -955,17 +1026,40 @@ export function ItemDetailPage({
                       {matchingMarketOffers.length > 0 ? (
                         matchingMarketOffers.map((offer) => {
                           const sellerOffer = sellerOfferById.get(offer.offer_id);
-                          const isBest = bestMarketOffer?.offer_id === offer.offer_id;
+                          const isSelected =
+                            selectedMarketOffer?.offer_id === offer.offer_id;
+                          const selectOffer = () => {
+                            setSelectedOfferId(offer.offer_id);
+                            if (data.product_schema) {
+                              setSelections(
+                                normalizeProductSearchOptionsForSchema(
+                                  data.product_schema,
+                                  selectionsFromListing(offer),
+                                ),
+                              );
+                            }
+                          };
 
                           return (
-                            <Card key={offer.offer_id} glow={isBest}>
+                            <Card
+                              key={offer.offer_id}
+                              glow={isSelected}
+                              interactive
+                              role="button"
+                              tabIndex={0}
+                              aria-pressed={isSelected}
+                              onClick={selectOffer}
+                              onKeyDown={(event) =>
+                                handleSelectionKeyDown(event, selectOffer)
+                              }
+                            >
                               <Grid columns={{ base: 1, md: 4 }} gap={3}>
                                 <Stack gap={1}>
                                   <Inline gap={2}>
                                     <Text weight="semibold">
                                     {formatMoney(offer.price_amount)}
                                   </Text>
-                                  {isBest ? <Badge tone="success">Best offer</Badge> : null}
+                                  {isSelected ? <Badge tone="success">Selected</Badge> : null}
                                 </Inline>
                                 <Text size="sm" tone="secondary">
                                   {offer.buyer_display_name ?? offer.buyer_account_id}

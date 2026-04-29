@@ -25,7 +25,7 @@ export function DiscoveryShellLayout({
   return (
     <ChaseRoot colorMode={colorMode}>
       <MarketplaceShell
-        brand={<SellerBadge name="Chase Sets" verified />}
+        brand={<SellerBadge name="Chase Sets" />}
         topNavItems={[...topNavItems]}
         bottomNavItems={[...bottomNavItems]}
         activeKey={activeKey}

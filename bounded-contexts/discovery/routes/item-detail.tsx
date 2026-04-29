@@ -170,7 +170,7 @@ function OrderingAddToCartSection({
   frame = "card",
   catalogItemId,
   productId,
-  bestListing,
+  selectedListing,
   itemTitle,
   selectedOptions,
   productSummary,
@@ -181,7 +181,7 @@ function OrderingAddToCartSection({
   frame?: "card" | "plain";
   catalogItemId: string;
   productId: string | null;
-  bestListing: { listing_id: string; price_amount: string; seller_display_name: string | null; visible_quantity: number } | null;
+  selectedListing: { listing_id: string; price_amount: string; seller_display_name: string | null; visible_quantity: number } | null;
   itemTitle: string;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
@@ -199,8 +199,8 @@ function OrderingAddToCartSection({
           value={JSON.stringify(selectedOptions)}
         />
         <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-        {bestListing ? (
-          <input type="hidden" name="listingId" value={bestListing.listing_id} />
+        {selectedListing ? (
+          <input type="hidden" name="listingId" value={selectedListing.listing_id} />
         ) : null}
         {frame === "card" ? (
           <Stack gap={1}>
@@ -208,10 +208,10 @@ function OrderingAddToCartSection({
             <Text size="sm" tone="secondary">
               {productSummary ? `Buying: ${productSummary}` : itemTitle}
             </Text>
-            {bestListing ? (
+            {selectedListing ? (
               <Text size="sm" tone="secondary">
-                Best listing: ${bestListing.price_amount} from{" "}
-                {bestListing.seller_display_name ?? "Seller"}.
+                Selected listing: ${selectedListing.price_amount} from{" "}
+                {selectedListing.seller_display_name ?? "Seller"}.
               </Text>
             ) : null}
             <Text size="sm" tone="secondary">
@@ -248,7 +248,7 @@ function OrderingAddToCartSection({
           type="submit"
           name="intent"
           value="buy-now"
-          disabled={!productId || !bestListing}
+          disabled={!productId || !selectedListing}
           block
         >
           Buy now
@@ -272,13 +272,13 @@ function OrderingAddToCartSection({
 
 function MarketplaceSellerOfferSection({
   formId = "sell-box",
-  bestOffer,
+  selectedOffer,
   productId,
   matchingOfferCount,
   errorMessage,
 }: {
   formId?: string;
-  bestOffer: {
+  selectedOffer: {
     offer_id: string;
     buyer_display_name: string | null;
     buyer_account_id: string;
@@ -293,24 +293,24 @@ function MarketplaceSellerOfferSection({
   errorMessage?: string | null;
 }) {
   return (
-    <Card glow={Boolean(bestOffer?.can_fulfill)}>
+    <Card glow={Boolean(selectedOffer?.can_fulfill)}>
       <form id={formId} method="post">
         <Stack gap={3}>
-          <input type="hidden" name="offerId" value={bestOffer?.offer_id ?? ""} />
+          <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
           <Stack gap={1}>
             <Text weight="semibold">Sell to buyer offer</Text>
-            {bestOffer ? (
+            {selectedOffer ? (
               <>
                 <Text size="sm" tone="secondary">
-                  Best offer: ${bestOffer.price_amount} from{" "}
-                  {bestOffer.buyer_display_name ?? bestOffer.buyer_account_id}.
+                  Selected offer: ${selectedOffer.price_amount} from{" "}
+                  {selectedOffer.buyer_display_name ?? selectedOffer.buyer_account_id}.
                 </Text>
                 <Text size="sm" tone="secondary">
-                  Requested {bestOffer.quantity_requested}; your active supply covers{" "}
-                  {bestOffer.seller_available_quantity}.
+                  Requested {selectedOffer.quantity_requested}; your active supply covers{" "}
+                  {selectedOffer.seller_available_quantity}.
                 </Text>
-                <Badge tone={bestOffer.can_fulfill ? "success" : "warning"}>
-                  {bestOffer.can_fulfill ? "Can fulfill" : "Needs supply"}
+                <Badge tone={selectedOffer.can_fulfill ? "success" : "warning"}>
+                  {selectedOffer.can_fulfill ? "Can fulfill" : "Needs supply"}
                 </Badge>
               </>
             ) : (
@@ -328,7 +328,7 @@ function MarketplaceSellerOfferSection({
             type="submit"
             name="intent"
             value="sell-now"
-            disabled={!bestOffer?.can_fulfill}
+            disabled={!selectedOffer?.can_fulfill}
             block
           >
             Sell now
@@ -338,10 +338,10 @@ function MarketplaceSellerOfferSection({
             name="intent"
             value="add-to-sell-list"
             tone="secondary"
-            disabled={!bestOffer?.can_fulfill || bestOffer.in_sell_list}
+            disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
             block
           >
-            {bestOffer?.in_sell_list ? "In sell list" : "Add to sell list"}
+            {selectedOffer?.in_sell_list ? "In sell list" : "Add to sell list"}
           </Button>
         </Stack>
       </form>
@@ -784,7 +784,7 @@ export default function DiscoveryItemDetailRoute() {
                   frame={frame}
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
-                  bestListing={context.bestListing}
+                  selectedListing={context.selectedListing}
                   itemTitle={context.itemTitle}
                   selectedOptions={context.selectedProductOptions}
                   productSummary={context.selectedProductSummary}
@@ -809,7 +809,7 @@ export default function DiscoveryItemDetailRoute() {
                   <Stack gap={4}>
                     <MarketplaceSellerOfferSection
                       formId={`${formIdPrefix}-sell-box`}
-                      bestOffer={context.bestSellerOffer}
+                      selectedOffer={context.selectedSellerOffer}
                       productId={context.selectedProductId}
                       matchingOfferCount={context.visibleSellerOffers.length}
                       errorMessage={actionData?.error ?? null}
