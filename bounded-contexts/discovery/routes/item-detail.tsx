@@ -8,8 +8,9 @@ import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   Badge,
   Button,
-  Card,
   CurrencyInput,
+  FormPanel,
+  type FormPanelVariant,
   LinkButton,
   NativeSelect,
   NumberInput,
@@ -105,7 +106,9 @@ function parseSelectedOptions(value: FormDataEntryValue | null) {
 
 function MarketplaceOfferSubmissionSection({
   formId = "make-offer",
-  frame = "card",
+  panelVariant = "card",
+  showSummary = panelVariant === "card",
+  actions,
   catalogItemId,
   productId,
   itemTitle,
@@ -115,7 +118,9 @@ function MarketplaceOfferSubmissionSection({
   errorMessage,
 }: {
   formId?: string;
-  frame?: "card" | "plain";
+  panelVariant?: FormPanelVariant;
+  showSummary?: boolean;
+  actions?: ReactNode;
   catalogItemId: string;
   productId: string | null;
   itemTitle: string;
@@ -124,6 +129,11 @@ function MarketplaceOfferSubmissionSection({
   visibleListingCount: number;
   errorMessage?: string | null;
 }) {
+  const defaultActions = (
+    <Button type="submit" tone="secondary" disabled={!productId} block>
+      Submit offer
+    </Button>
+  );
   const form = (
     <form id={formId} method="post">
       <Stack gap={3}>
@@ -136,7 +146,7 @@ function MarketplaceOfferSubmissionSection({
           value={JSON.stringify(selectedOptions)}
         />
         <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-        {frame === "card" ? (
+        {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">Make an offer</Text>
             <Text size="sm" tone="secondary">
@@ -159,19 +169,19 @@ function MarketplaceOfferSubmissionSection({
           required
         />
         <NumberInput label="Quantity requested" name="quantityRequested" min="1" required />
-        <Button type="submit" tone="secondary" disabled={!productId} block>
-          Submit offer
-        </Button>
+        {actions !== undefined ? actions : defaultActions}
       </Stack>
     </form>
   );
 
-  return frame === "plain" ? form : <Card>{form}</Card>;
+  return <FormPanel variant={panelVariant}>{form}</FormPanel>;
 }
 
 function OrderingAddToCartSection({
   formId = "buy-box",
-  frame = "card",
+  panelVariant = "card",
+  showSummary = panelVariant === "card",
+  actions,
   catalogItemId,
   productId,
   selectedListing,
@@ -182,7 +192,9 @@ function OrderingAddToCartSection({
   errorMessage,
 }: {
   formId?: string;
-  frame?: "card" | "plain";
+  panelVariant?: FormPanelVariant;
+  showSummary?: boolean;
+  actions?: ReactNode;
   catalogItemId: string;
   productId: string | null;
   selectedListing: { listing_id: string; price_amount: string; seller_display_name: string | null; visible_quantity: number } | null;
@@ -192,6 +204,29 @@ function OrderingAddToCartSection({
   visibleListingCount: number;
   errorMessage?: string | null;
 }) {
+  const defaultActions = (
+    <>
+      <Button
+        type="submit"
+        name="intent"
+        value="buy-now"
+        disabled={!productId || !selectedListing}
+        block
+      >
+        Buy now
+      </Button>
+      <Button
+        type="submit"
+        name="intent"
+        value="add-to-cart"
+        tone="secondary"
+        disabled={!productId}
+        block
+      >
+        Add to cart
+      </Button>
+    </>
+  );
   const form = (
     <form id={formId} method="post">
       <Stack gap={3}>
@@ -206,7 +241,7 @@ function OrderingAddToCartSection({
         {selectedListing ? (
           <input type="hidden" name="listingId" value={selectedListing.listing_id} />
         ) : null}
-        {frame === "card" ? (
+        {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">Buy selected product</Text>
             <Text size="sm" tone="secondary">
@@ -248,42 +283,28 @@ function OrderingAddToCartSection({
             { value: "priority", label: "Priority signature" },
           ]}
         />
-        <Button
-          type="submit"
-          name="intent"
-          value="buy-now"
-          disabled={!productId || !selectedListing}
-          block
-        >
-          Buy now
-        </Button>
-        <Button
-          type="submit"
-          name="intent"
-          value="add-to-cart"
-          tone="secondary"
-          disabled={!productId}
-          block
-        >
-          Add to cart
-        </Button>
+        {actions !== undefined ? actions : defaultActions}
       </Stack>
     </form>
   );
 
-  return frame === "plain" ? form : <Card glow={visibleListingCount > 0}>{form}</Card>;
+  return <FormPanel variant={panelVariant} glow={visibleListingCount > 0}>{form}</FormPanel>;
 }
 
 function MarketplaceSellerOfferSection({
   formId = "sell-box",
-  frame = "card",
+  panelVariant = "card",
+  showSummary = panelVariant === "card",
+  actions,
   selectedOffer,
   productId,
   matchingOfferCount,
   errorMessage,
 }: {
   formId?: string;
-  frame?: "card" | "plain";
+  panelVariant?: FormPanelVariant;
+  showSummary?: boolean;
+  actions?: ReactNode;
   selectedOffer: {
     offer_id: string;
     buyer_display_name: string | null;
@@ -298,11 +319,34 @@ function MarketplaceSellerOfferSection({
   matchingOfferCount: number;
   errorMessage?: string | null;
 }) {
+  const defaultActions = (
+    <>
+      <Button
+        type="submit"
+        name="intent"
+        value="sell-now"
+        disabled={!selectedOffer?.can_fulfill}
+        block
+      >
+        Sell now
+      </Button>
+      <Button
+        type="submit"
+        name="intent"
+        value="add-to-sell-list"
+        tone="secondary"
+        disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
+        block
+      >
+        {selectedOffer?.in_sell_list ? "In sell list" : "Add to sell list"}
+      </Button>
+    </>
+  );
   const form = (
     <form id={formId} method="post">
       <Stack gap={3}>
         <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
-        {frame === "card" ? (
+        {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">Sell to buyer offer</Text>
             {selectedOffer ? (
@@ -331,46 +375,32 @@ function MarketplaceSellerOfferSection({
           </Stack>
         ) : null}
         {errorMessage ? <Text>{errorMessage}</Text> : null}
-        <Button
-          type="submit"
-          name="intent"
-          value="sell-now"
-          disabled={!selectedOffer?.can_fulfill}
-          block
-        >
-          Sell now
-        </Button>
-        <Button
-          type="submit"
-          name="intent"
-          value="add-to-sell-list"
-          tone="secondary"
-          disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
-          block
-        >
-          {selectedOffer?.in_sell_list ? "In sell list" : "Add to sell list"}
-        </Button>
+        {actions !== undefined ? actions : defaultActions}
       </Stack>
     </form>
   );
 
-  return frame === "plain"
-    ? form
-    : <Card glow={Boolean(selectedOffer?.can_fulfill)}>{form}</Card>;
+  return (
+    <FormPanel variant={panelVariant} glow={Boolean(selectedOffer?.can_fulfill)}>
+      {form}
+    </FormPanel>
+  );
 }
 
 export function MarketplaceSellerRegistrationSection({
-  frame = "card",
+  panelVariant = "card",
+  showSummary = panelVariant === "card",
   productSummary,
   registerHref,
 }: {
-  frame?: "card" | "plain";
+  panelVariant?: FormPanelVariant;
+  showSummary?: boolean;
   productSummary: string | null;
   registerHref: string;
 }) {
   const content = (
     <Stack gap={3}>
-      {frame === "card" ? (
+      {showSummary ? (
         <Stack gap={1}>
           <Text weight="semibold">Sell on Chase Sets</Text>
           <Text size="sm" tone="secondary">
@@ -395,12 +425,14 @@ export function MarketplaceSellerRegistrationSection({
     </Stack>
   );
 
-  return frame === "plain" ? content : <Card glow>{content}</Card>;
+  return <FormPanel variant={panelVariant} glow>{content}</FormPanel>;
 }
 
 function MarketplaceListingSubmissionSection({
   formId = "list-box",
-  frame = "card",
+  panelVariant = "card",
+  showSummary = panelVariant === "card",
+  actions,
   productId,
   productSummary,
   bestListing,
@@ -409,7 +441,9 @@ function MarketplaceListingSubmissionSection({
   errorMessage,
 }: {
   formId?: string;
-  frame?: "card" | "plain";
+  panelVariant?: FormPanelVariant;
+  showSummary?: boolean;
+  actions?: ReactNode;
   productId: string | null;
   productSummary: string | null;
   bestListing: {
@@ -431,13 +465,24 @@ function MarketplaceListingSubmissionSection({
   const listing = ownListing ?? null;
   const availableQuantity = listing?.quantity_cap ?? selectedInventory?.available_quantity ?? 0;
   const defaultQuantity = Math.max(1, Math.min(availableQuantity, 1));
+  const defaultActions = (
+    <Button
+      type="submit"
+      name="intent"
+      value="list-at-price"
+      disabled={!productId || (!listing && matchingInventory.length === 0)}
+      block
+    >
+      {listing ? "Update listing" : "List at price"}
+    </Button>
+  );
 
   const form = (
     <form id={formId} method="post">
       <Stack gap={3}>
         <input type="hidden" name="productId" value={productId ?? ""} />
         <input type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
-        {frame === "card" ? (
+        {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">
               {listing ? "Update your listing" : "List at price"}
@@ -494,20 +539,12 @@ function MarketplaceListingSubmissionSection({
           required
         />
         {errorMessage ? <Text>{errorMessage}</Text> : null}
-        <Button
-          type="submit"
-          name="intent"
-          value="list-at-price"
-          disabled={!productId || (!listing && matchingInventory.length === 0)}
-          block
-        >
-          {listing ? "Update listing" : "List at price"}
-        </Button>
+        {actions !== undefined ? actions : defaultActions}
       </Stack>
     </form>
   );
 
-  return frame === "plain" ? form : <Card glow={Boolean(listing)}>{form}</Card>;
+  return <FormPanel variant={panelVariant} glow={Boolean(listing)}>{form}</FormPanel>;
 }
 
 export function ItemCommercePanel({
@@ -796,10 +833,104 @@ export default function DiscoveryItemDetailRoute() {
                       listing.product_id === context.selectedProductId,
                   ) ?? null
                 : null;
-              const renderBuy = (formId: string, frame: "card" | "plain" = "card") => (
+              const renderBuyActions = (formId: string) => (
+                <Stack gap={2}>
+                  <Button
+                    form={formId}
+                    type="submit"
+                    name="intent"
+                    value="buy-now"
+                    disabled={!context.selectedProductId || !context.selectedListing}
+                    block
+                  >
+                    Buy now
+                  </Button>
+                  <Button
+                    form={formId}
+                    type="submit"
+                    name="intent"
+                    value="add-to-cart"
+                    tone="secondary"
+                    disabled={!context.selectedProductId}
+                    block
+                  >
+                    Add to cart
+                  </Button>
+                </Stack>
+              );
+              const renderOfferActions = (formId: string) => (
+                <Button
+                  form={formId}
+                  type="submit"
+                  tone="secondary"
+                  disabled={!context.selectedProductId}
+                  block
+                >
+                  Submit offer
+                </Button>
+              );
+              const renderSellerOfferActions = (formId: string) => (
+                <Stack gap={2}>
+                  <Button
+                    form={formId}
+                    type="submit"
+                    name="intent"
+                    value="sell-now"
+                    disabled={!context.selectedSellerOffer?.can_fulfill}
+                    block
+                  >
+                    Sell now
+                  </Button>
+                  <Button
+                    form={formId}
+                    type="submit"
+                    name="intent"
+                    value="add-to-sell-list"
+                    tone="secondary"
+                    disabled={
+                      !context.selectedSellerOffer?.can_fulfill ||
+                      context.selectedSellerOffer.in_sell_list
+                    }
+                    block
+                  >
+                    {context.selectedSellerOffer?.in_sell_list
+                      ? "In sell list"
+                      : "Add to sell list"}
+                  </Button>
+                </Stack>
+              );
+              const renderListingActions = (formId: string) => {
+                const hasMatchingInventory = context.selectedProductId
+                  ? data.sellerInventoryRecords.some(
+                      (record) => record.product_id === context.selectedProductId,
+                    )
+                  : false;
+
+                return (
+                  <Button
+                    form={formId}
+                    type="submit"
+                    name="intent"
+                    value="list-at-price"
+                    disabled={
+                      !context.selectedProductId ||
+                      (!ownListing && !hasMatchingInventory)
+                    }
+                    block
+                  >
+                    {ownListing ? "Update listing" : "List at price"}
+                  </Button>
+                );
+              };
+              const renderBuy = (
+                formId: string,
+                panelVariant: FormPanelVariant = "card",
+                actions?: ReactNode,
+              ) => (
                 <OrderingAddToCartSection
                   formId={formId}
-                  frame={frame}
+                  panelVariant={panelVariant}
+                  actions={actions}
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   selectedListing={context.selectedListing}
@@ -810,10 +941,15 @@ export default function DiscoveryItemDetailRoute() {
                   errorMessage={actionData?.error ?? null}
                 />
               );
-              const renderOffer = (formId: string, frame: "card" | "plain" = "card") => (
+              const renderOffer = (
+                formId: string,
+                panelVariant: FormPanelVariant = "card",
+                actions?: ReactNode,
+              ) => (
                 <MarketplaceOfferSubmissionSection
                   formId={formId}
-                  frame={frame}
+                  panelVariant={panelVariant}
+                  actions={actions}
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   itemTitle={context.itemTitle}
@@ -823,20 +959,30 @@ export default function DiscoveryItemDetailRoute() {
                   errorMessage={actionData?.error ?? null}
                 />
               );
-              const renderSellerOffer = (formId: string, frame: "card" | "plain" = "card") => (
+              const renderSellerOffer = (
+                formId: string,
+                panelVariant: FormPanelVariant = "card",
+                actions?: ReactNode,
+              ) => (
                 <MarketplaceSellerOfferSection
                   formId={formId}
-                  frame={frame}
+                  panelVariant={panelVariant}
+                  actions={actions}
                   selectedOffer={context.selectedSellerOffer}
                   productId={context.selectedProductId}
                   matchingOfferCount={context.visibleSellerOffers.length}
                   errorMessage={actionData?.error ?? null}
                 />
               );
-              const renderListingSubmission = (formId: string, frame: "card" | "plain" = "card") => (
+              const renderListingSubmission = (
+                formId: string,
+                panelVariant: FormPanelVariant = "card",
+                actions?: ReactNode,
+              ) => (
                 <MarketplaceListingSubmissionSection
                   formId={formId}
-                  frame={frame}
+                  panelVariant={panelVariant}
+                  actions={actions}
                   productId={context.selectedProductId}
                   productSummary={context.selectedProductSummary}
                   bestListing={context.bestListing}
@@ -845,9 +991,11 @@ export default function DiscoveryItemDetailRoute() {
                   errorMessage={actionData?.error ?? null}
                 />
               );
-              const renderSellerRegistration = (frame: "card" | "plain" = "card") => (
+              const renderSellerRegistration = (
+                panelVariant: FormPanelVariant = "card",
+              ) => (
                 <MarketplaceSellerRegistrationSection
-                  frame={frame}
+                  panelVariant={panelVariant}
                   productSummary={context.selectedProductSummary}
                   registerHref={data.registerToSellHref}
                 />
@@ -864,14 +1012,33 @@ export default function DiscoveryItemDetailRoute() {
                   buy: renderBuy("buy-box"),
                   offer: renderOffer("make-offer"),
                   sell: data.showSellerTab ? renderSeller("sell") : undefined,
-                  sellAction: data.canUseSellerFeatures
-                    ? renderSellerOffer("mobile-sell-box", "plain")
-                    : renderSellerRegistration("plain"),
-                  list: data.canUseSellerFeatures
-                    ? renderListingSubmission("mobile-list-box", "plain")
-                    : undefined,
-                  mobileBuy: renderBuy("mobile-buy-box", "plain"),
-                  mobileOffer: renderOffer("mobile-make-offer", "plain"),
+                  mobile: {
+                    buy: {
+                      content: renderBuy("mobile-buy-box", "plain", null),
+                      footer: renderBuyActions("mobile-buy-box"),
+                    },
+                    offer: {
+                      content: renderOffer("mobile-make-offer", "plain", null),
+                      footer: renderOfferActions("mobile-make-offer"),
+                    },
+                    sell: data.canUseSellerFeatures
+                      ? {
+                          content: renderSellerOffer("mobile-sell-box", "plain", null),
+                          footer: renderSellerOfferActions("mobile-sell-box"),
+                          title: "Sell to buyer offer",
+                        }
+                      : {
+                          content: renderSellerRegistration("plain"),
+                          title: "Sell on Chase Sets",
+                        },
+                    list: data.canUseSellerFeatures
+                      ? {
+                          content: renderListingSubmission("mobile-list-box", "plain", null),
+                          footer: renderListingActions("mobile-list-box"),
+                          title: ownListing ? "Update listing" : "List at price",
+                        }
+                      : undefined,
+                  },
                   sellLabel: data.canUseSellerFeatures ? "Sell" : "Sell",
                   listLabel: "List",
                 }

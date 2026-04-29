@@ -188,11 +188,16 @@ describe("item detail commerce panel", () => {
         renderCommerce={() => ({
           buy: <div>Desktop buy rail</div>,
           offer: <div>Desktop offer rail</div>,
-          mobileBuy: <div>Mobile buy action</div>,
-          mobileOffer: <div>Mobile offer action</div>,
           sell: <div>Desktop sell rail</div>,
-          sellAction: <div>Mobile sell action</div>,
-          list: <div>Mobile list action</div>,
+          mobile: {
+            buy: {
+              content: <div>Mobile buy action</div>,
+              footer: <button type="button">Mobile footer buy</button>,
+            },
+            offer: { content: <div>Mobile offer action</div> },
+            sell: { content: <div>Mobile sell action</div> },
+            list: { content: <div>Mobile list action</div> },
+          },
         })}
       />,
     );
@@ -202,6 +207,7 @@ describe("item detail commerce panel", () => {
     const buyDrawer = screen.getByRole("dialog", { name: "Buy selected product" });
     expect(buyDrawer).toBeTruthy();
     expect(within(buyDrawer).getByText("Mobile buy action")).toBeTruthy();
+    expect(within(buyDrawer).getByRole("button", { name: "Mobile footer buy" })).toBeTruthy();
     expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
   });
 
@@ -213,8 +219,10 @@ describe("item detail commerce panel", () => {
           buy: <div>Mobile buy action</div>,
           offer: <div>Mobile offer action</div>,
           sell: <div>Desktop sell rail</div>,
-          sellAction: <div>Mobile sell action</div>,
-          list: <div>Mobile list action</div>,
+          mobile: {
+            sell: { content: <div>Mobile sell action</div> },
+            list: { content: <div>Mobile list action</div> },
+          },
         })}
       />,
     );
@@ -263,7 +271,10 @@ describe("item detail commerce panel", () => {
           buy: <div>Mobile buy action</div>,
           offer: <div>Mobile offer action</div>,
           sell: <div>Mobile sell action</div>,
-          list: <div>Mobile list action</div>,
+          mobile: {
+            sell: { content: <div>Mobile sell action</div> },
+            list: { content: <div>Mobile list action</div> },
+          },
         })}
       />,
     );

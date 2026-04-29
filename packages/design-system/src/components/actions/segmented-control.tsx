@@ -16,12 +16,14 @@ export interface SegmentedControlProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "onChange"> {
   items: SegmentedControlItem[];
   value: string;
+  fullWidth?: boolean;
   onValueChange?: (value: string) => void;
 }
 
 export function SegmentedControl({
   items,
   value,
+  fullWidth = false,
   onValueChange,
   ...rest
 }: SegmentedControlProps) {
@@ -52,7 +54,12 @@ export function SegmentedControl({
       <div
         {...rest}
         role="tablist"
-        className="inline-flex flex-wrap rounded-tokenLg border border-muted bg-background p-1"
+        className={cx(
+          "rounded-tokenLg border border-muted bg-background p-1",
+          fullWidth
+            ? "grid w-full grid-flow-col auto-cols-fr"
+            : "inline-flex flex-wrap"
+        )}
       >
         {items.map((item, index) => {
           const active = item.value === value;
@@ -66,6 +73,7 @@ export function SegmentedControl({
               tabIndex={active ? 0 : -1}
               className={cx(
                 "focus-ring relative inline-flex min-h-10 items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-semibold transition",
+                fullWidth && "justify-center",
                 active
                   ? "text-accent"
                   : "text-secondary hover:text-foreground"

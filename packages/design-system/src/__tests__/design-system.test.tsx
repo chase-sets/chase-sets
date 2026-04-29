@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { BottomNav, Button, CopyButton, Tabs, TopNav } from "../components/actions";
+import { BottomNav, Button, CopyButton, SegmentedControl, Tabs, TopNav } from "../components/actions";
 import { Card, DataTable, DetailPanel, FilterBar, ImageGallery, StatGrid } from "../components/data-display";
 import { Accordion, Dialog, Rating, ToastRegion } from "../components/feedback";
 import { Combobox, NativeSelect, PasswordInput, SearchInput, TagInput } from "../components/forms";
@@ -11,6 +11,8 @@ import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
 import {
   AdminShell,
   CommerceActionBar,
+  CommerceDrawer,
+  FormPanel,
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceLandingHero,
@@ -609,17 +611,64 @@ describe("design system", () => {
   it("renders commerce action bars with optional intent controls", () => {
     const markup = renderToString(
       <CommerceActionBar
-        intentControl={<div>Buy or sell</div>}
+        intentControl={
+          <SegmentedControl
+            fullWidth
+            aria-label="Choose intent"
+            items={[
+              { value: "buy", label: "Buy" },
+              { value: "sell", label: "Sell" }
+            ]}
+            value="buy"
+          />
+        }
         summary="Raw / Near Mint"
         primaryAction={<button type="button">Buy</button>}
         secondaryAction={<button type="button">Make offer</button>}
       />
     );
 
-    expect(markup).toContain("Buy or sell");
+    expect(markup).toContain("Choose intent");
+    expect(markup).toContain("grid w-full grid-flow-col");
     expect(markup).toContain("Raw / Near Mint");
     expect(markup).toContain("grid-cols-2");
     expect(markup).toContain("Make offer");
+  });
+
+  it("renders form panels as card or drawer-native surfaces", () => {
+    const cardMarkup = renderToString(
+      <FormPanel glow>
+        Form body
+      </FormPanel>
+    );
+    const plainMarkup = renderToString(
+      <FormPanel variant="plain">
+        Form body
+      </FormPanel>
+    );
+
+    expect(cardMarkup).toContain("glass-surface");
+    expect(plainMarkup).toContain("Form body");
+    expect(plainMarkup).not.toContain("glass-surface");
+  });
+
+  it("renders commerce drawers with form footer actions", () => {
+    render(
+      <ChaseRoot>
+        <CommerceDrawer
+          open
+          title="Buy selected product"
+          description="Raw / Near Mint"
+          footer={<Button form="commerce-form" type="submit">Buy now</Button>}
+        >
+          <form id="commerce-form">Quantity</form>
+        </CommerceDrawer>
+      </ChaseRoot>
+    );
+
+    const drawer = screen.getByRole("dialog", { name: "Buy selected product" });
+    expect(within(drawer).getByText("Quantity")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Buy now" })).toBeTruthy();
   });
 
   it("resolves responsive classes from maps", () => {

@@ -11,8 +11,8 @@ import {
   Button,
   Card,
   CommerceActionBar,
+  CommerceDrawer,
   Container,
-  Drawer,
   EmptyState,
   Grid,
   Heading,
@@ -66,14 +66,18 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
   bestSellerOffer: DiscoverySellerOffer | null;
 }>;
 
+export type ItemDetailMobileCommerceSection = Readonly<{
+  content: ReactNode;
+  footer?: ReactNode;
+  title?: ReactNode;
+  description?: ReactNode;
+}>;
+
 export type ItemDetailCommerceSections = Readonly<{
   buy: ReactNode;
   offer: ReactNode;
-  mobileBuy?: ReactNode;
-  mobileOffer?: ReactNode;
   sell?: ReactNode;
-  sellAction?: ReactNode;
-  list?: ReactNode;
+  mobile?: Partial<Record<"buy" | "offer" | "sell" | "list", ItemDetailMobileCommerceSection>>;
   sellLabel?: string;
   listLabel?: string;
 }>;
@@ -353,42 +357,12 @@ export function ItemDetailPage({
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<
     "buy" | "offer" | "sell" | "list" | null
   >(null);
-  const [
-    embeddedMobileCommerceNode,
-    setEmbeddedMobileCommerceNode,
-  ] = useState<HTMLDivElement | null>(null);
-  const [
-    isEmbeddedMobileCommerceVisible,
-    setIsEmbeddedMobileCommerceVisible,
-  ] = useState(false);
 
   useEffect(() => {
     setSelections(getInitialSelections(data));
     setSelectedListingId(null);
     setSelectedOfferId(null);
   }, [data]);
-
-  useEffect(() => {
-    if (
-      !embeddedMobileCommerceNode ||
-      typeof IntersectionObserver === "undefined"
-    ) {
-      setIsEmbeddedMobileCommerceVisible(false);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => setIsEmbeddedMobileCommerceVisible(entry.isIntersecting),
-      {
-        rootMargin: "0px 0px -128px 0px",
-        threshold: 0.35,
-      },
-    );
-
-    observer.observe(embeddedMobileCommerceNode);
-
-    return () => observer.disconnect();
-  }, [embeddedMobileCommerceNode]);
 
   if (error) {
     return <Banner tone="danger" title="Error" description={error} />;
@@ -608,9 +582,10 @@ export function ItemDetailPage({
         </Stack>
       )
     : null;
-  const renderMarketIntentControl = (ariaLabel: string) => (
+  const renderMarketIntentControl = (ariaLabel: string, fullWidth = false) => (
     <SegmentedControl
       aria-label={ariaLabel}
+      fullWidth={fullWidth}
       items={[
         { value: "buy", label: "Buy" },
         { value: "sell", label: "Sell" },
@@ -674,24 +649,29 @@ export function ItemDetailPage({
             value: formatSellerCount(sellerCount),
           },
         ];
+  const activeMobileCommerceSection = activeMobileCommerce
+    ? commerceSections?.mobile?.[activeMobileCommerce]
+    : null;
   const activeMobileCommerceContent =
-    activeMobileCommerce === "buy"
-      ? commerceSections?.mobileBuy ?? commerceSections?.buy
+    activeMobileCommerceSection?.content ??
+    (activeMobileCommerce === "buy"
+      ? commerceSections?.buy
       : activeMobileCommerce === "offer"
-        ? commerceSections?.mobileOffer ?? commerceSections?.offer
+        ? commerceSections?.offer
         : activeMobileCommerce === "sell"
-          ? commerceSections?.sellAction ?? commerceSections?.sell
-          : activeMobileCommerce === "list"
-            ? commerceSections?.list
-            : null;
+          ? commerceSections?.sell
+          : null);
   const activeMobileCommerceTitle =
-    activeMobileCommerce === "buy"
+    activeMobileCommerceSection?.title ??
+    (activeMobileCommerce === "buy"
       ? "Buy selected product"
       : activeMobileCommerce === "offer"
         ? "Make offer"
         : activeMobileCommerce === "list"
           ? commerceSections?.listLabel ?? "List"
-          : commerceSections?.sellLabel ?? "Sell";
+          : commerceSections?.sellLabel ?? "Sell");
+  const activeMobileCommerceDescription =
+    activeMobileCommerceSection?.description ?? mobileCommerceSummary;
   const mobileBuyAction = selectedProductId ? (
     <Button
       type="button"
@@ -719,7 +699,7 @@ export function ItemDetailPage({
       Choose to offer
     </LinkButton>
   );
-  const mobileSellAction = (commerceSections?.sellAction ?? commerceSections?.sell) ? (
+  const mobileSellAction = (commerceSections?.mobile?.sell ?? commerceSections?.sell) ? (
     selectedProductId ? (
       <Button
         type="button"
@@ -734,7 +714,7 @@ export function ItemDetailPage({
       </LinkButton>
     )
   ) : null;
-  const mobileListAction = commerceSections?.list ? (
+  const mobileListAction = commerceSections?.mobile?.list ? (
     selectedProductId ? (
       <Button
         type="button"
@@ -752,14 +732,14 @@ export function ItemDetailPage({
   ) : null;
   const mobileCommerceActionBar = commerce ? (
     <CommerceActionBar
-      intentControl={renderMarketIntentControl("Choose mobile market intent")}
+      intentControl={renderMarketIntentControl("Choose mobile market intent", true)}
       summary={mobileCommerceSummary}
       primaryAction={marketIntent === "sell" ? mobileSellAction : mobileBuyAction}
       secondaryAction={marketIntent === "sell" ? mobileListAction : mobileOfferAction}
     />
   ) : null;
   const mobileCommerceDrawer = commerce ? (
-    <Drawer
+    <CommerceDrawer
       open={Boolean(activeMobileCommerce && activeMobileCommerceContent)}
       onOpenChange={(open) => {
         if (!open) {
@@ -767,10 +747,11 @@ export function ItemDetailPage({
         }
       }}
       title={activeMobileCommerceTitle}
-      description={mobileCommerceSummary}
+      description={activeMobileCommerceDescription}
+      footer={activeMobileCommerceSection?.footer}
     >
       {activeMobileCommerceContent}
-    </Drawer>
+    </CommerceDrawer>
   ) : null;
 
   return (
@@ -879,14 +860,6 @@ export function ItemDetailPage({
                   </PageSection>
                 ) : null}
 
-                {mobileCommerceActionBar ? (
-                  <div
-                    ref={setEmbeddedMobileCommerceNode}
-                    className="xl:hidden"
-                  >
-                    {mobileCommerceActionBar}
-                  </div>
-                ) : null}
               </Stack>
             }
             market={
@@ -897,9 +870,7 @@ export function ItemDetailPage({
               />
             }
             commerce={commerce}
-            mobileActionBar={
-              isEmbeddedMobileCommerceVisible ? null : mobileCommerceActionBar
-            }
+            mobileActionBar={mobileCommerceActionBar}
           >
             <Stack gap={6}>
               {marketIntent === "buy" ? (

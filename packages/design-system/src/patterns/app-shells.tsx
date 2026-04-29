@@ -25,7 +25,7 @@ import {
   Stat,
   StatGrid
 } from "../components/data-display";
-import { Badge, type BadgeProps } from "../components/feedback";
+import { Badge, Drawer, type BadgeProps, type DrawerProps } from "../components/feedback";
 import { ChaseSetsLogo } from "../brand/chase-sets-logo";
 import { Icon, type IconName } from "../icons";
 
@@ -1282,6 +1282,52 @@ export interface CommerceActionBarProps
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
   tertiaryAction?: ReactNode;
+}
+
+export type FormPanelVariant = "card" | "plain";
+
+export interface FormPanelProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  children?: ReactNode;
+  variant?: FormPanelVariant;
+  glow?: boolean;
+}
+
+export function FormPanel({
+  children,
+  variant = "card",
+  glow = false,
+  ...rest
+}: FormPanelProps) {
+  if (variant === "plain") {
+    return <div {...rest}>{children}</div>;
+  }
+
+  return (
+    <Card {...rest} glow={glow}>
+      {children}
+    </Card>
+  );
+}
+
+export interface CommerceDrawerProps
+  extends Omit<DrawerProps, "children"> {
+  children?: ReactNode;
+}
+
+export function CommerceDrawer({
+  children,
+  footer,
+  ...rest
+}: CommerceDrawerProps) {
+  return (
+    <Drawer
+      {...rest}
+      footer={footer}
+    >
+      {children}
+    </Drawer>
+  );
 }
 
 export function CommerceActionBar({
