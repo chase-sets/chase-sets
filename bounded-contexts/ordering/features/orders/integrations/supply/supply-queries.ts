@@ -10,7 +10,7 @@ type VersionSelectedOptionEntry = Readonly<{
 type OrderingSupplyCandidateRow = Readonly<{
   listing_id: string;
   seller_account_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;
@@ -55,7 +55,7 @@ export async function listOrderingSupplyCandidates(
     `SELECT
        listing.listing_id,
        listing.seller_account_id,
-       listing.inventory_record_id,
+       listing.inventory_item_id,
        listing.catalog_catalog_item_id,
        listing.product_id,
        listing.item_title,
@@ -68,21 +68,21 @@ export async function listOrderingSupplyCandidates(
        LEAST(
          listing.quantity_cap,
          GREATEST(
-           record.total_quantity - COALESCE(active_holds.held_quantity, 0),
+           item.total_quantity - COALESCE(active_holds.held_quantity, 0),
            0
          )
        ) AS available_quantity,
        listing.updated_at
      FROM ordering_market_listing_inputs AS listing
-     INNER JOIN ordering_inventory_record_inputs AS record
-       ON record.record_id = listing.inventory_record_id
+     INNER JOIN ordering_inventory_item_inputs AS item
+       ON item.item_id = listing.inventory_item_id
      LEFT JOIN (
-       SELECT record_id, SUM(quantity)::integer AS held_quantity
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM ordering_inventory_hold_inputs
        WHERE status = 'active'
-       GROUP BY record_id
+       GROUP BY item_id
      ) AS active_holds
-       ON active_holds.record_id = record.record_id
+       ON active_holds.item_id = item.item_id
      WHERE listing.status = 'active'
        AND listing.product_id = $1
        ${sellerClause}
@@ -97,7 +97,7 @@ export async function listOrderingSupplyCandidates(
     .map((row) => ({
       listingId: row.listing_id,
       sellerAccountId: row.seller_account_id as AccountId,
-      inventoryRecordId: row.inventory_record_id,
+      inventoryItemId: row.inventory_item_id,
       catalogItemId: row.catalog_catalog_item_id,
       productId: row.product_id,
       itemTitle: row.item_title ?? demand.itemTitle,
@@ -123,7 +123,7 @@ export async function getOrderingSupplyCandidateByListingId(
     `SELECT
        listing.listing_id,
        listing.seller_account_id,
-       listing.inventory_record_id,
+       listing.inventory_item_id,
        listing.catalog_catalog_item_id,
        listing.product_id,
        listing.item_title,
@@ -136,21 +136,21 @@ export async function getOrderingSupplyCandidateByListingId(
        LEAST(
          listing.quantity_cap,
          GREATEST(
-           record.total_quantity - COALESCE(active_holds.held_quantity, 0),
+           item.total_quantity - COALESCE(active_holds.held_quantity, 0),
            0
          )
        ) AS available_quantity,
        listing.updated_at
      FROM ordering_market_listing_inputs AS listing
-     INNER JOIN ordering_inventory_record_inputs AS record
-       ON record.record_id = listing.inventory_record_id
+     INNER JOIN ordering_inventory_item_inputs AS item
+       ON item.item_id = listing.inventory_item_id
      LEFT JOIN (
-       SELECT record_id, SUM(quantity)::integer AS held_quantity
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM ordering_inventory_hold_inputs
        WHERE status = 'active'
-       GROUP BY record_id
+       GROUP BY item_id
      ) AS active_holds
-       ON active_holds.record_id = record.record_id
+       ON active_holds.item_id = item.item_id
      WHERE listing.status = 'active'
        AND listing.listing_id = $1`,
     [listingId],
@@ -164,7 +164,7 @@ export async function getOrderingSupplyCandidateByListingId(
   return {
     listingId: row.listing_id,
     sellerAccountId: row.seller_account_id as AccountId,
-    inventoryRecordId: row.inventory_record_id,
+    inventoryItemId: row.inventory_item_id,
     catalogItemId: row.catalog_catalog_item_id,
     productId: row.product_id,
     itemTitle: row.item_title ?? "Item",

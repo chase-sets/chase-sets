@@ -53,9 +53,9 @@ Notes:
 
 - Eligibility depends on completed commerce and is unlocked by delivery-complete signals by default.
 
-## Reputation Summary
+## Review Summary
 
-A **Reputation Summary** is the canonical aggregate snapshot for an account derived from active reviews.
+A **Review Summary** is the canonical aggregate snapshot for an account derived from active reviews.
 
 Examples:
 

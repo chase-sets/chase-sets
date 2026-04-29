@@ -48,14 +48,14 @@ describe("test-support database ownership", () => {
     );
 
     const catalogUrl = new URL(urls.catalog);
-    expect(catalogUrl.username).toBe("catalog");
-    expect(catalogUrl.password).toBe("catalog");
     expect(catalogUrl.pathname).toMatch(/^\/acceptance_suite_catalog_/);
+    expect(catalogUrl.username).toBe(catalogUrl.pathname.slice(1));
+    expect(catalogUrl.password).toBe(catalogUrl.pathname.slice(1));
 
     const identityUrl = new URL(urls.identity);
-    expect(identityUrl.username).toBe("identity");
-    expect(identityUrl.password).toBe("identity");
     expect(identityUrl.pathname).toMatch(/^\/acceptance_suite_identity_/);
+    expect(identityUrl.username).toBe(identityUrl.pathname.slice(1));
+    expect(identityUrl.password).toBe(identityUrl.pathname.slice(1));
   });
 
   it("creates missing roles and databases with matching ownership", async () => {

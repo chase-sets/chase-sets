@@ -1,7 +1,7 @@
 export interface MarketplaceListingListItem {
   listing_id: string;
   account_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;
@@ -36,8 +36,8 @@ export interface MarketplaceItemListing extends MarketplaceListingListItem {
   visible_quantity: number;
 }
 
-export interface MarketplaceListingInventoryRecordOption {
-  record_id: string;
+export interface MarketplaceListingInventoryItemOption {
+  item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;

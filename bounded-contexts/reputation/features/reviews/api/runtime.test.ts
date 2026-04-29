@@ -9,7 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { createReputationReviewRuntime } from "./runtime";
+import { createReviewRuntime } from "./runtime";
 
 function createInMemoryEventStore() {
   let globalPosition = 0;
@@ -104,7 +104,7 @@ describe("reputation review runtime", () => {
       }),
     };
     const { eventStore } = createInMemoryEventStore();
-    const runtime = createReputationReviewRuntime({
+    const runtime = createReviewRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,

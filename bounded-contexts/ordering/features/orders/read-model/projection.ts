@@ -29,7 +29,7 @@ export function buildOrderingOrderProjectionHandlers(
         lines: Array<{
           lineId: string;
           listingId: string;
-          inventoryRecordId: string;
+          inventoryItemId: string;
           catalogItemId: string;
           productId: string;
           itemTitle: string;
@@ -42,7 +42,7 @@ export function buildOrderingOrderProjectionHandlers(
         }>;
         reservationRequests: Array<{
           reservationRequestId: string;
-          inventoryRecordId: string;
+          inventoryItemId: string;
           sellerAccountId: string;
           quantity: number;
         }>;
@@ -129,7 +129,7 @@ export function buildOrderingOrderProjectionHandlers(
              line_id,
              line_index,
              listing_id,
-             inventory_record_id,
+             inventory_item_id,
              catalog_catalog_item_id,
              product_id,
              item_title,
@@ -145,7 +145,7 @@ export function buildOrderingOrderProjectionHandlers(
            ON CONFLICT (order_id, line_id) DO UPDATE
            SET line_index = EXCLUDED.line_index,
                listing_id = EXCLUDED.listing_id,
-               inventory_record_id = EXCLUDED.inventory_record_id,
+               inventory_item_id = EXCLUDED.inventory_item_id,
                catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
                product_id = EXCLUDED.product_id,
                item_title = EXCLUDED.item_title,
@@ -160,7 +160,7 @@ export function buildOrderingOrderProjectionHandlers(
             line.lineId,
             index,
             line.listingId,
-            line.inventoryRecordId,
+            line.inventoryItemId,
             line.catalogItemId,
             line.productId,
             line.itemTitle,
@@ -179,7 +179,7 @@ export function buildOrderingOrderProjectionHandlers(
       const data = event.data as {
         orderId: string;
         reservationRequestId: string;
-        inventoryRecordId: string;
+        inventoryItemId: string;
         sellerAccountId: string;
         quantity: number;
         holdId: string;
@@ -190,7 +190,7 @@ export function buildOrderingOrderProjectionHandlers(
            hold_id,
            order_id,
            seller_account_id,
-           inventory_record_id,
+           inventory_item_id,
            quantity,
            status,
            created_at,
@@ -201,7 +201,7 @@ export function buildOrderingOrderProjectionHandlers(
          ON CONFLICT (hold_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
              seller_account_id = EXCLUDED.seller_account_id,
-             inventory_record_id = EXCLUDED.inventory_record_id,
+             inventory_item_id = EXCLUDED.inventory_item_id,
              quantity = EXCLUDED.quantity,
              status = EXCLUDED.status,
              created_at = EXCLUDED.created_at,
@@ -210,7 +210,7 @@ export function buildOrderingOrderProjectionHandlers(
           data.holdId,
           data.orderId,
           data.sellerAccountId,
-          data.inventoryRecordId,
+          data.inventoryItemId,
           data.quantity,
           event.timing.recordedAt,
         ],

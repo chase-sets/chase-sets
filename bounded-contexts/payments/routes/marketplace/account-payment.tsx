@@ -29,7 +29,7 @@ import {
 } from "../../support/request-support/api-client";
 import {
   createOrderingRequestApiClient,
-  type OrderingOrderDetail,
+  type PurchaseDetail,
 } from "@chase-sets/ordering/server";
 
 type StripePaymentElement = {
@@ -138,9 +138,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   try {
     const payment = await paymentsApi.getBuyerPayment(params.paymentId!);
-    const orders = await Promise.all(
-      payment.order_ids.map((orderId) => orderingApi.getBuyerOrder(orderId)),
-    );
+      const orders = await Promise.all(
+        payment.order_ids.map((orderId) => orderingApi.getPurchase(orderId)),
+      );
 
     return {
       payment,
@@ -298,10 +298,10 @@ export default function MarketplaceAccountPaymentRoute() {
       <PageHeader
         eyebrow="Secure Checkout"
         title={`Payment ${data.payment.payment_id}`}
-        description="Track processor state, order coverage, marketplace fees, and seller net from one protected payment surface."
+        description="Track processor state, purchase coverage, marketplace fees, and seller net from one protected payment surface."
         actions={
-          <LinkButton href="/account/orders" tone="secondary">
-            Back to orders
+          <LinkButton href="/account/purchases" tone="secondary">
+            Back to purchases
           </LinkButton>
         }
       />
@@ -329,8 +329,8 @@ export default function MarketplaceAccountPaymentRoute() {
                 },
                 {
                   icon: "shield",
-                  title: "Order Coverage",
-                  description: `Covers ${data.payment.order_ids.length} seller-specific order${data.payment.order_ids.length === 1 ? "" : "s"}.`,
+                  title: "Purchase Coverage",
+                  description: `Covers ${data.payment.order_ids.length} seller-specific purchase${data.payment.order_ids.length === 1 ? "" : "s"}.`,
                 },
                 {
                   icon: "creditCard",
@@ -371,14 +371,14 @@ export default function MarketplaceAccountPaymentRoute() {
             </PageSection>
           ) : null}
 
-          <PageSection title="Orders">
+          <PageSection title="Purchases">
             <Stack gap={3}>
-              {data.orders.map((order: OrderingOrderDetail) => (
+              {data.orders.map((order: PurchaseDetail) => (
                 <Surface key={order.order_id} elevated>
                   <Stack gap={3}>
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>
                       <Stack gap={1}>
-                        <Text weight="semibold">Order {order.order_id}</Text>
+                        <Text weight="semibold">Purchase {order.order_id}</Text>
                         <Badge tone="accent">{order.status}</Badge>
                       </Stack>
                       <Stack gap={1}>
@@ -391,8 +391,8 @@ export default function MarketplaceAccountPaymentRoute() {
                       </Stack>
                     </Grid>
                     <Divider />
-                    <LinkButton href={`/account/orders/${order.order_id}`} tone="secondary">
-                      Open order
+                    <LinkButton href={`/account/purchases/${order.order_id}`} tone="secondary">
+                      Open purchase
                     </LinkButton>
                   </Stack>
                 </Surface>

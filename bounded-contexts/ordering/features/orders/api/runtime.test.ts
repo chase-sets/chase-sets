@@ -106,7 +106,7 @@ const context = {
 type SupplyCandidate = Readonly<{
   listingId: string;
   sellerAccountId: string;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   catalogItemId: string;
   productId: string;
   itemTitle: string;
@@ -128,7 +128,7 @@ function createSupplyDb(
       rows: resolver(params).map((candidate) => ({
         listing_id: candidate.listingId,
         seller_account_id: candidate.sellerAccountId,
-        inventory_record_id: candidate.inventoryRecordId,
+        inventory_item_id: candidate.inventoryItemId,
         catalog_catalog_item_id: candidate.catalogItemId,
         product_id: candidate.productId,
         item_title: candidate.itemTitle,
@@ -170,7 +170,7 @@ describe("ordering order runtime", () => {
       {
         listingId: "lst_1",
         sellerAccountId: "acc_seller",
-        inventoryRecordId: "inv_1",
+        inventoryItemId: "inv_1",
         catalogItemId: "cat_1",
         productId: "cat_1::",
         itemTitle: "Charizard",
@@ -250,7 +250,7 @@ describe("ordering order runtime", () => {
           {
             listingId: "lst_a1",
             sellerAccountId: "acc_split_a",
-            inventoryRecordId: "inv_a1",
+            inventoryItemId: "inv_a1",
             catalogItemId: "cat_1",
             productId: "cat_1::",
             itemTitle: "Charizard",
@@ -266,7 +266,7 @@ describe("ordering order runtime", () => {
           {
             listingId: "lst_b1",
             sellerAccountId: "acc_single",
-            inventoryRecordId: "inv_b1",
+            inventoryItemId: "inv_b1",
             catalogItemId: "cat_1",
             productId: "cat_1::",
             itemTitle: "Charizard",
@@ -286,7 +286,7 @@ describe("ordering order runtime", () => {
         {
           listingId: "lst_c1",
           sellerAccountId: "acc_split_c",
-          inventoryRecordId: "inv_c1",
+          inventoryItemId: "inv_c1",
           catalogItemId: "cat_2",
           productId: "cat_2::",
           itemTitle: "Blastoise",
@@ -302,7 +302,7 @@ describe("ordering order runtime", () => {
         {
           listingId: "lst_b2",
           sellerAccountId: "acc_single",
-          inventoryRecordId: "inv_b2",
+          inventoryItemId: "inv_b2",
           catalogItemId: "cat_2",
           productId: "cat_2::",
           itemTitle: "Blastoise",
@@ -350,12 +350,12 @@ describe("ordering order runtime", () => {
       reservationRequests: [
         expect.objectContaining({
           sellerAccountId: "acc_single",
-          inventoryRecordId: "inv_b1",
+          inventoryItemId: "inv_b1",
           quantity: 1,
         }),
         expect.objectContaining({
           sellerAccountId: "acc_single",
-          inventoryRecordId: "inv_b2",
+          inventoryItemId: "inv_b2",
           quantity: 1,
         }),
       ],
@@ -371,7 +371,7 @@ describe("ordering order runtime", () => {
         {
           listingId: "lst_1",
           sellerAccountId: "acc_seller",
-          inventoryRecordId: "inv_1",
+          inventoryItemId: "inv_1",
           catalogItemId: "cat_1",
           productId: "cat_1::",
           itemTitle: "Charizard",
@@ -440,7 +440,7 @@ describe("ordering order runtime", () => {
         {
           listingId: "lst_buy_now",
           sellerAccountId: "acc_seller",
-          inventoryRecordId: "inv_buy_now",
+          inventoryItemId: "inv_buy_now",
           catalogItemId: "cat_1",
           productId: "cat_1::",
           itemTitle: "Charizard",
@@ -493,7 +493,7 @@ describe("ordering order runtime", () => {
       lines: [
         expect.objectContaining({
           listingId: "lst_buy_now",
-          inventoryRecordId: "inv_buy_now",
+          inventoryItemId: "inv_buy_now",
           unitPriceAmount: "12.00",
         }),
       ],
@@ -552,7 +552,7 @@ describe("ordering order runtime", () => {
             rows: [
               {
                 hold_id: "hld_1",
-                inventory_record_id: "inv_1",
+                inventory_item_id: "inv_1",
                 seller_account_id: "acc_seller",
                 quantity: 1,
                 status: "active",
@@ -613,7 +613,7 @@ describe("ordering order runtime", () => {
           {
             lineId: "oli_1" as never,
             listingId: "lst_1",
-            inventoryRecordId: "inv_1",
+            inventoryItemId: "inv_1",
             catalogItemId: "cat_1",
             productId: "cat_1::" as never,
             itemTitle: "Charizard",
@@ -628,7 +628,7 @@ describe("ordering order runtime", () => {
         reservationRequests: [
           {
             reservationRequestId: "rsv_1",
-            inventoryRecordId: "inv_1",
+            inventoryItemId: "inv_1",
             sellerAccountId: "acc_seller",
             quantity: 1,
           },
@@ -647,7 +647,7 @@ describe("ordering order runtime", () => {
       context,
     });
 
-    await services.cancelBuyerOrder(
+    await services.cancelPurchase(
       { orderId: "ord_1", buyerAccountId: "acc_buyer" },
       context,
     );

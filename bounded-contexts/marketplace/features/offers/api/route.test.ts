@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
-  createBuyerOfferRoutes,
-  createSellerOfferRoutes,
+  createBuyerOfferMatchRoutes,
+  createSubmittedBuyerOfferRoutes,
 } from "./route";
 import type { MarketplaceOfferServices } from "./runtime";
 
@@ -31,8 +31,8 @@ function buildApp(options: Readonly<{
     await next();
   });
 
-  app.route("/buyer", createBuyerOfferRoutes(options.services));
-  app.route("/seller", createSellerOfferRoutes(options.services));
+  app.route("/buyer", createSubmittedBuyerOfferRoutes(options.services));
+  app.route("/seller", createBuyerOfferMatchRoutes(options.services));
 
   return app;
 }
@@ -40,13 +40,13 @@ function buildApp(options: Readonly<{
 function createServices(): MarketplaceOfferServices {
   const submitOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 1 }));
   const acceptOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 2 }));
-  const listBuyerOffers = vi.fn(async () => ({ items: [], total: 0 }));
-  const getBuyerOffer = vi.fn(async () => null);
-  const listSellerVisibleOffers = vi.fn(async () => ({ items: [], total: 0 }));
-  const getSellerVisibleOffer = vi.fn(async () => null);
-  const addSellerOfferCartItem = vi.fn(async () => undefined);
-  const listSellerOfferCart = vi.fn(async () => []);
-  const acceptSellerOfferCart = vi.fn(async () => ({
+  const listSubmittedBuyerOffers = vi.fn(async () => ({ items: [], total: 0 }));
+  const getSubmittedBuyerOffer = vi.fn(async () => null);
+  const listBuyerOfferMatches = vi.fn(async () => ({ items: [], total: 0 }));
+  const getBuyerOfferMatch = vi.fn(async () => null);
+  const addBuyerOfferMatchSellListItem = vi.fn(async () => undefined);
+  const listBuyerOfferMatchSellList = vi.fn(async () => []);
+  const acceptBuyerOfferMatchSellList = vi.fn(async () => ({
     acceptedOfferIds: ["off_1" as never],
     skipped: [],
   }));
@@ -55,13 +55,13 @@ function createServices(): MarketplaceOfferServices {
     commandHandler: vi.fn(async () => ({ version: 1 })),
     submitOffer,
     acceptOffer,
-    addSellerOfferCartItem,
-    listSellerOfferCart,
-    acceptSellerOfferCart,
-    listBuyerOffers,
-    getBuyerOffer,
-    listSellerVisibleOffers,
-    getSellerVisibleOffer,
+    addBuyerOfferMatchSellListItem,
+    listBuyerOfferMatchSellList,
+    acceptBuyerOfferMatchSellList,
+    listSubmittedBuyerOffers,
+    getSubmittedBuyerOffer,
+    listBuyerOfferMatches,
+    getBuyerOfferMatch,
     projectors: [],
   };
 }
@@ -83,7 +83,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/buyer/offers", {
+      new Request("http://marketplace.test/buyer/submitted-buyer-offers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -126,16 +126,16 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/buyer/offers"),
+      new Request("http://marketplace.test/buyer/submitted-buyer-offers"),
     );
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ error: "Forbidden." });
   });
 
-  it("returns seller-visible offers from the matching demand board", async () => {
+  it("returns buyer offer matches from the matching demand board", async () => {
     const services = createServices();
-    vi.mocked(services.getSellerVisibleOffer).mockResolvedValue({
+    vi.mocked(services.getBuyerOfferMatch).mockResolvedValue({
       offer_id: "off_1",
       buyer_account_id: "acc_buyer",
       catalog_catalog_item_id: "cat_charizard",
@@ -171,7 +171,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/seller/offers/off_1"),
+      new Request("http://marketplace.test/seller/buyer-offer-matches/off_1"),
     );
 
     expect(response.status).toBe(200);
@@ -179,10 +179,10 @@ describe("marketplace offer routes", () => {
       offer_id: "off_1",
       buyer_display_name: "Buyer One",
     });
-    expect(services.getSellerVisibleOffer).toHaveBeenCalledWith("off_1", "acc_seller");
+    expect(services.getBuyerOfferMatch).toHaveBeenCalledWith("off_1", "acc_seller");
   });
 
-  it("accepts a seller-visible offer", async () => {
+  it("accepts a buyer offer match", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {
@@ -198,7 +198,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/seller/offers/off_1/accept", {
+      new Request("http://marketplace.test/seller/buyer-offer-matches/off_1/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -216,7 +216,7 @@ describe("marketplace offer routes", () => {
     );
   });
 
-  it("adds a seller-visible offer to the sell list", async () => {
+  it("adds a buyer offer match to the sell list", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {
@@ -232,7 +232,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/seller/offer-cart", {
+      new Request("http://marketplace.test/seller/buyer-offer-match-sell-list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ offerId: "off_1" }),
@@ -240,13 +240,13 @@ describe("marketplace offer routes", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(services.addSellerOfferCartItem).toHaveBeenCalledWith({
+    expect(services.addBuyerOfferMatchSellListItem).toHaveBeenCalledWith({
       offerId: "off_1",
       sellerAccountId: "acc_seller",
     });
   });
 
-  it("accepts the seller sell list", async () => {
+  it("accepts the buyer offer match sell list", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {
@@ -262,7 +262,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/seller/offer-cart/accept", {
+      new Request("http://marketplace.test/seller/buyer-offer-match-sell-list/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -274,7 +274,7 @@ describe("marketplace offer routes", () => {
       acceptedOfferIds: ["off_1"],
       skipped: [],
     });
-    expect(services.acceptSellerOfferCart).toHaveBeenCalledWith(
+    expect(services.acceptBuyerOfferMatchSellList).toHaveBeenCalledWith(
       { sellerAccountId: "acc_seller" },
       expect.any(Object),
     );

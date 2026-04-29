@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   updated_at timestamptz NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS pricing_inventory_record_inputs (
-  record_id text PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS pricing_inventory_item_inputs (
+  item_id text PRIMARY KEY,
   seller_account_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS pricing_inventory_record_inputs (
 
 CREATE TABLE IF NOT EXISTS pricing_inventory_hold_inputs (
   hold_id text PRIMARY KEY,
-  record_id text NOT NULL,
+  item_id text NOT NULL,
   seller_account_id text NOT NULL,
   quantity integer NOT NULL CHECK (quantity >= 0),
   status text NOT NULL,
@@ -28,11 +28,11 @@ CREATE TABLE IF NOT EXISTS pricing_inventory_hold_inputs (
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
 );
 
-CREATE INDEX IF NOT EXISTS pricing_inventory_record_inputs_lookup_idx
-  ON pricing_inventory_record_inputs (seller_account_id, catalog_catalog_item_id, product_id);
+CREATE INDEX IF NOT EXISTS pricing_inventory_item_inputs_lookup_idx
+  ON pricing_inventory_item_inputs (seller_account_id, catalog_catalog_item_id, product_id);
 
-CREATE INDEX IF NOT EXISTS pricing_inventory_hold_inputs_record_idx
-  ON pricing_inventory_hold_inputs (record_id, status);
+CREATE INDEX IF NOT EXISTS pricing_inventory_hold_inputs_item_idx
+  ON pricing_inventory_hold_inputs (item_id, status);
 
 CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   listing_id text PRIMARY KEY,
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
 CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
   ON pricing_market_listing_inputs (seller_account_id, catalog_catalog_item_id, product_id, status);
 
-CREATE TABLE IF NOT EXISTS pricing_market_offer_inputs (
+CREATE TABLE IF NOT EXISTS pricing_buyer_offer_inputs (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
   seller_account_id text NULL,
@@ -61,8 +61,8 @@ CREATE TABLE IF NOT EXISTS pricing_market_offer_inputs (
   updated_at timestamptz NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS pricing_market_offer_inputs_lookup_idx
-  ON pricing_market_offer_inputs (catalog_catalog_item_id, product_id, status);
+CREATE INDEX IF NOT EXISTS pricing_buyer_offer_inputs_lookup_idx
+  ON pricing_buyer_offer_inputs (catalog_catalog_item_id, product_id, status);
 
 CREATE TABLE IF NOT EXISTS pricing_order_signal_lines (
   order_id text NOT NULL,

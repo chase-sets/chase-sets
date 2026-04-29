@@ -9,7 +9,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { MarketplaceOfferListItem } from "./contracts";
+import type { SubmittedBuyerOfferListItem } from "./contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -39,19 +39,19 @@ function formatTimestamp(value: string) {
   }).format(date);
 }
 
-export function MarketplaceBuyerOfferListPage({
+export function MarketplaceSubmittedBuyerOfferListPage({
   data,
   errorMessage,
 }: {
-  data: { items: readonly MarketplaceOfferListItem[] };
+  data: { items: readonly SubmittedBuyerOfferListItem[] };
   errorMessage?: string | null;
 }) {
   return (
     <Page>
       <PageHeader
         eyebrow="Buyer"
-        title="Offers"
-        description="Review the marketplace-wide offers your account has submitted."
+        title="Submitted Buyer Offers"
+        description="Review the buyer offers your account has submitted."
       />
 
       {errorMessage ? (
@@ -60,7 +60,7 @@ export function MarketplaceBuyerOfferListPage({
         </Card>
       ) : null}
 
-      <PageSection title="Offer History">
+      <PageSection title="Submitted Buyer Offers">
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.offer_id}
@@ -86,7 +86,7 @@ export function MarketplaceBuyerOfferListPage({
             },
             {
               key: "price",
-              header: "Offer Price",
+              header: "Buyer Offer Price",
               cell: (row) => formatMoney(row.price_amount),
             },
             {
@@ -109,14 +109,14 @@ export function MarketplaceBuyerOfferListPage({
               key: "actions",
               header: "Actions",
               cell: (row) => (
-                <LinkButton href={`/account/offers/${row.offer_id}`} tone="secondary" size="sm">
+                <LinkButton href={`/account/submitted-buyer-offers/${row.offer_id}`} tone="secondary" size="sm">
                   Open
                 </LinkButton>
               ),
             },
           ]}
-          emptyTitle="No offers yet"
-          emptyDescription="Submit a marketplace-wide offer from any item detail page to start tracking buyer demand."
+          emptyTitle="No submitted buyer offers yet"
+          emptyDescription="Submit a buyer offer from any item detail page to start tracking buyer demand."
         />
       </PageSection>
     </Page>

@@ -76,7 +76,7 @@ export async function action({ request }: ActionFunctionArgs) {
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
     title: "Inventory Locations | Marketplace",
-    description: "Manage the storage locations and ship-from metadata used by inventory records.",
+    description: "Manage the storage locations and ship-from metadata used by inventory items.",
   });
 
 export default function MarketplaceInventoryLocationsRoute() {

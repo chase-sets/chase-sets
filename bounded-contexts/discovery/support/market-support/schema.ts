@@ -8,7 +8,7 @@ export const discoveryMarketSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_ma
 CREATE TABLE IF NOT EXISTS discovery_market_listings (
   listing_id text PRIMARY KEY,
   account_id text NOT NULL,
-  inventory_record_id text NOT NULL,
+  inventory_item_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   item_title text NULL,
@@ -33,7 +33,7 @@ CREATE INDEX IF NOT EXISTS discovery_market_listings_account_idx
 CREATE INDEX IF NOT EXISTS discovery_market_listings_status_idx
   ON discovery_market_listings (status);
 
-CREATE TABLE IF NOT EXISTS discovery_market_offers (
+CREATE TABLE IF NOT EXISTS discovery_buyer_offer_matches (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
@@ -51,11 +51,11 @@ CREATE TABLE IF NOT EXISTS discovery_market_offers (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS discovery_market_offers_catalog_item_idx
-  ON discovery_market_offers (catalog_catalog_item_id);
-CREATE INDEX IF NOT EXISTS discovery_market_offers_product_idx
-  ON discovery_market_offers (product_id);
-CREATE INDEX IF NOT EXISTS discovery_market_offers_buyer_idx
-  ON discovery_market_offers (buyer_account_id);
-CREATE INDEX IF NOT EXISTS discovery_market_offers_status_idx
-  ON discovery_market_offers (status);`;
+CREATE INDEX IF NOT EXISTS discovery_buyer_offer_matches_catalog_item_idx
+  ON discovery_buyer_offer_matches (catalog_catalog_item_id);
+CREATE INDEX IF NOT EXISTS discovery_buyer_offer_matches_product_idx
+  ON discovery_buyer_offer_matches (product_id);
+CREATE INDEX IF NOT EXISTS discovery_buyer_offer_matches_buyer_idx
+  ON discovery_buyer_offer_matches (buyer_account_id);
+CREATE INDEX IF NOT EXISTS discovery_buyer_offer_matches_status_idx
+  ON discovery_buyer_offer_matches (status);`;

@@ -15,7 +15,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { ReactNode } from "react";
-import type { OrderingOrderDetail } from "./contracts";
+import type { PurchaseDetail, SaleDetail } from "./contracts";
 
 function formatMoney(amount: string) {
   return `$${amount}`;
@@ -48,7 +48,7 @@ export function OrderingOrderDetailPage({
   role: "buyer" | "seller";
   backHref: string;
   paymentHref?: string | null;
-  order: OrderingOrderDetail;
+  order: PurchaseDetail | SaleDetail;
   errorMessage?: string | null;
   supplementarySection?: ReactNode;
   supplementarySectionTitle?: string;
@@ -58,12 +58,14 @@ export function OrderingOrderDetailPage({
       ? order.seller_display_name ?? order.seller_account_id
       : order.buyer_display_name ?? order.buyer_account_id;
   const canPay = order.status === "pending-payment" && paymentHref;
+  const projectionLabel = role === "buyer" ? "Purchase" : "Sale";
+  const cancelIntent = role === "buyer" ? "cancel-purchase" : "cancel-sale";
 
   return (
     <Page>
       <PageHeader
         eyebrow={role === "buyer" ? "Buyer" : "Seller"}
-        title={`Order ${order.order_id}`}
+        title={`${projectionLabel} ${order.order_id}`}
         description={`Counterparty: ${counterpartLabel}`}
         actions={
           <LinkButton href={backHref} tone="secondary">
@@ -75,7 +77,7 @@ export function OrderingOrderDetailPage({
       {errorMessage ? (
         <Surface tone="subtle" elevated>
           <Stack gap={2}>
-            <Badge tone="danger">Order issue</Badge>
+            <Badge tone="danger">{projectionLabel} issue</Badge>
             <Text>{errorMessage}</Text>
           </Stack>
         </Surface>
@@ -85,7 +87,7 @@ export function OrderingOrderDetailPage({
         summary={
           <Stack gap={4}>
             <OrderSummary
-              title="Order Summary"
+              title={`${projectionLabel} Summary`}
               lines={[
                 { label: "Status", value: <Badge tone={statusTone(order.status)}>{order.status}</Badge> },
                 { label: "Item subtotal", value: formatMoney(order.item_subtotal_amount) },
@@ -141,8 +143,8 @@ export function OrderingOrderDetailPage({
                 {canPay ? <LinkButton href={paymentHref}>Pay now</LinkButton> : null}
                 {isPendingStatus(order.status) ? (
                   <form method="post">
-                    <Button type="submit" name="intent" value="cancel-order" tone="danger">
-                      Cancel order
+                    <Button type="submit" name="intent" value={cancelIntent} tone="danger">
+                      Cancel {projectionLabel.toLowerCase()}
                     </Button>
                   </form>
                 ) : null}
@@ -197,7 +199,7 @@ export function OrderingOrderDetailPage({
                     <Stack gap={1}>
                       <Text weight="semibold">{hold.hold_id}</Text>
                       <Text size="sm" tone="secondary">
-                        Record {hold.inventory_record_id}
+                        Inventory item {hold.inventory_item_id}
                       </Text>
                     </Stack>
                     <Stack gap={1}>

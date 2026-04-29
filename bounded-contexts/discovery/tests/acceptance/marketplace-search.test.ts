@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { module as catalogModule } from "@chase-sets/catalog";
+import { module as identityModule } from "@chase-sets/identity";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import {
   bootstrapContextDatabase,
   drainContextProcesses,
@@ -23,7 +26,12 @@ import { module as discoveryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
-const discoveryContextNames = ["catalog", "discovery"] as const;
+const discoveryContextNames = [
+  "catalog",
+  "identity",
+  "marketplace",
+  "discovery",
+] as const;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -76,6 +84,10 @@ describeWithDatabase("marketplace search", () => {
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
     catalogServices = catalogModule.createServices(pools.catalog, undefined);
+    const identityServices = identityModule.createServices(pools.identity, undefined);
+    const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
+      commercialTermsResolver: createNoopCommercialTermsResolver(),
+    });
     discoveryServices = createDiscoveryServices(pools.discovery);
     const mountedContexts = [
       {
@@ -84,6 +96,22 @@ describeWithDatabase("marketplace search", () => {
         services: catalogServices,
         pool: pools.catalog,
         projectors: catalogModule.projectors(catalogServices),
+      },
+      {
+        contextName: "identity",
+        mountRole: "source-only",
+        module: identityModule,
+        services: identityServices,
+        pool: pools.identity,
+        projectors: [],
+      },
+      {
+        contextName: "marketplace",
+        mountRole: "source-only",
+        module: marketplaceModule,
+        services: marketplaceServices,
+        pool: pools.marketplace,
+        projectors: [],
       },
       {
         contextName: "discovery",
@@ -106,6 +134,8 @@ describeWithDatabase("marketplace search", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(catalogModule, pools.catalog);
+    await bootstrapContextDatabase(identityModule, pools.identity);
+    await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
   });
 

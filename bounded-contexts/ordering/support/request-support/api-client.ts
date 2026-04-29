@@ -10,8 +10,10 @@ export {
 export type {
   OrderingApiClientOptions,
   OrderingCartLine,
-  OrderingOrderDetail,
-  OrderingOrderListItem,
+  PurchaseDetail,
+  PurchaseListItem,
+  SaleDetail,
+  SaleListItem,
 } from "../../client";
 import { createOrderingApiClient } from "../../client";
 

@@ -1,13 +1,13 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-async function refreshReputationSummary(
+async function refreshReviewSummary(
   db: PgQueryable,
   subjectAccountId: string,
   updatedAt: string,
 ) {
   await db.query(
-    `INSERT INTO reputation_summary_pages (
+    `INSERT INTO review_summary_pages (
        account_id,
        average_rating,
        review_count,
@@ -47,7 +47,7 @@ async function refreshReputationSummary(
   );
 }
 
-export function buildReputationReviewProjectionHandlers(
+export function buildReviewProjectionHandlers(
   db: PgQueryable,
 ): ProjectorHandlerMap {
   return {
@@ -97,7 +97,7 @@ export function buildReputationReviewProjectionHandlers(
         ],
       );
 
-      await refreshReputationSummary(db, data.subjectAccountId, data.submittedAt);
+      await refreshReviewSummary(db, data.subjectAccountId, data.submittedAt);
     },
     "reputation.review.updated": async (event) => {
       const data = event.data as {
@@ -122,7 +122,7 @@ export function buildReputationReviewProjectionHandlers(
         return;
       }
 
-      await refreshReputationSummary(db, subjectAccountId, data.updatedAt);
+      await refreshReviewSummary(db, subjectAccountId, data.updatedAt);
     },
     "reputation.review.withdrawn": async (event) => {
       const data = event.data as {
@@ -145,7 +145,7 @@ export function buildReputationReviewProjectionHandlers(
         return;
       }
 
-      await refreshReputationSummary(db, subjectAccountId, data.withdrawnAt);
+      await refreshReviewSummary(db, subjectAccountId, data.withdrawnAt);
     },
   };
 }

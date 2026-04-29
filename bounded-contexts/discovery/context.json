@@ -239,7 +239,7 @@
       "ownedTables": [
         "discovery_market_accounts",
         "discovery_market_listings",
-        "discovery_market_offers"
+        "discovery_buyer_offer_matches"
       ],
       "requiredDuringBootstrap": true
     }

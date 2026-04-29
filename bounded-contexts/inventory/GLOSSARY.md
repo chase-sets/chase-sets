@@ -2,25 +2,25 @@
 
 This glossary defines the canonical terminology for the Inventory bounded context.
 
-## Inventory Record
+## Inventory Item
 
-An **Inventory Record** is a seller's stock for one specific product and storage location.
+An **Inventory Item** is a seller's stock for one specific product and storage location.
 
 Notes:
 
-- Every inventory record belongs to exactly one seller account.
-- Every inventory record references one `CatalogItemId`, one `ProductId`, and one normalized selected-options snapshot.
-- Every inventory record belongs to exactly one storage location.
+- Every inventory item belongs to exactly one seller account.
+- Every inventory item references one `CatalogItemId`, one `ProductId`, and one normalized selected-options snapshot.
+- Every inventory item belongs to exactly one storage location.
 - If condition matters for the item, it is part of the selected dimensions for that product.
 - Marketplace may reference inventory availability, but Inventory owns the stock truth.
 
 ## Total Quantity
 
-**Total Quantity** is the number of units recorded in an inventory record before active holds are applied.
+**Total Quantity** is the number of units recorded in an inventory item before active holds are applied.
 
 ## Available Quantity
 
-**Available Quantity** is the number of units in an inventory record that can still be sold after active holds are applied.
+**Available Quantity** is the number of units in an inventory item that can still be sold after active holds are applied.
 
 ## Hold
 
@@ -38,7 +38,7 @@ Notes:
 
 ## Import
 
-An **Import** is a bulk inventory upload that creates or updates inventory records.
+An **Import** is a bulk inventory upload that creates or updates inventory items.
 
 ## Acquisition Cost
 

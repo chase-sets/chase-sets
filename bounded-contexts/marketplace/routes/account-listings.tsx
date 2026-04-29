@@ -10,37 +10,37 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
-  type MarketplaceListingInventoryRecordOption,
+  type MarketplaceListingInventoryItemOption,
   type MarketplaceListingListItem,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import {
   createInventoryRequestApiClient,
-  type InventoryRecordListItem,
+  type InventoryItemListItem,
 } from "@chase-sets/inventory/server";
 import {
   MarketplaceListingListPage,
 } from "../features/listings/ui/listing-list-page";
 
 const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
-const DEFAULT_RECORD_QUERY = "limit=100&offset=0";
+const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
   "Manage active, draft, paused, and withdrawn listings from your marketplace account.";
 
 function toInventoryOption(
-  record: InventoryRecordListItem,
-): MarketplaceListingInventoryRecordOption {
+  inventoryItem: InventoryItemListItem,
+): MarketplaceListingInventoryItemOption {
   return {
-    record_id: record.record_id,
-    catalog_catalog_item_id: record.catalog_catalog_item_id,
-    product_id: record.product_id,
-    item_title: record.item_title,
-    item_subtitle: record.item_subtitle,
-    selected_options: record.selected_options,
-    product_summary: record.product_summary,
-    storage_location_name: record.storage_location_name,
-    ship_from_code: record.ship_from_code,
-    available_quantity: record.available_quantity,
+    item_id: inventoryItem.item_id,
+    catalog_catalog_item_id: inventoryItem.catalog_catalog_item_id,
+    product_id: inventoryItem.product_id,
+    item_title: inventoryItem.item_title,
+    item_subtitle: inventoryItem.item_subtitle,
+    selected_options: inventoryItem.selected_options,
+    product_summary: inventoryItem.product_summary,
+    storage_location_name: inventoryItem.storage_location_name,
+    ship_from_code: inventoryItem.ship_from_code,
+    available_quantity: inventoryItem.available_quantity,
   };
 }
 
@@ -48,17 +48,29 @@ export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
   const inventoryApi = createInventoryRequestApiClient(request);
+  const selectedInventoryItemId = new URL(request.url).searchParams.get("inventoryItemId");
 
-  const [listings, records] = await Promise.all([
+  const [listings, items] = await Promise.all([
     marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
-    inventoryApi.listRecords(DEFAULT_RECORD_QUERY),
+    inventoryApi.listItems(DEFAULT_ITEM_QUERY),
   ]);
+  const inventoryItems = (items.items as InventoryItemListItem[])
+    .filter((inventoryItem) => inventoryItem.available_quantity > 0)
+    .map(toInventoryOption);
+  const selectedInventoryItem = selectedInventoryItemId
+    ? inventoryItems.find((inventoryItem) => inventoryItem.item_id === selectedInventoryItemId)
+    : null;
 
   return {
     listings,
-    inventoryRecords: (records.items as InventoryRecordListItem[])
-      .filter((record) => record.available_quantity > 0)
-      .map(toInventoryOption),
+    inventoryItems,
+    createForm: selectedInventoryItem
+      ? {
+          inventoryItemId: selectedInventoryItem.item_id,
+          priceAmount: "",
+          quantityCap: "1",
+        }
+      : null,
   };
 }
 
@@ -68,7 +80,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const intent = String(formData.get("intent") ?? "");
   const api = createMarketplaceRequestApiClient(request);
   const createForm = {
-    inventoryRecordId: String(formData.get("inventoryRecordId") ?? ""),
+    inventoryItemId: String(formData.get("inventoryItemId") ?? ""),
     priceAmount: String(formData.get("priceAmount") ?? ""),
     quantityCap: String(formData.get("quantityCap") ?? ""),
   };
@@ -83,12 +95,18 @@ export async function action({ request }: ActionFunctionArgs) {
       };
     }
 
-    if (intent === "create-listing") {
-      await api.createListing({
-        inventoryRecordId: createForm.inventoryRecordId,
+    if (intent === "create-listing" || intent === "create-and-publish-listing") {
+      const result = await api.createListing({
+        inventoryItemId: createForm.inventoryItemId,
         priceAmount: createForm.priceAmount,
         quantityCap: Number(createForm.quantityCap ?? 0),
-      });
+      }) as { id: string };
+
+      if (intent === "create-and-publish-listing") {
+        await api.publishListing(result.id);
+      }
+
+      return redirect(`/account/listings/${result.id}`);
     }
 
     return redirect("/account/listings");
@@ -117,8 +135,8 @@ export default function MarketplaceAccountListingsRoute() {
   return (
     <MarketplaceListingListPage
       data={data.listings as ListResponse<MarketplaceListingListItem>}
-      inventoryRecords={data.inventoryRecords}
-      createForm={actionData?.createForm}
+      inventoryItems={data.inventoryItems}
+      createForm={actionData?.createForm ?? data.createForm ?? undefined}
       createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
     />

@@ -19,13 +19,13 @@ import {
 } from "../domain/domain";
 import { buildMarketplaceOfferProjectionHandlers } from "../read-model/projection";
 import {
-  addSellerOfferCartItem,
-  getBuyerOffer,
-  getSellerVisibleOffer,
-  listSellerOfferCart,
-  listBuyerOffers,
-  listSellerVisibleOffers,
-  removeSellerOfferCartItems,
+  addBuyerOfferMatchSellListItem,
+  getSubmittedBuyerOffer,
+  getBuyerOfferMatch,
+  listBuyerOfferMatchSellList,
+  listSubmittedBuyerOffers,
+  listBuyerOfferMatches,
+  removeBuyerOfferMatchSellListItems,
 } from "../read-model/queries";
 import {
   createMarketplaceProductDescriptor,
@@ -60,16 +60,16 @@ export type MarketplaceOfferServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ offerId: OfferId; version: number }>;
-  addSellerOfferCartItem: (
+  addBuyerOfferMatchSellListItem: (
     params: Readonly<{
       offerId: OfferId;
       sellerAccountId: AccountId;
     }>,
   ) => Promise<void>;
-  listSellerOfferCart: (
+  listBuyerOfferMatchSellList: (
     sellerAccountId: string,
-  ) => ReturnType<typeof listSellerOfferCart>;
-  acceptSellerOfferCart: (
+  ) => ReturnType<typeof listBuyerOfferMatchSellList>;
+  acceptBuyerOfferMatchSellList: (
     params: Readonly<{
       sellerAccountId: AccountId;
     }>,
@@ -78,20 +78,20 @@ export type MarketplaceOfferServices = Readonly<{
     acceptedOfferIds: readonly OfferId[];
     skipped: readonly { offerId: string; reason: string }[];
   }>;
-  listBuyerOffers: (
-    params: Parameters<typeof listBuyerOffers>[1],
-  ) => ReturnType<typeof listBuyerOffers>;
-  getBuyerOffer: (
+  listSubmittedBuyerOffers: (
+    params: Parameters<typeof listSubmittedBuyerOffers>[1],
+  ) => ReturnType<typeof listSubmittedBuyerOffers>;
+  getSubmittedBuyerOffer: (
     offerId: string,
     buyerAccountId: string,
-  ) => ReturnType<typeof getBuyerOffer>;
-  listSellerVisibleOffers: (
-    params: Parameters<typeof listSellerVisibleOffers>[1],
-  ) => ReturnType<typeof listSellerVisibleOffers>;
-  getSellerVisibleOffer: (
+  ) => ReturnType<typeof getSubmittedBuyerOffer>;
+  listBuyerOfferMatches: (
+    params: Parameters<typeof listBuyerOfferMatches>[1],
+  ) => ReturnType<typeof listBuyerOfferMatches>;
+  getBuyerOfferMatch: (
     offerId: string,
     sellerAccountId: string,
-  ) => ReturnType<typeof getSellerVisibleOffer>;
+  ) => ReturnType<typeof getBuyerOfferMatch>;
   projectors: readonly Projector[];
 }>;
 
@@ -174,7 +174,7 @@ export function createMarketplaceOfferRuntime(
       return { offerId, version: result.version };
     },
     acceptOffer: async (params, context) => {
-      const offer = await getSellerVisibleOffer(
+      const offer = await getBuyerOfferMatch(
         deps.db,
         params.offerId,
         params.sellerAccountId,
@@ -199,17 +199,17 @@ export function createMarketplaceOfferRuntime(
 
       return { offerId: params.offerId, version: result.version };
     },
-    addSellerOfferCartItem: async (params) => {
-      await addSellerOfferCartItem(deps.db, {
+    addBuyerOfferMatchSellListItem: async (params) => {
+      await addBuyerOfferMatchSellListItem(deps.db, {
         sellerAccountId: params.sellerAccountId,
         offerId: params.offerId,
         addedAt: new Date().toISOString(),
       });
     },
-    listSellerOfferCart: (sellerAccountId) =>
-      listSellerOfferCart(deps.db, sellerAccountId),
-    acceptSellerOfferCart: async (params, context) => {
-      const items = await listSellerOfferCart(deps.db, params.sellerAccountId);
+    listBuyerOfferMatchSellList: (sellerAccountId) =>
+      listBuyerOfferMatchSellList(deps.db, sellerAccountId),
+    acceptBuyerOfferMatchSellList: async (params, context) => {
+      const items = await listBuyerOfferMatchSellList(deps.db, params.sellerAccountId);
       const acceptedOfferIds: OfferId[] = [];
       const skipped: Array<{ offerId: string; reason: string }> = [];
 
@@ -242,19 +242,19 @@ export function createMarketplaceOfferRuntime(
         }
       }
 
-      await removeSellerOfferCartItems(deps.db, {
+      await removeBuyerOfferMatchSellListItems(deps.db, {
         sellerAccountId: params.sellerAccountId,
         offerIds: acceptedOfferIds,
       });
 
       return { acceptedOfferIds, skipped };
     },
-    listBuyerOffers: (params) => listBuyerOffers(deps.db, params),
-    getBuyerOffer: (offerId, buyerAccountId) =>
-      getBuyerOffer(deps.db, offerId, buyerAccountId),
-    listSellerVisibleOffers: (params) => listSellerVisibleOffers(deps.db, params),
-    getSellerVisibleOffer: (offerId, sellerAccountId) =>
-      getSellerVisibleOffer(deps.db, offerId, sellerAccountId),
+    listSubmittedBuyerOffers: (params) => listSubmittedBuyerOffers(deps.db, params),
+    getSubmittedBuyerOffer: (offerId, buyerAccountId) =>
+      getSubmittedBuyerOffer(deps.db, offerId, buyerAccountId),
+    listBuyerOfferMatches: (params) => listBuyerOfferMatches(deps.db, params),
+    getBuyerOfferMatch: (offerId, sellerAccountId) =>
+      getBuyerOfferMatch(deps.db, offerId, sellerAccountId),
     projectors: [
       createProjector({
         projectorName: "marketplace-offer-projection",

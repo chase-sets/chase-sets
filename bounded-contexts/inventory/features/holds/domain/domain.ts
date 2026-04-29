@@ -17,7 +17,7 @@ import {
 export type InventoryHoldState = Readonly<{
   id: InventoryHoldId | null;
   accountId: AccountId | null;
-  recordId: string | null;
+  itemId: string | null;
   quantity: number;
   reason: string;
   notes: string | null;
@@ -28,7 +28,7 @@ export type InventoryHoldState = Readonly<{
 export const initialInventoryHoldState: InventoryHoldState = {
   id: null,
   accountId: null,
-  recordId: null,
+  itemId: null,
   quantity: 0,
   reason: "",
   notes: null,
@@ -40,7 +40,7 @@ export type PlaceInventoryHoldCommand = Readonly<{
   type: "PlaceInventoryHold";
   holdId: InventoryHoldId;
   accountId: AccountId;
-  recordId: string;
+  itemId: string;
   quantity: number;
   reason: string;
   notes?: string | null;
@@ -60,7 +60,7 @@ export type InventoryHeldEvent = DomainEvent<
   Readonly<{
     holdId: InventoryHoldId;
     accountId: AccountId;
-    recordId: string;
+    itemId: string;
     quantity: number;
     reason: string;
     notes: string | null;
@@ -92,7 +92,7 @@ export const decideInventoryHold: AggregateDecider<
           data: {
             holdId: command.holdId,
             accountId: command.accountId,
-            recordId: normalizeLabel(command.recordId),
+            itemId: normalizeLabel(command.itemId),
             quantity: command.quantity,
             reason: normalizeLabel(command.reason),
             notes: normalizeOptionalText(command.notes),
@@ -125,7 +125,7 @@ export const evolveInventoryHold: AggregateEvolver<
       return {
         id: event.data.holdId,
         accountId: event.data.accountId,
-        recordId: event.data.recordId,
+        itemId: event.data.itemId,
         quantity: event.data.quantity,
         reason: event.data.reason,
         notes: event.data.notes,

@@ -17,7 +17,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
 | [Ordering](./ordering/README.md) | Own checkout normalization and commercial commitment. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
-| [Reputation](./reputation/README.md) | Own post-transaction ratings, written feedback, and canonical reputation summaries. |
+| [Reputation](./reputation/README.md) | Own post-transaction ratings, written feedback, and canonical review summaries. |
 | [Payments](./payments/README.md) | Own external money movement and buyer-facing charges or refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
@@ -173,7 +173,7 @@ Shared IDs in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/type
 - `AuthenticationMethodId`
 - `SessionId`
 - `ApiKeyId`
-- `InventoryRecordId`
+- `InventoryItemId`
 - `ListingId`
 - `OfferId`
 - `OrderId`
@@ -229,7 +229,7 @@ These scenarios should map cleanly to one owner per decision:
 3. Marketplace owns listing publication and offer negotiation for products.
 4. Ordering owns cart decomposition and order creation for committed products.
 5. Fulfillment owns shipment state and tracking.
-6. Reputation owns post-transaction ratings, written feedback, and aggregate reputation summaries.
+6. Reputation owns post-transaction ratings, written feedback, and aggregate review summaries.
 7. Payments owns charge and refund execution.
 8. Settlement owns ledger adjustments and payout eligibility.
 9. Pricing owns recommendations but never directly mutates listings or inventory.

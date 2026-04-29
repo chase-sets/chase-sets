@@ -55,14 +55,17 @@ export function createMultiContextTestDatabaseUrls<
   scope: string,
 ): Readonly<Record<TContextName, string>> {
   return Object.fromEntries(
-    contextNames.map((contextName) => [
-      contextName,
-      createOwnedDatabaseUrl(
-        adminDatabaseUrl,
+    contextNames.map((contextName) => {
+      const databaseName = createMultiContextTestDatabaseName(scope, contextName);
+      return [
         contextName,
-        createMultiContextTestDatabaseName(scope, contextName),
-      ),
-    ]),
+        createOwnedDatabaseUrl(
+          adminDatabaseUrl,
+          databaseName,
+          databaseName,
+        ),
+      ];
+    }),
   ) as Readonly<Record<TContextName, string>>;
 }
 
@@ -78,9 +81,12 @@ export async function ensureMultiContextTestDatabases(
     await (adminPool as unknown as { end: () => Promise<void> }).end();
   }
 
-  for (const databaseUrl of Object.values(databaseUrls)) {
+  for (const [contextName, databaseUrl] of Object.entries(databaseUrls)) {
     const spec = parseOwnedDatabaseUrl(databaseUrl);
-    const extensions = testDatabaseExtensions[spec.roleName] ?? [];
+    const extensions =
+      testDatabaseExtensions[contextName] ??
+      testDatabaseExtensions[spec.roleName] ??
+      [];
 
     if (extensions.length === 0) {
       continue;
@@ -229,7 +235,7 @@ export async function seedMountedContextTestRuntimeIfEmpty(
     await syncContextProjectionGroups(runtime, context.contextName, {
       requiredOnly: true,
     });
-    await seedApiModuleIfEmpty(context.module, context.pool);
+    await seedApiModuleIfEmpty(context.module, context.pool, context.services);
     await syncContextProjectionGroups(runtime, context.contextName);
     await drainContextRuntime(runtime);
   }

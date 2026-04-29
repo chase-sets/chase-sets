@@ -1,20 +1,20 @@
 import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
-import type { InventoryCatalogItemSnapshot } from "./features/records/integrations/catalog/queries";
+import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 
-export type { InventoryCatalogItemSnapshot } from "./features/records/integrations/catalog/queries";
+export type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 export type {
-  InventoryRecordDetail,
-  InventoryRecordListItem,
+  InventoryItemDetail,
+  InventoryItemListItem,
   InventoryHold,
-} from "./features/records/api/contracts";
+} from "./features/inventory-items/api/contracts";
 export type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 
 import type {
-  InventoryRecordDetail,
-  InventoryRecordListItem,
-} from "./features/records/api/contracts";
+  InventoryItemDetail,
+  InventoryItemListItem,
+} from "./features/inventory-items/api/contracts";
 import type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 
 type InventoryApiApp = ReturnType<typeof buildInventoryApi>;
@@ -69,17 +69,17 @@ export function createInventoryApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async listRecords(query = ""): Promise<ListResponse<InventoryRecordListItem>> {
+    async listItems(query = ""): Promise<ListResponse<InventoryItemListItem>> {
       return parseJsonResponse(
-        await client.records.$get({
+        await client.items.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
       );
     },
-    async getRecord(id: string): Promise<InventoryRecordDetail> {
+    async getItem(id: string): Promise<InventoryItemDetail> {
       return parseJsonResponse(
-        await client.records[":id"].$get({ param: { id }, header: headers }),
+        await client.items[":id"].$get({ param: { id }, header: headers }),
       );
     },
     async getCatalogItem(id: string): Promise<InventoryCatalogItemSnapshot> {
@@ -90,14 +90,14 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async createRecord(body: Record<string, unknown>) {
+    async createItem(body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.records.$post({ json: body, header: headers }),
+        await client.items.$post({ json: body, header: headers }),
       );
     },
-    async adjustRecord(id: string, body: Record<string, unknown>) {
+    async adjustItem(id: string, body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.records[":id"].adjustments.$post({
+        await client.items[":id"].adjustments.$post({
           param: { id },
           json: body,
           header: headers,
@@ -106,7 +106,7 @@ export function createInventoryApiClient({
     },
     async createHold(id: string, body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.records[":id"].holds.$post({
+        await client.items[":id"].holds.$post({
           param: { id },
           json: body,
           header: headers,

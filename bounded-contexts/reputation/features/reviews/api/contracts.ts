@@ -1,6 +1,6 @@
 export type {
-  ReputationAccountSummary,
-  ReputationReviewOpportunity,
-  ReputationReviewDetail,
-  ReputationReviewListItem,
+  ReviewSummary,
+  ReviewOpportunity,
+  ReviewDetail,
+  ReviewListItem,
 } from "../ui/contracts";

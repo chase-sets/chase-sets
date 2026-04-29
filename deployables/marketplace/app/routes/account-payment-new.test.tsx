@@ -4,7 +4,7 @@ import { ChaseRoot } from "@chase-sets/design-system";
 import type { ComponentProps } from "react";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
-type OrderingOrderDetail = Readonly<{
+type PurchaseDetail = Readonly<{
   order_id: string;
   source_type: string;
   source_reference_id: string | null;
@@ -72,9 +72,9 @@ import MarketplaceAccountPaymentNewRoute, {
   loader,
 } from "@chase-sets/payments/routes/marketplace/account-payment-new";
 
-function buildOrder(orderId: string): OrderingOrderDetail {
+function buildPurchase(purchaseId: string): PurchaseDetail {
   return {
-    order_id: orderId,
+    order_id: purchaseId,
     source_type: "checkout",
     source_reference_id: "chk_1",
     buyer_account_id: "acc_buyer",
@@ -106,7 +106,7 @@ describe("marketplace account payment start route", () => {
     mockUseSubmit.mockReturnValue(vi.fn());
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
-      permissions: ["orders.view", "orders.manage"],
+      permissions: ["purchases.view", "purchases.manage"],
     });
   });
 
@@ -119,7 +119,7 @@ describe("marketplace account payment start route", () => {
     const submit = vi.fn();
     mockUseLoaderData.mockReturnValue({
       orderIds: ["ord_1", "ord_2"],
-      orders: [buildOrder("ord_1"), buildOrder("ord_2")],
+      orders: [buildPurchase("ord_1"), buildPurchase("ord_2")],
       autostart: true,
     });
     mockUseSubmit.mockReturnValue(submit);
@@ -138,18 +138,18 @@ describe("marketplace account payment start route", () => {
     expect(submit.mock.calls[0]?.[0]).toBeInstanceOf(HTMLFormElement);
   });
 
-  it("loads checkout-created orders from the ordering API", async () => {
+  it("loads checkout-created purchases from the ordering API", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
         const url = requestUrl(input);
 
-        if (url.includes("/api/marketplace/buyer/orders/ord_1")) {
-          return Promise.resolve(jsonResponse(buildOrder("ord_1")));
+        if (url.includes("/api/marketplace/buyer/purchases/ord_1")) {
+          return Promise.resolve(jsonResponse(buildPurchase("ord_1")));
         }
 
-        if (url.includes("/api/marketplace/buyer/orders/ord_2")) {
-          return Promise.resolve(jsonResponse(buildOrder("ord_2")));
+        if (url.includes("/api/marketplace/buyer/purchases/ord_2")) {
+          return Promise.resolve(jsonResponse(buildPurchase("ord_2")));
         }
 
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
@@ -166,7 +166,7 @@ describe("marketplace account payment start route", () => {
 
     expect(result.orderIds).toEqual(["ord_1", "ord_2"]);
     expect(result.autostart).toBe(true);
-    expect(result.orders.map((order) => order.order_id)).toEqual([
+    expect(result.orders.map((purchase) => purchase.order_id)).toEqual([
       "ord_1",
       "ord_2",
     ]);

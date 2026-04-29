@@ -1,0 +1,63 @@
+
+> dev:marketplace-full
+> node ./scripts/dev-system.mjs dev marketplace-full
+
+[dev] Starting shared Postgres...
+[docker]  Container chase-sets-postgres-dev Running 
+[dev] Provisioning shared Postgres database 'chase_sets'...
+[bootstrap] Running @chase-sets/app-platform-api bootstrap...
+[app-platform-api] > @chase-sets/app-platform-api@0.1.0 bootstrap
+[app-platform-api] > tsx --env-file=.env.example --env-file-if-exists=.env.local src/bootstrap.ts
+[app-platform-api] identity events already exist. Running seed reconciliation.
+[app-platform-api] Identity already contains data. Skipping seed.
+[app-platform-api] auth events already exist. Running seed reconciliation.
+[app-platform-api] Auth already contains data. Skipping seed.
+[app-platform-api] catalog events already exist. Running seed reconciliation.
+[app-platform-api] Catalog already contains data. Skipping seed.
+[app-platform-api] commercial-terms events already exist. Running seed reconciliation.
+[app-platform-api] Commercial Terms already contains data. Skipping seed.
+[app-platform-api] inventory events already exist. Running seed reconciliation.
+[app-platform-api] Inventory already contains data. Skipping seed.
+[app-platform-api] marketplace events already exist. Running seed reconciliation.
+[app-platform-api] Marketplace already contains data. Skipping seed.
+[app-platform-api] ordering events already exist. Running seed reconciliation.
+[app-platform-api] Ordering already contains seed data. Skipping seed.
+[app-platform-api] payments events already exist. Running seed reconciliation.
+[app-platform-api] Payments already contain data. Skipping seed.
+[app-platform-api] fulfillment events already exist. Running seed reconciliation.
+[app-platform-api] Fulfillment already contains seed data. Skipping seed.
+[app-platform-api] Seeding pricing data...
+[app-platform-api] reputation events already exist. Running seed reconciliation.
+[app-platform-api] Reputation already contains data. Skipping seed.
+[app-platform-api] settlement events already exist. Running seed reconciliation.
+[app-platform-api] Settlement already contains data. Skipping seed.
+[app-platform-api] Platform API bootstrap complete.
+
+Local dev stack: marketplace-full
+  platform-api     http://localhost:6182
+  marketplace      http://localhost:6173
+
+[dev] Stripe keys are incomplete in deployables/platform-api/.env.local, so platform-api will use the fake payment processor.
+[platform-api] > @chase-sets/app-platform-api@0.1.0 dev
+[platform-api] > tsx watch --env-file=.env.example --env-file-if-exists=.env.local src/main.ts
+[marketplace] > @chase-sets/app-marketplace-web@0.1.0 dev
+[marketplace] > react-router dev
+[platform-api] Platform API is using the fake payment processor because Stripe env vars are incomplete. Set STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET to enable Stripe locally.
+[marketplace] [2m11:28:22 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
+[platform-api] Platform API listening on port 6182
+[marketplace]   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m6173[22m/[39m
+[marketplace]   [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.86.40:[1m6173[22m/[39m
+[marketplace]   [32m➜[39m  [1mNetwork[22m: [36mhttp://172.17.144.1:[1m6173[22m/[39m
+[marketplace]   [32m➜[39m  [1mNetwork[22m: [36mhttp://172.23.240.1:[1m6173[22m/[39m
+[marketplace] [2m11:28:30 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [optimizer] bundling dependencies...
+[marketplace] [2m11:28:31 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32m✨ new dependencies optimized: [33m@radix-ui/react-accordion, @radix-ui/react-alert-dialog, @radix-ui/react-aspect-ratio, @radix-ui/react-checkbox, @radix-ui/react-dialog, @radix-ui/react-dropdown-menu, @radix-ui/react-label, @radix-ui/react-popover, @radix-ui/react-radio-group, @radix-ui/react-scroll-area, @radix-ui/react-select, @radix-ui/react-separator, @radix-ui/react-slider, @radix-ui/react-switch, @radix-ui/react-tabs, @radix-ui/react-toast, @radix-ui/react-tooltip, @radix-ui/react-visually-hidden, hono/client, lucide-react, motion/react[32m[39m
+[marketplace] [2m11:28:31 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32m✨ optimized dependencies changed. reloading[39m
+[marketplace] npm error Lifecycle script `dev` failed with error:
+[marketplace] npm error code 4294967295
+[marketplace] npm error path D:\Users\ToddS\Source\Repos\chase-sets\deployables\marketplace
+[marketplace] npm error workspace @chase-sets/app-marketplace-web@0.1.0
+[marketplace] npm error location D:\Users\ToddS\Source\Repos\chase-sets\deployables\marketplace
+[marketplace] npm error command failed
+[marketplace] npm error command C:\WINDOWS\system32\cmd.exe /d /s /c react-router dev
+[marketplace] exited unexpectedly with code 4294967295.
+[dev] Stopping child processes after marketplace...

@@ -4,14 +4,14 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
-  type OrderingOrderListItem,
+  type SaleListItem,
 } from "../support/request-support/api-client";
 import { createOrderingRequestApiClient } from "../support/request-support/api-client";
 import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
 
 const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Review seller-side sales orders created by checkout and accepted offers.";
+  "Review sales created by checkout and accepted buyer offers.";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -25,7 +25,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createOrderingRequestApiClient(request);
 
   return {
-    orders: await api.listSellerOrders(DEFAULT_ORDER_QUERY),
+    sales: await api.listSales(DEFAULT_ORDER_QUERY),
   };
 }
 
@@ -43,9 +43,9 @@ export default function OrderingAccountSalesRoute() {
       title="Sales"
       eyebrow="Seller"
       emptyTitle="No sales yet"
-      emptyDescription="Accepted offers and buyer checkout create seller-side sales orders."
+      emptyDescription="Accepted buyer offers and buyer checkout create sales."
       orderDetailBasePath="/account/sales"
-      orders={(data.orders as ListResponse<OrderingOrderListItem>).items}
+      orders={(data.sales as ListResponse<SaleListItem>).items}
     />
   );
 }

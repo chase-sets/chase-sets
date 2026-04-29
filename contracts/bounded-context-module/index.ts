@@ -109,5 +109,5 @@ export interface BcApiModule<
   projectors(services: TServices): readonly TProjector[];
   buildSubscriptions?(services: TServices): readonly BcEventSubscription[];
   buildProjectionGroups?(services: TServices): readonly BcProjectionGroup[];
-  seed?(pool: TPool): Promise<void>;
+  seed?(pool: TPool, services?: TServices): Promise<void>;
 }

@@ -2,7 +2,7 @@ export const inventoryHoldSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_holds (
   hold_id text PRIMARY KEY,
   account_id text NOT NULL,
-  record_id text NOT NULL REFERENCES inventory_records(record_id),
+  item_id text NOT NULL REFERENCES inventory_items(item_id),
   quantity integer NOT NULL CHECK (quantity > 0),
   reason text NOT NULL,
   notes text NULL,
@@ -16,6 +16,6 @@ CREATE TABLE IF NOT EXISTS inventory_holds (
 CREATE INDEX IF NOT EXISTS inventory_holds_account_idx
   ON inventory_holds (account_id, status, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS inventory_holds_record_idx
-  ON inventory_holds (record_id, status);
+CREATE INDEX IF NOT EXISTS inventory_holds_item_idx
+  ON inventory_holds (item_id, status);
 `;

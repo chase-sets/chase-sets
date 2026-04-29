@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { InventoryCatalogItemServices } from "../../features/records/integrations/catalog/runtime";
+import type { InventoryCatalogItemServices } from "../../features/inventory-items/integrations/catalog/runtime";
 
 export function inventoryCatalogItemRoutes(services: InventoryCatalogItemServices) {
   const app = new Hono();

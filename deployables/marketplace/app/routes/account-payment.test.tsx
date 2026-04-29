@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 
-type OrderingOrderDetail = Readonly<{
+type PurchaseDetail = Readonly<{
   order_id: string;
   source_type: string;
   source_reference_id: string | null;
@@ -71,7 +71,7 @@ vi.mock("react-router", async () => {
 
 import MarketplaceAccountPaymentRoute from "@chase-sets/payments/routes/marketplace/account-payment";
 
-function buildOrder(overrides: Partial<OrderingOrderDetail> = {}): OrderingOrderDetail {
+function buildPurchase(overrides: Partial<PurchaseDetail> = {}): PurchaseDetail {
   return {
     order_id: "ord_1",
     source_type: "checkout",
@@ -136,7 +136,7 @@ describe("marketplace account payment route", () => {
     document.head.innerHTML = "";
   });
 
-  it.skip("renders the captured payment summary and linked orders", () => {
+  it.skip("renders the captured payment summary and linked purchases", () => {
     mockUseLoaderData.mockReturnValue({
       payment: buildPayment({
         status: "captured",
@@ -144,7 +144,7 @@ describe("marketplace account payment route", () => {
         captured_at: "2026-04-01T00:05:00.000Z",
       }),
       orders: [
-        buildOrder({
+        buildPurchase({
           status: "ready-for-fulfillment",
           ready_for_fulfillment_at: "2026-04-01T00:05:00.000Z",
         }),
@@ -173,7 +173,7 @@ describe("marketplace account payment route", () => {
         failed_at: "2026-04-01T00:04:00.000Z",
         order_ids: ["ord_1", "ord_2"],
       }),
-      orders: [buildOrder(), buildOrder({ order_id: "ord_2" })],
+      orders: [buildPurchase(), buildPurchase({ order_id: "ord_2" })],
     });
 
     render(
@@ -203,7 +203,7 @@ describe("marketplace account payment route", () => {
         processor_client_secret: "pi_secret_123",
         processor_publishable_key: "pk_test_123",
       }),
-      orders: [buildOrder()],
+      orders: [buildPurchase()],
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({

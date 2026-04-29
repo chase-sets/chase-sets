@@ -80,11 +80,11 @@ describe("marketplace listing runtime", () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async (sql: string) => {
-        if (sql.includes("FROM marketplace_supply_records AS record")) {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
           return {
             rows: [
               {
-                record_id: "inv_1",
+                item_id: "inv_1",
                 account_id: "acc_seller",
                 catalog_catalog_item_id: "cat_1",
                 product_id: "cat_1::",
@@ -132,7 +132,7 @@ describe("marketplace listing runtime", () => {
     await services.createListing(
       {
         accountId: "acc_seller" as never,
-        inventoryRecordId: "inv_1",
+        inventoryItemId: "inv_1",
         priceAmount: "20.00",
         quantityCap: 1,
         listingIdOverride: "lst_seed_1" as never,

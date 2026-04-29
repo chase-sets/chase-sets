@@ -10,7 +10,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { MarketplaceSellerOfferListItem } from "./contracts";
+import type { BuyerOfferMatchListItem } from "./contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -40,21 +40,21 @@ function formatTimestamp(value: string) {
   }).format(date);
 }
 
-export function MarketplaceSellerOfferListPage({
+export function MarketplaceBuyerOfferMatchListPage({
   data,
   cartData,
   errorMessage,
 }: {
-  data: { items: readonly MarketplaceSellerOfferListItem[] };
-  cartData?: { items: readonly MarketplaceSellerOfferListItem[] };
+  data: { items: readonly BuyerOfferMatchListItem[] };
+  cartData?: { items: readonly BuyerOfferMatchListItem[] };
   errorMessage?: string | null;
 }) {
   return (
     <Page>
       <PageHeader
         eyebrow="Seller"
-        title="Market Offers"
-        description="Review marketplace-wide demand that currently matches your active listings."
+        title="Buyer Offer Matches"
+        description="Review buyer offer matches that currently match your active listings."
         actions={
           <LinkButton href="/account/listings" tone="secondary">
             View listings
@@ -73,7 +73,7 @@ export function MarketplaceSellerOfferListPage({
           <Stack gap={3}>
             <Text tone="secondary" size="sm">
               {cartData?.items.length ?? 0} offer
-              {(cartData?.items.length ?? 0) === 1 ? "" : "s"} queued for seller review.
+              {(cartData?.items.length ?? 0) === 1 ? "" : "s"} queued in your sell list.
             </Text>
             <form method="post">
               <Button
@@ -89,7 +89,7 @@ export function MarketplaceSellerOfferListPage({
         </Card>
       </PageSection>
 
-      <PageSection title="Matching Demand">
+      <PageSection title="Buyer Offer Matches">
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.offer_id}
@@ -120,7 +120,7 @@ export function MarketplaceSellerOfferListPage({
             },
             {
               key: "price",
-              header: "Offer Price",
+              header: "Buyer Offer Price",
               cell: (row) => formatMoney(row.price_amount),
             },
             {
@@ -158,14 +158,14 @@ export function MarketplaceSellerOfferListPage({
               key: "actions",
               header: "Actions",
               cell: (row) => (
-                <LinkButton href={`/account/market-offers/${row.offer_id}`} tone="secondary" size="sm">
+                <LinkButton href={`/account/buyer-offer-matches/${row.offer_id}`} tone="secondary" size="sm">
                   Open
                 </LinkButton>
               ),
             },
           ]}
-          emptyTitle="No matching offers"
-          emptyDescription="Marketplace-wide demand appears here when buyers submit offers for Products you actively list."
+          emptyTitle="No buyer offer matches"
+          emptyDescription="Buyer offer matches appear here when buyers submit offers for products you actively list."
         />
       </PageSection>
     </Page>

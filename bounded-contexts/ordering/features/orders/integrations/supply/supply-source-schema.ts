@@ -2,7 +2,7 @@ export const orderingSupplySourceSchemaSql = `
 CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   listing_id text PRIMARY KEY,
   seller_account_id text NOT NULL,
-  inventory_record_id text NOT NULL,
+  inventory_item_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   item_title text NULL,
@@ -20,11 +20,11 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
 CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_lookup_idx
   ON ordering_market_listing_inputs (product_id, status, price_amount, updated_at);
 
-CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_record_idx
-  ON ordering_market_listing_inputs (inventory_record_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_item_idx
+  ON ordering_market_listing_inputs (inventory_item_id, status, updated_at);
 
-CREATE TABLE IF NOT EXISTS ordering_inventory_record_inputs (
-  record_id text PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS ordering_inventory_item_inputs (
+  item_id text PRIMARY KEY,
   seller_account_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
@@ -33,12 +33,12 @@ CREATE TABLE IF NOT EXISTS ordering_inventory_record_inputs (
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
 );
 
-CREATE INDEX IF NOT EXISTS ordering_inventory_record_inputs_lookup_idx
-  ON ordering_inventory_record_inputs (seller_account_id, catalog_catalog_item_id, product_id);
+CREATE INDEX IF NOT EXISTS ordering_inventory_item_inputs_lookup_idx
+  ON ordering_inventory_item_inputs (seller_account_id, catalog_catalog_item_id, product_id);
 
 CREATE TABLE IF NOT EXISTS ordering_inventory_hold_inputs (
   hold_id text PRIMARY KEY,
-  record_id text NOT NULL,
+  item_id text NOT NULL,
   seller_account_id text NOT NULL,
   quantity integer NOT NULL CHECK (quantity >= 0),
   status text NOT NULL,
@@ -47,8 +47,8 @@ CREATE TABLE IF NOT EXISTS ordering_inventory_hold_inputs (
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
 );
 
-CREATE INDEX IF NOT EXISTS ordering_inventory_hold_inputs_record_idx
-  ON ordering_inventory_hold_inputs (record_id, status);
+CREATE INDEX IF NOT EXISTS ordering_inventory_hold_inputs_item_idx
+  ON ordering_inventory_hold_inputs (item_id, status);
 
 CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   offer_id text PRIMARY KEY,

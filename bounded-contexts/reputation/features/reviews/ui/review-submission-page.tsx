@@ -11,13 +11,13 @@ import {
   Text,
   Textarea,
 } from "@chase-sets/design-system";
-import type { ReputationReviewOpportunity } from "./contracts";
+import type { ReviewOpportunity } from "./contracts";
 
 function getSubjectRole(authorRole: string) {
   return authorRole === "buyer" ? "seller" : "buyer";
 }
 
-export function ReputationReviewSubmissionPage({
+export function ReviewSubmissionPage({
   backHref,
   opportunity,
   errorMessage,
@@ -26,7 +26,7 @@ export function ReputationReviewSubmissionPage({
   defaultFeedback = "",
 }: {
   backHref: string;
-  opportunity: ReputationReviewOpportunity;
+  opportunity: ReviewOpportunity;
   errorMessage?: string | null;
   isSubmitting?: boolean;
   defaultRating?: number;
@@ -40,7 +40,7 @@ export function ReputationReviewSubmissionPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Reputation"
+        eyebrow="Reviews"
         title={`Review ${subjectLabel}`}
         description={`Leave ${subjectRole} feedback for order ${opportunity.order_id}.`}
         actions={

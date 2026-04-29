@@ -3,7 +3,7 @@ import type { AccountId, OrderId, ReviewId } from "@chase-sets/primitives/typed-
 export type ReviewStatus = "active" | "withdrawn";
 export type ReviewRole = "buyer" | "seller";
 
-export type ReputationSummary = Readonly<{
+export type ReviewSummary = Readonly<{
   accountId: AccountId;
   averageRating: string | null;
   reviewCount: number;

@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export type ReputationReviewListRow = Readonly<{
+export type ReviewListRow = Readonly<{
   review_id: string;
   order_id: string;
   author_account_id: string;
@@ -16,9 +16,9 @@ export type ReputationReviewListRow = Readonly<{
   withdrawn_at: string | null;
 }>;
 
-export type ReputationReviewDetailRow = ReputationReviewListRow;
+export type ReviewDetailRow = ReviewListRow;
 
-export type ReputationSummaryRow = Readonly<{
+export type ReviewSummaryRow = Readonly<{
   account_id: string;
   account_display_name: string | null;
   average_rating: string | null;
@@ -80,7 +80,7 @@ function normalizePageParams(params: Readonly<{ limit?: number; offset?: number 
 export async function listPublicAccountReviews(
   db: PgQueryable,
   params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: ReputationReviewListRow[]; total: number }> {
+): Promise<{ items: ReviewListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
 
   const [countResult, itemsResult] = await Promise.all([
@@ -91,7 +91,7 @@ export async function listPublicAccountReviews(
          AND status = 'active'`,
       [params.accountId],
     ),
-    db.query<ReputationReviewListRow>(
+    db.query<ReviewListRow>(
       `${baseReviewSelect}
        WHERE page.subject_account_id = $1
          AND page.status = 'active'
@@ -110,7 +110,7 @@ export async function listPublicAccountReviews(
 export async function listWrittenReviews(
   db: PgQueryable,
   params: Readonly<{ authorAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: ReputationReviewListRow[]; total: number }> {
+): Promise<{ items: ReviewListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
 
   const [countResult, itemsResult] = await Promise.all([
@@ -120,7 +120,7 @@ export async function listWrittenReviews(
        WHERE author_account_id = $1`,
       [params.authorAccountId],
     ),
-    db.query<ReputationReviewListRow>(
+    db.query<ReviewListRow>(
       `${baseReviewSelect}
        WHERE page.author_account_id = $1
        ORDER BY page.updated_at DESC, page.review_id DESC
@@ -138,7 +138,7 @@ export async function listWrittenReviews(
 export async function listReceivedReviews(
   db: PgQueryable,
   params: Readonly<{ subjectAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: ReputationReviewListRow[]; total: number }> {
+): Promise<{ items: ReviewListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
 
   const [countResult, itemsResult] = await Promise.all([
@@ -148,7 +148,7 @@ export async function listReceivedReviews(
        WHERE subject_account_id = $1`,
       [params.subjectAccountId],
     ),
-    db.query<ReputationReviewListRow>(
+    db.query<ReviewListRow>(
       `${baseReviewSelect}
        WHERE page.subject_account_id = $1
        ORDER BY page.updated_at DESC, page.review_id DESC
@@ -167,8 +167,8 @@ export async function getAccountReview(
   db: PgQueryable,
   reviewId: string,
   accountId: string,
-): Promise<ReputationReviewDetailRow | null> {
-  const result = await db.query<ReputationReviewDetailRow>(
+): Promise<ReviewDetailRow | null> {
+  const result = await db.query<ReviewDetailRow>(
     `${baseReviewSelect}
      WHERE page.review_id = $1
        AND (page.author_account_id = $2 OR page.subject_account_id = $2)`,
@@ -181,8 +181,8 @@ export async function getAccountReview(
 export async function getPublicAccountSummary(
   db: PgQueryable,
   accountId: string,
-): Promise<ReputationSummaryRow> {
-  const result = await db.query<ReputationSummaryRow>(
+): Promise<ReviewSummaryRow> {
+  const result = await db.query<ReviewSummaryRow>(
     `SELECT
        summary.account_id,
        account.display_name AS account_display_name,
@@ -194,7 +194,7 @@ export async function getPublicAccountSummary(
        summary.rating_4_count,
      summary.rating_5_count,
      summary.updated_at::text AS updated_at
-     FROM reputation_summary_pages AS summary
+     FROM review_summary_pages AS summary
      LEFT JOIN reputation_account_pages AS account
        ON account.account_id = summary.account_id
      WHERE summary.account_id = $1`,
@@ -294,7 +294,7 @@ export async function findActiveReviewForDirection(
     authorAccountId: string;
     subjectAccountId: string;
   }>,
-): Promise<Pick<ReputationReviewListRow, "review_id"> | null> {
+): Promise<Pick<ReviewListRow, "review_id"> | null> {
   const result = await db.query<{ review_id: string }>(
     `SELECT review_id
      FROM reputation_review_pages

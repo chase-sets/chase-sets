@@ -20,7 +20,7 @@ import {
   type ReviewStatus,
 } from "./common";
 
-export type ReputationReviewState = Readonly<{
+export type ReviewState = Readonly<{
   reviewId: ReviewId | null;
   orderId: OrderId | null;
   authorAccountId: AccountId | null;
@@ -34,7 +34,7 @@ export type ReputationReviewState = Readonly<{
   withdrawnAt: string | null;
 }>;
 
-export const initialReputationReviewState: ReputationReviewState = {
+export const initialReviewState: ReviewState = {
   reviewId: null,
   orderId: null,
   authorAccountId: null,
@@ -72,7 +72,7 @@ export type WithdrawReviewCommand = Readonly<{
   withdrawnAt: string;
 }>;
 
-export type ReputationReviewCommand =
+export type ReviewCommand =
   | SubmitReviewCommand
   | UpdateReviewCommand
   | WithdrawReviewCommand;
@@ -109,15 +109,15 @@ export type ReviewWithdrawnEvent = DomainEvent<
   }>
 >;
 
-export type ReputationReviewEvent =
+export type ReviewEvent =
   | ReviewSubmittedEvent
   | ReviewUpdatedEvent
   | ReviewWithdrawnEvent;
 
-export const decideReputationReview: AggregateDecider<
-  ReputationReviewState,
-  ReputationReviewCommand,
-  ReputationReviewEvent
+export const decideReview: AggregateDecider<
+  ReviewState,
+  ReviewCommand,
+  ReviewEvent
 > = (state, command) => {
   switch (command.type) {
     case "SubmitReview":
@@ -186,9 +186,9 @@ export const decideReputationReview: AggregateDecider<
   }
 };
 
-export const evolveReputationReview: AggregateEvolver<
-  ReputationReviewState,
-  ReputationReviewEvent
+export const evolveReview: AggregateEvolver<
+  ReviewState,
+  ReviewEvent
 > = (state, event) => {
   switch (event.type) {
     case "reputation.review.submitted":

@@ -91,9 +91,9 @@ export function buildPricingInventoryInputProjectionHandlers(
   db: PgQueryable,
 ): ProjectorHandlerMap {
   return {
-    "inventory.record.created": async (event) => {
+    "inventory.item.created": async (event) => {
       const data = event.data as {
-        recordId: string;
+        itemId: string;
         accountId: string;
         catalogItemId: string;
         productId: string;
@@ -101,8 +101,8 @@ export function buildPricingInventoryInputProjectionHandlers(
       };
 
       await db.query(
-        `INSERT INTO pricing_inventory_record_inputs (
-           record_id,
+        `INSERT INTO pricing_inventory_item_inputs (
+           item_id,
            seller_account_id,
            catalog_catalog_item_id,
            product_id,
@@ -110,16 +110,16 @@ export function buildPricingInventoryInputProjectionHandlers(
            updated_at,
            last_stream_version
          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (record_id) DO UPDATE
+         ON CONFLICT (item_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              total_quantity = EXCLUDED.total_quantity,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
-         WHERE pricing_inventory_record_inputs.last_stream_version < EXCLUDED.last_stream_version`,
+         WHERE pricing_inventory_item_inputs.last_stream_version < EXCLUDED.last_stream_version`,
         [
-          data.recordId,
+          data.itemId,
           data.accountId,
           data.catalogItemId,
           data.productId,
@@ -129,34 +129,34 @@ export function buildPricingInventoryInputProjectionHandlers(
         ],
       );
     },
-    "inventory.record.adjusted": async (event) => {
+    "inventory.item.adjusted": async (event) => {
       const data = event.data as {
-        recordId: string;
+        itemId: string;
         quantityDelta: number;
       };
 
       await db.query(
-        `UPDATE pricing_inventory_record_inputs
+        `UPDATE pricing_inventory_item_inputs
          SET total_quantity = GREATEST(total_quantity + $2, 0),
              updated_at = $3,
              last_stream_version = $4
-         WHERE record_id = $1
+         WHERE item_id = $1
            AND last_stream_version < $4`,
-        [data.recordId, data.quantityDelta, event.timing.recordedAt, event.streamVersion],
+        [data.itemId, data.quantityDelta, event.timing.recordedAt, event.streamVersion],
       );
     },
     "inventory.hold.placed": async (event) => {
       const data = event.data as {
         holdId: string;
         accountId: string;
-        recordId: string;
+        itemId: string;
         quantity: number;
       };
 
       await db.query(
         `INSERT INTO pricing_inventory_hold_inputs (
            hold_id,
-           record_id,
+           item_id,
            seller_account_id,
            quantity,
            status,
@@ -165,7 +165,7 @@ export function buildPricingInventoryInputProjectionHandlers(
            last_stream_version
          ) VALUES ($1, $2, $3, $4, 'active', NULL, $5, $6)
          ON CONFLICT (hold_id) DO UPDATE
-         SET record_id = EXCLUDED.record_id,
+         SET item_id = EXCLUDED.item_id,
              seller_account_id = EXCLUDED.seller_account_id,
              quantity = EXCLUDED.quantity,
              status = EXCLUDED.status,
@@ -175,7 +175,7 @@ export function buildPricingInventoryInputProjectionHandlers(
          WHERE pricing_inventory_hold_inputs.last_stream_version < EXCLUDED.last_stream_version`,
         [
           data.holdId,
-          data.recordId,
+          data.itemId,
           data.accountId,
           data.quantity,
           event.timing.recordedAt,
@@ -323,7 +323,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
       };
 
       await db.query(
-        `INSERT INTO pricing_market_offer_inputs (
+        `INSERT INTO pricing_buyer_offer_inputs (
            offer_id,
            buyer_account_id,
            seller_account_id,
@@ -368,7 +368,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
       };
 
       await db.query(
-        `INSERT INTO pricing_market_offer_inputs (
+        `INSERT INTO pricing_buyer_offer_inputs (
            offer_id,
            buyer_account_id,
            seller_account_id,

@@ -9,7 +9,7 @@ function extractIdFromStreamId(streamId: string, prefix: string): string {
   return streamId.slice(prefix.length);
 }
 
-export function buildReputationAccountProjectionHandlers(
+export function buildReviewAccountProjectionHandlers(
   db: PgQueryable,
 ): ProjectorHandlerMap {
   return {

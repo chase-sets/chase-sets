@@ -5,7 +5,10 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import { createOrderingCommercialTermsResolver } from "../../api";
+import {
+  createOrderingCommercialTermsResolver,
+  type CommercialTermsResolver,
+} from "../../api";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingCartRuntime } from "../../features/cart/api/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
@@ -15,6 +18,7 @@ import {
 } from "../../features/orders/domain/policies";
 
 export type OrderingServiceOptions = Readonly<{
+  commercialTermsResolver?: CommercialTermsResolver;
   shippingQuotePolicy?: ShippingQuotePolicy;
 }>;
 
@@ -40,7 +44,8 @@ export function createOrderingServices(
     checkpointStore,
     db,
     carts: cart,
-    commercialTermsResolver: createOrderingCommercialTermsResolver(db),
+    commercialTermsResolver:
+      options.commercialTermsResolver ?? createOrderingCommercialTermsResolver(db),
     shippingQuotePolicy:
       options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
   });

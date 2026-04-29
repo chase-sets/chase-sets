@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  decideReputationReview,
-  evolveReputationReview,
-  initialReputationReviewState,
+  decideReview,
+  evolveReview,
+  initialReviewState,
 } from "./domain";
 
 describe("reputation review domain", () => {
   it("submits, updates, and withdraws a review", async () => {
-    const submittedEvents = await decideReputationReview(initialReputationReviewState, {
+    const submittedEvents = await decideReview(initialReviewState, {
       type: "SubmitReview",
       reviewId: "rev_1" as never,
       orderId: "ord_1" as never,
@@ -19,24 +19,24 @@ describe("reputation review domain", () => {
       submittedAt: "2026-04-02T00:00:00.000Z",
     });
     const submittedState = submittedEvents.reduce(
-      evolveReputationReview,
-      initialReputationReviewState,
+      evolveReview,
+      initialReviewState,
     );
 
-    const updatedEvents = await decideReputationReview(submittedState, {
+    const updatedEvents = await decideReview(submittedState, {
       type: "UpdateReview",
       rating: 4,
       feedback: "Strong transaction overall.",
       updatedAt: "2026-04-02T01:00:00.000Z",
     });
-    const updatedState = updatedEvents.reduce(evolveReputationReview, submittedState);
+    const updatedState = updatedEvents.reduce(evolveReview, submittedState);
 
-    const withdrawnEvents = await decideReputationReview(updatedState, {
+    const withdrawnEvents = await decideReview(updatedState, {
       type: "WithdrawReview",
       withdrawnAt: "2026-04-03T00:00:00.000Z",
     });
     const withdrawnState = withdrawnEvents.reduce(
-      evolveReputationReview,
+      evolveReview,
       updatedState,
     );
 
@@ -49,7 +49,7 @@ describe("reputation review domain", () => {
   it("rejects self-review submission", async () => {
     await expect(
       Promise.resolve().then(() =>
-        decideReputationReview(initialReputationReviewState, {
+        decideReview(initialReviewState, {
           type: "SubmitReview",
           reviewId: "rev_1" as never,
           orderId: "ord_1" as never,

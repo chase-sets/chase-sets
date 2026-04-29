@@ -297,8 +297,8 @@ describe("bounded context projection replay", () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
     sourceEventsByPool.set(sourcePool, [
-      createStoredEvent("1", "inventory.record.created", { recordId: "rec_1" }),
-      createStoredEvent("2", "inventory.record.created", { recordId: "rec_2" }),
+      createStoredEvent("1", "inventory.item.created", { itemId: "rec_1" }),
+      createStoredEvent("2", "inventory.item.created", { itemId: "rec_2" }),
     ]);
 
     const failingRunner = createSubscriptionRunner(
@@ -311,13 +311,13 @@ describe("bounded context projection replay", () => {
         projectionName: "marketplace-inventory-supply-projection",
         subscriptionVersion: 1,
         handlers: {
-          "inventory.record.created": async (event) => {
+          "inventory.item.created": async (event) => {
             if (event.globalPosition === "2") {
               throw new Error("transient failure");
             }
           },
         },
-        eventTypes: ["inventory.record.created"],
+        eventTypes: ["inventory.item.created"],
         order: 10,
       },
     );
@@ -340,11 +340,11 @@ describe("bounded context projection replay", () => {
         projectionName: "marketplace-inventory-supply-projection",
         subscriptionVersion: 1,
         handlers: {
-          "inventory.record.created": async (event) => {
+          "inventory.item.created": async (event) => {
             resumedPositions.push(event.globalPosition);
           },
         },
-        eventTypes: ["inventory.record.created"],
+        eventTypes: ["inventory.item.created"],
         order: 10,
       },
     );

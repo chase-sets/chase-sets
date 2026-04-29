@@ -1,4 +1,4 @@
-export interface OrderingOrderListItem {
+export interface OrderingOrderProjection {
   order_id: string;
   source_type: string;
   source_reference_id: string | null;
@@ -28,10 +28,10 @@ export interface OrderingOrderListItem {
   total_quantity: number;
 }
 
-export interface OrderingOrderLine {
+export interface OrderingOrderProjectionLine {
   line_id: string;
   listing_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string;
@@ -43,9 +43,9 @@ export interface OrderingOrderLine {
   line_total_amount: string;
 }
 
-export interface OrderingOrderHold {
+export interface OrderingOrderProjectionHold {
   hold_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   seller_account_id: string;
   quantity: number;
   status: string;
@@ -53,7 +53,12 @@ export interface OrderingOrderHold {
   released_at: string | null;
 }
 
-export interface OrderingOrderDetail extends OrderingOrderListItem {
-  lines: readonly OrderingOrderLine[];
-  inventory_holds: readonly OrderingOrderHold[];
+export interface OrderingOrderProjectionDetail extends OrderingOrderProjection {
+  lines: readonly OrderingOrderProjectionLine[];
+  inventory_holds: readonly OrderingOrderProjectionHold[];
 }
+
+export interface PurchaseListItem extends OrderingOrderProjection {}
+export interface PurchaseDetail extends OrderingOrderProjectionDetail {}
+export interface SaleListItem extends OrderingOrderProjection {}
+export interface SaleDetail extends OrderingOrderProjectionDetail {}

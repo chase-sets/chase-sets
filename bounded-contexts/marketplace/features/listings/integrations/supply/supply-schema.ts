@@ -48,8 +48,8 @@ CREATE TABLE IF NOT EXISTS marketplace_supply_locations (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS marketplace_supply_records (
-  record_id text PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS marketplace_supply_items (
+  item_id text PRIMARY KEY,
   account_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS marketplace_supply_records (
 CREATE TABLE IF NOT EXISTS marketplace_supply_holds (
   hold_id text PRIMARY KEY,
   account_id text NOT NULL,
-  record_id text NOT NULL,
+  item_id text NOT NULL,
   quantity integer NOT NULL,
   status text NOT NULL,
   released_at timestamptz NULL,
@@ -87,15 +87,15 @@ CREATE INDEX IF NOT EXISTS marketplace_catalog_dimension_options_dimension_idx
 CREATE INDEX IF NOT EXISTS marketplace_supply_locations_account_idx
   ON marketplace_supply_locations (account_id, is_archived, name);
 
-CREATE INDEX IF NOT EXISTS marketplace_supply_records_account_idx
-  ON marketplace_supply_records (account_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS marketplace_supply_items_account_idx
+  ON marketplace_supply_items (account_id, updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS marketplace_supply_records_storage_location_idx
-  ON marketplace_supply_records (storage_location_id);
+CREATE INDEX IF NOT EXISTS marketplace_supply_items_storage_location_idx
+  ON marketplace_supply_items (storage_location_id);
 
-CREATE INDEX IF NOT EXISTS marketplace_supply_records_catalog_version_idx
-  ON marketplace_supply_records (product_id);
+CREATE INDEX IF NOT EXISTS marketplace_supply_items_catalog_version_idx
+  ON marketplace_supply_items (product_id);
 
-CREATE INDEX IF NOT EXISTS marketplace_supply_holds_record_idx
-  ON marketplace_supply_holds (record_id, status);
+CREATE INDEX IF NOT EXISTS marketplace_supply_holds_item_idx
+  ON marketplace_supply_holds (item_id, status);
 `;

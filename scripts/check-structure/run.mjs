@@ -153,7 +153,7 @@ const supportFileConsumers = new Map();
 const crossContextSqlReadGuards = [
   { tableName: "identity_accounts", ownerContextName: "identity" },
   { tableName: "inventory_catalog_items", ownerContextName: "inventory" },
-  { tableName: "inventory_records", ownerContextName: "inventory" },
+  { tableName: "inventory_items", ownerContextName: "inventory" },
   { tableName: "inventory_holds", ownerContextName: "inventory" },
   { tableName: "inventory_storage_locations", ownerContextName: "inventory" },
   { tableName: "ordering_order_pages", ownerContextName: "ordering" },
@@ -1290,10 +1290,20 @@ async function validateContextManifest(context) {
     );
   }
 
-  if (manifest.contextName !== "payments" && (manifest.hostPorts?.length ?? 0) > 0) {
+  const allowedHostPortsByContext = new Map([
+    ["marketplace", new Set(["commercialTermsResolver"])],
+    ["ordering", new Set(["commercialTermsResolver"])],
+    ["payments", new Set(["processorGateway"])],
+  ]);
+  const allowedHostPorts = allowedHostPortsByContext.get(manifest.contextName) ?? new Set();
+  const unexpectedHostPorts = (manifest.hostPorts ?? []).filter(
+    (hostPort) => !allowedHostPorts.has(hostPort?.portName),
+  );
+
+  if (unexpectedHostPorts.length > 0) {
     addPathViolation(
       `${root}/context.json`,
-      "payments.processorGateway is the only remaining host-port seam in implemented bounded contexts",
+      `hostPorts may only declare approved composition seams for this context (${formatSetValues(allowedHostPorts) || "none"})`,
     );
   }
 

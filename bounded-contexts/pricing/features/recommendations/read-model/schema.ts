@@ -44,9 +44,9 @@ LEFT JOIN pricing_catalog_item_inputs AS catalog_input
   ON catalog_input.catalog_item_id = recommendation.catalog_catalog_item_id
 LEFT JOIN (
   SELECT
-    record_input.seller_account_id,
-    record_input.catalog_catalog_item_id,
-    SUM(record_input.total_quantity)::integer AS stock_on_hand_quantity,
+    item_input.seller_account_id,
+    item_input.catalog_catalog_item_id,
+    SUM(item_input.total_quantity)::integer AS stock_on_hand_quantity,
     COALESCE(
       SUM(
         CASE
@@ -56,10 +56,10 @@ LEFT JOIN (
       ),
       0
     )::integer AS stock_reserved_quantity
-  FROM pricing_inventory_record_inputs AS record_input
+  FROM pricing_inventory_item_inputs AS item_input
   LEFT JOIN pricing_inventory_hold_inputs AS hold_input
-    ON hold_input.record_id = record_input.record_id
-  GROUP BY record_input.seller_account_id, record_input.catalog_catalog_item_id
+    ON hold_input.item_id = item_input.item_id
+  GROUP BY item_input.seller_account_id, item_input.catalog_catalog_item_id
 ) AS stock_signal
   ON stock_signal.seller_account_id = recommendation.seller_account_id
  AND stock_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
@@ -81,7 +81,7 @@ LEFT JOIN (
       catalog_catalog_item_id,
       price_amount,
       status
-    FROM pricing_market_offer_inputs
+    FROM pricing_buyer_offer_inputs
   ) AS market_inputs
   GROUP BY catalog_catalog_item_id
 ) AS market_signal

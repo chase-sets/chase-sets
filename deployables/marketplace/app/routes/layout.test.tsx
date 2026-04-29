@@ -28,28 +28,33 @@ describe("marketplace route layout", () => {
     });
   });
 
-  it("shows inventory access in the shell for signed-in actors", () => {
+  it("presents a simplified trader navigation tree for signed-in actors", () => {
     mockUseLocation.mockReturnValue({
       pathname: "/account/listings",
       search: "",
     });
+    const actor = {
+      permissions: [
+        "accounts.view",
+        "fulfillment.view",
+        "fulfillment.manage",
+        "inventory.view",
+        "listings.view",
+        "offers.view",
+        "payouts.view",
+        "reputation.view",
+        "orders.view",
+        "orders.manage",
+      ],
+    };
     mockUseRouteLoaderData.mockReturnValue({
-      actor: {
-        permissions: [
-          "accounts.view",
-          "fulfillment.view",
-          "fulfillment.manage",
-          "inventory.view",
-          "listings.view",
-          "offers.view",
-          "reputation.view",
-          "orders.view",
-          "orders.manage",
-        ],
-      },
+      actor,
     });
 
     const html = renderToString(<MarketplaceLayoutRoute />);
+    const topNav = resolveMarketplaceNavItems("top-nav", actor);
+    const sellNav = topNav.find((item) => item.key === "seller-workspace");
+    const accountNav = topNav.find((item) => item.key === "account");
 
     expect(
       resolveMarketplaceNavItems("top-nav", null).map((item) => item.href),
@@ -58,20 +63,80 @@ describe("marketplace route layout", () => {
       "/sign-in",
       "/register",
     ]);
+    expect(topNav.map((item) => item.label)).toEqual([
+      "Browse",
+      "Cart",
+      "Purchases",
+      "Sell",
+      "Account",
+    ]);
+    expect(sellNav?.children?.map((item) => item.label)).toEqual([
+      "Inventory",
+      "Listings",
+      "Buyer Offer Matches",
+      "Sales",
+      "Reviews",
+      "Payouts",
+    ]);
+    expect(accountNav?.children?.map((item) => item.label)).toEqual([
+      "Account",
+      "Submitted Buyer Offers",
+    ]);
+    expect(
+      resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
+    ).toEqual([
+      "Browse",
+      "Cart",
+      "Purchases",
+      "Sell",
+    ]);
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/cart"');
     expect(html).toContain('href="/account/listings"');
-    expect(html).toContain('href="/account/market-offers"');
-    expect(html).toContain('href="/account/offers"');
-    expect(html).toContain('href="/account/shipments"');
-    expect(html).toContain('href="/account/reputation"');
-    expect(html).toContain('href="/account/orders"');
-    expect(html).toContain('href="/account/fulfillment"');
+    expect(html).toContain('href="/account/buyer-offer-matches"');
+    expect(html).toContain('href="/account/submitted-buyer-offers"');
+    expect(html).toContain('href="/account/payouts"');
+    expect(html).toContain('href="/account/reviews"');
+    expect(html).toContain('href="/account/purchases"');
     expect(html).toContain('href="/account/sales"');
     expect(html).toContain('href="/account"');
+    expect(html).not.toContain('href="/account/shipments"');
     expect(html).toContain('action="/sign-out"');
     expect(html).not.toContain("Verified");
     expect(html).not.toContain('href="/sign-in"');
+  });
+
+  it("keeps account access for signed-in buyers without seller workflows", () => {
+    const actor = {
+      permissions: [
+        "accounts.view",
+        "offers.view",
+        "orders.view",
+        "orders.manage",
+      ],
+    };
+
+    const topNav = resolveMarketplaceNavItems("top-nav", actor);
+    const accountNav = topNav.find((item) => item.key === "account");
+
+    expect(topNav.map((item) => item.label)).toEqual([
+      "Browse",
+      "Cart",
+      "Purchases",
+      "Account",
+    ]);
+    expect(accountNav?.children?.map((item) => item.label)).toEqual([
+      "Account",
+      "Submitted Buyer Offers",
+    ]);
+    expect(
+      resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
+    ).toEqual([
+      "Browse",
+      "Cart",
+      "Purchases",
+      "Account",
+    ]);
   });
 
   it("keeps sign-in and registration entry points for signed-out actors", () => {

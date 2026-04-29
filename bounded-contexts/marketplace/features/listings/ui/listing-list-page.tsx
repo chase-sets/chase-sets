@@ -1,5 +1,6 @@
 import {
   Badge,
+  Banner,
   Button,
   Card,
   DataTable,
@@ -14,7 +15,7 @@ import {
   NativeSelect,
 } from "@chase-sets/design-system";
 import type {
-  MarketplaceListingInventoryRecordOption,
+  MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
   MarketplaceListingTermsPreview,
 } from "./contracts";
@@ -40,13 +41,13 @@ function statusTone(status: string) {
   }
 }
 
-function inventoryLabel(record: MarketplaceListingInventoryRecordOption) {
+function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
   const segments = [
-    record.item_title ?? record.catalog_catalog_item_id,
-    record.item_subtitle,
-    record.product_summary,
-    `${record.available_quantity} available`,
-    record.storage_location_name,
+    inventoryItem.item_title ?? inventoryItem.catalog_catalog_item_id,
+    inventoryItem.item_subtitle,
+    inventoryItem.product_summary,
+    `${inventoryItem.available_quantity} available`,
+    inventoryItem.storage_location_name,
   ].filter(Boolean);
 
   return segments.join(" | ");
@@ -74,23 +75,40 @@ function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   ].join(" | ");
 }
 
+function selectedInventorySummary(
+  inventoryItems: readonly MarketplaceListingInventoryItemOption[],
+  inventoryItemId?: string | null,
+) {
+  if (!inventoryItemId) {
+    return null;
+  }
+
+  return inventoryItems.find((inventoryItem) => inventoryItem.item_id === inventoryItemId) ?? null;
+}
+
 export function MarketplaceListingListPage({
   data,
-  inventoryRecords,
+  inventoryItems,
   createForm,
   createPreview,
   errorMessage,
 }: {
   data: { items: readonly MarketplaceListingListItem[] };
-  inventoryRecords: readonly MarketplaceListingInventoryRecordOption[];
+  inventoryItems: readonly MarketplaceListingInventoryItemOption[];
   createForm?: {
-    inventoryRecordId?: string | null;
+    inventoryItemId?: string | null;
     priceAmount?: string | null;
     quantityCap?: string | null;
   };
   createPreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
 }) {
+  const selectedInventory = selectedInventorySummary(
+    inventoryItems,
+    createForm?.inventoryItemId,
+  );
+  const hasInventory = inventoryItems.length > 0;
+
   return (
     <Page>
       <PageHeader
@@ -114,15 +132,39 @@ export function MarketplaceListingListPage({
         <Card>
           <form method="post">
             <Stack gap={3}>
+              {!hasInventory ? (
+                <Banner
+                  title="No sellable inventory is available"
+                  description="Add stock with available quantity before creating a listing."
+                  actions={
+                    <LinkButton href="/account/inventory" tone="secondary" size="sm">
+                      Add inventory
+                    </LinkButton>
+                  }
+                />
+              ) : null}
+              {selectedInventory ? (
+                <Banner
+                  title="Selected inventory"
+                  description={
+                    <>
+                      {inventoryLabel(selectedInventory)}
+                      <br />
+                      The listing will use this inventory item's product, location, and available quantity.
+                    </>
+                  }
+                />
+              ) : null}
               <NativeSelect
-                label="Inventory record"
-                name="inventoryRecordId"
+                  label="Inventory item"
+                name="inventoryItemId"
                 required
-                defaultValue={createForm?.inventoryRecordId ?? ""}
+                disabled={!hasInventory}
+                defaultValue={createForm?.inventoryItemId ?? ""}
                 placeholder="Select inventory"
-                items={inventoryRecords.map((record) => ({
-                  value: record.record_id,
-                  label: inventoryLabel(record),
+                items={inventoryItems.map((inventoryItem) => ({
+                  value: inventoryItem.item_id,
+                  label: inventoryLabel(inventoryItem),
                 }))}
               />
               <TextInput
@@ -132,6 +174,7 @@ export function MarketplaceListingListPage({
                 inputMode="decimal"
                 defaultValue={createForm?.priceAmount ?? ""}
                 required
+                disabled={!hasInventory}
               />
               <NumberInput
                 label="Quantity cap"
@@ -139,12 +182,33 @@ export function MarketplaceListingListPage({
                 min="1"
                 defaultValue={createForm?.quantityCap ?? "1"}
                 required
+                disabled={!hasInventory}
               />
               <Stack gap={2}>
-                <Button type="submit" name="intent" value="create-listing">
-                  Create listing
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="create-and-publish-listing"
+                  disabled={!hasInventory}
+                >
+                  Create and publish
                 </Button>
-                <Button type="submit" name="intent" value="preview-listing" tone="secondary">
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="create-listing"
+                  tone="secondary"
+                  disabled={!hasInventory}
+                >
+                  Save as draft
+                </Button>
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="preview-listing"
+                  tone="secondary"
+                  disabled={!hasInventory}
+                >
                   Preview fees
                 </Button>
               </Stack>
@@ -232,7 +296,7 @@ export function MarketplaceListingListPage({
                 <Stack gap={1}>
                   <Text>{row.storage_location_name ?? "Location unavailable"}</Text>
                   <Text size="sm" tone="secondary">
-                    {row.ship_from_code ?? row.inventory_record_id}
+                    {row.ship_from_code ?? row.inventory_item_id}
                   </Text>
                   {row.terms_resolved_at ? (
                     <Text size="sm" tone="secondary">

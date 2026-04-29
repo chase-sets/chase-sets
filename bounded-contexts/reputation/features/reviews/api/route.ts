@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { ReputationApiEnv } from "../../../api";
-import type { ReputationReviewServices } from "./runtime";
+import type { ReviewServices } from "./runtime";
 
 function requireReviewAccess(
   c: {
@@ -37,11 +37,11 @@ function errorMessage(error: unknown) {
 }
 
 export function createPublicReputationRoutes(
-  services: ReputationReviewServices,
+  services: ReviewServices,
 ) {
   const app = new Hono<ReputationApiEnv>();
 
-  app.get("/:accountId/reputation", async (c) => {
+  app.get("/:accountId/review-summary", async (c) => {
     const summary = await services.getPublicAccountSummary(c.req.param("accountId"));
     return c.json(summary);
   });
@@ -66,7 +66,7 @@ export function createPublicReputationRoutes(
 }
 
 export function createAccountReviewRoutes(
-  services: ReputationReviewServices,
+  services: ReviewServices,
 ) {
   const app = new Hono<ReputationApiEnv>();
 

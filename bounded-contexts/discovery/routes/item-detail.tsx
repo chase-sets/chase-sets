@@ -29,13 +29,13 @@ import {
 } from "../support/request-support/api-client";
 import type {
   DiscoveryMarketListing,
-  DiscoverySellerInventoryRecord,
-  DiscoverySellerOffer,
+  DiscoverySellerInventoryItem,
+  DiscoverySellerBuyerOfferMatch,
 } from "../support/client-support/contracts";
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import {
   createMarketplaceRequestApiClient,
-  type MarketplaceListingInventoryRecordOption,
+  type MarketplaceListingInventoryItemOption,
 } from "@chase-sets/marketplace/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
@@ -45,8 +45,8 @@ const MARKETPLACE_DESCRIPTION =
 
 const EMPTY_ITEM_DETAIL_RESULT = {
   item: null,
-  sellerOffers: [],
-  sellerInventoryRecords: [],
+  sellerBuyerOfferMatches: [],
+  sellerInventoryItems: [],
   sellerAccountId: null,
   showSellerTab: true,
   canUseSellerFeatures: false,
@@ -62,20 +62,20 @@ function buildRegisterToSellHref(request: Request) {
   return `/register?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
-function toSellerInventoryRecord(
-  record: MarketplaceListingInventoryRecordOption,
-): DiscoverySellerInventoryRecord {
+function toSellerInventoryItem(
+  inventoryItem: MarketplaceListingInventoryItemOption,
+): DiscoverySellerInventoryItem {
   return {
-    record_id: record.record_id,
-    catalog_catalog_item_id: record.catalog_catalog_item_id,
-    product_id: record.product_id,
-    item_title: record.item_title,
-    item_subtitle: record.item_subtitle,
-    selected_options: record.selected_options,
-    product_summary: record.product_summary,
-    storage_location_name: record.storage_location_name,
-    ship_from_code: record.ship_from_code,
-    available_quantity: record.available_quantity,
+    item_id: inventoryItem.item_id,
+    catalog_catalog_item_id: inventoryItem.catalog_catalog_item_id,
+    product_id: inventoryItem.product_id,
+    item_title: inventoryItem.item_title,
+    item_subtitle: inventoryItem.item_subtitle,
+    selected_options: inventoryItem.selected_options,
+    product_summary: inventoryItem.product_summary,
+    storage_location_name: inventoryItem.storage_location_name,
+    ship_from_code: inventoryItem.ship_from_code,
+    available_quantity: inventoryItem.available_quantity,
   };
 }
 
@@ -291,7 +291,7 @@ function OrderingAddToCartSection({
   return <FormPanel variant={panelVariant} glow={visibleListingCount > 0}>{form}</FormPanel>;
 }
 
-function MarketplaceSellerOfferSection({
+function MarketplaceBuyerOfferMatchSection({
   formId = "sell-box",
   panelVariant = "card",
   showSummary = panelVariant === "card",
@@ -437,7 +437,7 @@ function MarketplaceListingSubmissionSection({
   productSummary,
   bestListing,
   ownListing,
-  inventoryRecords,
+  inventoryItems,
   errorMessage,
 }: {
   formId?: string;
@@ -448,18 +448,18 @@ function MarketplaceListingSubmissionSection({
   productSummary: string | null;
   bestListing: {
     listing_id: string;
-    inventory_record_id: string;
+    inventory_item_id: string;
     product_id: string;
     price_amount: string;
     quantity_cap: number;
     status: string;
   } | null;
   ownListing: DiscoveryMarketListing | null;
-  inventoryRecords: readonly DiscoverySellerInventoryRecord[];
+  inventoryItems: readonly DiscoverySellerInventoryItem[];
   errorMessage?: string | null;
 }) {
   const matchingInventory = productId
-    ? inventoryRecords.filter((record) => record.product_id === productId)
+    ? inventoryItems.filter((inventoryItem) => inventoryItem.product_id === productId)
     : [];
   const selectedInventory = matchingInventory[0] ?? null;
   const listing = ownListing ?? null;
@@ -506,19 +506,19 @@ function MarketplaceListingSubmissionSection({
         {listing ? (
           <input
             type="hidden"
-            name="inventoryRecordId"
-            value={listing.inventory_record_id}
+            name="inventoryItemId"
+            value={listing.inventory_item_id}
           />
         ) : (
           <NativeSelect
             label="Inventory"
-            name="inventoryRecordId"
-            defaultValue={selectedInventory?.record_id ?? ""}
+            name="inventoryItemId"
+            defaultValue={selectedInventory?.item_id ?? ""}
             items={[
               { value: "", label: "Choose inventory" },
-              ...matchingInventory.map((record) => ({
-                value: record.record_id,
-                label: `${record.product_summary ?? "Selected product"} - ${record.available_quantity} available`,
+              ...matchingInventory.map((inventoryItem) => ({
+                value: inventoryItem.item_id,
+                label: `${inventoryItem.product_summary ?? "Selected product"} - ${inventoryItem.available_quantity} available`,
               })),
             ]}
             required
@@ -583,8 +583,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (!id) {
     return {
       item: null,
-      sellerOffers: [],
-      sellerInventoryRecords: [],
+      sellerBuyerOfferMatches: [],
+      sellerInventoryItems: [],
       sellerAccountId: null,
       showSellerTab: false,
       canUseSellerFeatures: false,
@@ -596,7 +596,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
     const item = await api.getItemDetail(id);
     const actor = await resolveActorFromAuthApi({ request });
-    const canReviewSellerOffers = Boolean(
+    const canReviewSellerBuyerOfferMatches = Boolean(
       actor?.permissions.includes("offers.view") &&
         actor.permissions.includes("listings.view"),
     );
@@ -604,39 +604,39 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       actor?.permissions.includes("listings.view") &&
         actor.permissions.includes("listings.manage"),
     );
-    let sellerOffers: DiscoverySellerOffer[] = [];
-    let sellerInventoryRecords: DiscoverySellerInventoryRecord[] = [];
+    let sellerBuyerOfferMatches: DiscoverySellerBuyerOfferMatch[] = [];
+    let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
 
-    if (canReviewSellerOffers) {
+    if (canReviewSellerBuyerOfferMatches) {
       try {
-        const result = await marketplaceApi.listSellerOffers("limit=100&offset=0");
-        sellerOffers = result.items.filter(
+        const result = await marketplaceApi.listBuyerOfferMatches("limit=100&offset=0");
+        sellerBuyerOfferMatches = result.items.filter(
           (offer) => offer.catalog_catalog_item_id === item.catalog_item_id,
         );
       } catch {
-        sellerOffers = [];
+        sellerBuyerOfferMatches = [];
       }
     }
 
     if (canSellOnItem) {
       try {
-        const records = await marketplaceApi.listSellerListingInventory(
+        const items = await marketplaceApi.listSellerListingInventory(
           `limit=100&offset=0&catalogItemId=${encodeURIComponent(item.catalog_item_id)}`,
         );
-        sellerInventoryRecords = (records.items as MarketplaceListingInventoryRecordOption[])
-          .map(toSellerInventoryRecord);
+        sellerInventoryItems = (items.items as MarketplaceListingInventoryItemOption[])
+          .map(toSellerInventoryItem);
       } catch {
-        sellerInventoryRecords = [];
+        sellerInventoryItems = [];
       }
     }
 
     return {
       item,
-      sellerOffers,
-      sellerInventoryRecords,
+      sellerBuyerOfferMatches,
+      sellerInventoryItems,
       sellerAccountId: canSellOnItem ? actor?.accountId ?? null : null,
       showSellerTab: true,
-      canUseSellerFeatures: canReviewSellerOffers || canSellOnItem,
+      canUseSellerFeatures: canReviewSellerBuyerOfferMatches || canSellOnItem,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: false,
     };
@@ -644,8 +644,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     if (error instanceof DiscoveryApiError) {
       return {
         item: null,
-        sellerOffers: [],
-        sellerInventoryRecords: [],
+        sellerBuyerOfferMatches: [],
+        sellerInventoryItems: [],
         sellerAccountId: null,
         showSellerTab: false,
         canUseSellerFeatures: false,
@@ -657,8 +657,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     return {
       item: null,
-      sellerOffers: [],
-      sellerInventoryRecords: [],
+      sellerBuyerOfferMatches: [],
+      sellerInventoryItems: [],
       sellerAccountId: null,
       showSellerTab: false,
       canUseSellerFeatures: false,
@@ -684,7 +684,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       const item = await discoveryApi.getItemDetail(params.id!);
 
-      await marketplaceApi.createBuyerOffer({
+      await marketplaceApi.createSubmittedBuyerOffer({
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
@@ -695,7 +695,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         quantityRequested: Number(formData.get("quantityRequested") ?? 0),
       });
 
-      return redirect("/account/offers");
+      return redirect("/account/submitted-buyer-offers");
     }
 
     if (intent === "add-to-cart") {
@@ -732,7 +732,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }) as { orderIds?: readonly string[] };
 
       return redirect(
-        result.orderIds?.[0] ? `/account/orders/${result.orderIds[0]}` : "/account/orders",
+        result.orderIds?.[0] ? `/account/purchases/${result.orderIds[0]}` : "/account/purchases",
       );
     }
 
@@ -742,7 +742,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      await marketplaceApi.acceptSellerOffer(String(formData.get("offerId") ?? ""));
+      await marketplaceApi.acceptBuyerOfferMatch(String(formData.get("offerId") ?? ""));
       return redirect("/account/sales");
     }
 
@@ -752,10 +752,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      await marketplaceApi.addSellerOfferCartItem({
+      await marketplaceApi.addBuyerOfferMatchSellListItem({
         offerId: String(formData.get("offerId") ?? ""),
       });
-      return redirect("/account/market-offers");
+      return redirect("/account/buyer-offer-matches");
     }
 
     if (intent === "list-at-price") {
@@ -775,7 +775,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }
 
       const result = await marketplaceApi.createListing({
-        inventoryRecordId: String(formData.get("inventoryRecordId") ?? ""),
+        inventoryItemId: String(formData.get("inventoryItemId") ?? ""),
         priceAmount,
         quantityCap,
       }) as { id?: string };
@@ -820,7 +820,7 @@ export default function DiscoveryItemDetailRoute() {
   return (
     <ItemDetailPage
       data={data.item}
-      sellerOffers={data.sellerOffers}
+      sellerBuyerOfferMatches={data.sellerBuyerOfferMatches}
       notFound={data.notFound}
       error={data.error}
       renderCommerce={
@@ -869,14 +869,14 @@ export default function DiscoveryItemDetailRoute() {
                   Submit offer
                 </Button>
               );
-              const renderSellerOfferActions = (formId: string) => (
+              const renderBuyerOfferMatchActions = (formId: string) => (
                 <Stack gap={2}>
                   <Button
                     form={formId}
                     type="submit"
                     name="intent"
                     value="sell-now"
-                    disabled={!context.selectedSellerOffer?.can_fulfill}
+                    disabled={!context.selectedSellerBuyerOfferMatch?.can_fulfill}
                     block
                   >
                     Sell now
@@ -888,12 +888,12 @@ export default function DiscoveryItemDetailRoute() {
                     value="add-to-sell-list"
                     tone="secondary"
                     disabled={
-                      !context.selectedSellerOffer?.can_fulfill ||
-                      context.selectedSellerOffer.in_sell_list
+                      !context.selectedSellerBuyerOfferMatch?.can_fulfill ||
+                      context.selectedSellerBuyerOfferMatch.in_sell_list
                     }
                     block
                   >
-                    {context.selectedSellerOffer?.in_sell_list
+                    {context.selectedSellerBuyerOfferMatch?.in_sell_list
                       ? "In sell list"
                       : "Add to sell list"}
                   </Button>
@@ -901,8 +901,8 @@ export default function DiscoveryItemDetailRoute() {
               );
               const renderListingActions = (formId: string) => {
                 const hasMatchingInventory = context.selectedProductId
-                  ? data.sellerInventoryRecords.some(
-                      (record) => record.product_id === context.selectedProductId,
+                  ? data.sellerInventoryItems.some(
+                      (inventoryItem) => inventoryItem.product_id === context.selectedProductId,
                     )
                   : false;
 
@@ -959,18 +959,18 @@ export default function DiscoveryItemDetailRoute() {
                   errorMessage={actionData?.error ?? null}
                 />
               );
-              const renderSellerOffer = (
+              const renderBuyerOfferMatch = (
                 formId: string,
                 panelVariant: FormPanelVariant = "card",
                 actions?: ReactNode,
               ) => (
-                <MarketplaceSellerOfferSection
+                <MarketplaceBuyerOfferMatchSection
                   formId={formId}
                   panelVariant={panelVariant}
                   actions={actions}
-                  selectedOffer={context.selectedSellerOffer}
+                  selectedOffer={context.selectedSellerBuyerOfferMatch}
                   productId={context.selectedProductId}
-                  matchingOfferCount={context.visibleSellerOffers.length}
+                  matchingOfferCount={context.visibleSellerBuyerOfferMatches.length}
                   errorMessage={actionData?.error ?? null}
                 />
               );
@@ -987,7 +987,7 @@ export default function DiscoveryItemDetailRoute() {
                   productSummary={context.selectedProductSummary}
                   bestListing={context.bestListing}
                   ownListing={ownListing}
-                  inventoryRecords={data.sellerInventoryRecords}
+                  inventoryItems={data.sellerInventoryItems}
                   errorMessage={actionData?.error ?? null}
                 />
               );
@@ -1003,7 +1003,7 @@ export default function DiscoveryItemDetailRoute() {
               const renderSeller = (formIdPrefix: string) =>
                 data.canUseSellerFeatures ? (
                   <Stack gap={4}>
-                    {renderSellerOffer(`${formIdPrefix}-sell-box`)}
+                    {renderBuyerOfferMatch(`${formIdPrefix}-sell-box`)}
                     {renderListingSubmission(`${formIdPrefix}-list-box`)}
                   </Stack>
                 ) : renderSellerRegistration();
@@ -1023,8 +1023,8 @@ export default function DiscoveryItemDetailRoute() {
                     },
                     sell: data.canUseSellerFeatures
                       ? {
-                          content: renderSellerOffer("mobile-sell-box", "plain", null),
-                          footer: renderSellerOfferActions("mobile-sell-box"),
+                          content: renderBuyerOfferMatch("mobile-sell-box", "plain", null),
+                          footer: renderBuyerOfferMatchActions("mobile-sell-box"),
                           title: "Sell to buyer offer",
                         }
                       : {

@@ -1,5 +1,7 @@
 # Marketplace Glossary
 
+Aggregate language and projection language may differ. When they do, each model name must be used exactly within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
+
 ## Buyer
 
 A **Buyer** is an account acting in the buyer role when it purchases products as part of an order.
@@ -26,13 +28,15 @@ Notes:
 
 - Listing is owned by the Marketplace bounded context.
 
-## Offer
+## Buyer Offer
 
-An **Offer** is a buyer-proposed purchase for a specific resolved product at a defined price and quantity.
+A **Buyer Offer** is a buyer-proposed purchase for a specific resolved product at a defined price and quantity.
 
 Notes:
 
-- Offer is owned by the Marketplace bounded context.
+- Buyer Offer is owned by the Marketplace bounded context.
+- A buyer sees their buyer-offer projection as a **Submitted Buyer Offer**.
+- A seller sees matching buyer-offer demand as a **Buyer Offer Match**.
 
 ## Order
 
@@ -41,6 +45,16 @@ An **Order** is the commercial commitment between a buyer account and a seller a
 Notes:
 
 - Order is owned by the Ordering bounded context.
+- A buyer-facing order projection is a **Purchase**.
+- A seller-facing order projection is a **Sale**.
+
+## Inventory Item
+
+An **Inventory Item** is a seller's stock for one specific product and storage location.
+
+Notes:
+
+- Inventory Item is owned by the Inventory bounded context.
 
 ## Shipment
 

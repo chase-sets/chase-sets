@@ -3,17 +3,17 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildReputationApi } from "./api";
 
 export type {
-  ReputationAccountSummary,
-  ReputationReviewOpportunity,
-  ReputationReviewDetail,
-  ReputationReviewListItem,
+  ReviewSummary,
+  ReviewOpportunity,
+  ReviewDetail,
+  ReviewListItem,
 } from "./features/reviews/api/contracts";
 
 import type {
-  ReputationAccountSummary,
-  ReputationReviewOpportunity,
-  ReputationReviewDetail,
-  ReputationReviewListItem,
+  ReviewSummary,
+  ReviewOpportunity,
+  ReviewDetail,
+  ReviewListItem,
 } from "./features/reviews/api/contracts";
 
 type ReputationApiApp = ReturnType<typeof buildReputationApi>;
@@ -67,9 +67,9 @@ export function createReputationApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async getAccountReputation(accountId: string): Promise<ReputationAccountSummary> {
+    async getAccountReviewSummary(accountId: string): Promise<ReviewSummary> {
       return parseJsonResponse(
-        await client.accounts[":accountId"].reputation.$get({
+        await client.accounts[":accountId"]["review-summary"].$get({
           param: { accountId },
           header: headers,
         }),
@@ -78,7 +78,7 @@ export function createReputationApiClient({
     async listAccountReviews(
       accountId: string,
       query = "",
-    ): Promise<ListResponse<ReputationReviewListItem>> {
+    ): Promise<ListResponse<ReviewListItem>> {
       return parseJsonResponse(
         await client.accounts[":accountId"].reviews.$get({
           param: { accountId },
@@ -89,7 +89,7 @@ export function createReputationApiClient({
     },
     async listWrittenReviews(
       query = "",
-    ): Promise<ListResponse<ReputationReviewListItem>> {
+    ): Promise<ListResponse<ReviewListItem>> {
       return parseJsonResponse(
         await client.reviews.written.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -99,7 +99,7 @@ export function createReputationApiClient({
     },
     async listReceivedReviews(
       query = "",
-    ): Promise<ListResponse<ReputationReviewListItem>> {
+    ): Promise<ListResponse<ReviewListItem>> {
       return parseJsonResponse(
         await client.reviews.received.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -107,7 +107,7 @@ export function createReputationApiClient({
         }),
       );
     },
-    async getAccountReview(reviewId: string): Promise<ReputationReviewDetail> {
+    async getAccountReview(reviewId: string): Promise<ReviewDetail> {
       return parseJsonResponse(
         await client.reviews[":id"].$get({
           param: { id: reviewId },
@@ -117,7 +117,7 @@ export function createReputationApiClient({
     },
     async getOrderReviewOpportunity(
       orderId: string,
-    ): Promise<ReputationReviewOpportunity> {
+    ): Promise<ReviewOpportunity> {
       return parseJsonResponse(
         await client.reviews.opportunities.orders[":orderId"].$get({
           param: { orderId },

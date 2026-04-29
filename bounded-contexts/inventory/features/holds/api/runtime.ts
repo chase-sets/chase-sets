@@ -10,7 +10,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
-import { getInventoryRecord } from "../../records/read-model/queries";
+import { getInventoryItem } from "../../inventory-items/read-model/queries";
 import {
   decideInventoryHold,
   evolveInventoryHold,
@@ -31,7 +31,7 @@ export type InventoryHoldServices = Readonly<{
   createHold: (
     params: Readonly<{
       accountId: AccountId;
-      recordId: string;
+      itemId: string;
       quantity: number;
       reason: string;
       notes?: string | null;
@@ -69,14 +69,14 @@ export function createInventoryHoldRuntime(
   return {
     commandHandler,
     createHold: async (params, context) => {
-      const record = await getInventoryRecord(deps.db, params.recordId, params.accountId);
-      if (!record) {
-        throw new InventoryDomainError("Inventory record not found.");
+      const item = await getInventoryItem(deps.db, params.itemId, params.accountId);
+      if (!item) {
+        throw new InventoryDomainError("Inventory item not found.");
       }
 
-      if (record.available_quantity < params.quantity) {
+      if (item.available_quantity < params.quantity) {
         throw new InventoryDomainError(
-          "Holds cannot exceed the available quantity for a record.",
+          "Holds cannot exceed the available quantity for an inventory item.",
         );
       }
 
@@ -87,7 +87,7 @@ export function createInventoryHoldRuntime(
           type: "PlaceInventoryHold",
           holdId,
           accountId: params.accountId,
-          recordId: params.recordId,
+          itemId: params.itemId,
           quantity: params.quantity,
           reason: params.reason,
           notes: params.notes ?? null,

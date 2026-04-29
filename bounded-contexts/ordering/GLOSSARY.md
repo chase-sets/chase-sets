@@ -2,6 +2,8 @@
 
 This glossary defines the canonical terminology for the Ordering bounded context.
 
+Aggregate language and projection language may differ. `Order` is the aggregate and event-stream term; buyer read models and routes use `Purchase`, while seller read models and routes use `Sale`.
+
 ## Cart
 
 A **Cart** is the buyer's in-progress checkout state before one or more orders are created.
@@ -20,6 +22,14 @@ Notes:
 
 - Orders are owned by Ordering.
 - Fulfillment and Payments react to order facts but do not define orders.
+
+## Purchase
+
+A **Purchase** is the buyer-facing projection of an order.
+
+## Sale
+
+A **Sale** is the seller-facing projection of an order.
 
 ## Order Line
 

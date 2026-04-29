@@ -28,7 +28,7 @@ const order = {
     {
       line_id: "line_1",
       listing_id: "lst_1",
-      inventory_record_id: "inv_1",
+      inventory_item_id: "inv_1",
       catalog_catalog_item_id: "cat_1",
       product_id: "cat_1::",
       item_title: "Charizard",
@@ -48,7 +48,7 @@ describe("ordering order detail page", () => {
     const markup = renderToString(
       <OrderingOrderDetailPage
         role="buyer"
-        backHref="/account/orders"
+        backHref="/account/purchases"
         paymentHref="/account/payments/new?orderIds=ord_1"
         order={order}
         supplementarySectionTitle="Review"
@@ -63,6 +63,6 @@ describe("ordering order detail page", () => {
     expect(markup).toContain("Review");
     expect(markup).toContain("Leave seller review");
     expect(markup).toContain("Pay now");
-    expect(markup).toContain("Cancel order");
+    expect(markup).toContain('value="cancel-purchase"');
   });
 });

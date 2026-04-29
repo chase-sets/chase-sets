@@ -22,7 +22,7 @@ export type DiscoveryItemDetailRow = Readonly<{
   market_listings: readonly Readonly<{
     listing_id: string;
     account_id: string;
-    inventory_record_id: string;
+    inventory_item_id: string;
     catalog_catalog_item_id: string;
     product_id: string;
     item_title: string | null;
@@ -39,7 +39,7 @@ export type DiscoveryItemDetailRow = Readonly<{
     created_at: string;
     updated_at: string;
   }>[];
-  market_offers: readonly Readonly<{
+  buyer_offer_matches: readonly Readonly<{
     offer_id: string;
     buyer_account_id: string;
     buyer_display_name: string | null;
@@ -62,7 +62,7 @@ export type DiscoveryItemDetailRow = Readonly<{
 
 type BaseDiscoveryItemDetailRow = Omit<
   DiscoveryItemDetailRow,
-  "market_summary" | "market_listings" | "market_offers"
+  "market_summary" | "market_listings" | "buyer_offer_matches"
 >;
 
 function asArray<T>(value: unknown): T[] {
@@ -146,14 +146,14 @@ export async function getDiscoveryItemDetail(
   );
 
   const offersResult = await db.query<
-    Omit<DiscoveryItemDetailRow["market_offers"][number], "selected_options"> & {
+    Omit<DiscoveryItemDetailRow["buyer_offer_matches"][number], "selected_options"> & {
       selected_options: unknown;
     }
   >(
     `SELECT
        offer.*,
        account.seller_display_name AS buyer_display_name
-     FROM discovery_market_offers AS offer
+     FROM discovery_buyer_offer_matches AS offer
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
      WHERE offer.catalog_catalog_item_id = $1
@@ -189,7 +189,7 @@ export async function getDiscoveryItemDetail(
         ? row.selected_options
         : [],
     })),
-    market_offers: offersResult.rows.map((row) => ({
+    buyer_offer_matches: offersResult.rows.map((row) => ({
       ...row,
       selected_options: Array.isArray(row.selected_options)
         ? row.selected_options
@@ -197,4 +197,3 @@ export async function getDiscoveryItemDetail(
     })),
   };
 }
-

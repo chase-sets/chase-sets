@@ -4,9 +4,9 @@ import {
   loader as inventoryLoader,
 } from "@chase-sets/inventory/routes/marketplace/account-inventory";
 import {
-  action as inventoryRecordAction,
-  loader as inventoryRecordLoader,
-} from "@chase-sets/inventory/routes/marketplace/account-inventory-record";
+  action as inventoryItemAction,
+  loader as inventoryItemLoader,
+} from "@chase-sets/inventory/routes/marketplace/account-inventory-item";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -16,7 +16,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("marketplace inventory routes", () => {
-  it("loads inventory records and locations through the inventory API", async () => {
+  it("loads inventory items and locations through the inventory API", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -52,7 +52,7 @@ describe("marketplace inventory routes", () => {
       context: undefined,
     } as never);
 
-    expect(result.records.items).toEqual([]);
+    expect(result.items.items).toEqual([]);
     expect(result.locations.items).toEqual([]);
   });
 
@@ -83,7 +83,7 @@ describe("marketplace inventory routes", () => {
     );
 
     const form = new URLSearchParams();
-    form.set("intent", "create-record");
+    form.set("intent", "create-item");
     form.set("catalogItemId", "cat_1");
     form.set("selectedOptions", "[]");
     form.set("storageLocationId", "loc_1");
@@ -102,7 +102,7 @@ describe("marketplace inventory routes", () => {
     expect(result).toEqual({ error: "Bad inventory input." });
   });
 
-  it("loads inventory record detail through the inventory API", async () => {
+  it("loads inventory item detail through the inventory API", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -126,7 +126,7 @@ describe("marketplace inventory routes", () => {
 
         return Promise.resolve(
           jsonResponse({
-            record_id: "inv_1",
+            item_id: "inv_1",
             account_id: "acc_1",
             catalog_catalog_item_id: "cat_charizard",
             product_id:
@@ -153,16 +153,16 @@ describe("marketplace inventory routes", () => {
       }),
     );
 
-    const result = await inventoryRecordLoader({
-      request: new Request("http://localhost/account/inventory/records/inv_1"),
-      params: { recordId: "inv_1" },
+    const result = await inventoryItemLoader({
+      request: new Request("http://localhost/account/inventory/items/inv_1"),
+      params: { itemId: "inv_1" },
       context: undefined,
     } as never);
 
-    expect(result.record.available_quantity).toBe(7);
+    expect(result.item.available_quantity).toBe(7);
   });
 
-  it("surfaces record action validation errors", async () => {
+  it("surfaces inventory item action validation errors", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -193,13 +193,13 @@ describe("marketplace inventory routes", () => {
     form.set("quantity", "5");
     form.set("reason", "Checkout");
 
-    const result = await inventoryRecordAction({
-      request: new Request("http://localhost/account/inventory/records/inv_1", {
+    const result = await inventoryItemAction({
+      request: new Request("http://localhost/account/inventory/items/inv_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
       }),
-      params: { recordId: "inv_1" },
+      params: { itemId: "inv_1" },
       context: undefined,
     } as never);
 

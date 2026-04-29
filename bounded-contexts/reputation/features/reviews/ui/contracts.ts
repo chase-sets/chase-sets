@@ -1,4 +1,4 @@
-export interface ReputationReviewListItem {
+export interface ReviewListItem {
   review_id: string;
   order_id: string;
   author_account_id: string;
@@ -14,9 +14,9 @@ export interface ReputationReviewListItem {
   withdrawn_at: string | null;
 }
 
-export interface ReputationReviewDetail extends ReputationReviewListItem {}
+export interface ReviewDetail extends ReviewListItem {}
 
-export interface ReputationReviewOpportunity {
+export interface ReviewOpportunity {
   order_id: string;
   subject_account_id: string;
   subject_display_name: string | null;
@@ -25,7 +25,7 @@ export interface ReputationReviewOpportunity {
   active_review_id: string | null;
 }
 
-export interface ReputationAccountSummary {
+export interface ReviewSummary {
   account_id: string;
   account_display_name: string | null;
   average_rating: string | null;

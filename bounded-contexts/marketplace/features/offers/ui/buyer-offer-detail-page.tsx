@@ -8,7 +8,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { MarketplaceBuyerOfferDetail } from "./contracts";
+import type { SubmittedBuyerOfferDetail } from "./contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -23,11 +23,11 @@ function formatMoney(amount: string) {
   return `$${amount}`;
 }
 
-export function MarketplaceBuyerOfferDetailPage({
+export function MarketplaceSubmittedBuyerOfferDetailPage({
   offer,
   errorMessage,
 }: {
-  offer: MarketplaceBuyerOfferDetail;
+  offer: SubmittedBuyerOfferDetail;
   errorMessage?: string | null;
 }) {
   return (
@@ -35,10 +35,10 @@ export function MarketplaceBuyerOfferDetailPage({
       <PageHeader
         eyebrow="Buyer"
         title={offer.item_title}
-        description="Review the details of your marketplace-wide offer."
+        description="Review the details of your submitted buyer offer."
         actions={
-          <LinkButton href="/account/offers" tone="secondary">
-            Back to offers
+          <LinkButton href="/account/submitted-buyer-offers" tone="secondary">
+            Back to submitted buyer offers
           </LinkButton>
         }
       />
@@ -49,7 +49,7 @@ export function MarketplaceBuyerOfferDetailPage({
         </Card>
       ) : null}
 
-      <PageSection title="Offer Overview">
+      <PageSection title="Submitted Buyer Offer Overview">
         <Card>
           <Stack gap={2}>
             {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
@@ -59,10 +59,10 @@ export function MarketplaceBuyerOfferDetailPage({
               </Text>
             ) : null}
             <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
-            <Text>Offer price: {formatMoney(offer.price_amount)}</Text>
+            <Text>Buyer offer price: {formatMoney(offer.price_amount)}</Text>
             <Text>Quantity requested: {offer.quantity_requested}</Text>
             <Text>
-              This offer is marketplace-wide. Sellers can review it when they publish
+              This submitted buyer offer is marketplace-wide. Sellers can review it when they publish
               matching active supply.
             </Text>
           </Stack>

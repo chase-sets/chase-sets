@@ -9,13 +9,13 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   InventoryApiError,
-  type InventoryRecordListItem,
+  type InventoryItemListItem,
   type InventoryStorageLocation,
 } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
-import { InventoryRecordListPage } from "../../features/records/ui/inventory-record-list-page";
+import { InventoryItemListPage } from "../../features/inventory-items/ui/inventory-item-list-page";
 
-const DEFAULT_RECORD_QUERY = "limit=100&offset=0";
+const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
@@ -25,7 +25,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createInventoryRequestApiClient(request);
 
   return {
-    records: await api.listRecords(DEFAULT_RECORD_QUERY),
+    items: await api.listItems(DEFAULT_ITEM_QUERY),
     locations: await api.listStorageLocations(),
   };
 }
@@ -40,8 +40,8 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createInventoryRequestApiClient(request);
 
   try {
-    if (intent === "create-record") {
-      await api.createRecord({
+    if (intent === "create-item") {
+      await api.createItem({
         catalogItemId: formData.get("catalogItemId"),
         selectedOptions: formData.get("selectedOptions"),
         storageLocationId: formData.get("storageLocationId"),
@@ -66,7 +66,7 @@ export async function action({ request }: ActionFunctionArgs) {
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
     title: "Inventory | Marketplace",
-    description: "Manage inventory records, stock counts, and storage context for your marketplace account.",
+    description: "Manage inventory items, stock counts, and storage context for your marketplace account.",
   });
 
 export default function MarketplaceInventoryRoute() {
@@ -74,8 +74,8 @@ export default function MarketplaceInventoryRoute() {
   const actionData = useActionData<typeof action>();
 
   return (
-    <InventoryRecordListPage
-      data={data.records as ListResponse<InventoryRecordListItem>}
+    <InventoryItemListPage
+      data={data.items as ListResponse<InventoryItemListItem>}
       locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
       errorMessage={actionData?.error ?? null}
     />

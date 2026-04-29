@@ -70,7 +70,7 @@ export interface DiscoveryItemDetail {
   product_schema: ProductSchema | null;
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];
-  market_offers: DiscoveryMarketOffer[];
+  buyer_offer_matches: DiscoveryBuyerOfferMatch[];
   updated_at: string;
 }
 
@@ -83,7 +83,7 @@ export interface DiscoveryMarketSummary {
 export interface DiscoveryMarketListing {
   listing_id: string;
   account_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;
@@ -101,7 +101,7 @@ export interface DiscoveryMarketListing {
   updated_at: string;
 }
 
-export interface DiscoverySellerOffer {
+export interface DiscoverySellerBuyerOfferMatch {
   offer_id: string;
   buyer_account_id: string;
   buyer_display_name: string | null;
@@ -123,7 +123,7 @@ export interface DiscoverySellerOffer {
   updated_at: string;
 }
 
-export interface DiscoveryMarketOffer {
+export interface DiscoveryBuyerOfferMatch {
   offer_id: string;
   buyer_account_id: string;
   buyer_display_name: string | null;
@@ -142,8 +142,8 @@ export interface DiscoveryMarketOffer {
   updated_at: string;
 }
 
-export interface DiscoverySellerInventoryRecord {
-  record_id: string;
+export interface DiscoverySellerInventoryItem {
+  item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;

@@ -68,7 +68,7 @@ Owns consumer-facing grouping metadata. Categories never participate in product 
 
 ### Catalog Item
 
-Owns the canonical parent record.
+Owns the canonical parent item.
 
 - Commands use explicit Catalog Item naming such as `CreateCatalogItem`, `AssignBlueprintToCatalogItem`, and `PublishCatalogItem`
 - A Product cannot exist without exactly one Catalog Item

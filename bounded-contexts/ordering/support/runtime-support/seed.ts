@@ -12,7 +12,10 @@ import {
   type OrderingVersionSchema,
 } from "./common";
 import { orderingReservedSeedIds } from "../seed-support/ids";
-import { createOrderingServices } from "./services";
+import {
+  createOrderingServices,
+  type OrderingServices,
+} from "./services";
 
 const rawNearMintVersionSelection = [
   {
@@ -198,8 +201,10 @@ async function getProductId(
   }).productId;
 }
 
-export async function seedOrderingDatabase(pool: PgTransactionalPool) {
-  const ordering = createOrderingServices(pool);
+export async function seedOrderingDatabase(
+  pool: PgTransactionalPool,
+  ordering: OrderingServices = createOrderingServices(pool),
+) {
   const buyerAccountId = identitySeedIds.buyer.accountId;
 
   try {
@@ -270,7 +275,7 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
       throw new Error("Ordering demo seed could not create the cancellable order.");
     }
 
-    await ordering.orders.cancelBuyerOrder(
+    await ordering.orders.cancelPurchase(
       {
         orderId: cancelledOrderId,
         buyerAccountId,
@@ -317,4 +322,3 @@ export async function seedOrderingDatabase(pool: PgTransactionalPool) {
 
   console.log("\nOrdering seed complete!");
 }
-

@@ -8,28 +8,28 @@ type MarketplaceActor = {
 } | null;
 
 function getActiveKey(pathname: string) {
-  if (pathname.startsWith("/account/market-offers")) {
-    return "market-offers";
+  if (pathname.startsWith("/account/buyer-offer-matches")) {
+    return "buyer-offer-matches";
   }
 
-  if (pathname.startsWith("/account/offers")) {
-    return "offers";
+  if (pathname.startsWith("/account/submitted-buyer-offers")) {
+    return "submitted-buyer-offers";
   }
 
   if (pathname.startsWith("/account/shipments")) {
     return "shipments";
   }
 
-  if (pathname.startsWith("/account/reputation") || pathname.startsWith("/account/reviews")) {
-    return "reputation";
+  if (pathname.startsWith("/account/reviews")) {
+    return "reviews";
   }
 
-  if (pathname.startsWith("/account/fulfillment")) {
-    return "fulfillment";
+  if (pathname.startsWith("/account/payouts") || pathname.startsWith("/account/settlement")) {
+    return "payouts";
   }
 
-  if (pathname.startsWith("/account/orders")) {
-    return "orders";
+  if (pathname.startsWith("/account/purchases")) {
+    return "purchases";
   }
 
   if (pathname.startsWith("/account/sales")) {

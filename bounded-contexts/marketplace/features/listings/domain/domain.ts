@@ -41,7 +41,7 @@ export type ListingStatus = "draft" | "active" | "paused" | "withdrawn";
 export type MarketplaceListingState = Readonly<{
   listingId: ListingId | null;
   accountId: AccountId | null;
-  inventoryRecordId: string | null;
+  inventoryItemId: string | null;
   catalogItemId: string | null;
   productId: string | null;
   itemTitle: string | null;
@@ -64,7 +64,7 @@ export type MarketplaceListingState = Readonly<{
 export const initialMarketplaceListingState: MarketplaceListingState = {
   listingId: null,
   accountId: null,
-  inventoryRecordId: null,
+  inventoryItemId: null,
   catalogItemId: null,
   productId: null,
   itemTitle: null,
@@ -88,7 +88,7 @@ export type CreateListingCommand = Readonly<{
   type: "CreateListing";
   listingId: ListingId;
   accountId: AccountId;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   catalogItemId: string;
   productId: string;
   itemTitle: string | null;
@@ -140,7 +140,7 @@ export type ListingCreatedEvent = DomainEvent<
   Readonly<{
     listingId: ListingId;
     accountId: AccountId;
-    inventoryRecordId: string;
+    inventoryItemId: string;
     catalogItemId: string;
     productId: string;
     itemTitle: string | null;
@@ -210,7 +210,7 @@ export const decideMarketplaceListing: AggregateDecider<
           data: {
             listingId: command.listingId,
             accountId: command.accountId,
-            inventoryRecordId: command.inventoryRecordId.trim(),
+            inventoryItemId: command.inventoryItemId.trim(),
             catalogItemId: command.catalogItemId.trim(),
             productId: command.productId,
             itemTitle: command.itemTitle?.trim() ?? null,
@@ -333,7 +333,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
       return {
         listingId: event.data.listingId,
         accountId: event.data.accountId,
-        inventoryRecordId: event.data.inventoryRecordId,
+        inventoryItemId: event.data.inventoryItemId,
         catalogItemId: event.data.catalogItemId,
         productId: event.data.productId,
         itemTitle: event.data.itemTitle,

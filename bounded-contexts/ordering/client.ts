@@ -4,16 +4,22 @@ import type { buildOrderingApi } from "./api";
 
 export type { OrderingCartLine } from "./features/cart/api/contracts";
 export type {
-  OrderingOrderDetail,
-  OrderingOrderHold,
-  OrderingOrderLine,
-  OrderingOrderListItem,
+  OrderingOrderProjection,
+  OrderingOrderProjectionDetail,
+  OrderingOrderProjectionHold,
+  OrderingOrderProjectionLine,
+  PurchaseDetail,
+  PurchaseListItem,
+  SaleDetail,
+  SaleListItem,
 } from "./features/orders/api/contracts";
 
 import type { OrderingCartLine } from "./features/cart/api/contracts";
 import type {
-  OrderingOrderDetail,
-  OrderingOrderListItem,
+  PurchaseDetail,
+  PurchaseListItem,
+  SaleDetail,
+  SaleListItem,
 } from "./features/orders/api/contracts";
 
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
@@ -105,61 +111,61 @@ export function createOrderingApiClient({
     },
     async buyNow(body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.buyer.orders["buy-now"].$post({
+        await client.buyer.purchases["buy-now"].$post({
           json: body,
           header: headers,
         }),
       );
     },
-    async listBuyerOrders(
+    async listPurchases(
       query = "",
-    ): Promise<ListResponse<OrderingOrderListItem>> {
+    ): Promise<ListResponse<PurchaseListItem>> {
       return parseJsonResponse(
-        await client.buyer.orders.$get({
+        await client.buyer.purchases.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
       );
     },
-    async getBuyerOrder(orderId: string): Promise<OrderingOrderDetail> {
+    async getPurchase(purchaseId: string): Promise<PurchaseDetail> {
       return parseJsonResponse(
-        await client.buyer.orders[":id"].$get({
-          param: { id: orderId },
+        await client.buyer.purchases[":id"].$get({
+          param: { id: purchaseId },
           header: headers,
         }),
       );
     },
-    async cancelBuyerOrder(orderId: string) {
+    async cancelPurchase(purchaseId: string) {
       return parseJsonResponse(
-        await client.buyer.orders[":id"].cancel.$post({
-          param: { id: orderId },
+        await client.buyer.purchases[":id"].cancel.$post({
+          param: { id: purchaseId },
           json: {},
           header: headers,
         }),
       );
     },
-    async listSellerOrders(
+    async listSales(
       query = "",
-    ): Promise<ListResponse<OrderingOrderListItem>> {
+    ): Promise<ListResponse<SaleListItem>> {
       return parseJsonResponse(
-        await client.seller.orders.$get({
+        await client.seller.sales.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
       );
     },
-    async getSellerOrder(orderId: string): Promise<OrderingOrderDetail> {
+    async getSale(saleId: string): Promise<SaleDetail> {
       return parseJsonResponse(
-        await client.seller.orders[":id"].$get({
-          param: { id: orderId },
+        await client.seller.sales[":id"].$get({
+          param: { id: saleId },
           header: headers,
         }),
       );
     },
-    async cancelSellerOrder(orderId: string) {
+    async cancelSale(saleId: string) {
       return parseJsonResponse(
-        await client.seller.orders[":id"].cancel.$post({
-          param: { id: orderId },
+        await client.seller.sales[":id"].cancel.$post({
+          param: { id: saleId },
           json: {},
           header: headers,
         }),

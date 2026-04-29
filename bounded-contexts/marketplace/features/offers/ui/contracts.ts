@@ -1,4 +1,4 @@
-export interface MarketplaceOfferListItem {
+export interface MarketplaceBuyerOffer {
   offer_id: string;
   buyer_account_id: string;
   catalog_catalog_item_id: string;
@@ -16,14 +16,14 @@ export interface MarketplaceOfferListItem {
   updated_at: string;
 }
 
-export interface MarketplaceBuyerOfferDetail extends MarketplaceOfferListItem {}
+export interface SubmittedBuyerOfferListItem extends MarketplaceBuyerOffer {}
+export interface SubmittedBuyerOfferDetail extends MarketplaceBuyerOffer {}
 
-export interface MarketplaceSellerOfferListItem extends MarketplaceOfferListItem {
+export interface BuyerOfferMatchListItem extends MarketplaceBuyerOffer {
   buyer_display_name: string | null;
   seller_available_quantity: number;
   can_fulfill: boolean;
   in_sell_list: boolean;
 }
 
-export interface MarketplaceSellerOfferDetail
-  extends MarketplaceSellerOfferListItem {}
+export interface BuyerOfferMatchDetail extends BuyerOfferMatchListItem {}

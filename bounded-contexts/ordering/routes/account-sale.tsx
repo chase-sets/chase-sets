@@ -10,16 +10,16 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createOrderingRequestApiClient,
   OrderingApiError,
-  type OrderingOrderDetail,
+  type SaleDetail,
 } from "../support/request-support/api-client";
 import {
   createReputationRequestApiClient,
-  type ReputationReviewOpportunity,
+  type ReviewOpportunity,
 } from "@chase-sets/reputation/server";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Inspect a seller order, cancel it while open, and review the counterpart feedback workflow.";
+  "Inspect a sale, cancel it while open, and review the counterpart feedback workflow.";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -34,8 +34,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const reputationApi = createReputationRequestApiClient(request);
 
   try {
-    const order = await orderingApi.getSellerOrder(params.orderId!);
-    let reviewOpportunity: ReputationReviewOpportunity | null = null;
+    const sale = await orderingApi.getSale(params.orderId!);
+    let reviewOpportunity: ReviewOpportunity | null = null;
 
     if (
       actor.permissions.includes("reputation.view") &&
@@ -51,12 +51,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     }
 
     return {
-      order,
+      sale,
       reviewOpportunity,
     };
   } catch (error) {
     if (error instanceof OrderingApiError && error.status === 404) {
-      throw new Response("Order not found.", { status: 404 });
+      throw new Response("Sale not found.", { status: 404 });
     }
 
     throw error;
@@ -70,8 +70,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const api = createOrderingRequestApiClient(request);
 
   try {
-    if (intent === "cancel-order") {
-      await api.cancelSellerOrder(params.orderId!);
+    if (intent === "cancel-sale") {
+      await api.cancelSale(params.orderId!);
       return redirect(`/account/sales/${params.orderId!}`);
     }
 
@@ -92,7 +92,7 @@ export const meta: MetaFunction = () =>
 export default function OrderingAccountSaleRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const reviewOpportunity = data.reviewOpportunity as ReputationReviewOpportunity | null;
+  const reviewOpportunity = data.reviewOpportunity as ReviewOpportunity | null;
   const subjectRole =
     reviewOpportunity?.author_role === "buyer" ? "seller" : "buyer";
 
@@ -100,7 +100,7 @@ export default function OrderingAccountSaleRoute() {
     <OrderingOrderDetailPage
       role="seller"
       backHref="/account/sales"
-      order={data.order as OrderingOrderDetail}
+      order={data.sale as SaleDetail}
       errorMessage={actionData?.error ?? null}
       supplementarySectionTitle="Review"
       supplementarySection={
@@ -110,16 +110,16 @@ export default function OrderingAccountSaleRoute() {
               <Text weight="semibold">
                 {reviewOpportunity.active_review_id
                   ? `Your ${subjectRole} review is already active.`
-                  : `This verified order is ready for your ${subjectRole} review.`}
+                  : `This verified sale is ready for your ${subjectRole} review.`}
               </Text>
               <Text size="sm" tone="secondary">
-                Reviews open only after delivery verifies the order.
+                Reviews open only after delivery verifies the sale.
               </Text>
               <LinkButton
                 href={
                   reviewOpportunity.active_review_id
                     ? `/account/reviews/${reviewOpportunity.active_review_id}`
-                    : `/account/sales/${data.order.order_id}/review`
+                    : `/account/sales/${data.sale.order_id}/review`
                 }
               >
                 {reviewOpportunity.active_review_id

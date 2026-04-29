@@ -5,11 +5,16 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import { createMarketplaceCommercialTermsResolver } from "../../api";
+import {
+  createMarketplaceCommercialTermsResolver,
+  type CommercialTermsResolver,
+} from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";
 
-export type MarketplaceServiceOptions = void;
+export type MarketplaceServiceOptions = Readonly<{
+  commercialTermsResolver?: CommercialTermsResolver;
+}>;
 
 export type MarketplaceServices = Readonly<{
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
@@ -21,6 +26,7 @@ export type MarketplaceServices = Readonly<{
 
 export function createMarketplaceServices(
   pool: PgTransactionalPool,
+  options: MarketplaceServiceOptions = {},
 ): MarketplaceServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
@@ -29,7 +35,8 @@ export function createMarketplaceServices(
     eventStore,
     checkpointStore,
     db,
-    commercialTermsResolver: createMarketplaceCommercialTermsResolver(db),
+    commercialTermsResolver:
+      options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
   const offers = createMarketplaceOfferRuntime(deps);

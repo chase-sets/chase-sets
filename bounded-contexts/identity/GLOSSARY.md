@@ -31,7 +31,7 @@ This includes:
 
 Notes:
 
-- Guest checkout creates a minimal user record plus a corresponding account record.
+- Guest checkout creates a minimal user record plus a corresponding account item.
 - Users may belong to one or more accounts.
 - Users may have multiple credentials and authentication methods.
 - Users are assigned roles through memberships; not permissions directly.

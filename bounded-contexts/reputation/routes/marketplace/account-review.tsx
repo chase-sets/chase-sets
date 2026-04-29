@@ -4,10 +4,10 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   ReputationApiError,
-  type ReputationReviewDetail,
+  type ReviewDetail,
 } from "../../support/request-support/api-client";
 import { createReputationRequestApiClient } from "../../support/request-support/api-client";
-import { ReputationReviewDetailPage } from "../../features/reviews/ui/review-detail-page";
+import { ReviewDetailPage } from "../../features/reviews/ui/review-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
@@ -36,9 +36,9 @@ export default function MarketplaceAccountReviewRoute() {
   const data = useLoaderData<typeof loader>();
 
   return (
-    <ReputationReviewDetailPage
+    <ReviewDetailPage
       backHref="/account/reviews/received"
-      review={data.review as ReputationReviewDetail}
+      review={data.review as ReviewDetail}
     />
   );
 }

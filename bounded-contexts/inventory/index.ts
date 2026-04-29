@@ -9,7 +9,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { InventoryServices } from "./support/runtime-support/services";
 import { buildInventoryApi } from "./api";
-import { buildInventoryCatalogItemProjectionHandlers } from "./features/records/integrations/catalog/projection";
+import { buildInventoryCatalogItemProjectionHandlers } from "./features/inventory-items/integrations/catalog/projection";
 import { InventoryDomainError } from "./support/runtime-support/common";
 import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaSql } from "./support/runtime-support/schema";
@@ -81,7 +81,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, void> =
               orderId: string;
               reservationRequests: Array<{
                 reservationRequestId: string;
-                inventoryRecordId: string;
+                inventoryItemId: string;
                 sellerAccountId: string;
                 quantity: number;
               }>;
@@ -105,7 +105,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, void> =
                 const hold = await services.holds.createHold(
                   {
                     accountId: request.sellerAccountId as never,
-                    recordId: request.inventoryRecordId,
+                    itemId: request.inventoryItemId,
                     quantity: request.quantity,
                     reason: "Ordering commitment",
                     notes: null,
@@ -120,7 +120,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, void> =
                     reservationRequestId: request.reservationRequestId,
                     orderId: data.orderId,
                     sellerAccountId: request.sellerAccountId,
-                    inventoryRecordId: request.inventoryRecordId,
+                    inventoryItemId: request.inventoryItemId,
                     quantity: request.quantity,
                     holdId: hold.holdId,
                   },
@@ -134,7 +134,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, void> =
                     reservationRequestId: request.reservationRequestId,
                     orderId: data.orderId,
                     sellerAccountId: request.sellerAccountId,
-                    inventoryRecordId: request.inventoryRecordId,
+                    inventoryItemId: request.inventoryItemId,
                     quantity: request.quantity,
                     reason:
                       error instanceof InventoryDomainError || error instanceof Error

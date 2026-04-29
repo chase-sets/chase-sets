@@ -52,8 +52,8 @@
         "pricing-inventory-input-projection"
       ],
       "eventTypes": [
-        "inventory.record.created",
-        "inventory.record.adjusted",
+        "inventory.item.created",
+        "inventory.item.adjusted",
         "inventory.hold.placed",
         "inventory.hold.released"
       ],
@@ -124,7 +124,7 @@
         "inventory"
       ],
       "ownedTables": [
-        "pricing_inventory_record_inputs",
+        "pricing_inventory_item_inputs",
         "pricing_inventory_hold_inputs"
       ],
       "requiredDuringBootstrap": true
@@ -136,7 +136,7 @@
       ],
       "ownedTables": [
         "pricing_market_listing_inputs",
-        "pricing_market_offer_inputs"
+        "pricing_buyer_offer_inputs"
       ],
       "requiredDuringBootstrap": true
     },

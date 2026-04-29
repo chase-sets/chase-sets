@@ -12,7 +12,10 @@ import {
   buildMarketplaceCatalogProjectionHandlers,
   buildMarketplaceInventoryProjectionHandlers,
 } from "./features/listings/integrations/supply/supply-projection";
-import type { MarketplaceServices } from "./support/runtime-support/services";
+import type {
+  MarketplaceServiceOptions,
+  MarketplaceServices,
+} from "./support/runtime-support/services";
 import { buildMarketplaceApi } from "./api";
 import { createMarketplaceServices } from "./support/runtime-support/services";
 import { marketplaceSchemaSql } from "./support/runtime-support/schema";
@@ -42,7 +45,11 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, void> = {
+export const module: BcApiModule<
+  MarketplaceServices,
+  PgTransactionalPool,
+  MarketplaceServiceOptions
+> = {
   contextName: "marketplace",
   routePrefix: "/api/marketplace",
   streamPrefix: "marketplace.",
@@ -50,10 +57,10 @@ export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, void>
   apiMounts: contextManifest.apiMounts as BcApiModule<
     MarketplaceServices,
     PgTransactionalPool,
-    void
+    MarketplaceServiceOptions
   >["apiMounts"],
   projectionGroups,
-  createServices: (pool) => createMarketplaceServices(pool),
+  createServices: (pool, options) => createMarketplaceServices(pool, options),
   buildApis: (services) => [buildMarketplaceApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
@@ -97,7 +104,7 @@ export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, void>
         projectionName: inventorySubscription.projectionName,
         subscriptionVersion: inventorySubscription.subscriptionVersion,
         handlers: buildMarketplaceInventoryProjectionHandlers(services.db, {
-          onRecordChanged: services.listings.reconcileInventoryCapacity,
+          onInventoryItemChanged: services.listings.reconcileInventoryCapacity,
         }),
         eventTypes: inventorySubscription.eventTypes,
         streamPrefixes: inventorySubscription.streamPrefixes,

@@ -5,10 +5,10 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import { createReputationReviewRuntime } from "../../features/reviews/api/runtime";
+import { createReviewRuntime } from "../../features/reviews/api/runtime";
 
 export type ReputationServices = Readonly<{
-  reviews: ReturnType<typeof createReputationReviewRuntime>;
+  reviews: ReturnType<typeof createReviewRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -20,7 +20,7 @@ export function createReputationServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const reviews = createReputationReviewRuntime({
+  const reviews = createReviewRuntime({
     eventStore,
     checkpointStore,
     db,

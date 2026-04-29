@@ -82,7 +82,7 @@ export function buildDiscoveryMarketProjectionHandlers(
       const data = event.data as {
         listingId: string;
         accountId: string;
-        inventoryRecordId: string;
+        inventoryItemId: string;
         catalogItemId: string;
         productId: string;
         itemTitle: string | null;
@@ -99,7 +99,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         `INSERT INTO discovery_market_listings (
           listing_id,
           account_id,
-          inventory_record_id,
+          inventory_item_id,
           catalog_catalog_item_id,
           product_id,
           item_title,
@@ -118,7 +118,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
-          inventory_record_id = EXCLUDED.inventory_record_id,
+          inventory_item_id = EXCLUDED.inventory_item_id,
           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
           product_id = EXCLUDED.product_id,
           item_title = EXCLUDED.item_title,
@@ -133,7 +133,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         [
           data.listingId,
           data.accountId,
-          data.inventoryRecordId,
+          data.inventoryItemId,
           data.catalogItemId,
           data.productId,
           data.itemTitle,
@@ -216,7 +216,7 @@ export function buildDiscoveryMarketProjectionHandlers(
       };
 
       await db.query(
-        `INSERT INTO discovery_market_offers (
+        `INSERT INTO discovery_buyer_offer_matches (
           offer_id,
           buyer_account_id,
           catalog_catalog_item_id,
@@ -272,7 +272,7 @@ export function buildDiscoveryMarketProjectionHandlers(
       };
 
       await db.query(
-        `UPDATE discovery_market_offers
+        `UPDATE discovery_buyer_offer_matches
          SET status = 'accepted',
              accepted_seller_account_id = $2,
              accepted_at = $3,

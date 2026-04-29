@@ -11,8 +11,8 @@ export type {
   InventoryApiClientOptions,
   InventoryCatalogItemSnapshot,
   InventoryHold,
-  InventoryRecordDetail,
-  InventoryRecordListItem,
+  InventoryItemDetail,
+  InventoryItemListItem,
   InventoryStorageLocation,
 } from "../../client";
 import { createInventoryApiClient } from "../../client";

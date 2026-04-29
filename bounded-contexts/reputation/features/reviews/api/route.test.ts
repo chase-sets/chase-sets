@@ -5,11 +5,11 @@ import {
   createAccountReviewRoutes,
   createPublicReputationRoutes,
 } from "./route";
-import type { ReputationReviewServices } from "./runtime";
+import type { ReviewServices } from "./runtime";
 
 function buildApp(options: Readonly<{
   actor: ReputationApiEnv["Variables"]["actor"];
-  services: ReputationReviewServices;
+  services: ReviewServices;
 }>) {
   const app = new Hono<ReputationApiEnv>();
 
@@ -36,7 +36,7 @@ function buildApp(options: Readonly<{
   return app;
 }
 
-function createServices(): ReputationReviewServices {
+function createServices(): ReviewServices {
   return {
     commandHandler: vi.fn(async () => ({
       state: {} as never,
@@ -168,7 +168,7 @@ describe("reputation review routes", () => {
     });
   });
 
-  it("returns public reputation summaries without authentication", async () => {
+  it("returns public review summaries without authentication", async () => {
     const services = createServices();
     const app = buildApp({
       actor: null,
@@ -176,7 +176,7 @@ describe("reputation review routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://reputation.test/accounts/acc_seller/reputation"),
+      new Request("http://reputation.test/accounts/acc_seller/review-summary"),
     );
 
     expect(response.status).toBe(200);

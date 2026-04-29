@@ -12,7 +12,7 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import type { OrderingOrderListItem } from "./contracts";
+import type { PurchaseListItem, SaleListItem } from "./contracts";
 
 function formatMoney(amount: string) {
   return `$${amount}`;
@@ -42,7 +42,7 @@ export function OrderingOrderListPage({
   emptyTitle: string;
   emptyDescription: string;
   orderDetailBasePath: string;
-  orders: readonly OrderingOrderListItem[];
+  orders: readonly (PurchaseListItem | SaleListItem)[];
 }) {
   const totalQuantity = orders.reduce((sum, order) => sum + order.total_quantity, 0);
   const pendingCount = orders.filter((order) => order.status.includes("pending")).length;
@@ -56,12 +56,12 @@ export function OrderingOrderListPage({
       />
 
       <StatGrid columns={{ base: 1, md: 3 }}>
-        <Stat label="Orders" value={orders.length} />
+        <Stat label={title} value={orders.length} />
         <Stat label="Items" value={totalQuantity} />
         <Stat label="Pending" value={pendingCount} />
       </StatGrid>
 
-      <PageSection title="Orders">
+      <PageSection title={title}>
         <Grid columns={{ base: 1, xl: 2 }} gap={3}>
           {orders.length === 0 ? (
             <EmptyState

@@ -34,7 +34,7 @@ describe("ordering order domain", () => {
         {
           lineId: "oli_1" as never,
           listingId: "lst_1",
-          inventoryRecordId: "inv_1",
+          inventoryItemId: "inv_1",
           catalogItemId: "cat_1",
           productId: "cat_1::" as never,
           itemTitle: "Charizard",
@@ -49,7 +49,7 @@ describe("ordering order domain", () => {
       reservationRequests: [
         {
           reservationRequestId: "rsv_1",
-          inventoryRecordId: "inv_1",
+          inventoryItemId: "inv_1",
           sellerAccountId: "acc_seller",
           quantity: 1,
         },
@@ -85,7 +85,7 @@ describe("ordering order domain", () => {
         {
           lineId: "oli_1" as never,
           listingId: "lst_1",
-          inventoryRecordId: "inv_1",
+          inventoryItemId: "inv_1",
           catalogItemId: "cat_1",
           productId: "cat_1::" as never,
           itemTitle: "Charizard",
@@ -100,7 +100,7 @@ describe("ordering order domain", () => {
       reservationRequests: [
         {
           reservationRequestId: "rsv_1",
-          inventoryRecordId: "inv_1",
+          inventoryItemId: "inv_1",
           sellerAccountId: "acc_seller",
           quantity: 1,
         },

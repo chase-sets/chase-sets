@@ -72,7 +72,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
     const catalogItemId = c.req.query("catalogItemId");
-    const result = await services.listSellerInventoryRecordSupply({
+    const result = await services.listSellerInventoryItemSupply({
       accountId: access.actor.accountId,
       catalogItemId: catalogItemId && catalogItemId.trim() ? catalogItemId : undefined,
       limit,
@@ -141,7 +141,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
       const result = await services.createListing(
         {
           accountId: access.actor.accountId as never,
-          inventoryRecordId: String(body.inventoryRecordId ?? ""),
+          inventoryItemId: String(body.inventoryItemId ?? ""),
           priceAmount: String(body.priceAmount ?? ""),
           quantityCap: Number(body.quantityCap ?? 0),
         },

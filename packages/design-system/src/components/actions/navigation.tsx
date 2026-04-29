@@ -166,6 +166,10 @@ function renderBottomNavigationItem(
   );
 }
 
+function isNavigationItemActive(item: NavigationItem, activeKey?: string): boolean {
+  return item.key === activeKey || Boolean(item.children?.some((child) => child.key === activeKey));
+}
+
 export interface TopNavProps
   extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
   items: NavigationItem[];
@@ -205,7 +209,7 @@ export function TopNav({
               {items.map((item) =>
                 renderNavigationItem(
                   item,
-                  item.key === activeKey || Boolean(item.children?.some((child) => child.key === activeKey)),
+                  isNavigationItemActive(item, activeKey),
                   "horizontal",
                   groupId,
                   onSelect,
@@ -275,7 +279,7 @@ export function BottomNav({
       <LayoutGroup id={groupId}>
         <div className={cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width])}>
           {items.slice(0, 4).map((item) =>
-            renderBottomNavigationItem(item, item.key === activeKey, groupId, onSelect)
+            renderBottomNavigationItem(item, isNavigationItemActive(item, activeKey), groupId, onSelect)
           )}
         </div>
       </LayoutGroup>

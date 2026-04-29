@@ -11,10 +11,10 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   inventorySeedIds,
   type SeedInventoryHoldId,
-  type SeedInventoryRecordId,
+  type SeedInventoryItemId,
   type SeedStorageLocationId,
 } from "@chase-sets/inventory/seed-support/ids";
-import { createInventoryProductDescriptor } from "../../features/records/integrations/catalog/versioning";
+import { createInventoryProductDescriptor } from "../../features/inventory-items/integrations/catalog/versioning";
 import { createInventoryServices } from "./services";
 import { drainProjectors, sendSeedCommand } from "../seed-support/context";
 
@@ -28,8 +28,8 @@ type StorageLocationSeed = Readonly<{
   shipFromCode: string;
 }>;
 
-type InventoryRecordSeed = Readonly<{
-  recordId: SeedInventoryRecordId;
+type InventoryItemSeed = Readonly<{
+  itemId: SeedInventoryItemId;
   accountId?: AccountId;
   catalogItemId: SeedCatalogItemId;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
@@ -40,7 +40,7 @@ type InventoryRecordSeed = Readonly<{
 
 type InventoryHoldSeed = Readonly<{
   holdId: SeedInventoryHoldId;
-  recordId: SeedInventoryRecordId;
+  itemId: SeedInventoryItemId;
   quantity: number;
   reason: string;
   notes?: string;
@@ -82,9 +82,9 @@ const storageLocations: readonly StorageLocationSeed[] = [
   },
 ];
 
-const inventoryRecords: readonly InventoryRecordSeed[] = [
+const inventoryItems: readonly InventoryItemSeed[] = [
   {
-    recordId: inventorySeedIds.records.charizardBaseSetNearMint,
+    itemId: inventorySeedIds.items.charizardBaseSetNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     selectedOptions: [
       {
@@ -101,7 +101,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "275.00",
   },
   {
-    recordId: inventorySeedIds.records.pikachuJungleLightlyPlayed,
+    itemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     selectedOptions: [
       {
@@ -118,7 +118,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "12.50",
   },
   {
-    recordId: inventorySeedIds.records.lugiaNeoGenesisNearMint,
+    itemId: inventorySeedIds.items.lugiaNeoGenesisNearMint,
     catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
     selectedOptions: [
       {
@@ -135,7 +135,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "180.00",
   },
   {
-    recordId: inventorySeedIds.records.mewtwoBlackStarPromoNearMint,
+    itemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
     catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
     selectedOptions: [
       {
@@ -152,7 +152,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "34.00",
   },
   {
-    recordId: inventorySeedIds.records.pikachuPrismaticEvolutionsNearMint,
+    itemId: inventorySeedIds.items.pikachuPrismaticEvolutionsNearMint,
     catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
     selectedOptions: [
       {
@@ -169,7 +169,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "8.25",
   },
   {
-    recordId: inventorySeedIds.records.prismaticEvolutionsBoosterPack,
+    itemId: inventorySeedIds.items.prismaticEvolutionsBoosterPack,
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
@@ -177,7 +177,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "4.10",
   },
   {
-    recordId: inventorySeedIds.records.surgingSparksBoosterBox,
+    itemId: inventorySeedIds.items.surgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
@@ -185,7 +185,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "119.00",
   },
   {
-    recordId: inventorySeedIds.records.twilightMasqueradeEliteTrainerBox,
+    itemId: inventorySeedIds.items.twilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
@@ -193,7 +193,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "41.50",
   },
   {
-    recordId: inventorySeedIds.records.cardVaultCharizardNearMint,
+    itemId: inventorySeedIds.items.cardVaultCharizardNearMint,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     selectedOptions: [
@@ -211,7 +211,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "292.00",
   },
   {
-    recordId: inventorySeedIds.records.cardVaultPikachuExcellent,
+    itemId: inventorySeedIds.items.cardVaultPikachuExcellent,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     selectedOptions: [
@@ -229,7 +229,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "11.75",
   },
   {
-    recordId: inventorySeedIds.records.cardVaultMewtwoNearMint,
+    itemId: inventorySeedIds.items.cardVaultMewtwoNearMint,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
     selectedOptions: [
@@ -247,7 +247,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "32.00",
   },
   {
-    recordId: inventorySeedIds.records.cardVaultTwilightMasqueradeEliteTrainerBox,
+    itemId: inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     selectedOptions: [],
@@ -256,7 +256,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "40.50",
   },
   {
-    recordId: inventorySeedIds.records.sealedSellerPrismaticEvolutionsBoosterPack,
+    itemId: inventorySeedIds.items.sealedSellerPrismaticEvolutionsBoosterPack,
     accountId: identitySeedIds.sealedSeller.accountId,
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
     selectedOptions: [],
@@ -265,7 +265,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "4.00",
   },
   {
-    recordId: inventorySeedIds.records.sealedSellerSurgingSparksBoosterBox,
+    itemId: inventorySeedIds.items.sealedSellerSurgingSparksBoosterBox,
     accountId: identitySeedIds.sealedSeller.accountId,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     selectedOptions: [],
@@ -274,7 +274,7 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
     acquisitionCostAmount: "116.00",
   },
   {
-    recordId: inventorySeedIds.records.sealedSellerTwilightMasqueradeEliteTrainerBox,
+    itemId: inventorySeedIds.items.sealedSellerTwilightMasqueradeEliteTrainerBox,
     accountId: identitySeedIds.sealedSeller.accountId,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     selectedOptions: [],
@@ -287,14 +287,14 @@ const inventoryRecords: readonly InventoryRecordSeed[] = [
 const inventoryHolds: readonly InventoryHoldSeed[] = [
   {
     holdId: inventorySeedIds.holds.charizardCheckout,
-    recordId: inventorySeedIds.records.charizardBaseSetNearMint,
+    itemId: inventorySeedIds.items.charizardBaseSetNearMint,
     quantity: 1,
     reason: "Checkout hold",
     notes: "Buyer cart awaiting payment",
   },
   {
     holdId: inventorySeedIds.holds.pikachuPackingReleased,
-    recordId: inventorySeedIds.records.pikachuJungleLightlyPlayed,
+    itemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
     quantity: 2,
     reason: "Packing",
     notes: "Batch wave complete",
@@ -302,7 +302,7 @@ const inventoryHolds: readonly InventoryHoldSeed[] = [
   },
   {
     holdId: inventorySeedIds.holds.lugiaQualityControl,
-    recordId: inventorySeedIds.records.lugiaNeoGenesisNearMint,
+    itemId: inventorySeedIds.items.lugiaNeoGenesisNearMint,
     quantity: 1,
     reason: "Quality control",
     notes: "Centering review in progress",
@@ -355,46 +355,46 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
     console.log(`  Storage location "${location.name}" created`);
   }
 
-  for (const record of inventoryRecords) {
-    const streamId = `inventory.record-${record.recordId}`;
-    const catalogItem = await services.catalogItems.getCatalogItem(record.catalogItemId);
+  for (const item of inventoryItems) {
+    const streamId = `inventory.item-${item.itemId}`;
+    const catalogItem = await services.catalogItems.getCatalogItem(item.catalogItemId);
 
     if (!catalogItem) {
-      throw new Error(`Inventory seed could not load catalog item ${record.catalogItemId}.`);
+      throw new Error(`Inventory seed could not load catalog item ${item.catalogItemId}.`);
     }
 
     const catalogVersion = createInventoryProductDescriptor({
-      catalogItemId: record.catalogItemId,
+      catalogItemId: item.catalogItemId,
       productSchema: catalogItem.product_schema,
-      selection: record.selectedOptions,
+      selection: item.selectedOptions,
     });
 
-    await sendSeedCommand(services.records.commandHandler, streamId, {
-      type: "CreateInventoryRecord",
-      recordId: record.recordId,
-      accountId: record.accountId ?? demoIdentitySeedIds.accountId,
-      catalogItemId: record.catalogItemId,
+    await sendSeedCommand(services.items.commandHandler, streamId, {
+      type: "CreateInventoryItem",
+      itemId: item.itemId,
+      accountId: item.accountId ?? demoIdentitySeedIds.accountId,
+      catalogItemId: item.catalogItemId,
       productId: catalogVersion.productId,
       selectedOptions: catalogVersion.selection,
-      storageLocationId: record.storageLocationId,
-      totalQuantity: record.totalQuantity,
-      acquisitionCostAmount: record.acquisitionCostAmount,
+      storageLocationId: item.storageLocationId,
+      totalQuantity: item.totalQuantity,
+      acquisitionCostAmount: item.acquisitionCostAmount,
     });
 
-    if (record.recordId === inventorySeedIds.records.charizardBaseSetNearMint) {
-      await sendSeedCommand(services.records.commandHandler, streamId, {
-        type: "AdjustInventoryRecordQuantity",
+    if (item.itemId === inventorySeedIds.items.charizardBaseSetNearMint) {
+      await sendSeedCommand(services.items.commandHandler, streamId, {
+        type: "AdjustInventoryItemQuantity",
         quantityDelta: 1,
         reason: "Cycle count increase",
       });
-      await sendSeedCommand(services.records.commandHandler, streamId, {
-        type: "AdjustInventoryRecordQuantity",
+      await sendSeedCommand(services.items.commandHandler, streamId, {
+        type: "AdjustInventoryItemQuantity",
         quantityDelta: -1,
         reason: "Reserve correction",
       });
     }
 
-    console.log(`  Inventory record "${record.recordId}" created`);
+    console.log(`  Inventory item "${item.itemId}" created`);
   }
 
   for (const hold of inventoryHolds) {
@@ -404,7 +404,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       type: "PlaceInventoryHold",
       holdId: hold.holdId,
       accountId: demoIdentitySeedIds.accountId,
-      recordId: hold.recordId,
+      itemId: hold.itemId,
       quantity: hold.quantity,
       reason: hold.reason,
       notes: hold.notes,

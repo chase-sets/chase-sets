@@ -13,13 +13,16 @@ import {
   createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
-import { createMarketplaceServices } from "./services";
+import {
+  createMarketplaceServices,
+  type MarketplaceServices,
+} from "./services";
 
 type ListingSeed = Readonly<{
   listingId: ListingId;
   accountId?: AccountId;
   userId?: UserId;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   catalogItemId: string;
   priceAmount: string;
   quantityCap: number;
@@ -65,7 +68,7 @@ const listings: readonly ListingSeed[] = [
   // Both listings and offers, sparse listings.
   {
     listingId: marketplaceReservedSeedIds.listings.charizardBaseSetNearMint,
-    inventoryRecordId: inventorySeedIds.records.charizardBaseSetNearMint,
+    inventoryItemId: inventorySeedIds.items.charizardBaseSetNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     priceAmount: "399.99",
     quantityCap: 2,
@@ -75,7 +78,7 @@ const listings: readonly ListingSeed[] = [
     listingId: marketplaceReservedSeedIds.listings.cardVaultCharizardNearMint,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     userId: identitySeedIds.cardVaultSeller.userId,
-    inventoryRecordId: inventorySeedIds.records.cardVaultCharizardNearMint,
+    inventoryItemId: inventorySeedIds.items.cardVaultCharizardNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     priceAmount: "389.00",
     quantityCap: 1,
@@ -85,7 +88,7 @@ const listings: readonly ListingSeed[] = [
     listingId: marketplaceReservedSeedIds.listings.cardVaultCharizardMarketMaker,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     userId: identitySeedIds.cardVaultSeller.userId,
-    inventoryRecordId: inventorySeedIds.records.cardVaultCharizardNearMint,
+    inventoryItemId: inventorySeedIds.items.cardVaultCharizardNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     priceAmount: "412.00",
     quantityCap: 1,
@@ -94,7 +97,7 @@ const listings: readonly ListingSeed[] = [
   // Both listings and offers, many listings.
   {
     listingId: marketplaceReservedSeedIds.listings.pikachuJungleLightlyPlayed,
-    inventoryRecordId: inventorySeedIds.records.pikachuJungleLightlyPlayed,
+    inventoryItemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "21.50",
     quantityCap: 3,
@@ -102,7 +105,7 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.pikachuJungleValueCopy,
-    inventoryRecordId: inventorySeedIds.records.pikachuJungleLightlyPlayed,
+    inventoryItemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "19.99",
     quantityCap: 2,
@@ -110,7 +113,7 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.pikachuJunglePremiumCopy,
-    inventoryRecordId: inventorySeedIds.records.pikachuJungleLightlyPlayed,
+    inventoryItemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "24.00",
     quantityCap: 1,
@@ -120,7 +123,7 @@ const listings: readonly ListingSeed[] = [
     listingId: marketplaceReservedSeedIds.listings.cardVaultPikachuStack,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     userId: identitySeedIds.cardVaultSeller.userId,
-    inventoryRecordId: inventorySeedIds.records.cardVaultPikachuExcellent,
+    inventoryItemId: inventorySeedIds.items.cardVaultPikachuExcellent,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "18.75",
     quantityCap: 6,
@@ -130,7 +133,7 @@ const listings: readonly ListingSeed[] = [
     listingId: marketplaceReservedSeedIds.listings.cardVaultPikachuLowMargin,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     userId: identitySeedIds.cardVaultSeller.userId,
-    inventoryRecordId: inventorySeedIds.records.cardVaultPikachuExcellent,
+    inventoryItemId: inventorySeedIds.items.cardVaultPikachuExcellent,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "17.95",
     quantityCap: 4,
@@ -138,7 +141,7 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.lugiaNeoGenesisDraft,
-    inventoryRecordId: inventorySeedIds.records.lugiaNeoGenesisNearMint,
+    inventoryItemId: inventorySeedIds.items.lugiaNeoGenesisNearMint,
     catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
     priceAmount: "229.00",
     quantityCap: 1,
@@ -147,7 +150,7 @@ const listings: readonly ListingSeed[] = [
   // Listings with no offers.
   {
     listingId: marketplaceReservedSeedIds.listings.mewtwoBlackStarPromoActive,
-    inventoryRecordId: inventorySeedIds.records.mewtwoBlackStarPromoNearMint,
+    inventoryItemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
     catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
     priceAmount: "48.00",
     quantityCap: 2,
@@ -155,7 +158,7 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.mewtwoBlackStarPromoPremium,
-    inventoryRecordId: inventorySeedIds.records.mewtwoBlackStarPromoNearMint,
+    inventoryItemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
     catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
     priceAmount: "52.50",
     quantityCap: 1,
@@ -165,7 +168,7 @@ const listings: readonly ListingSeed[] = [
     listingId: marketplaceReservedSeedIds.listings.cardVaultMewtwoBudget,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     userId: identitySeedIds.cardVaultSeller.userId,
-    inventoryRecordId: inventorySeedIds.records.cardVaultMewtwoNearMint,
+    inventoryItemId: inventorySeedIds.items.cardVaultMewtwoNearMint,
     catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
     priceAmount: "45.50",
     quantityCap: 2,
@@ -173,7 +176,7 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.prismaticEvolutionsPaused,
-    inventoryRecordId: inventorySeedIds.records.pikachuPrismaticEvolutionsNearMint,
+    inventoryItemId: inventorySeedIds.items.pikachuPrismaticEvolutionsNearMint,
     catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
     priceAmount: "16.25",
     quantityCap: 4,
@@ -181,7 +184,7 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.surgingSparksWithdrawn,
-    inventoryRecordId: inventorySeedIds.records.surgingSparksBoosterBox,
+    inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     priceAmount: "132.00",
     quantityCap: 1,
@@ -191,7 +194,7 @@ const listings: readonly ListingSeed[] = [
     listingId: marketplaceReservedSeedIds.listings.sealedSellerSurgingSparksActive,
     accountId: identitySeedIds.sealedSeller.accountId,
     userId: identitySeedIds.sealedSeller.userId,
-    inventoryRecordId: inventorySeedIds.records.sealedSellerSurgingSparksBoosterBox,
+    inventoryItemId: inventorySeedIds.items.sealedSellerSurgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     priceAmount: "126.00",
     quantityCap: 4,
@@ -201,7 +204,7 @@ const listings: readonly ListingSeed[] = [
     listingId: marketplaceReservedSeedIds.listings.sealedSellerSurgingSparksPremium,
     accountId: identitySeedIds.sealedSeller.accountId,
     userId: identitySeedIds.sealedSeller.userId,
-    inventoryRecordId: inventorySeedIds.records.sealedSellerSurgingSparksBoosterBox,
+    inventoryItemId: inventorySeedIds.items.sealedSellerSurgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     priceAmount: "131.50",
     quantityCap: 2,
@@ -209,7 +212,7 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.twilightMasqueradeEliteTrainerActive,
-    inventoryRecordId: inventorySeedIds.records.twilightMasqueradeEliteTrainerBox,
+    inventoryItemId: inventorySeedIds.items.twilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     priceAmount: "46.00",
     quantityCap: 2,
@@ -220,8 +223,8 @@ const listings: readonly ListingSeed[] = [
       marketplaceReservedSeedIds.listings.cardVaultTwilightMasqueradeEliteTrainer,
     accountId: identitySeedIds.cardVaultSeller.accountId,
     userId: identitySeedIds.cardVaultSeller.userId,
-    inventoryRecordId:
-      inventorySeedIds.records.cardVaultTwilightMasqueradeEliteTrainerBox,
+    inventoryItemId:
+      inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     priceAmount: "44.75",
     quantityCap: 2,
@@ -232,8 +235,8 @@ const listings: readonly ListingSeed[] = [
       marketplaceReservedSeedIds.listings.sealedSellerTwilightMasqueradeEliteTrainer,
     accountId: identitySeedIds.sealedSeller.accountId,
     userId: identitySeedIds.sealedSeller.userId,
-    inventoryRecordId:
-      inventorySeedIds.records.sealedSellerTwilightMasqueradeEliteTrainerBox,
+    inventoryItemId:
+      inventorySeedIds.items.sealedSellerTwilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     priceAmount: "43.25",
     quantityCap: 4,
@@ -573,8 +576,10 @@ function createSeedContextFor(accountId: string, userId: string) {
   };
 }
 
-export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
-  const services = createMarketplaceServices(pool);
+export async function seedMarketplaceDatabase(
+  pool: PgTransactionalPool,
+  services: MarketplaceServices = createMarketplaceServices(pool),
+) {
 
   try {
     const existing = await services.db.query(`
@@ -601,8 +606,8 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
       accountId,
       listing.userId ?? identitySeedIds.seller.userId,
     );
-    const supply = await services.listings.getInventoryRecordSupply(
-      listing.inventoryRecordId,
+    const supply = await services.listings.getInventoryItemSupply(
+      listing.inventoryItemId,
       accountId,
     );
 
@@ -614,7 +619,7 @@ export async function seedMarketplaceDatabase(pool: PgTransactionalPool) {
     await services.listings.createListing(
       {
         accountId,
-        inventoryRecordId: supply.record_id,
+        inventoryItemId: supply.item_id,
         priceAmount: listing.priceAmount,
         quantityCap: listing.quantityCap,
         listingIdOverride: seededListingId,

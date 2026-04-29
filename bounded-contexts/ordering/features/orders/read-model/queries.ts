@@ -4,7 +4,7 @@ import type { VersionSelectedOptionEntry } from "../../../support/runtime-suppor
 export type OrderingOrderLineRow = Readonly<{
   line_id: string;
   listing_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string;
@@ -18,7 +18,7 @@ export type OrderingOrderLineRow = Readonly<{
 
 export type OrderingOrderHoldRow = Readonly<{
   hold_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   seller_account_id: string;
   quantity: number;
   status: string;
@@ -95,7 +95,7 @@ type BaseOrderPageRow = Readonly<{
 type OrderLinePageRow = Readonly<{
   line_id: string;
   listing_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string;
@@ -161,7 +161,7 @@ function mapOrderLine(row: OrderLinePageRow): OrderingOrderLineRow {
   };
 }
 
-export async function listBuyerOrders(
+export async function listPurchases(
   db: PgQueryable,
   params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number }>,
 ): Promise<{ items: OrderingOrderListRow[]; total: number }> {
@@ -190,7 +190,7 @@ export async function listBuyerOrders(
   };
 }
 
-export async function getBuyerOrder(
+export async function getPurchase(
   db: PgQueryable,
   orderId: string,
   buyerAccountId: string,
@@ -211,7 +211,7 @@ export async function getBuyerOrder(
       `SELECT
          line_id,
          listing_id,
-         inventory_record_id,
+         inventory_item_id,
          catalog_catalog_item_id,
          product_id,
          item_title,
@@ -229,7 +229,7 @@ export async function getBuyerOrder(
     db.query<OrderingOrderHoldRow>(
       `SELECT
          hold_id,
-         inventory_record_id,
+         inventory_item_id,
          seller_account_id,
          quantity,
          status,
@@ -249,7 +249,7 @@ export async function getBuyerOrder(
   };
 }
 
-export async function listSellerOrders(
+export async function listSales(
   db: PgQueryable,
   params: Readonly<{ sellerAccountId: string; limit?: number; offset?: number }>,
 ): Promise<{ items: OrderingOrderListRow[]; total: number }> {
@@ -278,7 +278,7 @@ export async function listSellerOrders(
   };
 }
 
-export async function getSellerOrder(
+export async function getSale(
   db: PgQueryable,
   orderId: string,
   sellerAccountId: string,
@@ -299,7 +299,7 @@ export async function getSellerOrder(
       `SELECT
          line_id,
          listing_id,
-         inventory_record_id,
+         inventory_item_id,
          catalog_catalog_item_id,
          product_id,
          item_title,
@@ -317,7 +317,7 @@ export async function getSellerOrder(
     db.query<OrderingOrderHoldRow>(
       `SELECT
          hold_id,
-         inventory_record_id,
+         inventory_item_id,
          seller_account_id,
          quantity,
          status,

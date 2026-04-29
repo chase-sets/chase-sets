@@ -23,7 +23,7 @@ import {
 export type OrderingOrderLine = Readonly<{
   lineId: OrderLineId;
   listingId: string;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   catalogItemId: string;
   productId: string;
   itemTitle: string;
@@ -37,7 +37,7 @@ export type OrderingOrderLine = Readonly<{
 
 export type OrderingReservationRequest = Readonly<{
   reservationRequestId: string;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   sellerAccountId: string;
   quantity: number;
   holdId: string | null;
@@ -115,7 +115,7 @@ export type CreateOrderCommand = Readonly<{
   reservationRequests: Array<
     Readonly<{
       reservationRequestId: string;
-      inventoryRecordId: string;
+      inventoryItemId: string;
       sellerAccountId: string;
       quantity: number;
     }>
@@ -181,7 +181,7 @@ export type OrderCreatedEvent = DomainEvent<
     reservationRequests: Array<
       Readonly<{
         reservationRequestId: string;
-        inventoryRecordId: string;
+        inventoryItemId: string;
         sellerAccountId: string;
         quantity: number;
       }>
@@ -194,7 +194,7 @@ export type OrderReservationConfirmedEvent = DomainEvent<
   Readonly<{
     orderId: OrderId;
     reservationRequestId: string;
-    inventoryRecordId: string;
+    inventoryItemId: string;
     sellerAccountId: string;
     quantity: number;
     holdId: string;
@@ -262,8 +262,8 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
   return lines.map((line) => ({
     lineId: line.lineId,
     listingId: normalizeRequiredText(line.listingId, "Order lines must reference a listing."),
-    inventoryRecordId: normalizeRequiredText(
-      line.inventoryRecordId,
+    inventoryItemId: normalizeRequiredText(
+      line.inventoryItemId,
       "Order lines must reference inventory.",
     ),
     catalogItemId: normalizeRequiredText(
@@ -317,9 +317,9 @@ function normalizeReservationRequests(
         request.reservationRequestId,
         "Reservation requests must include an id.",
       ),
-      inventoryRecordId: normalizeRequiredText(
-        request.inventoryRecordId,
-        "Reservation requests must include an inventory record id.",
+      inventoryItemId: normalizeRequiredText(
+        request.inventoryItemId,
+        "Reservation requests must include an inventory item id.",
       ),
       sellerAccountId: normalizedSellerAccountId,
       quantity: ensurePositiveInteger(
@@ -482,11 +482,11 @@ export const decideOrderingOrder: AggregateDecider<
               command.reservationRequestId,
               "Reservation confirmation must include a request id.",
             ),
-            inventoryRecordId:
+            inventoryItemId:
               nextState.reservationRequests.find(
                 (request) =>
                   request.reservationRequestId === command.reservationRequestId,
-              )?.inventoryRecordId ?? "",
+              )?.inventoryItemId ?? "",
             sellerAccountId:
               nextState.reservationRequests.find(
                 (request) =>
@@ -715,7 +715,7 @@ export const evolveOrderingOrder: AggregateEvolver<
         lines: event.data.lines,
         reservationRequests: event.data.reservationRequests.map((request) => ({
           reservationRequestId: request.reservationRequestId,
-          inventoryRecordId: request.inventoryRecordId,
+          inventoryItemId: request.inventoryItemId,
           sellerAccountId: request.sellerAccountId,
           quantity: request.quantity,
           holdId: null,

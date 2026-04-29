@@ -20,6 +20,8 @@ import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { module as catalogModule } from "@chase-sets/catalog";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import { module as orderingModule } from "@chase-sets/ordering";
 import { type InventoryApiEnv, buildInventoryApi } from "../../api";
 import { InventoryDomainError } from "../../support/runtime-support/common";
 import { createInventoryServices } from "../../support/runtime-support/services";
@@ -27,7 +29,7 @@ import { module as inventoryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
-const inventoryContextNames = ["catalog", "inventory"] as const;
+const inventoryContextNames = ["catalog", "ordering", "inventory"] as const;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -73,6 +75,9 @@ describeWithDatabase("inventory api", () => {
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
     const catalogServices = catalogModule.createServices(pools.catalog, undefined);
+    const orderingServices = orderingModule.createServices(pools.ordering, {
+      commercialTermsResolver: createNoopCommercialTermsResolver(),
+    });
     services = createInventoryServices(pools.inventory);
     runtime = {
       mountedContexts: [
@@ -82,6 +87,14 @@ describeWithDatabase("inventory api", () => {
           services: catalogServices,
           pool: pools.catalog,
           projectors: catalogModule.projectors(catalogServices),
+        },
+        {
+          contextName: "ordering",
+          mountRole: "source-only",
+          module: orderingModule,
+          services: orderingServices,
+          pool: pools.ordering,
+          projectors: [],
         },
         {
           contextName: "inventory",
@@ -133,16 +146,17 @@ describeWithDatabase("inventory api", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(catalogModule, pools.catalog);
+    await bootstrapContextDatabase(orderingModule, pools.ordering);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await catalogModule.seed?.(pools.catalog);
     await syncContextProjectionGroups(runtime, "inventory", { requiredOnly: true });
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
   });
 
-  it("creates records, places holds, releases holds, and projects availability", async () => {
+  it("creates inventory items, places holds, releases holds, and projects availability", async () => {
     const locationResponse = await app.request("/api/inventory/storage-locations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -155,7 +169,7 @@ describeWithDatabase("inventory api", () => {
     expect(locationResponse.status).toBe(201);
     const locationBody = await locationResponse.json();
 
-    const recordResponse = await app.request("/api/inventory/records", {
+    const itemResponse = await app.request("/api/inventory/items", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -175,11 +189,11 @@ describeWithDatabase("inventory api", () => {
         acquisitionCostAmount: "4.50",
       }),
     });
-    expect(recordResponse.status).toBe(201);
-    const recordBody = await recordResponse.json();
+    expect(itemResponse.status).toBe(201);
+    const itemBody = await itemResponse.json();
 
     const holdResponse = await app.request(
-      `/api/inventory/records/${recordBody.id}/holds`,
+      `/api/inventory/items/${itemBody.id}/holds`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -193,7 +207,7 @@ describeWithDatabase("inventory api", () => {
     expect(holdResponse.status).toBe(201);
     const holdBody = await holdResponse.json();
 
-    const listResponse = await app.request("/api/inventory/records");
+    const listResponse = await app.request("/api/inventory/items");
     expect(listResponse.status).toBe(200);
     const listBody = await listResponse.json();
     expect(listBody.items).toHaveLength(1);
@@ -204,7 +218,7 @@ describeWithDatabase("inventory api", () => {
       available_quantity: 7,
     });
 
-    const detailResponse = await app.request(`/api/inventory/records/${recordBody.id}`);
+    const detailResponse = await app.request(`/api/inventory/items/${itemBody.id}`);
     expect(detailResponse.status).toBe(200);
     const detailBody = await detailResponse.json();
     expect(detailBody.holds).toHaveLength(1);
@@ -224,7 +238,7 @@ describeWithDatabase("inventory api", () => {
     expect(releaseResponse.status).toBe(200);
 
     const updatedDetailResponse = await app.request(
-      `/api/inventory/records/${recordBody.id}`,
+      `/api/inventory/items/${itemBody.id}`,
     );
     const updatedDetailBody = await updatedDetailResponse.json();
     expect(updatedDetailBody).toMatchObject({
@@ -245,7 +259,7 @@ describeWithDatabase("inventory api", () => {
     });
     const locationBody = await location.json();
 
-    const record = await app.request("/api/inventory/records", {
+    const itemResponse = await app.request("/api/inventory/items", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -264,9 +278,9 @@ describeWithDatabase("inventory api", () => {
         totalQuantity: 5,
       }),
     });
-    const recordBody = await record.json();
+    const itemBody = await itemResponse.json();
 
-    const hold = await app.request(`/api/inventory/records/${recordBody.id}/holds`, {
+    const hold = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -276,7 +290,7 @@ describeWithDatabase("inventory api", () => {
     });
     expect(hold.status).toBe(201);
 
-    const overHold = await app.request(`/api/inventory/records/${recordBody.id}/holds`, {
+    const overHold = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -287,7 +301,7 @@ describeWithDatabase("inventory api", () => {
     expect(overHold.status).toBe(400);
 
     const invalidAdjustment = await app.request(
-      `/api/inventory/records/${recordBody.id}/adjustments`,
+      `/api/inventory/items/${itemBody.id}/adjustments`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -341,7 +355,7 @@ describeWithDatabase("inventory api", () => {
     expect(writeResponse.status).toBe(403);
   });
 
-  it("hides cross-account records", async () => {
+  it("hides cross-account inventory items", async () => {
     const otherContext: EventStoreContext = {
       tenantId: "tnt_test" as never,
       audit: {
@@ -363,7 +377,7 @@ describeWithDatabase("inventory api", () => {
       subscriptionRunners,
     });
 
-    await services.records.createRecord(
+    await services.items.createItem(
       {
         accountId: "acc_other" as never,
         catalogItemId: catalogSeedIds.items.charizardBaseSet,
@@ -387,7 +401,7 @@ describeWithDatabase("inventory api", () => {
       subscriptionRunners,
     });
 
-    const listResponse = await app.request("/api/inventory/records");
+    const listResponse = await app.request("/api/inventory/items");
     const listBody = await listResponse.json();
     expect(listBody.items).toHaveLength(0);
   });
@@ -395,6 +409,7 @@ describeWithDatabase("inventory api", () => {
   it("creates deterministic cross-context seed data and stays idempotent", async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(catalogModule, pools.catalog);
+    await bootstrapContextDatabase(orderingModule, pools.ordering);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await catalogModule.seed?.(pools.catalog);
     await syncContextProjectionGroups(runtime, "inventory", { requiredOnly: true });
@@ -405,33 +420,56 @@ describeWithDatabase("inventory api", () => {
     });
 
     const seededServices = createInventoryServices(pools.inventory);
-    const records = await seededServices.records.listRecords({
+    const items = await seededServices.items.listItems({
       accountId: demoIdentitySeedIds.accountId,
       limit: 50,
       offset: 0,
     });
+    const demoAccountInventoryItemIds = [
+      inventorySeedIds.items.charizardBaseSetNearMint,
+      inventorySeedIds.items.pikachuJungleLightlyPlayed,
+      inventorySeedIds.items.lugiaNeoGenesisNearMint,
+      inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
+      inventorySeedIds.items.pikachuPrismaticEvolutionsNearMint,
+      inventorySeedIds.items.prismaticEvolutionsBoosterPack,
+      inventorySeedIds.items.surgingSparksBoosterBox,
+      inventorySeedIds.items.twilightMasqueradeEliteTrainerBox,
+    ];
+    const demoAccountCatalogItemIds = [
+      catalogSeedIds.items.charizardBaseSet,
+      catalogSeedIds.items.pikachuJungle,
+      catalogSeedIds.items.lugiaNeoGenesis,
+      catalogSeedIds.items.mewtwoBlackStarPromo,
+      catalogSeedIds.items.pikachuPrismaticEvolutions,
+      catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+      catalogSeedIds.items.surgingSparksBoosterBox,
+      catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    ];
 
-    expect(records.total).toBe(Object.keys(inventorySeedIds.records).length);
-    expect(new Set(records.items.map((item) => item.account_id))).toEqual(
+    expect(items.total).toBe(demoAccountInventoryItemIds.length);
+    expect(new Set(items.items.map((item) => item.item_id))).toEqual(
+      new Set(demoAccountInventoryItemIds),
+    );
+    expect(new Set(items.items.map((item) => item.account_id))).toEqual(
       new Set([demoIdentitySeedIds.accountId]),
     );
-    expect(new Set(records.items.map((item) => item.catalog_catalog_item_id))).toEqual(
-      new Set(Object.values(catalogSeedIds.items)),
+    expect(new Set(items.items.map((item) => item.catalog_catalog_item_id))).toEqual(
+      new Set(demoAccountCatalogItemIds),
     );
 
-    const charizardRecord = await seededServices.records.getRecord(
-      inventorySeedIds.records.charizardBaseSetNearMint,
+    const charizardItem = await seededServices.items.getItem(
+      inventorySeedIds.items.charizardBaseSetNearMint,
       demoIdentitySeedIds.accountId,
     );
-    expect(charizardRecord).toMatchObject({
-      record_id: inventorySeedIds.records.charizardBaseSetNearMint,
+    expect(charizardItem).toMatchObject({
+      item_id: inventorySeedIds.items.charizardBaseSetNearMint,
       catalog_catalog_item_id: catalogSeedIds.items.charizardBaseSet,
       item_title: "Charizard",
       item_subtitle: "Base Set 4/102 Holo Rare",
       held_quantity: 1,
       available_quantity: 2,
     });
-    expect(charizardRecord?.holds).toEqual(
+    expect(charizardItem?.holds).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           hold_id: inventorySeedIds.holds.charizardCheckout,
@@ -440,19 +478,19 @@ describeWithDatabase("inventory api", () => {
       ]),
     );
 
-    const pikachuRecord = await seededServices.records.getRecord(
-      inventorySeedIds.records.pikachuJungleLightlyPlayed,
+    const pikachuItem = await seededServices.items.getItem(
+      inventorySeedIds.items.pikachuJungleLightlyPlayed,
       demoIdentitySeedIds.accountId,
     );
-    expect(pikachuRecord).toMatchObject({
-      record_id: inventorySeedIds.records.pikachuJungleLightlyPlayed,
+    expect(pikachuItem).toMatchObject({
+      item_id: inventorySeedIds.items.pikachuJungleLightlyPlayed,
       catalog_catalog_item_id: catalogSeedIds.items.pikachuJungle,
       item_title: "Pikachu",
       item_subtitle: "Jungle 60/64 Common",
       held_quantity: 0,
       available_quantity: 8,
     });
-    expect(pikachuRecord?.holds).toEqual(
+    expect(pikachuItem?.holds).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           hold_id: inventorySeedIds.holds.pikachuPackingReleased,
@@ -471,11 +509,11 @@ describeWithDatabase("inventory api", () => {
       includeArchived: true,
     });
     expect(storageLocations.map((location) => location.storage_location_id).sort()).toEqual(
-      Object.values(inventorySeedIds.storageLocations).sort(),
+      [
+        inventorySeedIds.storageLocations.northShelf,
+        inventorySeedIds.storageLocations.vaultAnnex,
+        inventorySeedIds.storageLocations.archivedOverflow,
+      ].sort(),
     );
   }, 60000);
 });
-
-
-
-

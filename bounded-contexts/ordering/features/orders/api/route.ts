@@ -68,7 +68,7 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
     }
   });
 
-  app.post("/orders/buy-now", async (c) => {
+  app.post("/purchases/buy-now", async (c) => {
     const access = requireOrderAccess(c, "orders.manage");
     if (access.response) {
       return access.response;
@@ -99,7 +99,7 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
     }
   });
 
-  app.get("/orders", async (c) => {
+  app.get("/purchases", async (c) => {
     const access = requireOrderAccess(c, "orders.view");
     if (access.response) {
       return access.response;
@@ -107,7 +107,7 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listBuyerOrders({
+    const result = await services.listPurchases({
       buyerAccountId: access.actor.accountId,
       limit,
       offset,
@@ -120,21 +120,21 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
     });
   });
 
-  app.get("/orders/:id", async (c) => {
+  app.get("/purchases/:id", async (c) => {
     const access = requireOrderAccess(c, "orders.view");
     if (access.response) {
       return access.response;
     }
 
-    const order = await services.getBuyerOrder(c.req.param("id"), access.actor.accountId);
+    const order = await services.getPurchase(c.req.param("id"), access.actor.accountId);
     if (!order) {
-      return c.json({ error: "Order not found." }, 404);
+      return c.json({ error: "Purchase not found." }, 404);
     }
 
     return c.json(order);
   });
 
-  app.post("/orders/:id/cancel", async (c) => {
+  app.post("/purchases/:id/cancel", async (c) => {
     const access = requireOrderAccess(c, "orders.manage");
     if (access.response) {
       return access.response;
@@ -146,7 +146,7 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
     }
 
     try {
-      const result = await services.cancelBuyerOrder(
+      const result = await services.cancelPurchase(
         {
           orderId: c.req.param("id"),
           buyerAccountId: access.actor.accountId,
@@ -165,7 +165,7 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
 export function createSellerOrderRoutes(services: OrderingOrderServices) {
   const app = new Hono<OrderingApiEnv>();
 
-  app.get("/orders", async (c) => {
+  app.get("/sales", async (c) => {
     const access = requireOrderAccess(c, "orders.view");
     if (access.response) {
       return access.response;
@@ -173,7 +173,7 @@ export function createSellerOrderRoutes(services: OrderingOrderServices) {
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listSellerOrders({
+    const result = await services.listSales({
       sellerAccountId: access.actor.accountId,
       limit,
       offset,
@@ -186,21 +186,21 @@ export function createSellerOrderRoutes(services: OrderingOrderServices) {
     });
   });
 
-  app.get("/orders/:id", async (c) => {
+  app.get("/sales/:id", async (c) => {
     const access = requireOrderAccess(c, "orders.view");
     if (access.response) {
       return access.response;
     }
 
-    const order = await services.getSellerOrder(c.req.param("id"), access.actor.accountId);
+    const order = await services.getSale(c.req.param("id"), access.actor.accountId);
     if (!order) {
-      return c.json({ error: "Order not found." }, 404);
+      return c.json({ error: "Sale not found." }, 404);
     }
 
     return c.json(order);
   });
 
-  app.post("/orders/:id/cancel", async (c) => {
+  app.post("/sales/:id/cancel", async (c) => {
     const access = requireOrderAccess(c, "orders.manage");
     if (access.response) {
       return access.response;
@@ -212,7 +212,7 @@ export function createSellerOrderRoutes(services: OrderingOrderServices) {
     }
 
     try {
-      const result = await services.cancelSellerOrder(
+      const result = await services.cancelSale(
         {
           orderId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,

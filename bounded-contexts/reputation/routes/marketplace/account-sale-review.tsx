@@ -13,10 +13,10 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   ReputationApiError,
-  type ReputationReviewOpportunity,
+  type ReviewOpportunity,
 } from "../../support/request-support/api-client";
 import { createReputationRequestApiClient } from "../../support/request-support/api-client";
-import { ReputationReviewSubmissionPage } from "../../features/reviews/ui/review-submission-page";
+import { ReviewSubmissionPage } from "../../features/reviews/ui/review-submission-page";
 
 type ReviewActionData = Readonly<{
   error: string;
@@ -112,9 +112,9 @@ export default function MarketplaceAccountSaleReviewRoute() {
   const navigation = useNavigation();
 
   return (
-    <ReputationReviewSubmissionPage
+    <ReviewSubmissionPage
       backHref={`/account/sales/${data.opportunity.order_id}`}
-      opportunity={data.opportunity as ReputationReviewOpportunity}
+      opportunity={data.opportunity as ReviewOpportunity}
       errorMessage={actionData?.error ?? null}
       isSubmitting={navigation.state === "submitting"}
       defaultRating={actionData?.values?.rating ?? 5}

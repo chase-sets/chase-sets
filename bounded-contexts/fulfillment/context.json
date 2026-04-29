@@ -102,20 +102,6 @@
       "deployable": "marketplace-web",
       "routes": [
         {
-          "routeId": "account-fulfillment",
-          "routePath": "account/fulfillment",
-          "fileExport": "./routes/marketplace/account-fulfillment",
-          "routeType": "route",
-          "sourceContext": "fulfillment"
-        },
-        {
-          "routeId": "account-fulfillment-shipment",
-          "routePath": "account/fulfillment/:shipmentId",
-          "fileExport": "./routes/marketplace/account-fulfillment-shipment",
-          "routeType": "route",
-          "sourceContext": "fulfillment"
-        },
-        {
           "routeId": "account-shipment",
           "routePath": "account/shipments/:shipmentId",
           "fileExport": "./routes/marketplace/account-shipment",
@@ -148,20 +134,6 @@
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
-      "key": "fulfillment",
-      "label": "Fulfillment",
-      "icon": "package",
-      "href": "/account/fulfillment",
-      "order": 180,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "fulfillment.view",
-        "fulfillment.manage"
-      ]
-    },
-    {
-      "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "shipments",
       "label": "Shipments",
@@ -171,20 +143,6 @@
       "visibility": "signed-in",
       "requiredPermissions": [
         "fulfillment.view"
-      ]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "fulfillment",
-      "label": "Fulfillment",
-      "icon": "package",
-      "href": "/account/fulfillment",
-      "order": 180,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "fulfillment.view",
-        "fulfillment.manage"
       ]
     }
   ],

@@ -10,7 +10,7 @@ export function buildInventoryReservationProjectionHandlers(
         reservationRequestId: string;
         orderId: string;
         sellerAccountId: string;
-        inventoryRecordId: string;
+        inventoryItemId: string;
         quantity: number;
         holdId: string;
       };
@@ -20,7 +20,7 @@ export function buildInventoryReservationProjectionHandlers(
            reservation_request_id,
            order_id,
            seller_account_id,
-           inventory_record_id,
+           inventory_item_id,
            quantity,
            hold_id,
            status,
@@ -31,7 +31,7 @@ export function buildInventoryReservationProjectionHandlers(
          ON CONFLICT (reservation_request_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
              seller_account_id = EXCLUDED.seller_account_id,
-             inventory_record_id = EXCLUDED.inventory_record_id,
+             inventory_item_id = EXCLUDED.inventory_item_id,
              quantity = EXCLUDED.quantity,
              hold_id = EXCLUDED.hold_id,
              status = EXCLUDED.status,
@@ -42,7 +42,7 @@ export function buildInventoryReservationProjectionHandlers(
           data.reservationRequestId,
           data.orderId,
           data.sellerAccountId,
-          data.inventoryRecordId,
+          data.inventoryItemId,
           data.quantity,
           data.holdId,
           event.timing.recordedAt,
@@ -54,7 +54,7 @@ export function buildInventoryReservationProjectionHandlers(
         reservationRequestId: string;
         orderId: string;
         sellerAccountId: string;
-        inventoryRecordId: string;
+        inventoryItemId: string;
         quantity: number;
         reason: string;
       };
@@ -64,7 +64,7 @@ export function buildInventoryReservationProjectionHandlers(
            reservation_request_id,
            order_id,
            seller_account_id,
-           inventory_record_id,
+           inventory_item_id,
            quantity,
            hold_id,
            status,
@@ -75,7 +75,7 @@ export function buildInventoryReservationProjectionHandlers(
          ON CONFLICT (reservation_request_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
              seller_account_id = EXCLUDED.seller_account_id,
-             inventory_record_id = EXCLUDED.inventory_record_id,
+             inventory_item_id = EXCLUDED.inventory_item_id,
              quantity = EXCLUDED.quantity,
              hold_id = EXCLUDED.hold_id,
              status = EXCLUDED.status,
@@ -86,7 +86,7 @@ export function buildInventoryReservationProjectionHandlers(
           data.reservationRequestId,
           data.orderId,
           data.sellerAccountId,
-          data.inventoryRecordId,
+          data.inventoryItemId,
           data.quantity,
           data.reason,
           event.timing.recordedAt,

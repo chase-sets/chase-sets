@@ -21,7 +21,7 @@ export type MarketplaceDemand = Readonly<{
 export type MarketplaceSupplyCandidate = Readonly<{
   listingId: string;
   sellerAccountId: AccountId;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   catalogItemId: string;
   productId: string;
   itemTitle: string;

@@ -31,10 +31,10 @@ import {
   type ShippingQuotePolicy,
 } from "../domain/policies";
 import {
-  getBuyerOrder,
-  getSellerOrder,
-  listBuyerOrders,
-  listSellerOrders,
+  getPurchase,
+  getSale,
+  listPurchases,
+  listSales,
 } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { listOrderingSupplyCandidates } from "../integrations/supply/supply-queries";
@@ -81,7 +81,7 @@ type SellerOrderDraft = Readonly<{
   lines: ReadonlyArray<{
     lineId: OrderLineId;
     listingId: string;
-    inventoryRecordId: string;
+    inventoryItemId: string;
     catalogItemId: string;
     productId: string;
     itemTitle: string;
@@ -94,7 +94,7 @@ type SellerOrderDraft = Readonly<{
   }>;
   reservations: ReadonlyArray<{
     reservationRequestId: string;
-    inventoryRecordId: string;
+    inventoryItemId: string;
     quantity: number;
   }>;
 }>;
@@ -148,28 +148,28 @@ export type OrderingOrderServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ orderIds: readonly OrderId[] }>;
-  cancelBuyerOrder: (
+  cancelPurchase: (
     params: Readonly<{ orderId: string; buyerAccountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ orderId: string; version: number }>;
-  cancelSellerOrder: (
+  cancelSale: (
     params: Readonly<{ orderId: string; sellerAccountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ orderId: string; version: number }>;
-  listBuyerOrders: (
-    params: Parameters<typeof listBuyerOrders>[1],
-  ) => ReturnType<typeof listBuyerOrders>;
-  getBuyerOrder: (
+  listPurchases: (
+    params: Parameters<typeof listPurchases>[1],
+  ) => ReturnType<typeof listPurchases>;
+  getPurchase: (
     orderId: string,
     buyerAccountId: string,
-  ) => ReturnType<typeof getBuyerOrder>;
-  listSellerOrders: (
-    params: Parameters<typeof listSellerOrders>[1],
-  ) => ReturnType<typeof listSellerOrders>;
-  getSellerOrder: (
+  ) => ReturnType<typeof getPurchase>;
+  listSales: (
+    params: Parameters<typeof listSales>[1],
+  ) => ReturnType<typeof listSales>;
+  getSale: (
     orderId: string,
     sellerAccountId: string,
-  ) => ReturnType<typeof getSellerOrder>;
+  ) => ReturnType<typeof getSale>;
   projectors: readonly Projector[];
 }>;
 
@@ -281,7 +281,7 @@ function quotePlan(
       sellerDraft.lines.push({
         lineId: createId("oli") as OrderLineId,
         listingId: allocation.candidate.listingId,
-        inventoryRecordId: allocation.candidate.inventoryRecordId,
+        inventoryItemId: allocation.candidate.inventoryItemId,
         catalogItemId: allocation.candidate.catalogItemId,
         productId: allocation.candidate.productId,
         itemTitle: allocation.candidate.itemTitle,
@@ -294,7 +294,7 @@ function quotePlan(
       });
       sellerDraft.reservations.push({
         reservationRequestId: createId("rsv"),
-        inventoryRecordId: allocation.candidate.inventoryRecordId,
+        inventoryItemId: allocation.candidate.inventoryItemId,
         quantity: allocation.quantity,
       });
       sellerDraft.subtotal += moneyToNumber(lineTotalAmount);
@@ -474,7 +474,7 @@ export function createOrderingOrderRuntime(
           lines: [...draft.lines],
           reservationRequests: draft.reservations.map((reservation) => ({
             reservationRequestId: reservation.reservationRequestId,
-            inventoryRecordId: reservation.inventoryRecordId,
+            inventoryItemId: reservation.inventoryItemId,
             sellerAccountId: draft.sellerAccountId,
             quantity: reservation.quantity,
           })),
@@ -614,13 +614,13 @@ export function createOrderingOrderRuntime(
       return { orderIds };
     },
     createOrdersFromAcceptedOffer,
-    cancelBuyerOrder: async (params, context) => {
-      const order = await getBuyerOrder(deps.db, params.orderId, params.buyerAccountId);
+    cancelPurchase: async (params, context) => {
+      const order = await getPurchase(deps.db, params.orderId, params.buyerAccountId);
       if (!order) {
-        throw new OrderingDomainError("Order not found.");
+        throw new OrderingDomainError("Purchase not found.");
       }
       if (!isCancelableOrderStatus(order.status)) {
-        throw new OrderingDomainError("Only pending orders can be cancelled.");
+        throw new OrderingDomainError("Only pending purchases can be cancelled.");
       }
 
       const result = await commandHandler({
@@ -635,13 +635,13 @@ export function createOrderingOrderRuntime(
 
       return { orderId: params.orderId, version: result.version };
     },
-    cancelSellerOrder: async (params, context) => {
-      const order = await getSellerOrder(deps.db, params.orderId, params.sellerAccountId);
+    cancelSale: async (params, context) => {
+      const order = await getSale(deps.db, params.orderId, params.sellerAccountId);
       if (!order) {
-        throw new OrderingDomainError("Order not found.");
+        throw new OrderingDomainError("Sale not found.");
       }
       if (!isCancelableOrderStatus(order.status)) {
-        throw new OrderingDomainError("Only pending orders can be cancelled.");
+        throw new OrderingDomainError("Only pending sales can be cancelled.");
       }
 
       const result = await commandHandler({
@@ -656,12 +656,12 @@ export function createOrderingOrderRuntime(
 
       return { orderId: params.orderId, version: result.version };
     },
-    listBuyerOrders: (params) => listBuyerOrders(deps.db, params),
-    getBuyerOrder: (orderId, buyerAccountId) =>
-      getBuyerOrder(deps.db, orderId, buyerAccountId),
-    listSellerOrders: (params) => listSellerOrders(deps.db, params),
-    getSellerOrder: (orderId, sellerAccountId) =>
-      getSellerOrder(deps.db, orderId, sellerAccountId),
+    listPurchases: (params) => listPurchases(deps.db, params),
+    getPurchase: (orderId, buyerAccountId) =>
+      getPurchase(deps.db, orderId, buyerAccountId),
+    listSales: (params) => listSales(deps.db, params),
+    getSale: (orderId, sellerAccountId) =>
+      getSale(deps.db, orderId, sellerAccountId),
     projectors: [
       createProjector({
         projectorName: "ordering-order-projection",

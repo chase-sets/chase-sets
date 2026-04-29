@@ -571,7 +571,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
 export function buildMarketplaceInventoryProjectionHandlers(
   db: PgQueryable,
   options: Readonly<{
-    onRecordChanged?: (recordId: string) => Promise<void>;
+    onInventoryItemChanged?: (itemId: string) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
   return {
@@ -639,9 +639,9 @@ export function buildMarketplaceInventoryProjectionHandlers(
         [storageLocationId, event.timing.recordedAt],
       );
     },
-    "inventory.record.created": async (event) => {
+    "inventory.item.created": async (event) => {
       const data = event.data as {
-        recordId: string;
+        itemId: string;
         accountId: string;
         catalogItemId: string;
         productId: string;
@@ -652,8 +652,8 @@ export function buildMarketplaceInventoryProjectionHandlers(
       };
 
       await db.query(
-        `INSERT INTO marketplace_supply_records (
-           record_id,
+        `INSERT INTO marketplace_supply_items (
+           item_id,
            account_id,
            catalog_catalog_item_id,
            product_id,
@@ -664,7 +664,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
            last_stream_version,
            updated_at
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (record_id) DO UPDATE SET
+         ON CONFLICT (item_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
            catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
            product_id = EXCLUDED.product_id,
@@ -674,9 +674,9 @@ export function buildMarketplaceInventoryProjectionHandlers(
            acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
            last_stream_version = EXCLUDED.last_stream_version,
            updated_at = EXCLUDED.updated_at
-         WHERE marketplace_supply_records.last_stream_version < EXCLUDED.last_stream_version`,
+         WHERE marketplace_supply_items.last_stream_version < EXCLUDED.last_stream_version`,
         [
-          data.recordId,
+          data.itemId,
           data.accountId,
           data.catalogItemId,
           data.productId,
@@ -689,31 +689,31 @@ export function buildMarketplaceInventoryProjectionHandlers(
         ],
       );
 
-      await options.onRecordChanged?.(data.recordId);
+      await options.onInventoryItemChanged?.(data.itemId);
     },
-    "inventory.record.adjusted": async (event) => {
+    "inventory.item.adjusted": async (event) => {
       const data = event.data as {
-        recordId: string;
+        itemId: string;
         quantityDelta: number;
       };
 
       await db.query(
-        `UPDATE marketplace_supply_records
+        `UPDATE marketplace_supply_items
          SET total_quantity = total_quantity + $2,
              updated_at = $3,
              last_stream_version = $4
-         WHERE record_id = $1
+         WHERE item_id = $1
            AND last_stream_version < $4`,
-        [data.recordId, data.quantityDelta, event.timing.recordedAt, event.streamVersion],
+        [data.itemId, data.quantityDelta, event.timing.recordedAt, event.streamVersion],
       );
 
-      await options.onRecordChanged?.(data.recordId);
+      await options.onInventoryItemChanged?.(data.itemId);
     },
     "inventory.hold.placed": async (event) => {
       const data = event.data as {
         holdId: string;
         accountId: string;
-        recordId: string;
+        itemId: string;
         quantity: number;
       };
 
@@ -721,7 +721,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
         `INSERT INTO marketplace_supply_holds (
            hold_id,
            account_id,
-           record_id,
+           item_id,
            quantity,
            status,
            released_at,
@@ -730,7 +730,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
          ) VALUES ($1, $2, $3, $4, 'active', NULL, $5, $6)
          ON CONFLICT (hold_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
-           record_id = EXCLUDED.record_id,
+           item_id = EXCLUDED.item_id,
            quantity = EXCLUDED.quantity,
            status = EXCLUDED.status,
            released_at = EXCLUDED.released_at,
@@ -740,14 +740,14 @@ export function buildMarketplaceInventoryProjectionHandlers(
         [
           data.holdId,
           data.accountId,
-          data.recordId,
+          data.itemId,
           data.quantity,
           event.streamVersion,
           event.timing.recordedAt,
         ],
       );
 
-      await options.onRecordChanged?.(data.recordId);
+      await options.onInventoryItemChanged?.(data.itemId);
     },
     "inventory.hold.released": async (event) => {
       const data = event.data as {
@@ -755,7 +755,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
         releasedAt: string;
       };
 
-      const released = await db.query<{ record_id: string }>(
+      const released = await db.query<{ item_id: string }>(
         `UPDATE marketplace_supply_holds
          SET status = 'released',
              released_at = $2,
@@ -763,7 +763,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
              last_stream_version = $4
          WHERE hold_id = $1
            AND last_stream_version < $4
-         RETURNING record_id`,
+         RETURNING item_id`,
         [
           data.holdId,
           data.releasedAt,
@@ -772,9 +772,9 @@ export function buildMarketplaceInventoryProjectionHandlers(
         ],
       );
 
-      const recordId = released.rows[0]?.record_id;
-      if (recordId) {
-        await options.onRecordChanged?.(recordId);
+      const itemId = released.rows[0]?.item_id;
+      if (itemId) {
+        await options.onInventoryItemChanged?.(itemId);
       }
     },
   };

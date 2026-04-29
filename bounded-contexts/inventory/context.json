@@ -2,14 +2,14 @@
   "contextName": "inventory",
   "packageName": "@chase-sets/inventory",
   "ownedNouns": [
-    "inventory-record",
+    "inventory-item",
     "inventory-hold",
     "storage-location"
   ],
   "streamPrefix": "inventory.",
   "apiBasePath": "/api/inventory",
   "slices": [
-    "records",
+    "inventory-items",
     "holds",
     "reservations",
     "storage-locations"
@@ -134,9 +134,9 @@
           "sourceContext": "inventory"
         },
         {
-          "routeId": "account-inventory-record",
-          "routePath": "account/inventory/records/:recordId",
-          "fileExport": "./routes/marketplace/account-inventory-record",
+          "routeId": "account-inventory-item",
+          "routePath": "account/inventory/items/:itemId",
+          "fileExport": "./routes/marketplace/account-inventory-item",
           "routeType": "route",
           "sourceContext": "inventory"
         }
@@ -172,9 +172,9 @@
     }
   ],
   "directoryIntent": {
-    "records": {
+    "inventory-items": {
       "classification": "slice",
-      "purpose": "Own records feature behavior, read models, and UI contracts for the inventory context.",
+      "purpose": "Own inventory item feature behavior, read models, and UI contracts for the inventory context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal inventory module composition"
@@ -209,7 +209,7 @@
       "purpose": "Provide reusable catalog-item-support assets shared by inventory-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "records"
+        "inventory-items"
       ],
       "justification": "catalog-item-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "inventory workflows that span multiple features or public entrypoints.",
@@ -234,7 +234,7 @@
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "holds",
-        "records",
+        "inventory-items",
         "reservations",
         "storage-locations"
       ],

@@ -10,13 +10,13 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { ReputationReviewListItem } from "./contracts";
+import type { ReviewListItem } from "./contracts";
 
 function statusTone(status: string) {
   return status === "withdrawn" ? "danger" : "success";
 }
 
-export function ReputationReviewListPage({
+export function ReviewListPage({
   title,
   eyebrow,
   emptyTitle,
@@ -30,7 +30,7 @@ export function ReputationReviewListPage({
   emptyTitle: string;
   emptyDescription: string;
   reviewDetailBasePath: string;
-  reviews: readonly ReputationReviewListItem[];
+  reviews: readonly ReviewListItem[];
   actions?: ReactNode;
 }) {
   return (

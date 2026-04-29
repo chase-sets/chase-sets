@@ -10,8 +10,8 @@ import {
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
-  DiscoveryMarketOffer,
-  DiscoverySellerOffer,
+  DiscoveryBuyerOfferMatch,
+  DiscoverySellerBuyerOfferMatch,
   ProductSchema,
 } from "../support/client-support/contracts";
 
@@ -20,7 +20,7 @@ afterEach(() => cleanup());
 const baseListing: DiscoveryMarketListing = {
   listing_id: "listing_charizard",
   account_id: "seller_1",
-  inventory_record_id: "inventory_1",
+  inventory_item_id: "inventory_1",
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::",
   item_title: "Charizard",
@@ -38,7 +38,7 @@ const baseListing: DiscoveryMarketListing = {
   updated_at: "2026-04-28T00:00:00.000Z",
 };
 
-const baseMarketOffer: DiscoveryMarketOffer = {
+const baseBuyerOfferMatch: DiscoveryBuyerOfferMatch = {
   offer_id: "offer_charizard",
   buyer_account_id: "buyer_1",
   buyer_display_name: "Ash Ketchum",
@@ -57,8 +57,8 @@ const baseMarketOffer: DiscoveryMarketOffer = {
   updated_at: "2026-04-28T00:00:00.000Z",
 };
 
-const baseSellerOffer: DiscoverySellerOffer = {
-  ...baseMarketOffer,
+const baseSellerBuyerOfferMatch: DiscoverySellerBuyerOfferMatch = {
+  ...baseBuyerOfferMatch,
   seller_available_quantity: 2,
   can_fulfill: true,
   in_sell_list: false,
@@ -68,22 +68,22 @@ const alternateListing: DiscoveryMarketListing = {
   ...baseListing,
   listing_id: "listing_charizard_alt",
   account_id: "seller_2",
-  inventory_record_id: "inventory_2",
+  inventory_item_id: "inventory_2",
   seller_display_name: "Card Vault",
   price_amount: "410.00",
   visible_quantity: 1,
 };
 
-const alternateMarketOffer: DiscoveryMarketOffer = {
-  ...baseMarketOffer,
+const alternateBuyerOfferMatch: DiscoveryBuyerOfferMatch = {
+  ...baseBuyerOfferMatch,
   offer_id: "offer_charizard_alt",
   buyer_account_id: "buyer_2",
   buyer_display_name: "Misty",
   price_amount: "360.00",
 };
 
-const alternateSellerOffer: DiscoverySellerOffer = {
-  ...alternateMarketOffer,
+const alternateSellerBuyerOfferMatch: DiscoverySellerBuyerOfferMatch = {
+  ...alternateBuyerOfferMatch,
   seller_available_quantity: 1,
   can_fulfill: true,
   in_sell_list: false,
@@ -148,7 +148,7 @@ function createItem(
     product_schema: null,
     market_summary: null,
     market_listings: [baseListing],
-    market_offers: [baseMarketOffer],
+    buyer_offer_matches: [baseBuyerOfferMatch],
     updated_at: "2026-04-28T00:00:00.000Z",
     ...overrides,
   };
@@ -265,7 +265,7 @@ describe("item detail commerce panel", () => {
         data={createItem({
           product_schema: requiredSchema,
           market_listings: [],
-          market_offers: [],
+          buyer_offer_matches: [],
         })}
         renderCommerce={() => ({
           buy: <div>Mobile buy action</div>,
@@ -338,11 +338,11 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("1 active listing")).toBeNull();
   });
 
-  it("shows seller-specific fulfillment badges when eligible seller offer data is available", () => {
+  it("shows seller-specific fulfillment badges when eligible buyer offer match data is available", () => {
     render(
       <ItemDetailPage
         data={createItem()}
-        sellerOffers={[baseSellerOffer]}
+        sellerBuyerOfferMatches={[baseSellerBuyerOfferMatch]}
         renderCommerce={() => ({
           buy: <div>Buy selected product</div>,
           offer: <div>Make an offer</div>,
@@ -459,9 +459,9 @@ describe("item detail commerce panel", () => {
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          market_offers: [baseMarketOffer, alternateMarketOffer],
+          buyer_offer_matches: [baseBuyerOfferMatch, alternateBuyerOfferMatch],
         })}
-        sellerOffers={[baseSellerOffer, alternateSellerOffer]}
+        sellerBuyerOfferMatches={[baseSellerBuyerOfferMatch, alternateSellerBuyerOfferMatch]}
         renderCommerce={(context) => ({
           buy: <div>Buy selected product</div>,
           offer: <div>Make an offer</div>,
@@ -471,7 +471,7 @@ describe("item detail commerce panel", () => {
                 data-testid="selected-offer-id"
                 name="offerId"
                 readOnly
-                value={context.selectedSellerOffer?.offer_id ?? ""}
+                value={context.selectedSellerBuyerOfferMatch?.offer_id ?? ""}
               />
             </form>
           ),
@@ -519,7 +519,7 @@ describe("item detail commerce panel", () => {
         data={createItem({
           product_schema: variantSchema,
           market_listings: [rawListing, gradedListing],
-          market_offers: [],
+          buyer_offer_matches: [],
         })}
         renderCommerce={(context) => ({
           buy: (

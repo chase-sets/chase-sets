@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
+import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { module as identityModule } from "@chase-sets/identity";
 import {
   attachApiMountMiddleware,
@@ -40,7 +41,18 @@ export type BuildPlatformApiOptions = Readonly<{
 export function createPlatformApiHost(
   options: Parameters<typeof createApiHost>[2],
 ): ApiHostRuntime {
-  return createApiHost(apiContextRegistry, "platform-api", options);
+  const commercialTermsPool = options.pools["commercial-terms"];
+  const commercialTermsResolver = commercialTermsPool
+    ? createCommercialTermsResolver({ db: commercialTermsPool })
+    : undefined;
+
+  return createApiHost(apiContextRegistry, "platform-api", {
+    ...options,
+    hostPorts: {
+      ...options.hostPorts,
+      ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+    },
+  });
 }
 
 export function buildPlatformApiApp(

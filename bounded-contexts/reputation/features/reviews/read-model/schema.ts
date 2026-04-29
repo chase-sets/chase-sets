@@ -1,4 +1,4 @@
-export const reputationReviewSchemaSql = `
+export const reviewSchemaSql = `
 CREATE TABLE IF NOT EXISTS reputation_review_pages (
   review_id text PRIMARY KEY,
   order_id text NOT NULL,
@@ -24,7 +24,7 @@ CREATE INDEX IF NOT EXISTS reputation_review_pages_subject_idx
   ON reputation_review_pages (subject_account_id, updated_at DESC, review_id DESC)
   WHERE status = 'active';
 
-CREATE TABLE IF NOT EXISTS reputation_summary_pages (
+CREATE TABLE IF NOT EXISTS review_summary_pages (
   account_id text PRIMARY KEY,
   average_rating numeric(4, 2) NULL,
   review_count integer NOT NULL DEFAULT 0,

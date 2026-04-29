@@ -55,10 +55,10 @@ function parseVersionSelection(value: unknown) {
     : [];
 }
 
-export function createBuyerOfferRoutes(services: MarketplaceOfferServices) {
+export function createSubmittedBuyerOfferRoutes(services: MarketplaceOfferServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
-  app.get("/offers", async (c) => {
+  app.get("/submitted-buyer-offers", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
@@ -66,7 +66,7 @@ export function createBuyerOfferRoutes(services: MarketplaceOfferServices) {
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listBuyerOffers({
+    const result = await services.listSubmittedBuyerOffers({
       buyerAccountId: access.actor.accountId,
       limit,
       offset,
@@ -79,25 +79,25 @@ export function createBuyerOfferRoutes(services: MarketplaceOfferServices) {
     });
   });
 
-  app.get("/offers/:id", async (c) => {
+  app.get("/submitted-buyer-offers/:id", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
     }
 
-    const offer = await services.getBuyerOffer(
+    const offer = await services.getSubmittedBuyerOffer(
       c.req.param("id"),
       access.actor.accountId,
     );
 
     if (!offer) {
-      return c.json({ error: "Offer not found." }, 404);
+      return c.json({ error: "Submitted buyer offer not found." }, 404);
     }
 
     return c.json(offer);
   });
 
-  app.post("/offers", async (c) => {
+  app.post("/submitted-buyer-offers", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
       return access.response;
@@ -141,10 +141,10 @@ export function createBuyerOfferRoutes(services: MarketplaceOfferServices) {
   return app;
 }
 
-export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
+export function createBuyerOfferMatchRoutes(services: MarketplaceOfferServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
-  app.get("/offers", async (c) => {
+  app.get("/buyer-offer-matches", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
@@ -152,7 +152,7 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listSellerVisibleOffers({
+    const result = await services.listBuyerOfferMatches({
       sellerAccountId: access.actor.accountId,
       limit,
       offset,
@@ -165,25 +165,25 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
     });
   });
 
-  app.get("/offers/:id", async (c) => {
+  app.get("/buyer-offer-matches/:id", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
     }
 
-    const offer = await services.getSellerVisibleOffer(
+    const offer = await services.getBuyerOfferMatch(
       c.req.param("id"),
       access.actor.accountId,
     );
 
     if (!offer) {
-      return c.json({ error: "Offer not found." }, 404);
+      return c.json({ error: "Buyer offer match not found." }, 404);
     }
 
     return c.json(offer);
   });
 
-  app.post("/offers/:id/accept", async (c) => {
+  app.post("/buyer-offer-matches/:id/accept", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
       return access.response;
@@ -213,7 +213,7 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
     }
   });
 
-  app.get("/offer-cart", async (c) => {
+  app.get("/buyer-offer-match-sell-list", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
@@ -223,7 +223,7 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
       return c.json({ error: "Forbidden." }, 403);
     }
 
-    const items = await services.listSellerOfferCart(access.actor.accountId);
+    const items = await services.listBuyerOfferMatchSellList(access.actor.accountId);
 
     return c.json({
       items,
@@ -232,7 +232,7 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
     });
   });
 
-  app.post("/offer-cart", async (c) => {
+  app.post("/buyer-offer-match-sell-list", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
       return access.response;
@@ -245,7 +245,7 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
     const body = await c.req.json();
 
     try {
-      await services.addSellerOfferCartItem({
+      await services.addBuyerOfferMatchSellListItem({
         sellerAccountId: access.actor.accountId as never,
         offerId: String(body.offerId ?? "") as never,
       });
@@ -256,7 +256,7 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
     }
   });
 
-  app.post("/offer-cart/accept", async (c) => {
+  app.post("/buyer-offer-match-sell-list/accept", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
       return access.response;
@@ -272,7 +272,7 @@ export function createSellerOfferRoutes(services: MarketplaceOfferServices) {
     }
 
     try {
-      const result = await services.acceptSellerOfferCart(
+      const result = await services.acceptBuyerOfferMatchSellList(
         {
           sellerAccountId: access.actor.accountId as never,
         },

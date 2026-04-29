@@ -21,13 +21,13 @@ import {
 } from "../domain/domain";
 import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
 import {
-  getActiveQuantityCapForInventoryRecord,
-  getInventoryRecordSupply,
+  getActiveQuantityCapForInventoryItem,
+  getInventoryItemSupply,
   getMarketSummaryForItem,
   getSellerListing,
-  listActiveListingsForInventoryRecord,
+  listActiveListingsForInventoryItem,
   listItemListings,
-  listSellerInventoryRecordSupply,
+  listSellerInventoryItemSupply,
   listSellerListings,
 } from "../read-model/queries";
 
@@ -59,7 +59,7 @@ export type MarketplaceListingServices = Readonly<{
   createListing: (
     params: Readonly<{
       accountId: AccountId;
-      inventoryRecordId: string;
+      inventoryItemId: string;
       priceAmount: string;
       quantityCap: number;
       listingIdOverride?: ListingId;
@@ -92,9 +92,9 @@ export type MarketplaceListingServices = Readonly<{
   listSellerListings: (
     params: Parameters<typeof listSellerListings>[1],
   ) => ReturnType<typeof listSellerListings>;
-  listSellerInventoryRecordSupply: (
-    params: Parameters<typeof listSellerInventoryRecordSupply>[1],
-  ) => ReturnType<typeof listSellerInventoryRecordSupply>;
+  listSellerInventoryItemSupply: (
+    params: Parameters<typeof listSellerInventoryItemSupply>[1],
+  ) => ReturnType<typeof listSellerInventoryItemSupply>;
   getSellerListing: (
     listingId: string,
     accountId: string,
@@ -103,11 +103,11 @@ export type MarketplaceListingServices = Readonly<{
     itemId: string,
   ) => ReturnType<typeof getMarketSummaryForItem>;
   listItemListings: (itemId: string) => ReturnType<typeof listItemListings>;
-  getInventoryRecordSupply: (
-    recordId: string,
+  getInventoryItemSupply: (
+    itemId: string,
     accountId?: string,
-  ) => ReturnType<typeof getInventoryRecordSupply>;
-  reconcileInventoryCapacity: (inventoryRecordId: string) => Promise<void>;
+  ) => ReturnType<typeof getInventoryItemSupply>;
+  reconcileInventoryCapacity: (inventoryItemId: string) => Promise<void>;
   projectors: readonly Projector[];
 }>;
 
@@ -131,16 +131,16 @@ export function createMarketplaceListingRuntime(
   });
 
   async function ensureActiveCapacity(
-    inventoryRecordId: string,
+    inventoryItemId: string,
     requestedQuantityCap: number,
     excludeListingId?: string,
   ) {
-    const supply = await getInventoryRecordSupply(deps.db, inventoryRecordId);
-    assert(supply, "Inventory record not found.");
+    const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
+    assert(supply, "Inventory item not found.");
 
-    const activeQuantityCap = await getActiveQuantityCapForInventoryRecord(
+    const activeQuantityCap = await getActiveQuantityCapForInventoryItem(
       deps.db,
-      inventoryRecordId,
+      inventoryItemId,
       excludeListingId,
     );
     assert(
@@ -149,15 +149,15 @@ export function createMarketplaceListingRuntime(
     );
   }
 
-  async function reconcileInventoryCapacity(inventoryRecordId: string) {
-    const supply = await getInventoryRecordSupply(deps.db, inventoryRecordId);
+  async function reconcileInventoryCapacity(inventoryItemId: string) {
+    const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
     if (!supply) {
       return;
     }
 
-    const activeListings = await listActiveListingsForInventoryRecord(
+    const activeListings = await listActiveListingsForInventoryItem(
       deps.db,
-      inventoryRecordId,
+      inventoryItemId,
     );
     let activeTotal = activeListings.reduce(
       (sum, listing) => sum + listing.quantity_cap,
@@ -193,12 +193,12 @@ export function createMarketplaceListingRuntime(
   return {
     commandHandler,
     createListing: async (params, context) => {
-      const supply = await getInventoryRecordSupply(
+      const supply = await getInventoryItemSupply(
         deps.db,
-        params.inventoryRecordId,
+        params.inventoryItemId,
         params.accountId,
       );
-      assert(supply, "Inventory record not found.");
+      assert(supply, "Inventory item not found.");
       const terms = await deps.commercialTermsResolver.resolveListingTerms({
         sellerAccountId: params.accountId,
         amount: params.priceAmount,
@@ -211,7 +211,7 @@ export function createMarketplaceListingRuntime(
           type: "CreateListing",
           listingId,
           accountId: params.accountId,
-          inventoryRecordId: supply.record_id,
+          inventoryItemId: supply.item_id,
           catalogItemId: supply.catalog_catalog_item_id,
           productId: supply.product_id as never,
           itemTitle: supply.item_title,
@@ -279,9 +279,9 @@ export function createMarketplaceListingRuntime(
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
 
       if (listing.status === "active") {
-        assert(listing.inventoryRecordId, "Listing inventory record is missing.");
+        assert(listing.inventoryItemId, "Listing inventory item is missing.");
         await ensureActiveCapacity(
-          listing.inventoryRecordId,
+          listing.inventoryItemId,
           params.quantityCap,
           params.listingId,
         );
@@ -300,10 +300,10 @@ export function createMarketplaceListingRuntime(
     },
     publishListing: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
-      assert(listing.inventoryRecordId, "Listing inventory record is missing.");
+      assert(listing.inventoryItemId, "Listing inventory item is missing.");
 
       await ensureActiveCapacity(
-        listing.inventoryRecordId,
+        listing.inventoryItemId,
         listing.quantityCap,
         params.listingId,
       );
@@ -339,14 +339,14 @@ export function createMarketplaceListingRuntime(
       return { listingId: params.listingId, version: result.version };
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),
-    listSellerInventoryRecordSupply: (params) =>
-      listSellerInventoryRecordSupply(deps.db, params),
+    listSellerInventoryItemSupply: (params) =>
+      listSellerInventoryItemSupply(deps.db, params),
     getSellerListing: (listingId, accountId) =>
       getSellerListing(deps.db, listingId, accountId),
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
-    getInventoryRecordSupply: (recordId, accountId) =>
-      getInventoryRecordSupply(deps.db, recordId, accountId),
+    getInventoryItemSupply: (itemId, accountId) =>
+      getInventoryItemSupply(deps.db, itemId, accountId),
     reconcileInventoryCapacity,
     projectors: [
       createProjector({

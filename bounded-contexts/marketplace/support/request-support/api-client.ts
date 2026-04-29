@@ -8,17 +8,18 @@ export {
   MarketplaceApiError,
 } from "../../client";
 export type {
+  BuyerOfferMatchDetail,
+  BuyerOfferMatchListItem,
   MarketplaceApiClientOptions,
-  MarketplaceBuyerOfferDetail,
+  MarketplaceBuyerOffer,
   MarketplaceItemListing,
   MarketplaceListingDetail,
-  MarketplaceListingInventoryRecordOption,
+  MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
   MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
-  MarketplaceOfferListItem,
-  MarketplaceSellerOfferDetail,
-  MarketplaceSellerOfferListItem,
+  SubmittedBuyerOfferDetail,
+  SubmittedBuyerOfferListItem,
 } from "../../client";
 import { createMarketplaceApiClient } from "../../client";
 

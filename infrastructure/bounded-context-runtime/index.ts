@@ -1294,6 +1294,7 @@ export async function seedApiModuleIfEmpty<TPool>(
       params?: readonly unknown[],
     ) => Promise<{ rows?: readonly Readonly<{ count?: string | number }>[] }>;
   },
+  services?: unknown,
 ): Promise<void> {
   if (!module.seed) {
     return;
@@ -1309,7 +1310,7 @@ export async function seedApiModuleIfEmpty<TPool>(
     );
   }
 
-  await module.seed(pool);
+  await module.seed(pool, services);
 }
 
 export async function seedApiModulesIfEmpty<TPool>(

@@ -22,7 +22,7 @@ export type AccountId = TypedUlid<"acc">;
 
 export type UserId = TypedUlid<"usr">;
 
-export type InventoryRecordId = TypedUlid<"inv">;
+export type InventoryItemId = TypedUlid<"inv">;
 
 export type ListingId = TypedUlid<"lst">;
 

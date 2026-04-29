@@ -3,7 +3,7 @@
   "packageName": "@chase-sets/reputation",
   "ownedNouns": [
     "review",
-    "reputation-summary"
+    "review-summary"
   ],
   "streamPrefix": "reputation.",
   "apiBasePath": "/api/marketplace",
@@ -127,9 +127,9 @@
       "deployable": "marketplace-web",
       "routes": [
         {
-          "routeId": "account-order-review",
-          "routePath": "account/orders/:orderId/review",
-          "fileExport": "./routes/marketplace/account-order-review",
+          "routeId": "account-purchase-review",
+          "routePath": "account/purchases/:purchaseId/review",
+          "fileExport": "./routes/marketplace/account-purchase-review",
           "routeType": "route",
           "sourceContext": "reputation"
         },
@@ -141,9 +141,9 @@
           "sourceContext": "reputation"
         },
         {
-          "routeId": "account-reputation",
-          "routePath": "account/reputation",
-          "fileExport": "./routes/marketplace/account-reputation",
+          "routeId": "account-review-summary",
+          "routePath": "account/reviews",
+          "fileExport": "./routes/marketplace/account-review-summary",
           "routeType": "route",
           "sourceContext": "reputation"
         },
@@ -175,10 +175,10 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "reputation",
-      "label": "Reputation",
+      "key": "reviews",
+      "label": "Reviews",
       "icon": "star",
-      "href": "/account/reputation",
+      "href": "/account/reviews",
       "order": 160,
       "visibility": "signed-in",
       "requiredPermissions": [
@@ -188,10 +188,10 @@
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
-      "key": "reputation",
-      "label": "Reputation",
+      "key": "reviews",
+      "label": "Reviews",
       "icon": "star",
-      "href": "/account/reputation",
+      "href": "/account/reviews",
       "order": 160,
       "visibility": "signed-in",
       "requiredPermissions": [

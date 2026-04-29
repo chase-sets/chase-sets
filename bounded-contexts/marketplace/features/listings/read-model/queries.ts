@@ -3,7 +3,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 export type MarketplaceListingListRow = Readonly<{
   listing_id: string;
   account_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;
@@ -40,7 +40,7 @@ export type MarketplaceMarketSummaryRow = Readonly<{
 type MarketplaceListingPageRow = Readonly<{
   listing_id: string;
   account_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string | null;
@@ -62,8 +62,8 @@ type MarketplaceListingPageRow = Readonly<{
   updated_at: string;
 }>;
 
-export type MarketplaceInventoryRecordSupply = Readonly<{
-  record_id: string;
+export type MarketplaceInventoryItemSupply = Readonly<{
+  item_id: string;
   account_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
@@ -85,19 +85,19 @@ function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRo
   };
 }
 
-export async function getInventoryRecordSupply(
+export async function getInventoryItemSupply(
   db: PgQueryable,
-  recordId: string,
+  itemId: string,
   accountId?: string,
-): Promise<MarketplaceInventoryRecordSupply | null> {
-  const values: unknown[] = [recordId];
-  const accountCondition = accountId ? "AND record.account_id = $2" : "";
+): Promise<MarketplaceInventoryItemSupply | null> {
+  const values: unknown[] = [itemId];
+  const accountCondition = accountId ? "AND item.account_id = $2" : "";
   if (accountId) {
     values.push(accountId);
   }
 
   const result = await db.query<{
-    record_id: string;
+    item_id: string;
     account_id: string;
     catalog_catalog_item_id: string;
     product_id: string;
@@ -110,13 +110,13 @@ export async function getInventoryRecordSupply(
     available_quantity: number;
   }>(
     `SELECT
-       record.record_id,
-       record.account_id,
-       record.catalog_catalog_item_id,
-       record.product_id,
+       item.item_id,
+       item.account_id,
+       item.catalog_catalog_item_id,
+       item.product_id,
        catalog_item.title AS item_title,
        catalog_item.subtitle AS item_subtitle,
-       record.selected_options,
+       item.selected_options,
        (
          CASE
            WHEN catalog_item.product_schema IS NULL THEN NULL
@@ -131,7 +131,7 @@ export async function getInventoryRecordSupply(
                    option->>'code',
                    selection->>'optionId'
                  ) AS part
-               FROM jsonb_array_elements(record.selected_options) WITH ORDINALITY AS selected(selection, ordinality)
+               FROM jsonb_array_elements(item.selected_options) WITH ORDINALITY AS selected(selection, ordinality)
                LEFT JOIN LATERAL (
                  SELECT dimension
                  FROM jsonb_array_elements(COALESCE(catalog_item.product_schema->'dimensions', '[]'::jsonb)) AS dimension
@@ -148,20 +148,20 @@ export async function getInventoryRecordSupply(
        ) AS product_summary,
        location.name AS storage_location_name,
        location.ship_from_code,
-       record.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
-     FROM marketplace_supply_records AS record
+       item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
+     FROM marketplace_supply_items AS item
      INNER JOIN marketplace_supply_locations AS location
-       ON location.storage_location_id = record.storage_location_id
+       ON location.storage_location_id = item.storage_location_id
      LEFT JOIN marketplace_catalog_items AS catalog_item
-       ON catalog_item.catalog_item_id = record.catalog_catalog_item_id
+       ON catalog_item.catalog_item_id = item.catalog_catalog_item_id
      LEFT JOIN (
-       SELECT record_id, SUM(quantity)::integer AS held_quantity
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM marketplace_supply_holds
        WHERE status = 'active'
-       GROUP BY record_id
+       GROUP BY item_id
      ) AS active_holds
-       ON active_holds.record_id = record.record_id
-     WHERE record.record_id = $1
+       ON active_holds.item_id = item.item_id
+     WHERE item.item_id = $1
        ${accountCondition}`,
     values,
   );
@@ -174,19 +174,19 @@ export async function getInventoryRecordSupply(
   return {
     ...row,
     selected_options: Array.isArray(row.selected_options)
-      ? (row.selected_options as MarketplaceInventoryRecordSupply["selected_options"])
+      ? (row.selected_options as MarketplaceInventoryItemSupply["selected_options"])
       : [],
   };
 }
 
-export async function listSellerInventoryRecordSupply(
+export async function listSellerInventoryItemSupply(
   db: PgQueryable,
   params: Readonly<{ accountId: string; catalogItemId?: string; limit?: number; offset?: number }>,
-): Promise<{ items: MarketplaceInventoryRecordSupply[]; total: number }> {
+): Promise<{ items: MarketplaceInventoryItemSupply[]; total: number }> {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
   const values: unknown[] = [params.accountId];
-  const catalogCondition = params.catalogItemId ? "AND record.catalog_catalog_item_id = $2" : "";
+  const catalogCondition = params.catalogItemId ? "AND item.catalog_catalog_item_id = $2" : "";
 
   if (params.catalogItemId) {
     values.push(params.catalogItemId);
@@ -197,13 +197,13 @@ export async function listSellerInventoryRecordSupply(
 
   const selectSql = `
     SELECT
-      record.record_id,
-      record.account_id,
-      record.catalog_catalog_item_id,
-      record.product_id,
+      item.item_id,
+      item.account_id,
+      item.catalog_catalog_item_id,
+      item.product_id,
       catalog_item.title AS item_title,
       catalog_item.subtitle AS item_subtitle,
-      record.selected_options,
+      item.selected_options,
       (
         CASE
           WHEN catalog_item.product_schema IS NULL THEN NULL
@@ -218,7 +218,7 @@ export async function listSellerInventoryRecordSupply(
                   option->>'code',
                   selection->>'optionId'
                 ) AS part
-              FROM jsonb_array_elements(record.selected_options) WITH ORDINALITY AS selected(selection, ordinality)
+              FROM jsonb_array_elements(item.selected_options) WITH ORDINALITY AS selected(selection, ordinality)
               LEFT JOIN LATERAL (
                 SELECT dimension
                 FROM jsonb_array_elements(COALESCE(catalog_item.product_schema->'dimensions', '[]'::jsonb)) AS dimension
@@ -235,41 +235,41 @@ export async function listSellerInventoryRecordSupply(
       ) AS product_summary,
       location.name AS storage_location_name,
       location.ship_from_code,
-      record.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
-    FROM marketplace_supply_records AS record
+      item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
+    FROM marketplace_supply_items AS item
     INNER JOIN marketplace_supply_locations AS location
-      ON location.storage_location_id = record.storage_location_id
+      ON location.storage_location_id = item.storage_location_id
     LEFT JOIN marketplace_catalog_items AS catalog_item
-      ON catalog_item.catalog_item_id = record.catalog_catalog_item_id
+      ON catalog_item.catalog_item_id = item.catalog_catalog_item_id
     LEFT JOIN (
-      SELECT record_id, SUM(quantity)::integer AS held_quantity
+      SELECT item_id, SUM(quantity)::integer AS held_quantity
       FROM marketplace_supply_holds
       WHERE status = 'active'
-      GROUP BY record_id
+      GROUP BY item_id
     ) AS active_holds
-      ON active_holds.record_id = record.record_id
-    WHERE record.account_id = $1
+      ON active_holds.item_id = item.item_id
+    WHERE item.account_id = $1
       ${catalogCondition}
-      AND record.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0`;
+      AND item.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0`;
 
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
-       FROM marketplace_supply_records AS record
+       FROM marketplace_supply_items AS item
        LEFT JOIN (
-         SELECT record_id, SUM(quantity)::integer AS held_quantity
+         SELECT item_id, SUM(quantity)::integer AS held_quantity
          FROM marketplace_supply_holds
          WHERE status = 'active'
-         GROUP BY record_id
+         GROUP BY item_id
        ) AS active_holds
-         ON active_holds.record_id = record.record_id
-       WHERE record.account_id = $1
+         ON active_holds.item_id = item.item_id
+       WHERE item.account_id = $1
          ${catalogCondition}
-         AND record.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0`,
+         AND item.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0`,
       values,
     ),
     db.query<{
-      record_id: string;
+      item_id: string;
       account_id: string;
       catalog_catalog_item_id: string;
       product_id: string;
@@ -282,7 +282,7 @@ export async function listSellerInventoryRecordSupply(
       available_quantity: number;
     }>(
       `${selectSql}
-       ORDER BY catalog_item.title ASC, record.product_id ASC, record.record_id ASC
+       ORDER BY catalog_item.title ASC, item.product_id ASC, item.item_id ASC
        LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       [...values, limit, offset],
     ),
@@ -292,19 +292,19 @@ export async function listSellerInventoryRecordSupply(
     items: itemsResult.rows.map((row) => ({
       ...row,
       selected_options: Array.isArray(row.selected_options)
-        ? (row.selected_options as MarketplaceInventoryRecordSupply["selected_options"])
+        ? (row.selected_options as MarketplaceInventoryItemSupply["selected_options"])
         : [],
     })),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
 
-export async function getActiveQuantityCapForInventoryRecord(
+export async function getActiveQuantityCapForInventoryItem(
   db: PgQueryable,
-  inventoryRecordId: string,
+  inventoryItemId: string,
   excludeListingId?: string,
 ): Promise<number> {
-  const values: unknown[] = [inventoryRecordId];
+  const values: unknown[] = [inventoryItemId];
   let excludeSql = "";
 
   if (excludeListingId) {
@@ -315,7 +315,7 @@ export async function getActiveQuantityCapForInventoryRecord(
   const result = await db.query<{ quantity_cap: string }>(
     `SELECT COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap
      FROM marketplace_listing_pages
-     WHERE inventory_record_id = $1
+     WHERE inventory_item_id = $1
        AND status = 'active'
        ${excludeSql}`,
     values,
@@ -324,17 +324,17 @@ export async function getActiveQuantityCapForInventoryRecord(
   return Number(result.rows[0]?.quantity_cap ?? 0);
 }
 
-export async function listActiveListingsForInventoryRecord(
+export async function listActiveListingsForInventoryItem(
   db: PgQueryable,
-  inventoryRecordId: string,
+  inventoryItemId: string,
 ) {
   const result = await db.query<MarketplaceListingPageRow>(
     `SELECT *
      FROM marketplace_listing_pages
-     WHERE inventory_record_id = $1
+     WHERE inventory_item_id = $1
        AND status = 'active'
      ORDER BY updated_at DESC, listing_id DESC`,
-    [inventoryRecordId],
+    [inventoryItemId],
   );
 
   return result.rows.map(mapListingRow);

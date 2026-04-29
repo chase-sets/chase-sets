@@ -8,18 +8,18 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { ReputationReviewDetail } from "./contracts";
+import type { ReviewDetail } from "./contracts";
 
 function statusTone(status: string) {
   return status === "withdrawn" ? "danger" : "success";
 }
 
-export function ReputationReviewDetailPage({
+export function ReviewDetailPage({
   backHref,
   review,
 }: {
   backHref: string;
-  review: ReputationReviewDetail;
+  review: ReviewDetail;
 }) {
   return (
     <Page>

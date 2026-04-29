@@ -104,8 +104,8 @@
         "ordering-inventory-supply-input-projection"
       ],
       "eventTypes": [
-        "inventory.record.created",
-        "inventory.record.adjusted",
+        "inventory.item.created",
+        "inventory.item.adjusted",
         "inventory.hold.placed",
         "inventory.hold.released"
       ],
@@ -190,7 +190,7 @@
         "inventory"
       ],
       "ownedTables": [
-        "ordering_inventory_record_inputs",
+        "ordering_inventory_item_inputs",
         "ordering_inventory_hold_inputs"
       ],
       "requiredDuringBootstrap": true
@@ -227,7 +227,11 @@
       "requiredDuringBootstrap": false
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "commercialTermsResolver"
+    }
+  ],
   "apiDeployables": [
     "platform-api"
   ],
@@ -254,16 +258,16 @@
           "sourceContext": "ordering"
         },
         {
-          "routeId": "account-order",
-          "routePath": "account/orders/:orderId",
-          "fileExport": "./routes/account-order",
+          "routeId": "account-purchase",
+          "routePath": "account/purchases/:purchaseId",
+          "fileExport": "./routes/account-purchase",
           "routeType": "route",
           "sourceContext": "ordering"
         },
         {
-          "routeId": "account-orders",
-          "routePath": "account/orders",
-          "fileExport": "./routes/account-orders",
+          "routeId": "account-purchases",
+          "routePath": "account/purchases",
+          "fileExport": "./routes/account-purchases",
           "routeType": "route",
           "sourceContext": "ordering"
         },
@@ -301,10 +305,10 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "orders",
-      "label": "Orders",
-      "icon": "cart",
-      "href": "/account/orders",
+      "key": "purchases",
+      "label": "Purchases",
+      "icon": "bag",
+      "href": "/account/purchases",
       "order": 170,
       "visibility": "signed-in",
       "requiredPermissions": [
@@ -316,7 +320,7 @@
       "slot": "top-nav",
       "key": "sales",
       "label": "Sales",
-      "icon": "package",
+      "icon": "dollar",
       "href": "/account/sales",
       "order": 190,
       "visibility": "signed-in",
@@ -341,10 +345,10 @@
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
-      "key": "orders",
-      "label": "Orders",
-      "icon": "cart",
-      "href": "/account/orders",
+      "key": "purchases",
+      "label": "Purchases",
+      "icon": "bag",
+      "href": "/account/purchases",
       "order": 170,
       "visibility": "signed-in",
       "requiredPermissions": [
@@ -356,7 +360,7 @@
       "slot": "bottom-nav",
       "key": "sales",
       "label": "Sales",
-      "icon": "package",
+      "icon": "dollar",
       "href": "/account/sales",
       "order": 190,
       "visibility": "signed-in",

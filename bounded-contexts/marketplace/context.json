@@ -89,8 +89,8 @@
         "inventory.storage-location.created",
         "inventory.storage-location.updated",
         "inventory.storage-location.archived",
-        "inventory.record.created",
-        "inventory.record.adjusted",
+        "inventory.item.created",
+        "inventory.item.adjusted",
         "inventory.hold.placed",
         "inventory.hold.released"
       ],
@@ -128,13 +128,17 @@
       ],
       "ownedTables": [
         "marketplace_supply_locations",
-        "marketplace_supply_records",
+        "marketplace_supply_items",
         "marketplace_supply_holds"
       ],
       "requiredDuringBootstrap": true
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "commercialTermsResolver"
+    }
+  ],
   "apiDeployables": [
     "platform-api"
   ],
@@ -165,30 +169,30 @@
           "sourceContext": "marketplace"
         },
         {
-          "routeId": "account-market-offer",
-          "routePath": "account/market-offers/:offerId",
-          "fileExport": "./routes/account-market-offer",
+          "routeId": "account-buyer-offer-match",
+          "routePath": "account/buyer-offer-matches/:offerId",
+          "fileExport": "./routes/account-buyer-offer-match",
           "routeType": "route",
           "sourceContext": "marketplace"
         },
         {
-          "routeId": "account-market-offers",
-          "routePath": "account/market-offers",
-          "fileExport": "./routes/account-market-offers",
+          "routeId": "account-buyer-offer-matches",
+          "routePath": "account/buyer-offer-matches",
+          "fileExport": "./routes/account-buyer-offer-matches",
           "routeType": "route",
           "sourceContext": "marketplace"
         },
         {
-          "routeId": "account-offer",
-          "routePath": "account/offers/:offerId",
-          "fileExport": "./routes/account-offer",
+          "routeId": "account-submitted-buyer-offer",
+          "routePath": "account/submitted-buyer-offers/:offerId",
+          "fileExport": "./routes/account-submitted-buyer-offer",
           "routeType": "route",
           "sourceContext": "marketplace"
         },
         {
-          "routeId": "account-offers",
-          "routePath": "account/offers",
-          "fileExport": "./routes/account-offers",
+          "routeId": "account-submitted-buyer-offers",
+          "routePath": "account/submitted-buyer-offers",
+          "fileExport": "./routes/account-submitted-buyer-offers",
           "routeType": "route",
           "sourceContext": "marketplace"
         }
@@ -205,7 +209,7 @@
       ],
       "key": "listings",
       "label": "Listings",
-      "icon": "package",
+      "icon": "store",
       "href": "/account/listings",
       "order": 120,
       "visibility": "signed-in",
@@ -220,10 +224,10 @@
         "top-nav",
         "bottom-nav"
       ],
-      "key": "market-offers",
-      "label": "Market Offers",
-      "icon": "package",
-      "href": "/account/market-offers",
+      "key": "buyer-offer-matches",
+      "label": "Buyer Offer Matches",
+      "icon": "tag",
+      "href": "/account/buyer-offer-matches",
       "order": 130,
       "visibility": "signed-in",
       "requiredPermissions": [
@@ -238,10 +242,10 @@
         "top-nav",
         "bottom-nav"
       ],
-      "key": "offers",
-      "label": "Offers",
-      "icon": "package",
-      "href": "/account/offers",
+      "key": "submitted-buyer-offers",
+      "label": "Submitted Buyer Offers",
+      "icon": "message",
+      "href": "/account/submitted-buyer-offers",
       "order": 140,
       "visibility": "signed-in",
       "requiredPermissions": [

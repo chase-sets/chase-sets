@@ -4,7 +4,7 @@ export type InventoryReservationRow = Readonly<{
   reservation_request_id: string;
   order_id: string;
   seller_account_id: string;
-  inventory_record_id: string;
+  inventory_item_id: string;
   quantity: number;
   hold_id: string | null;
   status: string;
@@ -22,7 +22,7 @@ export async function getInventoryReservation(
        reservation_request_id,
        order_id,
        seller_account_id,
-       inventory_record_id,
+       inventory_item_id,
        quantity,
        hold_id,
        status,

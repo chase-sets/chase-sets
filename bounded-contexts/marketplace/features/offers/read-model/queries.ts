@@ -18,7 +18,7 @@ export type MarketplaceOfferListRow = Readonly<{
   updated_at: string;
 }>;
 
-export type MarketplaceSellerOfferRow = MarketplaceOfferListRow &
+export type BuyerOfferMatchRow = MarketplaceOfferListRow &
   Readonly<{
     buyer_display_name: string | null;
     seller_available_quantity: number;
@@ -79,28 +79,28 @@ const sellerOfferSelectSql = `
       LEAST(
         listing.quantity_cap,
         GREATEST(
-          record.total_quantity - COALESCE(active_holds.held_quantity, 0),
+          item.total_quantity - COALESCE(active_holds.held_quantity, 0),
           0
         )
       )
     )::integer
     FROM marketplace_listing_pages AS listing
-    INNER JOIN marketplace_supply_records AS record
-      ON record.record_id = listing.inventory_record_id
+    INNER JOIN marketplace_supply_items AS item
+      ON item.item_id = listing.inventory_item_id
     LEFT JOIN (
-      SELECT record_id, SUM(quantity)::integer AS held_quantity
+      SELECT item_id, SUM(quantity)::integer AS held_quantity
       FROM marketplace_supply_holds
       WHERE status = 'active'
-      GROUP BY record_id
+      GROUP BY item_id
     ) AS active_holds
-      ON active_holds.record_id = record.record_id
+      ON active_holds.item_id = item.item_id
     WHERE listing.account_id = $1
       AND listing.status = 'active'
       AND listing.product_id = offer.product_id
   ), 0)::integer AS seller_available_quantity,
   EXISTS (
     SELECT 1
-    FROM marketplace_seller_offer_cart_pages AS cart
+    FROM marketplace_buyer_offer_match_sell_list_pages AS cart
     WHERE cart.seller_account_id = $1
       AND cart.offer_id = offer.offer_id
   ) AS in_sell_list`;
@@ -114,13 +114,13 @@ function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
     ${tieBreakerSql}`;
 }
 
-type MarketplaceSellerOfferPageRow = MarketplaceOfferPageRow & {
+type BuyerOfferMatchPageRow = MarketplaceOfferPageRow & {
   buyer_display_name: string | null;
   seller_available_quantity: number;
   in_sell_list: boolean;
 };
 
-function mapSellerOfferRow(row: MarketplaceSellerOfferPageRow): MarketplaceSellerOfferRow {
+function mapBuyerOfferMatchRow(row: BuyerOfferMatchPageRow): BuyerOfferMatchRow {
   const offer = mapOfferRow(row);
 
   return {
@@ -134,7 +134,7 @@ function mapSellerOfferRow(row: MarketplaceSellerOfferPageRow): MarketplaceSelle
   };
 }
 
-export async function listBuyerOffers(
+export async function listSubmittedBuyerOffers(
   db: PgQueryable,
   params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number }>,
 ): Promise<{ items: MarketplaceOfferListRow[]; total: number }> {
@@ -164,7 +164,7 @@ export async function listBuyerOffers(
   };
 }
 
-export async function getBuyerOffer(
+export async function getSubmittedBuyerOffer(
   db: PgQueryable,
   offerId: string,
   buyerAccountId: string,
@@ -181,10 +181,10 @@ export async function getBuyerOffer(
   return row ? mapOfferRow(row) : null;
 }
 
-export async function listSellerVisibleOffers(
+export async function listBuyerOfferMatches(
   db: PgQueryable,
   params: Readonly<{ sellerAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: MarketplaceSellerOfferRow[]; total: number }> {
+): Promise<{ items: BuyerOfferMatchRow[]; total: number }> {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
 
@@ -196,7 +196,7 @@ export async function listSellerVisibleOffers(
          AND ${sellerVisibilitySql}`,
       [params.sellerAccountId],
     ),
-    db.query<MarketplaceSellerOfferPageRow>(
+    db.query<BuyerOfferMatchPageRow>(
       `SELECT *
        FROM (
          SELECT
@@ -217,17 +217,17 @@ export async function listSellerVisibleOffers(
   ]);
 
   return {
-    items: itemsResult.rows.map(mapSellerOfferRow),
+    items: itemsResult.rows.map(mapBuyerOfferMatchRow),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
 
-export async function getSellerVisibleOffer(
+export async function getBuyerOfferMatch(
   db: PgQueryable,
   offerId: string,
   sellerAccountId: string,
-): Promise<MarketplaceSellerOfferRow | null> {
-  const result = await db.query<MarketplaceSellerOfferPageRow>(
+): Promise<BuyerOfferMatchRow | null> {
+  const result = await db.query<BuyerOfferMatchPageRow>(
     `SELECT
        ${sellerOfferSelectSql}
      FROM marketplace_offer_pages AS offer
@@ -241,20 +241,20 @@ export async function getSellerVisibleOffer(
 
   const row = result.rows[0];
 
-  return row ? mapSellerOfferRow(row) : null;
+  return row ? mapBuyerOfferMatchRow(row) : null;
 }
 
-export async function addSellerOfferCartItem(
+export async function addBuyerOfferMatchSellListItem(
   db: PgQueryable,
   params: Readonly<{ sellerAccountId: string; offerId: string; addedAt: string }>,
 ): Promise<void> {
-  const offer = await getSellerVisibleOffer(db, params.offerId, params.sellerAccountId);
+  const offer = await getBuyerOfferMatch(db, params.offerId, params.sellerAccountId);
   if (!offer) {
     throw new Error("Offer not found.");
   }
 
   await db.query(
-    `INSERT INTO marketplace_seller_offer_cart_pages (
+    `INSERT INTO marketplace_buyer_offer_match_sell_list_pages (
        seller_account_id,
        offer_id,
        added_at,
@@ -266,17 +266,17 @@ export async function addSellerOfferCartItem(
   );
 }
 
-export async function listSellerOfferCart(
+export async function listBuyerOfferMatchSellList(
   db: PgQueryable,
   sellerAccountId: string,
-): Promise<MarketplaceSellerOfferRow[]> {
-  const result = await db.query<MarketplaceSellerOfferPageRow>(
+): Promise<BuyerOfferMatchRow[]> {
+  const result = await db.query<BuyerOfferMatchPageRow>(
     `SELECT *
      FROM (
        SELECT
          ${sellerOfferSelectSql},
          cart.updated_at AS cart_updated_at
-       FROM marketplace_seller_offer_cart_pages AS cart
+       FROM marketplace_buyer_offer_match_sell_list_pages AS cart
        INNER JOIN marketplace_offer_pages AS offer
          ON offer.offer_id = cart.offer_id
        LEFT JOIN marketplace_account_pages AS buyer
@@ -288,10 +288,10 @@ export async function listSellerOfferCart(
     [sellerAccountId],
   );
 
-  return result.rows.map(mapSellerOfferRow);
+  return result.rows.map(mapBuyerOfferMatchRow);
 }
 
-export async function removeSellerOfferCartItems(
+export async function removeBuyerOfferMatchSellListItems(
   db: PgQueryable,
   params: Readonly<{ sellerAccountId: string; offerIds: readonly string[] }>,
 ): Promise<void> {
@@ -300,7 +300,7 @@ export async function removeSellerOfferCartItems(
   }
 
   await db.query(
-    `DELETE FROM marketplace_seller_offer_cart_pages
+    `DELETE FROM marketplace_buyer_offer_match_sell_list_pages
      WHERE seller_account_id = $1
        AND offer_id = ANY($2)`,
     [params.sellerAccountId, params.offerIds],

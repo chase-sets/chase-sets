@@ -9,7 +9,7 @@ export function buildMarketplaceListingProjectionHandlers(
       const data = event.data as {
         listingId: string;
         accountId: string;
-        inventoryRecordId: string;
+        inventoryItemId: string;
         catalogItemId: string;
         productId: string;
         itemTitle: string | null;
@@ -32,7 +32,7 @@ export function buildMarketplaceListingProjectionHandlers(
         `INSERT INTO marketplace_listing_pages (
           listing_id,
           account_id,
-          inventory_record_id,
+          inventory_item_id,
           catalog_catalog_item_id,
           product_id,
           item_title,
@@ -57,7 +57,7 @@ export function buildMarketplaceListingProjectionHandlers(
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
-          inventory_record_id = EXCLUDED.inventory_record_id,
+          inventory_item_id = EXCLUDED.inventory_item_id,
           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
           product_id = EXCLUDED.product_id,
           item_title = EXCLUDED.item_title,
@@ -78,7 +78,7 @@ export function buildMarketplaceListingProjectionHandlers(
         [
           data.listingId,
           data.accountId,
-          data.inventoryRecordId,
+          data.inventoryItemId,
           data.catalogItemId,
           data.productId,
           data.itemTitle,

@@ -3,7 +3,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 export type InventoryHoldRow = Readonly<{
   hold_id: string;
   account_id: string;
-  record_id: string;
+  item_id: string;
   quantity: number;
   reason: string;
   notes: string | null;
@@ -22,7 +22,7 @@ export async function getInventoryHold(
     `SELECT
        hold_id,
        account_id,
-       record_id,
+       item_id,
        quantity,
        reason,
        notes,

@@ -5,10 +5,10 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
-  type ReputationReviewListItem,
+  type ReviewListItem,
 } from "../../support/request-support/api-client";
 import { createReputationRequestApiClient } from "../../support/request-support/api-client";
-import { ReputationReviewListPage } from "../../features/reviews/ui/review-list-page";
+import { ReviewListPage } from "../../features/reviews/ui/review-list-page";
 
 const DEFAULT_REVIEW_QUERY = "limit=100&offset=0";
 
@@ -31,16 +31,16 @@ export default function MarketplaceAccountReceivedReviewsRoute() {
   const data = useLoaderData<typeof loader>();
 
   return (
-    <ReputationReviewListPage
+    <ReviewListPage
       title="Received Reviews"
-      eyebrow="Reputation"
+      eyebrow="Reviews"
       emptyTitle="No received reviews yet"
       emptyDescription="Counterparty feedback about your completed transactions appears here."
       reviewDetailBasePath="/account/reviews"
-      reviews={(data.reviews as ListResponse<ReputationReviewListItem>).items}
+      reviews={(data.reviews as ListResponse<ReviewListItem>).items}
       actions={
         <Stack direction="row" gap={2}>
-          <LinkButton href="/account/reputation" tone="secondary">
+          <LinkButton href="/account/reviews" tone="secondary">
             Summary
           </LinkButton>
           <LinkButton href="/account/reviews/written" tone="secondary">

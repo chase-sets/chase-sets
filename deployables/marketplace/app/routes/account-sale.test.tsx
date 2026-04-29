@@ -82,13 +82,13 @@ describe("marketplace account sale route", () => {
     vi.clearAllMocks();
   });
 
-  it("loads the seller order and matching review opportunity", async () => {
+  it("loads the sale and matching review opportunity", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
         const url = requestUrl(input);
 
-        if (url.includes("/api/marketplace/seller/orders/ord_1")) {
+        if (url.includes("/api/marketplace/seller/sales/ord_1")) {
           return Promise.resolve(jsonResponse(order));
         }
 
@@ -115,13 +115,13 @@ describe("marketplace account sale route", () => {
       context: undefined,
     } as never);
 
-    expect(result.order.order_id).toBe("ord_1");
+    expect(result.sale.order_id).toBe("ord_1");
     expect(result.reviewOpportunity?.subject_account_id).toBe("acc_buyer");
   });
 
-  it.skip("renders a verified-order review CTA for sellers", () => {
+  it.skip("renders a verified-sale review CTA for sellers", () => {
     mockUseLoaderData.mockReturnValue({
-      order,
+      sale: order,
       reviewOpportunity: {
         order_id: "ord_1",
         subject_account_id: "acc_buyer",

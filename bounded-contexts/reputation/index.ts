@@ -13,7 +13,7 @@ import { createReputationServices } from "./support/runtime-support/services";
 import { reputationSchemaSql } from "./support/runtime-support/schema";
 import { seedReputationDatabase } from "./support/runtime-support/seed";
 import {
-  buildReputationAccountProjectionHandlers,
+  buildReviewAccountProjectionHandlers,
   buildReputationOrderProjectionHandlers,
   buildReputationShipmentProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
@@ -72,7 +72,7 @@ export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> 
         sourceContextName: "identity",
         projectionName: identitySubscription.projectionName,
         subscriptionVersion: identitySubscription.subscriptionVersion,
-        handlers: buildReputationAccountProjectionHandlers(services.db),
+        handlers: buildReviewAccountProjectionHandlers(services.db),
         eventTypes: identitySubscription.eventTypes,
         streamPrefixes: identitySubscription.streamPrefixes,
         order: identitySubscription.order,

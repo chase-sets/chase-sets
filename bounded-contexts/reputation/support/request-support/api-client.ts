@@ -8,11 +8,11 @@ export {
   reputationApi,
 } from "../../client";
 export type {
-  ReputationAccountSummary,
+  ReviewSummary,
   ReputationApiClientOptions,
-  ReputationReviewDetail,
-  ReputationReviewListItem,
-  ReputationReviewOpportunity,
+  ReviewDetail,
+  ReviewListItem,
+  ReviewOpportunity,
 } from "../../client";
 import { createReputationApiClient } from "../../client";
 

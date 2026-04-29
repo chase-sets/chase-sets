@@ -53,13 +53,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const orderIds = parseOrderIds(url.searchParams.get("orderIds"));
 
   if (orderIds.length === 0) {
-    throw redirect("/account/orders");
+    throw redirect("/account/purchases");
   }
 
   const orderingApi = createOrderingRequestApiClient(request);
 
   try {
-    const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getBuyerOrder(orderId)));
+    const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getPurchase(orderId)));
     return {
       orderIds,
       orders,
@@ -67,7 +67,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof Error && "status" in error && error.status === 404) {
-      throw new Response("Order not found.", { status: 404 });
+      throw new Response("Purchase not found.", { status: 404 });
     }
 
     throw error;
@@ -141,10 +141,10 @@ export default function MarketplaceAccountPaymentNewRoute() {
       <PageHeader
         eyebrow="Secure Checkout"
         title="Start payment"
-        description="Review the seller-specific orders created by checkout, then initialize the secure payment flow."
+        description="Review the seller-specific purchases created by checkout, then initialize the secure payment flow."
         actions={
-          <LinkButton href="/account/orders" tone="secondary">
-            Back to orders
+          <LinkButton href="/account/purchases" tone="secondary">
+            Back to purchases
           </LinkButton>
         }
       />
@@ -155,7 +155,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
             <OrderSummary
               title="Checkout Summary"
               lines={[
-                { label: "Orders", value: data.orders.length },
+                { label: "Purchases", value: data.orders.length },
                 { label: "Marketplace fees", value: formatMoney(marketplaceFeeAmount) },
                 { label: "Payment fees", value: formatMoney(paymentFeeAmount) },
                 { label: "Seller net", value: formatMoney(sellerNetAmount) },
@@ -167,7 +167,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 {
                   icon: "lock",
                   title: "Secure Payment",
-                  description: "Orders remain pending payment until Stripe confirms capture.",
+                  description: "Purchases remain pending payment until Stripe confirms capture.",
                 },
                 {
                   icon: "shield",
@@ -191,7 +191,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 <Badge tone="accent">Payment setup</Badge>
                 <Text weight="semibold">Ready to initialize payment</Text>
                 <Text size="sm" tone="secondary">
-                  Payment covers {data.orders.length} seller-specific order
+                  Payment covers {data.orders.length} seller-specific purchase
                   {data.orders.length === 1 ? "" : "s"} created by checkout.
                 </Text>
               </Stack>
@@ -211,14 +211,14 @@ export default function MarketplaceAccountPaymentNewRoute() {
             </Stack>
           </Surface>
 
-          <PageSection title="Orders">
+          <PageSection title="Purchases">
             <Stack gap={3}>
               {data.orders.map((order) => (
                 <Surface key={order.order_id} elevated>
                   <Stack gap={3}>
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>
                       <Stack gap={1}>
-                        <Text weight="semibold">Order {order.order_id}</Text>
+                        <Text weight="semibold">Purchase {order.order_id}</Text>
                         <Badge tone="accent">{order.status}</Badge>
                       </Stack>
                       <Stack gap={1}>
@@ -231,8 +231,8 @@ export default function MarketplaceAccountPaymentNewRoute() {
                       </Stack>
                     </Grid>
                     <Divider />
-                    <LinkButton href={`/account/orders/${order.order_id}`} tone="secondary">
-                      Open order
+                    <LinkButton href={`/account/purchases/${order.order_id}`} tone="secondary">
+                      Open purchase
                     </LinkButton>
                   </Stack>
                 </Surface>

@@ -15,7 +15,7 @@ export type InventoryReservationState = Readonly<{
   reservationRequestId: string | null;
   orderId: string | null;
   sellerAccountId: string | null;
-  inventoryRecordId: string | null;
+  inventoryItemId: string | null;
   quantity: number;
   holdId: string | null;
   status: "pending" | "confirmed" | "rejected" | "released" | null;
@@ -27,7 +27,7 @@ export const initialInventoryReservationState: InventoryReservationState = {
   reservationRequestId: null,
   orderId: null,
   sellerAccountId: null,
-  inventoryRecordId: null,
+  inventoryItemId: null,
   quantity: 0,
   holdId: null,
   status: null,
@@ -40,7 +40,7 @@ export type ConfirmInventoryReservationCommand = Readonly<{
   reservationRequestId: string;
   orderId: string;
   sellerAccountId: string;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   quantity: number;
   holdId: string;
 }>;
@@ -50,7 +50,7 @@ export type RejectInventoryReservationCommand = Readonly<{
   reservationRequestId: string;
   orderId: string;
   sellerAccountId: string;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   quantity: number;
   reason: string;
 }>;
@@ -71,7 +71,7 @@ export type InventoryReservationConfirmedEvent = DomainEvent<
     reservationRequestId: string;
     orderId: string;
     sellerAccountId: string;
-    inventoryRecordId: string;
+    inventoryItemId: string;
     quantity: number;
     holdId: string;
   }>
@@ -83,7 +83,7 @@ export type InventoryReservationRejectedEvent = DomainEvent<
     reservationRequestId: string;
     orderId: string;
     sellerAccountId: string;
-    inventoryRecordId: string;
+    inventoryItemId: string;
     quantity: number;
     reason: string;
   }>
@@ -108,14 +108,14 @@ function normalizeReservationInput(input: Readonly<{
   reservationRequestId: string;
   orderId: string;
   sellerAccountId: string;
-  inventoryRecordId: string;
+  inventoryItemId: string;
   quantity: number;
 }>) {
   return {
     reservationRequestId: normalizeLabel(input.reservationRequestId),
     orderId: normalizeLabel(input.orderId),
     sellerAccountId: normalizeLabel(input.sellerAccountId),
-    inventoryRecordId: normalizeLabel(input.inventoryRecordId),
+    inventoryItemId: normalizeLabel(input.inventoryItemId),
     quantity: ensurePositiveInteger(
       input.quantity,
       "Inventory reservation quantity must be a positive whole number.",
@@ -212,7 +212,7 @@ export const evolveInventoryReservation: AggregateEvolver<
         reservationRequestId: event.data.reservationRequestId,
         orderId: event.data.orderId,
         sellerAccountId: event.data.sellerAccountId,
-        inventoryRecordId: event.data.inventoryRecordId,
+        inventoryItemId: event.data.inventoryItemId,
         quantity: event.data.quantity,
         holdId: event.data.holdId,
         status: "confirmed",
@@ -224,7 +224,7 @@ export const evolveInventoryReservation: AggregateEvolver<
         reservationRequestId: event.data.reservationRequestId,
         orderId: event.data.orderId,
         sellerAccountId: event.data.sellerAccountId,
-        inventoryRecordId: event.data.inventoryRecordId,
+        inventoryItemId: event.data.inventoryItemId,
         quantity: event.data.quantity,
         holdId: null,
         status: "rejected",

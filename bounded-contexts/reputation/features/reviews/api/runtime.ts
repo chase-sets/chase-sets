@@ -18,7 +18,7 @@ import {
   ReputationDomainError,
   type ReviewRole,
 } from "../domain/common";
-import { buildReputationReviewProjectionHandlers } from "../read-model/projection";
+import { buildReviewProjectionHandlers } from "../read-model/projection";
 import {
   findActiveReviewForDirection,
   getAccountReview,
@@ -30,12 +30,12 @@ import {
   listWrittenReviews,
 } from "../read-model/queries";
 import {
-  decideReputationReview,
-  evolveReputationReview,
-  initialReputationReviewState,
-  type ReputationReviewCommand,
-  type ReputationReviewEvent,
-  type ReputationReviewState,
+  decideReview,
+  evolveReview,
+  initialReviewState,
+  type ReviewCommand,
+  type ReviewEvent,
+  type ReviewState,
 } from "../domain/domain";
 
 type ReviewRuntimeDeps = Readonly<{
@@ -44,11 +44,11 @@ type ReviewRuntimeDeps = Readonly<{
   db: PgQueryable;
 }>;
 
-export type ReputationReviewServices = Readonly<{
+export type ReviewServices = Readonly<{
   commandHandler: CommandHandler<
-    ReputationReviewCommand,
-    ReputationReviewState,
-    ReputationReviewEvent
+    ReviewCommand,
+    ReviewState,
+    ReviewEvent
   >;
   submitReview: (
     params: Readonly<{
@@ -121,18 +121,18 @@ async function requireOwnedReview(
   return review;
 }
 
-export function createReputationReviewRuntime(
+export function createReviewRuntime(
   deps: ReviewRuntimeDeps,
-): ReputationReviewServices {
+): ReviewServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<ReputationReviewEvent>(),
-      initialState: () => initialReputationReviewState,
-      evolve: evolveReputationReview,
+      codec: createPassthroughDomainEventCodec<ReviewEvent>(),
+      initialState: () => initialReviewState,
+      evolve: evolveReview,
     }),
-    evolve: evolveReputationReview,
-    decide: decideReputationReview,
+    evolve: evolveReview,
+    decide: decideReview,
   });
 
   return {
@@ -314,7 +314,7 @@ export function createReputationReviewRuntime(
         projectorName: "reputation-review-projection",
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
-        handlers: buildReputationReviewProjectionHandlers(deps.db),
+        handlers: buildReviewProjectionHandlers(deps.db),
       }),
     ],
   };

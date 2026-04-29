@@ -49,14 +49,6 @@ type Pages = {
   "/search": {
     params: {};
   };
-  "/account/fulfillment": {
-    params: {};
-  };
-  "/account/fulfillment/:shipmentId": {
-    params: {
-      "shipmentId": string;
-    };
-  };
   "/account/shipments/:shipmentId": {
     params: {
       "shipmentId": string;
@@ -83,9 +75,9 @@ type Pages = {
   "/account/inventory/locations": {
     params: {};
   };
-  "/account/inventory/records/:recordId": {
+  "/account/inventory/items/:itemId": {
     params: {
-      "recordId": string;
+      "itemId": string;
     };
   };
   "/account/listings/:listingId": {
@@ -96,31 +88,31 @@ type Pages = {
   "/account/listings": {
     params: {};
   };
-  "/account/market-offers/:offerId": {
+  "/account/buyer-offer-matches/:offerId": {
     params: {
       "offerId": string;
     };
   };
-  "/account/market-offers": {
+  "/account/buyer-offer-matches": {
     params: {};
   };
-  "/account/offers/:offerId": {
+  "/account/submitted-buyer-offers/:offerId": {
     params: {
       "offerId": string;
     };
   };
-  "/account/offers": {
+  "/account/submitted-buyer-offers": {
     params: {};
   };
   "/account/cart": {
     params: {};
   };
-  "/account/orders/:orderId": {
+  "/account/purchases/:purchaseId": {
     params: {
-      "orderId": string;
+      "purchaseId": string;
     };
   };
-  "/account/orders": {
+  "/account/purchases": {
     params: {};
   };
   "/account/sales/:orderId": {
@@ -139,15 +131,15 @@ type Pages = {
   "/account/payments/new": {
     params: {};
   };
-  "/account/orders/:orderId/review": {
+  "/account/purchases/:purchaseId/review": {
     params: {
-      "orderId": string;
+      "purchaseId": string;
     };
   };
   "/account/reviews/received": {
     params: {};
   };
-  "/account/reputation": {
+  "/account/reviews": {
     params: {};
   };
   "/account/reviews/:reviewId": {
@@ -179,7 +171,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/favicon.svg" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/account/select" | "/register" | "/sign-in" | "/sign-out" | "/items/:id" | "/search" | "/account/fulfillment" | "/account/fulfillment/:shipmentId" | "/account/shipments/:shipmentId" | "/account/shipments" | "/account" | "/account/consents" | "/account/security" | "/account/team" | "/account/inventory" | "/account/inventory/locations" | "/account/inventory/records/:recordId" | "/account/listings/:listingId" | "/account/listings" | "/account/market-offers/:offerId" | "/account/market-offers" | "/account/offers/:offerId" | "/account/offers" | "/account/cart" | "/account/orders/:orderId" | "/account/orders" | "/account/sales/:orderId" | "/account/sales" | "/account/payments/:paymentId" | "/account/payments/new" | "/account/orders/:orderId/review" | "/account/reviews/received" | "/account/reputation" | "/account/reviews/:reviewId" | "/account/sales/:orderId/review" | "/account/reviews/written" | "/account/payouts/:payoutId" | "/account/payouts" | "/account/settlement";
+    page: "/" | "/favicon.svg" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/account/select" | "/register" | "/sign-in" | "/sign-out" | "/items/:id" | "/search" | "/account/shipments/:shipmentId" | "/account/shipments" | "/account" | "/account/consents" | "/account/security" | "/account/team" | "/account/inventory" | "/account/inventory/locations" | "/account/inventory/items/:itemId" | "/account/listings/:listingId" | "/account/listings" | "/account/buyer-offer-matches/:offerId" | "/account/buyer-offer-matches" | "/account/submitted-buyer-offers/:offerId" | "/account/submitted-buyer-offers" | "/account/cart" | "/account/purchases/:purchaseId" | "/account/purchases" | "/account/sales/:orderId" | "/account/sales" | "/account/payments/:paymentId" | "/account/payments/new" | "/account/purchases/:purchaseId/review" | "/account/reviews/received" | "/account/reviews" | "/account/reviews/:reviewId" | "/account/sales/:orderId/review" | "/account/reviews/written" | "/account/payouts/:payoutId" | "/account/payouts" | "/account/settlement";
   };
   "routes/favicon-svg.ts": {
     id: "routes/favicon-svg";
@@ -203,7 +195,7 @@ type RouteFiles = {
   };
   "routes/layout.tsx": {
     id: "routes/layout";
-    page: "/" | "/account/select" | "/register" | "/sign-in" | "/sign-out" | "/items/:id" | "/search" | "/account/fulfillment" | "/account/fulfillment/:shipmentId" | "/account/shipments/:shipmentId" | "/account/shipments" | "/account" | "/account/consents" | "/account/security" | "/account/team" | "/account/inventory" | "/account/inventory/locations" | "/account/inventory/records/:recordId" | "/account/listings/:listingId" | "/account/listings" | "/account/market-offers/:offerId" | "/account/market-offers" | "/account/offers/:offerId" | "/account/offers" | "/account/cart" | "/account/orders/:orderId" | "/account/orders" | "/account/sales/:orderId" | "/account/sales" | "/account/payments/:paymentId" | "/account/payments/new" | "/account/orders/:orderId/review" | "/account/reviews/received" | "/account/reputation" | "/account/reviews/:reviewId" | "/account/sales/:orderId/review" | "/account/reviews/written" | "/account/payouts/:payoutId" | "/account/payouts" | "/account/settlement";
+    page: "/" | "/account/select" | "/register" | "/sign-in" | "/sign-out" | "/items/:id" | "/search" | "/account/shipments/:shipmentId" | "/account/shipments" | "/account" | "/account/consents" | "/account/security" | "/account/team" | "/account/inventory" | "/account/inventory/locations" | "/account/inventory/items/:itemId" | "/account/listings/:listingId" | "/account/listings" | "/account/buyer-offer-matches/:offerId" | "/account/buyer-offer-matches" | "/account/submitted-buyer-offers/:offerId" | "/account/submitted-buyer-offers" | "/account/cart" | "/account/purchases/:purchaseId" | "/account/purchases" | "/account/sales/:orderId" | "/account/sales" | "/account/payments/:paymentId" | "/account/payments/new" | "/account/purchases/:purchaseId/review" | "/account/reviews/received" | "/account/reviews" | "/account/reviews/:reviewId" | "/account/sales/:orderId/review" | "/account/reviews/written" | "/account/payouts/:payoutId" | "/account/payouts" | "/account/settlement";
   };
   "routes/index.tsx": {
     id: "routes/index";
@@ -232,14 +224,6 @@ type RouteFiles = {
   "../../../bounded-contexts/discovery/routes/search.tsx": {
     id: "../../../bounded-contexts/discovery/routes/search";
     page: "/search";
-  };
-  "../../../bounded-contexts/fulfillment/routes/marketplace/account-fulfillment.tsx": {
-    id: "../../../bounded-contexts/fulfillment/routes/marketplace/account-fulfillment";
-    page: "/account/fulfillment";
-  };
-  "../../../bounded-contexts/fulfillment/routes/marketplace/account-fulfillment-shipment.tsx": {
-    id: "../../../bounded-contexts/fulfillment/routes/marketplace/account-fulfillment-shipment";
-    page: "/account/fulfillment/:shipmentId";
   };
   "../../../bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx": {
     id: "../../../bounded-contexts/fulfillment/routes/marketplace/account-shipment";
@@ -273,9 +257,9 @@ type RouteFiles = {
     id: "../../../bounded-contexts/inventory/routes/marketplace/account-inventory-locations";
     page: "/account/inventory/locations";
   };
-  "../../../bounded-contexts/inventory/routes/marketplace/account-inventory-record.tsx": {
-    id: "../../../bounded-contexts/inventory/routes/marketplace/account-inventory-record";
-    page: "/account/inventory/records/:recordId";
+  "../../../bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx": {
+    id: "../../../bounded-contexts/inventory/routes/marketplace/account-inventory-item";
+    page: "/account/inventory/items/:itemId";
   };
   "../../../bounded-contexts/marketplace/routes/account-listing.tsx": {
     id: "../../../bounded-contexts/marketplace/routes/account-listing";
@@ -285,33 +269,33 @@ type RouteFiles = {
     id: "../../../bounded-contexts/marketplace/routes/account-listings";
     page: "/account/listings";
   };
-  "../../../bounded-contexts/marketplace/routes/account-market-offer.tsx": {
-    id: "../../../bounded-contexts/marketplace/routes/account-market-offer";
-    page: "/account/market-offers/:offerId";
+  "../../../bounded-contexts/marketplace/routes/account-buyer-offer-match.tsx": {
+    id: "../../../bounded-contexts/marketplace/routes/account-buyer-offer-match";
+    page: "/account/buyer-offer-matches/:offerId";
   };
-  "../../../bounded-contexts/marketplace/routes/account-market-offers.tsx": {
-    id: "../../../bounded-contexts/marketplace/routes/account-market-offers";
-    page: "/account/market-offers";
+  "../../../bounded-contexts/marketplace/routes/account-buyer-offer-matches.tsx": {
+    id: "../../../bounded-contexts/marketplace/routes/account-buyer-offer-matches";
+    page: "/account/buyer-offer-matches";
   };
-  "../../../bounded-contexts/marketplace/routes/account-offer.tsx": {
-    id: "../../../bounded-contexts/marketplace/routes/account-offer";
-    page: "/account/offers/:offerId";
+  "../../../bounded-contexts/marketplace/routes/account-submitted-buyer-offer.tsx": {
+    id: "../../../bounded-contexts/marketplace/routes/account-submitted-buyer-offer";
+    page: "/account/submitted-buyer-offers/:offerId";
   };
-  "../../../bounded-contexts/marketplace/routes/account-offers.tsx": {
-    id: "../../../bounded-contexts/marketplace/routes/account-offers";
-    page: "/account/offers";
+  "../../../bounded-contexts/marketplace/routes/account-submitted-buyer-offers.tsx": {
+    id: "../../../bounded-contexts/marketplace/routes/account-submitted-buyer-offers";
+    page: "/account/submitted-buyer-offers";
   };
   "../../../bounded-contexts/ordering/routes/account-cart.tsx": {
     id: "../../../bounded-contexts/ordering/routes/account-cart";
     page: "/account/cart";
   };
-  "../../../bounded-contexts/ordering/routes/account-order.tsx": {
-    id: "../../../bounded-contexts/ordering/routes/account-order";
-    page: "/account/orders/:orderId";
+  "../../../bounded-contexts/ordering/routes/account-purchase.tsx": {
+    id: "../../../bounded-contexts/ordering/routes/account-purchase";
+    page: "/account/purchases/:purchaseId";
   };
-  "../../../bounded-contexts/ordering/routes/account-orders.tsx": {
-    id: "../../../bounded-contexts/ordering/routes/account-orders";
-    page: "/account/orders";
+  "../../../bounded-contexts/ordering/routes/account-purchases.tsx": {
+    id: "../../../bounded-contexts/ordering/routes/account-purchases";
+    page: "/account/purchases";
   };
   "../../../bounded-contexts/ordering/routes/account-sale.tsx": {
     id: "../../../bounded-contexts/ordering/routes/account-sale";
@@ -329,17 +313,17 @@ type RouteFiles = {
     id: "../../../bounded-contexts/payments/routes/marketplace/account-payment-new";
     page: "/account/payments/new";
   };
-  "../../../bounded-contexts/reputation/routes/marketplace/account-order-review.tsx": {
-    id: "../../../bounded-contexts/reputation/routes/marketplace/account-order-review";
-    page: "/account/orders/:orderId/review";
+  "../../../bounded-contexts/reputation/routes/marketplace/account-purchase-review.tsx": {
+    id: "../../../bounded-contexts/reputation/routes/marketplace/account-purchase-review";
+    page: "/account/purchases/:purchaseId/review";
   };
   "../../../bounded-contexts/reputation/routes/marketplace/account-received-reviews.tsx": {
     id: "../../../bounded-contexts/reputation/routes/marketplace/account-received-reviews";
     page: "/account/reviews/received";
   };
-  "../../../bounded-contexts/reputation/routes/marketplace/account-reputation.tsx": {
-    id: "../../../bounded-contexts/reputation/routes/marketplace/account-reputation";
-    page: "/account/reputation";
+  "../../../bounded-contexts/reputation/routes/marketplace/account-review-summary.tsx": {
+    id: "../../../bounded-contexts/reputation/routes/marketplace/account-review-summary";
+    page: "/account/reviews";
   };
   "../../../bounded-contexts/reputation/routes/marketplace/account-review.tsx": {
     id: "../../../bounded-contexts/reputation/routes/marketplace/account-review";
@@ -382,8 +366,6 @@ type RouteModules = {
   "../../../bounded-contexts/auth/routes/marketplace/sign-out": unknown;
   "../../../bounded-contexts/discovery/routes/item-detail": unknown;
   "../../../bounded-contexts/discovery/routes/search": unknown;
-  "../../../bounded-contexts/fulfillment/routes/marketplace/account-fulfillment": unknown;
-  "../../../bounded-contexts/fulfillment/routes/marketplace/account-fulfillment-shipment": unknown;
   "../../../bounded-contexts/fulfillment/routes/marketplace/account-shipment": unknown;
   "../../../bounded-contexts/fulfillment/routes/marketplace/account-shipments": unknown;
   "../../../bounded-contexts/identity/routes/marketplace/account": unknown;
@@ -392,23 +374,23 @@ type RouteModules = {
   "../../../bounded-contexts/identity/routes/marketplace/account-team": unknown;
   "../../../bounded-contexts/inventory/routes/marketplace/account-inventory": unknown;
   "../../../bounded-contexts/inventory/routes/marketplace/account-inventory-locations": unknown;
-  "../../../bounded-contexts/inventory/routes/marketplace/account-inventory-record": unknown;
+  "../../../bounded-contexts/inventory/routes/marketplace/account-inventory-item": unknown;
   "../../../bounded-contexts/marketplace/routes/account-listing": unknown;
   "../../../bounded-contexts/marketplace/routes/account-listings": unknown;
-  "../../../bounded-contexts/marketplace/routes/account-market-offer": unknown;
-  "../../../bounded-contexts/marketplace/routes/account-market-offers": unknown;
-  "../../../bounded-contexts/marketplace/routes/account-offer": unknown;
-  "../../../bounded-contexts/marketplace/routes/account-offers": unknown;
+  "../../../bounded-contexts/marketplace/routes/account-buyer-offer-match": unknown;
+  "../../../bounded-contexts/marketplace/routes/account-buyer-offer-matches": unknown;
+  "../../../bounded-contexts/marketplace/routes/account-submitted-buyer-offer": unknown;
+  "../../../bounded-contexts/marketplace/routes/account-submitted-buyer-offers": unknown;
   "../../../bounded-contexts/ordering/routes/account-cart": unknown;
-  "../../../bounded-contexts/ordering/routes/account-order": unknown;
-  "../../../bounded-contexts/ordering/routes/account-orders": unknown;
+  "../../../bounded-contexts/ordering/routes/account-purchase": unknown;
+  "../../../bounded-contexts/ordering/routes/account-purchases": unknown;
   "../../../bounded-contexts/ordering/routes/account-sale": unknown;
   "../../../bounded-contexts/ordering/routes/account-sales": unknown;
   "../../../bounded-contexts/payments/routes/marketplace/account-payment": unknown;
   "../../../bounded-contexts/payments/routes/marketplace/account-payment-new": unknown;
-  "../../../bounded-contexts/reputation/routes/marketplace/account-order-review": unknown;
+  "../../../bounded-contexts/reputation/routes/marketplace/account-purchase-review": unknown;
   "../../../bounded-contexts/reputation/routes/marketplace/account-received-reviews": unknown;
-  "../../../bounded-contexts/reputation/routes/marketplace/account-reputation": unknown;
+  "../../../bounded-contexts/reputation/routes/marketplace/account-review-summary": unknown;
   "../../../bounded-contexts/reputation/routes/marketplace/account-review": unknown;
   "../../../bounded-contexts/reputation/routes/marketplace/account-sale-review": unknown;
   "../../../bounded-contexts/reputation/routes/marketplace/account-written-reviews": unknown;
