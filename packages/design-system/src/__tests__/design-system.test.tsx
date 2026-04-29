@@ -10,6 +10,7 @@ import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
 import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
 import {
   AdminShell,
+  CommerceActionBar,
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceLandingHero,
@@ -603,6 +604,22 @@ describe("design system", () => {
     expect(markup).toContain("Available");
     expect(markup).toContain("Sellers");
     expect(markup).toContain("lg:flex-row");
+  });
+
+  it("renders commerce action bars with optional intent controls", () => {
+    const markup = renderToString(
+      <CommerceActionBar
+        intentControl={<div>Buy or sell</div>}
+        summary="Raw / Near Mint"
+        primaryAction={<button type="button">Buy</button>}
+        secondaryAction={<button type="button">Make offer</button>}
+      />
+    );
+
+    expect(markup).toContain("Buy or sell");
+    expect(markup).toContain("Raw / Near Mint");
+    expect(markup).toContain("grid-cols-2");
+    expect(markup).toContain("Make offer");
   });
 
   it("resolves responsive classes from maps", () => {

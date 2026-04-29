@@ -69,8 +69,13 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
 export type ItemDetailCommerceSections = Readonly<{
   buy: ReactNode;
   offer: ReactNode;
+  mobileBuy?: ReactNode;
+  mobileOffer?: ReactNode;
   sell?: ReactNode;
+  sellAction?: ReactNode;
+  list?: ReactNode;
   sellLabel?: string;
+  listLabel?: string;
 }>;
 
 function formatFieldValue(value: unknown): string {
@@ -346,7 +351,7 @@ export function ItemDetailPage({
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [marketIntent, setMarketIntent] = useState<"buy" | "sell">("buy");
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<
-    "buy" | "offer" | "sell" | null
+    "buy" | "offer" | "sell" | "list" | null
   >(null);
   const [
     embeddedMobileCommerceNode,
@@ -603,19 +608,22 @@ export function ItemDetailPage({
         </Stack>
       )
     : null;
+  const renderMarketIntentControl = (ariaLabel: string) => (
+    <SegmentedControl
+      aria-label={ariaLabel}
+      items={[
+        { value: "buy", label: "Buy" },
+        { value: "sell", label: "Sell" },
+      ]}
+      value={marketIntent}
+      onValueChange={(value) =>
+        setMarketIntent(value === "sell" ? "sell" : "buy")
+      }
+    />
+  );
   const commerce = commerceContent ? (
     <Stack gap={3}>
-      <SegmentedControl
-        aria-label="Choose market intent"
-        items={[
-          { value: "buy", label: "Buy" },
-          { value: "sell", label: "Sell" },
-        ]}
-        value={marketIntent}
-        onValueChange={(value) =>
-          setMarketIntent(value === "sell" ? "sell" : "buy")
-        }
-      />
+      {renderMarketIntentControl("Choose market intent")}
       {commerceContent}
     </Stack>
   ) : null;
@@ -668,70 +676,86 @@ export function ItemDetailPage({
         ];
   const activeMobileCommerceContent =
     activeMobileCommerce === "buy"
-      ? commerceSections?.buy
+      ? commerceSections?.mobileBuy ?? commerceSections?.buy
       : activeMobileCommerce === "offer"
-        ? commerceSections?.offer
+        ? commerceSections?.mobileOffer ?? commerceSections?.offer
         : activeMobileCommerce === "sell"
-          ? commerceSections?.sell
-          : null;
+          ? commerceSections?.sellAction ?? commerceSections?.sell
+          : activeMobileCommerce === "list"
+            ? commerceSections?.list
+            : null;
   const activeMobileCommerceTitle =
     activeMobileCommerce === "buy"
       ? "Buy selected product"
       : activeMobileCommerce === "offer"
         ? "Make offer"
-        : commerceSections?.sellLabel ?? "Sell";
+        : activeMobileCommerce === "list"
+          ? commerceSections?.listLabel ?? "List"
+          : commerceSections?.sellLabel ?? "Sell";
+  const mobileBuyAction = selectedProductId ? (
+    <Button
+      type="button"
+      size="sm"
+      onClick={() => setActiveMobileCommerce("buy")}
+    >
+      Buy
+    </Button>
+  ) : (
+    <LinkButton href="#select-options" size="sm">
+      Select options
+    </LinkButton>
+  );
+  const mobileOfferAction = selectedProductId ? (
+    <Button
+      type="button"
+      tone="secondary"
+      size="sm"
+      onClick={() => setActiveMobileCommerce("offer")}
+    >
+      Make offer
+    </Button>
+  ) : (
+    <LinkButton href="#select-options" tone="secondary" size="sm">
+      Choose to offer
+    </LinkButton>
+  );
+  const mobileSellAction = (commerceSections?.sellAction ?? commerceSections?.sell) ? (
+    selectedProductId ? (
+      <Button
+        type="button"
+        size="sm"
+        onClick={() => setActiveMobileCommerce("sell")}
+      >
+        {commerceSections.sellLabel ?? "Sell"}
+      </Button>
+    ) : (
+      <LinkButton href="#select-options" size="sm">
+        Choose to sell
+      </LinkButton>
+    )
+  ) : null;
+  const mobileListAction = commerceSections?.list ? (
+    selectedProductId ? (
+      <Button
+        type="button"
+        tone="secondary"
+        size="sm"
+        onClick={() => setActiveMobileCommerce("list")}
+      >
+        {commerceSections.listLabel ?? "List"}
+      </Button>
+    ) : (
+      <LinkButton href="#select-options" tone="secondary" size="sm">
+        Choose to list
+      </LinkButton>
+    )
+  ) : null;
   const mobileCommerceActionBar = commerce ? (
     <CommerceActionBar
+      intentControl={renderMarketIntentControl("Choose mobile market intent")}
       summary={mobileCommerceSummary}
-      primaryAction={
-        selectedProductId ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => setActiveMobileCommerce("buy")}
-          >
-            Buy
-          </Button>
-        ) : (
-          <LinkButton href="#select-options" size="sm">
-            Select options
-          </LinkButton>
-        )
-      }
-      secondaryAction={
-        selectedProductId ? (
-          <Button
-            type="button"
-            tone="secondary"
-            size="sm"
-            onClick={() => setActiveMobileCommerce("offer")}
-          >
-            Make offer
-          </Button>
-        ) : (
-          <LinkButton href="#select-options" tone="secondary" size="sm">
-            Choose to offer
-          </LinkButton>
-        )
-      }
-      tertiaryAction={
-        commerceSections?.sell ? (
-          selectedProductId ? (
-            <Button
-              type="button"
-              tone="secondary"
-              size="sm"
-              onClick={() => setActiveMobileCommerce("sell")}
-            >
-              {commerceSections.sellLabel ?? "Sell"}
-            </Button>
-          ) : (
-            <LinkButton href="#select-options" tone="secondary" size="sm">
-              Choose to sell
-            </LinkButton>
-          )
-        ) : null
-      }
+      primaryAction={marketIntent === "sell" ? mobileSellAction : mobileBuyAction}
+      secondaryAction={marketIntent === "sell" ? mobileListAction : mobileOfferAction}
     />
   ) : null;
   const mobileCommerceDrawer = commerce ? (

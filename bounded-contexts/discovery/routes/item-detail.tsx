@@ -105,6 +105,7 @@ function parseSelectedOptions(value: FormDataEntryValue | null) {
 
 function MarketplaceOfferSubmissionSection({
   formId = "make-offer",
+  frame = "card",
   catalogItemId,
   productId,
   itemTitle,
@@ -114,6 +115,7 @@ function MarketplaceOfferSubmissionSection({
   errorMessage,
 }: {
   formId?: string;
+  frame?: "card" | "plain";
   catalogItemId: string;
   productId: string | null;
   itemTitle: string;
@@ -122,19 +124,19 @@ function MarketplaceOfferSubmissionSection({
   visibleListingCount: number;
   errorMessage?: string | null;
 }) {
-  return (
-    <Card>
-      <form id={formId} method="post">
-        <Stack gap={3}>
-          <input type="hidden" name="intent" value="submit-offer" />
-          <input type="hidden" name="catalogItemId" value={catalogItemId} />
-          <input type="hidden" name="productId" value={productId ?? ""} />
-          <input
-            type="hidden"
-            name="selectedOptions"
-            value={JSON.stringify(selectedOptions)}
-          />
-          <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+  const form = (
+    <form id={formId} method="post">
+      <Stack gap={3}>
+        <input type="hidden" name="intent" value="submit-offer" />
+        <input type="hidden" name="catalogItemId" value={catalogItemId} />
+        <input type="hidden" name="productId" value={productId ?? ""} />
+        <input
+          type="hidden"
+          name="selectedOptions"
+          value={JSON.stringify(selectedOptions)}
+        />
+        <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+        {frame === "card" ? (
           <Stack gap={1}>
             <Text weight="semibold">Make an offer</Text>
             <Text size="sm" tone="secondary">
@@ -146,23 +148,25 @@ function MarketplaceOfferSubmissionSection({
                 : "Choose options to make an offer."}
             </Text>
           </Stack>
-          {errorMessage ? <Text>{errorMessage}</Text> : null}
-          <CurrencyInput
-            label="Offer price"
-            name="priceAmount"
-            placeholder="24.99"
-            min="0"
-            step="0.01"
-            required
-          />
-          <NumberInput label="Quantity requested" name="quantityRequested" min="1" required />
-          <Button type="submit" tone="secondary" disabled={!productId} block>
-            Submit offer
-          </Button>
-        </Stack>
-      </form>
-    </Card>
+        ) : null}
+        {errorMessage ? <Text>{errorMessage}</Text> : null}
+        <CurrencyInput
+          label="Offer price"
+          name="priceAmount"
+          placeholder="24.99"
+          min="0"
+          step="0.01"
+          required
+        />
+        <NumberInput label="Quantity requested" name="quantityRequested" min="1" required />
+        <Button type="submit" tone="secondary" disabled={!productId} block>
+          Submit offer
+        </Button>
+      </Stack>
+    </form>
   );
+
+  return frame === "plain" ? form : <Card>{form}</Card>;
 }
 
 function OrderingAddToCartSection({
@@ -272,12 +276,14 @@ function OrderingAddToCartSection({
 
 function MarketplaceSellerOfferSection({
   formId = "sell-box",
+  frame = "card",
   selectedOffer,
   productId,
   matchingOfferCount,
   errorMessage,
 }: {
   formId?: string;
+  frame?: "card" | "plain";
   selectedOffer: {
     offer_id: string;
     buyer_display_name: string | null;
@@ -292,11 +298,11 @@ function MarketplaceSellerOfferSection({
   matchingOfferCount: number;
   errorMessage?: string | null;
 }) {
-  return (
-    <Card glow={Boolean(selectedOffer?.can_fulfill)}>
-      <form id={formId} method="post">
-        <Stack gap={3}>
-          <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
+  const form = (
+    <form id={formId} method="post">
+      <Stack gap={3}>
+        <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
+        {frame === "card" ? (
           <Stack gap={1}>
             <Text weight="semibold">Sell to buyer offer</Text>
             {selectedOffer ? (
@@ -320,45 +326,51 @@ function MarketplaceSellerOfferSection({
                   : matchingOfferCount > 0
                     ? "Matching buyer offers need more active supply."
                     : "No buyer offers match this product yet."}
-              </Text>
+                </Text>
             )}
           </Stack>
-          {errorMessage ? <Text>{errorMessage}</Text> : null}
-          <Button
-            type="submit"
-            name="intent"
-            value="sell-now"
-            disabled={!selectedOffer?.can_fulfill}
-            block
-          >
-            Sell now
-          </Button>
-          <Button
-            type="submit"
-            name="intent"
-            value="add-to-sell-list"
-            tone="secondary"
-            disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
-            block
-          >
-            {selectedOffer?.in_sell_list ? "In sell list" : "Add to sell list"}
-          </Button>
-        </Stack>
-      </form>
-    </Card>
+        ) : null}
+        {errorMessage ? <Text>{errorMessage}</Text> : null}
+        <Button
+          type="submit"
+          name="intent"
+          value="sell-now"
+          disabled={!selectedOffer?.can_fulfill}
+          block
+        >
+          Sell now
+        </Button>
+        <Button
+          type="submit"
+          name="intent"
+          value="add-to-sell-list"
+          tone="secondary"
+          disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
+          block
+        >
+          {selectedOffer?.in_sell_list ? "In sell list" : "Add to sell list"}
+        </Button>
+      </Stack>
+    </form>
   );
+
+  return frame === "plain"
+    ? form
+    : <Card glow={Boolean(selectedOffer?.can_fulfill)}>{form}</Card>;
 }
 
 export function MarketplaceSellerRegistrationSection({
+  frame = "card",
   productSummary,
   registerHref,
 }: {
+  frame?: "card" | "plain";
   productSummary: string | null;
   registerHref: string;
 }) {
-  return (
-    <Card glow>
-      <Stack gap={3}>
+  const content = (
+    <Stack gap={3}>
+      {frame === "card" ? (
         <Stack gap={1}>
           <Text weight="semibold">Sell on Chase Sets</Text>
           <Text size="sm" tone="secondary">
@@ -376,16 +388,19 @@ export function MarketplaceSellerRegistrationSection({
             </Text>
           )}
         </Stack>
-        <LinkButton href={registerHref} leadingIcon="plus" block>
-          Register to sell
-        </LinkButton>
-      </Stack>
-    </Card>
+      ) : null}
+      <LinkButton href={registerHref} leadingIcon="plus" block>
+        Register to sell
+      </LinkButton>
+    </Stack>
   );
+
+  return frame === "plain" ? content : <Card glow>{content}</Card>;
 }
 
 function MarketplaceListingSubmissionSection({
   formId = "list-box",
+  frame = "card",
   productId,
   productSummary,
   bestListing,
@@ -394,6 +409,7 @@ function MarketplaceListingSubmissionSection({
   errorMessage,
 }: {
   formId?: string;
+  frame?: "card" | "plain";
   productId: string | null;
   productSummary: string | null;
   bestListing: {
@@ -416,12 +432,12 @@ function MarketplaceListingSubmissionSection({
   const availableQuantity = listing?.quantity_cap ?? selectedInventory?.available_quantity ?? 0;
   const defaultQuantity = Math.max(1, Math.min(availableQuantity, 1));
 
-  return (
-    <Card glow={Boolean(listing)}>
-      <form id={formId} method="post">
-        <Stack gap={3}>
-          <input type="hidden" name="productId" value={productId ?? ""} />
-          <input type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
+  const form = (
+    <form id={formId} method="post">
+      <Stack gap={3}>
+        <input type="hidden" name="productId" value={productId ?? ""} />
+        <input type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
+        {frame === "card" ? (
           <Stack gap={1}>
             <Text weight="semibold">
               {listing ? "Update your listing" : "List at price"}
@@ -441,55 +457,57 @@ function MarketplaceListingSubmissionSection({
               </Text>
             ) : null}
           </Stack>
-          {listing ? (
-            <input
-              type="hidden"
-              name="inventoryRecordId"
-              value={listing.inventory_record_id}
-            />
-          ) : (
-            <NativeSelect
-              label="Inventory"
-              name="inventoryRecordId"
-              defaultValue={selectedInventory?.record_id ?? ""}
-              items={[
-                { value: "", label: "Choose inventory" },
-                ...matchingInventory.map((record) => ({
-                  value: record.record_id,
-                  label: `${record.product_summary ?? "Selected product"} - ${record.available_quantity} available`,
-                })),
-              ]}
-              required
-            />
-          )}
-          <CurrencyInput
-            label="Listing price"
-            name="priceAmount"
-            defaultValue={listing?.price_amount ?? bestListing?.price_amount ?? ""}
+        ) : null}
+        {listing ? (
+          <input
+            type="hidden"
+            name="inventoryRecordId"
+            value={listing.inventory_record_id}
+          />
+        ) : (
+          <NativeSelect
+            label="Inventory"
+            name="inventoryRecordId"
+            defaultValue={selectedInventory?.record_id ?? ""}
+            items={[
+              { value: "", label: "Choose inventory" },
+              ...matchingInventory.map((record) => ({
+                value: record.record_id,
+                label: `${record.product_summary ?? "Selected product"} - ${record.available_quantity} available`,
+              })),
+            ]}
             required
           />
-          <NumberInput
-            label="Quantity to list"
-            name="quantityCap"
-            min={1}
-            max={Math.max(availableQuantity, 1)}
-            defaultValue={String(listing?.quantity_cap ?? defaultQuantity)}
-            required
-          />
-          {errorMessage ? <Text>{errorMessage}</Text> : null}
-          <Button
-            type="submit"
-            name="intent"
-            value="list-at-price"
-            disabled={!productId || (!listing && matchingInventory.length === 0)}
-            block
-          >
-            {listing ? "Update listing" : "List at price"}
-          </Button>
-        </Stack>
-      </form>
-    </Card>
+        )}
+        <CurrencyInput
+          label="Listing price"
+          name="priceAmount"
+          defaultValue={listing?.price_amount ?? bestListing?.price_amount ?? ""}
+          required
+        />
+        <NumberInput
+          label="Quantity to list"
+          name="quantityCap"
+          min={1}
+          max={Math.max(availableQuantity, 1)}
+          defaultValue={String(listing?.quantity_cap ?? defaultQuantity)}
+          required
+        />
+        {errorMessage ? <Text>{errorMessage}</Text> : null}
+        <Button
+          type="submit"
+          name="intent"
+          value="list-at-price"
+          disabled={!productId || (!listing && matchingInventory.length === 0)}
+          block
+        >
+          {listing ? "Update listing" : "List at price"}
+        </Button>
+      </Stack>
+    </form>
   );
+
+  return frame === "plain" ? form : <Card glow={Boolean(listing)}>{form}</Card>;
 }
 
 export function ItemCommercePanel({
@@ -792,9 +810,10 @@ export default function DiscoveryItemDetailRoute() {
                   errorMessage={actionData?.error ?? null}
                 />
               );
-              const renderOffer = (formId: string) => (
+              const renderOffer = (formId: string, frame: "card" | "plain" = "card") => (
                 <MarketplaceOfferSubmissionSection
                   formId={formId}
+                  frame={frame}
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   itemTitle={context.itemTitle}
@@ -804,38 +823,57 @@ export default function DiscoveryItemDetailRoute() {
                   errorMessage={actionData?.error ?? null}
                 />
               );
+              const renderSellerOffer = (formId: string, frame: "card" | "plain" = "card") => (
+                <MarketplaceSellerOfferSection
+                  formId={formId}
+                  frame={frame}
+                  selectedOffer={context.selectedSellerOffer}
+                  productId={context.selectedProductId}
+                  matchingOfferCount={context.visibleSellerOffers.length}
+                  errorMessage={actionData?.error ?? null}
+                />
+              );
+              const renderListingSubmission = (formId: string, frame: "card" | "plain" = "card") => (
+                <MarketplaceListingSubmissionSection
+                  formId={formId}
+                  frame={frame}
+                  productId={context.selectedProductId}
+                  productSummary={context.selectedProductSummary}
+                  bestListing={context.bestListing}
+                  ownListing={ownListing}
+                  inventoryRecords={data.sellerInventoryRecords}
+                  errorMessage={actionData?.error ?? null}
+                />
+              );
+              const renderSellerRegistration = (frame: "card" | "plain" = "card") => (
+                <MarketplaceSellerRegistrationSection
+                  frame={frame}
+                  productSummary={context.selectedProductSummary}
+                  registerHref={data.registerToSellHref}
+                />
+              );
               const renderSeller = (formIdPrefix: string) =>
                 data.canUseSellerFeatures ? (
                   <Stack gap={4}>
-                    <MarketplaceSellerOfferSection
-                      formId={`${formIdPrefix}-sell-box`}
-                      selectedOffer={context.selectedSellerOffer}
-                      productId={context.selectedProductId}
-                      matchingOfferCount={context.visibleSellerOffers.length}
-                      errorMessage={actionData?.error ?? null}
-                    />
-                    <MarketplaceListingSubmissionSection
-                      formId={`${formIdPrefix}-list-box`}
-                      productId={context.selectedProductId}
-                      productSummary={context.selectedProductSummary}
-                      bestListing={context.bestListing}
-                      ownListing={ownListing}
-                      inventoryRecords={data.sellerInventoryRecords}
-                      errorMessage={actionData?.error ?? null}
-                    />
+                    {renderSellerOffer(`${formIdPrefix}-sell-box`)}
+                    {renderListingSubmission(`${formIdPrefix}-list-box`)}
                   </Stack>
-                ) : (
-                  <MarketplaceSellerRegistrationSection
-                    productSummary={context.selectedProductSummary}
-                    registerHref={data.registerToSellHref}
-                  />
-                );
+                ) : renderSellerRegistration();
               return (
                 {
                   buy: renderBuy("buy-box"),
                   offer: renderOffer("make-offer"),
                   sell: data.showSellerTab ? renderSeller("sell") : undefined,
+                  sellAction: data.canUseSellerFeatures
+                    ? renderSellerOffer("mobile-sell-box", "plain")
+                    : renderSellerRegistration("plain"),
+                  list: data.canUseSellerFeatures
+                    ? renderListingSubmission("mobile-list-box", "plain")
+                    : undefined,
+                  mobileBuy: renderBuy("mobile-buy-box", "plain"),
+                  mobileOffer: renderOffer("mobile-make-offer", "plain"),
                   sellLabel: data.canUseSellerFeatures ? "Sell" : "Sell",
+                  listLabel: "List",
                 }
               );
             }

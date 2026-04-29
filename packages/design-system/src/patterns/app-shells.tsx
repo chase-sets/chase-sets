@@ -1277,6 +1277,7 @@ export function MarketplaceMarketSummary({
 
 export interface CommerceActionBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  intentControl?: ReactNode;
   summary: ReactNode;
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
@@ -1284,17 +1285,25 @@ export interface CommerceActionBarProps
 }
 
 export function CommerceActionBar({
+  intentControl,
   summary,
   primaryAction,
   secondaryAction,
   tertiaryAction,
   ...rest
 }: CommerceActionBarProps) {
+  const actionCount = [
+    primaryAction,
+    secondaryAction,
+    tertiaryAction,
+  ].filter(Boolean).length;
+
   return (
     <div
       {...rest}
       className="modern-surface rounded-tokenLg border border-muted p-3 shadow-overlay"
     >
+      {intentControl ? <div className="mb-3">{intentControl}</div> : null}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1 text-xs font-medium text-secondary">
           {summary}
@@ -1302,7 +1311,11 @@ export function CommerceActionBar({
         <div
           className={cx(
             "grid shrink-0 gap-2 sm:flex sm:items-center [&>*]:w-full sm:[&>*]:w-auto",
-            tertiaryAction ? "grid-cols-3" : "grid-cols-2"
+            actionCount === 3
+              ? "grid-cols-3"
+              : actionCount === 2
+                ? "grid-cols-2"
+                : "grid-cols-1"
           )}
         >
           {primaryAction}

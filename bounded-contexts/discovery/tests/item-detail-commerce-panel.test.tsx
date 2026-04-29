@@ -186,17 +186,69 @@ describe("item detail commerce panel", () => {
       <ItemDetailPage
         data={createItem()}
         renderCommerce={() => ({
-          buy: <div>Mobile buy action</div>,
-          offer: <div>Mobile offer action</div>,
-          sell: <div>Mobile sell action</div>,
+          buy: <div>Desktop buy rail</div>,
+          offer: <div>Desktop offer rail</div>,
+          mobileBuy: <div>Mobile buy action</div>,
+          mobileOffer: <div>Mobile offer action</div>,
+          sell: <div>Desktop sell rail</div>,
+          sellAction: <div>Mobile sell action</div>,
+          list: <div>Mobile list action</div>,
         })}
       />,
     );
 
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    expect(screen.getByRole("dialog", { name: "Buy selected product" })).toBeTruthy();
-    expect(screen.getAllByText("Mobile buy action").length).toBeGreaterThan(0);
+    const buyDrawer = screen.getByRole("dialog", { name: "Buy selected product" });
+    expect(buyDrawer).toBeTruthy();
+    expect(within(buyDrawer).getByText("Mobile buy action")).toBeTruthy();
+    expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
+  });
+
+  it("changes mobile commerce actions with the selected market intent", () => {
+    render(
+      <ItemDetailPage
+        data={createItem()}
+        renderCommerce={() => ({
+          buy: <div>Mobile buy action</div>,
+          offer: <div>Mobile offer action</div>,
+          sell: <div>Desktop sell rail</div>,
+          sellAction: <div>Mobile sell action</div>,
+          list: <div>Mobile list action</div>,
+        })}
+      />,
+    );
+
+    expect(
+      screen.getAllByRole("tablist", { name: "Choose mobile market intent" }).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Buy" }).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: "Make offer" }).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Sell" })).toBeNull();
+
+    const mobileMarketIntent = screen.getAllByRole("tablist", {
+      name: "Choose mobile market intent",
+    })[0];
+
+    fireEvent.click(within(mobileMarketIntent).getByRole("tab", { name: "Sell" }));
+
+    expect(screen.queryByRole("button", { name: "Buy" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Make offer" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Sell" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "List" }).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Sell" })[0]);
+
+    expect(screen.getByRole("dialog", { name: "Sell" })).toBeTruthy();
+    expect(screen.getAllByText("Mobile sell action").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "List" })[0]);
+
+    expect(screen.getByRole("dialog", { name: "List" })).toBeTruthy();
+    expect(screen.getAllByText("Mobile list action").length).toBeGreaterThan(0);
   });
 
   it("sends incomplete mobile selections back to the option chooser", () => {
@@ -205,11 +257,13 @@ describe("item detail commerce panel", () => {
         data={createItem({
           product_schema: requiredSchema,
           market_listings: [],
+          market_offers: [],
         })}
         renderCommerce={() => ({
           buy: <div>Mobile buy action</div>,
           offer: <div>Mobile offer action</div>,
           sell: <div>Mobile sell action</div>,
+          list: <div>Mobile list action</div>,
         })}
       />,
     );
@@ -225,9 +279,21 @@ describe("item detail commerce panel", () => {
         .getAllByRole("link", { name: "Choose to offer" })
         .every((link) => link.getAttribute("href") === "#select-options"),
     ).toBe(true);
+
+    fireEvent.click(
+      within(
+        screen.getAllByRole("tablist", { name: "Choose mobile market intent" })[0],
+      ).getByRole("tab", { name: "Sell" }),
+    );
+
     expect(
       screen
         .getAllByRole("link", { name: "Choose to sell" })
+        .every((link) => link.getAttribute("href") === "#select-options"),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByRole("link", { name: "Choose to list" })
         .every((link) => link.getAttribute("href") === "#select-options"),
     ).toBe(true);
   });
