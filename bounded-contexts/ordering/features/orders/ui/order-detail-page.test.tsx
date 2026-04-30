@@ -54,14 +54,14 @@ describe("ordering order detail page", () => {
         supplementarySectionTitle="Review"
         supplementarySection={
           <Card>
-            <Text>Leave seller review</Text>
+            <Text>Leave account review</Text>
           </Card>
         }
       />,
     );
 
     expect(markup).toContain("Review");
-    expect(markup).toContain("Leave seller review");
+    expect(markup).toContain("Leave account review");
     expect(markup).toContain("Pay now");
     expect(markup).toContain('value="cancel-purchase"');
   });

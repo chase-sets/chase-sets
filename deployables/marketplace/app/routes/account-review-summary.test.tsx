@@ -99,7 +99,7 @@ describe("marketplace account review summary route", () => {
     });
   });
 
-  it.skip("renders summary links for written and received reviews", () => {
+  it("renders summary links for written and received reviews", () => {
     mockUseLoaderData.mockReturnValue({
       summary: {
         account_id: "acc_1",

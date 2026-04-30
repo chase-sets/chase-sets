@@ -114,7 +114,7 @@ describe("marketplace account purchase route", () => {
     expect(result.reviewOpportunity?.subject_account_id).toBe("acc_seller");
   });
 
-  it.skip("renders a verified-purchase review CTA for buyers", () => {
+  it("renders a verified-purchase account review CTA", () => {
     mockUseLoaderData.mockReturnValue({
       purchase: order,
       reviewOpportunity: {
@@ -133,10 +133,10 @@ describe("marketplace account purchase route", () => {
       </ChaseRoot>,
     );
 
-    expect(screen.getByText("Review this purchase")).toBeTruthy();
+    expect(screen.getByText("Leave account review")).toBeTruthy();
   });
 
-  it.skip("hides the review CTA when the order is not verified for review", () => {
+  it("hides the review CTA when the order is not verified for review", () => {
     mockUseLoaderData.mockReturnValue({
       purchase: order,
       reviewOpportunity: null,
@@ -148,6 +148,6 @@ describe("marketplace account purchase route", () => {
       </ChaseRoot>,
     );
 
-    expect(screen.queryByText("Review this purchase")).toBeNull();
+    expect(screen.queryByText("Leave account review")).toBeNull();
   });
 });

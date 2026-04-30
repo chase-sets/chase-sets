@@ -12,6 +12,7 @@
   ],
   "allowedSupportDirectories": [
     "request-support",
+    "route-support",
     "runtime-support",
     "seed-support"
   ],
@@ -220,6 +221,17 @@
       "createdFor": "reputation workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
+    },
+    "route-support": {
+      "classification": "support",
+      "purpose": "Provide reusable route-support assets shared by reputation-owned route modules.",
+      "allowedWhen": "Allowed only when route-layer behavior is duplicated across reputation-owned deployable routes.",
+      "expectedConsumers": [
+        "routes"
+      ],
+      "justification": "route-support centralizes route composition for the shared review-submission workflow.",
+      "createdFor": "purchase and sale review submission routes that differ only by entry-point path and not-found copy.",
+      "sunsetWhen": "Remove when the route modules no longer share meaningful request and rendering behavior."
     },
     "runtime-support": {
       "classification": "support",

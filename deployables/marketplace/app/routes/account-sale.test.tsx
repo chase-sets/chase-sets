@@ -119,7 +119,7 @@ describe("marketplace account sale route", () => {
     expect(result.reviewOpportunity?.subject_account_id).toBe("acc_buyer");
   });
 
-  it.skip("renders a verified-sale review CTA for sellers", () => {
+  it("renders a verified-sale counterparty review CTA", () => {
     mockUseLoaderData.mockReturnValue({
       sale: order,
       reviewOpportunity: {
@@ -138,6 +138,6 @@ describe("marketplace account sale route", () => {
       </ChaseRoot>,
     );
 
-    expect(screen.getByText("Leave buyer review")).toBeTruthy();
+    expect(screen.getByText("Leave account review")).toBeTruthy();
   });
 });

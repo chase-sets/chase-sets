@@ -5,7 +5,6 @@ import type {
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { Card, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createOrderingRequestApiClient,
@@ -17,9 +16,10 @@ import {
   type ReviewOpportunity,
 } from "@chase-sets/reputation/server";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
+import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-review-opportunity-callout";
 
 const MARKETPLACE_DESCRIPTION =
-  "Inspect a purchase, cancel it while still open, and see review readiness.";
+  "Inspect a purchase, cancel it while still open, and review the counterparty after delivery.";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -89,8 +89,6 @@ export default function OrderingAccountPurchaseRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const reviewOpportunity = data.reviewOpportunity as ReviewOpportunity | null;
-  const subjectRole =
-    reviewOpportunity?.author_role === "buyer" ? "seller" : "buyer";
 
   return (
     <OrderingOrderDetailPage
@@ -106,29 +104,11 @@ export default function OrderingAccountPurchaseRoute() {
       supplementarySectionTitle="Review"
       supplementarySection={
         reviewOpportunity ? (
-          <Card>
-            <Stack gap={2}>
-              <Text weight="semibold">
-                {reviewOpportunity.active_review_id
-                  ? `Your ${subjectRole} review is already active.`
-                  : `This verified purchase is ready for your ${subjectRole} review.`}
-              </Text>
-              <Text size="sm" tone="secondary">
-                Reviews open only after delivery verifies the purchase.
-              </Text>
-              <LinkButton
-                href={
-                  reviewOpportunity.active_review_id
-                    ? `/account/reviews/${reviewOpportunity.active_review_id}`
-                    : `/account/purchases/${data.purchase.order_id}/review`
-                }
-              >
-                {reviewOpportunity.active_review_id
-                  ? "Open your review"
-                  : `Leave ${subjectRole} review`}
-              </LinkButton>
-            </Stack>
-          </Card>
+          <OrderReviewOpportunityCallout
+            opportunity={reviewOpportunity}
+            reviewHref={`/account/purchases/${data.purchase.order_id}/review`}
+            transactionLabel="purchase"
+          />
         ) : null
       }
     />

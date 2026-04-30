@@ -44,7 +44,7 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
 
   await drainProjectors(services.projectors);
 
-  const buyerOpportunity = await services.reviews.getOrderReviewOpportunity(
+  const buyerToSellerOpportunity = await services.reviews.getOrderReviewOpportunity(
     (
       await services.db.query<{ order_id: string }>(
         `SELECT order_id
@@ -58,17 +58,17 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
     identitySeedIds.collector.accountId,
   );
 
-  if (!buyerOpportunity) {
-    throw new Error("Reputation seed requires buyer review eligibility from a delivered shipment.");
+  if (!buyerToSellerOpportunity) {
+    throw new Error("Reputation seed requires buyer-to-seller review eligibility from a delivered shipment.");
   }
 
-  const sellerOpportunity = await services.reviews.getOrderReviewOpportunity(
-    buyerOpportunity.order_id,
+  const sellerToBuyerOpportunity = await services.reviews.getOrderReviewOpportunity(
+    buyerToSellerOpportunity.order_id,
     identitySeedIds.demo.accountId,
   );
 
-  if (!sellerOpportunity) {
-    throw new Error("Reputation seed requires seller review eligibility from a delivered shipment.");
+  if (!sellerToBuyerOpportunity) {
+    throw new Error("Reputation seed requires seller-to-buyer review eligibility from a delivered shipment.");
   }
 
   await services.reviews.commandHandler({
@@ -76,10 +76,10 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
     command: {
       type: "SubmitReview",
       reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
-      orderId: buyerOpportunity.order_id as never,
+      orderId: buyerToSellerOpportunity.order_id as never,
       authorAccountId: identitySeedIds.collector.accountId,
-      subjectAccountId: buyerOpportunity.subject_account_id as never,
-      authorRole: buyerOpportunity.author_role as never,
+      subjectAccountId: buyerToSellerOpportunity.subject_account_id as never,
+      authorRole: buyerToSellerOpportunity.author_role as never,
       rating: 4,
       feedback: "Packed well and shipped exactly as described.",
       submittedAt: "2026-03-23T09:00:00.000Z",
@@ -102,10 +102,10 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
     command: {
       type: "SubmitReview",
       reviewId: reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
-      orderId: sellerOpportunity.order_id as never,
+      orderId: sellerToBuyerOpportunity.order_id as never,
       authorAccountId: identitySeedIds.demo.accountId,
-      subjectAccountId: sellerOpportunity.subject_account_id as never,
-      authorRole: sellerOpportunity.author_role as never,
+      subjectAccountId: sellerToBuyerOpportunity.subject_account_id as never,
+      authorRole: sellerToBuyerOpportunity.author_role as never,
       rating: 3,
       feedback: "Responsive but asked for extra packing photos.",
       submittedAt: "2026-03-23T09:15:00.000Z",

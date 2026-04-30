@@ -13,7 +13,7 @@ import {
 } from "@chase-sets/design-system";
 import type { ReviewOpportunity } from "./contracts";
 
-function getSubjectRole(authorRole: string) {
+function getCounterpartyRole(authorRole: string) {
   return authorRole === "buyer" ? "seller" : "buyer";
 }
 
@@ -33,16 +33,16 @@ export function ReviewSubmissionPage({
   defaultFeedback?: string;
 }) {
   const [rating, setRating] = useState(defaultRating);
-  const subjectRole = getSubjectRole(opportunity.author_role);
-  const subjectLabel =
+  const counterpartyRole = getCounterpartyRole(opportunity.author_role);
+  const counterpartyLabel =
     opportunity.subject_display_name ?? opportunity.subject_account_id;
 
   return (
     <Page>
       <PageHeader
         eyebrow="Reviews"
-        title={`Review ${subjectLabel}`}
-        description={`Leave ${subjectRole} feedback for order ${opportunity.order_id}.`}
+        title={`Review ${counterpartyLabel}`}
+        description={`Leave account feedback for this ${counterpartyRole} on order ${opportunity.order_id}.`}
         actions={
           <LinkButton href={backHref} tone="secondary">
             Back
@@ -54,7 +54,7 @@ export function ReviewSubmissionPage({
         <Card>
           <Stack gap={2}>
             <Text>Order {opportunity.order_id}</Text>
-            <Text>{subjectRole}: {subjectLabel}</Text>
+            <Text>Counterparty: {counterpartyLabel}</Text>
             <Text size="sm" tone="secondary">
               Reviews open only after the order has been verified by delivery.
             </Text>
@@ -83,10 +83,10 @@ export function ReviewSubmissionPage({
                   label="Feedback"
                   defaultValue={defaultFeedback}
                   rows={5}
-                  description={`Tell the ${subjectRole} what went well or what needs improvement.`}
+                  description="Tell the account what went well or what needs improvement."
                 />
                 <Button type="submit">
-                  {isSubmitting ? "Submitting review..." : `Submit ${subjectRole} review`}
+                  {isSubmitting ? "Submitting review..." : "Submit account review"}
                 </Button>
               </Stack>
             </form>

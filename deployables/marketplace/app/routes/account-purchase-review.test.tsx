@@ -112,7 +112,7 @@ describe("marketplace account purchase review route", () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it("submits a buyer review and redirects to the new review page", async () => {
+  it("submits a purchase-side account review and redirects to the new review page", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -154,7 +154,7 @@ describe("marketplace account purchase review route", () => {
     expect(response.headers.get("Location")).toBe("/account/reviews/rev_1");
   });
 
-  it.skip("renders the buyer review submission page", () => {
+  it("renders the purchase-side account review submission page", () => {
     mockUseLoaderData.mockReturnValue({ opportunity });
 
     render(
@@ -163,6 +163,6 @@ describe("marketplace account purchase review route", () => {
       </ChaseRoot>,
     );
 
-    expect(screen.getByText("Submit seller review")).toBeTruthy();
+    expect(screen.getByText("Submit account review")).toBeTruthy();
   });
 });

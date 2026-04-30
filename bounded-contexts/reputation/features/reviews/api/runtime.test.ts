@@ -52,7 +52,7 @@ function createInMemoryEventStore() {
     },
   };
 
-  return { eventStore };
+  return { allEvents, eventStore };
 }
 
 function createCheckpointStore(): ProjectionCheckpointStore {
@@ -130,5 +130,69 @@ describe("reputation review runtime", () => {
         "2026-04-02T00:00:00.000Z",
       ],
     ]);
+  });
+
+  it("submits a seller-to-buyer review from seller eligibility", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (
+          sql.includes("FROM reputation_review_eligibility_pages") &&
+          sql.includes("author_account_id = $2")
+        ) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                author_account_id: "acc_seller",
+                subject_account_id: "acc_buyer",
+                author_role: "seller",
+                eligible_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("FROM reputation_review_pages")) {
+          return { rows: [] };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createReviewRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    const result = await runtime.submitReview(
+      {
+        orderId: "ord_1",
+        authorAccountId: "acc_seller",
+        subjectAccountId: "acc_buyer",
+        rating: 4,
+        feedback: "Prompt payment and clear communication.",
+      },
+      {
+        ...context,
+        audit: {
+          performedByUserId: "usr_seller" as never,
+          forAccountId: "acc_seller" as never,
+        },
+      },
+    );
+
+    expect(result.reviewId).toMatch(/^rev_/);
+    expect(allEvents).toHaveLength(1);
+    expect(allEvents[0]?.eventType).toBe("reputation.review.submitted");
+    expect(allEvents[0]?.payload).toMatchObject({
+      orderId: "ord_1",
+      authorAccountId: "acc_seller",
+      subjectAccountId: "acc_buyer",
+      authorRole: "seller",
+      rating: 4,
+      feedback: "Prompt payment and clear communication.",
+    });
   });
 });

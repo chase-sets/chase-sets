@@ -1,8 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
-import { getOrderReviewOpportunity } from "./queries";
+import {
+  getAccountReview,
+  getOrderReviewOpportunity,
+  listPublicAccountReviews,
+  listReceivedReviews,
+  listWrittenReviews,
+  type ReviewListRow,
+} from "./queries";
+
+function reviewRow(overrides: Partial<ReviewListRow> = {}): ReviewListRow {
+  return {
+    review_id: "rev_1",
+    order_id: "ord_1",
+    author_account_id: "acc_author",
+    author_display_name: "Author",
+    subject_account_id: "acc_reviewed",
+    subject_display_name: "Reviewed",
+    author_role: "buyer",
+    rating: 5,
+    feedback: "Great transaction.",
+    status: "active",
+    submitted_at: "2026-04-02T00:00:00.000Z",
+    updated_at: "2026-04-02T00:00:00.000Z",
+    withdrawn_at: null,
+    ...overrides,
+  };
+}
 
 describe("reputation review queries", () => {
-  it("returns the buyer review opportunity for a verified order", async () => {
+  it("returns the buyer-to-seller review opportunity for a verified order", async () => {
     const db = {
       query: vi.fn(async () => ({
         rows: [
@@ -37,7 +63,7 @@ describe("reputation review queries", () => {
     ]);
   });
 
-  it("returns the seller review opportunity with the active review id when present", async () => {
+  it("returns the seller-to-buyer review opportunity with the active review id when present", async () => {
     const db = {
       query: vi.fn(async () => ({
         rows: [
@@ -70,5 +96,141 @@ describe("reputation review queries", () => {
       "ord_1",
       "acc_seller",
     ]);
+  });
+
+  it("lists only active public reviews for an account", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("COUNT(*)")) {
+          return { rows: [{ count: "1" }] };
+        }
+
+        return {
+          rows: [
+            reviewRow({
+              review_id: "rev_active",
+            }),
+          ],
+        };
+      }),
+    };
+
+    const result = await listPublicAccountReviews(db as never, {
+      accountId: "acc_reviewed",
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    const sql = vi.mocked(db.query).mock.calls.map(([query]) => query).join("\n");
+    expect(sql).toContain("WHERE subject_account_id = $1");
+    expect(sql).toContain("AND status = 'active'");
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
+      "acc_reviewed",
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
+      "acc_reviewed",
+      10,
+      0,
+    ]);
+  });
+
+  it("keeps written and received account review lists scoped to the requested account across statuses", async () => {
+    const rows = [
+      reviewRow({
+        review_id: "rev_active",
+      }),
+      reviewRow({
+        review_id: "rev_withdrawn",
+        order_id: "ord_2",
+        author_role: "seller",
+        rating: 2,
+        feedback: "Withdrawn feedback.",
+        status: "withdrawn",
+        submitted_at: "2026-04-03T00:00:00.000Z",
+        updated_at: "2026-04-03T00:00:00.000Z",
+        withdrawn_at: "2026-04-04T00:00:00.000Z",
+      }),
+    ];
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("COUNT(*)")) {
+          return { rows: [{ count: "2" }] };
+        }
+
+        return { rows };
+      }),
+    };
+
+    const written = await listWrittenReviews(db as never, {
+      authorAccountId: "acc_author",
+      limit: 25,
+      offset: 5,
+    });
+    const received = await listReceivedReviews(db as never, {
+      subjectAccountId: "acc_reviewed",
+      limit: 25,
+      offset: 5,
+    });
+
+    const sql = vi.mocked(db.query).mock.calls.map(([query]) => query).join("\n");
+    expect(sql).toContain("WHERE author_account_id = $1");
+    expect(sql).toContain("WHERE page.author_account_id = $1");
+    expect(sql).toContain("WHERE subject_account_id = $1");
+    expect(sql).toContain("WHERE page.subject_account_id = $1");
+    expect(sql).not.toContain("status = 'active'");
+    expect(written.total).toBe(2);
+    expect(written.items.map((review) => review.status)).toEqual([
+      "active",
+      "withdrawn",
+    ]);
+    expect(received.total).toBe(2);
+    expect(received.items.map((review) => review.status)).toEqual([
+      "active",
+      "withdrawn",
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
+      "acc_author",
+      25,
+      5,
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
+      "acc_reviewed",
+      25,
+      5,
+    ]);
+  });
+
+  it("loads account review details only for the author or reviewed account", async () => {
+    const row = reviewRow({
+      review_id: "rev_1",
+      author_role: "seller",
+      rating: 4,
+      feedback: "Prompt payment.",
+    });
+    const db = {
+      query: vi.fn(async (_sql: string, params?: unknown[]) => ({
+        rows:
+          params?.[1] === "acc_author" || params?.[1] === "acc_reviewed"
+            ? [row]
+            : [],
+      })),
+    };
+
+    await expect(
+      getAccountReview(db as never, "rev_1", "acc_author"),
+    ).resolves.toEqual(row);
+    await expect(
+      getAccountReview(db as never, "rev_1", "acc_reviewed"),
+    ).resolves.toEqual(row);
+    await expect(
+      getAccountReview(db as never, "rev_1", "acc_unrelated"),
+    ).resolves.toBeNull();
+
+    const sql = vi.mocked(db.query).mock.calls[0]?.[0] ?? "";
+    expect(sql).toContain(
+      "AND (page.author_account_id = $2 OR page.subject_account_id = $2)",
+    );
   });
 });

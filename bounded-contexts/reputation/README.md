@@ -11,7 +11,7 @@ Reputation owns post-transaction ratings, written feedback, and the canonical re
 - Written feedback
 - Review submission, edit, and withdrawal lifecycle
 - Review eligibility rules for completed transactions
-- Canonical review summary snapshots (average rating, review count, distribution)
+- Canonical review summary read models derived from active reviews (average rating, review count, distribution)
 - Public review visibility state limited to active vs withdrawn
 
 ## Does Not Own
@@ -43,7 +43,8 @@ Reputation terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `ReviewSubmitted`
 - `ReviewUpdated`
 - `ReviewWithdrawn`
-- `ReviewSummaryUpdated`
+
+Review summaries are projected read models, not emitted domain events.
 
 ## Invariants
 

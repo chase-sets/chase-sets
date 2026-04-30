@@ -6,6 +6,42 @@ import {
 } from "./domain";
 
 describe("reputation review domain", () => {
+  it("submits reviews in both transaction directions", async () => {
+    const buyerToSeller = await decideReview(initialReviewState, {
+      type: "SubmitReview",
+      reviewId: "rev_buyer_to_seller" as never,
+      orderId: "ord_1" as never,
+      authorAccountId: "acc_buyer" as never,
+      subjectAccountId: "acc_seller" as never,
+      authorRole: "buyer",
+      rating: 5,
+      feedback: "Seller packed carefully.",
+      submittedAt: "2026-04-02T00:00:00.000Z",
+    });
+    const sellerToBuyer = await decideReview(initialReviewState, {
+      type: "SubmitReview",
+      reviewId: "rev_seller_to_buyer" as never,
+      orderId: "ord_1" as never,
+      authorAccountId: "acc_seller" as never,
+      subjectAccountId: "acc_buyer" as never,
+      authorRole: "seller",
+      rating: 4,
+      feedback: "Buyer paid promptly.",
+      submittedAt: "2026-04-02T00:05:00.000Z",
+    });
+
+    expect(buyerToSeller[0]?.data).toMatchObject({
+      authorAccountId: "acc_buyer",
+      subjectAccountId: "acc_seller",
+      authorRole: "buyer",
+    });
+    expect(sellerToBuyer[0]?.data).toMatchObject({
+      authorAccountId: "acc_seller",
+      subjectAccountId: "acc_buyer",
+      authorRole: "seller",
+    });
+  });
+
   it("submits, updates, and withdraws a review", async () => {
     const submittedEvents = await decideReview(initialReviewState, {
       type: "SubmitReview",
@@ -53,9 +89,9 @@ describe("reputation review domain", () => {
           type: "SubmitReview",
           reviewId: "rev_1" as never,
           orderId: "ord_1" as never,
-        authorAccountId: "acc_buyer" as never,
-        subjectAccountId: "acc_buyer" as never,
-        authorRole: "buyer",
+          authorAccountId: "acc_buyer" as never,
+          subjectAccountId: "acc_buyer" as never,
+          authorRole: "buyer",
           rating: 5,
           feedback: "Nope.",
           submittedAt: "2026-04-02T00:00:00.000Z",

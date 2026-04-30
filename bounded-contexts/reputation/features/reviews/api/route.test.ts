@@ -143,6 +143,72 @@ describe("reputation review routes", () => {
     );
   });
 
+  it("lets a seller submit an account review for the buyer on a verified order", async () => {
+    const services = createServices();
+    vi.mocked(services.getOrderReviewOpportunity).mockResolvedValue({
+      order_id: "ord_1",
+      subject_account_id: "acc_buyer",
+      subject_display_name: "Buyer",
+      author_role: "seller",
+      eligible_at: "2026-04-02T00:00:00.000Z",
+      active_review_id: null,
+    });
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["reputation.view", "reputation.manage"],
+      },
+      services,
+    });
+
+    const opportunityResponse = await app.fetch(
+      new Request("http://reputation.test/reviews/opportunities/orders/ord_1"),
+    );
+    const submitResponse = await app.fetch(
+      new Request("http://reputation.test/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: "ord_1",
+          subjectAccountId: "acc_buyer",
+          rating: 4,
+          feedback: "Prompt payment and clear communication.",
+        }),
+      }),
+    );
+
+    expect(opportunityResponse.status).toBe(200);
+    expect(submitResponse.status).toBe(200);
+    await expect(submitResponse.json()).resolves.toEqual({
+      id: "rev_1",
+      version: 1,
+    });
+    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith(
+      "ord_1",
+      "acc_seller",
+    );
+    expect(services.submitReview).toHaveBeenCalledWith(
+      {
+        orderId: "ord_1",
+        authorAccountId: "acc_seller",
+        subjectAccountId: "acc_buyer",
+        rating: 4,
+        feedback: "Prompt payment and clear communication.",
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
+        }),
+      }),
+    );
+  });
+
   it("returns 404 when an order is not verified for review", async () => {
     const services = createServices();
     const app = buildApp({

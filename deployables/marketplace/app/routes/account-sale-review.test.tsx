@@ -89,7 +89,7 @@ describe("marketplace account sale review route", () => {
     expect(result.opportunity.subject_account_id).toBe("acc_buyer");
   });
 
-  it("submits a seller review and redirects to the new review page", async () => {
+  it("submits a sale-side account review and redirects to the new review page", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -131,7 +131,7 @@ describe("marketplace account sale review route", () => {
     expect(response.headers.get("Location")).toBe("/account/reviews/rev_2");
   });
 
-  it.skip("renders the seller review submission page", () => {
+  it("renders the sale-side account review submission page", () => {
     mockUseLoaderData.mockReturnValue({ opportunity });
 
     render(
@@ -140,6 +140,6 @@ describe("marketplace account sale review route", () => {
       </ChaseRoot>,
     );
 
-    expect(screen.getByText("Submit buyer review")).toBeTruthy();
+    expect(screen.getByText("Submit account review")).toBeTruthy();
   });
 });

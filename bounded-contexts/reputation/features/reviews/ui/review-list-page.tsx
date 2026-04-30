@@ -60,6 +60,12 @@ export function ReviewListPage({
                   </Stack>
                   <Text>{review.rating} / 5</Text>
                   <Text size="sm" tone="secondary">
+                    Review author: {review.author_display_name ?? review.author_account_id}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    Reviewed account: {review.subject_display_name ?? review.subject_account_id}
+                  </Text>
+                  <Text size="sm" tone="secondary">
                     {review.feedback ?? "No written feedback."}
                   </Text>
                   <LinkButton href={`${reviewDetailBasePath}/${review.review_id}`} tone="secondary">

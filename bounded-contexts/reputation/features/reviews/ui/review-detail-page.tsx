@@ -41,10 +41,10 @@ export function ReviewDetailPage({
             <Text>Rating: {review.rating} / 5</Text>
             <Text>Author role: {review.author_role}</Text>
             <Text>
-              Author: {review.author_display_name ?? review.author_account_id}
+              Review author: {review.author_display_name ?? review.author_account_id}
             </Text>
             <Text>
-              Subject: {review.subject_display_name ?? review.subject_account_id}
+              Reviewed account: {review.subject_display_name ?? review.subject_account_id}
             </Text>
           </Stack>
         </Card>
