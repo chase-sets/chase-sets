@@ -3,6 +3,7 @@ node_modules/
 dist/
 build/
 artifacts/
+coverage/
 .react-router/
 .env
 .env.local

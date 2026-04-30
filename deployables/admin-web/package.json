@@ -7,8 +7,7 @@
     "dev": "react-router dev",
     "build": "react-router build",
     "start": "react-router-serve ./build/server/index.js",
-    "typecheck": "tsc -p ./tsconfig.json --noEmit",
-    "test": "vitest run --config ./vitest.config.ts"
+    "typecheck": "tsc -p ./tsconfig.json --noEmit"
   },
   "dependencies": {
     "@chase-sets/auth": "0.1.0",

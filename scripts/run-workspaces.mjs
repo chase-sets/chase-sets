@@ -84,10 +84,16 @@ async function main() {
     throw new Error("Usage: node ./scripts/run-workspaces.mjs <script-name>");
   }
 
-  const includeTestProfile = rawArgs
+  const passthroughSeparatorIndex = rawArgs.indexOf("--");
+  const runnerArgs =
+    passthroughSeparatorIndex === -1 ? rawArgs : rawArgs.slice(0, passthroughSeparatorIndex);
+  const passthroughArgs =
+    passthroughSeparatorIndex === -1 ? [] : rawArgs.slice(passthroughSeparatorIndex + 1);
+
+  const includeTestProfile = runnerArgs
     .find((arg) => arg.startsWith("--test-profile="))
     ?.split("=")[1];
-  const excludeTestProfile = rawArgs
+  const excludeTestProfile = runnerArgs
     .find((arg) => arg.startsWith("--exclude-test-profile="))
     ?.split("=")[1];
 
@@ -110,7 +116,13 @@ async function main() {
 
   for (const workspace of workspaces) {
     console.log(`Running ${scriptName} in ${workspace.name}...`);
-    const invocation = buildNpmInvocation(["run", scriptName, "--workspace", workspace.name]);
+    const invocation = buildNpmInvocation([
+      "run",
+      scriptName,
+      "--workspace",
+      workspace.name,
+      ...(passthroughArgs.length > 0 ? ["--", ...passthroughArgs] : []),
+    ]);
     await runCommand(invocation.command, invocation.args);
   }
 }

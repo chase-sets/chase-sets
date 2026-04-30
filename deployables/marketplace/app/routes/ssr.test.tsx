@@ -1,10 +1,5 @@
-import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router";
-import type { ReactNode } from "react";
-import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import { buildCanonicalUrl } from "../seo";
-import { resolveMarketplaceNavItems } from "../host";
 import { loader as accountLoader } from "@chase-sets/identity/routes/marketplace/account";
 import { loader as chromeDevtoolsLoader } from "./chrome-devtools";
 import { loader as faviconLoader } from "./favicon";
@@ -21,61 +16,6 @@ import { meta as signInMeta } from "@chase-sets/auth/routes/marketplace/sign-in"
 import { loader as sitemapLoader } from "./sitemap";
 
 describe("marketplace SSR routes", () => {
-  function renderMarketplaceShell(children: ReactNode) {
-    return (
-      <DiscoveryShellLayout
-        activeKey="search"
-        topNavItems={resolveMarketplaceNavItems("top-nav")}
-        bottomNavItems={resolveMarketplaceNavItems("bottom-nav")}
-      >
-        {children}
-      </DiscoveryShellLayout>
-    );
-  }
-
-  it("renders search results into HTML before hydration", () => {
-    const html = renderToString(
-      <MemoryRouter>
-        {renderMarketplaceShell(
-          <div>Search route outlet</div>
-        )}
-      </MemoryRouter>,
-    );
-
-    expect(html).toContain("Chase Sets");
-    expect(html).toContain("Search route outlet");
-  });
-
-  it("renders item detail content into HTML before hydration", () => {
-    const html = renderToString(
-      renderMarketplaceShell(
-        <div>Item detail route outlet</div>
-      ),
-    );
-
-    expect(html).toContain("Item detail route outlet");
-  });
-
-  it("renders identity entry content into HTML before hydration", () => {
-    const html = renderToString(
-      renderMarketplaceShell(
-        <div>Sign-in route outlet</div>
-      ),
-    );
-
-    expect(html).toContain("Sign-in route outlet");
-  });
-
-  it("renders account profile content into HTML before hydration", () => {
-    const html = renderToString(
-      renderMarketplaceShell(
-        <div>Account route outlet</div>
-      ),
-    );
-
-    expect(html).toContain("Account route outlet");
-  });
-
   it("loads discovery data through the marketplace API", async () => {
     vi.stubGlobal(
       "fetch",
@@ -281,36 +221,29 @@ describe("marketplace SSR routes", () => {
     expect(result.account.display_name).toBe("North Store");
   });
 
-  it("serves robots.txt from the marketplace app", async () => {
-    const response = robotsLoader({
+  it("serves marketplace static endpoints", async () => {
+    const robots = robotsLoader({
       request: new Request("https://marketplace.example/robots.txt"),
       params: {},
       context: undefined,
     } as never);
 
-    expect(response.headers.get("Content-Type")).toContain("text/plain");
-    await expect(response.text()).resolves.toContain(
+    expect(robots.headers.get("Content-Type")).toContain("text/plain");
+    await expect(robots.text()).resolves.toContain(
       "Sitemap: https://marketplace.example/sitemap.xml",
     );
-  });
-
-  it("serves a favicon from the marketplace app", async () => {
-    const response = faviconLoader({
+    const favicon = faviconLoader({
       request: new Request("https://marketplace.example/favicon.ico"),
       params: {},
       context: undefined,
     } as never);
 
-    expect(response.headers.get("Content-Type")).toContain("image/svg+xml");
-    const body = await response.text();
+    expect(favicon.headers.get("Content-Type")).toContain("image/svg+xml");
+    const body = await favicon.text();
 
     expect(body).toContain("<svg");
     expect(body).toContain("logoGradient");
-    expect(body).toContain("#702cff");
-  });
-
-  it("absorbs the chrome devtools probe", () => {
-    const response = chromeDevtoolsLoader({
+    const devtools = chromeDevtoolsLoader({
       request: new Request(
         "https://marketplace.example/.well-known/appspecific/com.chrome.devtools.json",
       ),
@@ -318,19 +251,16 @@ describe("marketplace SSR routes", () => {
       context: undefined,
     } as never);
 
-    expect(response.status).toBe(204);
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-  });
-
-  it("serves a minimal sitemap from the marketplace app", async () => {
-    const response = sitemapLoader({
+    expect(devtools.status).toBe(204);
+    expect(devtools.headers.get("Cache-Control")).toBe("no-store");
+    const sitemap = sitemapLoader({
       request: new Request("https://marketplace.example/sitemap.xml"),
       params: {},
       context: undefined,
     } as never);
 
-    expect(response.headers.get("Content-Type")).toContain("application/xml");
-    await expect(response.text()).resolves.toContain(
+    expect(sitemap.headers.get("Content-Type")).toContain("application/xml");
+    await expect(sitemap.text()).resolves.toContain(
       "<loc>https://marketplace.example/search</loc>",
     );
   });

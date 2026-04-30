@@ -3,88 +3,201 @@ import {
   createApiHost,
   getApiHostContextNames,
   getApiHostSeedOrder,
+  type ApiContextRegistry,
 } from "./api";
 import {
   getWebHostSections,
   resolveWebHostNavItems,
   resolveWebHostRouteRecords,
+  type WebContextRegistry,
 } from "./web";
-import { apiContextRegistry } from "../../deployables/platform-api/src/generated/api-context-registry";
-import { webContextRegistry as adminWebContextRegistry } from "../../deployables/admin-web/app/generated/web-context-registry";
-import { webContextRegistry as marketplaceWebContextRegistry } from "../../deployables/marketplace/app/generated/web-context-registry";
+
+function createModule(contextName: string) {
+  return {
+    contextName,
+    routePrefix: `/${contextName}`,
+    streamPrefix: `${contextName}.`,
+    schemaSql: "",
+    apiMounts: [],
+    createServices: () => ({ contextName }),
+    buildApis: () => [],
+    projectors: () => [],
+  };
+}
+
+const apiRegistry = [
+  {
+    contextName: "identity",
+    packageName: "@test/identity",
+    manifest: {
+      contextName: "identity",
+      apiDeployables: ["platform-api"],
+    },
+    module: createModule("identity"),
+  },
+  {
+    contextName: "auth",
+    packageName: "@test/auth",
+    manifest: {
+      contextName: "auth",
+      apiDeployables: ["platform-api"],
+      seedRequirements: ["identity"],
+    },
+    module: createModule("auth"),
+  },
+  {
+    contextName: "catalog",
+    packageName: "@test/catalog",
+    manifest: {
+      contextName: "catalog",
+      apiDeployables: [],
+    },
+    module: createModule("catalog"),
+  },
+] as const satisfies ApiContextRegistry;
+
+const webRegistry = [
+  {
+    contextName: "catalog",
+    packageName: "@test/catalog",
+    manifest: {
+      contextName: "catalog",
+      deployableContributions: [
+        {
+          deployable: "admin-web",
+          routes: [
+            {
+              routeId: "catalog-dimensions",
+              routePath: "dimensions",
+              fileExport: "catalog-dimensions",
+              routeType: "route",
+              sourceContext: "catalog",
+            },
+          ],
+        },
+      ],
+      shellContributions: [
+        {
+          deployable: "admin-web",
+          slot: "primary-nav",
+          key: "dimensions",
+          label: "Dimensions",
+          icon: "box",
+          href: "/dimensions",
+          order: 10,
+          visibility: "always",
+          requiredPermissions: [],
+        },
+      ],
+    },
+  },
+  {
+    contextName: "marketplace",
+    packageName: "@test/marketplace",
+    manifest: {
+      contextName: "marketplace",
+      shellContributions: [
+        {
+          deployable: "marketplace-web",
+          slot: "top-nav",
+          key: "inventory",
+          label: "Inventory",
+          icon: "package",
+          href: "/account/inventory",
+          order: 20,
+          visibility: "signed-in",
+          requiredPermissions: ["inventory.view"],
+        },
+        {
+          deployable: "marketplace-web",
+          slot: "top-nav",
+          key: "sign-in",
+          label: "Sign in",
+          icon: "user",
+          href: "/sign-in",
+          order: 30,
+          visibility: "signed-out",
+          requiredPermissions: [],
+        },
+      ],
+    },
+  },
+] as const satisfies WebContextRegistry;
 
 describe("platform host api registry", () => {
-  it("derives platform-api contexts from the deployable-owned registry", () => {
-    expect(getApiHostContextNames(apiContextRegistry, "platform-api")).toEqual([
-      "auth",
-      "catalog",
-      "checkout",
-      "commercial-terms",
-      "discovery",
-      "fulfillment",
+  it("returns active contexts for a host", () => {
+    expect(getApiHostContextNames(apiRegistry, "platform-api")).toEqual([
       "identity",
-      "inventory",
-      "marketplace",
-      "ordering",
-      "payments",
-      "pricing",
-      "reputation",
-      "settlement",
+      "auth",
     ]);
   });
 
   it("orders seeds by manifest dependencies", () => {
-    const seedOrder = getApiHostSeedOrder(apiContextRegistry, "platform-api");
-
-    expect(seedOrder.indexOf("identity")).toBeLessThan(seedOrder.indexOf("auth"));
-    expect(seedOrder.indexOf("catalog")).toBeLessThan(seedOrder.indexOf("discovery"));
-    expect(seedOrder.indexOf("inventory")).toBeLessThan(seedOrder.indexOf("marketplace"));
+    expect(getApiHostSeedOrder(apiRegistry, "platform-api")).toEqual([
+      "identity",
+      "auth",
+    ]);
   });
 
   it("throws when a required pool is missing", () => {
     expect(() =>
-      createApiHost(apiContextRegistry, "platform-api", {
-        pools: {},
+      createApiHost(apiRegistry, "platform-api", {
+        pools: {
+          identity: {} as never,
+        },
       }),
-    ).toThrow(/missing a pool/);
+    ).toThrow(/missing a pool for context 'auth'/);
   });
 });
 
 describe("platform host web registry", () => {
-  it("merges admin routes under catalog and identity sections from the admin host registry", () => {
-    const routes = resolveWebHostRouteRecords(adminWebContextRegistry, "admin-web");
-
-    expect(routes.some((route) => route.routePath === "catalog/sign-in")).toBe(true);
-    expect(routes.some((route) => route.routePath === "identity/accounts")).toBe(true);
-    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity"]);
-  });
-
-  it("builds marketplace nav items from the marketplace host registry", () => {
+  it("prefixes admin routes and nav items by section", () => {
+    const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
     const navItems = resolveWebHostNavItems(
-      marketplaceWebContextRegistry,
-      "marketplace-web",
-      "top-nav",
-      {
-      permissions: ["inventory.view", "accounts.view"],
-      },
-    );
-
-    expect(navItems.some((item) => item.href === "/search")).toBe(true);
-    expect(navItems.some((item) => item.href === "/account")).toBe(true);
-  });
-
-  it("prefixes admin nav items by section", () => {
-    const navItems = resolveWebHostNavItems(
-      adminWebContextRegistry,
+      webRegistry,
       "admin-web",
       "primary-nav",
-      { permissions: [] },
+      null,
       { section: "catalog" },
     );
 
-    expect(navItems.some((item) => item.href === "/catalog/dimensions")).toBe(true);
+    expect(routes).toContainEqual(
+      expect.objectContaining({
+        routePath: "catalog/dimensions",
+        section: "catalog",
+      }),
+    );
+    expect(navItems).toEqual([
+      expect.objectContaining({
+        href: "/catalog/dimensions",
+        label: "Dimensions",
+      }),
+    ]);
+    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity"]);
+  });
+
+  it("filters marketplace nav items by actor visibility and permissions", () => {
+    expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", null))
+      .toEqual([
+        expect.objectContaining({
+          href: "/sign-in",
+          label: "Sign in",
+        }),
+      ]);
     expect(
-      navItems.every((item) => (item.href ?? "").startsWith("/catalog/")),
-    ).toBe(true);
+      resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", {
+        permissions: ["inventory.view"],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        href: "/account/inventory",
+        label: "Inventory",
+      }),
+    ]);
+    expect(
+      resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", {
+        permissions: [],
+      }),
+    ).toEqual([]);
   });
 });

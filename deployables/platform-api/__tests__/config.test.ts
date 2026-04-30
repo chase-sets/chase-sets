@@ -9,10 +9,14 @@ import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const envNames = [
   "DATABASE_URL",
-  ...getApiHostContextNames(apiContextRegistry, "platform-api").map((contextName) =>
+  ...platformApiContextNames().map((contextName) =>
     getContextDatabaseEnvName(contextName),
   ),
 ];
+
+function platformApiContextNames() {
+  return getApiHostContextNames(apiContextRegistry, "platform-api");
+}
 
 afterEach(() => {
   for (const envName of envNames) {
@@ -38,24 +42,16 @@ describe("platform api config", () => {
 
   it("loads per-context database urls without a shared fallback", () => {
     delete process.env.DATABASE_URL;
-    process.env.DATABASE_URL_AUTH = "postgresql://localhost/auth";
-    process.env.DATABASE_URL_CATALOG = "postgresql://localhost/catalog";
-    process.env.DATABASE_URL_COMMERCIAL_TERMS = "postgresql://localhost/commercial_terms";
-    process.env.DATABASE_URL_DISCOVERY = "postgresql://localhost/discovery";
-    process.env.DATABASE_URL_FULFILLMENT = "postgresql://localhost/fulfillment";
-    process.env.DATABASE_URL_IDENTITY = "postgresql://localhost/identity";
-    process.env.DATABASE_URL_INVENTORY = "postgresql://localhost/inventory";
-    process.env.DATABASE_URL_MARKETPLACE = "postgresql://localhost/marketplace";
-    process.env.DATABASE_URL_ORDERING = "postgresql://localhost/ordering";
-    process.env.DATABASE_URL_PAYMENTS = "postgresql://localhost/payments";
-    process.env.DATABASE_URL_PRICING = "postgresql://localhost/pricing";
-    process.env.DATABASE_URL_REPUTATION = "postgresql://localhost/reputation";
-    process.env.DATABASE_URL_SETTLEMENT = "postgresql://localhost/settlement";
+    for (const contextName of platformApiContextNames()) {
+      process.env[getContextDatabaseEnvName(contextName)] =
+        `postgresql://localhost/${contextName.replaceAll("-", "_")}`;
+    }
 
     const config = loadBootstrapConfig();
 
     expect(config.sharedDatabaseUrl).toBeNull();
     expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth");
+    expect(config.contextDatabaseUrls.checkout).toBe("postgresql://localhost/checkout");
     expect(config.contextDatabaseUrls["commercial-terms"]).toBe(
       "postgresql://localhost/commercial_terms",
     );

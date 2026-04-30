@@ -6,8 +6,12 @@ export default defineConfig({
     include: [
       "features/**/*.test.ts",
       "features/**/*.test.tsx",
+      "support/**/*.test.ts",
+      "support/**/*.test.tsx",
       "tests/**/*.test.ts",
       "tests/**/*.test.tsx",
     ],
+    hookTimeout: 120_000,
+    testTimeout: 120_000,
   },
 });

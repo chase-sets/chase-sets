@@ -1,7 +1,14 @@
 import {
   createMountedContextTestRuntime,
+  closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+  seedMountedContextTestRuntimeIfEmpty,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as commercialTermsModule } from "@chase-sets/commercial-terms";
@@ -53,6 +60,71 @@ export const marketplaceSeedLifecycleContextOrder = [
 export type MarketplaceSeedRuntimePools = Readonly<
   Record<(typeof marketplaceSeedContextNames)[number], PgTransactionalPool>
 >;
+
+const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+
+export const describeWithMarketplaceSeedDatabase = databaseBaseUrl
+  ? describe
+  : describe.skip;
+
+function requireMarketplaceSeedDatabaseBaseUrl(testName: string): string {
+  if (!databaseBaseUrl) {
+    throw new Error(
+      `TEST_DATABASE_URL is required for database-backed ${testName} seed tests.`,
+    );
+  }
+
+  return databaseBaseUrl;
+}
+
+export function useMarketplaceSeedRuntime(testName: string) {
+  let pools: MarketplaceSeedRuntimePools | undefined;
+
+  function requirePools() {
+    if (!pools) {
+      throw new Error(`Marketplace seed pools are not initialized for ${testName}.`);
+    }
+
+    return pools;
+  }
+
+  beforeAll(async () => {
+    const baseUrl = requireMarketplaceSeedDatabaseBaseUrl(testName);
+    const databaseUrls = createMultiContextTestDatabaseUrls(
+      baseUrl,
+      marketplaceSeedContextNames,
+      `${testName}_seed`,
+    );
+
+    await ensureMultiContextTestDatabases(baseUrl, databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls) as MarketplaceSeedRuntimePools;
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(requirePools());
+  }, 120_000);
+
+  afterAll(async () => {
+    if (pools) {
+      await closeMultiContextTestPools(pools);
+    }
+  });
+
+  return {
+    get pools() {
+      return requirePools();
+    },
+    seed: async () => {
+      const runtime = createMarketplaceSeedRuntime(requirePools());
+      await seedMountedContextTestRuntimeIfEmpty(
+        runtime,
+        marketplaceSeedLifecycleContextOrder,
+      );
+
+      return runtime;
+    },
+  };
+}
 
 export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools) {
   const commercialTermsResolver = createCommercialTermsResolver({

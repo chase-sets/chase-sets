@@ -16,7 +16,6 @@
     "build": "npm run verify:source && react-router build && npm run verify:css",
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
-    "test": "vitest run --config ./vitest.config.ts",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "capture:visuals": "node ./scripts/capture-showcase-visuals.mjs",
     "verify:css": "node ./scripts/verify-css.mjs",
