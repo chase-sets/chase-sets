@@ -36,7 +36,7 @@ export default function OrderingAccountPurchasesRoute() {
       title="Purchases"
       eyebrow="Buyer"
       emptyTitle="No purchases yet"
-      emptyDescription="Your checkout activity and accepted seller offers will appear here."
+      emptyDescription="Your checkout activity and accepted offers will appear here."
       orderDetailBasePath="/account/purchases"
       orders={(data.purchases as ListResponse<PurchaseListItem>).items}
     />

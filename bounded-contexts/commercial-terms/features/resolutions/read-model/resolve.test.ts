@@ -67,7 +67,7 @@ describe("commercial terms resolver", () => {
     });
 
     const result = await resolver.resolveListingTerms({
-      sellerAccountId: "acc_test",
+      accountId: "acc_test",
       amount: "10.00",
       effectiveAt: "2026-04-16T10:00:00.000Z",
     });
@@ -95,7 +95,7 @@ describe("commercial terms resolver", () => {
     });
 
     const result = await resolver.resolveListingTerms({
-      sellerAccountId: "acc_test",
+      accountId: "acc_test",
       amount: "10.00",
       effectiveAt: "2026-04-16T10:00:00.000Z",
     });
@@ -123,7 +123,7 @@ describe("commercial terms resolver", () => {
     });
 
     const result = await resolver.resolveListingTerms({
-      sellerAccountId: "acc_test",
+      accountId: "acc_test",
       amount: "10.00",
       effectiveAt: "2026-04-16T10:00:00.000Z",
     });
@@ -157,7 +157,7 @@ describe("commercial terms resolver", () => {
     });
 
     const result = await resolver.resolveOrderTerms({
-      sellerAccountId: "acc_test",
+      accountId: "acc_test",
       amount: "20.00",
       effectiveAt: "2026-04-16T10:00:00.000Z",
     });
@@ -185,7 +185,7 @@ describe("commercial terms resolver", () => {
     });
 
     const result = await resolver.resolveOrderTerms({
-      sellerAccountId: "acc_test",
+      accountId: "acc_test",
       amount: "20.00",
       effectiveAt: "2026-04-16T10:00:00.000Z",
     });
@@ -213,7 +213,7 @@ describe("commercial terms resolver", () => {
 
     await expect(
       resolver.resolveListingTerms({
-        sellerAccountId: "acc_test",
+        accountId: "acc_test",
         amount: "12.00",
         effectiveAt: "2026-04-16T10:00:00.000Z",
       }),
@@ -230,7 +230,7 @@ describe("commercial terms resolver", () => {
 
     await expect(
       resolver.resolveListingTerms({
-        sellerAccountId: "acc_test",
+        accountId: "acc_test",
         amount: "12.00",
         effectiveAt: "2026-04-16T10:00:00.000Z",
       }),

@@ -445,7 +445,7 @@ export function createOrderingOrderRuntime(
 
     for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
       const commercialTerms = await deps.commercialTermsResolver.resolveOrderTerms({
-        sellerAccountId: draft.sellerAccountId,
+        accountId: draft.sellerAccountId,
         amount: draft.itemSubtotalAmount,
       });
       const orderId =

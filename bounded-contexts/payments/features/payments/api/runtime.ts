@@ -29,7 +29,7 @@ import type { BalanceCreditResolver } from "./balance-credit-resolver";
 import { listPaymentOrderInputs } from "../integrations/order-input/order-input-queries";
 import { buildPaymentProjectionHandlers } from "../read-model/projection";
 import {
-  getBuyerPayment,
+  getAccountPayment,
   getPaymentByProcessorReference,
   getPaymentBySource,
   type PaymentDetailRow,
@@ -91,12 +91,12 @@ function sumFeeAmounts(
     .toFixed(2);
 }
 
-async function loadBuyerOrders(
+async function loadAccountOrders(
   db: PgQueryable,
   orderIds: readonly OrderId[],
-  buyerAccountId: AccountId,
+  accountId: AccountId,
 ) {
-  const orders = await listPaymentOrderInputs(db, orderIds, buyerAccountId);
+  const orders = await listPaymentOrderInputs(db, orderIds, accountId);
   const ordersById = new Map(orders.map((order) => [order.order_id, order]));
 
   for (const orderId of orderIds) {
@@ -116,9 +116,9 @@ async function loadBuyerOrders(
 
 export type PaymentServices = Readonly<{
   commandHandler: CommandHandler<PaymentCommand, PaymentState, PaymentEvent>;
-  createBuyerPayment: (
+  createAccountPayment: (
     params: Readonly<{
-      buyerAccountId: AccountId;
+      accountId: AccountId;
       orderIds: readonly OrderId[];
       currencyCode?: string;
       sourceContext?: string | null;
@@ -127,9 +127,9 @@ export type PaymentServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }>>;
-  getBuyerPayment: (
+  getAccountPayment: (
     paymentId: string,
-    buyerAccountId: string,
+    accountId: string,
   ) => Promise<(PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }>) | null>;
   processWebhook: (
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
@@ -157,10 +157,10 @@ export function createPaymentRuntime(
 
   return {
     commandHandler,
-    async createBuyerPayment(params, context) {
-      const buyerAccountId = normalizeRequiredText(
-        params.buyerAccountId,
-        "Buyer account is required.",
+    async createAccountPayment(params, context) {
+      const accountId = normalizeRequiredText(
+        params.accountId,
+        "Account is required.",
       ) as AccountId;
       const sourceContext = params.sourceContext?.trim() || null;
       const sourceReferenceId = params.sourceReferenceId?.trim() || null;
@@ -169,7 +169,7 @@ export function createPaymentRuntime(
           deps.db,
           sourceContext,
           sourceReferenceId,
-          buyerAccountId,
+          accountId,
         );
         if (existing) {
           return {
@@ -179,7 +179,7 @@ export function createPaymentRuntime(
         }
       }
       const orderIds = normalizeOrderIds(params.orderIds);
-      const orders = await loadBuyerOrders(deps.db, orderIds, buyerAccountId);
+      const orders = await loadAccountOrders(deps.db, orderIds, accountId);
       const amount = sumOrderAmounts(orders);
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
       const requestedBalanceCreditAmount = normalizeMoneyAmount(
@@ -191,7 +191,7 @@ export function createPaymentRuntime(
       );
       const balanceCredit = deps.balanceCreditResolver
         ? await deps.balanceCreditResolver.resolveBalanceCredit({
-            buyerAccountId,
+            buyerAccountId: accountId,
             currencyCode,
             requestedAmount: requestedBalanceCreditAmount,
             orderTotalAmount: amount,
@@ -228,7 +228,7 @@ export function createPaymentRuntime(
           }
         : await deps.processorGateway.createPaymentIntent({
             paymentId,
-            buyerAccountId,
+            buyerAccountId: accountId,
             orderIds,
             amount: processorAmount,
             currencyCode,
@@ -244,7 +244,7 @@ export function createPaymentRuntime(
         command: {
           type: "CreatePayment",
           paymentId,
-          buyerAccountId,
+          buyerAccountId: accountId,
           orderIds,
           amount,
           balanceCreditAmount,
@@ -278,7 +278,7 @@ export function createPaymentRuntime(
 
       return {
         payment_id: paymentId,
-        buyer_account_id: buyerAccountId,
+        buyer_account_id: accountId,
         order_ids: orderIds,
         amount,
         balance_credit_amount: balanceCreditAmount,
@@ -306,8 +306,8 @@ export function createPaymentRuntime(
         processor_publishable_key: publicConfig.publishableKey,
       };
     },
-    async getBuyerPayment(paymentId, buyerAccountId) {
-      const payment = await getBuyerPayment(deps.db, paymentId, buyerAccountId);
+    async getAccountPayment(paymentId, accountId) {
+      const payment = await getAccountPayment(deps.db, paymentId, accountId);
       return payment
         ? {
             ...payment,

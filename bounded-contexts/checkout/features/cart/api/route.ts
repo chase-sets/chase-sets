@@ -87,7 +87,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     try {
       const result = await services.addLine(
         {
-          buyerAccountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as never,
           catalogItemId: String(body.catalogItemId ?? ""),
           productId: String(body.productId ?? ""),
           itemTitle: String(body.itemTitle ?? ""),
@@ -127,7 +127,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     try {
       const result = await services.setLineQuantity(
         {
-          buyerAccountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as never,
           lineId: c.req.param("lineId") as never,
           quantity: Number(body.quantity ?? 0),
         },
@@ -154,7 +154,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     try {
       const result = await services.removeLine(
         {
-          buyerAccountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as never,
           lineId: c.req.param("lineId") as never,
         },
         context,

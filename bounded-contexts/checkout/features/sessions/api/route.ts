@@ -82,7 +82,7 @@ export function createAccountCheckoutSessionRoutes(
       if (body.source?.type === "cart" || body.sourceType === "cart") {
         const result = await services.createFromCart(
           {
-            buyerAccountId: access.actor.accountId as never,
+            accountId: access.actor.accountId as never,
             shippingOption: String(body.shippingOption ?? "standard"),
           },
           context,
@@ -95,7 +95,7 @@ export function createAccountCheckoutSessionRoutes(
         : body as Record<string, unknown>;
       const result = await services.createBuyNow(
         {
-          buyerAccountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as never,
           listingId: String(source.listingId ?? ""),
           catalogItemId: String(source.catalogItemId ?? ""),
           productId: String(source.productId ?? ""),
@@ -154,7 +154,7 @@ export function createAccountCheckoutSessionRoutes(
       await services.selectShippingOption(
         {
           sessionId: c.req.param("sessionId"),
-          buyerAccountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as never,
           shippingOption: String(body.shippingOption ?? "standard"),
         },
         context,
@@ -201,7 +201,7 @@ export function createAccountCheckoutSessionRoutes(
         await services.recordOrdersCreated(
           {
             sessionId,
-            buyerAccountId: access.actor.accountId as never,
+            accountId: access.actor.accountId as never,
             orderIds,
           },
           context,
@@ -217,7 +217,7 @@ export function createAccountCheckoutSessionRoutes(
       await services.recordPaymentStarted(
         {
           sessionId,
-          buyerAccountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as never,
           paymentId,
         },
         context,

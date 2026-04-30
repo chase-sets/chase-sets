@@ -65,9 +65,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
         : String(body.sourceReferenceId);
 
     try {
-      const payment = await services.createBuyerPayment(
+      const payment = await services.createAccountPayment(
         {
-          buyerAccountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as never,
           orderIds: Array.isArray(body.orderIds)
             ? body.orderIds.map(String)
             : [],
@@ -94,7 +94,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
 
-    const payment = await services.getBuyerPayment(
+    const payment = await services.getAccountPayment(
       c.req.param("id"),
       access.actor.accountId,
     );

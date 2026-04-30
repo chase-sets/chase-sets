@@ -1,7 +1,7 @@
 export type {
-  BuyerOfferMatchDetail,
-  BuyerOfferMatchListItem,
-  MarketplaceBuyerOffer,
-  SubmittedBuyerOfferDetail,
-  SubmittedBuyerOfferListItem,
+  OfferMatchDetail,
+  OfferMatchListItem,
+  MarketplaceOffer,
+  SubmittedOfferDetail,
+  SubmittedOfferListItem,
 } from "../ui/contracts";

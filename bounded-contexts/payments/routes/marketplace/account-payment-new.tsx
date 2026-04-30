@@ -35,7 +35,10 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { createPaymentsRequestApiClient } from "../../support/request-support/api-client";
+import {
+  createPaymentsRequestApiClient,
+  normalizeRequestedBalanceCreditAmount,
+} from "../../support/request-support/api-client";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 
 function parseOrderIds(value: string | null) {
@@ -112,10 +115,9 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     const payment = await paymentsApi.createAccountPayment({
       orderIds,
-      requestedBalanceCreditAmount:
-        formData.get("requestedBalanceCreditAmount") === null
-          ? null
-          : String(formData.get("requestedBalanceCreditAmount")),
+      requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
+        formData.get("requestedBalanceCreditAmount"),
+      ),
     });
     return redirect(`/account/payments/${payment.payment_id}`);
   } catch (error) {

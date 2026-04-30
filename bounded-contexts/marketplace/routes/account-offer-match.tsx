@@ -9,12 +9,12 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
-  type BuyerOfferMatchDetail,
+  type OfferMatchDetail,
 } from "../support/request-support/api-client";
-import { MarketplaceBuyerOfferMatchDetailPage } from "../features/offers/ui/seller-offer-detail-page";
+import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-match-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Inspect and accept a buyer offer match.";
+  "Inspect and accept an offer match.";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -29,11 +29,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   try {
     return {
-      buyerOfferMatch: await api.getBuyerOfferMatch(params.offerId!),
+      offerMatch: await api.getOfferMatch(params.offerId!),
     };
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {
-      throw new Response("Buyer offer match not found.", { status: 404 });
+      throw new Response("Offer match not found.", { status: 404 });
     }
 
     throw error;
@@ -55,7 +55,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   try {
     if (intent === "accept-offer") {
-      await api.acceptBuyerOfferMatch(params.offerId!);
+      await api.acceptOfferMatch(params.offerId!);
       return redirect("/account/sales");
     }
 
@@ -69,17 +69,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Buyer Offer Match | Marketplace",
+    title: "Offer Match | Marketplace",
     description: MARKETPLACE_DESCRIPTION,
   });
 
-export default function MarketplaceAccountBuyerOfferMatchRoute() {
+export default function MarketplaceAccountOfferMatchRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   return (
-    <MarketplaceBuyerOfferMatchDetailPage
-      offer={data.buyerOfferMatch as BuyerOfferMatchDetail}
+    <MarketplaceOfferMatchDetailPage
+      offer={data.offerMatch as OfferMatchDetail}
       canAccept
       errorMessage={actionData?.error ?? null}
     />

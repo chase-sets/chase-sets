@@ -11,6 +11,7 @@ export type {
   PaymentsApiClientOptions,
   PaymentsPaymentDetail,
 } from "../../client";
+export { normalizeRequestedBalanceCreditAmount } from "../../features/payments/api/balance-credit-request";
 import { createPaymentsApiClient } from "../../client";
 
 export function createPaymentsRequestApiClient(request: Request) {

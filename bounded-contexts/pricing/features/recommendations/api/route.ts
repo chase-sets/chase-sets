@@ -47,8 +47,8 @@ export function createAccountRecommendationRoutes(
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listSellerRecommendations({
-      sellerAccountId: access.actor.accountId,
+    const result = await services.listAccountRecommendations({
+      accountId: access.actor.accountId,
       limit,
       offset,
     });
@@ -66,7 +66,7 @@ export function createAccountRecommendationRoutes(
       return access.response;
     }
 
-    const recommendation = await services.getSellerRecommendation(
+    const recommendation = await services.getAccountRecommendation(
       c.req.param("id"),
       access.actor.accountId,
     );
@@ -94,7 +94,7 @@ export function createAccountRecommendationRoutes(
       const result = await services.publishRecommendation(
         {
           recommendationId: c.req.param("id"),
-          sellerAccountId: access.actor.accountId,
+          accountId: access.actor.accountId,
           recommendedListAmount: Number(body.recommendedListAmount),
           reason: String(body.reason ?? ""),
           publishedAt:

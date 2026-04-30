@@ -4,14 +4,14 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
-  type BuyerOfferMatchListItem,
+  type OfferMatchListItem,
 } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
-import { MarketplaceBuyerOfferMatchListPage } from "../features/offers/ui/seller-offer-list-page";
+import { MarketplaceOfferMatchListPage } from "../features/offers/ui/offer-match-list-page";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Review buyer offer matches against your seller inventory.";
+  "Review offer matches against your active inventory.";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -25,8 +25,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createMarketplaceRequestApiClient(request);
 
   return {
-    buyerOfferMatches: await api.listBuyerOfferMatches(DEFAULT_OFFER_QUERY),
-    sellList: await api.getBuyerOfferMatchSellList(),
+    offerMatches: await api.listOfferMatches(DEFAULT_OFFER_QUERY),
+    sellList: await api.getOfferMatchSellList(),
   };
 }
 
@@ -45,7 +45,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "accept-sell-list") {
-      await api.acceptBuyerOfferMatchSellList();
+      await api.acceptOfferMatchSellList();
       return redirect("/account/sales");
     }
 
@@ -59,18 +59,18 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Buyer Offer Matches | Marketplace",
+    title: "Offer Matches | Marketplace",
     description: MARKETPLACE_DESCRIPTION,
   });
 
-export default function MarketplaceAccountBuyerOfferMatchesRoute() {
+export default function MarketplaceAccountOfferMatchesRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   return (
-    <MarketplaceBuyerOfferMatchListPage
-      data={data.buyerOfferMatches as ListResponse<BuyerOfferMatchListItem>}
-      cartData={data.sellList as ListResponse<BuyerOfferMatchListItem>}
+    <MarketplaceOfferMatchListPage
+      data={data.offerMatches as ListResponse<OfferMatchListItem>}
+      cartData={data.sellList as ListResponse<OfferMatchListItem>}
       errorMessage={actionData?.error ?? null}
     />
   );

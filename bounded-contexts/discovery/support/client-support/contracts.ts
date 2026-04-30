@@ -70,7 +70,7 @@ export interface DiscoveryItemDetail {
   product_schema: ProductSchema | null;
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];
-  buyer_offer_matches: DiscoveryBuyerOfferMatch[];
+  buyer_offer_matches: DiscoveryOffer[];
   updated_at: string;
 }
 
@@ -101,7 +101,7 @@ export interface DiscoveryMarketListing {
   updated_at: string;
 }
 
-export interface DiscoverySellerBuyerOfferMatch {
+export interface DiscoveryAccountOfferMatch {
   offer_id: string;
   buyer_account_id: string;
   buyer_display_name: string | null;
@@ -123,7 +123,7 @@ export interface DiscoverySellerBuyerOfferMatch {
   updated_at: string;
 }
 
-export interface DiscoveryBuyerOfferMatch {
+export interface DiscoveryOffer {
   offer_id: string;
   buyer_account_id: string;
   buyer_display_name: string | null;

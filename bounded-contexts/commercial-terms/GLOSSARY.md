@@ -12,7 +12,7 @@ A **Commercial Agreement** is an account-specific override to the default commer
 
 ## Commercial Terms Resolution
 
-A **Commercial Terms Resolution** is the deterministic result of selecting the applicable schedule and agreement for a seller account at a point in time.
+A **Commercial Terms Resolution** is the deterministic result of selecting the applicable schedule and agreement for an account at a point in time.
 
 ## Marketplace Fee
 
@@ -25,4 +25,3 @@ A **Payment Fee** is the seller-side fee associated with payment processing econ
 ## Seller Net
 
 A **Seller Net** is the amount remaining from the resolved basis amount after marketplace fee and payment fee amounts are applied.
-

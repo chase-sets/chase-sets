@@ -8,7 +8,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { SubmittedBuyerOfferDetail } from "./contracts";
+import type { SubmittedOfferDetail } from "./contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -23,22 +23,22 @@ function formatMoney(amount: string) {
   return `$${amount}`;
 }
 
-export function MarketplaceSubmittedBuyerOfferDetailPage({
+export function MarketplaceSubmittedOfferDetailPage({
   offer,
   errorMessage,
 }: {
-  offer: SubmittedBuyerOfferDetail;
+  offer: SubmittedOfferDetail;
   errorMessage?: string | null;
 }) {
   return (
     <Page>
       <PageHeader
-        eyebrow="Buyer"
+        eyebrow="Offers"
         title={offer.item_title}
-        description="Review the details of your submitted buyer offer."
+        description="Review the details of your submitted offer."
         actions={
           <LinkButton href="/account/offers/submitted" tone="secondary">
-            Back to submitted buyer offers
+            Back to submitted offers
           </LinkButton>
         }
       />
@@ -49,7 +49,7 @@ export function MarketplaceSubmittedBuyerOfferDetailPage({
         </Card>
       ) : null}
 
-      <PageSection title="Submitted Buyer Offer Overview">
+      <PageSection title="Submitted Offer Overview">
         <Card>
           <Stack gap={2}>
             {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
@@ -59,10 +59,10 @@ export function MarketplaceSubmittedBuyerOfferDetailPage({
               </Text>
             ) : null}
             <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
-            <Text>Buyer offer price: {formatMoney(offer.price_amount)}</Text>
+            <Text>Offer price: {formatMoney(offer.price_amount)}</Text>
             <Text>Quantity requested: {offer.quantity_requested}</Text>
             <Text>
-              This submitted buyer offer is marketplace-wide. Sellers can review it when they publish
+              This submitted offer is marketplace-wide. Accounts can review it when they publish
               matching active supply.
             </Text>
           </Stack>

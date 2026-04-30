@@ -9,7 +9,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { SubmittedBuyerOfferListItem } from "./contracts";
+import type { SubmittedOfferListItem } from "./contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -39,19 +39,19 @@ function formatTimestamp(value: string) {
   }).format(date);
 }
 
-export function MarketplaceSubmittedBuyerOfferListPage({
+export function MarketplaceSubmittedOfferListPage({
   data,
   errorMessage,
 }: {
-  data: { items: readonly SubmittedBuyerOfferListItem[] };
+  data: { items: readonly SubmittedOfferListItem[] };
   errorMessage?: string | null;
 }) {
   return (
     <Page>
       <PageHeader
-        eyebrow="Buyer"
-        title="Submitted Buyer Offers"
-        description="Review the buyer offers your account has submitted."
+        eyebrow="Offers"
+        title="Submitted Offers"
+        description="Review the offers your account has submitted."
       />
 
       {errorMessage ? (
@@ -60,7 +60,7 @@ export function MarketplaceSubmittedBuyerOfferListPage({
         </Card>
       ) : null}
 
-      <PageSection title="Submitted Buyer Offers">
+      <PageSection title="Submitted Offers">
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.offer_id}
@@ -86,7 +86,7 @@ export function MarketplaceSubmittedBuyerOfferListPage({
             },
             {
               key: "price",
-              header: "Buyer Offer Price",
+              header: "Offer Price",
               cell: (row) => formatMoney(row.price_amount),
             },
             {
@@ -115,8 +115,8 @@ export function MarketplaceSubmittedBuyerOfferListPage({
               ),
             },
           ]}
-          emptyTitle="No submitted buyer offers yet"
-          emptyDescription="Submit a buyer offer from any item detail page to start tracking buyer demand."
+          emptyTitle="No submitted offers yet"
+          emptyDescription="Submit an offer from any item detail page to start tracking marketplace demand."
         />
       </PageSection>
     </Page>

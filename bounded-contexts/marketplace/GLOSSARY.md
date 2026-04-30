@@ -4,7 +4,7 @@ This glossary defines the canonical terminology for the Marketplace bounded cont
 
 Browse, search, filters, and item detail terminology are owned by the Discovery bounded context.
 
-Aggregate language and projection language may differ. The Marketplace aggregate is `Buyer Offer`; buyer projections use `Submitted Buyer Offer`, and seller projections use `Buyer Offer Match`.
+Aggregate language and projection language may differ. The Marketplace aggregate is `Offer`; account-submitted projections use `Submitted Offer`, and matching-supply projections use `Offer Match`.
 
 ## Listing
 
@@ -16,18 +16,18 @@ Notes:
 - Listings reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - Listings reference inventory availability but do not own stock truth.
 
-## Buyer Offer
+## Offer
 
-A **Buyer Offer** is a buyer-proposed purchase for a specific product, price, and quantity submitted as marketplace-wide demand.
+An **Offer** is an account-submitted purchase proposal for a specific product, price, and quantity submitted as marketplace-wide demand.
 
 Notes:
 
-- Buyer Offers are owned by Marketplace.
-- Buyer Offers reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
-- In v1, buyer offers are not tied to a specific seller, listing, or inventory item.
-- Buyers see their submitted demand as Submitted Buyer Offers.
-- Sellers can review Buyer Offer Matches only when they have matching active listings.
-- When accepted, a buyer offer becomes a seller-specific commitment input for Ordering.
+- Offers are owned by Marketplace.
+- Offers reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
+- In v1, offers are not tied to a specific seller, listing, or inventory item until accepted.
+- Accounts see their submitted demand as Submitted Offers.
+- Accounts can review Offer Matches only when they have matching active listings.
+- When accepted, an offer becomes a seller-specific commitment input for Ordering.
 
 ## Listing Status
 
@@ -41,9 +41,9 @@ Examples:
 - Withdrawn
 - Sold Out
 
-## Buyer Offer Status
+## Offer Status
 
-**Buyer Offer Status** is the lifecycle state of a buyer offer.
+**Offer Status** is the lifecycle state of an offer.
 
 Examples:
 
@@ -54,6 +54,6 @@ Examples:
 
 A **Commerce Commitment Request** is the integration fact emitted when Marketplace determines an accepted purchase should become an order.
 
-## Buyer Offer Acceptance
+## Offer Acceptance
 
-**Buyer Offer Acceptance** is the seller action that ends marketplace-wide demand visibility for a buyer offer and emits the fact Ordering uses to create an order.
+**Offer Acceptance** is the selling-account action that ends marketplace-wide demand visibility for an offer and emits the fact Ordering uses to create an order.

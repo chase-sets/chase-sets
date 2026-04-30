@@ -10,7 +10,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { BuyerOfferMatchListItem } from "./contracts";
+import type { OfferMatchListItem } from "./contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -40,21 +40,21 @@ function formatTimestamp(value: string) {
   }).format(date);
 }
 
-export function MarketplaceBuyerOfferMatchListPage({
+export function MarketplaceOfferMatchListPage({
   data,
   cartData,
   errorMessage,
 }: {
-  data: { items: readonly BuyerOfferMatchListItem[] };
-  cartData?: { items: readonly BuyerOfferMatchListItem[] };
+  data: { items: readonly OfferMatchListItem[] };
+  cartData?: { items: readonly OfferMatchListItem[] };
   errorMessage?: string | null;
 }) {
   return (
     <Page>
       <PageHeader
-        eyebrow="Seller"
-        title="Buyer Offer Matches"
-        description="Review buyer offer matches that currently match your active listings."
+        eyebrow="Inventory"
+        title="Offer Matches"
+        description="Review offer matches that currently match your active listings."
         actions={
           <LinkButton href="/account/listings" tone="secondary">
             View listings
@@ -89,7 +89,7 @@ export function MarketplaceBuyerOfferMatchListPage({
         </Card>
       </PageSection>
 
-      <PageSection title="Buyer Offer Matches">
+      <PageSection title="Offer Matches">
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.offer_id}
@@ -120,7 +120,7 @@ export function MarketplaceBuyerOfferMatchListPage({
             },
             {
               key: "price",
-              header: "Buyer Offer Price",
+              header: "Offer Price",
               cell: (row) => formatMoney(row.price_amount),
             },
             {
@@ -164,8 +164,8 @@ export function MarketplaceBuyerOfferMatchListPage({
               ),
             },
           ]}
-          emptyTitle="No buyer offer matches"
-          emptyDescription="Buyer offer matches appear here when buyers submit offers for products you actively list."
+          emptyTitle="No offer matches"
+          emptyDescription="Offer matches appear here when submitted offers match products you actively list."
         />
       </PageSection>
     </Page>

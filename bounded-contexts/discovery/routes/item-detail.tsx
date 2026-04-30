@@ -30,7 +30,7 @@ import {
 import type {
   DiscoveryMarketListing,
   DiscoverySellerInventoryItem,
-  DiscoverySellerBuyerOfferMatch,
+  DiscoveryAccountOfferMatch,
 } from "../support/client-support/contracts";
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import {
@@ -45,7 +45,7 @@ const MARKETPLACE_DESCRIPTION =
 
 const EMPTY_ITEM_DETAIL_RESULT = {
   item: null,
-  sellerBuyerOfferMatches: [],
+  accountOfferMatches: [],
   sellerInventoryItems: [],
   sellerAccountId: null,
   showSellerTab: true,
@@ -279,7 +279,7 @@ export function CheckoutPurchaseIntentSection({
   return <FormPanel variant={panelVariant} glow={visibleListingCount > 0}>{form}</FormPanel>;
 }
 
-function MarketplaceBuyerOfferMatchSection({
+function MarketplaceOfferMatchSection({
   formId = "sell-box",
   panelVariant = "card",
   showSummary = panelVariant === "card",
@@ -336,7 +336,7 @@ function MarketplaceBuyerOfferMatchSection({
         <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">Sell to buyer offer</Text>
+            <Text weight="semibold">Accept offer</Text>
             {selectedOffer ? (
               <>
                 <Text size="sm" tone="secondary">
@@ -354,10 +354,10 @@ function MarketplaceBuyerOfferMatchSection({
             ) : (
               <Text size="sm" tone="secondary">
                 {!productId
-                  ? "Choose options to review matching buyer offers."
+                  ? "Choose options to review matching offers."
                   : matchingOfferCount > 0
-                    ? "Matching buyer offers need more active supply."
-                    : "No buyer offers match this product yet."}
+                    ? "Matching offers need more active supply."
+                    : "No offers match this product yet."}
                 </Text>
             )}
           </Stack>
@@ -570,7 +570,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (!id) {
     return {
       item: null,
-      sellerBuyerOfferMatches: [],
+      accountOfferMatches: [],
       sellerInventoryItems: [],
       sellerAccountId: null,
       showSellerTab: false,
@@ -583,7 +583,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
     const item = await api.getItemDetail(id);
     const actor = await resolveActorFromAuthApi({ request });
-    const canReviewSellerBuyerOfferMatches = Boolean(
+    const canReviewAccountOfferMatches = Boolean(
       actor?.permissions.includes("offers.view") &&
         actor.permissions.includes("listings.view"),
     );
@@ -591,17 +591,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       actor?.permissions.includes("listings.view") &&
         actor.permissions.includes("listings.manage"),
     );
-    let sellerBuyerOfferMatches: DiscoverySellerBuyerOfferMatch[] = [];
+    let accountOfferMatches: DiscoveryAccountOfferMatch[] = [];
     let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
 
-    if (canReviewSellerBuyerOfferMatches) {
+    if (canReviewAccountOfferMatches) {
       try {
-        const result = await marketplaceApi.listBuyerOfferMatches("limit=100&offset=0");
-        sellerBuyerOfferMatches = result.items.filter(
+        const result = await marketplaceApi.listOfferMatches("limit=100&offset=0");
+        accountOfferMatches = result.items.filter(
           (offer) => offer.catalog_catalog_item_id === item.catalog_item_id,
         );
       } catch {
-        sellerBuyerOfferMatches = [];
+        accountOfferMatches = [];
       }
     }
 
@@ -619,11 +619,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     return {
       item,
-      sellerBuyerOfferMatches,
+      accountOfferMatches,
       sellerInventoryItems,
       sellerAccountId: canSellOnItem ? actor?.accountId ?? null : null,
       showSellerTab: true,
-      canUseSellerFeatures: canReviewSellerBuyerOfferMatches || canSellOnItem,
+      canUseSellerFeatures: canReviewAccountOfferMatches || canSellOnItem,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: false,
     };
@@ -631,7 +631,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     if (error instanceof DiscoveryApiError) {
       return {
         item: null,
-        sellerBuyerOfferMatches: [],
+        accountOfferMatches: [],
         sellerInventoryItems: [],
         sellerAccountId: null,
         showSellerTab: false,
@@ -644,7 +644,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     return {
       item: null,
-      sellerBuyerOfferMatches: [],
+      accountOfferMatches: [],
       sellerInventoryItems: [],
       sellerAccountId: null,
       showSellerTab: false,
@@ -671,7 +671,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       const item = await discoveryApi.getItemDetail(params.id!);
 
-      await marketplaceApi.createSubmittedBuyerOffer({
+      await marketplaceApi.createSubmittedOffer({
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
@@ -735,7 +735,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      await marketplaceApi.acceptBuyerOfferMatch(String(formData.get("offerId") ?? ""));
+      await marketplaceApi.acceptOfferMatch(String(formData.get("offerId") ?? ""));
       return redirect("/account/sales");
     }
 
@@ -745,7 +745,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      await marketplaceApi.addBuyerOfferMatchSellListItem({
+      await marketplaceApi.addOfferMatchSellListItem({
         offerId: String(formData.get("offerId") ?? ""),
       });
       return redirect("/account/offers/matches");
@@ -813,7 +813,7 @@ export default function DiscoveryItemDetailRoute() {
   return (
     <ItemDetailPage
       data={data.item}
-      sellerBuyerOfferMatches={data.sellerBuyerOfferMatches}
+      accountOfferMatches={data.accountOfferMatches}
       notFound={data.notFound}
       error={data.error}
       renderCommerce={
@@ -862,14 +862,14 @@ export default function DiscoveryItemDetailRoute() {
                   Submit offer
                 </Button>
               );
-              const renderBuyerOfferMatchActions = (formId: string) => (
+              const renderOfferMatchActions = (formId: string) => (
                 <Stack gap={2}>
                   <Button
                     form={formId}
                     type="submit"
                     name="intent"
                     value="sell-now"
-                    disabled={!context.selectedSellerBuyerOfferMatch?.can_fulfill}
+                    disabled={!context.selectedAccountOfferMatch?.can_fulfill}
                     block
                   >
                     Sell now
@@ -881,12 +881,12 @@ export default function DiscoveryItemDetailRoute() {
                     value="add-to-sell-list"
                     tone="secondary"
                     disabled={
-                      !context.selectedSellerBuyerOfferMatch?.can_fulfill ||
-                      context.selectedSellerBuyerOfferMatch.in_sell_list
+                      !context.selectedAccountOfferMatch?.can_fulfill ||
+                      context.selectedAccountOfferMatch.in_sell_list
                     }
                     block
                   >
-                    {context.selectedSellerBuyerOfferMatch?.in_sell_list
+                    {context.selectedAccountOfferMatch?.in_sell_list
                       ? "In sell list"
                       : "Add to sell list"}
                   </Button>
@@ -952,18 +952,18 @@ export default function DiscoveryItemDetailRoute() {
                   errorMessage={actionData?.error ?? null}
                 />
               );
-              const renderBuyerOfferMatch = (
+              const renderOfferMatch = (
                 formId: string,
                 panelVariant: FormPanelVariant = "card",
                 actions?: ReactNode,
               ) => (
-                <MarketplaceBuyerOfferMatchSection
+                <MarketplaceOfferMatchSection
                   formId={formId}
                   panelVariant={panelVariant}
                   actions={actions}
-                  selectedOffer={context.selectedSellerBuyerOfferMatch}
+                  selectedOffer={context.selectedAccountOfferMatch}
                   productId={context.selectedProductId}
-                  matchingOfferCount={context.visibleSellerBuyerOfferMatches.length}
+                  matchingOfferCount={context.visibleAccountOfferMatches.length}
                   errorMessage={actionData?.error ?? null}
                 />
               );
@@ -996,7 +996,7 @@ export default function DiscoveryItemDetailRoute() {
               const renderSeller = (formIdPrefix: string) =>
                 data.canUseSellerFeatures ? (
                   <Stack gap={4}>
-                    {renderBuyerOfferMatch(`${formIdPrefix}-sell-box`)}
+                    {renderOfferMatch(`${formIdPrefix}-sell-box`)}
                     {renderListingSubmission(`${formIdPrefix}-list-box`)}
                   </Stack>
                 ) : renderSellerRegistration();
@@ -1016,9 +1016,9 @@ export default function DiscoveryItemDetailRoute() {
                     },
                     sell: data.canUseSellerFeatures
                       ? {
-                          content: renderBuyerOfferMatch("mobile-sell-box", "plain", null),
-                          footer: renderBuyerOfferMatchActions("mobile-sell-box"),
-                          title: "Sell to buyer offer",
+                          content: renderOfferMatch("mobile-sell-box", "plain", null),
+                          footer: renderOfferMatchActions("mobile-sell-box"),
+                          title: "Accept offer",
                         }
                       : {
                           content: renderSellerRegistration("plain"),

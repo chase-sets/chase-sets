@@ -66,7 +66,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listSubmittedBuyerOffers({
+    const result = await services.listSubmittedOffers({
       buyerAccountId: access.actor.accountId,
       limit,
       offset,
@@ -85,13 +85,13 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       return access.response;
     }
 
-    const offer = await services.getSubmittedBuyerOffer(
+    const offer = await services.getSubmittedOffer(
       c.req.param("id"),
       access.actor.accountId,
     );
 
     if (!offer) {
-      return c.json({ error: "Submitted buyer offer not found." }, 404);
+      return c.json({ error: "Submitted offer not found." }, 404);
     }
 
     return c.json(offer);
@@ -152,7 +152,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    const result = await services.listBuyerOfferMatches({
+    const result = await services.listOfferMatches({
       sellerAccountId: access.actor.accountId,
       limit,
       offset,
@@ -171,13 +171,13 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       return access.response;
     }
 
-    const offer = await services.getBuyerOfferMatch(
+    const offer = await services.getOfferMatch(
       c.req.param("id"),
       access.actor.accountId,
     );
 
     if (!offer) {
-      return c.json({ error: "Buyer offer match not found." }, 404);
+      return c.json({ error: "Offer match not found." }, 404);
     }
 
     return c.json(offer);
@@ -223,7 +223,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       return c.json({ error: "Forbidden." }, 403);
     }
 
-    const items = await services.listBuyerOfferMatchSellList(access.actor.accountId);
+    const items = await services.listOfferMatchSellList(access.actor.accountId);
 
     return c.json({
       items,
@@ -245,7 +245,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     const body = await c.req.json();
 
     try {
-      await services.addBuyerOfferMatchSellListItem({
+      await services.addOfferMatchSellListItem({
         sellerAccountId: access.actor.accountId as never,
         offerId: String(body.offerId ?? "") as never,
       });
@@ -272,7 +272,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     try {
-      const result = await services.acceptBuyerOfferMatchSellList(
+      const result = await services.acceptOfferMatchSellList(
         {
           sellerAccountId: access.actor.accountId as never,
         },

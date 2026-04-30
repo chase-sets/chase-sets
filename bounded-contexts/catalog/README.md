@@ -32,7 +32,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 
 - Listing aggregation
 - Seller inventory quantities or reservations
-- Buyer offers or bidding workflows
+- Marketplace offers or bidding workflows
 - Order creation and checkout
 - Search and discovery filtering behavior
 

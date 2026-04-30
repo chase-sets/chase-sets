@@ -4,36 +4,36 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
-  type SubmittedBuyerOfferListItem,
+  type SubmittedOfferListItem,
 } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
-import { MarketplaceSubmittedBuyerOfferListPage } from "../features/offers/ui/buyer-offer-list-page";
+import { MarketplaceSubmittedOfferListPage } from "../features/offers/ui/submitted-offer-list-page";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Track buyer offers you have submitted against marketplace inventory.";
+  "Track offers you have submitted against marketplace inventory.";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "offers.view" });
   const api = createMarketplaceRequestApiClient(request);
 
   return {
-    submittedBuyerOffers: await api.listSubmittedBuyerOffers(DEFAULT_OFFER_QUERY),
+    submittedOffers: await api.listSubmittedOffers(DEFAULT_OFFER_QUERY),
   };
 }
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Submitted Buyer Offers | Marketplace",
+    title: "Submitted Offers | Marketplace",
     description: MARKETPLACE_DESCRIPTION,
   });
 
-export default function MarketplaceAccountSubmittedBuyerOffersRoute() {
+export default function MarketplaceAccountSubmittedOffersRoute() {
   const data = useLoaderData<typeof loader>();
 
   return (
-    <MarketplaceSubmittedBuyerOfferListPage
-      data={data.submittedBuyerOffers as ListResponse<SubmittedBuyerOfferListItem>}
+    <MarketplaceSubmittedOfferListPage
+      data={data.submittedOffers as ListResponse<SubmittedOfferListItem>}
     />
   );
 }

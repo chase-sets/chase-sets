@@ -1,4 +1,4 @@
 export {
-  getSellerRecommendation,
-  listSellerRecommendations,
+  getAccountRecommendation,
+  listAccountRecommendations,
 } from "./features/recommendations/read-model/queries";

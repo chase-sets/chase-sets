@@ -41,6 +41,6 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Invariants
 
-1. Commercial Terms resolution is deterministic for a seller account and timestamp.
+1. Commercial Terms resolution is deterministic for an account and timestamp.
 2. Account-specific agreements override default schedules when both are active.
 3. Marketplace and Payments consume resolved snapshots but do not own the underlying policy.

@@ -40,13 +40,13 @@ function buildApp(options: Readonly<{
 function createServices(): MarketplaceOfferServices {
   const submitOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 1 }));
   const acceptOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 2 }));
-  const listSubmittedBuyerOffers = vi.fn(async () => ({ items: [], total: 0 }));
-  const getSubmittedBuyerOffer = vi.fn(async () => null);
-  const listBuyerOfferMatches = vi.fn(async () => ({ items: [], total: 0 }));
-  const getBuyerOfferMatch = vi.fn(async () => null);
-  const addBuyerOfferMatchSellListItem = vi.fn(async () => undefined);
-  const listBuyerOfferMatchSellList = vi.fn(async () => []);
-  const acceptBuyerOfferMatchSellList = vi.fn(async () => ({
+  const listSubmittedOffers = vi.fn(async () => ({ items: [], total: 0 }));
+  const getSubmittedOffer = vi.fn(async () => null);
+  const listOfferMatches = vi.fn(async () => ({ items: [], total: 0 }));
+  const getOfferMatch = vi.fn(async () => null);
+  const addOfferMatchSellListItem = vi.fn(async () => undefined);
+  const listOfferMatchSellList = vi.fn(async () => []);
+  const acceptOfferMatchSellList = vi.fn(async () => ({
     acceptedOfferIds: ["off_1" as never],
     skipped: [],
   }));
@@ -55,19 +55,19 @@ function createServices(): MarketplaceOfferServices {
     commandHandler: vi.fn(async () => ({ version: 1 })),
     submitOffer,
     acceptOffer,
-    addBuyerOfferMatchSellListItem,
-    listBuyerOfferMatchSellList,
-    acceptBuyerOfferMatchSellList,
-    listSubmittedBuyerOffers,
-    getSubmittedBuyerOffer,
-    listBuyerOfferMatches,
-    getBuyerOfferMatch,
+    addOfferMatchSellListItem,
+    listOfferMatchSellList,
+    acceptOfferMatchSellList,
+    listSubmittedOffers,
+    getSubmittedOffer,
+    listOfferMatches,
+    getOfferMatch,
     projectors: [],
   };
 }
 
 describe("marketplace offer routes", () => {
-  it("submits a buyer offer for the current account", async () => {
+  it("submits an offer for the current account", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {
@@ -133,9 +133,9 @@ describe("marketplace offer routes", () => {
     await expect(response.json()).resolves.toEqual({ error: "Forbidden." });
   });
 
-  it("returns buyer offer matches from the matching demand board", async () => {
+  it("returns offer matches from the matching demand board", async () => {
     const services = createServices();
-    vi.mocked(services.getBuyerOfferMatch).mockResolvedValue({
+    vi.mocked(services.getOfferMatch).mockResolvedValue({
       offer_id: "off_1",
       buyer_account_id: "acc_buyer",
       catalog_catalog_item_id: "cat_charizard",
@@ -179,10 +179,10 @@ describe("marketplace offer routes", () => {
       offer_id: "off_1",
       buyer_display_name: "Buyer One",
     });
-    expect(services.getBuyerOfferMatch).toHaveBeenCalledWith("off_1", "acc_seller");
+    expect(services.getOfferMatch).toHaveBeenCalledWith("off_1", "acc_seller");
   });
 
-  it("accepts a buyer offer match", async () => {
+  it("accepts a offer match", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {
@@ -216,7 +216,7 @@ describe("marketplace offer routes", () => {
     );
   });
 
-  it("adds a buyer offer match to the sell list", async () => {
+  it("adds a offer match to the sell list", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {
@@ -240,13 +240,13 @@ describe("marketplace offer routes", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(services.addBuyerOfferMatchSellListItem).toHaveBeenCalledWith({
+    expect(services.addOfferMatchSellListItem).toHaveBeenCalledWith({
       offerId: "off_1",
       sellerAccountId: "acc_seller",
     });
   });
 
-  it("accepts the buyer offer match sell list", async () => {
+  it("accepts the offer match sell list", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {
@@ -274,7 +274,7 @@ describe("marketplace offer routes", () => {
       acceptedOfferIds: ["off_1"],
       skipped: [],
     });
-    expect(services.acceptBuyerOfferMatchSellList).toHaveBeenCalledWith(
+    expect(services.acceptOfferMatchSellList).toHaveBeenCalledWith(
       { sellerAccountId: "acc_seller" },
       expect.any(Object),
     );

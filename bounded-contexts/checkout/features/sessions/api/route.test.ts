@@ -151,7 +151,7 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toEqual({ session_id: "chk_buy_now" });
     expect(services.createBuyNow).toHaveBeenCalledWith(
       expect.objectContaining({
-        buyerAccountId: "acc_buyer",
+        accountId: "acc_buyer",
         listingId: "lst_1",
         productId: "cat_1::form:raw",
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
@@ -179,7 +179,7 @@ describe("checkout session routes", () => {
     expect(services.selectShippingOption).toHaveBeenCalledWith(
       {
         sessionId: "chk_1",
-        buyerAccountId: "acc_buyer",
+        accountId: "acc_buyer",
         shippingOption: "expedited",
       },
       expect.any(Object),

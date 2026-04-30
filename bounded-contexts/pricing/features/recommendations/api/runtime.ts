@@ -9,7 +9,7 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { getSellerRecommendation, listSellerRecommendations } from "../read-model/queries";
+import { getAccountRecommendation, listAccountRecommendations } from "../read-model/queries";
 import { buildPricingRecommendationProjectionHandlers } from "../read-model/projection";
 import {
   decidePricingRecommendation,
@@ -36,7 +36,7 @@ export type PricingRecommendationServices = Readonly<{
     params: Readonly<{
       recommendationId: string;
       catalogItemId: string;
-      sellerAccountId: string;
+      accountId: string;
       marketPriceAmount: number;
       marketCurrency: string;
       observedAt?: string;
@@ -46,20 +46,20 @@ export type PricingRecommendationServices = Readonly<{
   publishRecommendation: (
     params: Readonly<{
       recommendationId: string;
-      sellerAccountId: string;
+      accountId: string;
       recommendedListAmount: number;
       reason: string;
       publishedAt?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ recommendationId: string; version: number }>;
-  listSellerRecommendations: (
-    params: Parameters<typeof listSellerRecommendations>[1],
-  ) => ReturnType<typeof listSellerRecommendations>;
-  getSellerRecommendation: (
+  listAccountRecommendations: (
+    params: Parameters<typeof listAccountRecommendations>[1],
+  ) => ReturnType<typeof listAccountRecommendations>;
+  getAccountRecommendation: (
     recommendationId: string,
-    sellerAccountId: string,
-  ) => ReturnType<typeof getSellerRecommendation>;
+    accountId: string,
+  ) => ReturnType<typeof getAccountRecommendation>;
   projectors: readonly Projector[];
 }>;
 
@@ -86,7 +86,7 @@ export function createPricingRecommendationRuntime(
           type: "RecordMarketPriceSnapshot",
           recommendationId: params.recommendationId,
           catalogItemId: params.catalogItemId,
-          sellerAccountId: params.sellerAccountId,
+          sellerAccountId: params.accountId,
           marketPriceAmount: params.marketPriceAmount,
           marketCurrency: params.marketCurrency,
           observedAt: params.observedAt ?? new Date().toISOString(),
@@ -97,10 +97,10 @@ export function createPricingRecommendationRuntime(
       return { recommendationId: params.recommendationId, version: result.version };
     },
     publishRecommendation: async (params, context) => {
-      const current = await getSellerRecommendation(
+      const current = await getAccountRecommendation(
         deps.db,
         params.recommendationId,
-        params.sellerAccountId,
+        params.accountId,
       );
       if (!current) {
         throw new Error("Recommendation not found.");
@@ -119,9 +119,9 @@ export function createPricingRecommendationRuntime(
 
       return { recommendationId: params.recommendationId, version: result.version };
     },
-    listSellerRecommendations: (params) => listSellerRecommendations(deps.db, params),
-    getSellerRecommendation: (recommendationId, sellerAccountId) =>
-      getSellerRecommendation(deps.db, recommendationId, sellerAccountId),
+    listAccountRecommendations: (params) => listAccountRecommendations(deps.db, params),
+    getAccountRecommendation: (recommendationId, accountId) =>
+      getAccountRecommendation(deps.db, recommendationId, accountId),
     projectors: [
       createProjector({
         projectorName: "pricing-recommendation-projection",

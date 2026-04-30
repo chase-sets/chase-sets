@@ -7,7 +7,7 @@ import {
 } from "./route";
 import type { PaymentServices } from "./runtime";
 
-function buildBuyerApp(options: Readonly<{
+function buildAccountApp(options: Readonly<{
   actor: PaymentsApiEnv["Variables"]["actor"];
   services: PaymentServices;
 }>) {
@@ -43,7 +43,7 @@ function createServices(): PaymentServices {
       newEvents: [],
       storedEvents: [],
     })),
-    createBuyerPayment: vi.fn(async () => ({
+    createAccountPayment: vi.fn(async () => ({
       payment_id: "pay_1",
       buyer_account_id: "acc_buyer",
       order_ids: ["ord_1"],
@@ -65,7 +65,7 @@ function createServices(): PaymentServices {
       cancelled_at: null,
       processor_publishable_key: "pk_test_123",
     })),
-    getBuyerPayment: vi.fn(async () => null),
+    getAccountPayment: vi.fn(async () => null),
     processWebhook: vi.fn(async () => ({ received: true, ignored: false })),
     publicConfig: { processorName: "stripe", publishableKey: "pk_test_123" },
     projectors: [],
@@ -73,9 +73,9 @@ function createServices(): PaymentServices {
 }
 
 describe("payments routes", () => {
-  it("creates a buyer payment for the current account", async () => {
+  it("creates an account payment for the current account", async () => {
     const services = createServices();
-    const app = buildBuyerApp({
+    const app = buildAccountApp({
       actor: {
         sessionId: "ses_1",
         tenantId: "tnt_identity",
@@ -101,9 +101,9 @@ describe("payments routes", () => {
       payment_id: "pay_1",
       order_ids: ["ord_1"],
     });
-    expect(services.createBuyerPayment).toHaveBeenCalledWith(
+    expect(services.createAccountPayment).toHaveBeenCalledWith(
       {
-        buyerAccountId: "acc_buyer",
+        accountId: "acc_buyer",
         orderIds: ["ord_1"],
         currencyCode: "usd",
         requestedBalanceCreditAmount: null,
@@ -112,9 +112,9 @@ describe("payments routes", () => {
     );
   });
 
-  it("passes checkout source metadata into buyer payment creation", async () => {
+  it("passes checkout source metadata into account payment creation", async () => {
     const services = createServices();
-    const app = buildBuyerApp({
+    const app = buildAccountApp({
       actor: {
         sessionId: "ses_1",
         tenantId: "tnt_identity",
@@ -140,9 +140,9 @@ describe("payments routes", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(services.createBuyerPayment).toHaveBeenCalledWith(
+    expect(services.createAccountPayment).toHaveBeenCalledWith(
       {
-        buyerAccountId: "acc_buyer",
+        accountId: "acc_buyer",
         orderIds: ["ord_1"],
         currencyCode: "usd",
         sourceContext: "checkout",
@@ -153,9 +153,9 @@ describe("payments routes", () => {
     );
   });
 
-  it("passes requested balance credit into buyer payment creation", async () => {
+  it("passes requested balance credit into account payment creation", async () => {
     const services = createServices();
-    const app = buildBuyerApp({
+    const app = buildAccountApp({
       actor: {
         sessionId: "ses_1",
         tenantId: "tnt_identity",
@@ -180,7 +180,7 @@ describe("payments routes", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(services.createBuyerPayment).toHaveBeenCalledWith(
+    expect(services.createAccountPayment).toHaveBeenCalledWith(
       expect.objectContaining({
         requestedBalanceCreditAmount: "7.25",
       }),
@@ -188,8 +188,8 @@ describe("payments routes", () => {
     );
   });
 
-  it("rejects buyer payment creation without order permissions", async () => {
-    const app = buildBuyerApp({
+  it("rejects account payment creation without order permissions", async () => {
+    const app = buildAccountApp({
       actor: {
         sessionId: "ses_1",
         tenantId: "tnt_identity",

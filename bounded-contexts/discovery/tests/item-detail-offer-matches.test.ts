@@ -12,7 +12,7 @@ function createEvent(type: string, data: Record<string, unknown>, recordedAt: st
   };
 }
 
-describe("item detail buyer offer matches", () => {
+describe("item detail offer matches", () => {
   it("projects submitted and accepted offers into the public discovery market table", async () => {
     const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
     const db = {
@@ -75,7 +75,7 @@ describe("item detail buyer offer matches", () => {
     ]);
   });
 
-  it("returns public buyer offer matches on item detail payloads", async () => {
+  it("returns public offer matches on item detail payloads", async () => {
     const db = {
       query: async (sql: string) => {
         if (sql.includes("FROM discovery_item_detail_pages")) {

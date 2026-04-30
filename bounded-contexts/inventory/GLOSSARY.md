@@ -8,7 +8,7 @@ An **Inventory Item** is a seller's stock for one specific product and storage l
 
 Notes:
 
-- Every inventory item belongs to exactly one seller account.
+- Every inventory item belongs to exactly one owner account.
 - Every inventory item references one `CatalogItemId`, one `ProductId`, and one normalized selected-options snapshot.
 - Every inventory item belongs to exactly one storage location.
 - If condition matters for the item, it is part of the selected dimensions for that product.
@@ -32,7 +32,7 @@ A **Storage Location** is a seller-defined place where stock is stored.
 
 Notes:
 
-- A seller account may have more than one storage location.
+- An account may have more than one storage location.
 - A storage location may be as broad as a room or as granular as a bin, shelf, or aisle.
 - Each storage location maps to exactly one ship-from location.
 

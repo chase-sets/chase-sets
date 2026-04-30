@@ -40,7 +40,7 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Identity for buyer and seller account references
+- Identity for transaction-party account references
 - Marketplace for active product supply and accepted offer decisions
 - Inventory reservation outcome events for post-commitment hold execution and release
 

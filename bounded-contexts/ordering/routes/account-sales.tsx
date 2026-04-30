@@ -11,7 +11,7 @@ import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
 
 const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Review sales created by checkout and accepted buyer offers.";
+  "Review sales created by checkout and accepted offers.";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -43,7 +43,7 @@ export default function OrderingAccountSalesRoute() {
       title="Sales"
       eyebrow="Seller"
       emptyTitle="No sales yet"
-      emptyDescription="Accepted buyer offers and buyer checkout create sales."
+      emptyDescription="Accepted offers and checkout activity create sales."
       orderDetailBasePath="/account/sales"
       orders={(data.sales as ListResponse<SaleListItem>).items}
     />

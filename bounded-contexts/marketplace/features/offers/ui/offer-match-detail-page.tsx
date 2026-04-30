@@ -9,7 +9,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { BuyerOfferMatchDetail } from "./contracts";
+import type { OfferMatchDetail } from "./contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -24,24 +24,24 @@ function formatMoney(amount: string) {
   return `$${amount}`;
 }
 
-export function MarketplaceBuyerOfferMatchDetailPage({
+export function MarketplaceOfferMatchDetailPage({
   offer,
   canAccept = false,
   errorMessage,
 }: {
-  offer: BuyerOfferMatchDetail;
+  offer: OfferMatchDetail;
   canAccept?: boolean;
   errorMessage?: string | null;
 }) {
   return (
     <Page>
       <PageHeader
-        eyebrow="Seller"
+        eyebrow="Inventory"
         title={offer.item_title}
-        description="Review a buyer offer match that matches your active supply."
+        description="Review an offer match that matches your active supply."
         actions={
           <LinkButton href="/account/offers/matches" tone="secondary">
-            Back to buyer offer matches
+            Back to offer matches
           </LinkButton>
         }
       />
@@ -52,7 +52,7 @@ export function MarketplaceBuyerOfferMatchDetailPage({
         </Card>
       ) : null}
 
-      <PageSection title="Buyer Offer Match Overview">
+      <PageSection title="Offer Match Overview">
         <Card>
           <Stack gap={2}>
             {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
@@ -63,7 +63,7 @@ export function MarketplaceBuyerOfferMatchDetailPage({
             ) : null}
             <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
             <Text>Buyer: {offer.buyer_display_name ?? offer.buyer_account_id}</Text>
-            <Text>Buyer offer price: {formatMoney(offer.price_amount)}</Text>
+            <Text>Offer price: {formatMoney(offer.price_amount)}</Text>
             <Text>Quantity requested: {offer.quantity_requested}</Text>
             <Text>Active supply available: {offer.seller_available_quantity}</Text>
             <Badge tone={offer.can_fulfill ? "success" : "warning"}>
@@ -77,13 +77,13 @@ export function MarketplaceBuyerOfferMatchDetailPage({
                   value="accept-offer"
                   disabled={!offer.can_fulfill}
                 >
-                  Accept buyer offer match
+                  Accept offer match
                 </Button>
               </form>
             ) : (
               <Text>
                 {offer.status === "accepted"
-                  ? "This buyer offer match has already been accepted and converted into a sale."
+                  ? "This offer match has already been accepted and converted into a sale."
                   : "This view is read-only for now."}
               </Text>
             )}

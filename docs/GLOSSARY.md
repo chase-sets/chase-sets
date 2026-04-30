@@ -28,15 +28,15 @@ Notes:
 
 - Listing is owned by the Marketplace bounded context.
 
-## Buyer Offer
+## Offer
 
-A **Buyer Offer** is a buyer-proposed purchase for a specific resolved product at a defined price and quantity.
+An **Offer** is an account-submitted purchase proposal for a specific resolved product at a defined price and quantity.
 
 Notes:
 
-- Buyer Offer is owned by the Marketplace bounded context.
-- A buyer sees their buyer-offer projection as a **Submitted Buyer Offer**.
-- A seller sees matching buyer-offer demand as a **Buyer Offer Match**.
+- Offer is owned by the Marketplace bounded context.
+- The submitting account sees its projection as a **Submitted Offer**.
+- Accounts with matching supply see the demand as an **Offer Match**.
 
 ## Order
 
@@ -101,7 +101,7 @@ Notes:
 
 ## Commercial Terms Resolution
 
-A **Commercial Terms Resolution** is the deterministic result of selecting the applicable fee schedule and account-specific agreement for a seller account at a point in time.
+A **Commercial Terms Resolution** is the deterministic result of selecting the applicable fee schedule and account-specific agreement for an account at a point in time.
 
 Notes:
 

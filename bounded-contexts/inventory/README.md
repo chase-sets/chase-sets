@@ -25,7 +25,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 ## Does Not Own
 
 - Public listings
-- Buyer offers
+- Offers
 - Orders
 - Shipments
 
@@ -41,7 +41,7 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Identity for seller account references
+- Identity for account references
 - Catalog for canonical item identity
 
 ## Outgoing Integration Events
@@ -55,7 +55,7 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. Inventory is private seller state.
-2. Every inventory item belongs to exactly one seller account.
+2. Every inventory item belongs to exactly one owner account.
 3. Every inventory item belongs to exactly one resolved product and one storage location.
 4. Every storage location maps to exactly one ship-from location.
 5. Inventory availability must be derived from total quantity minus active holds.

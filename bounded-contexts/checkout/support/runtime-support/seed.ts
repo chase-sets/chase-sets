@@ -144,7 +144,7 @@ export async function seedCheckoutDatabase(
     for (const line of demoCartLines) {
       await checkout.cart.addLine(
         {
-          buyerAccountId,
+          accountId: buyerAccountId,
           catalogItemId: line.catalogItemId,
           productId: await buildProductId(checkout.db, line),
           itemTitle: line.itemTitle,
@@ -163,7 +163,7 @@ export async function seedCheckoutDatabase(
   if (!(await hasStartedSession(checkout.db))) {
     await checkout.sessions.createFromCart(
       {
-        buyerAccountId,
+        accountId: buyerAccountId,
         shippingOption: "standard",
         sessionIdOverride: checkoutSeedIds.sessions.startedCart,
       },

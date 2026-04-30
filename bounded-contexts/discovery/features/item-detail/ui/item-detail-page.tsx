@@ -34,8 +34,8 @@ import {
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
-  DiscoveryBuyerOfferMatch,
-  DiscoverySellerBuyerOfferMatch,
+  DiscoveryOffer,
+  DiscoveryAccountOfferMatch,
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
@@ -56,14 +56,14 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
   selectedProductOptions: readonly { dimensionId: string; optionId: string }[];
   selectedProductSummary: string | null;
   visibleListings: readonly DiscoveryMarketListing[];
-  visibleBuyerOfferMatches: readonly DiscoveryBuyerOfferMatch[];
-  visibleSellerBuyerOfferMatches: readonly DiscoverySellerBuyerOfferMatch[];
+  visibleOffers: readonly DiscoveryOffer[];
+  visibleAccountOfferMatches: readonly DiscoveryAccountOfferMatch[];
   selectedListing: DiscoveryMarketListing | null;
-  selectedBuyerOfferMatch: DiscoveryBuyerOfferMatch | null;
-  selectedSellerBuyerOfferMatch: DiscoverySellerBuyerOfferMatch | null;
+  selectedOffer: DiscoveryOffer | null;
+  selectedAccountOfferMatch: DiscoveryAccountOfferMatch | null;
   bestListing: DiscoveryMarketListing | null;
-  bestBuyerOfferMatch: DiscoveryBuyerOfferMatch | null;
-  bestSellerBuyerOfferMatch: DiscoverySellerBuyerOfferMatch | null;
+  bestOffer: DiscoveryOffer | null;
+  bestAccountOfferMatch: DiscoveryAccountOfferMatch | null;
 }>;
 
 export type ItemDetailMobileCommerceSection = Readonly<{
@@ -224,7 +224,7 @@ function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | n
   }, null);
 }
 
-function getHighestOfferPrice(offers: readonly DiscoveryBuyerOfferMatch[]): string | null {
+function getHighestOfferPrice(offers: readonly DiscoveryOffer[]): string | null {
   return offers.reduce<string | null>((highest, offer) => {
     if (highest === null) {
       return offer.price_amount;
@@ -236,23 +236,23 @@ function getHighestOfferPrice(offers: readonly DiscoveryBuyerOfferMatch[]): stri
   }, null);
 }
 
-function getBestBuyerOfferMatch(
-  offers: readonly DiscoveryBuyerOfferMatch[],
-): DiscoveryBuyerOfferMatch | null {
+function getBestOffer(
+  offers: readonly DiscoveryOffer[],
+): DiscoveryOffer | null {
   return offers.find((offer) => offer.status === "submitted") ?? offers[0] ?? null;
 }
 
-function getBestSellerBuyerOfferMatch(
-  offers: readonly DiscoverySellerBuyerOfferMatch[],
-): DiscoverySellerBuyerOfferMatch | null {
-  return sortSellerBuyerOfferMatchesForReview(
+function getBestAccountOfferMatch(
+  offers: readonly DiscoveryAccountOfferMatch[],
+): DiscoveryAccountOfferMatch | null {
+  return sortAccountOfferMatchesForReview(
     offers.filter((offer) => offer.status === "submitted" && offer.can_fulfill),
   )[0] ?? null;
 }
 
-function sortSellerBuyerOfferMatchesForReview(
-  offers: readonly DiscoverySellerBuyerOfferMatch[],
-): DiscoverySellerBuyerOfferMatch[] {
+function sortAccountOfferMatchesForReview(
+  offers: readonly DiscoveryAccountOfferMatch[],
+): DiscoveryAccountOfferMatch[] {
   return [...offers].sort((left, right) => {
     const fulfillableDelta = Number(right.can_fulfill) - Number(left.can_fulfill);
     if (fulfillableDelta !== 0) {
@@ -337,13 +337,13 @@ export function ItemDetailPage({
   data,
   notFound = false,
   error = null,
-  sellerBuyerOfferMatches = [],
+  accountOfferMatches = [],
   renderCommerce,
 }: {
   data: DiscoveryItemDetail | null;
   notFound?: boolean;
   error?: string | null;
-  sellerBuyerOfferMatches?: readonly DiscoverySellerBuyerOfferMatch[];
+  accountOfferMatches?: readonly DiscoveryAccountOfferMatch[];
   renderCommerce?: (
     context: ItemDetailMarketplaceSectionContext,
   ) => ItemDetailCommerceSections | null;
@@ -441,7 +441,7 @@ export function ItemDetailPage({
         selection: explicitSelectedProductOptions,
       }).productId
     : selectedListing?.product_id ?? singleMatchingListing?.product_id ?? null;
-  const matchingBuyerOfferMatches = (data.buyer_offer_matches ?? [])
+  const matchingOffers = (data.buyer_offer_matches ?? [])
     .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
     .filter((offer) =>
       initialSelectedProductId
@@ -450,7 +450,7 @@ export function ItemDetailPage({
           ? matchesSelectedOptions(offer, selections)
           : true,
     );
-  const matchingSellerBuyerOfferMatches = sortSellerBuyerOfferMatchesForReview(sellerBuyerOfferMatches
+  const matchingAccountOfferMatches = sortAccountOfferMatchesForReview(accountOfferMatches
     .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
     .filter((offer) =>
       initialSelectedProductId
@@ -461,22 +461,22 @@ export function ItemDetailPage({
     )
   );
   const sellerOfferById = new Map(
-    matchingSellerBuyerOfferMatches.map((offer) => [offer.offer_id, offer] as const),
+    matchingAccountOfferMatches.map((offer) => [offer.offer_id, offer] as const),
   );
-  const selectedBuyerOfferMatch =
-    matchingBuyerOfferMatches.find((offer) => offer.offer_id === selectedOfferId) ??
-    matchingBuyerOfferMatches[0] ??
+  const selectedOffer =
+    matchingOffers.find((offer) => offer.offer_id === selectedOfferId) ??
+    matchingOffers[0] ??
     null;
-  const selectedSellerBuyerOfferMatch = selectedBuyerOfferMatch
-    ? matchingSellerBuyerOfferMatches.find(
-        (offer) => offer.offer_id === selectedBuyerOfferMatch.offer_id,
+  const selectedAccountOfferMatch = selectedOffer
+    ? matchingAccountOfferMatches.find(
+        (offer) => offer.offer_id === selectedOffer.offer_id,
       ) ?? null
-    : matchingSellerBuyerOfferMatches[0] ?? null;
+    : matchingAccountOfferMatches[0] ?? null;
   const selectedProductId =
     initialSelectedProductId ??
-    (marketIntent === "sell" ? selectedBuyerOfferMatch?.product_id ?? null : null);
+    (marketIntent === "sell" ? selectedOffer?.product_id ?? null : null);
   const selectedOfferForProduct =
-    marketIntent === "sell" ? selectedBuyerOfferMatch : null;
+    marketIntent === "sell" ? selectedOffer : null;
   const selectedProductOptions =
     hasCompleteProductSelection || (!selectedListing && !selectedOfferForProduct && !singleMatchingListing)
       ? explicitSelectedProductOptions
@@ -494,13 +494,13 @@ export function ItemDetailPage({
     selectedProductId
       ? visibleListings.find((listing) => listing.product_id === selectedProductId) ?? null
       : null;
-  const bestBuyerOfferMatch = getBestBuyerOfferMatch(matchingBuyerOfferMatches);
-  const bestSellerBuyerOfferMatch = getBestSellerBuyerOfferMatch(matchingSellerBuyerOfferMatches);
+  const bestOffer = getBestOffer(matchingOffers);
+  const bestAccountOfferMatch = getBestAccountOfferMatch(matchingAccountOfferMatches);
   const sellerCount = new Set(
     visibleListings.map((listing) => listing.account_id),
   ).size;
   const buyerCount = new Set(
-    matchingBuyerOfferMatches.map((offer) => offer.buyer_account_id),
+    matchingOffers.map((offer) => offer.buyer_account_id),
   ).size;
   const selectedMarketSummary = {
     lowest_price_amount: getLowestPrice(visibleListings),
@@ -562,14 +562,14 @@ export function ItemDetailPage({
     selectedProductOptions,
     selectedProductSummary,
     visibleListings,
-    visibleBuyerOfferMatches: matchingBuyerOfferMatches,
-    visibleSellerBuyerOfferMatches: matchingSellerBuyerOfferMatches,
+    visibleOffers: matchingOffers,
+    visibleAccountOfferMatches: matchingAccountOfferMatches,
     selectedListing,
-    selectedBuyerOfferMatch,
-    selectedSellerBuyerOfferMatch,
+    selectedOffer,
+    selectedAccountOfferMatch,
     bestListing,
-    bestBuyerOfferMatch,
-    bestSellerBuyerOfferMatch,
+    bestOffer,
+    bestAccountOfferMatch,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerceSections = renderCommerce?.(marketplaceContext) ?? null;
   const commerceContent = commerceSections
@@ -609,26 +609,26 @@ export function ItemDetailPage({
   const marketNote =
     marketIntent === "sell"
       ? selectedProductSummary ??
-        (hasActiveFilters ? "Filtered buyer offers" : "All buyer offers")
+        (hasActiveFilters ? "Filtered offers" : "All offers")
       : selectedProductSummary ??
         (hasActiveFilters ? "Filtered active listings" : "All active listings");
   const marketSummaryPrice =
     marketIntent === "sell"
-      ? formatMoney(getHighestOfferPrice(matchingBuyerOfferMatches))
+      ? formatMoney(getHighestOfferPrice(matchingOffers))
       : formatMoney(selectedMarketSummary.lowest_price_amount);
   const marketSummaryFacts =
     marketIntent === "sell"
       ? [
           {
             label: "Requested",
-            value: matchingBuyerOfferMatches.reduce(
+            value: matchingOffers.reduce(
               (sum, offer) => sum + offer.quantity_requested,
               0,
             ),
           },
           {
             label: "Offers",
-            value: formatOfferCount(matchingBuyerOfferMatches.length),
+            value: formatOfferCount(matchingOffers.length),
           },
           {
             label: "Buyers",
@@ -1004,8 +1004,8 @@ export function ItemDetailPage({
                     <Stack gap={3}>
                       <Inline gap={2}>
                         <Text size="sm" tone="secondary">
-                          {matchingBuyerOfferMatches.length} matching offer
-                          {matchingBuyerOfferMatches.length === 1 ? "" : "s"}
+                          {matchingOffers.length} matching offer
+                          {matchingOffers.length === 1 ? "" : "s"}
                         </Text>
                         {hasActiveFilters ? (
                           <Button
@@ -1018,11 +1018,11 @@ export function ItemDetailPage({
                           </Button>
                         ) : null}
                       </Inline>
-                      {matchingBuyerOfferMatches.length > 0 ? (
-                        matchingBuyerOfferMatches.map((offer) => {
+                      {matchingOffers.length > 0 ? (
+                        matchingOffers.map((offer) => {
                           const sellerOffer = sellerOfferById.get(offer.offer_id);
                           const isSelected =
-                            selectedBuyerOfferMatch?.offer_id === offer.offer_id;
+                            selectedOffer?.offer_id === offer.offer_id;
                           const selectOffer = () => {
                             setSelectedOfferId(offer.offer_id);
                             if (data.product_schema) {
@@ -1099,7 +1099,7 @@ export function ItemDetailPage({
                           title="No matching offers"
                           description={
                             data.buyer_offer_matches.length > 0
-                              ? "No buyer offers match these filters."
+                              ? "No offers match these filters."
                               : "Buyers have not placed offers for this item yet."
                           }
                           icon="package"

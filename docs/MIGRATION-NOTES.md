@@ -20,9 +20,7 @@ These route changes do not include compatibility redirects or aliases.
 - `Order` remains the Ordering aggregate and event-stream language.
 - Buyer-facing order projections are `Purchase`.
 - Seller-facing order projections are `Sale`.
-- Marketplace `Buyer Offer` remains the aggregate language.
-- Buyer-facing offer projections are `Submitted Buyer Offer`.
-- Seller-facing offer projections are `Buyer Offer Match`.
+- Marketplace offer projections are `Submitted Offer` and `Offer Match`.
 - Seller stock is `Inventory Item`.
 - Account review rollups are `Review Summary`.
 

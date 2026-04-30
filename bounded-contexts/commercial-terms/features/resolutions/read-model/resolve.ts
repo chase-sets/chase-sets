@@ -8,7 +8,7 @@ import {
 } from "../../../support/runtime-support/common";
 
 export type ResolvedCommercialTerms = Readonly<{
-  sellerAccountId: string;
+  accountId: string;
   accountType: CommercialAccountType;
   basisAmount: string;
   marketplaceFeeAmount: string;
@@ -21,12 +21,12 @@ export type ResolvedCommercialTerms = Readonly<{
 
 export type CommercialTermsResolver = Readonly<{
   resolveListingTerms: (params: Readonly<{
-    sellerAccountId: string;
+    accountId: string;
     amount: string;
     effectiveAt?: string;
   }>) => Promise<ResolvedCommercialTerms>;
   resolveOrderTerms: (params: Readonly<{
-    sellerAccountId: string;
+    accountId: string;
     amount: string;
     effectiveAt?: string;
   }>) => Promise<ResolvedCommercialTerms>;
@@ -54,12 +54,12 @@ type ActiveAgreement = Readonly<{
   payment_fee_fixed_amount: string;
 }>;
 
-async function getProjectedAccount(db: PgQueryable, sellerAccountId: string) {
+async function getProjectedAccount(db: PgQueryable, accountId: string) {
   const result = await db.query<ProjectedAccount>(
     `SELECT account_id, account_type, status
      FROM commercial_terms_account_pages
      WHERE account_id = $1`,
-    [sellerAccountId],
+    [accountId],
   );
 
   return result.rows[0] ?? null;
@@ -92,7 +92,7 @@ async function getActiveSchedule(
 
 async function getActiveAgreement(
   db: PgQueryable,
-  sellerAccountId: string,
+  accountId: string,
   effectiveAt: string,
 ) {
   const result = await db.query<ActiveAgreement>(
@@ -109,7 +109,7 @@ async function getActiveAgreement(
        AND (effective_until IS NULL OR effective_until > $2)
      ORDER BY effective_from DESC, updated_at DESC, agreement_id DESC
      LIMIT 1`,
-    [sellerAccountId, effectiveAt],
+    [accountId, effectiveAt],
   );
 
   return result.rows[0] ?? null;
@@ -118,7 +118,7 @@ async function getActiveAgreement(
 async function resolveTerms(
   db: PgQueryable,
   params: Readonly<{
-    sellerAccountId: string;
+    accountId: string;
     amount: string;
     effectiveAt?: string;
   }>,
@@ -128,18 +128,18 @@ async function resolveTerms(
     fieldName: "Commercial terms amount",
     allowZero: true,
   });
-  const account = await getProjectedAccount(db, params.sellerAccountId);
-  assert(account, `Account ${params.sellerAccountId} is not available for commercial terms.`);
-  assert(account.status === "active", `Account ${params.sellerAccountId} is not active.`);
+  const account = await getProjectedAccount(db, params.accountId);
+  assert(account, `Account ${params.accountId} is not available for commercial terms.`);
+  assert(account.status === "active", `Account ${params.accountId} is not active.`);
 
   const [schedule, agreement] = await Promise.all([
     getActiveSchedule(db, account.account_type, effectiveAt),
-    getActiveAgreement(db, params.sellerAccountId, effectiveAt),
+    getActiveAgreement(db, params.accountId, effectiveAt),
   ]);
 
   assert(
     schedule || agreement,
-    `No active commercial terms were found for account ${params.sellerAccountId}.`,
+    `No active commercial terms were found for account ${params.accountId}.`,
   );
 
   const marketplaceFeeAmount = applyFeeFormula(amount, {
@@ -156,7 +156,7 @@ async function resolveTerms(
   });
 
   return {
-    sellerAccountId: params.sellerAccountId,
+    accountId: params.accountId,
     accountType: account.account_type,
     basisAmount: amount,
     marketplaceFeeAmount,
@@ -178,14 +178,14 @@ export function createCommercialTermsResolver(
 }
 
 export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
-  const resolve = async (params: Readonly<{ sellerAccountId: string; amount: string; effectiveAt?: string }>) => {
+  const resolve = async (params: Readonly<{ accountId: string; amount: string; effectiveAt?: string }>) => {
     const amount = normalizeMoneyAmount(params.amount, {
       fieldName: "Commercial terms amount",
       allowZero: true,
     });
 
     return {
-      sellerAccountId: params.sellerAccountId,
+      accountId: params.accountId,
       accountType: "business" as const,
       basisAmount: amount,
       marketplaceFeeAmount: "0.00",

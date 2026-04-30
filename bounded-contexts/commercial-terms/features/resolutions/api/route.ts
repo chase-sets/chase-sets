@@ -50,13 +50,13 @@ export function createResolutionRoutes(services: ResolutionServices) {
       const result =
         scope === "order"
           ? await services.previewOrderTerms({
-              sellerAccountId: String(body.sellerAccountId ?? access.actor.accountId),
+              accountId: String(body.accountId ?? access.actor.accountId),
               amount: String(body.amount ?? ""),
               effectiveAt:
                 typeof body.effectiveAt === "string" ? body.effectiveAt : undefined,
             })
           : await services.previewListingTerms({
-              sellerAccountId: String(body.sellerAccountId ?? access.actor.accountId),
+              accountId: String(body.accountId ?? access.actor.accountId),
               amount: String(body.amount ?? ""),
               effectiveAt:
                 typeof body.effectiveAt === "string" ? body.effectiveAt : undefined,

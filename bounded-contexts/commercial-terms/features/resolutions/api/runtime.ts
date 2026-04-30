@@ -10,12 +10,12 @@ type ResolutionRuntimeDeps = Readonly<{
 
 export type ResolutionServices = Readonly<{
   previewListingTerms: (params: Readonly<{
-    sellerAccountId: string;
+    accountId: string;
     amount: string;
     effectiveAt?: string;
   }>) => Promise<ResolvedCommercialTerms>;
   previewOrderTerms: (params: Readonly<{
-    sellerAccountId: string;
+    accountId: string;
     amount: string;
     effectiveAt?: string;
   }>) => Promise<ResolvedCommercialTerms>;

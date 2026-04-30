@@ -12,8 +12,8 @@ import {
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
-  DiscoveryBuyerOfferMatch,
-  DiscoverySellerBuyerOfferMatch,
+  DiscoveryOffer,
+  DiscoveryAccountOfferMatch,
   ProductSchema,
 } from "../support/client-support/contracts";
 
@@ -40,7 +40,7 @@ const baseListing: DiscoveryMarketListing = {
   updated_at: "2026-04-28T00:00:00.000Z",
 };
 
-const baseBuyerOfferMatch: DiscoveryBuyerOfferMatch = {
+const baseOffer: DiscoveryOffer = {
   offer_id: "offer_charizard",
   buyer_account_id: "buyer_1",
   buyer_display_name: "Ash Ketchum",
@@ -59,8 +59,8 @@ const baseBuyerOfferMatch: DiscoveryBuyerOfferMatch = {
   updated_at: "2026-04-28T00:00:00.000Z",
 };
 
-const baseSellerBuyerOfferMatch: DiscoverySellerBuyerOfferMatch = {
-  ...baseBuyerOfferMatch,
+const baseAccountOfferMatch: DiscoveryAccountOfferMatch = {
+  ...baseOffer,
   seller_available_quantity: 2,
   can_fulfill: true,
   in_sell_list: false,
@@ -76,16 +76,16 @@ const alternateListing: DiscoveryMarketListing = {
   visible_quantity: 1,
 };
 
-const alternateBuyerOfferMatch: DiscoveryBuyerOfferMatch = {
-  ...baseBuyerOfferMatch,
+const alternateOffer: DiscoveryOffer = {
+  ...baseOffer,
   offer_id: "offer_charizard_alt",
   buyer_account_id: "buyer_2",
   buyer_display_name: "Misty",
   price_amount: "360.00",
 };
 
-const alternateSellerBuyerOfferMatch: DiscoverySellerBuyerOfferMatch = {
-  ...alternateBuyerOfferMatch,
+const alternateAccountOfferMatch: DiscoveryAccountOfferMatch = {
+  ...alternateOffer,
   seller_available_quantity: 1,
   can_fulfill: true,
   in_sell_list: false,
@@ -150,7 +150,7 @@ function createItem(
     product_schema: null,
     market_summary: null,
     market_listings: [baseListing],
-    buyer_offer_matches: [baseBuyerOfferMatch],
+    buyer_offer_matches: [baseOffer],
     updated_at: "2026-04-28T00:00:00.000Z",
     ...overrides,
   };
@@ -388,7 +388,7 @@ describe("item detail commerce panel", () => {
         renderCommerce={() => ({
           buy: <div>Buy selected product</div>,
           offer: <div>Make an offer</div>,
-          sell: <div>Sell to buyer offer</div>,
+          sell: <div>Accept offer</div>,
         })}
       />,
     );
@@ -404,21 +404,21 @@ describe("item detail commerce panel", () => {
 
     fireEvent.click(within(marketIntent).getByRole("tab", { name: "Sell" }));
 
-    expect(screen.getByText("Sell to buyer offer")).toBeTruthy();
+    expect(screen.getByText("Accept offer")).toBeTruthy();
     expect(screen.getByText("1 matching offer")).toBeTruthy();
     expect(screen.getByText("Ash Ketchum")).toBeTruthy();
     expect(screen.queryByText("1 active listing")).toBeNull();
   });
 
-  it("shows seller-specific fulfillment badges when eligible buyer offer match data is available", () => {
+  it("shows seller-specific fulfillment badges when eligible offer match data is available", () => {
     render(
       <ItemDetailPage
         data={createItem()}
-        sellerBuyerOfferMatches={[baseSellerBuyerOfferMatch]}
+        accountOfferMatches={[baseAccountOfferMatch]}
         renderCommerce={() => ({
           buy: <div>Buy selected product</div>,
           offer: <div>Make an offer</div>,
-          sell: <div>Sell to buyer offer</div>,
+          sell: <div>Accept offer</div>,
         })}
       />,
     );
@@ -551,9 +551,9 @@ describe("item detail commerce panel", () => {
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          buyer_offer_matches: [baseBuyerOfferMatch, alternateBuyerOfferMatch],
+          buyer_offer_matches: [baseOffer, alternateOffer],
         })}
-        sellerBuyerOfferMatches={[baseSellerBuyerOfferMatch, alternateSellerBuyerOfferMatch]}
+        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
         renderCommerce={(context) => ({
           buy: <div>Buy selected product</div>,
           offer: <div>Make an offer</div>,
@@ -563,7 +563,7 @@ describe("item detail commerce panel", () => {
                 data-testid="selected-offer-id"
                 name="offerId"
                 readOnly
-                value={context.selectedSellerBuyerOfferMatch?.offer_id ?? ""}
+                value={context.selectedAccountOfferMatch?.offer_id ?? ""}
               />
             </form>
           ),

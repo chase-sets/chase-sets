@@ -44,7 +44,7 @@ Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Incoming Dependencies
 
-- Identity for buyer and seller account references
+- Identity for account references and transaction-party references
 - Catalog for canonical item and product references
 - Inventory for sellable availability signals
 

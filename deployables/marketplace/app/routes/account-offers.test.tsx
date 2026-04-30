@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  loader as submittedBuyerOfferLoader,
+  loader as submittedOfferLoader,
 } from "@chase-sets/marketplace/routes/account-offer-submitted";
 import {
-  loader as submittedBuyerOffersLoader,
+  loader as submittedOffersLoader,
 } from "@chase-sets/marketplace/routes/account-offers-submitted";
 import {
-  loader as buyerOfferMatchLoader,
+  loader as offerMatchLoader,
 } from "@chase-sets/marketplace/routes/account-offer-match";
 import {
-  loader as buyerOfferMatchesLoader,
+  loader as offerMatchesLoader,
 } from "@chase-sets/marketplace/routes/account-offer-matches";
 import { action as itemDetailAction } from "@chase-sets/discovery/routes/item-detail";
 
@@ -21,7 +21,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("marketplace offer routes", () => {
-  it("loads submitted buyer offers through the marketplace API", async () => {
+  it("loads submitted offers through the marketplace API", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -69,17 +69,17 @@ describe("marketplace offer routes", () => {
       }),
     );
 
-    const result = await submittedBuyerOffersLoader({
+    const result = await submittedOffersLoader({
       request: new Request("http://localhost/account/offers/submitted"),
       params: {},
       context: undefined,
     } as never);
 
-    expect(result.submittedBuyerOffers.items).toHaveLength(1);
-    expect(result.submittedBuyerOffers.items[0]?.offer_id).toBe("off_1");
+    expect(result.submittedOffers.items).toHaveLength(1);
+    expect(result.submittedOffers.items[0]?.offer_id).toBe("off_1");
   });
 
-  it("loads submitted buyer offer detail through the marketplace API", async () => {
+  it("loads submitted offer detail through the marketplace API", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -121,16 +121,16 @@ describe("marketplace offer routes", () => {
       }),
     );
 
-    const result = await submittedBuyerOfferLoader({
+    const result = await submittedOfferLoader({
       request: new Request("http://localhost/account/offers/submitted/off_1"),
       params: { offerId: "off_1" },
       context: undefined,
     } as never);
 
-    expect(result.submittedBuyerOffer.offer_id).toBe("off_1");
+    expect(result.submittedOffer.offer_id).toBe("off_1");
   });
 
-  it("loads buyer offer matches through the marketplace API", async () => {
+  it("loads offer matches through the marketplace API", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -179,16 +179,16 @@ describe("marketplace offer routes", () => {
       }),
     );
 
-    const result = await buyerOfferMatchesLoader({
+    const result = await offerMatchesLoader({
       request: new Request("http://localhost/account/offers/matches"),
       params: {},
       context: undefined,
     } as never);
 
-    expect(result.buyerOfferMatches.items[0]?.buyer_display_name).toBe("Buyer One");
+    expect(result.offerMatches.items[0]?.buyer_display_name).toBe("Buyer One");
   });
 
-  it("loads buyer offer match detail through the marketplace API", async () => {
+  it("loads offer match detail through the marketplace API", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -231,17 +231,17 @@ describe("marketplace offer routes", () => {
       }),
     );
 
-    const result = await buyerOfferMatchLoader({
+    const result = await offerMatchLoader({
       request: new Request("http://localhost/account/offers/matches/off_1"),
       params: { offerId: "off_1" },
       context: undefined,
     } as never);
 
-    expect(result.buyerOfferMatch.offer_id).toBe("off_1");
-    expect(result.buyerOfferMatch.buyer_display_name).toBe("Buyer One");
+    expect(result.offerMatch.offer_id).toBe("off_1");
+    expect(result.offerMatch.buyer_display_name).toBe("Buyer One");
   });
 
-  it("submits an item-detail buyer offer and redirects to submitted buyer offers", async () => {
+  it("submits an item-detail offer and redirects to submitted offers", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {

@@ -11,11 +11,11 @@ export type {
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
 export type {
-  BuyerOfferMatchDetail,
-  BuyerOfferMatchListItem,
-  MarketplaceBuyerOffer,
-  SubmittedBuyerOfferDetail,
-  SubmittedBuyerOfferListItem,
+  OfferMatchDetail,
+  OfferMatchListItem,
+  MarketplaceOffer,
+  SubmittedOfferDetail,
+  SubmittedOfferListItem,
 } from "./features/offers/api/contracts";
 
 import type {
@@ -27,10 +27,10 @@ import type {
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
 import type {
-  BuyerOfferMatchDetail,
-  BuyerOfferMatchListItem,
-  SubmittedBuyerOfferDetail,
-  SubmittedBuyerOfferListItem,
+  OfferMatchDetail,
+  OfferMatchListItem,
+  SubmittedOfferDetail,
+  SubmittedOfferListItem,
 } from "./features/offers/api/contracts";
 
 type MarketplaceApiApp = ReturnType<typeof buildMarketplaceApi>;
@@ -199,9 +199,9 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listSubmittedBuyerOffers(
+    async listSubmittedOffers(
       query = "",
-    ): Promise<ListResponse<SubmittedBuyerOfferListItem>> {
+    ): Promise<ListResponse<SubmittedOfferListItem>> {
       return parseJsonResponse(
         await client.account.offers.submitted.$get({
           query: queryFromString(query),
@@ -209,7 +209,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async getSubmittedBuyerOffer(id: string): Promise<SubmittedBuyerOfferDetail> {
+    async getSubmittedOffer(id: string): Promise<SubmittedOfferDetail> {
       return parseJsonResponse(
         await client.account.offers.submitted[":id"].$get({
           param: { id },
@@ -217,7 +217,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async createSubmittedBuyerOffer(body: Record<string, unknown>) {
+    async createSubmittedOffer(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.account.offers.submitted.$post({
           json: body,
@@ -225,9 +225,9 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listBuyerOfferMatches(
+    async listOfferMatches(
       query = "",
-    ): Promise<ListResponse<BuyerOfferMatchListItem>> {
+    ): Promise<ListResponse<OfferMatchListItem>> {
       return parseJsonResponse(
         await client.account.offers.matches.$get({
           query: queryFromString(query),
@@ -235,7 +235,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async getBuyerOfferMatch(id: string): Promise<BuyerOfferMatchDetail> {
+    async getOfferMatch(id: string): Promise<OfferMatchDetail> {
       return parseJsonResponse(
         await client.account.offers.matches[":id"].$get({
           param: { id },
@@ -243,7 +243,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async acceptBuyerOfferMatch(id: string) {
+    async acceptOfferMatch(id: string) {
       return parseJsonResponse(
         await client.account.offers.matches[":id"].accept.$post({
           param: { id },
@@ -252,14 +252,14 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async getBuyerOfferMatchSellList(): Promise<ListResponse<BuyerOfferMatchListItem>> {
+    async getOfferMatchSellList(): Promise<ListResponse<OfferMatchListItem>> {
       return parseJsonResponse(
         await client.account.offers["match-sell-list"].$get({
           header: headers,
         }),
       );
     },
-    async addBuyerOfferMatchSellListItem(body: Record<string, unknown>) {
+    async addOfferMatchSellListItem(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.account.offers["match-sell-list"].$post({
           json: body,
@@ -267,7 +267,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async acceptBuyerOfferMatchSellList() {
+    async acceptOfferMatchSellList() {
       return parseJsonResponse(
         await client.account.offers["match-sell-list"].accept.$post({
           json: {},

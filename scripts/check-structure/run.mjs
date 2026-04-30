@@ -11,8 +11,18 @@ import {
 const repoRoot = process.cwd();
 const roots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const accountCapabilityLanguageGuardExtensions = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".md",
+]);
 const moduleFileExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"];
-const ignoredDirectories = new Set(["node_modules", ".git", "dist", "build"]);
+const ignoredDirectories = new Set(["node_modules", ".git", "dist", "build", ".react-router"]);
 const allowedTopLevelDirectories = new Set([
   "artifacts",
   "bounded-contexts",
@@ -166,6 +176,19 @@ const crossContextSqlReadGuards = [
     "i",
   ),
 }));
+const accountCapabilityLanguageGuards = [
+  { label: "/buyer route namespace", pattern: /\/buyer(?:\/|["'`]|$)/ },
+  { label: "/seller route namespace", pattern: /\/seller(?:\/|["'`]|$)/ },
+  { label: "client.buyer", pattern: /\bclient\.buyer\b/ },
+  { label: "client.seller", pattern: /\bclient\.seller\b/ },
+  { label: "buyer-only", pattern: /\bbuyer-only\b/i },
+  { label: "seller-only", pattern: /\bseller-only\b/i },
+  { label: "SubmittedBuyerOffer", pattern: /\bSubmittedBuyerOffer\b/ },
+  { label: "BuyerOfferMatch", pattern: /\bBuyerOfferMatch\b/ },
+  { label: "buyer-offer path or module name", pattern: /\bbuyer-offer\b/i },
+  { label: "seller-offer path or module name", pattern: /\bseller-offer\b/i },
+  { label: "account-buyer-offers route test", pattern: /\baccount-buyer-offers\b/i },
+];
 
 function normalizeRelative(filePath) {
   return path.relative(repoRoot, filePath).replaceAll("\\", "/");
@@ -2231,11 +2254,29 @@ await runImportBoundaryValidation({
       addViolation(file, "shell navigation must come from manifest-driven platform-runtime composition, not hand-authored nav modules");
     }
 
-    if (!sourceExtensions.has(path.extname(file))) {
+    const extension = path.extname(file);
+    let content = null;
+
+    if (accountCapabilityLanguageGuardExtensions.has(extension)) {
+      content = await readFile(file, "utf8");
+
+      if (normalizedFile.startsWith("bounded-contexts/") || normalizedFile.startsWith("deployables/")) {
+        for (const guard of accountCapabilityLanguageGuards) {
+          if (guard.pattern.test(normalizedFile) || guard.pattern.test(content)) {
+            addViolation(
+              file,
+              `account capability language is retired; replace ${guard.label} with account-neutral naming unless buyer/seller is a durable transaction-party identifier`,
+            );
+          }
+        }
+      }
+    }
+
+    if (!sourceExtensions.has(extension)) {
       return;
     }
 
-    const content = await readFile(file, "utf8");
+    content ??= await readFile(file, "utf8");
 
     if (
       ((

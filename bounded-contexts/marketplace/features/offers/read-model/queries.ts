@@ -18,7 +18,7 @@ export type MarketplaceOfferListRow = Readonly<{
   updated_at: string;
 }>;
 
-export type BuyerOfferMatchRow = MarketplaceOfferListRow &
+export type OfferMatchRow = MarketplaceOfferListRow &
   Readonly<{
     buyer_display_name: string | null;
     seller_available_quantity: number;
@@ -114,13 +114,13 @@ function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
     ${tieBreakerSql}`;
 }
 
-type BuyerOfferMatchPageRow = MarketplaceOfferPageRow & {
+type OfferMatchPageRow = MarketplaceOfferPageRow & {
   buyer_display_name: string | null;
   seller_available_quantity: number;
   in_sell_list: boolean;
 };
 
-function mapBuyerOfferMatchRow(row: BuyerOfferMatchPageRow): BuyerOfferMatchRow {
+function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
   const offer = mapOfferRow(row);
 
   return {
@@ -134,7 +134,7 @@ function mapBuyerOfferMatchRow(row: BuyerOfferMatchPageRow): BuyerOfferMatchRow 
   };
 }
 
-export async function listSubmittedBuyerOffers(
+export async function listSubmittedOffers(
   db: PgQueryable,
   params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number }>,
 ): Promise<{ items: MarketplaceOfferListRow[]; total: number }> {
@@ -164,7 +164,7 @@ export async function listSubmittedBuyerOffers(
   };
 }
 
-export async function getSubmittedBuyerOffer(
+export async function getSubmittedOffer(
   db: PgQueryable,
   offerId: string,
   buyerAccountId: string,
@@ -181,10 +181,10 @@ export async function getSubmittedBuyerOffer(
   return row ? mapOfferRow(row) : null;
 }
 
-export async function listBuyerOfferMatches(
+export async function listOfferMatches(
   db: PgQueryable,
   params: Readonly<{ sellerAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: BuyerOfferMatchRow[]; total: number }> {
+): Promise<{ items: OfferMatchRow[]; total: number }> {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
 
@@ -196,7 +196,7 @@ export async function listBuyerOfferMatches(
          AND ${sellerVisibilitySql}`,
       [params.sellerAccountId],
     ),
-    db.query<BuyerOfferMatchPageRow>(
+    db.query<OfferMatchPageRow>(
       `SELECT *
        FROM (
          SELECT
@@ -217,17 +217,17 @@ export async function listBuyerOfferMatches(
   ]);
 
   return {
-    items: itemsResult.rows.map(mapBuyerOfferMatchRow),
+    items: itemsResult.rows.map(mapOfferMatchRow),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
 
-export async function getBuyerOfferMatch(
+export async function getOfferMatch(
   db: PgQueryable,
   offerId: string,
   sellerAccountId: string,
-): Promise<BuyerOfferMatchRow | null> {
-  const result = await db.query<BuyerOfferMatchPageRow>(
+): Promise<OfferMatchRow | null> {
+  const result = await db.query<OfferMatchPageRow>(
     `SELECT
        ${sellerOfferSelectSql}
      FROM marketplace_offer_pages AS offer
@@ -241,14 +241,14 @@ export async function getBuyerOfferMatch(
 
   const row = result.rows[0];
 
-  return row ? mapBuyerOfferMatchRow(row) : null;
+  return row ? mapOfferMatchRow(row) : null;
 }
 
-export async function addBuyerOfferMatchSellListItem(
+export async function addOfferMatchSellListItem(
   db: PgQueryable,
   params: Readonly<{ sellerAccountId: string; offerId: string; addedAt: string }>,
 ): Promise<void> {
-  const offer = await getBuyerOfferMatch(db, params.offerId, params.sellerAccountId);
+  const offer = await getOfferMatch(db, params.offerId, params.sellerAccountId);
   if (!offer) {
     throw new Error("Offer not found.");
   }
@@ -266,11 +266,11 @@ export async function addBuyerOfferMatchSellListItem(
   );
 }
 
-export async function listBuyerOfferMatchSellList(
+export async function listOfferMatchSellList(
   db: PgQueryable,
   sellerAccountId: string,
-): Promise<BuyerOfferMatchRow[]> {
-  const result = await db.query<BuyerOfferMatchPageRow>(
+): Promise<OfferMatchRow[]> {
+  const result = await db.query<OfferMatchPageRow>(
     `SELECT *
      FROM (
        SELECT
@@ -288,10 +288,10 @@ export async function listBuyerOfferMatchSellList(
     [sellerAccountId],
   );
 
-  return result.rows.map(mapBuyerOfferMatchRow);
+  return result.rows.map(mapOfferMatchRow);
 }
 
-export async function removeBuyerOfferMatchSellListItems(
+export async function removeOfferMatchSellListItems(
   db: PgQueryable,
   params: Readonly<{ sellerAccountId: string; offerIds: readonly string[] }>,
 ): Promise<void> {

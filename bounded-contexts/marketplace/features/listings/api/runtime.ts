@@ -200,7 +200,7 @@ export function createMarketplaceListingRuntime(
       );
       assert(supply, "Inventory item not found.");
       const terms = await deps.commercialTermsResolver.resolveListingTerms({
-        sellerAccountId: params.accountId,
+        accountId: params.accountId,
         amount: params.priceAmount,
       });
 
@@ -236,7 +236,7 @@ export function createMarketplaceListingRuntime(
     },
     previewListingTerms: async (params) => {
       const terms = await deps.commercialTermsResolver.resolveListingTerms({
-        sellerAccountId: params.accountId,
+        accountId: params.accountId,
         amount: params.priceAmount,
       });
 
@@ -254,7 +254,7 @@ export function createMarketplaceListingRuntime(
     updateListingPrice: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);
       const terms = await deps.commercialTermsResolver.resolveListingTerms({
-        sellerAccountId: params.accountId,
+        accountId: params.accountId,
         amount: params.priceAmount,
       });
 

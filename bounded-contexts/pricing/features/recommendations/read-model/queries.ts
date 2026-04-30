@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export type SellerRecommendationListItem = Readonly<{
+export type AccountRecommendationListItem = Readonly<{
   recommendation_id: string;
   catalog_catalog_item_id: string;
   seller_account_id: string;
@@ -25,10 +25,10 @@ export type SellerRecommendationListItem = Readonly<{
   updated_at: string;
 }>;
 
-export async function listSellerRecommendations(
+export async function listAccountRecommendations(
   db: PgQueryable,
-  params: Readonly<{ sellerAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: SellerRecommendationListItem[]; total: number }> {
+  params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
+): Promise<{ items: AccountRecommendationListItem[]; total: number }> {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
 
@@ -37,9 +37,9 @@ export async function listSellerRecommendations(
       `SELECT COUNT(*) AS count
        FROM pricing_recommendation_pages
        WHERE seller_account_id = $1`,
-      [params.sellerAccountId],
+      [params.accountId],
     ),
-    db.query<SellerRecommendationListItem>(
+    db.query<AccountRecommendationListItem>(
       `SELECT
          recommendation_id,
          catalog_catalog_item_id,
@@ -67,7 +67,7 @@ export async function listSellerRecommendations(
        WHERE seller_account_id = $1
        ORDER BY updated_at DESC, recommendation_id DESC
        LIMIT $2 OFFSET $3`,
-      [params.sellerAccountId, limit, offset],
+      [params.accountId, limit, offset],
     ),
   ]);
 
@@ -77,12 +77,12 @@ export async function listSellerRecommendations(
   };
 }
 
-export async function getSellerRecommendation(
+export async function getAccountRecommendation(
   db: PgQueryable,
   recommendationId: string,
-  sellerAccountId: string,
-): Promise<SellerRecommendationListItem | null> {
-  const result = await db.query<SellerRecommendationListItem>(
+  accountId: string,
+): Promise<AccountRecommendationListItem | null> {
+  const result = await db.query<AccountRecommendationListItem>(
     `SELECT
        recommendation_id,
        catalog_catalog_item_id,
@@ -109,7 +109,7 @@ export async function getSellerRecommendation(
      FROM pricing_recommendation_feed
      WHERE recommendation_id = $1
        AND seller_account_id = $2`,
-    [recommendationId, sellerAccountId],
+    [recommendationId, accountId],
   );
 
   return result.rows[0] ?? null;

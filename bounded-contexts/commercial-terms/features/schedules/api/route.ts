@@ -109,7 +109,7 @@ export function createScheduleRoutes(
       const preview =
         typeof body.previewAmount === "string" && body.previewAmount.trim().length > 0
           ? await resolutions.previewListingTerms({
-              sellerAccountId: access.actor.accountId,
+              accountId: access.actor.accountId,
               amount: body.previewAmount,
               effectiveAt: new Date().toISOString(),
             }).catch(() => null)

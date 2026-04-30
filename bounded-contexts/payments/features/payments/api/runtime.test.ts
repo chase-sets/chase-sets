@@ -189,9 +189,9 @@ describe("payment runtime", () => {
       processorGateway,
     });
 
-    const result = await services.createBuyerPayment(
+    const result = await services.createAccountPayment(
       {
-        buyerAccountId: "acc_buyer" as never,
+        accountId: "acc_buyer" as never,
         orderIds: ["ord_1" as never],
         sourceContext: "checkout",
         sourceReferenceId: "chk_1",
@@ -232,9 +232,9 @@ describe("payment runtime", () => {
       balanceCreditResolver,
     });
 
-    const result = await services.createBuyerPayment(
+    const result = await services.createAccountPayment(
       {
-        buyerAccountId: "acc_buyer" as never,
+        accountId: "acc_buyer" as never,
         orderIds: ["ord_1" as never],
         requestedBalanceCreditAmount: "10.00",
         sourceContext: "checkout",
@@ -280,9 +280,9 @@ describe("payment runtime", () => {
       },
     });
 
-    const result = await services.createBuyerPayment(
+    const result = await services.createAccountPayment(
       {
-        buyerAccountId: "acc_buyer" as never,
+        accountId: "acc_buyer" as never,
         orderIds: ["ord_1" as never],
         requestedBalanceCreditAmount: "24.99",
       },

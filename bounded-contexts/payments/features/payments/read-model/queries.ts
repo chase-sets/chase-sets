@@ -70,7 +70,7 @@ const paymentSelect = `
   FROM payments_payment_pages
 `;
 
-export async function getBuyerPayment(
+export async function getAccountPayment(
   db: PgQueryable,
   paymentId: string,
   buyerAccountId: string,

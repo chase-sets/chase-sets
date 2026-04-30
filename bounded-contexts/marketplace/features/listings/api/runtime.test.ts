@@ -115,8 +115,8 @@ describe("marketplace listing runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
       commercialTermsResolver: {
-        resolveListingTerms: vi.fn(async ({ amount, sellerAccountId }) => ({
-          sellerAccountId,
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
           accountType: "business" as const,
           basisAmount: amount,
           marketplaceFeeAmount: "1.00",

@@ -71,8 +71,8 @@ function createCheckpointStore(): ProjectionCheckpointStore {
 }
 
 const commercialTermsResolver = {
-  resolveListingTerms: vi.fn(async ({ sellerAccountId, amount }) => ({
-    sellerAccountId,
+  resolveListingTerms: vi.fn(async ({ accountId, amount }) => ({
+    accountId,
     accountType: "business" as const,
     basisAmount: amount,
     marketplaceFeeAmount: "1.00",
@@ -82,8 +82,8 @@ const commercialTermsResolver = {
     agreementId: null,
     resolvedAt: "2026-03-31T00:00:00.000Z",
   })),
-  resolveOrderTerms: vi.fn(async ({ sellerAccountId, amount }) => ({
-    sellerAccountId,
+  resolveOrderTerms: vi.fn(async ({ accountId, amount }) => ({
+    accountId,
     accountType: "business" as const,
     basisAmount: amount,
     marketplaceFeeAmount: "1.00",

@@ -42,7 +42,7 @@ export type CheckoutCartServices = Readonly<{
   >;
   addLine: (
     params: Readonly<{
-      buyerAccountId: AccountId;
+      accountId: AccountId;
       catalogItemId: string;
       productId: string;
       itemTitle: string;
@@ -55,7 +55,7 @@ export type CheckoutCartServices = Readonly<{
   ) => Promise<{ lineId: CartLineId; version: number }>;
   setLineQuantity: (
     params: Readonly<{
-      buyerAccountId: AccountId;
+      accountId: AccountId;
       lineId: CartLineId;
       quantity: number;
     }>,
@@ -63,16 +63,16 @@ export type CheckoutCartServices = Readonly<{
   ) => Promise<{ lineId: CartLineId; version: number }>;
   removeLine: (
     params: Readonly<{
-      buyerAccountId: AccountId;
+      accountId: AccountId;
       lineId: CartLineId;
     }>,
     context: EventStoreContext,
   ) => Promise<{ lineId: CartLineId; version: number }>;
   checkout: (
-    buyerAccountId: AccountId,
+    accountId: AccountId,
     context: EventStoreContext,
   ) => Promise<{ version: number }>;
-  listCartLines: (buyerAccountId: string) => ReturnType<typeof listCartLines>;
+  listCartLines: (accountId: string) => ReturnType<typeof listCartLines>;
   projectors: readonly Projector[];
 }>;
 
@@ -137,10 +137,10 @@ export function createCheckoutCartRuntime(
 
       const lineId = createId("cli") as CartLineId;
       const result = await commandHandler({
-        streamId: `checkout.cart-${params.buyerAccountId}`,
+        streamId: `checkout.cart-${params.accountId}`,
         command: {
           type: "AddCartLine",
-          buyerAccountId: params.buyerAccountId,
+          buyerAccountId: params.accountId,
           lineId,
           catalogItemId: params.catalogItemId,
           productId: catalogVersion.productId,
@@ -157,7 +157,7 @@ export function createCheckoutCartRuntime(
     },
     setLineQuantity: async (params, context) => {
       const result = await commandHandler({
-        streamId: `checkout.cart-${params.buyerAccountId}`,
+        streamId: `checkout.cart-${params.accountId}`,
         command: {
           type: "SetCartLineQuantity",
           lineId: params.lineId,
@@ -170,7 +170,7 @@ export function createCheckoutCartRuntime(
     },
     removeLine: async (params, context) => {
       const result = await commandHandler({
-        streamId: `checkout.cart-${params.buyerAccountId}`,
+        streamId: `checkout.cart-${params.accountId}`,
         command: {
           type: "RemoveCartLine",
           lineId: params.lineId,
@@ -180,9 +180,9 @@ export function createCheckoutCartRuntime(
 
       return { lineId: params.lineId, version: result.version };
     },
-    checkout: async (buyerAccountId, context) => {
+    checkout: async (accountId, context) => {
       const result = await commandHandler({
-        streamId: `checkout.cart-${buyerAccountId}`,
+        streamId: `checkout.cart-${accountId}`,
         command: {
           type: "CheckoutCart",
           checkedOutAt: new Date().toISOString(),
@@ -192,7 +192,7 @@ export function createCheckoutCartRuntime(
 
       return { version: result.version };
     },
-    listCartLines: (buyerAccountId) => listCartLines(deps.db, buyerAccountId),
+    listCartLines: (accountId) => listCartLines(deps.db, accountId),
     projectors: [
       createProjector({
         projectorName: "checkout.cart-projection",
