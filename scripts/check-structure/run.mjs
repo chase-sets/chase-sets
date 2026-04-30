@@ -8,8 +8,8 @@ import {
   writeStructureMetricsReport,
 } from "./phases.mjs";
 import {
-  accountCapabilityLanguageGuardExtensions,
   findAccountCapabilityLanguageViolations,
+  isAccountCapabilityLanguageGuardedFile,
 } from "./account-capability-language.mjs";
 
 const repoRoot = process.cwd();
@@ -2237,19 +2237,17 @@ await runImportBoundaryValidation({
     const extension = path.extname(file);
     let content = null;
 
-    if (accountCapabilityLanguageGuardExtensions.has(extension)) {
+    if (isAccountCapabilityLanguageGuardedFile(normalizedFile, extension)) {
       content = await readFile(file, "utf8");
 
-      if (normalizedFile.startsWith("bounded-contexts/") || normalizedFile.startsWith("deployables/")) {
-        for (const guard of findAccountCapabilityLanguageViolations({
-          relativeFile: normalizedFile,
-          content,
-        })) {
-          addViolation(
-            file,
-            `account capability language is retired; replace ${guard.label} with account-neutral naming unless buyer/seller is a durable transaction-party identifier`,
-          );
-        }
+      for (const guard of findAccountCapabilityLanguageViolations({
+        relativeFile: normalizedFile,
+        content,
+      })) {
+        addViolation(
+          file,
+          `account capability language is retired; replace ${guard.label} with account-neutral naming unless buyer/seller is a durable transaction-party identifier`,
+        );
       }
     }
 

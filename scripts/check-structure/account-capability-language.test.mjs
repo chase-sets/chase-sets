@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { findAccountCapabilityLanguageViolations } from "./account-capability-language.mjs";
+import {
+  findAccountCapabilityLanguageViolations,
+  isAccountCapabilityLanguageGuardedFile,
+} from "./account-capability-language.mjs";
 
 function labelsFor(relativeFile, content) {
   return findAccountCapabilityLanguageViolations({ relativeFile, content }).map(
@@ -8,6 +11,13 @@ function labelsFor(relativeFile, content) {
 }
 
 describe("account capability language guard", () => {
+  it("guards bounded contexts, deployables, and docs", () => {
+    expect(isAccountCapabilityLanguageGuardedFile("bounded-contexts/identity/README.md", ".md")).toBe(true);
+    expect(isAccountCapabilityLanguageGuardedFile("deployables/marketplace/app/routes.ts", ".ts")).toBe(true);
+    expect(isAccountCapabilityLanguageGuardedFile("docs/GLOSSARY.md", ".md")).toBe(true);
+    expect(isAccountCapabilityLanguageGuardedFile("scripts/check-structure/run.mjs", ".mjs")).toBe(false);
+  });
+
   it("rejects buyer and seller account capability surfaces", () => {
     expect(labelsFor("bounded-contexts/marketplace/routes/buyer/cart.ts", "")).toContain(
       "/buyer route namespace",

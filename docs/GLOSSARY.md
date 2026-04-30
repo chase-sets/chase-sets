@@ -2,6 +2,8 @@
 
 Aggregate language and projection language may differ. When they do, each model name must be used exactly within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
 
+For naming guidance across docs, code, and UI copy, see [Chase Sets Language Standard](./LANGUAGE-STANDARD.md).
+
 ## Account Role Language
 
 Use **Account** for identity, permissions, setup, wallet, inventory ownership, listings, navigation, and account settings.

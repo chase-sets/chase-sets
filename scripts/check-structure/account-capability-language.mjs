@@ -33,6 +33,19 @@ export const accountCapabilityLanguageGuards = [
   { label: "account-buyer-offers route test", pattern: /\baccount-buyer-offers\b/i },
 ];
 
+const accountCapabilityLanguageGuardRoots = [
+  "bounded-contexts/",
+  "deployables/",
+  "docs/",
+];
+
+export function isAccountCapabilityLanguageGuardedFile(relativeFile, extension) {
+  return (
+    accountCapabilityLanguageGuardExtensions.has(extension) &&
+    accountCapabilityLanguageGuardRoots.some((root) => relativeFile.startsWith(root))
+  );
+}
+
 export function findAccountCapabilityLanguageViolations({ relativeFile, content }) {
   return accountCapabilityLanguageGuards.filter(
     (guard) => guard.pattern.test(relativeFile) || guard.pattern.test(content),

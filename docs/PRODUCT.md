@@ -6,7 +6,7 @@
 
 ## 1.1 Vision
 
-Chase Sets is a marketplace designed to make buying and selling trading cards and collectibles **fair, efficient, and transparent**, while optimizing both **buyer experience** and **seller profitability**.
+Chase Sets is a marketplace designed to make buying and selling trading cards and collectibles **fair, efficient, and transparent**, while optimizing both **purchase experience** and **selling profitability**.
 
 The platform prioritizes:
 
@@ -22,13 +22,13 @@ The platform prioritizes:
 
 Existing marketplaces present several inefficiencies:
 
-### For Buyers
+### Buying Accounts
 
 - Fragmented listings across sellers
 - Inconsistent condition definitions
 - Poor visibility into fair market pricing
 
-### For Sellers
+### Selling Accounts
 
 - High marketplace fees
 - Inefficient pricing tools
@@ -57,7 +57,7 @@ Existing marketplaces present several inefficiencies:
 
 # 2. Target Users
 
-## 2.1 Sellers
+## 2.1 Accounts Selling Products
 
 - High-volume trading card sellers
 - Hobbyists selling duplicates
@@ -66,7 +66,7 @@ Existing marketplaces present several inefficiencies:
 
 ---
 
-## 2.2 Buyers
+## 2.2 Accounts Buying Products
 
 - Collectors completing sets
 - Competitive players
@@ -77,7 +77,7 @@ Existing marketplaces present several inefficiencies:
 
 # 3. Core Value Propositions
 
-## 3.1 Buyers
+## 3.1 Buying Experience
 
 - Competitive pricing
 - Accurate and standardized condition definitions
@@ -86,7 +86,7 @@ Existing marketplaces present several inefficiencies:
 
 ---
 
-## 3.2 Sellers
+## 3.2 Selling Experience
 
 - Lower fee structure than competitors
 - Automated pricing assistance
@@ -139,7 +139,7 @@ The marketplace aims to minimize:
 
 - Marketplace economics must remain **sustainable for sellers at scale**
 - Fees should be **predictable and transparent**
-- Buyers should experience **lower total landed cost** compared to competing platforms
+- Buying accounts should experience **lower total landed cost** compared to competing platforms
 - The system should naturally reward **efficient behavior**, not rely solely on rules or penalties
 
 ---
