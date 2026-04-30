@@ -131,10 +131,10 @@ export async function seedCheckoutDatabase(
   pool: PgTransactionalPool,
   checkout: CheckoutServices = createCheckoutServices(pool),
 ) {
-  const buyerAccountId = identitySeedIds.buyer.accountId;
+  const buyerAccountId = identitySeedIds.collector.accountId;
   const buyerContext = createSeedContextFor(
     buyerAccountId,
-    identitySeedIds.buyer.userId,
+    identitySeedIds.collector.userId,
   );
 
   await drainProjectors(checkout.projectors);
@@ -157,7 +157,7 @@ export async function seedCheckoutDatabase(
       );
     }
     await drainProjectors(checkout.projectors);
-    console.log("  Demo buyer cart seeded.");
+    console.log("  Demo account cart seeded.");
   }
 
   if (!(await hasStartedSession(checkout.db))) {

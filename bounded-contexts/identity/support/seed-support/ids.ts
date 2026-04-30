@@ -10,7 +10,7 @@ import type {
 } from "@chase-sets/primitives/typed-ids";
 
 export const identitySeedIds = {
-  seller: {
+  demo: {
     accountId: "acc_seed_demo_account" as AccountId,
     userId: "usr_seed_demo_user" as UserId,
     membershipId: "mbr_seed_demo_membership" as MembershipId,
@@ -19,45 +19,45 @@ export const identitySeedIds = {
     sessionId: "ses_seed_demo_session" as SessionId,
     apiKeyId: "key_seed_demo_primary" as ApiKeyId,
   },
-  buyer: {
-    accountId: "acc_seed_buyer_account" as AccountId,
-    userId: "usr_seed_buyer_user" as UserId,
-    membershipId: "mbr_seed_buyer_membership" as MembershipId,
-    consentId: "cns_seed_buyer_terms" as ConsentId,
-    credentialId: "crd_seed_buyer_password" as CredentialId,
-    sessionId: "ses_seed_buyer_session" as SessionId,
+  collector: {
+    accountId: "acc_seed_collector_account" as AccountId,
+    userId: "usr_seed_collector_user" as UserId,
+    membershipId: "mbr_seed_collector_membership" as MembershipId,
+    consentId: "cns_seed_collector_terms" as ConsentId,
+    credentialId: "crd_seed_collector_password" as CredentialId,
+    sessionId: "ses_seed_collector_session" as SessionId,
   },
-  valueBuyer: {
-    accountId: "acc_seed_value_buyer_account" as AccountId,
-    userId: "usr_seed_value_buyer_user" as UserId,
-    membershipId: "mbr_seed_value_buyer_membership" as MembershipId,
-    consentId: "cns_seed_value_buyer_terms" as ConsentId,
-    credentialId: "crd_seed_value_buyer_password" as CredentialId,
-    sessionId: "ses_seed_value_buyer_session" as SessionId,
+  valueTrader: {
+    accountId: "acc_seed_value_trader_account" as AccountId,
+    userId: "usr_seed_value_trader_user" as UserId,
+    membershipId: "mbr_seed_value_trader_membership" as MembershipId,
+    consentId: "cns_seed_value_trader_terms" as ConsentId,
+    credentialId: "crd_seed_value_trader_password" as CredentialId,
+    sessionId: "ses_seed_value_trader_session" as SessionId,
   },
-  highRollerBuyer: {
-    accountId: "acc_seed_high_roller_buyer_account" as AccountId,
-    userId: "usr_seed_high_roller_buyer_user" as UserId,
-    membershipId: "mbr_seed_high_roller_buyer_membership" as MembershipId,
-    consentId: "cns_seed_high_roller_buyer_terms" as ConsentId,
-    credentialId: "crd_seed_high_roller_buyer_password" as CredentialId,
-    sessionId: "ses_seed_high_roller_buyer_session" as SessionId,
+  highRollerTrader: {
+    accountId: "acc_seed_high_roller_trader_account" as AccountId,
+    userId: "usr_seed_high_roller_trader_user" as UserId,
+    membershipId: "mbr_seed_high_roller_trader_membership" as MembershipId,
+    consentId: "cns_seed_high_roller_trader_terms" as ConsentId,
+    credentialId: "crd_seed_high_roller_trader_password" as CredentialId,
+    sessionId: "ses_seed_high_roller_trader_session" as SessionId,
   },
-  cardVaultSeller: {
-    accountId: "acc_seed_card_vault_seller_account" as AccountId,
-    userId: "usr_seed_card_vault_seller_user" as UserId,
-    membershipId: "mbr_seed_card_vault_seller_membership" as MembershipId,
-    consentId: "cns_seed_card_vault_seller_terms" as ConsentId,
-    credentialId: "crd_seed_card_vault_seller_password" as CredentialId,
-    sessionId: "ses_seed_card_vault_seller_session" as SessionId,
+  cardVault: {
+    accountId: "acc_seed_card_vault_account" as AccountId,
+    userId: "usr_seed_card_vault_user" as UserId,
+    membershipId: "mbr_seed_card_vault_membership" as MembershipId,
+    consentId: "cns_seed_card_vault_terms" as ConsentId,
+    credentialId: "crd_seed_card_vault_password" as CredentialId,
+    sessionId: "ses_seed_card_vault_session" as SessionId,
   },
-  sealedSeller: {
-    accountId: "acc_seed_sealed_seller_account" as AccountId,
-    userId: "usr_seed_sealed_seller_user" as UserId,
-    membershipId: "mbr_seed_sealed_seller_membership" as MembershipId,
-    consentId: "cns_seed_sealed_seller_terms" as ConsentId,
-    credentialId: "crd_seed_sealed_seller_password" as CredentialId,
-    sessionId: "ses_seed_sealed_seller_session" as SessionId,
+  sealedStockroom: {
+    accountId: "acc_seed_sealed_stockroom_account" as AccountId,
+    userId: "usr_seed_sealed_stockroom_user" as UserId,
+    membershipId: "mbr_seed_sealed_stockroom_membership" as MembershipId,
+    consentId: "cns_seed_sealed_stockroom_terms" as ConsentId,
+    credentialId: "crd_seed_sealed_stockroom_password" as CredentialId,
+    sessionId: "ses_seed_sealed_stockroom_session" as SessionId,
   },
   support: {
     accountId: "acc_seed_support_account" as AccountId,
@@ -82,9 +82,9 @@ export const identitySeedIds = {
 } as const;
 
 export const demoIdentitySeedIds = {
-  accountId: identitySeedIds.seller.accountId,
-  userId: identitySeedIds.seller.userId,
-  membershipId: identitySeedIds.seller.membershipId,
-  consentId: identitySeedIds.seller.consentId,
-  credentialId: identitySeedIds.seller.credentialId,
+  accountId: identitySeedIds.demo.accountId,
+  userId: identitySeedIds.demo.userId,
+  membershipId: identitySeedIds.demo.membershipId,
+  consentId: identitySeedIds.demo.consentId,
+  credentialId: identitySeedIds.demo.credentialId,
 } as const;

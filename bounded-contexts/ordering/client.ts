@@ -97,7 +97,7 @@ export function createOrderingApiClient({
       body: CreateCheckoutOrdersRequest,
     ): Promise<{ orderIds: string[] }> {
       return parseJsonResponse(
-        await client.buyer.purchases.checkout.$post({
+        await client.account.purchases.checkout.$post({
           json: body,
           header: headers,
         }),
@@ -107,7 +107,7 @@ export function createOrderingApiClient({
       query = "",
     ): Promise<ListResponse<PurchaseListItem>> {
       return parseJsonResponse(
-        await client.buyer.purchases.$get({
+        await client.account.purchases.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
@@ -115,7 +115,7 @@ export function createOrderingApiClient({
     },
     async getPurchase(purchaseId: string): Promise<PurchaseDetail> {
       return parseJsonResponse(
-        await client.buyer.purchases[":id"].$get({
+        await client.account.purchases[":id"].$get({
           param: { id: purchaseId },
           header: headers,
         }),
@@ -123,7 +123,7 @@ export function createOrderingApiClient({
     },
     async cancelPurchase(purchaseId: string) {
       return parseJsonResponse(
-        await client.buyer.purchases[":id"].cancel.$post({
+        await client.account.purchases[":id"].cancel.$post({
           param: { id: purchaseId },
           json: {},
           header: headers,
@@ -134,7 +134,7 @@ export function createOrderingApiClient({
       query = "",
     ): Promise<ListResponse<SaleListItem>> {
       return parseJsonResponse(
-        await client.seller.sales.$get({
+        await client.account.sales.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
@@ -142,7 +142,7 @@ export function createOrderingApiClient({
     },
     async getSale(saleId: string): Promise<SaleDetail> {
       return parseJsonResponse(
-        await client.seller.sales[":id"].$get({
+        await client.account.sales[":id"].$get({
           param: { id: saleId },
           header: headers,
         }),
@@ -150,7 +150,7 @@ export function createOrderingApiClient({
     },
     async cancelSale(saleId: string) {
       return parseJsonResponse(
-        await client.seller.sales[":id"].cancel.$post({
+        await client.account.sales[":id"].cancel.$post({
           param: { id: saleId },
           json: {},
           header: headers,

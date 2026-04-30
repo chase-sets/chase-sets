@@ -36,7 +36,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
-export function createBuyerShipmentRoutes(services: FulfillmentShipmentServices) {
+export function createAccountShipmentRoutes(services: FulfillmentShipmentServices) {
   const app = new Hono<FulfillmentApiEnv>();
 
   app.get("/shipments", async (c) => {
@@ -80,10 +80,10 @@ export function createBuyerShipmentRoutes(services: FulfillmentShipmentServices)
   return app;
 }
 
-export function createSellerShipmentRoutes(services: FulfillmentShipmentServices) {
+export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentServices) {
   const app = new Hono<FulfillmentApiEnv>();
 
-  app.get("/shipments", async (c) => {
+  app.get("/sales/shipments", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.view");
     if (access.response) {
       return access.response;
@@ -104,7 +104,7 @@ export function createSellerShipmentRoutes(services: FulfillmentShipmentServices
     });
   });
 
-  app.get("/shipments/:id", async (c) => {
+  app.get("/sales/shipments/:id", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.view");
     if (access.response) {
       return access.response;
@@ -121,7 +121,7 @@ export function createSellerShipmentRoutes(services: FulfillmentShipmentServices
     return c.json(shipment);
   });
 
-  app.post("/shipments/:id/pack", async (c) => {
+  app.post("/sales/shipments/:id/pack", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -149,7 +149,7 @@ export function createSellerShipmentRoutes(services: FulfillmentShipmentServices
     }
   });
 
-  app.post("/shipments/:id/label", async (c) => {
+  app.post("/sales/shipments/:id/label", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -180,7 +180,7 @@ export function createSellerShipmentRoutes(services: FulfillmentShipmentServices
     }
   });
 
-  app.post("/shipments/:id/dispatch", async (c) => {
+  app.post("/sales/shipments/:id/dispatch", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -205,7 +205,7 @@ export function createSellerShipmentRoutes(services: FulfillmentShipmentServices
     }
   });
 
-  app.post("/shipments/:id/deliver", async (c) => {
+  app.post("/sales/shipments/:id/deliver", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -230,7 +230,7 @@ export function createSellerShipmentRoutes(services: FulfillmentShipmentServices
     }
   });
 
-  app.post("/shipments/:id/return", async (c) => {
+  app.post("/sales/shipments/:id/return", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -261,7 +261,7 @@ export function createSellerShipmentRoutes(services: FulfillmentShipmentServices
     }
   });
 
-  app.post("/shipments/:id/exception", async (c) => {
+  app.post("/sales/shipments/:id/exception", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;

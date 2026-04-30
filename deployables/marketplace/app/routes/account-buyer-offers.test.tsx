@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   loader as submittedBuyerOfferLoader,
-} from "@chase-sets/marketplace/routes/account-submitted-buyer-offer";
+} from "@chase-sets/marketplace/routes/account-offer-submitted";
 import {
   loader as submittedBuyerOffersLoader,
-} from "@chase-sets/marketplace/routes/account-submitted-buyer-offers";
+} from "@chase-sets/marketplace/routes/account-offers-submitted";
 import {
   loader as buyerOfferMatchLoader,
-} from "@chase-sets/marketplace/routes/account-buyer-offer-match";
+} from "@chase-sets/marketplace/routes/account-offer-match";
 import {
   loader as buyerOfferMatchesLoader,
-} from "@chase-sets/marketplace/routes/account-buyer-offer-matches";
+} from "@chase-sets/marketplace/routes/account-offer-matches";
 import { action as itemDetailAction } from "@chase-sets/discovery/routes/item-detail";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -70,7 +70,7 @@ describe("marketplace offer routes", () => {
     );
 
     const result = await submittedBuyerOffersLoader({
-      request: new Request("http://localhost/account/submitted-buyer-offers"),
+      request: new Request("http://localhost/account/offers/submitted"),
       params: {},
       context: undefined,
     } as never);
@@ -122,7 +122,7 @@ describe("marketplace offer routes", () => {
     );
 
     const result = await submittedBuyerOfferLoader({
-      request: new Request("http://localhost/account/submitted-buyer-offers/off_1"),
+      request: new Request("http://localhost/account/offers/submitted/off_1"),
       params: { offerId: "off_1" },
       context: undefined,
     } as never);
@@ -180,7 +180,7 @@ describe("marketplace offer routes", () => {
     );
 
     const result = await buyerOfferMatchesLoader({
-      request: new Request("http://localhost/account/buyer-offer-matches"),
+      request: new Request("http://localhost/account/offers/matches"),
       params: {},
       context: undefined,
     } as never);
@@ -232,7 +232,7 @@ describe("marketplace offer routes", () => {
     );
 
     const result = await buyerOfferMatchLoader({
-      request: new Request("http://localhost/account/buyer-offer-matches/off_1"),
+      request: new Request("http://localhost/account/offers/matches/off_1"),
       params: { offerId: "off_1" },
       context: undefined,
     } as never);
@@ -311,7 +311,7 @@ describe("marketplace offer routes", () => {
 
     const response = result as Response;
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/submitted-buyer-offers");
+    expect(response.headers.get("Location")).toBe("/account/offers/submitted");
   });
 });
 

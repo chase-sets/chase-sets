@@ -69,7 +69,7 @@ export function createFulfillmentApiClient({
       query = "",
     ): Promise<ListResponse<FulfillmentShipmentListItem>> {
       return parseJsonResponse(
-        await client.buyer.shipments.$get({
+        await client.account.shipments.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
@@ -77,7 +77,7 @@ export function createFulfillmentApiClient({
     },
     async getBuyerShipment(shipmentId: string): Promise<FulfillmentShipmentDetail> {
       return parseJsonResponse(
-        await client.buyer.shipments[":id"].$get({
+        await client.account.shipments[":id"].$get({
           param: { id: shipmentId },
           header: headers,
         }),
@@ -87,7 +87,7 @@ export function createFulfillmentApiClient({
       query = "",
     ): Promise<ListResponse<FulfillmentShipmentListItem>> {
       return parseJsonResponse(
-        await client.seller.shipments.$get({
+        await client.account.sales.shipments.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
@@ -95,7 +95,7 @@ export function createFulfillmentApiClient({
     },
     async getSellerShipment(shipmentId: string): Promise<FulfillmentShipmentDetail> {
       return parseJsonResponse(
-        await client.seller.shipments[":id"].$get({
+        await client.account.sales.shipments[":id"].$get({
           param: { id: shipmentId },
           header: headers,
         }),
@@ -103,7 +103,7 @@ export function createFulfillmentApiClient({
     },
     async packShipment(shipmentId: string, body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.seller.shipments[":id"].pack.$post({
+        await client.account.sales.shipments[":id"].pack.$post({
           param: { id: shipmentId },
           json: body,
           header: headers,
@@ -112,7 +112,7 @@ export function createFulfillmentApiClient({
     },
     async attachLabel(shipmentId: string, body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.seller.shipments[":id"].label.$post({
+        await client.account.sales.shipments[":id"].label.$post({
           param: { id: shipmentId },
           json: body,
           header: headers,
@@ -121,7 +121,7 @@ export function createFulfillmentApiClient({
     },
     async dispatchShipment(shipmentId: string) {
       return parseJsonResponse(
-        await client.seller.shipments[":id"].dispatch.$post({
+        await client.account.sales.shipments[":id"].dispatch.$post({
           param: { id: shipmentId },
           json: {},
           header: headers,
@@ -130,7 +130,7 @@ export function createFulfillmentApiClient({
     },
     async deliverShipment(shipmentId: string) {
       return parseJsonResponse(
-        await client.seller.shipments[":id"].deliver.$post({
+        await client.account.sales.shipments[":id"].deliver.$post({
           param: { id: shipmentId },
           json: {},
           header: headers,
@@ -139,7 +139,7 @@ export function createFulfillmentApiClient({
     },
     async returnShipment(shipmentId: string, body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.seller.shipments[":id"]["return"].$post({
+        await client.account.sales.shipments[":id"]["return"].$post({
           param: { id: shipmentId },
           json: body,
           header: headers,
@@ -148,7 +148,7 @@ export function createFulfillmentApiClient({
     },
     async raiseShipmentException(shipmentId: string, body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.seller.shipments[":id"].exception.$post({
+        await client.account.sales.shipments[":id"].exception.$post({
           param: { id: shipmentId },
           json: body,
           header: headers,

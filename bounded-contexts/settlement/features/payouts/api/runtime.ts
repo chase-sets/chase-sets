@@ -20,6 +20,7 @@ import {
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import { getPayout, listPayouts, type SettlementPayoutRow } from "../read-model/queries";
 import type { WalletServices } from "../../wallets/api/runtime";
+import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 import {
   decidePayout,
   evolvePayout,
@@ -34,6 +35,7 @@ type PayoutRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   wallets: WalletServices;
+  payoutReadiness: PayoutReadinessServices;
 }>;
 
 export type PayoutServices = Readonly<{
@@ -103,9 +105,16 @@ export function createPayoutRuntime(
     getPayout: (payoutId, accountId) => getPayout(deps.db, payoutId, accountId),
     async schedulePayout(params, context) {
       const wallet = await deps.wallets.getWallet(params.accountId);
+      const readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Payout amount",
       });
+
+      if (readiness.status !== "ready") {
+        throw new SettlementDomainError(
+          "Payout setup must be complete before scheduling payouts.",
+        );
+      }
 
       if (compareMoney(wallet.available_balance_amount, amount) < 0) {
         throw new SettlementDomainError("Available balance is too low for this payout.");

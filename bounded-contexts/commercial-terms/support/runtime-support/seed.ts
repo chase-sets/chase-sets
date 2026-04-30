@@ -8,7 +8,7 @@ function createSeedContext() {
     tenantId: "tnt_identity" as never,
     audit: {
       performedByUserId: identitySeedIds.support.userId as never,
-      forAccountId: identitySeedIds.seller.accountId as never,
+      forAccountId: identitySeedIds.demo.accountId as never,
     },
   };
 }
@@ -102,7 +102,7 @@ export async function seedCommercialTermsDatabase(pool: PgTransactionalPool) {
     command: {
       type: "CreateAgreement",
       agreementId: commercialTermsSeedIds.agreements.sellerOverride,
-      accountId: identitySeedIds.seller.accountId,
+      accountId: identitySeedIds.demo.accountId,
       label: "Chase Sets Seller Agreement",
       marketplaceFeePercentageBps: 700,
       marketplaceFeeFixedAmount: "0.05",

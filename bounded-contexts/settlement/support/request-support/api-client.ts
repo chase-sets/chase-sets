@@ -11,6 +11,7 @@ export type {
   SettlementApiClientOptions,
   SettlementLedgerEntryRow,
   SettlementPayoutRow,
+  SettlementPayoutReadinessRow,
   SettlementWalletRow,
 } from "../../client";
 import { createSettlementApiClient } from "../../client";

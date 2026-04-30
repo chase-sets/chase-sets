@@ -187,7 +187,9 @@
   ],
   "hostPorts": [
     {
-      "portName": "commercialTermsResolver"
+      "portName": "commercialTermsResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolve order commercial terms while keeping fee and policy ownership in Commercial Terms."
     }
   ],
   "apiDeployables": [

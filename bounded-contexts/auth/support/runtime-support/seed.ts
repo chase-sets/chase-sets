@@ -43,16 +43,16 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
   const sessions = createSessionRuntime({ eventStore, checkpointStore, db });
   const auth = createAuthSecretAdapters();
   const context = createAuthSeedContext();
-  const { seller, buyer, support } = identitySeedIds;
+  const { demo, collector, support } = identitySeedIds;
 
   await sessions.commandHandler({
-    streamId: toSessionStreamId(seller.sessionId),
+    streamId: toSessionStreamId(demo.sessionId),
     command: {
       type: "StartSession",
-      sessionId: seller.sessionId,
-      userId: seller.userId,
-      accountId: seller.accountId,
-      availableAccountIds: [seller.accountId],
+      sessionId: demo.sessionId,
+      userId: demo.userId,
+      accountId: demo.accountId,
+      availableAccountIds: [demo.accountId],
       authenticationMethod: "password",
       expiresAt: new Date("2026-05-10T00:00:00.000Z").toISOString(),
     },
@@ -65,7 +65,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
       sessionId: support.sessionId,
       userId: support.userId,
       accountId: support.accountId,
-      availableAccountIds: [support.accountId, seller.accountId],
+      availableAccountIds: [support.accountId, demo.accountId],
       authenticationMethod: "magic-link",
       expiresAt: new Date("2026-05-10T00:00:00.000Z").toISOString(),
     },
@@ -75,38 +75,38 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     streamId: toSessionStreamId(support.sessionId),
     command: {
       type: "SwitchSessionAccount",
-      accountId: seller.accountId,
+      accountId: demo.accountId,
     },
     context,
   });
   await sessions.commandHandler({
-    streamId: toSessionStreamId(buyer.sessionId),
+    streamId: toSessionStreamId(collector.sessionId),
     command: {
       type: "StartSession",
-      sessionId: buyer.sessionId,
-      userId: buyer.userId,
-      accountId: buyer.accountId,
-      availableAccountIds: [buyer.accountId],
+      sessionId: collector.sessionId,
+      userId: collector.userId,
+      accountId: collector.accountId,
+      availableAccountIds: [collector.accountId],
       authenticationMethod: "password",
       expiresAt: new Date("2026-04-15T00:00:00.000Z").toISOString(),
     },
     context,
   });
   await sessions.commandHandler({
-    streamId: toSessionStreamId(buyer.sessionId),
+    streamId: toSessionStreamId(collector.sessionId),
     command: { type: "ExpireSession" },
     context,
   });
 
   await upsertPasswordCredential(db, {
-    credentialId: seller.credentialId,
-    userId: seller.userId,
-    secretHash: auth.hashSecret("seller1234"),
+    credentialId: demo.credentialId,
+    userId: demo.userId,
+    secretHash: auth.hashSecret("demo1234"),
   });
   await upsertPasswordCredential(db, {
-    credentialId: buyer.credentialId,
-    userId: buyer.userId,
-    secretHash: auth.hashSecret("buyer1234"),
+    credentialId: collector.credentialId,
+    userId: collector.userId,
+    secretHash: auth.hashSecret("collector1234"),
   });
 
   await drainProjectors(sessions.projectors);

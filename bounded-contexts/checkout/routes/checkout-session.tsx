@@ -6,11 +6,31 @@ import type {
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import {
+  createForwardedAuthFetch,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
 import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 
 const MARKETPLACE_DESCRIPTION =
   "Choose shipping and create seller-specific purchases before payment.";
+
+async function loadWalletBalance(request: Request) {
+  const response = await createForwardedAuthFetch(request)(
+    `${resolveRequestApiBaseUrl(request, "/api/settlement")}/wallet`,
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return response.json() as Promise<{
+    available_balance_amount: string;
+    currency_code: string;
+  }>;
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "orders.view" });
@@ -23,8 +43,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(`/account/payments/${session.payment_id}`);
   }
 
+  const wallet = await loadWalletBalance(request);
+
   return {
     session,
+    wallet,
   };
 }
 
@@ -42,7 +65,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
       await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
       });
-      const result = await api.confirmCheckoutSession(params.sessionId);
+      const result = await api.confirmCheckoutSession(params.sessionId, {
+        requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
+          formData.get("requestedBalanceCreditAmount"),
+        ),
+      });
       return redirect(`/account/payments/${result.payment_id}`);
     }
 
@@ -68,6 +95,7 @@ export default function CheckoutSessionRoute() {
   return (
     <CheckoutSessionPage
       session={data.session}
+      wallet={data.wallet}
       errorMessage={actionData?.error ?? null}
       isSubmitting={navigation.state === "submitting"}
     />

@@ -12,6 +12,8 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -32,11 +34,15 @@ function statusTone(status: string) {
 
 export function SettlementPayoutListPage({
   payouts,
+  payoutReadiness,
   errorMessage,
 }: {
   payouts: readonly SettlementPayoutRow[];
+  payoutReadiness?: SettlementPayoutReadinessRow | null;
   errorMessage?: string | null;
 }) {
+  const canSchedulePayout = payoutReadiness?.status === "ready";
+
   return (
     <Page>
       <PageHeader
@@ -58,29 +64,39 @@ export function SettlementPayoutListPage({
 
       <PageSection title="Schedule Payout">
         <Card>
-          <form method="post">
-            <Stack gap={3}>
-              <input type="hidden" name="intent" value="schedule-payout" />
-              <TextInput
-                label="Amount"
-                name="amount"
-                placeholder="0.00"
-                inputMode="decimal"
-                required
-              />
-              <TextInput
-                label="Destination reference"
-                name="destinationReference"
-                placeholder="Bank account or routing reference"
-              />
-              <TextInput
-                label="Note"
-                name="note"
-                placeholder="Optional memo"
-              />
-              <Button type="submit">Schedule payout</Button>
-            </Stack>
-          </form>
+          <Stack gap={3}>
+            {payoutReadiness ? (
+              <PayoutReadinessPanel payoutReadiness={payoutReadiness} />
+            ) : null}
+            <form method="post">
+              <Stack gap={3}>
+                <input type="hidden" name="intent" value="schedule-payout" />
+                <TextInput
+                  label="Amount"
+                  name="amount"
+                  placeholder="0.00"
+                  inputMode="decimal"
+                  required
+                  disabled={!canSchedulePayout}
+                />
+                <TextInput
+                  label="Destination reference"
+                  name="destinationReference"
+                  placeholder="Bank account or routing reference"
+                  disabled={!canSchedulePayout}
+                />
+                <TextInput
+                  label="Note"
+                  name="note"
+                  placeholder="Optional memo"
+                  disabled={!canSchedulePayout}
+                />
+                <Button type="submit" disabled={!canSchedulePayout}>
+                  Schedule payout
+                </Button>
+              </Stack>
+            </form>
+          </Stack>
         </Card>
       </PageSection>
 

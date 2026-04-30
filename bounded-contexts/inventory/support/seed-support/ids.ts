@@ -34,11 +34,11 @@ export const inventorySeedIds = {
       "inv_seed_card_vault_mewtwo_nm" as SeedInventoryItemId,
     cardVaultTwilightMasqueradeEliteTrainerBox:
       "inv_seed_card_vault_twilight_masquerade_etb" as SeedInventoryItemId,
-    sealedSellerPrismaticEvolutionsBoosterPack:
+    sealedStockroomPrismaticEvolutionsBoosterPack:
       "inv_seed_sealed_seller_prismatic_pack" as SeedInventoryItemId,
-    sealedSellerSurgingSparksBoosterBox:
+    sealedStockroomSurgingSparksBoosterBox:
       "inv_seed_sealed_seller_surging_sparks_box" as SeedInventoryItemId,
-    sealedSellerTwilightMasqueradeEliteTrainerBox:
+    sealedStockroomTwilightMasqueradeEliteTrainerBox:
       "inv_seed_sealed_seller_twilight_masquerade_etb" as SeedInventoryItemId,
   },
   holds: {

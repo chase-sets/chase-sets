@@ -1,8 +1,63 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AccountId, LedgerEntryId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { WalletServices } from "../../api/runtime";
+import {
+  compareMoney,
+  normalizeCurrencyCode,
+  SettlementDomainError,
+} from "../../../../support/runtime-support/common";
+
+async function debitAppliedBalanceCredit(
+  wallets: WalletServices | undefined,
+  data: Readonly<{
+    paymentId: string;
+    buyerAccountId: string;
+    amount: string;
+    currencyCode: string;
+    capturedAt: string;
+  }>,
+  event: TransportEvent,
+) {
+  if (!wallets || compareMoney(data.amount, "0.00") === 0) {
+    return;
+  }
+
+  try {
+    await wallets.postEntry(
+      {
+        accountId: data.buyerAccountId as AccountId,
+        ledgerEntryId: `led_balance_credit_${data.paymentId}` as LedgerEntryId,
+        kind: "platform-purchase",
+        direction: "debit",
+        amount: data.amount,
+        currencyCode: normalizeCurrencyCode(data.currencyCode),
+        fundsStatus: "available",
+        paymentId: data.paymentId as PaymentId,
+        description: `Applied wallet balance to payment ${data.paymentId}`,
+        postedAt: data.capturedAt,
+      },
+      {
+        tenantId: event.tenantId,
+        audit: event.audit,
+        trace: event.trace,
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof SettlementDomainError &&
+      error.message === "Ledger entry has already been posted."
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
 
 export function buildSettlementPaymentInputProjectionHandlers(
   db: PgQueryable,
+  wallets?: WalletServices,
 ): ProjectorHandlerMap {
   return {
     "payments.payment-created": async (event) => {
@@ -11,6 +66,8 @@ export function buildSettlementPaymentInputProjectionHandlers(
         buyerAccountId: string;
         orderIds: string[];
         amount: string;
+        balanceCreditAmount?: string;
+        processorAmount?: string;
         currencyCode: string;
         processorName: string;
         processorPaymentReference: string;
@@ -24,6 +81,8 @@ export function buildSettlementPaymentInputProjectionHandlers(
            buyer_account_id,
            order_ids,
            amount,
+           balance_credit_amount,
+           processor_amount,
            currency_code,
            processor_name,
            processor_payment_reference,
@@ -38,12 +97,14 @@ export function buildSettlementPaymentInputProjectionHandlers(
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, 'pending-confirmation', NULL, NULL, $9, $9, NULL, NULL, NULL, $10
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending-confirmation', NULL, NULL, $11, $11, NULL, NULL, NULL, $12
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              order_ids = EXCLUDED.order_ids,
              amount = EXCLUDED.amount,
+             balance_credit_amount = EXCLUDED.balance_credit_amount,
+             processor_amount = EXCLUDED.processor_amount,
              currency_code = EXCLUDED.currency_code,
              processor_name = EXCLUDED.processor_name,
              processor_payment_reference = EXCLUDED.processor_payment_reference,
@@ -57,6 +118,8 @@ export function buildSettlementPaymentInputProjectionHandlers(
           data.buyerAccountId,
           JSON.stringify(data.orderIds),
           data.amount,
+          data.balanceCreditAmount ?? "0.00",
+          data.processorAmount ?? data.amount,
           data.currencyCode,
           data.processorName,
           data.processorPaymentReference,
@@ -86,6 +149,9 @@ export function buildSettlementPaymentInputProjectionHandlers(
     "payments.payment-captured": async (event) => {
       const data = event.data as {
         paymentId: string;
+        buyerAccountId: string;
+        balanceCreditAmount?: string;
+        currencyCode?: string;
         processorStatus: string;
         capturedAt: string;
       };
@@ -102,6 +168,18 @@ export function buildSettlementPaymentInputProjectionHandlers(
          WHERE payment_id = $1
            AND last_stream_version < $4`,
         [data.paymentId, data.processorStatus, data.capturedAt, event.streamVersion],
+      );
+
+      await debitAppliedBalanceCredit(
+        wallets,
+        {
+          paymentId: data.paymentId,
+          buyerAccountId: data.buyerAccountId,
+          amount: data.balanceCreditAmount ?? "0.00",
+          currencyCode: data.currencyCode ?? "usd",
+          capturedAt: data.capturedAt,
+        },
+        event,
       );
     },
     "payments.payment-failed": async (event) => {

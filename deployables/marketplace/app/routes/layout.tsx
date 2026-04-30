@@ -8,12 +8,12 @@ type MarketplaceActor = {
 } | null;
 
 function getActiveKey(pathname: string) {
-  if (pathname.startsWith("/account/buyer-offer-matches")) {
-    return "buyer-offer-matches";
+  if (pathname.startsWith("/account/offers/matches")) {
+    return "offer-matches";
   }
 
-  if (pathname.startsWith("/account/submitted-buyer-offers")) {
-    return "submitted-buyer-offers";
+  if (pathname.startsWith("/account/offers/submitted")) {
+    return "submitted-offers";
   }
 
   if (pathname.startsWith("/account/shipments")) {

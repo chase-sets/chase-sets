@@ -1,6 +1,7 @@
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
+export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
 
 function parseOrderIds(value: unknown) {
   return Array.isArray(value)
@@ -27,12 +28,14 @@ export async function createCheckoutPaymentThroughPayments(
   request: Request,
   sessionId: string,
   orderIds: readonly string[],
+  requestedBalanceCreditAmount?: string | null,
 ) {
   const paymentsApi = createPaymentsRequestApiClient(request);
-  const payment = await paymentsApi.createBuyerPayment({
+  const payment = await paymentsApi.createAccountPayment({
     orderIds,
     sourceContext: "checkout",
     sourceReferenceId: sessionId,
+    requestedBalanceCreditAmount,
   });
 
   return payment.payment_id;

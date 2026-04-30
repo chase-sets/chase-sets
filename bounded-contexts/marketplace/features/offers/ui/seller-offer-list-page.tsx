@@ -158,7 +158,7 @@ export function MarketplaceBuyerOfferMatchListPage({
               key: "actions",
               header: "Actions",
               cell: (row) => (
-                <LinkButton href={`/account/buyer-offer-matches/${row.offer_id}`} tone="secondary" size="sm">
+                <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
                   Open
                 </LinkButton>
               ),

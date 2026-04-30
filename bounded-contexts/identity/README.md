@@ -65,7 +65,8 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 1. All actions are performed by a User for an Account.
 2. Accounts are the root of all commerce activity.
 3. Users never directly own listings, offers, wallets, or orders.
-4. Buyer and Seller remain roles an Account plays in downstream contexts.
+4. Buying and selling are available to active accounts by default.
+5. Buyer and Seller remain contextual transaction roles, not account capability classes.
 
 ## Boundary Notes
 

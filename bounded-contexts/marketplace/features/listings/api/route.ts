@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
 import type { MarketplaceListingServices } from "./runtime";
 
-function requireSellerAccess(
+function requireListingAccess(
   c: {
     get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"];
   },
@@ -39,11 +39,11 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
-export function createSellerRoutes(services: MarketplaceListingServices) {
+export function createAccountListingRoutes(services: MarketplaceListingServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
   app.get("/listings", async (c) => {
-    const access = requireSellerAccess(c, "listings.view");
+    const access = requireListingAccess(c, "listings.view");
     if (access.response) {
       return access.response;
     }
@@ -64,7 +64,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.get("/listing-inventory", async (c) => {
-    const access = requireSellerAccess(c, "listings.view");
+    const access = requireListingAccess(c, "listings.view");
     if (access.response) {
       return access.response;
     }
@@ -87,7 +87,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.post("/listings/preview", async (c) => {
-    const access = requireSellerAccess(c, "listings.manage");
+    const access = requireListingAccess(c, "listings.manage");
     if (access.response) {
       return access.response;
     }
@@ -107,7 +107,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.get("/listings/:id", async (c) => {
-    const access = requireSellerAccess(c, "listings.view");
+    const access = requireListingAccess(c, "listings.view");
     if (access.response) {
       return access.response;
     }
@@ -125,7 +125,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.post("/listings", async (c) => {
-    const access = requireSellerAccess(c, "listings.manage");
+    const access = requireListingAccess(c, "listings.manage");
     if (access.response) {
       return access.response;
     }
@@ -155,7 +155,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.post("/listings/:id/price", async (c) => {
-    const access = requireSellerAccess(c, "listings.manage");
+    const access = requireListingAccess(c, "listings.manage");
     if (access.response) {
       return access.response;
     }
@@ -184,7 +184,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.post("/listings/:id/quantity-cap", async (c) => {
-    const access = requireSellerAccess(c, "listings.manage");
+    const access = requireListingAccess(c, "listings.manage");
     if (access.response) {
       return access.response;
     }
@@ -213,7 +213,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.post("/listings/:id/publish", async (c) => {
-    const access = requireSellerAccess(c, "listings.manage");
+    const access = requireListingAccess(c, "listings.manage");
     if (access.response) {
       return access.response;
     }
@@ -239,7 +239,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.post("/listings/:id/pause", async (c) => {
-    const access = requireSellerAccess(c, "listings.manage");
+    const access = requireListingAccess(c, "listings.manage");
     if (access.response) {
       return access.response;
     }
@@ -265,7 +265,7 @@ export function createSellerRoutes(services: MarketplaceListingServices) {
   });
 
   app.post("/listings/:id/withdraw", async (c) => {
-    const access = requireSellerAccess(c, "listings.manage");
+    const access = requireListingAccess(c, "listings.manage");
     if (access.response) {
       return access.response;
     }

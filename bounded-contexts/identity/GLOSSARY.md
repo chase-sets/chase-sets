@@ -22,8 +22,7 @@ A **User** represents a person or system that can perform actions in the marketp
 
 This includes:
 
-- Registered buyers
-- Registered sellers
+- Registered account users
 - Staff
 - Administrators
 - Automation users
@@ -64,14 +63,15 @@ Examples:
 
 - A card shop
 - A distributor
-- A business seller
-- An individual buyer or seller
+- A business trading account
+- An individual trading account
 
 Notes:
 
 - Accounts do not sign in; users sign in.
 - All commerce activity is attributed to an account.
-- Even guest buyers have an associated account for their orders and payments (even if it's not visible to them).
+- Even guest checkout users have an associated account for their orders and payments (even if it's not visible to them).
+- Buying and selling are not account capability classes; accounts may play buyer or seller roles only inside transaction-specific contexts.
 
 ---
 

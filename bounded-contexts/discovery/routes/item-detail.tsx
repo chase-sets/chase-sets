@@ -392,8 +392,7 @@ export function MarketplaceSellerRegistrationSection({
         <Stack gap={1}>
           <Text weight="semibold">Sell on Chase Sets</Text>
           <Text size="sm" tone="secondary">
-            Register to apply as a seller, list inventory, and respond to buyer
-            offers from the same marketplace view buyers use.
+            Register to list inventory, buy cards, and respond to offers from the same marketplace view.
           </Text>
           {productSummary ? (
             <Text size="sm" tone="secondary">
@@ -683,7 +682,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         quantityRequested: Number(formData.get("quantityRequested") ?? 0),
       });
 
-      return redirect("/account/submitted-buyer-offers");
+      return redirect("/account/offers/submitted");
     }
 
     if (intent === "add-to-cart") {
@@ -749,7 +748,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       await marketplaceApi.addBuyerOfferMatchSellListItem({
         offerId: String(formData.get("offerId") ?? ""),
       });
-      return redirect("/account/buyer-offer-matches");
+      return redirect("/account/offers/matches");
     }
 
     if (intent === "list-at-price") {

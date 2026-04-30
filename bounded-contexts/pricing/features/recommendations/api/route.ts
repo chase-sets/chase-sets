@@ -34,7 +34,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
-export function createSellerRecommendationRoutes(
+export function createAccountRecommendationRoutes(
   services: PricingRecommendationServices,
 ) {
   const app = new Hono<PricingApiEnv>();

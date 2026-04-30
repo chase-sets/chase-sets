@@ -55,7 +55,7 @@ function parseVersionSelection(value: unknown) {
     : [];
 }
 
-export function createBuyerCartRoutes(services: CheckoutCartServices) {
+export function createAccountCartRoutes(services: CheckoutCartServices) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.get("/cart", async (c) => {

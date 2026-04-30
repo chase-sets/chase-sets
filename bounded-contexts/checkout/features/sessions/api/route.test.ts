@@ -14,9 +14,11 @@ const {
 vi.mock("../../../support/request-support/checkout-confirmation", () => ({
   createCheckoutOrdersThroughOrdering: mockCreateCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments: mockCreateCheckoutPaymentThroughPayments,
+  normalizeRequestedBalanceCreditAmount: (value: unknown) =>
+    value === null || value === undefined ? null : String(value),
 }));
 
-import { createBuyerCheckoutSessionRoutes } from "./route";
+import { createAccountCheckoutSessionRoutes } from "./route";
 import type { CheckoutSessionRow } from "../read-model/queries";
 
 function buildApp(services: CheckoutSessionServices) {
@@ -42,7 +44,7 @@ function buildApp(services: CheckoutSessionServices) {
     await next();
   });
 
-  app.route("/buyer", createBuyerCheckoutSessionRoutes(services));
+  app.route("/account", createAccountCheckoutSessionRoutes(services));
   return app;
 }
 
@@ -107,7 +109,7 @@ describe("checkout session routes", () => {
     const app = buildApp(services);
 
     const response = await app.fetch(
-      new Request("http://checkout.test/buyer/checkout-sessions", {
+      new Request("http://checkout.test/account/checkout-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: { type: "cart" } }),
@@ -125,7 +127,7 @@ describe("checkout session routes", () => {
     const app = buildApp(services);
 
     const response = await app.fetch(
-      new Request("http://checkout.test/buyer/checkout-sessions", {
+      new Request("http://checkout.test/account/checkout-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -165,7 +167,7 @@ describe("checkout session routes", () => {
     const app = buildApp(services);
 
     const response = await app.fetch(
-      new Request("http://checkout.test/buyer/checkout-sessions/chk_1/shipping-option", {
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/shipping-option", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shippingOption: "expedited" }),
@@ -193,7 +195,7 @@ describe("checkout session routes", () => {
     const app = buildApp(services);
 
     const response = await app.fetch(
-      new Request("http://checkout.test/buyer/checkout-sessions/chk_1/confirm", {
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -214,6 +216,7 @@ describe("checkout session routes", () => {
       expect.any(Request),
       "chk_1",
       ["ord_1"],
+      null,
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
@@ -231,7 +234,7 @@ describe("checkout session routes", () => {
     const app = buildApp(services);
 
     const response = await app.fetch(
-      new Request("http://checkout.test/buyer/checkout-sessions/chk_1/confirm", {
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -245,10 +248,36 @@ describe("checkout session routes", () => {
       expect.any(Request),
       "chk_1",
       ["ord_existing"],
+      null,
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       expect.objectContaining({ paymentId: "pay_existing" }),
       expect.any(Object),
+    );
+  });
+
+  it("passes requested balance credit when confirming checkout", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue(["ord_1"]);
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestedBalanceCreditAmount: "8.50" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      "8.50",
     );
   });
 
@@ -261,7 +290,7 @@ describe("checkout session routes", () => {
     const app = buildApp(services);
 
     const response = await app.fetch(
-      new Request("http://checkout.test/buyer/checkout-sessions/chk_1/confirm", {
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),

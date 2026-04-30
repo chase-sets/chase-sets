@@ -3,6 +3,8 @@ export interface PaymentsPaymentDetail {
   buyer_account_id: string;
   order_ids: readonly string[];
   amount: string;
+  balance_credit_amount: string;
+  processor_amount: string;
   marketplace_fee_amount: string;
   payment_fee_amount: string;
   seller_net_amount: string;

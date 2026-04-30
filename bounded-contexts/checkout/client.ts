@@ -103,12 +103,12 @@ export function createCheckoutApiClient({
   return {
     async getCart(): Promise<{ items: readonly CheckoutCartLine[]; count: number }> {
       return parseJsonResponse(
-        await client.buyer.cart.$get({ header: headers }),
+        await client.account.cart.$get({ header: headers }),
       );
     },
     async addCartLine(body: AddCheckoutCartLineRequest) {
       return parseJsonResponse(
-        await client.buyer.cart.$post({ json: body, header: headers }),
+        await client.account.cart.$post({ json: body, header: headers }),
       );
     },
     async updateCartLineQuantity(
@@ -116,7 +116,7 @@ export function createCheckoutApiClient({
       body: UpdateCheckoutCartLineQuantityRequest,
     ) {
       return parseJsonResponse(
-        await client.buyer.cart[":lineId"].quantity.$post({
+        await client.account.cart[":lineId"].quantity.$post({
           param: { lineId },
           json: body,
           header: headers,
@@ -125,7 +125,7 @@ export function createCheckoutApiClient({
     },
     async removeCartLine(lineId: string) {
       return parseJsonResponse(
-        await client.buyer.cart[":lineId"].remove.$post({
+        await client.account.cart[":lineId"].remove.$post({
           param: { lineId },
           json: {},
           header: headers,
@@ -136,7 +136,7 @@ export function createCheckoutApiClient({
       body: CreateCheckoutSessionRequest,
     ): Promise<{ session_id: string }> {
       return parseJsonResponse(
-        await client.buyer["checkout-sessions"].$post({
+        await client.account["checkout-sessions"].$post({
           json: body,
           header: headers,
         }),
@@ -144,7 +144,7 @@ export function createCheckoutApiClient({
     },
     async getCheckoutSession(sessionId: string): Promise<CheckoutSessionRow> {
       return parseJsonResponse(
-        await client.buyer["checkout-sessions"][":sessionId"].$get({
+        await client.account["checkout-sessions"][":sessionId"].$get({
           param: { sessionId },
           header: headers,
         }),
@@ -155,7 +155,7 @@ export function createCheckoutApiClient({
       body: SelectCheckoutShippingOptionRequest,
     ) {
       return parseJsonResponse(
-        await client.buyer["checkout-sessions"][":sessionId"]["shipping-option"].$post({
+        await client.account["checkout-sessions"][":sessionId"]["shipping-option"].$post({
           param: { sessionId },
           json: body,
           header: headers,
@@ -164,11 +164,12 @@ export function createCheckoutApiClient({
     },
     async confirmCheckoutSession(
       sessionId: string,
+      body: Readonly<{ requestedBalanceCreditAmount?: string | null }> = {},
     ): Promise<{ payment_id: string; order_ids: readonly string[] }> {
       return parseJsonResponse(
-        await client.buyer["checkout-sessions"][":sessionId"].confirm.$post({
+        await client.account["checkout-sessions"][":sessionId"].confirm.$post({
           param: { sessionId },
-          json: {},
+          json: body,
           header: headers,
         }),
       );

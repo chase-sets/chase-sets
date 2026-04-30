@@ -17,8 +17,8 @@ function createSeedContext(): EventStoreContext {
   return {
     tenantId: "tnt_seed_development" as never,
     audit: {
-      performedByUserId: identitySeedIds.seller.userId,
-      forAccountId: identitySeedIds.seller.accountId,
+      performedByUserId: identitySeedIds.demo.userId,
+      forAccountId: identitySeedIds.demo.accountId,
     },
   };
 }
@@ -51,7 +51,7 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
   }
 
   const context = createSeedContext();
-  const sellerAccountId = identitySeedIds.seller.accountId;
+  const sellerAccountId = identitySeedIds.demo.accountId;
   const capturedPayment = await services.db.query<SeedPaymentSourceRow>(
     `SELECT amount::text AS amount,
             currency_code,

@@ -76,8 +76,8 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.cardVaultCharizardNearMint,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
-    userId: identitySeedIds.cardVaultSeller.userId,
+    accountId: identitySeedIds.cardVault.accountId,
+    userId: identitySeedIds.cardVault.userId,
     inventoryItemId: inventorySeedIds.items.cardVaultCharizardNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     priceAmount: "389.00",
@@ -86,8 +86,8 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.cardVaultCharizardMarketMaker,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
-    userId: identitySeedIds.cardVaultSeller.userId,
+    accountId: identitySeedIds.cardVault.accountId,
+    userId: identitySeedIds.cardVault.userId,
     inventoryItemId: inventorySeedIds.items.cardVaultCharizardNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     priceAmount: "412.00",
@@ -121,8 +121,8 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.cardVaultPikachuStack,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
-    userId: identitySeedIds.cardVaultSeller.userId,
+    accountId: identitySeedIds.cardVault.accountId,
+    userId: identitySeedIds.cardVault.userId,
     inventoryItemId: inventorySeedIds.items.cardVaultPikachuExcellent,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "18.75",
@@ -131,8 +131,8 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.cardVaultPikachuLowMargin,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
-    userId: identitySeedIds.cardVaultSeller.userId,
+    accountId: identitySeedIds.cardVault.accountId,
+    userId: identitySeedIds.cardVault.userId,
     inventoryItemId: inventorySeedIds.items.cardVaultPikachuExcellent,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     priceAmount: "17.95",
@@ -166,8 +166,8 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId: marketplaceReservedSeedIds.listings.cardVaultMewtwoBudget,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
-    userId: identitySeedIds.cardVaultSeller.userId,
+    accountId: identitySeedIds.cardVault.accountId,
+    userId: identitySeedIds.cardVault.userId,
     inventoryItemId: inventorySeedIds.items.cardVaultMewtwoNearMint,
     catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
     priceAmount: "45.50",
@@ -191,20 +191,20 @@ const listings: readonly ListingSeed[] = [
     finalStatus: "withdrawn",
   },
   {
-    listingId: marketplaceReservedSeedIds.listings.sealedSellerSurgingSparksActive,
-    accountId: identitySeedIds.sealedSeller.accountId,
-    userId: identitySeedIds.sealedSeller.userId,
-    inventoryItemId: inventorySeedIds.items.sealedSellerSurgingSparksBoosterBox,
+    listingId: marketplaceReservedSeedIds.listings.sealedStockroomSurgingSparksActive,
+    accountId: identitySeedIds.sealedStockroom.accountId,
+    userId: identitySeedIds.sealedStockroom.userId,
+    inventoryItemId: inventorySeedIds.items.sealedStockroomSurgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     priceAmount: "126.00",
     quantityCap: 4,
     finalStatus: "active",
   },
   {
-    listingId: marketplaceReservedSeedIds.listings.sealedSellerSurgingSparksPremium,
-    accountId: identitySeedIds.sealedSeller.accountId,
-    userId: identitySeedIds.sealedSeller.userId,
-    inventoryItemId: inventorySeedIds.items.sealedSellerSurgingSparksBoosterBox,
+    listingId: marketplaceReservedSeedIds.listings.sealedStockroomSurgingSparksPremium,
+    accountId: identitySeedIds.sealedStockroom.accountId,
+    userId: identitySeedIds.sealedStockroom.userId,
+    inventoryItemId: inventorySeedIds.items.sealedStockroomSurgingSparksBoosterBox,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     priceAmount: "131.50",
     quantityCap: 2,
@@ -221,8 +221,8 @@ const listings: readonly ListingSeed[] = [
   {
     listingId:
       marketplaceReservedSeedIds.listings.cardVaultTwilightMasqueradeEliteTrainer,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
-    userId: identitySeedIds.cardVaultSeller.userId,
+    accountId: identitySeedIds.cardVault.accountId,
+    userId: identitySeedIds.cardVault.userId,
     inventoryItemId:
       inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
@@ -232,11 +232,11 @@ const listings: readonly ListingSeed[] = [
   },
   {
     listingId:
-      marketplaceReservedSeedIds.listings.sealedSellerTwilightMasqueradeEliteTrainer,
-    accountId: identitySeedIds.sealedSeller.accountId,
-    userId: identitySeedIds.sealedSeller.userId,
+      marketplaceReservedSeedIds.listings.sealedStockroomTwilightMasqueradeEliteTrainer,
+    accountId: identitySeedIds.sealedStockroom.accountId,
+    userId: identitySeedIds.sealedStockroom.userId,
     inventoryItemId:
-      inventorySeedIds.items.sealedSellerTwilightMasqueradeEliteTrainerBox,
+      inventorySeedIds.items.sealedStockroomTwilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     priceAmount: "43.25",
     quantityCap: 4,
@@ -268,8 +268,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.charizardBaseSetHighRoller,
-    buyerAccountId: identitySeedIds.highRollerBuyer.accountId,
-    buyerUserId: identitySeedIds.highRollerBuyer.userId,
+    buyerAccountId: identitySeedIds.highRollerTrader.accountId,
+    buyerUserId: identitySeedIds.highRollerTrader.userId,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
@@ -279,9 +279,9 @@ const offers: readonly OfferSeed[] = [
     quantityRequested: 1,
   },
   {
-    offerId: marketplaceReservedSeedIds.offers.charizardBaseSetValueBuyer,
-    buyerAccountId: identitySeedIds.valueBuyer.accountId,
-    buyerUserId: identitySeedIds.valueBuyer.userId,
+    offerId: marketplaceReservedSeedIds.offers.charizardBaseSetValueTrader,
+    buyerAccountId: identitySeedIds.valueTrader.accountId,
+    buyerUserId: identitySeedIds.valueTrader.userId,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
@@ -333,8 +333,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.pikachuJungleHighVelocityLot,
-    buyerAccountId: identitySeedIds.highRollerBuyer.accountId,
-    buyerUserId: identitySeedIds.highRollerBuyer.userId,
+    buyerAccountId: identitySeedIds.highRollerTrader.accountId,
+    buyerUserId: identitySeedIds.highRollerTrader.userId,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
@@ -345,8 +345,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.pikachuJungleFloorBid,
-    buyerAccountId: identitySeedIds.valueBuyer.accountId,
-    buyerUserId: identitySeedIds.valueBuyer.userId,
+    buyerAccountId: identitySeedIds.valueTrader.accountId,
+    buyerUserId: identitySeedIds.valueTrader.userId,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
@@ -367,8 +367,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.lugiaNeoGenesisHighRoller,
-    buyerAccountId: identitySeedIds.highRollerBuyer.accountId,
-    buyerUserId: identitySeedIds.highRollerBuyer.userId,
+    buyerAccountId: identitySeedIds.highRollerTrader.accountId,
+    buyerUserId: identitySeedIds.highRollerTrader.userId,
     catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
     itemTitle: "Lugia",
     itemSubtitle: "Neo Genesis 9/111 Holo Rare",
@@ -378,9 +378,9 @@ const offers: readonly OfferSeed[] = [
     quantityRequested: 1,
   },
   {
-    offerId: marketplaceReservedSeedIds.offers.lugiaNeoGenesisValueBuyer,
-    buyerAccountId: identitySeedIds.valueBuyer.accountId,
-    buyerUserId: identitySeedIds.valueBuyer.userId,
+    offerId: marketplaceReservedSeedIds.offers.lugiaNeoGenesisValueTrader,
+    buyerAccountId: identitySeedIds.valueTrader.accountId,
+    buyerUserId: identitySeedIds.valueTrader.userId,
     catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
     itemTitle: "Lugia",
     itemSubtitle: "Neo Genesis 9/111 Holo Rare",
@@ -401,8 +401,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.pikachuPrismaticEvolutionsBinder,
-    buyerAccountId: identitySeedIds.valueBuyer.accountId,
-    buyerUserId: identitySeedIds.valueBuyer.userId,
+    buyerAccountId: identitySeedIds.valueTrader.accountId,
+    buyerUserId: identitySeedIds.valueTrader.userId,
     catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
     itemTitle: "Pikachu",
     itemSubtitle: "Prismatic Evolutions 025 Illustration Rare",
@@ -434,8 +434,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.prismaticEvolutionsBoosterPackMicroLot,
-    buyerAccountId: identitySeedIds.valueBuyer.accountId,
-    buyerUserId: identitySeedIds.valueBuyer.userId,
+    buyerAccountId: identitySeedIds.valueTrader.accountId,
+    buyerUserId: identitySeedIds.valueTrader.userId,
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
     itemTitle: "Prismatic Evolutions Booster Pack",
     itemSubtitle: "Sealed booster pack",
@@ -446,8 +446,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.prismaticEvolutionsBoosterPackFloor,
-    buyerAccountId: identitySeedIds.highRollerBuyer.accountId,
-    buyerUserId: identitySeedIds.highRollerBuyer.userId,
+    buyerAccountId: identitySeedIds.highRollerTrader.accountId,
+    buyerUserId: identitySeedIds.highRollerTrader.userId,
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
     itemTitle: "Prismatic Evolutions Booster Pack",
     itemSubtitle: "Sealed booster pack",
@@ -468,8 +468,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.surgingSparksBoosterBoxCaseBid,
-    buyerAccountId: identitySeedIds.highRollerBuyer.accountId,
-    buyerUserId: identitySeedIds.highRollerBuyer.userId,
+    buyerAccountId: identitySeedIds.highRollerTrader.accountId,
+    buyerUserId: identitySeedIds.highRollerTrader.userId,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     itemTitle: "Surging Sparks Booster Box",
     itemSubtitle: "Sealed booster box",
@@ -480,8 +480,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.surgingSparksBoosterBoxValueBid,
-    buyerAccountId: identitySeedIds.valueBuyer.accountId,
-    buyerUserId: identitySeedIds.valueBuyer.userId,
+    buyerAccountId: identitySeedIds.valueTrader.accountId,
+    buyerUserId: identitySeedIds.valueTrader.userId,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     itemTitle: "Surging Sparks Booster Box",
     itemSubtitle: "Sealed booster box",
@@ -502,8 +502,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerBundle,
-    buyerAccountId: identitySeedIds.highRollerBuyer.accountId,
-    buyerUserId: identitySeedIds.highRollerBuyer.userId,
+    buyerAccountId: identitySeedIds.highRollerTrader.accountId,
+    buyerUserId: identitySeedIds.highRollerTrader.userId,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     itemTitle: "Twilight Masquerade Elite Trainer Box",
     itemSubtitle: "Sealed elite trainer box",
@@ -514,8 +514,8 @@ const offers: readonly OfferSeed[] = [
   },
   {
     offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerFloor,
-    buyerAccountId: identitySeedIds.valueBuyer.accountId,
-    buyerUserId: identitySeedIds.valueBuyer.userId,
+    buyerAccountId: identitySeedIds.valueTrader.accountId,
+    buyerUserId: identitySeedIds.valueTrader.userId,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     itemTitle: "Twilight Masquerade Elite Trainer Box",
     itemSubtitle: "Sealed elite trainer box",
@@ -563,7 +563,7 @@ async function getProductId(
 }
 
 function createSeedContext() {
-  return createSeedContextFor(identitySeedIds.seller.accountId, identitySeedIds.seller.userId);
+  return createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 }
 
 function createSeedContextFor(accountId: string, userId: string) {
@@ -601,10 +601,10 @@ export async function seedMarketplaceDatabase(
   const context = createSeedContext();
 
   for (const listing of listings) {
-    const accountId = listing.accountId ?? identitySeedIds.seller.accountId;
+    const accountId = listing.accountId ?? identitySeedIds.demo.accountId;
     const listingContext = createSeedContextFor(
       accountId,
-      listing.userId ?? identitySeedIds.seller.userId,
+      listing.userId ?? identitySeedIds.demo.userId,
     );
     const supply = await services.listings.getInventoryItemSupply(
       listing.inventoryItemId,
@@ -659,7 +659,7 @@ export async function seedMarketplaceDatabase(
   }
 
   for (const offer of offers) {
-    const buyerAccountId = offer.buyerAccountId ?? identitySeedIds.buyer.accountId;
+    const buyerAccountId = offer.buyerAccountId ?? identitySeedIds.collector.accountId;
     await services.offers.commandHandler({
       streamId: `marketplace.offer-${offer.offerId}`,
       command: {
@@ -681,7 +681,7 @@ export async function seedMarketplaceDatabase(
       },
       context: createSeedContextFor(
         buyerAccountId,
-        offer.buyerUserId ?? identitySeedIds.buyer.userId,
+        offer.buyerUserId ?? identitySeedIds.collector.userId,
       ),
     });
   }
@@ -691,7 +691,7 @@ export async function seedMarketplaceDatabase(
   await services.offers.acceptOffer(
     {
       offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
-      sellerAccountId: identitySeedIds.seller.accountId,
+      sellerAccountId: identitySeedIds.demo.accountId,
     },
     context,
   );

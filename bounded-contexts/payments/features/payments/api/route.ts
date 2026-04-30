@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PaymentServices } from "./runtime";
+import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 
 export type PaymentsApiEnv = AuthenticatedApiEnv;
 
@@ -39,7 +40,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
-export function createBuyerPaymentRoutes(services: PaymentServices) {
+export function createAccountPaymentRoutes(services: PaymentServices) {
   const app = new Hono<PaymentsApiEnv>();
 
   app.post("/payments", async (c) => {
@@ -71,6 +72,9 @@ export function createBuyerPaymentRoutes(services: PaymentServices) {
             ? body.orderIds.map(String)
             : [],
           currencyCode: String(body.currencyCode ?? "usd"),
+          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
+            body.requestedBalanceCreditAmount,
+          ),
           ...(sourceContext && sourceReferenceId
             ? { sourceContext, sourceReferenceId }
             : {}),

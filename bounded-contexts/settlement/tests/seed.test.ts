@@ -58,7 +58,7 @@ describeWithDatabase("settlement seed", () => {
       `SELECT pending_balance_amount, available_balance_amount
        FROM settlement_wallet_pages
        WHERE account_id = $1`,
-      [identitySeedIds.seller.accountId],
+      [identitySeedIds.demo.accountId],
     );
     expect(wallet.rows[0]).toMatchObject({
       pending_balance_amount: "0.00",

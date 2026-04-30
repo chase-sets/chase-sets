@@ -24,6 +24,8 @@ export type PaymentState = Readonly<{
   buyerAccountId: AccountId | null;
   orderIds: readonly OrderId[];
   amount: string | null;
+  balanceCreditAmount: string;
+  processorAmount: string | null;
   marketplaceFeeAmount: string | null;
   paymentFeeAmount: string | null;
   sellerNetAmount: string | null;
@@ -48,6 +50,8 @@ export const initialPaymentState: PaymentState = {
   buyerAccountId: null,
   orderIds: [],
   amount: null,
+  balanceCreditAmount: "0.00",
+  processorAmount: null,
   marketplaceFeeAmount: null,
   paymentFeeAmount: null,
   sellerNetAmount: null,
@@ -73,6 +77,8 @@ export type CreatePaymentCommand = Readonly<{
   buyerAccountId: AccountId;
   orderIds: readonly OrderId[];
   amount: string;
+  balanceCreditAmount?: string;
+  processorAmount?: string;
   marketplaceFeeAmount: string;
   paymentFeeAmount: string;
   sellerNetAmount: string;
@@ -125,6 +131,8 @@ export type PaymentCreatedEvent = DomainEvent<
     buyerAccountId: AccountId;
     orderIds: OrderId[];
     amount: string;
+    balanceCreditAmount: string;
+    processorAmount: string;
     marketplaceFeeAmount: string;
     paymentFeeAmount: string;
     sellerNetAmount: string;
@@ -155,6 +163,8 @@ export type PaymentCapturedEvent = DomainEvent<
     orderIds: OrderId[];
     buyerAccountId: AccountId;
     amount: string;
+    balanceCreditAmount: string;
+    processorAmount: string;
     marketplaceFeeAmount: string;
     paymentFeeAmount: string;
     sellerNetAmount: string;
@@ -173,6 +183,8 @@ export type PaymentFailedEvent = DomainEvent<
     orderIds: OrderId[];
     buyerAccountId: AccountId;
     amount: string;
+    balanceCreditAmount: string;
+    processorAmount: string;
     marketplaceFeeAmount: string;
     paymentFeeAmount: string;
     sellerNetAmount: string;
@@ -218,6 +230,17 @@ export const decidePayment: AggregateDecider<
             orderIds: normalizeOrderIds(command.orderIds),
             amount: normalizeMoneyAmount(command.amount, {
               fieldName: "Payment amount",
+            }),
+            balanceCreditAmount: normalizeMoneyAmount(
+              command.balanceCreditAmount ?? "0.00",
+              {
+                fieldName: "Balance credit amount",
+                allowZero: true,
+              },
+            ),
+            processorAmount: normalizeMoneyAmount(command.processorAmount ?? command.amount, {
+              fieldName: "External payment amount",
+              allowZero: true,
             }),
             marketplaceFeeAmount: normalizeMoneyAmount(command.marketplaceFeeAmount, {
               fieldName: "Marketplace fee amount",
@@ -287,6 +310,8 @@ export const decidePayment: AggregateDecider<
             orderIds: [...state.orderIds],
             buyerAccountId: state.buyerAccountId!,
             amount: state.amount!,
+            balanceCreditAmount: state.balanceCreditAmount,
+            processorAmount: state.processorAmount!,
             marketplaceFeeAmount: state.marketplaceFeeAmount!,
             paymentFeeAmount: state.paymentFeeAmount!,
             sellerNetAmount: state.sellerNetAmount!,
@@ -319,6 +344,8 @@ export const decidePayment: AggregateDecider<
             orderIds: [...state.orderIds],
             buyerAccountId: state.buyerAccountId!,
             amount: state.amount!,
+            balanceCreditAmount: state.balanceCreditAmount,
+            processorAmount: state.processorAmount!,
             marketplaceFeeAmount: state.marketplaceFeeAmount!,
             paymentFeeAmount: state.paymentFeeAmount!,
             sellerNetAmount: state.sellerNetAmount!,
@@ -372,6 +399,8 @@ export const evolvePayment: AggregateEvolver<
         buyerAccountId: event.data.buyerAccountId,
         orderIds: [...event.data.orderIds],
         amount: event.data.amount,
+        balanceCreditAmount: event.data.balanceCreditAmount,
+        processorAmount: event.data.processorAmount,
         marketplaceFeeAmount: event.data.marketplaceFeeAmount,
         paymentFeeAmount: event.data.paymentFeeAmount,
         sellerNetAmount: event.data.sellerNetAmount,

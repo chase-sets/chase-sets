@@ -40,7 +40,7 @@ export function MarketplaceBuyerOfferMatchDetailPage({
         title={offer.item_title}
         description="Review a buyer offer match that matches your active supply."
         actions={
-          <LinkButton href="/account/buyer-offer-matches" tone="secondary">
+          <LinkButton href="/account/offers/matches" tone="secondary">
             Back to buyer offer matches
           </LinkButton>
         }

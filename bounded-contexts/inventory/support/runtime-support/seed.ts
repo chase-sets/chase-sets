@@ -68,14 +68,14 @@ const storageLocations: readonly StorageLocationSeed[] = [
   },
   {
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
+    accountId: identitySeedIds.cardVault.accountId,
     name: "Card Vault back room",
     description: "Vintage singles and curated binder inventory",
     shipFromCode: "STL-VAULT-4",
   },
   {
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
-    accountId: identitySeedIds.sealedSeller.accountId,
+    accountId: identitySeedIds.sealedStockroom.accountId,
     name: "Sealed case wall",
     description: "Fast-pick sealed product cases",
     shipFromCode: "IND-CASE-2",
@@ -194,7 +194,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.cardVaultCharizardNearMint,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
+    accountId: identitySeedIds.cardVault.accountId,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
     selectedOptions: [
       {
@@ -212,7 +212,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.cardVaultPikachuExcellent,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
+    accountId: identitySeedIds.cardVault.accountId,
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     selectedOptions: [
       {
@@ -230,7 +230,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.cardVaultMewtwoNearMint,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
+    accountId: identitySeedIds.cardVault.accountId,
     catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
     selectedOptions: [
       {
@@ -248,7 +248,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
-    accountId: identitySeedIds.cardVaultSeller.accountId,
+    accountId: identitySeedIds.cardVault.accountId,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
@@ -256,8 +256,8 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     acquisitionCostAmount: "40.50",
   },
   {
-    itemId: inventorySeedIds.items.sealedSellerPrismaticEvolutionsBoosterPack,
-    accountId: identitySeedIds.sealedSeller.accountId,
+    itemId: inventorySeedIds.items.sealedStockroomPrismaticEvolutionsBoosterPack,
+    accountId: identitySeedIds.sealedStockroom.accountId,
     catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
@@ -265,8 +265,8 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     acquisitionCostAmount: "4.00",
   },
   {
-    itemId: inventorySeedIds.items.sealedSellerSurgingSparksBoosterBox,
-    accountId: identitySeedIds.sealedSeller.accountId,
+    itemId: inventorySeedIds.items.sealedStockroomSurgingSparksBoosterBox,
+    accountId: identitySeedIds.sealedStockroom.accountId,
     catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
@@ -274,8 +274,8 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     acquisitionCostAmount: "116.00",
   },
   {
-    itemId: inventorySeedIds.items.sealedSellerTwilightMasqueradeEliteTrainerBox,
-    accountId: identitySeedIds.sealedSeller.accountId,
+    itemId: inventorySeedIds.items.sealedStockroomTwilightMasqueradeEliteTrainerBox,
+    accountId: identitySeedIds.sealedStockroom.accountId,
     catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,

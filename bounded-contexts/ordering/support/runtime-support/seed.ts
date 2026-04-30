@@ -143,7 +143,7 @@ export async function seedOrderingDatabase(
   pool: PgTransactionalPool,
   ordering: OrderingServices = createOrderingServices(pool),
 ) {
-  const buyerAccountId = identitySeedIds.buyer.accountId;
+  const buyerAccountId = identitySeedIds.collector.accountId;
 
   try {
     const [hasCheckoutPending, hasCancelledOrder, hasAcceptedOfferOrder] =
@@ -170,12 +170,12 @@ export async function seedOrderingDatabase(
   console.log("Starting ordering development seed...\n");
 
   const buyerContext = createSeedContextFor(
-    identitySeedIds.buyer.accountId,
-    identitySeedIds.buyer.userId,
+    identitySeedIds.collector.accountId,
+    identitySeedIds.collector.userId,
   );
   const sellerContext = createSeedContextFor(
-    identitySeedIds.seller.accountId,
-    identitySeedIds.seller.userId,
+    identitySeedIds.demo.accountId,
+    identitySeedIds.demo.userId,
   );
 
   if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
@@ -229,7 +229,7 @@ export async function seedOrderingDatabase(
       {
         offerId: acceptedOfferSeed.offerId,
         buyerAccountId,
-        sellerAccountId: identitySeedIds.seller.accountId,
+        sellerAccountId: identitySeedIds.demo.accountId,
         catalogItemId: acceptedOfferSeed.catalogItemId,
         productId: (await getOfferProductId(ordering, acceptedOfferSeed.offerId)) ?? "",
         itemTitle: acceptedOfferSeed.itemTitle,

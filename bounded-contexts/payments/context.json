@@ -62,7 +62,14 @@
   ],
   "hostPorts": [
     {
-      "portName": "processorGateway"
+      "portName": "processorGateway",
+      "providedBy": "platform-api",
+      "purpose": "Create and observe external payment processor intents from the API host."
+    },
+    {
+      "portName": "balanceCreditResolver",
+      "providedBy": "settlement",
+      "purpose": "Apply available settlement wallet balance as checkout credit without Payments querying Settlement storage."
     }
   ],
   "apiDeployables": [

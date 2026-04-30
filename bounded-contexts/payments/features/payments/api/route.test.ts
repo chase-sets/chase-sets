@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { PaymentsApiEnv } from "./route";
 import {
-  createBuyerPaymentRoutes,
+  createAccountPaymentRoutes,
   createStripeWebhookRoutes,
 } from "./route";
 import type { PaymentServices } from "./runtime";
@@ -30,7 +30,7 @@ function buildBuyerApp(options: Readonly<{
     await next();
   });
 
-  app.route("/buyer", createBuyerPaymentRoutes(options.services));
+  app.route("/account", createAccountPaymentRoutes(options.services));
 
   return app;
 }
@@ -48,6 +48,8 @@ function createServices(): PaymentServices {
       buyer_account_id: "acc_buyer",
       order_ids: ["ord_1"],
       amount: "24.99",
+      balance_credit_amount: "0.00",
+      processor_amount: "24.99",
       currency_code: "usd",
       processor_name: "stripe",
       processor_payment_reference: "pi_1",
@@ -87,7 +89,7 @@ describe("payments routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://payments.test/buyer/payments", {
+      new Request("http://payments.test/account/payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderIds: ["ord_1"] }),
@@ -104,6 +106,7 @@ describe("payments routes", () => {
         buyerAccountId: "acc_buyer",
         orderIds: ["ord_1"],
         currencyCode: "usd",
+        requestedBalanceCreditAmount: null,
       },
       expect.any(Object),
     );
@@ -125,7 +128,7 @@ describe("payments routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://payments.test/buyer/payments", {
+      new Request("http://payments.test/account/payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -144,7 +147,43 @@ describe("payments routes", () => {
         currencyCode: "usd",
         sourceContext: "checkout",
         sourceReferenceId: "chk_1",
+        requestedBalanceCreditAmount: null,
       },
+      expect.any(Object),
+    );
+  });
+
+  it("passes requested balance credit into buyer payment creation", async () => {
+    const services = createServices();
+    const app = buildBuyerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderIds: ["ord_1"],
+          requestedBalanceCreditAmount: "7.25",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createBuyerPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedBalanceCreditAmount: "7.25",
+      }),
       expect.any(Object),
     );
   });
@@ -164,7 +203,7 @@ describe("payments routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://payments.test/buyer/payments", {
+      new Request("http://payments.test/account/payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderIds: ["ord_1"] }),

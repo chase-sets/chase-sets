@@ -11,11 +11,17 @@ export type LedgerEntryKind =
   | "fee"
   | "rebate"
   | "refund"
+  | "platform-purchase"
   | "payout"
   | "payout-reversal"
   | "adjustment";
 
 export type PayoutStatus = "scheduled" | "in-transit" | "completed" | "failed";
+export type PayoutReadinessStatus =
+  | "not-started"
+  | "pending"
+  | "ready"
+  | "restricted";
 
 export type WalletSummary = Readonly<{
   accountId: AccountId;
@@ -57,6 +63,14 @@ export type PayoutSummary = Readonly<{
   completedAt: string | null;
   failedAt: string | null;
   failureReason: string | null;
+}>;
+
+export type PayoutReadinessSummary = Readonly<{
+  accountId: AccountId;
+  status: PayoutReadinessStatus;
+  missingRequirements: readonly string[];
+  providerReference: string | null;
+  updatedAt: string;
 }>;
 
 export class SettlementDomainError extends Error {
@@ -186,6 +200,8 @@ export function normalizeLedgerEntryKind(value: string): LedgerEntryKind {
       return "rebate";
     case "refund":
       return "refund";
+    case "platform-purchase":
+      return "platform-purchase";
     case "payout":
       return "payout";
     case "payout-reversal":
@@ -209,6 +225,21 @@ export function normalizePayoutStatus(value: string): PayoutStatus {
       return "failed";
     default:
       throw new SettlementDomainError("Payout status is not supported.");
+  }
+}
+
+export function normalizePayoutReadinessStatus(value: string): PayoutReadinessStatus {
+  switch (value.trim()) {
+    case "not-started":
+      return "not-started";
+    case "pending":
+      return "pending";
+    case "ready":
+      return "ready";
+    case "restricted":
+      return "restricted";
+    default:
+      throw new SettlementDomainError("Payout readiness status is not supported.");
   }
 }
 

@@ -136,7 +136,9 @@
   ],
   "hostPorts": [
     {
-      "portName": "commercialTermsResolver"
+      "portName": "commercialTermsResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolve account listing terms without making Marketplace own commercial terms policy."
     }
   ],
   "apiDeployables": [
@@ -169,30 +171,30 @@
           "sourceContext": "marketplace"
         },
         {
-          "routeId": "account-buyer-offer-match",
-          "routePath": "account/buyer-offer-matches/:offerId",
-          "fileExport": "./routes/account-buyer-offer-match",
+          "routeId": "account-offer-match",
+          "routePath": "account/offers/matches/:offerId",
+          "fileExport": "./routes/account-offer-match",
           "routeType": "route",
           "sourceContext": "marketplace"
         },
         {
-          "routeId": "account-buyer-offer-matches",
-          "routePath": "account/buyer-offer-matches",
-          "fileExport": "./routes/account-buyer-offer-matches",
+          "routeId": "account-offer-matches",
+          "routePath": "account/offers/matches",
+          "fileExport": "./routes/account-offer-matches",
           "routeType": "route",
           "sourceContext": "marketplace"
         },
         {
-          "routeId": "account-submitted-buyer-offer",
-          "routePath": "account/submitted-buyer-offers/:offerId",
-          "fileExport": "./routes/account-submitted-buyer-offer",
+          "routeId": "account-offer-submitted",
+          "routePath": "account/offers/submitted/:offerId",
+          "fileExport": "./routes/account-offer-submitted",
           "routeType": "route",
           "sourceContext": "marketplace"
         },
         {
-          "routeId": "account-submitted-buyer-offers",
-          "routePath": "account/submitted-buyer-offers",
-          "fileExport": "./routes/account-submitted-buyer-offers",
+          "routeId": "account-offers-submitted",
+          "routePath": "account/offers/submitted",
+          "fileExport": "./routes/account-offers-submitted",
           "routeType": "route",
           "sourceContext": "marketplace"
         }
@@ -224,10 +226,10 @@
         "top-nav",
         "bottom-nav"
       ],
-      "key": "buyer-offer-matches",
-      "label": "Buyer Offer Matches",
+      "key": "offer-matches",
+      "label": "Offer Matches",
       "icon": "tag",
-      "href": "/account/buyer-offer-matches",
+      "href": "/account/offers/matches",
       "order": 130,
       "visibility": "signed-in",
       "requiredPermissions": [
@@ -242,10 +244,10 @@
         "top-nav",
         "bottom-nav"
       ],
-      "key": "submitted-buyer-offers",
-      "label": "Submitted Buyer Offers",
+      "key": "submitted-offers",
+      "label": "Submitted Offers",
       "icon": "message",
-      "href": "/account/submitted-buyer-offers",
+      "href": "/account/offers/submitted",
       "order": 140,
       "visibility": "signed-in",
       "requiredPermissions": [

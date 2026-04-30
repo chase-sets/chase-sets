@@ -11,9 +11,11 @@ import type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
 } from "./processor-gateway";
+import type { BalanceCreditResolver } from "../../features/payments/api/balance-credit-resolver";
 
 export type PaymentsServiceOptions = Readonly<{
   processorGateway?: PaymentProcessorGateway;
+  balanceCreditResolver?: BalanceCreditResolver;
 }>;
 
 export type PaymentsServices = Readonly<{
@@ -54,6 +56,7 @@ export function createPaymentsServices(
     checkpointStore,
     db,
     processorGateway,
+    balanceCreditResolver: options.balanceCreditResolver,
   });
   const refunds = createRefundRuntime({
     eventStore,

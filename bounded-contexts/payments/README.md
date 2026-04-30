@@ -48,7 +48,7 @@ Stripe mode uses these settings:
 
 For local development, keep real Stripe values in `deployables/platform-api/.env.local` when you want to exercise real Stripe flows. If any of the required Stripe values are missing, the platform API falls back to the fake payment gateway so local startup still works without webhook forwarding. The platform API scripts load safe defaults from `deployables/platform-api/.env.example` and then apply `.env.local` if it exists, so secrets stay out of git.
 
-Webhook callbacks are mounted by the platform API at `/api/payments/stripe/webhooks`. The buyer-facing payment routes stay under `/api/marketplace/buyer/payments`.
+Webhook callbacks are mounted by the platform API at `/api/payments/stripe/webhooks`. The account payment routes stay under `/api/marketplace/account/payments`.
 
 When the dev stack includes `platform-api`, `npm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` into `deployables/platform-api/.env.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `npm run stripe:listen` manually if you want the listener in a separate terminal.
 

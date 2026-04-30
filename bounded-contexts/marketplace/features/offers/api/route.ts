@@ -55,10 +55,10 @@ function parseVersionSelection(value: unknown) {
     : [];
 }
 
-export function createSubmittedBuyerOfferRoutes(services: MarketplaceOfferServices) {
+export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
-  app.get("/submitted-buyer-offers", async (c) => {
+  app.get("/offers/submitted", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
@@ -79,7 +79,7 @@ export function createSubmittedBuyerOfferRoutes(services: MarketplaceOfferServic
     });
   });
 
-  app.get("/submitted-buyer-offers/:id", async (c) => {
+  app.get("/offers/submitted/:id", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
@@ -97,7 +97,7 @@ export function createSubmittedBuyerOfferRoutes(services: MarketplaceOfferServic
     return c.json(offer);
   });
 
-  app.post("/submitted-buyer-offers", async (c) => {
+  app.post("/offers/submitted", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
       return access.response;
@@ -141,10 +141,10 @@ export function createSubmittedBuyerOfferRoutes(services: MarketplaceOfferServic
   return app;
 }
 
-export function createBuyerOfferMatchRoutes(services: MarketplaceOfferServices) {
+export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
-  app.get("/buyer-offer-matches", async (c) => {
+  app.get("/offers/matches", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
@@ -165,7 +165,7 @@ export function createBuyerOfferMatchRoutes(services: MarketplaceOfferServices) 
     });
   });
 
-  app.get("/buyer-offer-matches/:id", async (c) => {
+  app.get("/offers/matches/:id", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
@@ -183,7 +183,7 @@ export function createBuyerOfferMatchRoutes(services: MarketplaceOfferServices) 
     return c.json(offer);
   });
 
-  app.post("/buyer-offer-matches/:id/accept", async (c) => {
+  app.post("/offers/matches/:id/accept", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
       return access.response;
@@ -213,7 +213,7 @@ export function createBuyerOfferMatchRoutes(services: MarketplaceOfferServices) 
     }
   });
 
-  app.get("/buyer-offer-match-sell-list", async (c) => {
+  app.get("/offers/match-sell-list", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
       return access.response;
@@ -232,7 +232,7 @@ export function createBuyerOfferMatchRoutes(services: MarketplaceOfferServices) 
     });
   });
 
-  app.post("/buyer-offer-match-sell-list", async (c) => {
+  app.post("/offers/match-sell-list", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
       return access.response;
@@ -256,7 +256,7 @@ export function createBuyerOfferMatchRoutes(services: MarketplaceOfferServices) 
     }
   });
 
-  app.post("/buyer-offer-match-sell-list/accept", async (c) => {
+  app.post("/offers/match-sell-list/accept", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
       return access.response;

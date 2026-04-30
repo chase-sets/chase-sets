@@ -1342,33 +1342,14 @@ async function validateContextManifest(context) {
     if (typeof hostPort.portName !== "string" || hostPort.portName.length === 0) {
       addPathViolation(hostPortLabel, "portName must be a non-empty string");
     }
-  }
 
-  if (
-    manifest.contextName === "payments" &&
-    !(manifest.hostPorts ?? []).some((hostPort) => hostPort?.portName === "processorGateway")
-  ) {
-    addPathViolation(
-      `${root}/context.json`,
-      "payments must declare processorGateway through hostPorts",
-    );
-  }
+    if (typeof hostPort.providedBy !== "string" || hostPort.providedBy.length === 0) {
+      addPathViolation(hostPortLabel, "providedBy must name the context or deployable that supplies the host port");
+    }
 
-  const allowedHostPortsByContext = new Map([
-    ["marketplace", new Set(["commercialTermsResolver"])],
-    ["ordering", new Set(["commercialTermsResolver"])],
-    ["payments", new Set(["processorGateway"])],
-  ]);
-  const allowedHostPorts = allowedHostPortsByContext.get(manifest.contextName) ?? new Set();
-  const unexpectedHostPorts = (manifest.hostPorts ?? []).filter(
-    (hostPort) => !allowedHostPorts.has(hostPort?.portName),
-  );
-
-  if (unexpectedHostPorts.length > 0) {
-    addPathViolation(
-      `${root}/context.json`,
-      `hostPorts may only declare approved composition seams for this context (${formatSetValues(allowedHostPorts) || "none"})`,
-    );
+    if (typeof hostPort.purpose !== "string" || hostPort.purpose.length === 0) {
+      addPathViolation(hostPortLabel, "purpose must describe why this host port is required");
+    }
   }
 
   const apiMounts = manifest.apiMounts ?? [];

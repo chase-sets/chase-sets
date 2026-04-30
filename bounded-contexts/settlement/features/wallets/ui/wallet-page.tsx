@@ -2,7 +2,6 @@ import {
   Badge,
   Card,
   DataTable,
-  EmptyState,
   LinkButton,
   Page,
   PageHeader,
@@ -11,6 +10,8 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -27,9 +28,11 @@ function fundsStatusTone(status: string) {
 export function SettlementWalletPage({
   wallet,
   entries,
+  payoutReadiness,
 }: {
   wallet: SettlementWalletRow;
   entries: readonly SettlementLedgerEntryRow[];
+  payoutReadiness?: SettlementPayoutReadinessRow | null;
 }) {
   return (
     <Page>
@@ -57,11 +60,19 @@ export function SettlementWalletPage({
             <Stack gap={2}>
               <Text weight="semibold">Available</Text>
               <Text size="lg">{formatMoney(wallet.available_balance_amount, wallet.currency_code)}</Text>
-              <Text size="sm" tone="secondary">Funds ready for payout.</Text>
+              <Text size="sm" tone="secondary">Funds ready for platform purchases and, after payout setup, payouts.</Text>
             </Stack>
           </Card>
         </Stack>
       </PageSection>
+
+      {payoutReadiness ? (
+        <PageSection title="Payout Setup">
+          <Card>
+            <PayoutReadinessPanel payoutReadiness={payoutReadiness} />
+          </Card>
+        </PageSection>
+      ) : null}
 
       <PageSection title="Ledger">
         <DataTable

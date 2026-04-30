@@ -23,21 +23,21 @@ export function resolveMarketplaceNavItems(
   return groupMarketplaceTopNav(items, actor);
 }
 
-const sellerWorkflowKeys = new Set([
+const sellingWorkflowKeys = new Set([
   "inventory",
   "listings",
-  "buyer-offer-matches",
+  "offer-matches",
   "sales",
   "reviews",
   "payouts",
 ]);
 
-const sellerInfrastructureKeys = new Set([
+const sellingInfrastructureKeys = new Set([
   "shipments",
 ]);
 
-const buyerTopNavOrder = ["search", "cart", "purchases", "account"];
-const sellerNavOrder = ["inventory", "listings", "buyer-offer-matches", "sales", "reviews", "payouts"];
+const accountTopNavOrder = ["search", "cart", "purchases", "account"];
+const sellingNavOrder = ["inventory", "listings", "offer-matches", "sales", "reviews", "payouts"];
 
 const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   account: {
@@ -51,12 +51,12 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
     label: "Listings",
     icon: "store",
   },
-  "buyer-offer-matches": {
-    label: "Buyer Offer Matches",
+  "offer-matches": {
+    label: "Offer Matches",
     icon: "tag",
   },
-  "submitted-buyer-offers": {
-    label: "Submitted Buyer Offers",
+  "submitted-offers": {
+    label: "Submitted Offers",
     icon: "message",
   },
   orders: {
@@ -86,10 +86,10 @@ function toTraderNavItem(item: NavigationItem): NavigationItem {
   return override ? { ...item, ...override } : item;
 }
 
-function orderBuyerNav(items: NavigationItem[]): NavigationItem[] {
+function orderAccountNav(items: NavigationItem[]): NavigationItem[] {
   return [...items].sort((a, b) => {
-    const aIndex = buyerTopNavOrder.indexOf(a.key);
-    const bIndex = buyerTopNavOrder.indexOf(b.key);
+    const aIndex = accountTopNavOrder.indexOf(a.key);
+    const bIndex = accountTopNavOrder.indexOf(b.key);
 
     if (aIndex === -1 && bIndex === -1) {
       return 0;
@@ -107,10 +107,10 @@ function orderBuyerNav(items: NavigationItem[]): NavigationItem[] {
   });
 }
 
-function orderSellerNav(items: NavigationItem[]): NavigationItem[] {
+function orderSellingNav(items: NavigationItem[]): NavigationItem[] {
   return [...items].sort((a, b) => {
-    const aIndex = sellerNavOrder.indexOf(a.key);
-    const bIndex = sellerNavOrder.indexOf(b.key);
+    const aIndex = sellingNavOrder.indexOf(a.key);
+    const bIndex = sellingNavOrder.indexOf(b.key);
 
     if (aIndex === -1 && bIndex === -1) {
       return 0;
@@ -128,7 +128,7 @@ function orderSellerNav(items: NavigationItem[]): NavigationItem[] {
   });
 }
 
-function withSyntheticSellerItems(
+function withSyntheticPayoutItems(
   items: NavigationItem[],
   actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
 ): NavigationItem[] {
@@ -147,7 +147,7 @@ function withSyntheticSellerItems(
   ];
 }
 
-function sellerLandingHref(items: readonly NavigationItem[]): string {
+function sellingLandingHref(items: readonly NavigationItem[]): string {
   return items.find((item) => item.key === "listings")?.href
     ?? items[0]?.href
     ?? "/account/listings";
@@ -157,34 +157,34 @@ function buildMarketplaceBottomNav(
   items: NavigationItem[],
   actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
 ): NavigationItem[] {
-  const visibleItems = items.filter((item) => !sellerInfrastructureKeys.has(item.key));
-  const sellerItems = orderSellerNav(
-    withSyntheticSellerItems(
-      visibleItems.filter((item) => sellerWorkflowKeys.has(item.key)),
+  const visibleItems = items.filter((item) => !sellingInfrastructureKeys.has(item.key));
+  const sellingItems = orderSellingNav(
+    withSyntheticPayoutItems(
+      visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
       actor,
     ),
   );
-  const buyerItems = orderBuyerNav(
+  const accountItems = orderAccountNav(
     visibleItems.filter((item) => ["search", "cart", "purchases"].includes(item.key)),
   );
 
-  if (sellerItems.length === 0) {
-    return orderBuyerNav(
+  if (sellingItems.length === 0) {
+    return orderAccountNav(
       visibleItems.filter((item) => ["search", "cart", "purchases", "account"].includes(item.key)),
     );
   }
 
-  const sellerGroup: NavigationItem = {
-    key: "seller-workspace",
+  const sellingGroup: NavigationItem = {
+    key: "selling-workspace",
     label: "Sell",
     icon: "store",
-    href: sellerLandingHref(sellerItems),
-    children: sellerItems,
+    href: sellingLandingHref(sellingItems),
+    children: sellingItems,
   };
 
   return [
-    ...buyerItems,
-    sellerGroup,
+    ...accountItems,
+    sellingGroup,
   ].slice(0, 4);
 }
 
@@ -192,47 +192,47 @@ function groupMarketplaceTopNav(
   items: NavigationItem[],
   actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
 ): NavigationItem[] {
-  const visibleItems = items.filter((item) => !sellerInfrastructureKeys.has(item.key));
-  const sellerItems = orderSellerNav(
-    withSyntheticSellerItems(
-      visibleItems.filter((item) => sellerWorkflowKeys.has(item.key)),
+  const visibleItems = items.filter((item) => !sellingInfrastructureKeys.has(item.key));
+  const sellingItems = orderSellingNav(
+    withSyntheticPayoutItems(
+      visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
       actor,
     ),
   );
-  const buyerItems = orderBuyerNav(
-    visibleItems.filter((item) => !sellerWorkflowKeys.has(item.key) && item.key !== "submitted-buyer-offers"),
+  const accountItems = orderAccountNav(
+    visibleItems.filter((item) => !sellingWorkflowKeys.has(item.key) && item.key !== "submitted-offers"),
   );
-  const submittedBuyerOffers = visibleItems.find((item) => item.key === "submitted-buyer-offers");
-  const accountItem = buyerItems.find((item) => item.key === "account");
-  const accountGroup: NavigationItem | undefined = accountItem && submittedBuyerOffers
+  const submittedOffers = visibleItems.find((item) => item.key === "submitted-offers");
+  const accountItem = accountItems.find((item) => item.key === "account");
+  const accountGroup: NavigationItem | undefined = accountItem && submittedOffers
     ? {
         ...accountItem,
         href: undefined,
         children: [
           accountItem,
-          submittedBuyerOffers,
+          submittedOffers,
         ],
       }
     : accountItem;
 
-  if (sellerItems.length === 0) {
+  if (sellingItems.length === 0) {
     return [
-      ...buyerItems.filter((item) => item.key !== "account"),
+      ...accountItems.filter((item) => item.key !== "account"),
       ...(accountGroup ? [accountGroup] : []),
     ];
   }
 
-  const sellerGroup: NavigationItem = {
-    key: "seller-workspace",
+  const sellingGroup: NavigationItem = {
+    key: "selling-workspace",
     label: "Sell",
     icon: "store",
-    href: sellerLandingHref(sellerItems),
-    children: sellerItems,
+    href: sellingLandingHref(sellingItems),
+    children: sellingItems,
   };
 
   return [
-    ...buyerItems.filter((item) => item.key !== "account"),
-    sellerGroup,
+    ...accountItems.filter((item) => item.key !== "account"),
+    sellingGroup,
     ...(accountGroup ? [accountGroup] : []),
   ];
 }

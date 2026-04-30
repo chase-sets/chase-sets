@@ -11,6 +11,7 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createWalletRuntime } from "../../wallets/api/runtime";
 import { createPayoutRuntime } from "./runtime";
+import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 
 function createInMemoryEventStore() {
   let globalPosition = 0;
@@ -79,6 +80,18 @@ const context = {
   },
 };
 
+function createPayoutReadiness(status: "not-started" | "pending" | "ready" | "restricted") {
+  return {
+    getPayoutReadiness: async () => ({
+      account_id: "acc_seller",
+      status,
+      missing_requirements: status === "ready" ? [] : ["provider-onboarding"],
+      provider_reference: "acct_test",
+      updated_at: "2026-04-02T00:00:00.000Z",
+    }),
+  } as PayoutReadinessServices;
+}
+
 describe("settlement payout runtime", () => {
   it("debits the wallet when scheduling a payout and credits it back when the payout fails", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
@@ -125,6 +138,7 @@ describe("settlement payout runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
       wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
     });
 
     const scheduled = await payouts.schedulePayout(
@@ -185,5 +199,56 @@ describe("settlement payout runtime", () => {
       direction: "credit",
       amount: "12.50",
     });
+  });
+
+  it("blocks payout scheduling until payout readiness is ready", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("pending"),
+    });
+
+    await expect(
+      payouts.schedulePayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "12.50",
+          destinationReference: "bank_123",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Payout setup must be complete before scheduling payouts.");
+    expect(readAllEvents()).toHaveLength(0);
   });
 });

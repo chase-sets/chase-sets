@@ -3,11 +3,11 @@ import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 
-const SELLER_CONTACT_METHOD_ID = "ctm_seed_seller_sms";
-const SELLER_PASSKEY_ID = "crd_seed_seller_passkey";
+const DEMO_CONTACT_METHOD_ID = "ctm_seed_demo_sms";
+const DEMO_PASSKEY_ID = "crd_seed_demo_passkey";
 const SUPPORT_CONTACT_METHOD_ID = "ctm_seed_support_email";
-const SELLER_PRIMARY_KEY_PREFIX = "sk_seed_seller_primary";
-const SELLER_ROTATED_KEY_PREFIX = "sk_seed_seller_rotated";
+const DEMO_PRIMARY_KEY_PREFIX = "sk_seed_demo_primary";
+const DEMO_ROTATED_KEY_PREFIX = "sk_seed_demo_rotated";
 
 function isoDate(value: string) {
   return new Date(value).toISOString();
@@ -43,12 +43,12 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   }
 
   const {
-    seller,
-    buyer,
-    valueBuyer,
-    highRollerBuyer,
-    cardVaultSeller,
-    sealedSeller,
+    demo,
+    collector,
+    valueTrader,
+    highRollerTrader,
+    cardVault,
+    sealedStockroom,
     support,
     suspended,
     invitations,
@@ -56,17 +56,17 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   } = identitySeedIds;
   const additionalMarketAccounts = [
     {
-      seed: valueBuyer,
-      name: "Value Buyer",
+      seed: valueTrader,
+      name: "Value Trader",
       accountType: "personal",
       displayName: "Binder Builder",
-      primaryEmail: "value-buyer@chasesets.test",
+      primaryEmail: "value-trader@chasesets.test",
       givenName: "Value",
-      familyName: "Buyer",
+      familyName: "Trader",
     },
     {
-      seed: highRollerBuyer,
-      name: "High Roller Buyer",
+      seed: highRollerTrader,
+      name: "High Roller Trader",
       accountType: "business",
       displayName: "Top Loader Capital",
       primaryEmail: "high-roller@chasesets.test",
@@ -74,8 +74,8 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
       familyName: "Roller",
     },
     {
-      seed: cardVaultSeller,
-      name: "Card Vault Seller",
+      seed: cardVault,
+      name: "Card Vault",
       accountType: "business",
       displayName: "Card Vault",
       primaryEmail: "card-vault@chasesets.test",
@@ -83,33 +83,33 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
       familyName: "Vault",
     },
     {
-      seed: sealedSeller,
-      name: "Sealed Seller",
+      seed: sealedStockroom,
+      name: "Sealed Stockroom",
       accountType: "business",
       displayName: "Pack Runners",
-      primaryEmail: "sealed-seller@chasesets.test",
+      primaryEmail: "sealed-stockroom@chasesets.test",
       givenName: "Pack",
       familyName: "Runner",
     },
   ] as const;
 
   await services.accounts.commandHandler({
-    streamId: `identity.account-${seller.accountId}`,
+    streamId: `identity.account-${demo.accountId}`,
     command: {
       type: "CreateAccount",
-      accountId: seller.accountId,
-      name: "Demo Seller",
+      accountId: demo.accountId,
+      name: "Demo Account",
       accountType: "business",
       displayName: "Chase Sets",
     },
     context,
   });
   await services.accounts.commandHandler({
-    streamId: `identity.account-${buyer.accountId}`,
+    streamId: `identity.account-${collector.accountId}`,
     command: {
       type: "CreateAccount",
-      accountId: buyer.accountId,
-      name: "Demo Buyer",
+      accountId: collector.accountId,
+      name: "Demo Collector",
       accountType: "personal",
       displayName: "Collector Zero",
     },
@@ -131,9 +131,9 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: {
       type: "CreateAccount",
       accountId: suspended.accountId,
-      name: "Dormant Seller",
+      name: "Dormant Account",
       accountType: "business",
-      displayName: "Dormant Seller",
+      displayName: "Dormant Account",
     },
     context,
   });
@@ -157,38 +157,38 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   }
 
   await services.users.commandHandler({
-    streamId: `identity.user-${seller.userId}`,
+    streamId: `identity.user-${demo.userId}`,
     command: {
       type: "CreateUser",
-      userId: seller.userId,
-      displayName: "Demo Seller",
-      primaryEmail: "seller@chasesets.test",
+      userId: demo.userId,
+      displayName: "Demo Account",
+      primaryEmail: "demo@chasesets.test",
       givenName: "Demo",
-      familyName: "Seller",
+      familyName: "Account",
     },
     context,
   });
   await services.users.commandHandler({
-    streamId: `identity.user-${seller.userId}`,
+    streamId: `identity.user-${demo.userId}`,
     command: {
       type: "AddContactMethod",
-      contactMethodId: SELLER_CONTACT_METHOD_ID,
+      contactMethodId: DEMO_CONTACT_METHOD_ID,
       contactMethodType: "phone",
       value: "312 555 0101",
     },
     context,
   });
   await services.users.commandHandler({
-    streamId: `identity.user-${seller.userId}`,
+    streamId: `identity.user-${demo.userId}`,
     command: {
       type: "VerifyContactMethod",
-      contactMethodId: SELLER_CONTACT_METHOD_ID,
+      contactMethodId: DEMO_CONTACT_METHOD_ID,
       verifiedAt: isoDate("2026-03-01T09:00:00.000Z"),
     },
     context,
   });
   await services.users.commandHandler({
-    streamId: `identity.user-${seller.userId}`,
+    streamId: `identity.user-${demo.userId}`,
     command: {
       type: "EnableAuthMethod",
       authMethod: "password",
@@ -196,7 +196,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     context,
   });
   await services.users.commandHandler({
-    streamId: `identity.user-${seller.userId}`,
+    streamId: `identity.user-${demo.userId}`,
     command: {
       type: "EnableAuthMethod",
       authMethod: "passkey",
@@ -204,36 +204,36 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     context,
   });
   await services.users.commandHandler({
-    streamId: `identity.user-${seller.userId}`,
+    streamId: `identity.user-${demo.userId}`,
     command: {
       type: "AttachPasswordCredential",
-      credentialId: seller.credentialId,
+      credentialId: demo.credentialId,
     },
     context,
   });
   await services.users.commandHandler({
-    streamId: `identity.user-${seller.userId}`,
+    streamId: `identity.user-${demo.userId}`,
     command: {
       type: "RegisterPasskeyCredential",
-      credentialId: SELLER_PASSKEY_ID,
+      credentialId: DEMO_PASSKEY_ID,
     },
     context,
   });
 
   await services.users.commandHandler({
-    streamId: `identity.user-${buyer.userId}`,
+    streamId: `identity.user-${collector.userId}`,
     command: {
       type: "CreateUser",
-      userId: buyer.userId,
-      displayName: "Demo Buyer",
-      primaryEmail: "buyer@chasesets.test",
+      userId: collector.userId,
+      displayName: "Demo Collector",
+      primaryEmail: "collector@chasesets.test",
       givenName: "Demo",
-      familyName: "Buyer",
+      familyName: "Collector",
     },
     context,
   });
   await services.users.commandHandler({
-    streamId: `identity.user-${buyer.userId}`,
+    streamId: `identity.user-${collector.userId}`,
     command: {
       type: "EnableAuthMethod",
       authMethod: "password",
@@ -241,10 +241,10 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     context,
   });
   await services.users.commandHandler({
-    streamId: `identity.user-${buyer.userId}`,
+    streamId: `identity.user-${collector.userId}`,
     command: {
       type: "AttachPasswordCredential",
-      credentialId: buyer.credentialId,
+      credentialId: collector.credentialId,
     },
     context,
   });
@@ -338,23 +338,23 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   }
 
   await services.memberships.commandHandler({
-    streamId: `identity.membership-${seller.membershipId}`,
+    streamId: `identity.membership-${demo.membershipId}`,
     command: {
       type: "GrantMembership",
-      membershipId: seller.membershipId,
-      userId: seller.userId,
-      accountId: seller.accountId,
+      membershipId: demo.membershipId,
+      userId: demo.userId,
+      accountId: demo.accountId,
       roleKey: "owner",
     },
     context,
   });
   await services.memberships.commandHandler({
-    streamId: `identity.membership-${buyer.membershipId}`,
+    streamId: `identity.membership-${collector.membershipId}`,
     command: {
       type: "GrantMembership",
-      membershipId: buyer.membershipId,
-      userId: buyer.userId,
-      accountId: buyer.accountId,
+      membershipId: collector.membershipId,
+      userId: collector.userId,
+      accountId: collector.accountId,
       roleKey: "owner",
     },
     context,
@@ -365,7 +365,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
       type: "GrantMembership",
       membershipId: support.membershipId,
       userId: support.userId,
-      accountId: seller.accountId,
+      accountId: demo.accountId,
       roleKey: "viewer",
     },
     context,
@@ -414,12 +414,12 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   }
 
   for (const consent of [
-    seller,
-    buyer,
-    valueBuyer,
-    highRollerBuyer,
-    cardVaultSeller,
-    sealedSeller,
+    demo,
+    collector,
+    valueTrader,
+    highRollerTrader,
+    cardVault,
+    sealedStockroom,
   ]) {
     await services.consents.commandHandler({
       streamId: `identity.consent-${consent.consentId}`,
@@ -442,7 +442,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: {
       type: "CreateInvitation",
       invitationId: support.invitationId,
-      accountId: seller.accountId,
+      accountId: demo.accountId,
       email: "support@chasesets.test",
       roleKey: "manager",
       expiresAt: isoDate("2026-05-01T00:00:00.000Z"),
@@ -463,7 +463,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: {
       type: "CreateInvitation",
       invitationId: invitations.declined,
-      accountId: seller.accountId,
+      accountId: demo.accountId,
       email: "declined@chasesets.test",
       roleKey: "viewer",
       expiresAt: isoDate("2026-05-03T00:00:00.000Z"),
@@ -481,7 +481,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: {
       type: "CreateInvitation",
       invitationId: invitations.cancelled,
-      accountId: seller.accountId,
+      accountId: demo.accountId,
       email: "cancelled@chasesets.test",
       roleKey: "viewer",
       expiresAt: isoDate("2026-05-05T00:00:00.000Z"),
@@ -499,7 +499,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: {
       type: "CreateInvitation",
       invitationId: invitations.expired,
-      accountId: seller.accountId,
+      accountId: demo.accountId,
       email: "expired@chasesets.test",
       roleKey: "viewer",
       expiresAt: isoDate("2026-03-04T00:00:00.000Z"),
@@ -513,18 +513,18 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   });
 
   await services.apiKeys.commandHandler({
-    streamId: `identity.api-key-${seller.apiKeyId}`,
+    streamId: `identity.api-key-${demo.apiKeyId}`,
     command: {
       type: "CreateApiKey",
-      apiKeyId: seller.apiKeyId,
-      userId: seller.userId,
+      apiKeyId: demo.apiKeyId,
+      userId: demo.userId,
       name: "Primary integration",
-      keyPrefix: SELLER_PRIMARY_KEY_PREFIX,
+      keyPrefix: DEMO_PRIMARY_KEY_PREFIX,
     },
     context,
   });
   await services.apiKeys.commandHandler({
-    streamId: `identity.api-key-${seller.apiKeyId}`,
+    streamId: `identity.api-key-${demo.apiKeyId}`,
     command: {
       type: "RecordApiKeyUse",
       usedAt: isoDate("2026-03-06T00:00:00.000Z"),
@@ -537,9 +537,9 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: {
       type: "CreateApiKey",
       apiKeyId: apiKeys.rotatedRevoked,
-      userId: seller.userId,
+      userId: demo.userId,
       name: "Legacy automation key",
-      keyPrefix: "sk_seed_seller_legacy",
+      keyPrefix: "sk_seed_demo_legacy",
     },
     context,
   });
@@ -547,7 +547,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     streamId: `identity.api-key-${apiKeys.rotatedRevoked}`,
     command: {
       type: "RotateApiKey",
-      keyPrefix: SELLER_ROTATED_KEY_PREFIX,
+      keyPrefix: DEMO_ROTATED_KEY_PREFIX,
     },
     context,
   });

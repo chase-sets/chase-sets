@@ -4,6 +4,7 @@ import type { CheckoutSessionServices } from "./runtime";
 import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
+  normalizeRequestedBalanceCreditAmount,
 } from "../../../support/request-support/checkout-confirmation";
 
 function requireCheckoutAccess(
@@ -59,7 +60,7 @@ function parseSelectedOptions(value: unknown) {
     : [];
 }
 
-export function createBuyerCheckoutSessionRoutes(
+export function createAccountCheckoutSessionRoutes(
   services: CheckoutSessionServices,
 ) {
   const app = new Hono<CheckoutApiEnv>();
@@ -70,7 +71,7 @@ export function createBuyerCheckoutSessionRoutes(
       return access.response;
     }
 
-    const context = c.get("context");
+      const context = c.get("context");
     if (!context) {
       return c.json({ error: "Authentication context missing." }, 401);
     }
@@ -175,7 +176,11 @@ export function createBuyerCheckoutSessionRoutes(
       return c.json({ error: "Authentication context missing." }, 401);
     }
 
-    const sessionId = c.req.param("sessionId");
+      const sessionId = c.req.param("sessionId");
+      const body = await c.req.json().catch(() => ({}));
+      const requestedBalanceCreditAmount = normalizeRequestedBalanceCreditAmount(
+        body.requestedBalanceCreditAmount,
+      );
 
     try {
       let session = await services.getSession(sessionId, access.actor.accountId);
@@ -207,6 +212,7 @@ export function createBuyerCheckoutSessionRoutes(
         c.req.raw,
         sessionId,
         orderIds,
+        requestedBalanceCreditAmount,
       );
       await services.recordPaymentStarted(
         {

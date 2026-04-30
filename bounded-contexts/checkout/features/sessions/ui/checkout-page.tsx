@@ -15,6 +15,7 @@ import {
   Stack,
   Surface,
   Text,
+  TextInput,
 } from "@chase-sets/design-system";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 
@@ -26,10 +27,12 @@ function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
 
 export function CheckoutSessionPage({
   session,
+  wallet,
   errorMessage,
   isSubmitting = false,
 }: {
   session: CheckoutSessionRow;
+  wallet?: { available_balance_amount: string; currency_code: string } | null;
   errorMessage?: string | null;
   isSubmitting?: boolean;
 }) {
@@ -50,6 +53,14 @@ export function CheckoutSessionPage({
               ? "Order totals created"
               : "Calculated when purchases are created",
           },
+          ...(wallet
+            ? [
+                {
+                  label: "Available balance",
+                  value: `${wallet.available_balance_amount} ${wallet.currency_code.toUpperCase()}`,
+                },
+              ]
+            : []),
         ]}
         total={hasPayment ? "Payment ready" : "Ready to create purchases"}
         totalLabel="Checkout status"
@@ -165,6 +176,17 @@ export function CheckoutSessionPage({
                           { value: "expedited", label: "Expedited" },
                           { value: "priority", label: "Priority signature" },
                         ]}
+                      />
+                      <TextInput
+                        label="Use balance"
+                        name="requestedBalanceCreditAmount"
+                        placeholder="0.00"
+                        inputMode="decimal"
+                        description={
+                          wallet
+                            ? `${wallet.available_balance_amount} ${wallet.currency_code.toUpperCase()} available for platform purchases`
+                            : "Apply available wallet balance to this checkout"
+                        }
                       />
                       <Divider />
                       <Button

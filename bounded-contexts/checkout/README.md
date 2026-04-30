@@ -30,6 +30,6 @@ Checkout owns buyer purchase intent and the active purchase workflow before paym
 
 ## Development Data
 
-Checkout seeds a demo buyer cart and a started cart checkout session owned entirely by this context. Ordering seeds only order commitments and must not recreate cart data.
+Checkout seeds a demo account cart and a started cart checkout session owned entirely by this context. Ordering seeds only order commitments and must not recreate cart data.
 
 This is a greenfield codebase, so local development environments should reset/bootstrap schemas when moving across the cart ownership change. Obsolete Ordering cart read-model tables can be dropped during a dev refresh; Checkout owns `checkout_cart_line_pages` and `checkout_session_pages`, while Payments owns payment read models.

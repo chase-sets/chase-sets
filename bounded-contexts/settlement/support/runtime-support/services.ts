@@ -7,10 +7,12 @@ import {
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
+import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 
 export type SettlementServices = Readonly<{
   wallets: ReturnType<typeof createWalletRuntime>;
   payouts: ReturnType<typeof createPayoutRuntime>;
+  payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -27,17 +29,28 @@ export function createSettlementServices(
     checkpointStore,
     db,
   });
+  const payoutReadiness = createPayoutReadinessRuntime({
+    eventStore,
+    checkpointStore,
+    db,
+  });
   const payouts = createPayoutRuntime({
     eventStore,
     checkpointStore,
     db,
     wallets,
+    payoutReadiness,
   });
 
   return {
     wallets,
     payouts,
-    projectors: [...wallets.projectors, ...payouts.projectors],
+    payoutReadiness,
+    projectors: [
+      ...wallets.projectors,
+      ...payoutReadiness.projectors,
+      ...payouts.projectors,
+    ],
     pool,
     db,
   };

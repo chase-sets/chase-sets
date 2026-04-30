@@ -26,8 +26,8 @@ function createSeedContext(): EventStoreContext {
   return {
     tenantId: "tnt_seed_development" as never,
     audit: {
-      performedByUserId: identitySeedIds.seller.userId,
-      forAccountId: identitySeedIds.seller.accountId,
+      performedByUserId: identitySeedIds.demo.userId,
+      forAccountId: identitySeedIds.demo.accountId,
     },
   };
 }

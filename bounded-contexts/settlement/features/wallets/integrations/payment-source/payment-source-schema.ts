@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS settlement_payment_sources (
   buyer_account_id text NOT NULL,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   amount numeric(12,2) NOT NULL,
+  balance_credit_amount numeric(12,2) NOT NULL DEFAULT 0,
+  processor_amount numeric(12,2) NOT NULL DEFAULT 0,
   currency_code text NOT NULL,
   processor_name text NOT NULL,
   processor_payment_reference text NOT NULL,
@@ -21,6 +23,12 @@ CREATE TABLE IF NOT EXISTS settlement_payment_sources (
 
 CREATE INDEX IF NOT EXISTS settlement_payment_sources_status_idx
   ON settlement_payment_sources (status, updated_at DESC, payment_id DESC);
+
+ALTER TABLE settlement_payment_sources
+  ADD COLUMN IF NOT EXISTS balance_credit_amount numeric(12,2) NOT NULL DEFAULT 0;
+
+ALTER TABLE settlement_payment_sources
+  ADD COLUMN IF NOT EXISTS processor_amount numeric(12,2) NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS settlement_refund_sources (
   refund_id text PRIMARY KEY,

@@ -3,6 +3,11 @@ import {
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
 export type {
+  BalanceCreditResolver,
+  BalanceCreditResolution,
+} from "./features/payments/api/balance-credit-resolver";
+export { normalizeRequestedBalanceCreditAmount } from "./features/payments/api/balance-credit-request";
+export type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
   PaymentProcessorWebhookEvent,

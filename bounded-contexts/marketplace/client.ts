@@ -112,7 +112,7 @@ export function createMarketplaceApiClient({
       query = "",
     ): Promise<ListResponse<MarketplaceListingListItem>> {
       return parseJsonResponse(
-        await client.seller.listings.$get({
+        await client.account.listings.$get({
           query: queryFromString(query),
           header: headers,
         }),
@@ -122,7 +122,7 @@ export function createMarketplaceApiClient({
       query = "",
     ): Promise<ListResponse<MarketplaceListingInventoryItemOption>> {
       return parseJsonResponse(
-        await client.seller["listing-inventory"].$get({
+        await client.account["listing-inventory"].$get({
           query: queryFromString(query),
           header: headers,
         }),
@@ -130,7 +130,7 @@ export function createMarketplaceApiClient({
     },
     async getSellerListing(id: string): Promise<MarketplaceListingDetail> {
       return parseJsonResponse(
-        await client.seller.listings[":id"].$get({
+        await client.account.listings[":id"].$get({
           param: { id },
           header: headers,
         }),
@@ -138,7 +138,7 @@ export function createMarketplaceApiClient({
     },
     async createListing(body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.seller.listings.$post({
+        await client.account.listings.$post({
           json: body,
           header: headers,
         }),
@@ -148,7 +148,7 @@ export function createMarketplaceApiClient({
       body: Record<string, unknown>,
     ): Promise<MarketplaceListingTermsPreview> {
       return parseJsonResponse(
-        await client.seller.listings.preview.$post({
+        await client.account.listings.preview.$post({
           json: body,
           header: headers,
         }),
@@ -156,7 +156,7 @@ export function createMarketplaceApiClient({
     },
     async updateListingPrice(id: string, body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.seller.listings[":id"].price.$post({
+        await client.account.listings[":id"].price.$post({
           param: { id },
           json: body,
           header: headers,
@@ -165,7 +165,7 @@ export function createMarketplaceApiClient({
     },
     async updateListingQuantityCap(id: string, body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.seller.listings[":id"]["quantity-cap"].$post({
+        await client.account.listings[":id"]["quantity-cap"].$post({
           param: { id },
           json: body,
           header: headers,
@@ -174,7 +174,7 @@ export function createMarketplaceApiClient({
     },
     async publishListing(id: string) {
       return parseJsonResponse(
-        await client.seller.listings[":id"].publish.$post({
+        await client.account.listings[":id"].publish.$post({
           param: { id },
           json: {},
           header: headers,
@@ -183,7 +183,7 @@ export function createMarketplaceApiClient({
     },
     async pauseListing(id: string) {
       return parseJsonResponse(
-        await client.seller.listings[":id"].pause.$post({
+        await client.account.listings[":id"].pause.$post({
           param: { id },
           json: {},
           header: headers,
@@ -192,7 +192,7 @@ export function createMarketplaceApiClient({
     },
     async withdrawListing(id: string) {
       return parseJsonResponse(
-        await client.seller.listings[":id"].withdraw.$post({
+        await client.account.listings[":id"].withdraw.$post({
           param: { id },
           json: {},
           header: headers,
@@ -203,7 +203,7 @@ export function createMarketplaceApiClient({
       query = "",
     ): Promise<ListResponse<SubmittedBuyerOfferListItem>> {
       return parseJsonResponse(
-        await client.buyer["submitted-buyer-offers"].$get({
+        await client.account.offers.submitted.$get({
           query: queryFromString(query),
           header: headers,
         }),
@@ -211,7 +211,7 @@ export function createMarketplaceApiClient({
     },
     async getSubmittedBuyerOffer(id: string): Promise<SubmittedBuyerOfferDetail> {
       return parseJsonResponse(
-        await client.buyer["submitted-buyer-offers"][":id"].$get({
+        await client.account.offers.submitted[":id"].$get({
           param: { id },
           header: headers,
         }),
@@ -219,7 +219,7 @@ export function createMarketplaceApiClient({
     },
     async createSubmittedBuyerOffer(body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.buyer["submitted-buyer-offers"].$post({
+        await client.account.offers.submitted.$post({
           json: body,
           header: headers,
         }),
@@ -229,7 +229,7 @@ export function createMarketplaceApiClient({
       query = "",
     ): Promise<ListResponse<BuyerOfferMatchListItem>> {
       return parseJsonResponse(
-        await client.seller["buyer-offer-matches"].$get({
+        await client.account.offers.matches.$get({
           query: queryFromString(query),
           header: headers,
         }),
@@ -237,7 +237,7 @@ export function createMarketplaceApiClient({
     },
     async getBuyerOfferMatch(id: string): Promise<BuyerOfferMatchDetail> {
       return parseJsonResponse(
-        await client.seller["buyer-offer-matches"][":id"].$get({
+        await client.account.offers.matches[":id"].$get({
           param: { id },
           header: headers,
         }),
@@ -245,7 +245,7 @@ export function createMarketplaceApiClient({
     },
     async acceptBuyerOfferMatch(id: string) {
       return parseJsonResponse(
-        await client.seller["buyer-offer-matches"][":id"].accept.$post({
+        await client.account.offers.matches[":id"].accept.$post({
           param: { id },
           json: {},
           header: headers,
@@ -254,14 +254,14 @@ export function createMarketplaceApiClient({
     },
     async getBuyerOfferMatchSellList(): Promise<ListResponse<BuyerOfferMatchListItem>> {
       return parseJsonResponse(
-        await client.seller["buyer-offer-match-sell-list"].$get({
+        await client.account.offers["match-sell-list"].$get({
           header: headers,
         }),
       );
     },
     async addBuyerOfferMatchSellListItem(body: Record<string, unknown>) {
       return parseJsonResponse(
-        await client.seller["buyer-offer-match-sell-list"].$post({
+        await client.account.offers["match-sell-list"].$post({
           json: body,
           header: headers,
         }),
@@ -269,7 +269,7 @@ export function createMarketplaceApiClient({
     },
     async acceptBuyerOfferMatchSellList() {
       return parseJsonResponse(
-        await client.seller["buyer-offer-match-sell-list"].accept.$post({
+        await client.account.offers["match-sell-list"].accept.$post({
           json: {},
           header: headers,
         }),

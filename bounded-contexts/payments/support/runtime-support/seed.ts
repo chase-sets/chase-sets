@@ -139,20 +139,20 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   const pendingCheckoutOrder = await getSeedOrder(
     pool,
     orderingReservedSeedIds.orders.checkoutPending,
-    identitySeedIds.buyer.accountId,
+    identitySeedIds.collector.accountId,
   );
   const acceptedOfferOrder = await getSeedOrder(
     pool,
     orderingReservedSeedIds.orders.acceptedOfferReady,
-    identitySeedIds.buyer.accountId,
+    identitySeedIds.collector.accountId,
   );
   const buyerContext = createSeedContext(
-    identitySeedIds.buyer.accountId,
-    identitySeedIds.buyer.userId,
+    identitySeedIds.collector.accountId,
+    identitySeedIds.collector.userId,
   );
   const sellerContext = createSeedContext(
-    identitySeedIds.seller.accountId,
-    identitySeedIds.seller.userId,
+    identitySeedIds.demo.accountId,
+    identitySeedIds.demo.userId,
   );
 
   const createPayment = async (paymentId: PaymentId, order: OrderRow, createdAt: string) => {

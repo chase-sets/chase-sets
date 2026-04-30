@@ -13,16 +13,19 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
+  compareMoney,
   normalizeCurrencyCode,
   normalizeMoneyAmount,
   normalizeOrderIds,
   normalizeRequiredText,
   PaymentsDomainError,
+  subtractMoney,
 } from "../../../support/runtime-support/common";
 import type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
 } from "../../../support/runtime-support/processor-gateway";
+import type { BalanceCreditResolver } from "./balance-credit-resolver";
 import { listPaymentOrderInputs } from "../integrations/order-input/order-input-queries";
 import { buildPaymentProjectionHandlers } from "../read-model/projection";
 import {
@@ -45,6 +48,7 @@ type PaymentRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
+  balanceCreditResolver?: BalanceCreditResolver;
 }>;
 
 function sumOrderAmounts(
@@ -119,6 +123,7 @@ export type PaymentServices = Readonly<{
       currencyCode?: string;
       sourceContext?: string | null;
       sourceReferenceId?: string | null;
+      requestedBalanceCreditAmount?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }>>;
@@ -176,22 +181,62 @@ export function createPaymentRuntime(
       const orderIds = normalizeOrderIds(params.orderIds);
       const orders = await loadBuyerOrders(deps.db, orderIds, buyerAccountId);
       const amount = sumOrderAmounts(orders);
+      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
+      const requestedBalanceCreditAmount = normalizeMoneyAmount(
+        params.requestedBalanceCreditAmount ?? "0.00",
+        {
+          fieldName: "Balance credit amount",
+          allowZero: true,
+        },
+      );
+      const balanceCredit = deps.balanceCreditResolver
+        ? await deps.balanceCreditResolver.resolveBalanceCredit({
+            buyerAccountId,
+            currencyCode,
+            requestedAmount: requestedBalanceCreditAmount,
+            orderTotalAmount: amount,
+          })
+        : {
+            requestedAmount: requestedBalanceCreditAmount,
+            appliedAmount: "0.00",
+            remainingExternalAmount: amount,
+          };
+      const balanceCreditAmount = normalizeMoneyAmount(balanceCredit.appliedAmount, {
+        fieldName: "Balance credit amount",
+        allowZero: true,
+      });
+      const processorAmount = normalizeMoneyAmount(
+        balanceCredit.remainingExternalAmount || subtractMoney(amount, balanceCreditAmount),
+        {
+          fieldName: "External payment amount",
+          allowZero: true,
+        },
+      );
+      if (compareMoney(balanceCreditAmount, amount) > 0) {
+        throw new PaymentsDomainError("Balance credit cannot exceed the payment amount.");
+      }
       const marketplaceFeeAmount = sumFeeAmounts(orders, "marketplace_fee_amount");
       const paymentFeeAmount = sumFeeAmounts(orders, "payment_fee_amount");
       const sellerNetAmount = sumFeeAmounts(orders, "seller_net_amount");
       const paymentId = createId("pay") as PaymentId;
-      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
-      const processorPayment = await deps.processorGateway.createPaymentIntent({
-        paymentId,
-        buyerAccountId,
-        orderIds,
-        amount,
-        currencyCode,
-        description:
-          orderIds.length === 1
-            ? `Chase Sets order ${orderIds[0]}`
-            : `Chase Sets checkout for ${orderIds.length} orders`,
-      });
+      const processorPayment = compareMoney(processorAmount, "0.00") === 0
+        ? {
+            processorName: publicConfig.processorName,
+            processorPaymentReference: `balance-credit:${paymentId}`,
+            processorClientSecret: null,
+            processorStatus: "balance-credit-captured",
+          }
+        : await deps.processorGateway.createPaymentIntent({
+            paymentId,
+            buyerAccountId,
+            orderIds,
+            amount: processorAmount,
+            currencyCode,
+            description:
+              orderIds.length === 1
+                ? `Chase Sets order ${orderIds[0]}`
+                : `Chase Sets checkout for ${orderIds.length} orders`,
+          });
       const createdAt = new Date().toISOString();
 
       await commandHandler({
@@ -202,6 +247,8 @@ export function createPaymentRuntime(
           buyerAccountId,
           orderIds,
           amount,
+          balanceCreditAmount,
+          processorAmount,
           marketplaceFeeAmount,
           paymentFeeAmount,
           sellerNetAmount,
@@ -217,11 +264,25 @@ export function createPaymentRuntime(
         context,
       });
 
+      if (compareMoney(processorAmount, "0.00") === 0) {
+        await commandHandler({
+          streamId: `payments.payment-${paymentId}`,
+          command: {
+            type: "RecordPaymentCapture",
+            processorStatus: processorPayment.processorStatus,
+            capturedAt: createdAt,
+          },
+          context,
+        });
+      }
+
       return {
         payment_id: paymentId,
         buyer_account_id: buyerAccountId,
         order_ids: orderIds,
         amount,
+        balance_credit_amount: balanceCreditAmount,
+        processor_amount: processorAmount,
         marketplace_fee_amount: marketplaceFeeAmount,
         payment_fee_amount: paymentFeeAmount,
         seller_net_amount: sellerNetAmount,
@@ -232,12 +293,14 @@ export function createPaymentRuntime(
         processor_status: processorPayment.processorStatus,
         source_context: sourceContext,
         source_reference_id: sourceReferenceId,
-        status: "pending-confirmation",
+        status: compareMoney(processorAmount, "0.00") === 0
+          ? "captured"
+          : "pending-confirmation",
         failure_code: null,
         failure_message: null,
         created_at: createdAt,
         updated_at: createdAt,
-        captured_at: null,
+        captured_at: compareMoney(processorAmount, "0.00") === 0 ? createdAt : null,
         failed_at: null,
         cancelled_at: null,
         processor_publishable_key: publicConfig.publishableKey,

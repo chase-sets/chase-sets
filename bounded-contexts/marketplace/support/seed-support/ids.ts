@@ -20,22 +20,22 @@ export const marketplaceReservedSeedIds = {
     cardVaultMewtwoBudget: "lst_seed_card_vault_mewtwo_budget" as ListingId,
     prismaticEvolutionsPaused: "lst_seed_prismatic_evolutions_paused" as ListingId,
     surgingSparksWithdrawn: "lst_seed_surging_sparks_withdrawn" as ListingId,
-    sealedSellerSurgingSparksActive:
+    sealedStockroomSurgingSparksActive:
       "lst_seed_sealed_seller_surging_sparks_active" as ListingId,
-    sealedSellerSurgingSparksPremium:
+    sealedStockroomSurgingSparksPremium:
       "lst_seed_sealed_seller_surging_sparks_premium" as ListingId,
     twilightMasqueradeEliteTrainerActive:
       "lst_seed_twilight_masquerade_etb_active" as ListingId,
     cardVaultTwilightMasqueradeEliteTrainer:
       "lst_seed_card_vault_twilight_masquerade_etb" as ListingId,
-    sealedSellerTwilightMasqueradeEliteTrainer:
+    sealedStockroomTwilightMasqueradeEliteTrainer:
       "lst_seed_sealed_seller_twilight_masquerade_etb" as ListingId,
   },
   offers: {
     charizardBaseSetNearMint: "off_seed_charizard_base_set_nm" as OfferId,
     charizardBaseSetPlayset: "off_seed_charizard_base_set_playset" as OfferId,
     charizardBaseSetHighRoller: "off_seed_charizard_base_set_high_roller" as OfferId,
-    charizardBaseSetValueBuyer: "off_seed_charizard_base_set_value_buyer" as OfferId,
+    charizardBaseSetValueTrader: "off_seed_charizard_base_set_value_trader" as OfferId,
     pikachuJungleCollectorLot: "off_seed_pikachu_jungle_collector_lot" as OfferId,
     pikachuJungleQuickSale: "off_seed_pikachu_jungle_quick_sale" as OfferId,
     pikachuJungleBinderFill: "off_seed_pikachu_jungle_binder_fill" as OfferId,
@@ -45,7 +45,7 @@ export const marketplaceReservedSeedIds = {
     pikachuJungleFloorBid: "off_seed_pikachu_jungle_floor_bid" as OfferId,
     lugiaNeoGenesisCollector: "off_seed_lugia_neo_genesis_collector" as OfferId,
     lugiaNeoGenesisHighRoller: "off_seed_lugia_neo_genesis_high_roller" as OfferId,
-    lugiaNeoGenesisValueBuyer: "off_seed_lugia_neo_genesis_value_buyer" as OfferId,
+    lugiaNeoGenesisValueTrader: "off_seed_lugia_neo_genesis_value_trader" as OfferId,
     pikachuPrismaticEvolutionsModern: "off_seed_pikachu_prismatic_modern" as OfferId,
     pikachuPrismaticEvolutionsBinder:
       "off_seed_pikachu_prismatic_binder" as OfferId,

@@ -137,7 +137,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const orderingApi = createOrderingRequestApiClient(request);
 
   try {
-    const payment = await paymentsApi.getBuyerPayment(params.paymentId!);
+    const payment = await paymentsApi.getAccountPayment(params.paymentId!);
     const orders = await Promise.all(
       payment.order_ids.map((orderId) => orderingApi.getPurchase(orderId)),
     );
@@ -313,6 +313,8 @@ export default function MarketplaceAccountPaymentRoute() {
               title="Payment Summary"
               lines={[
                 { label: "Status", value: <Badge tone={statusTone(data.payment.status)}>{data.payment.status}</Badge> },
+                { label: "Wallet balance used", value: formatMoney(data.payment.balance_credit_amount) },
+                { label: "External payment", value: formatMoney(data.payment.processor_amount) },
                 { label: "Marketplace fees", value: formatMoney(data.payment.marketplace_fee_amount) },
                 { label: "Payment fees", value: formatMoney(data.payment.payment_fee_amount) },
                 { label: "Seller net", value: formatMoney(data.payment.seller_net_amount) },
@@ -368,6 +370,17 @@ export default function MarketplaceAccountPaymentRoute() {
                   <Text>Stripe payment confirmation is not configured for this environment.</Text>
                 </Surface>
               )}
+            </PageSection>
+          ) : data.payment.processor_amount === "0.00" ? (
+            <PageSection title="Wallet Balance">
+              <Surface elevated glow>
+                <Stack gap={2}>
+                  <Badge tone="success">Paid with balance</Badge>
+                  <Text>
+                    This purchase was covered by available wallet balance and did not need an external charge.
+                  </Text>
+                </Stack>
+              </Surface>
             </PageSection>
           ) : null}
 

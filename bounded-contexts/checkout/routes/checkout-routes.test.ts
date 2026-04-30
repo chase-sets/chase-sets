@@ -88,7 +88,9 @@ describe("checkout web routes", () => {
     expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_1", {
       shippingOption: "priority",
     });
-    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1");
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", {
+      requestedBalanceCreditAmount: null,
+    });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
   });

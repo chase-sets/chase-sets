@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { module as identityModule } from "@chase-sets/identity";
+import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
   attachWriteDrainMiddleware,
@@ -42,8 +43,12 @@ export function createPlatformApiHost(
   options: Parameters<typeof createApiHost>[2],
 ): ApiHostRuntime {
   const commercialTermsPool = options.pools["commercial-terms"];
+  const settlementPool = options.pools.settlement;
   const commercialTermsResolver = commercialTermsPool
     ? createCommercialTermsResolver({ db: commercialTermsPool })
+    : undefined;
+  const balanceCreditResolver = settlementPool
+    ? createSettlementBalanceCreditResolver(settlementPool)
     : undefined;
 
   return createApiHost(apiContextRegistry, "platform-api", {
@@ -51,6 +56,7 @@ export function createPlatformApiHost(
     hostPorts: {
       ...options.hostPorts,
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
     },
   });
 }

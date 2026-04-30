@@ -5,11 +5,12 @@ import type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
 type PaymentsApiApp = ReturnType<typeof buildPaymentsApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
-export type CreateBuyerPaymentRequest = Readonly<{
+export type CreateAccountPaymentRequest = Readonly<{
   orderIds: readonly string[];
   currencyCode?: string;
   sourceContext?: string | null;
   sourceReferenceId?: string | null;
+  requestedBalanceCreditAmount?: string | null;
 }>;
 
 export class PaymentsApiError extends Error {
@@ -60,19 +61,19 @@ export function createPaymentsApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async createBuyerPayment(
-      body: CreateBuyerPaymentRequest,
+    async createAccountPayment(
+      body: CreateAccountPaymentRequest,
     ): Promise<PaymentsPaymentDetail> {
       return parseJsonResponse(
-        await client.buyer.payments.$post({
+        await client.account.payments.$post({
           json: body,
           header: headers,
         }),
       );
     },
-    async getBuyerPayment(paymentId: string): Promise<PaymentsPaymentDetail> {
+    async getAccountPayment(paymentId: string): Promise<PaymentsPaymentDetail> {
       return parseJsonResponse(
-        await client.buyer.payments[":id"].$get({
+        await client.account.payments[":id"].$get({
           param: { id: paymentId },
           header: headers,
         }),

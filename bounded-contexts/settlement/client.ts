@@ -6,6 +6,7 @@ import type {
   SettlementWalletRow,
 } from "./features/wallets/read-model/queries";
 import type { SettlementPayoutRow } from "./features/payouts/read-model/queries";
+import type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
 
 type SettlementApiApp = ReturnType<typeof buildSettlementApi>;
 
@@ -82,6 +83,19 @@ export function createSettlementApiClient({
         }),
       );
     },
+    async getPayoutReadiness(): Promise<SettlementPayoutReadinessRow> {
+      return parseJsonResponse(
+        await client["payout-readiness"].$get({ header: headers }),
+      );
+    },
+    async recordPayoutProviderStatus(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client["payout-readiness"]["provider-status"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async getPayout(payoutId: string): Promise<SettlementPayoutRow> {
       return parseJsonResponse(
         await client.payouts[":id"].$get({
@@ -127,4 +141,5 @@ export function createSettlementApiClient({
 
 export type { SettlementWalletRow, SettlementLedgerEntryRow } from "./features/wallets/read-model/queries";
 export type { SettlementPayoutRow } from "./features/payouts/read-model/queries";
+export type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
 export const settlementApi = createSettlementApiClient();

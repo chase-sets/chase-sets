@@ -128,6 +128,10 @@ describe("marketplace account payment start route", () => {
       orderIds: ["ord_1", "ord_2"],
       orders: [buildPurchase("ord_1"), buildPurchase("ord_2")],
       autostart: true,
+      wallet: {
+        available_balance_amount: "0.00",
+        currency_code: "usd",
+      },
     });
     mockUseSubmit.mockReturnValue(submit);
 
@@ -152,12 +156,19 @@ describe("marketplace account payment start route", () => {
       vi.fn((input: string | URL | Request) => {
         const url = requestUrl(input);
 
-        if (url.includes("/api/marketplace/buyer/purchases/ord_1")) {
+        if (url.includes("/api/marketplace/account/purchases/ord_1")) {
           return Promise.resolve(jsonResponse(buildPurchase("ord_1")));
         }
 
-        if (url.includes("/api/marketplace/buyer/purchases/ord_2")) {
+        if (url.includes("/api/marketplace/account/purchases/ord_2")) {
           return Promise.resolve(jsonResponse(buildPurchase("ord_2")));
+        }
+
+        if (url.includes("/api/settlement/wallet")) {
+          return Promise.resolve(jsonResponse({
+            available_balance_amount: "12.50",
+            currency_code: "usd",
+          }));
         }
 
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
@@ -178,6 +189,7 @@ describe("marketplace account payment start route", () => {
       "ord_1",
       "ord_2",
     ]);
+    expect(result.wallet?.available_balance_amount).toBe("12.50");
   });
 
   it("creates a buyer payment and redirects into the confirmation route", async () => {
@@ -187,7 +199,7 @@ describe("marketplace account payment start route", () => {
         const url = requestUrl(input);
 
         if (
-          url.includes("/api/marketplace/buyer/payments") &&
+          url.includes("/api/marketplace/account/payments") &&
           (init?.method ?? "GET").toUpperCase() === "POST"
         ) {
           return Promise.resolve(jsonResponse({ payment_id: "pay_1" }, 201));

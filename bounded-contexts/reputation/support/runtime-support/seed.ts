@@ -52,10 +52,10 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
          WHERE author_account_id = $1
          ORDER BY eligible_at ASC, order_id ASC
          LIMIT 1`,
-        [identitySeedIds.buyer.accountId],
+        [identitySeedIds.collector.accountId],
       )
     ).rows[0]?.order_id ?? "",
-    identitySeedIds.buyer.accountId,
+    identitySeedIds.collector.accountId,
   );
 
   if (!buyerOpportunity) {
@@ -64,7 +64,7 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
 
   const sellerOpportunity = await services.reviews.getOrderReviewOpportunity(
     buyerOpportunity.order_id,
-    identitySeedIds.seller.accountId,
+    identitySeedIds.demo.accountId,
   );
 
   if (!sellerOpportunity) {
@@ -77,14 +77,14 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
       type: "SubmitReview",
       reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
       orderId: buyerOpportunity.order_id as never,
-      authorAccountId: identitySeedIds.buyer.accountId,
+      authorAccountId: identitySeedIds.collector.accountId,
       subjectAccountId: buyerOpportunity.subject_account_id as never,
       authorRole: buyerOpportunity.author_role as never,
       rating: 4,
       feedback: "Packed well and shipped exactly as described.",
       submittedAt: "2026-03-23T09:00:00.000Z",
     },
-    context: createSeedContext(identitySeedIds.buyer.accountId, identitySeedIds.buyer.userId),
+    context: createSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
   });
   await services.reviews.commandHandler({
     streamId: `reputation.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
@@ -94,7 +94,7 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
       feedback: "Packed well, shipped quickly, and matched the listing.",
       updatedAt: "2026-03-23T10:00:00.000Z",
     },
-    context: createSeedContext(identitySeedIds.buyer.accountId, identitySeedIds.buyer.userId),
+    context: createSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
   });
 
   await services.reviews.commandHandler({
@@ -103,14 +103,14 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
       type: "SubmitReview",
       reviewId: reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
       orderId: sellerOpportunity.order_id as never,
-      authorAccountId: identitySeedIds.seller.accountId,
+      authorAccountId: identitySeedIds.demo.accountId,
       subjectAccountId: sellerOpportunity.subject_account_id as never,
       authorRole: sellerOpportunity.author_role as never,
       rating: 3,
       feedback: "Responsive but asked for extra packing photos.",
       submittedAt: "2026-03-23T09:15:00.000Z",
     },
-    context: createSeedContext(identitySeedIds.seller.accountId, identitySeedIds.seller.userId),
+    context: createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
   });
   await services.reviews.commandHandler({
     streamId: `reputation.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
@@ -118,7 +118,7 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
       type: "WithdrawReview",
       withdrawnAt: "2026-03-23T10:15:00.000Z",
     },
-    context: createSeedContext(identitySeedIds.seller.accountId, identitySeedIds.seller.userId),
+    context: createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
   });
 
   await drainProjectors(services.projectors);

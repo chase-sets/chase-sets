@@ -4,6 +4,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type SettlementLedgerEntryRow,
+  type SettlementPayoutReadinessRow,
   type SettlementWalletRow,
 } from "../../support/request-support/api-client";
 import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
@@ -16,12 +17,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
   const settlementApi = createSettlementRequestApiClient(request);
 
-  const [wallet, entries] = await Promise.all([
+  const [wallet, entries, payoutReadiness] = await Promise.all([
     settlementApi.getWallet(),
     settlementApi.listWalletEntries(),
+    settlementApi.getPayoutReadiness(),
   ]);
 
-  return { wallet, entries };
+  return { wallet, entries, payoutReadiness };
 }
 
 export const meta: MetaFunction = () =>
@@ -34,6 +36,7 @@ export default function MarketplaceAccountSettlementRoute() {
     <SettlementWalletPage
       wallet={data.wallet as SettlementWalletRow}
       entries={(data.entries.items ?? []) as SettlementLedgerEntryRow[]}
+      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
     />
   );
 }

@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
-  createBuyerOfferMatchRoutes,
-  createSubmittedBuyerOfferRoutes,
+  createAccountOfferMatchRoutes,
+  createAccountSubmittedOfferRoutes,
 } from "./route";
 import type { MarketplaceOfferServices } from "./runtime";
 
@@ -31,8 +31,8 @@ function buildApp(options: Readonly<{
     await next();
   });
 
-  app.route("/buyer", createSubmittedBuyerOfferRoutes(options.services));
-  app.route("/seller", createBuyerOfferMatchRoutes(options.services));
+  app.route("/account", createAccountSubmittedOfferRoutes(options.services));
+  app.route("/account", createAccountOfferMatchRoutes(options.services));
 
   return app;
 }
@@ -83,7 +83,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/buyer/submitted-buyer-offers", {
+      new Request("http://marketplace.test/account/offers/submitted", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -126,7 +126,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/buyer/submitted-buyer-offers"),
+      new Request("http://marketplace.test/account/offers/submitted"),
     );
 
     expect(response.status).toBe(403);
@@ -171,7 +171,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/seller/buyer-offer-matches/off_1"),
+      new Request("http://marketplace.test/account/offers/matches/off_1"),
     );
 
     expect(response.status).toBe(200);
@@ -198,7 +198,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/seller/buyer-offer-matches/off_1/accept", {
+      new Request("http://marketplace.test/account/offers/matches/off_1/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -232,7 +232,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/seller/buyer-offer-match-sell-list", {
+      new Request("http://marketplace.test/account/offers/match-sell-list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ offerId: "off_1" }),
@@ -262,7 +262,7 @@ describe("marketplace offer routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://marketplace.test/seller/buyer-offer-match-sell-list/accept", {
+      new Request("http://marketplace.test/account/offers/match-sell-list/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),

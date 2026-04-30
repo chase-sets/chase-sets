@@ -83,7 +83,7 @@ describe("marketplace account purchase route", () => {
       vi.fn((input: string | URL | Request) => {
         const url = requestUrl(input);
 
-        if (url.includes("/api/marketplace/buyer/purchases/ord_1")) {
+        if (url.includes("/api/marketplace/account/purchases/ord_1")) {
           return Promise.resolve(jsonResponse(order));
         }
 

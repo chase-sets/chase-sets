@@ -87,7 +87,7 @@ describe("marketplace listing routes", () => {
         return Promise.resolve(jsonResponse({ actor: sellerActor }));
       }
 
-      if (url.includes("/api/marketplace/seller/listings/lst_1/publish")) {
+      if (url.includes("/api/marketplace/account/listings/lst_1/publish")) {
         return Promise.resolve(jsonResponse({ id: "lst_1", version: 2 }));
       }
 
@@ -115,7 +115,7 @@ describe("marketplace listing routes", () => {
     expect((result as Response).status).toBe(302);
     expect((result as Response).headers.get("Location")).toBe("/account/listings/lst_1");
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/marketplace/seller/listings/lst_1/publish"),
+      expect.stringContaining("/api/marketplace/account/listings/lst_1/publish"),
       expect.any(Object),
     );
   });

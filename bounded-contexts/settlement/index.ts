@@ -60,7 +60,10 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, void> 
         sourceContextName: "payments",
         projectionName: paymentsSubscription.projectionName,
         subscriptionVersion: paymentsSubscription.subscriptionVersion,
-        handlers: buildSettlementPaymentInputProjectionHandlers(services.db),
+        handlers: buildSettlementPaymentInputProjectionHandlers(
+          services.db,
+          services.wallets,
+        ),
         eventTypes: paymentsSubscription.eventTypes,
         streamPrefixes: paymentsSubscription.streamPrefixes,
         order: paymentsSubscription.order,

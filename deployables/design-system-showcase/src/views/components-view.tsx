@@ -109,7 +109,7 @@ export function ComponentsView() {
       <PageHeader
         eyebrow="Chase Sets Design System"
         title="Clean, modern collectibles marketplace."
-        description="The canonical UI layer for marketplace, seller, checkout, and admin surfaces."
+        description="The canonical UI layer for marketplace, trading, checkout, and admin surfaces."
       />
 
       <Grid columns={{ base: 1, xl: 2 }} gap={4} align="start">

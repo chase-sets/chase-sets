@@ -9,6 +9,7 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   SettlementApiError,
   type SettlementPayoutRow,
+  type SettlementPayoutReadinessRow,
 } from "../../support/request-support/api-client";
 import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
 import { SettlementPayoutListPage } from "../../features/payouts/ui/payout-list-page";
@@ -24,8 +25,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
   const settlementApi = createSettlementRequestApiClient(request);
 
-  const payouts = await settlementApi.listPayouts();
-  return { payouts };
+  const [payouts, payoutReadiness] = await Promise.all([
+    settlementApi.listPayouts(),
+    settlementApi.getPayoutReadiness(),
+  ]);
+  return { payouts, payoutReadiness };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -68,6 +72,7 @@ export default function MarketplaceAccountPayoutsRoute() {
   return (
     <SettlementPayoutListPage
       payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
+      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
       errorMessage={actionData?.error ?? null}
     />
   );

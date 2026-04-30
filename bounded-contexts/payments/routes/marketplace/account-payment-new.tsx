@@ -14,6 +14,10 @@ import {
 } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
+  createForwardedAuthFetch,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
+import {
   Badge,
   Button,
   CheckoutLayout,
@@ -28,6 +32,7 @@ import {
   Stack,
   Surface,
   Text,
+  TextInput,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { createPaymentsRequestApiClient } from "../../support/request-support/api-client";
@@ -42,6 +47,21 @@ function parseOrderIds(value: string | null) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+async function loadWalletBalance(request: Request) {
+  const response = await createForwardedAuthFetch(request)(
+    `${resolveRequestApiBaseUrl(request, "/api/settlement")}/wallet`,
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return response.json() as Promise<{
+    available_balance_amount: string;
+    currency_code: string;
+  }>;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -60,10 +80,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   try {
     const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getPurchase(orderId)));
+    const wallet = await loadWalletBalance(request);
     return {
       orderIds,
       orders,
       autostart: url.searchParams.get("autostart") === "1",
+      wallet,
     };
   } catch (error) {
     if (error instanceof Error && "status" in error && error.status === 404) {
@@ -88,7 +110,13 @@ export async function action({ request }: ActionFunctionArgs) {
   const paymentsApi = createPaymentsRequestApiClient(request);
 
   try {
-    const payment = await paymentsApi.createBuyerPayment({ orderIds });
+    const payment = await paymentsApi.createAccountPayment({
+      orderIds,
+      requestedBalanceCreditAmount:
+        formData.get("requestedBalanceCreditAmount") === null
+          ? null
+          : String(formData.get("requestedBalanceCreditAmount")),
+    });
     return redirect(`/account/payments/${payment.payment_id}`);
   } catch (error) {
     return {
@@ -159,6 +187,14 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 { label: "Marketplace fees", value: formatMoney(marketplaceFeeAmount) },
                 { label: "Payment fees", value: formatMoney(paymentFeeAmount) },
                 { label: "Seller net", value: formatMoney(sellerNetAmount) },
+                ...(data.wallet
+                  ? [
+                      {
+                        label: "Available balance",
+                        value: `${data.wallet.available_balance_amount} ${data.wallet.currency_code.toUpperCase()}`,
+                      },
+                    ]
+                  : []),
               ]}
               total={formatMoney(totalAmount)}
             />
@@ -203,6 +239,17 @@ export default function MarketplaceAccountPaymentNewRoute() {
               <Form method="post" ref={formRef}>
                 <Stack gap={3}>
                   <input type="hidden" name="orderIds" value={data.orderIds.join(",")} />
+                  <TextInput
+                    label="Use balance"
+                    name="requestedBalanceCreditAmount"
+                    placeholder="0.00"
+                    inputMode="decimal"
+                    description={
+                      data.wallet
+                        ? `${data.wallet.available_balance_amount} ${data.wallet.currency_code.toUpperCase()} available for platform purchases`
+                        : "Apply available wallet balance to this payment"
+                    }
+                  />
                   <Button type="submit" size="lg" leadingIcon="lock">
                     {navigation.state === "submitting" ? "Starting payment..." : "Continue to payment"}
                   </Button>

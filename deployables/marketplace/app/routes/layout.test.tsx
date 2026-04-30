@@ -53,7 +53,7 @@ describe("marketplace route layout", () => {
 
     const html = renderToString(<MarketplaceLayoutRoute />);
     const topNav = resolveMarketplaceNavItems("top-nav", actor);
-    const sellNav = topNav.find((item) => item.key === "seller-workspace");
+    const sellNav = topNav.find((item) => item.key === "selling-workspace");
     const accountNav = topNav.find((item) => item.key === "account");
 
     expect(
@@ -73,14 +73,14 @@ describe("marketplace route layout", () => {
     expect(sellNav?.children?.map((item) => item.label)).toEqual([
       "Inventory",
       "Listings",
-      "Buyer Offer Matches",
+      "Offer Matches",
       "Sales",
       "Reviews",
       "Payouts",
     ]);
     expect(accountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
-      "Submitted Buyer Offers",
+      "Submitted Offers",
     ]);
     expect(
       resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
@@ -93,8 +93,8 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/cart"');
     expect(html).toContain('href="/account/listings"');
-    expect(html).toContain('href="/account/buyer-offer-matches"');
-    expect(html).toContain('href="/account/submitted-buyer-offers"');
+    expect(html).toContain('href="/account/offers/matches"');
+    expect(html).toContain('href="/account/offers/submitted"');
     expect(html).toContain('href="/account/payouts"');
     expect(html).toContain('href="/account/reviews"');
     expect(html).toContain('href="/account/purchases"');
@@ -106,7 +106,7 @@ describe("marketplace route layout", () => {
     expect(html).not.toContain('href="/sign-in"');
   });
 
-  it("keeps account access for signed-in buyers without seller workflows", () => {
+  it("keeps account access for signed-in actors without selling workflow permissions", () => {
     const actor = {
       permissions: [
         "accounts.view",
@@ -127,7 +127,7 @@ describe("marketplace route layout", () => {
     ]);
     expect(accountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
-      "Submitted Buyer Offers",
+      "Submitted Offers",
     ]);
     expect(
       resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),

@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest";
-import type { CreateBuyerPaymentRequest } from "../client";
+import type { CreateAccountPaymentRequest } from "../client";
 
 describe("payments client request contracts", () => {
   it("types checkout-sourced buyer payment requests", () => {
@@ -7,8 +7,8 @@ describe("payments client request contracts", () => {
       orderIds: ["ord_1"],
       sourceContext: "checkout",
       sourceReferenceId: "chk_1",
-    } satisfies CreateBuyerPaymentRequest;
+    } satisfies CreateAccountPaymentRequest;
 
-    expectTypeOf(request).toMatchTypeOf<CreateBuyerPaymentRequest>();
+    expectTypeOf(request).toMatchTypeOf<CreateAccountPaymentRequest>();
   });
 });

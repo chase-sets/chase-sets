@@ -78,6 +78,32 @@ export function moneyToMinorUnits(value: string): number {
   return Math.round(Number.parseFloat(normalized) * 100);
 }
 
+function parseMoneyAmount(
+  value: string,
+  options: Readonly<{ allowZero?: boolean; fieldName?: string }> = {},
+) {
+  return Number.parseFloat(normalizeMoneyAmount(value, options));
+}
+
+export function addMoney(left: string, right: string) {
+  return (parseMoneyAmount(left, { allowZero: true }) + parseMoneyAmount(right, { allowZero: true })).toFixed(2);
+}
+
+export function subtractMoney(left: string, right: string) {
+  return (parseMoneyAmount(left, { allowZero: true }) - parseMoneyAmount(right, { allowZero: true })).toFixed(2);
+}
+
+export function compareMoney(left: string, right: string): -1 | 0 | 1 {
+  const difference = parseMoneyAmount(left, { allowZero: true }) - parseMoneyAmount(right, { allowZero: true });
+  if (difference < 0) {
+    return -1;
+  }
+  if (difference > 0) {
+    return 1;
+  }
+  return 0;
+}
+
 export function normalizeCurrencyCode(value: string): CurrencyCode {
   const normalized = value.trim().toLowerCase();
   assert(normalized === "usd", "Only USD payments are supported.");

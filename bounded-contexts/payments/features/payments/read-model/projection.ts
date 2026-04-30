@@ -11,6 +11,8 @@ export function buildPaymentProjectionHandlers(
         buyerAccountId: string;
         orderIds: string[];
         amount: string;
+        balanceCreditAmount: string;
+        processorAmount: string;
         marketplaceFeeAmount: string;
         paymentFeeAmount: string;
         sellerNetAmount: string;
@@ -30,6 +32,8 @@ export function buildPaymentProjectionHandlers(
            buyer_account_id,
            order_ids,
            amount,
+           balance_credit_amount,
+           processor_amount,
            marketplace_fee_amount,
            payment_fee_amount,
            seller_net_amount,
@@ -50,12 +54,14 @@ export function buildPaymentProjectionHandlers(
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending-confirmation', NULL, NULL, $15, $15, NULL, NULL, NULL, $16
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending-confirmation', NULL, NULL, $17, $17, NULL, NULL, NULL, $18
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              order_ids = EXCLUDED.order_ids,
              amount = EXCLUDED.amount,
+             balance_credit_amount = EXCLUDED.balance_credit_amount,
+             processor_amount = EXCLUDED.processor_amount,
              marketplace_fee_amount = EXCLUDED.marketplace_fee_amount,
              payment_fee_amount = EXCLUDED.payment_fee_amount,
              seller_net_amount = EXCLUDED.seller_net_amount,
@@ -75,6 +81,8 @@ export function buildPaymentProjectionHandlers(
           data.buyerAccountId,
           JSON.stringify(data.orderIds),
           data.amount,
+          data.balanceCreditAmount,
+          data.processorAmount,
           data.marketplaceFeeAmount,
           data.paymentFeeAmount,
           data.sellerNetAmount,

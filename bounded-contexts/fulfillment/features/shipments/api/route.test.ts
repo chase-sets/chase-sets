@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { FulfillmentApiEnv } from "../../../api";
 import {
-  createBuyerShipmentRoutes,
-  createSellerShipmentRoutes,
+  createAccountShipmentRoutes,
+  createAccountSaleShipmentRoutes,
 } from "./route";
 import type { FulfillmentShipmentServices } from "./runtime";
 
@@ -30,8 +30,8 @@ function buildSellerApp(options: Readonly<{
     await next();
   });
 
-  app.route("/buyer", createBuyerShipmentRoutes(options.services));
-  app.route("/seller", createSellerShipmentRoutes(options.services));
+  app.route("/account", createAccountShipmentRoutes(options.services));
+  app.route("/account", createAccountSaleShipmentRoutes(options.services));
 
   return app;
 }
@@ -75,7 +75,7 @@ describe("fulfillment shipment routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://fulfillment.test/seller/shipments"),
+      new Request("http://fulfillment.test/account/sales/shipments"),
     );
 
     expect(response.status).toBe(200);
@@ -106,7 +106,7 @@ describe("fulfillment shipment routes", () => {
     });
 
     const response = await app.fetch(
-      new Request("http://fulfillment.test/seller/shipments/shp_1/pack", {
+      new Request("http://fulfillment.test/account/sales/shipments/shp_1/pack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ packageCount: 1 }),

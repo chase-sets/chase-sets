@@ -37,7 +37,7 @@ export function MarketplaceSubmittedBuyerOfferDetailPage({
         title={offer.item_title}
         description="Review the details of your submitted buyer offer."
         actions={
-          <LinkButton href="/account/submitted-buyer-offers" tone="secondary">
+          <LinkButton href="/account/offers/submitted" tone="secondary">
             Back to submitted buyer offers
           </LinkButton>
         }

@@ -37,7 +37,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
-export function createBuyerOrderRoutes(services: OrderingOrderServices) {
+export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices) {
   const app = new Hono<OrderingApiEnv>();
 
   app.post("/purchases/checkout", async (c) => {
@@ -160,7 +160,7 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
   return app;
 }
 
-export function createSellerOrderRoutes(services: OrderingOrderServices) {
+export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
   const app = new Hono<OrderingApiEnv>();
 
   app.get("/sales", async (c) => {

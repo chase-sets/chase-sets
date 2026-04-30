@@ -8,8 +8,8 @@ This greenfield migration intentionally made breaking route, read-model, and dat
 
 - `/account/orders` became `/account/purchases`.
 - `/account/orders/:orderId` became `/account/purchases/:purchaseId`.
-- `/account/offers` became `/account/submitted-buyer-offers`.
-- `/account/market-offers` became `/account/buyer-offer-matches`.
+- `/account/offers` became `/account/offers/submitted`.
+- `/account/market-offers` became `/account/offers/matches`.
 - `/account/reputation` became `/account/reviews`.
 - `/account/fulfillment` was removed from trader navigation in favor of shipment and sale workflows.
 

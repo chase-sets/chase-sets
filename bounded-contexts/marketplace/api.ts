@@ -8,11 +8,11 @@ import {
 import type { MarketplaceServices } from "./support/runtime-support/services";
 import {
   createPublicListingRoutes,
-  createSellerRoutes as createSellerListingRoutes,
+  createAccountListingRoutes,
 } from "./features/listings/api/route";
 import {
-  createBuyerOfferMatchRoutes,
-  createSubmittedBuyerOfferRoutes,
+  createAccountOfferMatchRoutes,
+  createAccountSubmittedOfferRoutes,
 } from "./features/offers/api/route";
 
 export type MarketplaceApiEnv = AuthenticatedApiEnv;
@@ -28,9 +28,9 @@ export function createMarketplaceCommercialTermsResolver(
 export function buildMarketplaceApi(services: MarketplaceServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
-  app.route("/buyer", createSubmittedBuyerOfferRoutes(services.offers));
-  app.route("/seller", createSellerListingRoutes(services.listings));
-  app.route("/seller", createBuyerOfferMatchRoutes(services.offers));
+  app.route("/account", createAccountSubmittedOfferRoutes(services.offers));
+  app.route("/account", createAccountListingRoutes(services.listings));
+  app.route("/account", createAccountOfferMatchRoutes(services.offers));
   app.route("/", createPublicListingRoutes(services.listings));
 
   return app;

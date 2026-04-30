@@ -4,12 +4,14 @@
   "ownedNouns": [
     "wallet",
     "payout",
+    "payout-readiness",
     "ledger-entry"
   ],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
   "slices": [
     "wallets",
+    "payout-readiness",
     "payouts"
   ],
   "allowedSupportDirectories": [
@@ -121,6 +123,14 @@
         "Internal settlement module composition"
       ]
     },
+    "payout-readiness": {
+      "classification": "slice",
+      "purpose": "Own payout readiness behavior, provider requirement state, read models, and UI contracts for the settlement context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal settlement module composition"
+      ]
+    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by settlement-owned features and composition seams.",
@@ -139,6 +149,7 @@
       "purpose": "Provide reusable runtime-support assets shared by settlement-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
+        "payout-readiness",
         "payouts",
         "wallets"
       ],
