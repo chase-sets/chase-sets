@@ -27,7 +27,7 @@ Notes:
 - In v1, offers are not tied to a specific seller, listing, or inventory item until accepted.
 - Accounts see their submitted demand as Submitted Offers.
 - Accounts can review Offer Matches only when they have matching active listings.
-- When accepted, an offer becomes a seller-specific commitment input for Ordering.
+- When accepted, an offer becomes a commitment input for the selling account in Ordering.
 
 ## Listing Status
 

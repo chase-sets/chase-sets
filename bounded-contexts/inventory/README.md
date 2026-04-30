@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Inventory owns seller-held stock, its storage structure, its ship-from location mapping, and its operational availability.
+Inventory owns account-held stock, its storage structure, its ship-from location mapping, and its operational availability.
 
 Inventory items do not target a bare catalog item. They target a resolved product:
 
@@ -10,7 +10,7 @@ Inventory items do not target a bare catalog item. They target a resolved produc
 - `productId`
 - normalized `selectedOptions`
 
-If an item uses a `condition` dimension, that condition is chosen through the selected product options. Inventory does not maintain a separate seller-specific condition field.
+If an item uses a `condition` dimension, that condition is chosen through the selected product options. Inventory does not maintain a separate account-owned condition field.
 
 ## Owns
 
@@ -54,7 +54,7 @@ Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Invariants
 
-1. Inventory is private seller state.
+1. Inventory is private account state.
 2. Every inventory item belongs to exactly one owner account.
 3. Every inventory item belongs to exactly one resolved product and one storage location.
 4. Every storage location maps to exactly one ship-from location.

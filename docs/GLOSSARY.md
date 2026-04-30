@@ -2,6 +2,12 @@
 
 Aggregate language and projection language may differ. When they do, each model name must be used exactly within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
 
+## Account Role Language
+
+Use **Account** for identity, permissions, setup, wallet, inventory ownership, listings, navigation, and account settings.
+
+Use **Buyer** and **Seller** only when naming transaction endpoints: the buyer account pays and receives products, while the seller account provides products and receives settlement. When both meanings could be confused, use phrases such as "buyer account in this order" or "seller account for this sale."
+
 ## Buyer
 
 A **Buyer** is an account acting in the buyer role when it purchases products as part of an order.
@@ -50,7 +56,7 @@ Notes:
 
 ## Inventory Item
 
-An **Inventory Item** is a seller's stock for one specific product and storage location.
+An **Inventory Item** is account-owned stock for one specific product and storage location.
 
 Notes:
 

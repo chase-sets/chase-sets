@@ -66,7 +66,7 @@ Use these identifiers in APIs and schemas:
 
 Notes:
 
-- `product_id` identifies a catalog-defined Product, not a seller-specific listing or physical item.
+- `product_id` identifies a catalog-defined Product, not a listing, inventory item, or physical item.
 - Avoid formal `item_id` because it is ambiguous.
 
 ## Modeling Rules

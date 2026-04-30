@@ -2,16 +2,16 @@
 
 ## Purpose
 
-Checkout owns buyer purchase intent and the active purchase workflow before payment.
+Checkout owns account purchase intent and the active purchase workflow before payment.
 
 ## Owns
 
-- Buyer cart intent
+- Cart intent
 - Checkout session lifecycle
 - Checkout review state
 - Selected shipping option
 - Orchestration into Ordering and Payments
-- Cart and checkout buyer routes
+- Cart and checkout account routes
 
 ## Does Not Own
 
@@ -25,7 +25,7 @@ Checkout owns buyer purchase intent and the active purchase workflow before paym
 1. Cart is mutable saved buyer intent.
 2. Checkout session is an active purchase snapshot from cart or buy-now.
 3. Buy Now creates a checkout session directly and never uses cart as a workaround.
-4. Ordering creates seller-specific orders only after Checkout confirms a session.
+4. Ordering creates orders grouped by seller account only after Checkout confirms a session.
 5. Payments initializes external money movement only after orders exist.
 
 ## Development Data

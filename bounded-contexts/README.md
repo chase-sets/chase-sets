@@ -12,14 +12,14 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Identity](./identity/README.md) | Own users, accounts, memberships, invitations, API keys, consents, and identity-management surfaces. |
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
-| [Checkout](./checkout/README.md) | Own buyer cart intent and active checkout session orchestration. |
-| [Inventory](./inventory/README.md) | Own seller-held stock and operational availability. |
+| [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
+| [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
 | [Commercial Terms](./commercial-terms/README.md) | Own marketplace fee policy, payment fee policy, and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
-| [Ordering](./ordering/README.md) | Own seller-specific orders and commercial commitment. |
+| [Ordering](./ordering/README.md) | Own per-seller orders and commercial commitment. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
 | [Reputation](./reputation/README.md) | Own post-transaction ratings, written feedback, and canonical review summaries. |
-| [Payments](./payments/README.md) | Own external money movement and buyer-facing charges or refunds. |
+| [Payments](./payments/README.md) | Own external money movement, charges, and refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
 | [Insights](./insights/README.md) | Own cross-context reporting, analytics, and forecasting views. |
@@ -149,10 +149,12 @@ The platform host resolves route and shell composition directly from bounded-con
 
 These marketplace nouns are already fixed to a single owner:
 
-- Buyer and Seller are roles played by an Account, not separate root entities.
+- Account is the root identity for marketplace participation.
+- Buyer and Seller are transaction roles played by an Account, not separate root entities or capability classes.
+- Use Buyer and Seller when describing transaction endpoints: the buyer account pays and receives products; the seller account provides products and receives settlement.
 - Listing is owned by Marketplace.
 - Offer is owned by Marketplace.
-- Buyer Cart is owned by Checkout.
+- Cart is owned by Checkout.
 - Checkout Session is owned by Checkout.
 - Order is owned by Ordering.
 - Shipment is owned by Fulfillment.
@@ -228,8 +230,8 @@ Each context may define rich internal domain events, but only a small, stable in
 
 These scenarios should map cleanly to one owner per decision:
 
-1. Inventory owns bulk stock ingestion and seller stock for a resolved product.
-2. Commercial Terms owns fee schedules, negotiated overrides, and deterministic seller commercial snapshots.
+1. Inventory owns bulk stock ingestion and account-held stock for a resolved product.
+2. Commercial Terms owns fee schedules, negotiated overrides, and deterministic commercial snapshots.
 3. Marketplace owns listing publication and offer negotiation for products.
 4. Checkout owns cart intent and checkout sessions; Ordering owns order creation for committed products.
 5. Fulfillment owns shipment state and tracking.

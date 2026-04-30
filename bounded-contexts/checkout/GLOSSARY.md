@@ -1,12 +1,12 @@
 # Checkout Glossary
 
-## Buyer Cart
+## Cart
 
-A **Buyer Cart** is mutable saved buyer intent for one or more products before an active checkout session starts.
+A **Cart** is mutable saved purchase intent for one or more products before an active checkout session starts.
 
 ## Checkout Session
 
-A **Checkout Session** is a short-lived active purchase workflow snapshot created from either the buyer cart or a buy-now action.
+A **Checkout Session** is a short-lived active purchase workflow snapshot created from either the cart or a buy-now action.
 
 ## Source Intent
 

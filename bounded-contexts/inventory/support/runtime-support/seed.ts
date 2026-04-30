@@ -290,7 +290,7 @@ const inventoryHolds: readonly InventoryHoldSeed[] = [
     itemId: inventorySeedIds.items.charizardBaseSetNearMint,
     quantity: 1,
     reason: "Checkout hold",
-    notes: "Buyer cart awaiting payment",
+    notes: "Cart awaiting payment",
   },
   {
     holdId: inventorySeedIds.holds.pikachuPackingReleased,

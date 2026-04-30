@@ -1,0 +1,36 @@
+import { describe, expect, it } from "vitest";
+import { findAccountCapabilityLanguageViolations } from "./account-capability-language.mjs";
+
+function labelsFor(relativeFile, content) {
+  return findAccountCapabilityLanguageViolations({ relativeFile, content }).map(
+    (guard) => guard.label,
+  );
+}
+
+describe("account capability language guard", () => {
+  it("rejects buyer and seller account capability surfaces", () => {
+    expect(labelsFor("bounded-contexts/marketplace/routes/buyer/cart.ts", "")).toContain(
+      "/buyer route namespace",
+    );
+    expect(labelsFor("deployables/marketplace/app/routes/account-buyer-offers.test.tsx", "")).toContain(
+      "account-buyer-offers route test",
+    );
+    expect(labelsFor("bounded-contexts/marketplace/client.ts", "client.seller.listings()")).toContain(
+      "client.seller",
+    );
+    expect(labelsFor("bounded-contexts/identity/README.md", "seller account type")).toContain(
+      "seller account capability classification",
+    );
+  });
+
+  it("allows buyer and seller when they identify transaction endpoints", () => {
+    const transactionLanguage = `
+      An Order is between a buyer account and a seller account.
+      buyerAccountId and sellerAccountId are durable event payload fields.
+      A Shipment moves products from the seller account to the buyer account.
+      Buyer Protection and Seller net are transaction-facing labels.
+    `;
+
+    expect(labelsFor("bounded-contexts/ordering/GLOSSARY.md", transactionLanguage)).toEqual([]);
+  });
+});

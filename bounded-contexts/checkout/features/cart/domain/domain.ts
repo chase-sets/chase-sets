@@ -132,7 +132,7 @@ export const decideCheckoutCart: AggregateDecider<
     case "AddCartLine":
       assert(
         state.buyerAccountId === null || state.buyerAccountId === command.buyerAccountId,
-        "Cart is owned by a different buyer account.",
+        "Cart is owned by a different account.",
       );
       assert(
         !state.lines.some((line) => line.lineId === command.lineId),

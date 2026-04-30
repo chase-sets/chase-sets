@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Ordering owns the commercial commitment between buyer and seller after Checkout asks for seller-specific orders.
+Ordering owns the commercial commitment between buyer and seller after Checkout asks for orders grouped by seller account.
 
 Cart lines and order lines are product-scoped commitments. Ordering carries the resolved product through checkout and order creation:
 
@@ -52,10 +52,10 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Invariants
 
-1. Checkout owns buyer cart intent and checkout session lifecycle.
+1. Checkout owns cart intent and checkout session lifecycle.
 2. Ordering freezes Commercial Terms when orders are created.
 3. Checkout lines express buyer intent for a product; concrete listing and inventory matching happen when Ordering creates orders.
-4. A checkout session may produce one or more seller-specific orders.
+4. A checkout session may produce one or more orders grouped by seller account.
 5. Inventory holds are placed only when an order is committed and released if the order is cancelled while pending.
 6. In v1, orders remain `Pending Payment` or `Cancelled`; confirmation and fulfillment-readiness stay out of scope.
 

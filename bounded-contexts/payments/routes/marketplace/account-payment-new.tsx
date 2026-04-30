@@ -171,7 +171,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
       <PageHeader
         eyebrow="Secure Checkout"
         title="Start payment"
-        description="Review the seller-specific purchases created by checkout, then initialize the secure payment flow."
+        description="Review the purchases created by checkout, then initialize the secure payment flow."
         actions={
           <LinkButton href="/account/purchases" tone="secondary">
             Back to purchases
@@ -229,7 +229,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 <Badge tone="accent">Payment setup</Badge>
                 <Text weight="semibold">Ready to initialize payment</Text>
                 <Text size="sm" tone="secondary">
-                  Payment covers {data.orders.length} seller-specific purchase
+                  Payment covers {data.orders.length} purchase
                   {data.orders.length === 1 ? "" : "s"} created by checkout.
                 </Text>
               </Stack>

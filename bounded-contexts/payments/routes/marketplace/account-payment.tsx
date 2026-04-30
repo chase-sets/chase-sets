@@ -332,7 +332,7 @@ export default function MarketplaceAccountPaymentRoute() {
                 {
                   icon: "shield",
                   title: "Purchase Coverage",
-                  description: `Covers ${data.payment.order_ids.length} seller-specific purchase${data.payment.order_ids.length === 1 ? "" : "s"}.`,
+      description: `Covers ${data.payment.order_ids.length} purchase${data.payment.order_ids.length === 1 ? "" : "s"}.`,
                 },
                 {
                   icon: "creditCard",

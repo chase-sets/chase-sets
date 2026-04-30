@@ -15,7 +15,7 @@ import { normalizeRequestedBalanceCreditAmount } from "../support/request-suppor
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Choose shipping and create seller-specific purchases before payment.";
+  "Choose shipping and create purchases grouped by seller account before payment.";
 
 async function loadWalletBalance(request: Request) {
   const response = await createForwardedAuthFetch(request)(

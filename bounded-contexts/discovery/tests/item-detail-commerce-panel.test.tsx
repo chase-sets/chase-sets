@@ -410,7 +410,7 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("1 active listing")).toBeNull();
   });
 
-  it("shows seller-specific fulfillment badges when eligible offer match data is available", () => {
+  it("shows fulfillment badges for the selling account when eligible offer match data is available", () => {
     render(
       <ItemDetailPage
         data={createItem()}

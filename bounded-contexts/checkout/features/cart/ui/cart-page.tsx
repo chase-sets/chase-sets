@@ -45,7 +45,7 @@ export function CheckoutCartPage({
 
       <PageSection
         title="Current Cart"
-        description="Review quantities before checkout snapshots these items and creates seller-specific purchases."
+        description="Review quantities before checkout snapshots these items and creates purchases grouped by seller account."
       >
         <Stack gap={3}>
           {cartLines.length === 0 ? (
@@ -141,7 +141,7 @@ export function CheckoutCartPage({
                   {
                     icon: "lock",
                     title: "Secure Payment",
-                    description: "Payment starts only after seller-specific orders are created.",
+                    description: "Payment starts only after orders are grouped by seller account.",
                   },
                   {
                     icon: "truck",
@@ -159,7 +159,7 @@ export function CheckoutCartPage({
               <Surface elevated glow>
                 <Stack gap={3}>
                   <Text size="sm" tone="secondary">
-                    Continue to choose shipping and create seller-specific purchases.
+                    Continue to choose shipping and create purchases grouped by seller account.
                   </Text>
                   <form method="post" action="/checkout/start">
                     <input type="hidden" name="source" value="cart" />

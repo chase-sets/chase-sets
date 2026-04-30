@@ -45,7 +45,7 @@ Examples:
 
 ## Order Split
 
-An **Order Split** is the decomposition of a checkout session into one or more seller-specific orders.
+An **Order Split** is the decomposition of a checkout session into one or more orders grouped by seller account.
 
 ## Shipping Quote Policy
 

@@ -31,7 +31,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 ## Does Not Own
 
 - Listing aggregation
-- Seller inventory quantities or reservations
+- Inventory quantities or reservations
 - Marketplace offers or bidding workflows
 - Order creation and checkout
 - Search and discovery filtering behavior

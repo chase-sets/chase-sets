@@ -200,7 +200,7 @@ describeWithDatabase("inventory api", () => {
         body: JSON.stringify({
           quantity: 3,
           reason: "Checkout hold",
-          notes: "Buyer cart",
+          notes: "Cart",
         }),
       },
     );

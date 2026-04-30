@@ -75,7 +75,7 @@ export function CheckoutSessionPage({
           {
             icon: "lock",
             title: "Secure Payment",
-            description: "Payment starts only after seller-specific orders are created.",
+            description: "Payment starts only after orders are grouped by seller account.",
           },
           {
             icon: "truck",
@@ -92,7 +92,7 @@ export function CheckoutSessionPage({
       <PageHeader
         eyebrow="Secure Checkout"
         title="Checkout"
-        description="Choose shipping, create seller-specific purchases, and continue to payment."
+        description="Choose shipping, create purchases grouped by seller account, and continue to payment."
         actions={
           <LinkButton href="/account/cart" tone="secondary">
             Back to cart
@@ -121,7 +121,7 @@ export function CheckoutSessionPage({
 
             <PageSection
               title="Review Items"
-              description="Checkout creates seller-specific purchases with final totals before payment starts."
+              description="Checkout creates purchases grouped by seller account with final totals before payment starts."
             >
               <Stack gap={3}>
                 {lines.map((line, index) => (
