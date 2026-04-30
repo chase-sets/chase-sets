@@ -19,6 +19,8 @@ export function buildPaymentProjectionHandlers(
         processorPaymentReference: string;
         processorClientSecret: string | null;
         processorStatus: string;
+        sourceContext: string | null;
+        sourceReferenceId: string | null;
         createdAt: string;
       };
 
@@ -36,6 +38,8 @@ export function buildPaymentProjectionHandlers(
            processor_payment_reference,
            processor_client_secret,
            processor_status,
+           source_context,
+           source_reference_id,
            status,
            failure_code,
            failure_message,
@@ -46,7 +50,7 @@ export function buildPaymentProjectionHandlers(
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending-confirmation', NULL, NULL, $13, $13, NULL, NULL, NULL, $14
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending-confirmation', NULL, NULL, $15, $15, NULL, NULL, NULL, $16
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -60,6 +64,8 @@ export function buildPaymentProjectionHandlers(
              processor_payment_reference = EXCLUDED.processor_payment_reference,
              processor_client_secret = EXCLUDED.processor_client_secret,
              processor_status = EXCLUDED.processor_status,
+             source_context = EXCLUDED.source_context,
+             source_reference_id = EXCLUDED.source_reference_id,
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
@@ -77,6 +83,8 @@ export function buildPaymentProjectionHandlers(
           data.processorPaymentReference,
           data.processorClientSecret,
           data.processorStatus,
+          data.sourceContext,
+          data.sourceReferenceId,
           data.createdAt,
           event.streamVersion,
         ],

@@ -28,6 +28,7 @@ import { buildPaymentProjectionHandlers } from "../read-model/projection";
 import {
   getBuyerPayment,
   getPaymentByProcessorReference,
+  getPaymentBySource,
   type PaymentDetailRow,
 } from "../read-model/queries";
 import {
@@ -116,6 +117,8 @@ export type PaymentServices = Readonly<{
       buyerAccountId: AccountId;
       orderIds: readonly OrderId[];
       currencyCode?: string;
+      sourceContext?: string | null;
+      sourceReferenceId?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }>>;
@@ -154,6 +157,22 @@ export function createPaymentRuntime(
         params.buyerAccountId,
         "Buyer account is required.",
       ) as AccountId;
+      const sourceContext = params.sourceContext?.trim() || null;
+      const sourceReferenceId = params.sourceReferenceId?.trim() || null;
+      if (sourceContext && sourceReferenceId) {
+        const existing = await getPaymentBySource(
+          deps.db,
+          sourceContext,
+          sourceReferenceId,
+          buyerAccountId,
+        );
+        if (existing) {
+          return {
+            ...existing,
+            processor_publishable_key: publicConfig.publishableKey,
+          };
+        }
+      }
       const orderIds = normalizeOrderIds(params.orderIds);
       const orders = await loadBuyerOrders(deps.db, orderIds, buyerAccountId);
       const amount = sumOrderAmounts(orders);
@@ -191,6 +210,8 @@ export function createPaymentRuntime(
           processorPaymentReference: processorPayment.processorPaymentReference,
           processorClientSecret: processorPayment.processorClientSecret,
           processorStatus: processorPayment.processorStatus,
+          sourceContext,
+          sourceReferenceId,
           createdAt,
         },
         context,
@@ -209,6 +230,8 @@ export function createPaymentRuntime(
         processor_payment_reference: processorPayment.processorPaymentReference,
         processor_client_secret: processorPayment.processorClientSecret,
         processor_status: processorPayment.processorStatus,
+        source_context: sourceContext,
+        source_reference_id: sourceReferenceId,
         status: "pending-confirmation",
         failure_code: null,
         failure_message: null,

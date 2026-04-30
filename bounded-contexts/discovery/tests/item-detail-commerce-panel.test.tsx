@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { Button, Stack } from "@chase-sets/design-system";
 import { afterEach, describe, expect, it } from "vitest";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 import {
   ItemCommercePanel,
+  CheckoutPurchaseIntentSection,
   MarketplaceSellerRegistrationSection,
 } from "../routes/item-detail";
 import type {
@@ -208,6 +210,76 @@ describe("item detail commerce panel", () => {
     expect(buyDrawer).toBeTruthy();
     expect(within(buyDrawer).getByText("Mobile buy action")).toBeTruthy();
     expect(within(buyDrawer).getByRole("button", { name: "Mobile footer buy" })).toBeTruthy();
+    expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
+  });
+
+  it("keeps checkout purchase actions available in the mobile buy drawer", () => {
+    render(
+      <ItemDetailPage
+        data={createItem()}
+        renderCommerce={(context) => {
+          const renderBuyActions = (formId: string) => (
+            <Stack gap={2}>
+              <Button
+                form={formId}
+                type="submit"
+                name="intent"
+                value="buy-now"
+                disabled={!context.selectedProductId || !context.selectedListing}
+                block
+              >
+                Buy now
+              </Button>
+              <Button
+                form={formId}
+                type="submit"
+                name="intent"
+                value="add-to-cart"
+                tone="secondary"
+                disabled={!context.selectedProductId}
+                block
+              >
+                Add to cart
+              </Button>
+            </Stack>
+          );
+
+          return {
+            buy: <div>Desktop buy rail</div>,
+            offer: <div>Make an offer</div>,
+            mobile: {
+              buy: {
+                content: (
+                  <CheckoutPurchaseIntentSection
+                    formId="mobile-buy-box"
+                    panelVariant="plain"
+                    actions={null}
+                    catalogItemId={context.itemId}
+                    productId={context.selectedProductId}
+                    selectedListing={context.selectedListing}
+                    itemTitle={context.itemTitle}
+                    selectedOptions={context.selectedProductOptions}
+                    productSummary={context.selectedProductSummary}
+                    visibleListingCount={context.visibleListings.length}
+                  />
+                ),
+                footer: renderBuyActions("mobile-buy-box"),
+              },
+            },
+          };
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+
+    const buyDrawer = screen.getByRole("dialog", { name: "Buy selected product" });
+    expect(within(buyDrawer).getByRole("spinbutton", { name: /Quantity/ }))
+      .toBeTruthy();
+    expect(within(buyDrawer).getByRole("button", { name: "Buy now" }))
+      .not.toHaveProperty("disabled", true);
+    expect(within(buyDrawer).getByRole("button", { name: "Add to cart" }))
+      .not.toHaveProperty("disabled", true);
     expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
   });
 
@@ -452,6 +524,26 @@ describe("item detail commerce panel", () => {
       "disabled",
       true,
     );
+  });
+
+  it("keeps shipping out of the item buy panel", () => {
+    render(
+      <CheckoutPurchaseIntentSection
+        catalogItemId="cat_charizard"
+        productId="cat_charizard::"
+        selectedListing={baseListing}
+        itemTitle="Charizard"
+        selectedOptions={[]}
+        productSummary="Raw / Near Mint"
+        visibleListingCount={1}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add to cart" })).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: /Quantity/ })).toBeTruthy();
+    expect(screen.queryByLabelText("Shipping")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: /shipping/i })).toBeNull();
   });
 
   it("changes the selected offer when another offer is clicked", () => {

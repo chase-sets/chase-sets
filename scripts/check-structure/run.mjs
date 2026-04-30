@@ -467,6 +467,70 @@ function resolveExistingModulePath(rootDir, relativeSpecifier) {
   return null;
 }
 
+function readRelativeModuleSource(relativeSpecifier) {
+  const resolvedPath = resolveExistingModulePath(repoRoot, relativeSpecifier);
+  if (!resolvedPath) {
+    return null;
+  }
+
+  return readFileSync(resolvedPath, "utf8");
+}
+
+function stripKnownModuleExtension(relativeFile) {
+  for (const extension of moduleFileExtensions) {
+    if (relativeFile.endsWith(extension)) {
+      return relativeFile.slice(0, -extension.length);
+    }
+  }
+
+  return relativeFile;
+}
+
+function isExportedFromContextServer(supportFile, usageRecord) {
+  const serverSource = readRelativeModuleSource(`${usageRecord.contextRoot}/server`);
+  if (!serverSource) {
+    return false;
+  }
+
+  const contextRootPath = path.join(repoRoot, usageRecord.contextRoot);
+  for (const specifier of extractImportSpecifiers(serverSource)) {
+    const resolvedPath = resolveExistingModulePath(contextRootPath, specifier);
+    if (!resolvedPath) {
+      continue;
+    }
+
+    if (stripKnownModuleExtension(normalizeRelative(resolvedPath)) === supportFile) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isRequestSupportAdapter(supportFile, usageRecord, contextManifests) {
+  if (usageRecord.supportDirectory !== "request-support") {
+    return false;
+  }
+
+  const context = contextManifests.get(usageRecord.contextRoot);
+  if (!context) {
+    return false;
+  }
+
+  if (isExportedFromContextServer(supportFile, usageRecord)) {
+    return true;
+  }
+
+  const source = readRelativeModuleSource(supportFile);
+  if (!source) {
+    return false;
+  }
+
+  return (context.manifest.allowedContextDependencies ?? []).some((packageName) =>
+    source.includes(`${packageName}/server`),
+  );
+}
+
 async function walk(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
@@ -2487,6 +2551,10 @@ if (process.env.CI && singleSliceSupportFileAllowlist.length > 0 && !temporaryDe
 
 for (const [supportFile, usageRecord] of supportFileConsumers.entries()) {
   if (singleSliceSupportFileAllowlistByFile.has(supportFile)) {
+    continue;
+  }
+
+  if (isRequestSupportAdapter(supportFile, usageRecord, contextManifests)) {
     continue;
   }
 

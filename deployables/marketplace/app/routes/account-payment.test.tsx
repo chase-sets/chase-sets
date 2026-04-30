@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
@@ -16,6 +17,9 @@ type PurchaseDetail = Readonly<{
   shipping_discount_amount: string;
   shipping_charge_amount: string;
   total_amount: string;
+  marketplace_fee_amount: string;
+  payment_fee_amount: string;
+  seller_net_amount: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -46,6 +50,9 @@ type PaymentsPaymentDetail = Readonly<{
   failed_at: string | null;
   cancelled_at: string | null;
   processor_publishable_key: string | null;
+  marketplace_fee_amount: string;
+  payment_fee_amount: string;
+  seller_net_amount: string;
 }>;
 
 type StripeMock = ReturnType<typeof vi.fn>;
@@ -86,6 +93,9 @@ function buildPurchase(overrides: Partial<PurchaseDetail> = {}): PurchaseDetail 
     shipping_discount_amount: "0.00",
     shipping_charge_amount: "1.00",
     total_amount: "11.00",
+    marketplace_fee_amount: "1.00",
+    payment_fee_amount: "0.50",
+    seller_net_amount: "9.50",
     status: "pending-payment",
     created_at: "2026-04-01T00:00:00.000Z",
     updated_at: "2026-04-01T00:00:00.000Z",
@@ -119,6 +129,9 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     failed_at: null,
     cancelled_at: null,
     processor_publishable_key: null,
+    marketplace_fee_amount: "1.00",
+    payment_fee_amount: "0.50",
+    seller_net_amount: "9.50",
     ...overrides,
   };
 }
@@ -136,7 +149,7 @@ describe("marketplace account payment route", () => {
     document.head.innerHTML = "";
   });
 
-  it.skip("renders the captured payment summary and linked purchases", () => {
+  it("renders the captured payment summary and linked purchases", () => {
     mockUseLoaderData.mockReturnValue({
       payment: buildPayment({
         status: "captured",
@@ -159,12 +172,13 @@ describe("marketplace account payment route", () => {
 
     expect(screen.getByText("Payment pay_1")).toBeTruthy();
     expect(screen.getAllByText("captured").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Total: $11.00").length).toBe(2);
-    expect(screen.getByText("Status: ready-for-fulfillment")).toBeTruthy();
+    expect(screen.getAllByText("$11.00").length).toBeGreaterThan(0);
+    expect(screen.getByText("ready-for-fulfillment")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open purchase" })).toBeTruthy();
     expect(screen.queryByText("Confirm payment")).toBeNull();
   });
 
-  it.skip("renders a retry path when Stripe reports a failed payment", () => {
+  it("renders a retry path when Stripe reports a failed payment", () => {
     mockUseLoaderData.mockReturnValue({
       payment: buildPayment({
         status: "failed",
@@ -189,7 +203,7 @@ describe("marketplace account payment route", () => {
     );
   });
 
-  it.skip("confirms a pending Stripe payment and revalidates afterward", async () => {
+  it("confirms a pending Stripe payment and revalidates afterward", async () => {
     const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),

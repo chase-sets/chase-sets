@@ -109,6 +109,46 @@ describe("payments routes", () => {
     );
   });
 
+  it("passes checkout source metadata into buyer payment creation", async () => {
+    const services = createServices();
+    const app = buildBuyerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/buyer/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderIds: ["ord_1"],
+          sourceContext: "checkout",
+          sourceReferenceId: "chk_1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createBuyerPayment).toHaveBeenCalledWith(
+      {
+        buyerAccountId: "acc_buyer",
+        orderIds: ["ord_1"],
+        currencyCode: "usd",
+        sourceContext: "checkout",
+        sourceReferenceId: "chk_1",
+      },
+      expect.any(Object),
+    );
+  });
+
   it("rejects buyer payment creation without order permissions", async () => {
     const app = buildBuyerApp({
       actor: {

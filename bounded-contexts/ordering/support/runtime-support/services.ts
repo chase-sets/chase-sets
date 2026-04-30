@@ -10,7 +10,6 @@ import {
   type CommercialTermsResolver,
 } from "../../api";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
-import { createOrderingCartRuntime } from "../../features/cart/api/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import {
   defaultShippingQuotePolicy,
@@ -23,7 +22,6 @@ export type OrderingServiceOptions = Readonly<{
 }>;
 
 export type OrderingServices = Readonly<{
-  cart: ReturnType<typeof createOrderingCartRuntime>;
   orders: ReturnType<typeof createOrderingOrderRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
@@ -38,12 +36,10 @@ export function createOrderingServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const accounts = createOrderingAccountRuntime({ eventStore, checkpointStore, db });
-  const cart = createOrderingCartRuntime({ eventStore, checkpointStore, db });
   const orders = createOrderingOrderRuntime({
     eventStore,
     checkpointStore,
     db,
-    carts: cart,
     commercialTermsResolver:
       options.commercialTermsResolver ?? createOrderingCommercialTermsResolver(db),
     shippingQuotePolicy:
@@ -51,9 +47,8 @@ export function createOrderingServices(
   });
 
   return {
-    cart,
     orders,
-    projectors: [...accounts.projectors, ...cart.projectors, ...orders.projectors],
+    projectors: [...accounts.projectors, ...orders.projectors],
     pool,
     db,
   };

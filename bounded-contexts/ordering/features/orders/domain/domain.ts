@@ -18,7 +18,7 @@ import {
   type OrderStatus,
   type ShippingOption,
   type VersionSelectedOptionEntry,
-} from "../../../support/runtime-support/common";
+} from "./common";
 
 export type OrderingOrderLine = Readonly<{
   lineId: OrderLineId;

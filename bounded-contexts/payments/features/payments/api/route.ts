@@ -54,6 +54,14 @@ export function createBuyerPaymentRoutes(services: PaymentServices) {
     }
 
     const body = await c.req.json();
+    const sourceContext =
+      body.sourceContext === null || body.sourceContext === undefined
+        ? null
+        : String(body.sourceContext);
+    const sourceReferenceId =
+      body.sourceReferenceId === null || body.sourceReferenceId === undefined
+        ? null
+        : String(body.sourceReferenceId);
 
     try {
       const payment = await services.createBuyerPayment(
@@ -63,6 +71,9 @@ export function createBuyerPaymentRoutes(services: PaymentServices) {
             ? body.orderIds.map(String)
             : [],
           currencyCode: String(body.currencyCode ?? "usd"),
+          ...(sourceContext && sourceReferenceId
+            ? { sourceContext, sourceReferenceId }
+            : {}),
         },
         context,
       );

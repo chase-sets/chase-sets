@@ -30,8 +30,8 @@
   ],
   "allowedContextDependencies": [
     "@chase-sets/catalog",
-    "@chase-sets/marketplace",
-    "@chase-sets/ordering"
+    "@chase-sets/checkout",
+    "@chase-sets/marketplace"
   ],
   "seedRequirements": [],
   "eventSubscriptions": [

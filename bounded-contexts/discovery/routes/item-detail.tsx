@@ -37,7 +37,7 @@ import {
   createMarketplaceRequestApiClient,
   type MarketplaceListingInventoryItemOption,
 } from "@chase-sets/marketplace/server";
-import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
+import { createCheckoutRequestApiClient } from "@chase-sets/checkout/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
@@ -177,7 +177,7 @@ function MarketplaceOfferSubmissionSection({
   return <FormPanel variant={panelVariant}>{form}</FormPanel>;
 }
 
-function OrderingAddToCartSection({
+export function CheckoutPurchaseIntentSection({
   formId = "buy-box",
   panelVariant = "card",
   showSummary = panelVariant === "card",
@@ -231,6 +231,7 @@ function OrderingAddToCartSection({
     <form id={formId} method="post">
       <Stack gap={3}>
         <input type="hidden" name="catalogItemId" value={catalogItemId} />
+        <input type="hidden" name="listingId" value={selectedListing?.listing_id ?? ""} />
         <input type="hidden" name="productId" value={productId ?? ""} />
         <input
           type="hidden"
@@ -238,9 +239,6 @@ function OrderingAddToCartSection({
           value={JSON.stringify(selectedOptions)}
         />
         <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-        {selectedListing ? (
-          <input type="hidden" name="listingId" value={selectedListing.listing_id} />
-        ) : null}
         {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">Buy selected product</Text>
@@ -272,16 +270,6 @@ function OrderingAddToCartSection({
           min="1"
           defaultValue="1"
           required
-        />
-        <NativeSelect
-          label="Shipping"
-          name="shippingOption"
-          defaultValue="standard"
-          items={[
-            { value: "standard", label: "Standard insured" },
-            { value: "expedited", label: "Expedited" },
-            { value: "priority", label: "Priority signature" },
-          ]}
         />
         {actions !== undefined ? actions : defaultActions}
       </Stack>
@@ -674,7 +662,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const intent = String(formData.get("intent") ?? "");
   const discoveryApi = createDiscoveryRequestApiClient(request);
   const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const orderingApi = createOrderingRequestApiClient(request);
+  const checkoutApi = createCheckoutRequestApiClient(request);
 
   try {
     if (intent === "submit-offer") {
@@ -705,7 +693,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       const item = await discoveryApi.getItemDetail(params.id!);
 
-      await orderingApi.addCartLine({
+      await checkoutApi.addCartLine({
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
@@ -723,17 +711,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
         request,
         permission: "orders.manage",
       });
+      const item = await discoveryApi.getItemDetail(params.id!);
 
-      const result = await orderingApi.buyNow({
-        listingId: String(formData.get("listingId") ?? ""),
-        productId: String(formData.get("productId") ?? ""),
-        quantity: Number(formData.get("quantity") ?? 0),
-        shippingOption: String(formData.get("shippingOption") ?? "standard"),
-      }) as { orderIds?: readonly string[] };
+      const session = await checkoutApi.createCheckoutSession({
+        source: {
+          type: "buy-now",
+          listingId: String(formData.get("listingId") ?? ""),
+          catalogItemId: item.catalog_item_id,
+          productId: String(formData.get("productId") ?? ""),
+          itemTitle: item.title,
+          itemSubtitle: item.subtitle,
+          selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+          productSummary: String(formData.get("productSummary") ?? "") || null,
+          quantity: Number(formData.get("quantity") ?? 0),
+        },
+      });
 
-      return redirect(
-        result.orderIds?.[0] ? `/account/purchases/${result.orderIds[0]}` : "/account/purchases",
-      );
+      return redirect(`/checkout/${session.session_id}`);
     }
 
     if (intent === "sell-now") {
@@ -927,7 +921,7 @@ export default function DiscoveryItemDetailRoute() {
                 panelVariant: FormPanelVariant = "card",
                 actions?: ReactNode,
               ) => (
-                <OrderingAddToCartSection
+                <CheckoutPurchaseIntentSection
                   formId={formId}
                   panelVariant={panelVariant}
                   actions={actions}

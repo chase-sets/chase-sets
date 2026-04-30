@@ -4,16 +4,6 @@ This glossary defines the canonical terminology for the Ordering bounded context
 
 Aggregate language and projection language may differ. `Order` is the aggregate and event-stream term; buyer read models and routes use `Purchase`, while seller read models and routes use `Sale`.
 
-## Cart
-
-A **Cart** is the buyer's in-progress checkout state before one or more orders are created.
-
-Notes:
-
-- Cart lines capture buyer intent for a product.
-- Cart lines reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
-- Concrete listing and inventory matching happen when checkout commits.
-
 ## Order
 
 An **Order** is the commercial commitment between a buyer account and a seller account created from a listing purchase or accepted offer.
@@ -55,7 +45,7 @@ Examples:
 
 ## Order Split
 
-An **Order Split** is the decomposition of a buyer checkout into one or more seller-specific orders.
+An **Order Split** is the decomposition of a checkout session into one or more seller-specific orders.
 
 ## Shipping Quote Policy
 

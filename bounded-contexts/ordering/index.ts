@@ -13,7 +13,6 @@ import type {
 } from "./support/runtime-support/services";
 import { buildOrderingAccountProjectionHandlers } from "./support/account-support/projection";
 import { buildOrderingApi } from "./api";
-import { buildOrderingCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
 import { hasOrderForSource } from "./features/orders/read-model/queries";
 import {
   buildOrderingInventorySupplyProjectionHandlers,
@@ -66,10 +65,6 @@ export const module: BcApiModule<
   buildApis: (services) => [buildOrderingApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const catalogSubscription = getEventSubscription(
-      "catalog",
-      "ordering-catalog-item-projection",
-    );
     const identitySubscription = getEventSubscription(
       "identity",
       "ordering-account-projection",
@@ -96,16 +91,6 @@ export const module: BcApiModule<
     );
 
     return [
-      {
-        subscriptionName: "ordering.catalog-item-projection",
-        sourceContextName: "catalog",
-        projectionName: catalogSubscription.projectionName,
-        subscriptionVersion: catalogSubscription.subscriptionVersion,
-        handlers: buildOrderingCatalogProjectionHandlers(services.db),
-        eventTypes: catalogSubscription.eventTypes,
-        streamPrefixes: catalogSubscription.streamPrefixes,
-        order: catalogSubscription.order,
-      },
       {
         subscriptionName: "ordering.identity-account-projection",
         sourceContextName: "identity",

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { normalizeShippingOption } from "../../../support/runtime-support/common";
+import { normalizeShippingOption } from "../domain/common";
 import type { OrderingApiEnv } from "../../../api";
 import type { OrderingOrderServices } from "./runtime";
 
@@ -40,7 +40,7 @@ function errorMessage(error: unknown) {
 export function createBuyerOrderRoutes(services: OrderingOrderServices) {
   const app = new Hono<OrderingApiEnv>();
 
-  app.post("/cart/checkout", async (c) => {
+  app.post("/purchases/checkout", async (c) => {
     const access = requireOrderAccess(c, "orders.manage");
     if (access.response) {
       return access.response;
@@ -54,41 +54,39 @@ export function createBuyerOrderRoutes(services: OrderingOrderServices) {
     const body = await c.req.json();
 
     try {
-      const result = await services.checkoutCart(
+      const result = await services.createOrdersFromCheckout(
         {
           buyerAccountId: access.actor.accountId as never,
+          checkoutSessionId: String(body.checkoutSessionId ?? ""),
+          sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
           shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
-        },
-        context,
-      );
-
-      return c.json({ orderIds: result.orderIds }, 201);
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
-    }
-  });
-
-  app.post("/purchases/buy-now", async (c) => {
-    const access = requireOrderAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
-    }
-
-    const body = await c.req.json();
-
-    try {
-      const result = await services.buyNow(
-        {
-          buyerAccountId: access.actor.accountId as never,
-          listingId: String(body.listingId ?? ""),
-          productId: String(body.productId ?? ""),
-          quantity: Number(body.quantity ?? 0),
-          shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
+          lines: Array.isArray(body.lines)
+            ? body.lines.map((line: Record<string, unknown>) => ({
+                listingId:
+                  line.listingId === null || line.listingId === undefined
+                    ? null
+                    : String(line.listingId),
+                cartLineId:
+                  line.cartLineId === null || line.cartLineId === undefined
+                    ? null
+                    : String(line.cartLineId),
+                catalogItemId: String(line.catalogItemId ?? ""),
+                productId: String(line.productId ?? ""),
+                itemTitle: String(line.itemTitle ?? ""),
+                itemSubtitle:
+                  line.itemSubtitle === null || line.itemSubtitle === undefined
+                    ? null
+                    : String(line.itemSubtitle),
+                selectedOptions: Array.isArray(line.selectedOptions)
+                  ? line.selectedOptions
+                  : [],
+                productSummary:
+                  line.productSummary === null || line.productSummary === undefined
+                    ? null
+                    : String(line.productSummary),
+                quantity: Number(line.quantity ?? 0),
+              }))
+            : [],
         },
         context,
       );

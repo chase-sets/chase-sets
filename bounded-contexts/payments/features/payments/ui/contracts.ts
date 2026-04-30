@@ -11,6 +11,8 @@ export interface PaymentsPaymentDetail {
   processor_payment_reference: string;
   processor_client_secret: string | null;
   processor_status: string;
+  source_context: string | null;
+  source_reference_id: string | null;
   status: string;
   failure_code: string | null;
   failure_message: string | null;

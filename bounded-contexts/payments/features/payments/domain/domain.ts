@@ -32,6 +32,8 @@ export type PaymentState = Readonly<{
   processorPaymentReference: string | null;
   processorClientSecret: string | null;
   processorStatus: string | null;
+  sourceContext: string | null;
+  sourceReferenceId: string | null;
   status: PaymentStatus | null;
   failureCode: string | null;
   failureMessage: string | null;
@@ -54,6 +56,8 @@ export const initialPaymentState: PaymentState = {
   processorPaymentReference: null,
   processorClientSecret: null,
   processorStatus: null,
+  sourceContext: null,
+  sourceReferenceId: null,
   status: null,
   failureCode: null,
   failureMessage: null,
@@ -77,6 +81,8 @@ export type CreatePaymentCommand = Readonly<{
   processorPaymentReference: string;
   processorClientSecret: string | null;
   processorStatus: string;
+  sourceContext?: string | null;
+  sourceReferenceId?: string | null;
   createdAt: string;
 }>;
 
@@ -127,6 +133,8 @@ export type PaymentCreatedEvent = DomainEvent<
     processorPaymentReference: string;
     processorClientSecret: string | null;
     processorStatus: string;
+    sourceContext: string | null;
+    sourceReferenceId: string | null;
     createdAt: string;
   }>
 >;
@@ -234,6 +242,8 @@ export const decidePayment: AggregateDecider<
               command.processorStatus,
               "Processor status is required.",
             ),
+            sourceContext: normalizeOptionalText(command.sourceContext),
+            sourceReferenceId: normalizeOptionalText(command.sourceReferenceId),
             createdAt: ensureIsoTimestamp(
               command.createdAt,
               "Payment creation must include a timestamp.",
@@ -370,6 +380,8 @@ export const evolvePayment: AggregateEvolver<
         processorPaymentReference: event.data.processorPaymentReference,
         processorClientSecret: event.data.processorClientSecret,
         processorStatus: event.data.processorStatus,
+        sourceContext: event.data.sourceContext,
+        sourceReferenceId: event.data.sourceReferenceId,
         status: "pending-confirmation",
         failureCode: null,
         failureMessage: null,

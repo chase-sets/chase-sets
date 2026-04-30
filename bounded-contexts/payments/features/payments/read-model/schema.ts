@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   processor_payment_reference text NOT NULL UNIQUE,
   processor_client_secret text NULL,
   processor_status text NOT NULL,
+  source_context text NULL,
+  source_reference_id text NULL,
   status text NOT NULL,
   failure_code text NULL,
   failure_message text NULL,
@@ -28,4 +30,8 @@ CREATE INDEX IF NOT EXISTS payments_payment_pages_buyer_idx
 
 CREATE INDEX IF NOT EXISTS payments_payment_pages_processor_idx
   ON payments_payment_pages (processor_name, processor_payment_reference);
+
+CREATE UNIQUE INDEX IF NOT EXISTS payments_payment_pages_source_idx
+  ON payments_payment_pages (source_context, source_reference_id)
+  WHERE source_context IS NOT NULL AND source_reference_id IS NOT NULL;
 `;

@@ -2,13 +2,11 @@
   "contextName": "ordering",
   "packageName": "@chase-sets/ordering",
   "ownedNouns": [
-    "cart",
     "order"
   ],
   "streamPrefix": "ordering.",
   "apiBasePath": "/api/marketplace",
   "slices": [
-    "cart",
     "orders"
   ],
   "allowedSupportDirectories": [
@@ -25,7 +23,6 @@
     "./server"
   ],
   "allowedContextDependencies": [
-    "@chase-sets/catalog",
     "@chase-sets/commercial-terms",
     "@chase-sets/reputation"
   ],
@@ -37,32 +34,6 @@
     "marketplace"
   ],
   "eventSubscriptions": [
-    {
-      "sourceContextName": "catalog",
-      "projectionName": "ordering-catalog-item-projection",
-      "subscriptionVersion": 1,
-      "projectorNames": [
-        "ordering-catalog-item-projection"
-      ],
-      "eventTypes": [
-        "catalog.catalog-item.created",
-        "catalog.catalog-item.blueprint-assigned",
-        "catalog.catalog-item.metadata-revised",
-        "catalog.catalog-item.published",
-        "catalog.catalog-item.retired",
-        "catalog.catalog-item.archived",
-        "catalog.blueprint.created",
-        "catalog.blueprint.revised",
-        "catalog.blueprint.dimensions-set",
-        "catalog.blueprint.product-resolution-rules-set",
-        "catalog.blueprint.published",
-        "catalog.dimension.created",
-        "catalog.dimension.revised",
-        "catalog.dimension.option-added",
-        "catalog.dimension.option-revised"
-      ],
-      "order": 10
-    },
     {
       "sourceContextName": "identity",
       "projectionName": "ordering-account-projection",
@@ -152,19 +123,6 @@
   ],
   "projectionGroups": [
     {
-      "projectionName": "ordering-catalog-item-projection",
-      "sourceContextNames": [
-        "catalog"
-      ],
-      "ownedTables": [
-        "ordering_catalog_items",
-        "ordering_catalog_blueprints",
-        "ordering_catalog_dimensions",
-        "ordering_catalog_dimension_options"
-      ],
-      "requiredDuringBootstrap": true
-    },
-    {
       "projectionName": "ordering-account-projection",
       "sourceContextNames": [
         "identity"
@@ -251,13 +209,6 @@
       "deployable": "marketplace-web",
       "routes": [
         {
-          "routeId": "account-cart",
-          "routePath": "account/cart",
-          "fileExport": "./routes/account-cart",
-          "routeType": "route",
-          "sourceContext": "ordering"
-        },
-        {
           "routeId": "account-purchase",
           "routePath": "account/purchases/:purchaseId",
           "fileExport": "./routes/account-purchase",
@@ -292,19 +243,6 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "cart",
-      "label": "Cart",
-      "icon": "cart",
-      "href": "/account/cart",
-      "order": 110,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "orders.manage"
-      ]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "top-nav",
       "key": "purchases",
       "label": "Purchases",
       "icon": "bag",
@@ -327,19 +265,6 @@
       "requiredPermissions": [
         "orders.view",
         "listings.view"
-      ]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "cart",
-      "label": "Cart",
-      "icon": "cart",
-      "href": "/account/cart",
-      "order": 110,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "orders.manage"
       ]
     },
     {
@@ -371,14 +296,6 @@
     }
   ],
   "directoryIntent": {
-    "cart": {
-      "classification": "slice",
-      "purpose": "Own cart feature behavior, read models, and UI contracts for the ordering context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal ordering module composition"
-      ]
-    },
     "orders": {
       "classification": "slice",
       "purpose": "Own orders feature behavior, read models, and UI contracts for the ordering context.",
@@ -392,7 +309,6 @@
       "purpose": "Provide reusable account-support assets shared by ordering-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "cart",
         "orders"
       ],
       "justification": "account-support centralizes context-local composition that should not duplicate across features.",
@@ -416,7 +332,6 @@
       "purpose": "Provide reusable runtime-support assets shared by ordering-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "cart",
         "orders"
       ],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",

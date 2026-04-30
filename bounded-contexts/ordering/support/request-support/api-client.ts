@@ -9,7 +9,6 @@ export {
 } from "../../client";
 export type {
   OrderingApiClientOptions,
-  OrderingCartLine,
   PurchaseDetail,
   PurchaseListItem,
   SaleDetail,

@@ -138,9 +138,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   try {
     const payment = await paymentsApi.getBuyerPayment(params.paymentId!);
-      const orders = await Promise.all(
-        payment.order_ids.map((orderId) => orderingApi.getPurchase(orderId)),
-      );
+    const orders = await Promise.all(
+      payment.order_ids.map((orderId) => orderingApi.getPurchase(orderId)),
+    );
 
     return {
       payment,

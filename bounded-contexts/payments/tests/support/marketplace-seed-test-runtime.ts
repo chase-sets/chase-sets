@@ -3,6 +3,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "@chase-sets/catalog";
+import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as commercialTermsModule } from "@chase-sets/commercial-terms";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { module as discoveryModule } from "@chase-sets/discovery";
@@ -19,6 +20,7 @@ import { module as paymentsModule } from "../..";
 
 export const marketplaceSeedContextNames = [
   "catalog",
+  "checkout",
   "commercial-terms",
   "discovery",
   "fulfillment",
@@ -39,6 +41,7 @@ export const marketplaceSeedLifecycleContextOrder = [
   "identity",
   "inventory",
   "marketplace",
+  "checkout",
   "ordering",
   "payments",
   "fulfillment",
@@ -58,6 +61,12 @@ export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools)
 
   return createMountedContextTestRuntime([
     { contextName: "catalog", module: catalogModule, pool: pools.catalog, ports: undefined },
+    {
+      contextName: "checkout",
+      module: checkoutModule,
+      pool: pools.checkout,
+      ports: undefined,
+    },
     {
       contextName: "commercial-terms",
       module: commercialTermsModule,

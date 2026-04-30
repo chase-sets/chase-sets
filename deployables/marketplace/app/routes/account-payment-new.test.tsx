@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
@@ -18,6 +19,9 @@ type PurchaseDetail = Readonly<{
   shipping_discount_amount: string;
   shipping_charge_amount: string;
   total_amount: string;
+  marketplace_fee_amount: string;
+  payment_fee_amount: string;
+  seller_net_amount: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -87,6 +91,9 @@ function buildPurchase(purchaseId: string): PurchaseDetail {
     shipping_discount_amount: "0.00",
     shipping_charge_amount: "1.00",
     total_amount: "11.00",
+    marketplace_fee_amount: "1.00",
+    payment_fee_amount: "0.50",
+    seller_net_amount: "9.50",
     status: "pending-payment",
     created_at: "2026-04-01T00:00:00.000Z",
     updated_at: "2026-04-01T00:00:00.000Z",
@@ -115,7 +122,7 @@ describe("marketplace account payment start route", () => {
     vi.clearAllMocks();
   });
 
-  it.skip("auto-submits the payment form when checkout redirects with autostart enabled", async () => {
+  it("auto-submits the payment form when checkout redirects with autostart enabled", async () => {
     const submit = vi.fn();
     mockUseLoaderData.mockReturnValue({
       orderIds: ["ord_1", "ord_2"],
@@ -131,7 +138,8 @@ describe("marketplace account payment start route", () => {
     );
 
     expect(screen.getByText("Start payment")).toBeTruthy();
-    expect(screen.getByText("Total due: $22.00")).toBeTruthy();
+    expect(screen.getByText("$22.00")).toBeTruthy();
+    expect(screen.getByText("Ready to initialize payment")).toBeTruthy();
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     expect(submit.mock.calls[0]?.[1]).toEqual({ method: "post" });

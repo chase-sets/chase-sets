@@ -124,7 +124,12 @@ function createSupplyDb(
   resolver: (params: readonly unknown[] | undefined) => readonly SupplyCandidate[],
 ) {
   return {
-    query: vi.fn(async (_sql: string, params?: readonly unknown[]) => ({
+    query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("FROM ordering_order_pages")) {
+        return { rows: [] };
+      }
+
+      return {
       rows: resolver(params).map((candidate) => ({
         listing_id: candidate.listingId,
         seller_account_id: candidate.sellerAccountId,
@@ -141,7 +146,8 @@ function createSupplyDb(
         available_quantity: candidate.availableQuantity,
         updated_at: candidate.updatedAt,
       })),
-    })),
+    };
+    }),
   };
 }
 
@@ -202,8 +208,26 @@ describe("ordering order runtime", () => {
     });
 
     await expect(
-      services.checkoutCart(
-        { buyerAccountId: "acc_buyer" as never, shippingOption: "standard" },
+      services.createOrdersFromCheckout(
+        {
+          buyerAccountId: "acc_buyer" as never,
+          checkoutSessionId: "chk_insufficient",
+          sourceType: "cart-checkout",
+          shippingOption: "standard",
+          lines: [
+            {
+              listingId: null,
+              cartLineId: "cli_1",
+              catalogItemId: "cat_1",
+              productId: "cat_1::",
+              itemTitle: "Charizard",
+              itemSubtitle: null,
+              selectedOptions: [],
+              productSummary: null,
+              quantity: 2,
+            },
+          ],
+        },
         context,
       ),
     ).rejects.toThrow("Not enough active supply is available for Charizard.");
@@ -335,8 +359,37 @@ describe("ordering order runtime", () => {
       },
     });
 
-    const result = await services.checkoutCart(
-      { buyerAccountId: "acc_buyer" as never, shippingOption: "standard" },
+    const result = await services.createOrdersFromCheckout(
+      {
+        buyerAccountId: "acc_buyer" as never,
+        checkoutSessionId: "chk_best_cost",
+        sourceType: "cart-checkout",
+        shippingOption: "standard",
+        lines: [
+          {
+            listingId: null,
+            cartLineId: "cli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+          {
+            listingId: null,
+            cartLineId: "cli_2",
+            catalogItemId: "cat_2",
+            productId: "cat_2::",
+            itemTitle: "Blastoise",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      },
       context,
     );
 
@@ -360,7 +413,6 @@ describe("ordering order runtime", () => {
         }),
       ],
     });
-    expect(carts.checkout).toHaveBeenCalled();
   });
 
   it("constrains accepted-offer commitments to the accepting seller", async () => {
@@ -475,13 +527,25 @@ describe("ordering order runtime", () => {
       },
     });
 
-    await services.buyNow(
+    await services.createOrdersFromCheckout(
       {
         buyerAccountId: "acc_buyer" as never,
-        listingId: "lst_buy_now",
-        productId: "cat_1::",
-        quantity: 1,
+        checkoutSessionId: "chk_buy_now",
+        sourceType: "buy-now",
         shippingOption: "standard",
+        lines: [
+          {
+            listingId: "lst_buy_now",
+            cartLineId: null,
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
       },
       context,
     );
@@ -489,7 +553,7 @@ describe("ordering order runtime", () => {
     const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
     expect(createdEvent?.payload).toMatchObject({
       sourceType: "buy-now",
-      sourceReferenceId: "lst_buy_now",
+      sourceReferenceId: "chk_buy_now",
       lines: [
         expect.objectContaining({
           listingId: "lst_buy_now",
@@ -498,6 +562,65 @@ describe("ordering order runtime", () => {
         }),
       ],
     });
+  });
+
+  it("reuses orders already created for a checkout session", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        expect(sql).toContain("FROM ordering_order_pages");
+        expect(params).toEqual(["cart-checkout", "chk_existing"]);
+        return {
+          rows: [{ order_id: "ord_existing" }],
+        };
+      }),
+    };
+
+    const services = createOrderingOrderRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      carts: {
+        listCartLines: async () => [],
+        checkout: async () => ({ version: 1 }),
+      } as never,
+      commercialTermsResolver,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+
+    const result = await services.createOrdersFromCheckout(
+      {
+        buyerAccountId: "acc_buyer" as never,
+        checkoutSessionId: "chk_existing",
+        sourceType: "cart-checkout",
+        shippingOption: "standard",
+        lines: [
+          {
+            listingId: null,
+            cartLineId: "cli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      },
+      context,
+    );
+
+    expect(result.orderIds).toEqual(["ord_existing"]);
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(readAllEvents()).toEqual([]);
   });
 
   it("releases inventory reservations when a buyer cancels a pending order", async () => {

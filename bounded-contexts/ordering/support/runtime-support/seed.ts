@@ -7,26 +7,11 @@ import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import {
-  createOrderingProductDescriptor,
-  type OrderingVersionSchema,
-} from "./common";
 import { orderingReservedSeedIds } from "../seed-support/ids";
 import {
   createOrderingServices,
   type OrderingServices,
 } from "./services";
-
-const rawNearMintVersionSelection = [
-  {
-    dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-    optionId: catalogSeedIds.dimensions.form.optionIds.raw,
-  },
-  {
-    dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-    optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
-  },
-] as const;
 
 const rawExcellentVersionSelection = [
   {
@@ -51,25 +36,6 @@ const checkoutCartLines = [
 ] as const;
 
 const cancelledCartLines = [
-  {
-    catalogItemId: catalogSeedIds.items.pikachuJungle,
-    itemTitle: "Pikachu",
-    itemSubtitle: "Jungle 60/64 Common",
-    selectedOptions: rawExcellentVersionSelection,
-    productSummary: "Form: Raw | Condition: Excellent",
-    quantity: 1,
-  },
-] as const;
-
-const activeCartLines = [
-  {
-    catalogItemId: catalogSeedIds.items.charizardBaseSet,
-    itemTitle: "Charizard",
-    itemSubtitle: "Base Set 4/102 Holo Rare",
-    selectedOptions: rawNearMintVersionSelection,
-    productSummary: "Form: Raw | Condition: Near Mint",
-    quantity: 1,
-  },
   {
     catalogItemId: catalogSeedIds.items.pikachuJungle,
     itemTitle: "Pikachu",
@@ -122,83 +88,55 @@ async function hasOrderPage(db: PgQueryable, orderId: string) {
   return result.rows[0]?.exists ?? false;
 }
 
-async function hasActiveCartLines(db: PgQueryable, buyerAccountId: AccountId) {
-  const result = await db.query<{ count: string }>(
-    `SELECT COUNT(*) AS count
-     FROM ordering_cart_line_pages
-     WHERE buyer_account_id = $1`,
-    [buyerAccountId],
-  );
-  return Number(result.rows[0]?.count ?? 0) > 0;
-}
-
-async function addCartLines(
+async function buildCheckoutLine(
   services: ReturnType<typeof createOrderingServices>,
-  buyerAccountId: AccountId,
-  lines: typeof checkoutCartLines | typeof cancelledCartLines | typeof activeCartLines,
-  context: ReturnType<typeof createSeedContextFor>,
+  line: (typeof checkoutCartLines)[number] | (typeof cancelledCartLines)[number],
 ) {
-  for (const line of lines) {
-    const catalogItem = await services.db.query<{
-      product_schema: unknown;
-    }>(
-      `SELECT product_schema
-       FROM ordering_catalog_items
-       WHERE catalog_item_id = $1`,
-      [line.catalogItemId],
-    );
-    const productSchema = catalogItem.rows[0]?.product_schema ?? null;
-
-    if (productSchema === null) {
-      throw new Error(`Catalog item ${line.catalogItemId} not found for ordering seed.`);
-    }
-
-    const catalogVersion = createOrderingProductDescriptor({
-      catalogItemId: line.catalogItemId,
-      productSchema:
-        typeof productSchema === "object" && productSchema !== null
-          ? (productSchema as OrderingVersionSchema)
-          : null,
-      selection: line.selectedOptions,
-    });
-
-    await services.cart.addLine(
-      {
-        buyerAccountId,
-        catalogItemId: line.catalogItemId,
-        productId: catalogVersion.productId,
-        itemTitle: line.itemTitle,
-        itemSubtitle: line.itemSubtitle,
-        selectedOptions: catalogVersion.selection,
-        productSummary: line.productSummary,
-        quantity: line.quantity,
-      },
-      context,
-    );
+  const result = await services.db.query<{
+    product_id: string;
+    selected_options: unknown;
+  }>(
+    `SELECT product_id, selected_options
+     FROM ordering_market_listing_inputs
+     WHERE catalog_catalog_item_id = $1
+       AND product_summary = $2
+       AND status = 'active'
+     ORDER BY price_amount ASC, listing_id ASC
+     LIMIT 1`,
+    [line.catalogItemId, line.productSummary],
+  );
+  const snapshot = result.rows[0];
+  if (!snapshot) {
+    throw new Error(`No active ordering supply found for ${line.itemTitle}.`);
   }
+
+  return {
+    listingId: null,
+    cartLineId: null,
+    catalogItemId: line.catalogItemId,
+    productId: snapshot.product_id,
+    itemTitle: line.itemTitle,
+    itemSubtitle: line.itemSubtitle,
+    selectedOptions: Array.isArray(snapshot.selected_options)
+      ? (snapshot.selected_options as { dimensionId: string; optionId: string }[])
+      : [...line.selectedOptions],
+    productSummary: line.productSummary,
+    quantity: line.quantity,
+  };
 }
 
-async function getProductId(
+async function getOfferProductId(
   services: ReturnType<typeof createOrderingServices>,
-  catalogItemId: string,
-  selection: readonly { dimensionId: string; optionId: string }[],
+  offerId: string,
 ) {
-  const result = await services.db.query<{ product_schema: unknown }>(
-    `SELECT product_schema
-     FROM ordering_catalog_items
-     WHERE catalog_item_id = $1`,
-    [catalogItemId],
+  const result = await services.db.query<{ product_id: string }>(
+    `SELECT product_id
+     FROM ordering_offer_acceptance_inputs
+     WHERE offer_id = $1`,
+    [offerId],
   );
-  const productSchema = result.rows[0]?.product_schema;
 
-  return createOrderingProductDescriptor({
-    catalogItemId,
-    productSchema:
-      typeof productSchema === "object" && productSchema !== null
-        ? (productSchema as OrderingVersionSchema)
-        : null,
-    selection,
-  }).productId;
+  return result.rows[0]?.product_id;
 }
 
 export async function seedOrderingDatabase(
@@ -208,19 +146,17 @@ export async function seedOrderingDatabase(
   const buyerAccountId = identitySeedIds.buyer.accountId;
 
   try {
-    const [hasCheckoutPending, hasCancelledOrder, hasAcceptedOfferOrder, hasBuyerCart] =
+    const [hasCheckoutPending, hasCancelledOrder, hasAcceptedOfferOrder] =
       await Promise.all([
         hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending),
         hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled),
         hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady),
-        hasActiveCartLines(ordering.db, buyerAccountId),
       ]);
 
     if (
       hasCheckoutPending &&
       hasCancelledOrder &&
-      hasAcceptedOfferOrder &&
-      hasBuyerCart
+      hasAcceptedOfferOrder
     ) {
       console.log("Ordering already contains seed data. Skipping seed.");
       return;
@@ -243,12 +179,13 @@ export async function seedOrderingDatabase(
   );
 
   if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
-    await addCartLines(ordering, buyerAccountId, checkoutCartLines, buyerContext);
-    await drainProjectors(ordering.projectors);
-    const checkoutResult = await ordering.orders.checkoutCart(
+    const checkoutResult = await ordering.orders.createOrdersFromCheckout(
       {
         buyerAccountId,
+        checkoutSessionId: "chk_seed_checkout_pending",
+        sourceType: "cart-checkout",
         shippingOption: "standard",
+        lines: [await buildCheckoutLine(ordering, checkoutCartLines[0]!)],
         orderIdsOverride: [orderingReservedSeedIds.orders.checkoutPending],
       },
       buyerContext,
@@ -258,12 +195,13 @@ export async function seedOrderingDatabase(
   }
 
   if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled))) {
-    await addCartLines(ordering, buyerAccountId, cancelledCartLines, buyerContext);
-    await drainProjectors(ordering.projectors);
-    const cancelledOrderResult = await ordering.orders.checkoutCart(
+    const cancelledOrderResult = await ordering.orders.createOrdersFromCheckout(
       {
         buyerAccountId,
+        checkoutSessionId: "chk_seed_cancelled",
+        sourceType: "cart-checkout",
         shippingOption: "expedited",
+        lines: [await buildCheckoutLine(ordering, cancelledCartLines[0]!)],
         orderIdsOverride: [orderingReservedSeedIds.orders.cancelled],
       },
       buyerContext,
@@ -293,11 +231,7 @@ export async function seedOrderingDatabase(
         buyerAccountId,
         sellerAccountId: identitySeedIds.seller.accountId,
         catalogItemId: acceptedOfferSeed.catalogItemId,
-        productId: await getProductId(
-          ordering,
-          acceptedOfferSeed.catalogItemId,
-          acceptedOfferSeed.selectedOptions,
-        ),
+        productId: (await getOfferProductId(ordering, acceptedOfferSeed.offerId)) ?? "",
         itemTitle: acceptedOfferSeed.itemTitle,
         itemSubtitle: acceptedOfferSeed.itemSubtitle,
         selectedOptions: [...acceptedOfferSeed.selectedOptions],
@@ -312,12 +246,6 @@ export async function seedOrderingDatabase(
     console.log(
       `  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`,
     );
-  }
-
-  if (!(await hasActiveCartLines(ordering.db, buyerAccountId))) {
-    await addCartLines(ordering, buyerAccountId, activeCartLines, buyerContext);
-    await drainProjectors(ordering.projectors);
-    console.log(`  Active cart seeded for ${buyerAccountId}`);
   }
 
   console.log("\nOrdering seed complete!");

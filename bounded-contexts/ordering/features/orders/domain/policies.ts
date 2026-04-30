@@ -6,7 +6,7 @@ import {
   numberToMoneyAmount,
   type ShippingOption,
   type VersionSelectedOptionEntry,
-} from "../../../support/runtime-support/common";
+} from "./common";
 
 export type MarketplaceDemand = Readonly<{
   catalogItemId: string;

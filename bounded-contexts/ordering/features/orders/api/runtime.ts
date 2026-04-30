@@ -21,9 +21,7 @@ import {
   type OrderSourceType,
   type OrderStatus,
   type ShippingOption,
-} from "../../../support/runtime-support/common";
-import type { OrderingCartLineRow } from "../../cart/read-model/queries";
-import type { OrderingCartServices } from "../../cart/api/runtime";
+} from "../domain/common";
 import {
   assertSupplyAvailable,
   type MarketplaceDemand,
@@ -33,6 +31,7 @@ import {
 import {
   getPurchase,
   getSale,
+  listOrderIdsForSource,
   listPurchases,
   listSales,
 } from "../read-model/queries";
@@ -53,9 +52,20 @@ type OrderRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
-  carts: OrderingCartServices;
   commercialTermsResolver: CommercialTermsResolver;
   shippingQuotePolicy: ShippingQuotePolicy;
+}>;
+
+export type CheckoutOrderLineSnapshot = Readonly<{
+  listingId: string | null;
+  cartLineId: string | null;
+  catalogItemId: string;
+  productId: string;
+  itemTitle: string;
+  itemSubtitle: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
+  quantity: number;
 }>;
 
 type DemandAllocation = Readonly<{
@@ -112,21 +122,13 @@ export type OrderingOrderServices = Readonly<{
     OrderingOrderState,
     OrderingOrderEvent
   >;
-  checkoutCart: (
+  createOrdersFromCheckout: (
     params: Readonly<{
       buyerAccountId: AccountId;
+      checkoutSessionId: string;
+      sourceType: "cart-checkout" | "buy-now";
       shippingOption: ShippingOption;
-      orderIdsOverride?: readonly OrderId[];
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ orderIds: readonly OrderId[] }>;
-  buyNow: (
-    params: Readonly<{
-      buyerAccountId: AccountId;
-      listingId: string;
-      productId: string;
-      quantity: number;
-      shippingOption: ShippingOption;
+      lines: readonly CheckoutOrderLineSnapshot[];
       orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
@@ -173,11 +175,11 @@ export type OrderingOrderServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-function groupDemands(cartLines: readonly OrderingCartLineRow[]) {
+function groupDemands(cartLines: readonly CheckoutOrderLineSnapshot[]) {
   const grouped = new Map<string, MarketplaceDemand & Readonly<{ quantity: number }>>();
 
   for (const line of cartLines) {
-    const key = buildDemandSignature(line.product_id);
+    const key = buildDemandSignature(line.productId);
     const existing = grouped.get(key);
 
     if (existing) {
@@ -185,13 +187,13 @@ function groupDemands(cartLines: readonly OrderingCartLineRow[]) {
       continue;
     }
 
-      grouped.set(key, {
-        catalogItemId: line.catalog_catalog_item_id,
-        productId: line.product_id,
-        itemTitle: line.item_title,
-        itemSubtitle: line.item_subtitle,
-        selectedOptions: line.selected_options,
-      productSummary: line.product_summary,
+    grouped.set(key, {
+      catalogItemId: line.catalogItemId,
+      productId: line.productId,
+      itemTitle: line.itemTitle,
+      itemSubtitle: line.itemSubtitle,
+      selectedOptions: line.selectedOptions,
+      productSummary: line.productSummary,
       quantity: line.quantity,
     });
   }
@@ -540,69 +542,85 @@ export function createOrderingOrderRuntime(
 
   return {
     commandHandler,
-    checkoutCart: async (params, context) => {
-      const cartLines = await deps.carts.listCartLines(params.buyerAccountId);
-      if (cartLines.length === 0) {
-        throw new OrderingDomainError("Cart must contain at least one line.");
+    createOrdersFromCheckout: async (params, context) => {
+      const existingOrderIds = await listOrderIdsForSource(
+        deps.db,
+        params.sourceType,
+        params.checkoutSessionId,
+      );
+      if (existingOrderIds.length > 0) {
+        return { orderIds: existingOrderIds as OrderId[] };
       }
 
-      const demandGroups = groupDemands(cartLines);
+      if (params.lines.length === 0) {
+        throw new OrderingDomainError("Checkout must contain at least one line.");
+      }
+
+      if (params.sourceType === "buy-now") {
+        const line = params.lines[0]!;
+        if (!line.listingId) {
+          throw new OrderingDomainError("Buy now checkout must reference a listing.");
+        }
+
+        const candidate = await getOrderingSupplyCandidateByListingId(
+          deps.db,
+          line.listingId,
+        );
+        if (!candidate) {
+          throw new OrderingDomainError("Listing is not available for buy now.");
+        }
+        if (candidate.productId !== line.productId.trim()) {
+          throw new OrderingDomainError(
+            "Buy now listing does not match the selected product.",
+          );
+        }
+        assertSupplyAvailable(
+          [candidate],
+          line.quantity,
+          `Not enough active supply is available for ${candidate.itemTitle}.`,
+        );
+
+        const demand: MarketplaceDemand & Readonly<{ quantity: number }> = {
+          catalogItemId: candidate.catalogItemId,
+          productId: candidate.productId,
+          itemTitle: candidate.itemTitle,
+          itemSubtitle: candidate.itemSubtitle,
+          selectedOptions: candidate.selectedOptions,
+          productSummary: candidate.productSummary,
+          quantity: line.quantity,
+        };
+        const plan = quotePlan(
+          [
+            {
+              demand,
+              allocations: [{ candidate, quantity: line.quantity }],
+            },
+          ],
+          params.shippingOption,
+          deps.shippingQuotePolicy,
+          undefined,
+          "buy-now",
+          params.checkoutSessionId,
+        );
+        const orderIds = await createOrdersFromPlan(
+          params.buyerAccountId,
+          plan,
+          context,
+          params.orderIdsOverride,
+        );
+
+        return { orderIds };
+      }
+
+      const demandGroups = groupDemands(params.lines);
       const demandOptions = await buildDemandOptions(deps.db, demandGroups);
       const plan = chooseBestPlan(
         demandOptions,
         params.shippingOption,
         deps.shippingQuotePolicy,
-      );
-      const orderIds = await createOrdersFromPlan(
-        params.buyerAccountId,
-        plan,
-        context,
-        params.orderIdsOverride,
-      );
-      await deps.carts.checkout(params.buyerAccountId, context);
-
-      return { orderIds };
-    },
-    buyNow: async (params, context) => {
-      const candidate = await getOrderingSupplyCandidateByListingId(
-        deps.db,
-        params.listingId,
-      );
-      if (!candidate) {
-        throw new OrderingDomainError("Listing is not available for buy now.");
-      }
-      if (candidate.productId !== params.productId.trim()) {
-        throw new OrderingDomainError(
-          "Buy now listing does not match the selected product.",
-        );
-      }
-      assertSupplyAvailable(
-        [candidate],
-        params.quantity,
-        `Not enough active supply is available for ${candidate.itemTitle}.`,
-      );
-
-      const demand: MarketplaceDemand & Readonly<{ quantity: number }> = {
-        catalogItemId: candidate.catalogItemId,
-        productId: candidate.productId,
-        itemTitle: candidate.itemTitle,
-        itemSubtitle: candidate.itemSubtitle,
-        selectedOptions: candidate.selectedOptions,
-        productSummary: candidate.productSummary,
-        quantity: params.quantity,
-      };
-      const plan = quotePlan(
-        [
-          {
-            demand,
-            allocations: [{ candidate, quantity: params.quantity }],
-          },
-        ],
-        params.shippingOption,
-        deps.shippingQuotePolicy,
         undefined,
-        "buy-now",
-        candidate.listingId,
+        "cart-checkout",
+        params.checkoutSessionId,
       );
       const orderIds = await createOrdersFromPlan(
         params.buyerAccountId,

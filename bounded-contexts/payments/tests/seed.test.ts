@@ -69,6 +69,16 @@ describeWithDatabase("payments seed", () => {
     );
     expect(Number(readyOrders.rows[0]?.count ?? 0)).toBeGreaterThan(0);
 
+    const checkoutCartLines = await pools.checkout.query<{ count: string }>(
+      "SELECT COUNT(*) AS count FROM checkout_cart_line_pages",
+    );
+    expect(Number(checkoutCartLines.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+
+    const checkoutSessions = await pools.checkout.query<{ count: string }>(
+      "SELECT COUNT(*) AS count FROM checkout_session_pages WHERE session_id = 'chk_seed_started_cart'",
+    );
+    expect(Number(checkoutSessions.rows[0]?.count ?? 0)).toBe(1);
+
     const before = await pools.payments.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'payments.%'",
     );

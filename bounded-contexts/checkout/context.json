@@ -1,0 +1,211 @@
+{
+  "contextName": "checkout",
+  "packageName": "@chase-sets/checkout",
+  "ownedNouns": [
+    "buyer cart",
+    "checkout session"
+  ],
+  "streamPrefix": "checkout.",
+  "apiBasePath": "/api/marketplace",
+  "slices": [
+    "cart",
+    "sessions"
+  ],
+  "allowedSupportDirectories": [
+    "request-support",
+    "runtime-support",
+    "seed-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server"
+  ],
+  "allowedContextDependencies": [
+    "@chase-sets/ordering",
+    "@chase-sets/payments"
+  ],
+  "seedRequirements": [
+    "catalog",
+    "identity",
+    "inventory",
+    "marketplace"
+  ],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "checkout-catalog-item-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "checkout.catalog-projection"
+      ],
+      "eventTypes": [
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.blueprint-assigned",
+        "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived",
+        "catalog.blueprint.created",
+        "catalog.blueprint.revised",
+        "catalog.blueprint.dimensions-set",
+        "catalog.blueprint.product-resolution-rules-set",
+        "catalog.blueprint.published",
+        "catalog.dimension.created",
+        "catalog.dimension.revised",
+        "catalog.dimension.option-added",
+        "catalog.dimension.option-revised"
+      ],
+      "order": 10
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "checkout-catalog-item-projection",
+      "sourceContextNames": [
+        "catalog"
+      ],
+      "ownedTables": [
+        "checkout_catalog_items",
+        "checkout_catalog_blueprints",
+        "checkout_catalog_dimensions",
+        "checkout_catalog_dimension_options"
+      ],
+      "requiredDuringBootstrap": true
+    }
+  ],
+  "apiDeployables": [
+    "platform-api"
+  ],
+  "sourceRuntimeDeployables": [
+    "platform-api"
+  ],
+  "apiMounts": [
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-cart",
+          "routePath": "account/cart",
+          "fileExport": "./routes/account-cart",
+          "routeType": "route",
+          "sourceContext": "checkout"
+        },
+        {
+          "routeId": "checkout-start",
+          "routePath": "checkout/start",
+          "fileExport": "./routes/checkout-start",
+          "routeType": "route",
+          "sourceContext": "checkout"
+        },
+        {
+          "routeId": "checkout-session",
+          "routePath": "checkout/:sessionId",
+          "fileExport": "./routes/checkout-session",
+          "routeType": "route",
+          "sourceContext": "checkout"
+        }
+      ]
+    }
+  ],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "cart",
+      "label": "Cart",
+      "icon": "cart",
+      "href": "/account/cart",
+      "order": 110,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "orders.manage"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "cart",
+      "label": "Cart",
+      "icon": "cart",
+      "href": "/account/cart",
+      "order": 110,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "orders.manage"
+      ]
+    }
+  ],
+  "directoryIntent": {
+    "cart": {
+      "classification": "slice",
+      "purpose": "Own long-lived buyer cart intent before an active checkout session starts.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal checkout module composition"
+      ]
+    },
+    "sessions": {
+      "classification": "slice",
+      "purpose": "Own checkout session lifecycle, review state, selected shipping, and orchestration status.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal checkout module composition"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide checkout request API clients and request-time Ordering/Payments orchestration adapters used by checkout sessions and external purchase-intent entry points.",
+      "allowedWhen": "Allowed for route/server request adapters and cross-context server-surface orchestration that cannot live inside a feature folder.",
+      "expectedConsumers": [
+        "sessions"
+      ],
+      "justification": "request-support centralizes context-local request client composition and the Checkout-owned confirmation adapter into Ordering and Payments.",
+      "createdFor": "checkout routes, Discovery purchase-intent forms, and checkout confirmation that need authenticated API calls.",
+      "sunsetWhen": "Remove when route modules no longer share request client behavior.",
+      "crossCuttingRuntimeComposition": true
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide checkout runtime composition and schema assembly.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "cart",
+        "sessions"
+      ],
+      "justification": "runtime-support centralizes context-local service and schema composition.",
+      "createdFor": "checkout runtime bootstrapping.",
+      "sunsetWhen": "Remove when runtime composition can be generated."
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Publish deterministic checkout seed ids for development/demo data.",
+      "allowedWhen": "Allowed only for stable seed identifiers shared by tests and composition seed orchestration.",
+      "expectedConsumers": [
+        "Tests and development seed orchestration"
+      ],
+      "justification": "seed-support names deterministic checkout session ids without putting demo state in Ordering.",
+      "createdFor": "checkout-owned buyer cart and started-session development data.",
+      "sunsetWhen": "Remove if seed ids become generated by a central lifecycle tool."
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose checkout-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  },
+  "hostPorts": []
+}

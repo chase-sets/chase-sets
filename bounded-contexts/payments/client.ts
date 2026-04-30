@@ -5,6 +5,13 @@ import type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
 type PaymentsApiApp = ReturnType<typeof buildPaymentsApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
+export type CreateBuyerPaymentRequest = Readonly<{
+  orderIds: readonly string[];
+  currencyCode?: string;
+  sourceContext?: string | null;
+  sourceReferenceId?: string | null;
+}>;
+
 export class PaymentsApiError extends Error {
   public constructor(
     public readonly status: number,
@@ -53,7 +60,9 @@ export function createPaymentsApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async createBuyerPayment(body: Record<string, unknown>): Promise<PaymentsPaymentDetail> {
+    async createBuyerPayment(
+      body: CreateBuyerPaymentRequest,
+    ): Promise<PaymentsPaymentDetail> {
       return parseJsonResponse(
         await client.buyer.payments.$post({
           json: body,

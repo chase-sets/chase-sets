@@ -6,7 +6,6 @@ import {
   type CommercialTermsResolver,
 } from "@chase-sets/commercial-terms/server";
 import type { OrderingServices } from "./support/runtime-support/services";
-import { createBuyerCartRoutes } from "./features/cart/api/route";
 import {
   createBuyerOrderRoutes,
   createSellerOrderRoutes,
@@ -25,7 +24,6 @@ export function createOrderingCommercialTermsResolver(
 export function buildOrderingApi(services: OrderingServices) {
   const app = new Hono<OrderingApiEnv>();
 
-  app.route("/buyer", createBuyerCartRoutes(services.cart));
   app.route("/buyer", createBuyerOrderRoutes(services.orders));
   app.route("/seller", createSellerOrderRoutes(services.orders));
 

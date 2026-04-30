@@ -58,4 +58,6 @@ export type AuthenticationMethodId = TypedUlid<"atm">;
 
 export type SessionId = TypedUlid<"ses">;
 
+export type CheckoutSessionId = TypedUlid<"chk">;
+
 export type ApiKeyId = TypedUlid<"key">;

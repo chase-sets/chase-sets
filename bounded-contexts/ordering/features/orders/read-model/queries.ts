@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
+import type { VersionSelectedOptionEntry } from "../domain/common";
 
 export type OrderingOrderLineRow = Readonly<{
   line_id: string;
@@ -339,7 +339,7 @@ export async function getSale(
 
 export async function hasOrderForSource(
   db: PgQueryable,
-  sourceType: "cart-checkout" | "offer-acceptance",
+  sourceType: "cart-checkout" | "offer-acceptance" | "buy-now",
   sourceReferenceId: string,
 ): Promise<boolean> {
   const result = await db.query<{ order_id: string }>(
@@ -352,4 +352,21 @@ export async function hasOrderForSource(
   );
 
   return Boolean(result.rows[0]?.order_id);
+}
+
+export async function listOrderIdsForSource(
+  db: PgQueryable,
+  sourceType: "cart-checkout" | "offer-acceptance" | "buy-now",
+  sourceReferenceId: string,
+): Promise<string[]> {
+  const result = await db.query<{ order_id: string }>(
+    `SELECT order_id
+     FROM ordering_order_pages
+     WHERE source_type = $1
+       AND source_reference_id = $2
+     ORDER BY order_id ASC`,
+    [sourceType, sourceReferenceId],
+  );
+
+  return result.rows.map((row) => row.order_id);
 }

@@ -12,10 +12,11 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Identity](./identity/README.md) | Own users, accounts, memberships, invitations, API keys, consents, and identity-management surfaces. |
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
+| [Checkout](./checkout/README.md) | Own buyer cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own seller-held stock and operational availability. |
 | [Commercial Terms](./commercial-terms/README.md) | Own marketplace fee policy, payment fee policy, and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
-| [Ordering](./ordering/README.md) | Own checkout normalization and commercial commitment. |
+| [Ordering](./ordering/README.md) | Own seller-specific orders and commercial commitment. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
 | [Reputation](./reputation/README.md) | Own post-transaction ratings, written feedback, and canonical review summaries. |
 | [Payments](./payments/README.md) | Own external money movement and buyer-facing charges or refunds. |
@@ -151,6 +152,8 @@ These marketplace nouns are already fixed to a single owner:
 - Buyer and Seller are roles played by an Account, not separate root entities.
 - Listing is owned by Marketplace.
 - Offer is owned by Marketplace.
+- Buyer Cart is owned by Checkout.
+- Checkout Session is owned by Checkout.
 - Order is owned by Ordering.
 - Shipment is owned by Fulfillment.
 - Review is owned by Reputation.
@@ -206,6 +209,7 @@ Catalog also owns the `SelectedOptionEntry` shape used to describe resolved prod
 - Marketplace depends on Identity, Auth journey entry points, Catalog product identity, and Inventory availability signals.
 - Marketplace depends on Commercial Terms for resolved seller fee snapshots used in listing management.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
+- Checkout depends on Discovery entry points, Catalog product identity, Ordering order creation, and Payments payment initialization.
 - Ordering depends on Marketplace product commitments, Commercial Terms resolution, Identity account references, and inventory reservation outcomes published after order commitment.
 - Fulfillment depends on Ordering.
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
@@ -227,7 +231,7 @@ These scenarios should map cleanly to one owner per decision:
 1. Inventory owns bulk stock ingestion and seller stock for a resolved product.
 2. Commercial Terms owns fee schedules, negotiated overrides, and deterministic seller commercial snapshots.
 3. Marketplace owns listing publication and offer negotiation for products.
-4. Ordering owns cart decomposition and order creation for committed products.
+4. Checkout owns cart intent and checkout sessions; Ordering owns order creation for committed products.
 5. Fulfillment owns shipment state and tracking.
 6. Reputation owns post-transaction ratings, written feedback, and aggregate review summaries.
 7. Payments owns charge and refund execution.

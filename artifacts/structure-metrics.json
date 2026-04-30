@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-04-29T16:51:52.133Z",
+  "generatedAt": "2026-04-30T02:21:54.934Z",
   "totals": {
-    "contextCount": 14,
-    "sliceCount": 38,
-    "supportDirectoryCount": 55,
+    "contextCount": 15,
+    "sliceCount": 39,
+    "supportDirectoryCount": 58,
     "singleSliceSupportFiles": 0,
     "driftCount": 0
   },
@@ -21,6 +21,14 @@
       "contextName": "catalog",
       "sliceCount": 6,
       "supportDirectoryCount": 7,
+      "singleSliceSupportFiles": 0,
+      "driftCount": 0
+    },
+    {
+      "contextRoot": "bounded-contexts/checkout",
+      "contextName": "checkout",
+      "sliceCount": 2,
+      "supportDirectoryCount": 3,
       "singleSliceSupportFiles": 0,
       "driftCount": 0
     },
@@ -83,7 +91,7 @@
     {
       "contextRoot": "bounded-contexts/ordering",
       "contextName": "ordering",
-      "sliceCount": 2,
+      "sliceCount": 1,
       "supportDirectoryCount": 4,
       "singleSliceSupportFiles": 0,
       "driftCount": 0

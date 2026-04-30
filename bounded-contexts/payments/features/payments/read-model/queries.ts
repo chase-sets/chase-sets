@@ -13,6 +13,8 @@ export type PaymentDetailRow = Readonly<{
   processor_payment_reference: string;
   processor_client_secret: string | null;
   processor_status: string;
+  source_context: string | null;
+  source_reference_id: string | null;
   status: string;
   failure_code: string | null;
   failure_message: string | null;
@@ -51,6 +53,8 @@ const paymentSelect = `
     processor_payment_reference,
     processor_client_secret,
     processor_status,
+    source_context,
+    source_reference_id,
     status,
     failure_code,
     failure_message,
@@ -102,6 +106,24 @@ export async function getPaymentByProcessorReference(
      WHERE processor_name = $1
        AND processor_payment_reference = $2`,
     [processorName, processorPaymentReference],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPaymentRow(row) : null;
+}
+
+export async function getPaymentBySource(
+  db: PgQueryable,
+  sourceContext: string,
+  sourceReferenceId: string,
+  buyerAccountId: string,
+): Promise<PaymentDetailRow | null> {
+  const result = await db.query<PaymentPageRow>(
+    `${paymentSelect}
+     WHERE source_context = $1
+       AND source_reference_id = $2
+       AND buyer_account_id = $3`,
+    [sourceContext, sourceReferenceId, buyerAccountId],
   );
 
   const row = result.rows[0];

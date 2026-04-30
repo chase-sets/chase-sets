@@ -2,7 +2,6 @@ import { hc } from "hono/client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildOrderingApi } from "./api";
 
-export type { OrderingCartLine } from "./features/cart/api/contracts";
 export type {
   OrderingOrderProjection,
   OrderingOrderProjectionDetail,
@@ -14,7 +13,6 @@ export type {
   SaleListItem,
 } from "./features/orders/api/contracts";
 
-import type { OrderingCartLine } from "./features/cart/api/contracts";
 import type {
   PurchaseDetail,
   PurchaseListItem,
@@ -24,6 +22,28 @@ import type {
 
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
+
+export type OrderingCheckoutLineSnapshot = Readonly<{
+  listingId: string | null;
+  cartLineId: string | null;
+  catalogItemId: string;
+  productId: string;
+  itemTitle: string;
+  itemSubtitle: string | null;
+  selectedOptions: readonly Readonly<{
+    dimensionId: string;
+    optionId: string;
+  }>[];
+  productSummary: string | null;
+  quantity: number;
+}>;
+
+export type CreateCheckoutOrdersRequest = Readonly<{
+  checkoutSessionId: string;
+  sourceType: "cart-checkout" | "buy-now";
+  shippingOption: "standard" | "expedited" | "priority";
+  lines: readonly OrderingCheckoutLineSnapshot[];
+}>;
 
 export class OrderingApiError extends Error {
   public constructor(
@@ -73,45 +93,11 @@ export function createOrderingApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async getCart(): Promise<{ items: readonly OrderingCartLine[]; count: number }> {
+    async createCheckoutOrders(
+      body: CreateCheckoutOrdersRequest,
+    ): Promise<{ orderIds: string[] }> {
       return parseJsonResponse(
-        await client.buyer.cart.$get({ header: headers }),
-      );
-    },
-    async addCartLine(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.buyer.cart.$post({ json: body, header: headers }),
-      );
-    },
-    async updateCartLineQuantity(lineId: string, body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.buyer.cart[":lineId"].quantity.$post({
-          param: { lineId },
-          json: body,
-          header: headers,
-        }),
-      );
-    },
-    async removeCartLine(lineId: string) {
-      return parseJsonResponse(
-        await client.buyer.cart[":lineId"].remove.$post({
-          param: { lineId },
-          json: {},
-          header: headers,
-        }),
-      );
-    },
-    async checkoutCart(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.buyer.cart.checkout.$post({
-          json: body,
-          header: headers,
-        }),
-      );
-    },
-    async buyNow(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.buyer.purchases["buy-now"].$post({
+        await client.buyer.purchases.checkout.$post({
           json: body,
           header: headers,
         }),
