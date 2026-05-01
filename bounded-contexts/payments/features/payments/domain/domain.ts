@@ -34,6 +34,7 @@ export type PaymentState = Readonly<{
   processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit" | null;
   processorPaymentReference: string | null;
   processorClientSecret: string | null;
+  processorRedirectUrl: string | null;
   processorStatus: string | null;
   sourceContext: string | null;
   sourceReferenceId: string | null;
@@ -61,6 +62,7 @@ export const initialPaymentState: PaymentState = {
   processorPaymentKind: null,
   processorPaymentReference: null,
   processorClientSecret: null,
+  processorRedirectUrl: null,
   processorStatus: null,
   sourceContext: null,
   sourceReferenceId: null,
@@ -89,6 +91,7 @@ export type CreatePaymentCommand = Readonly<{
   processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
   processorPaymentReference: string;
   processorClientSecret: string | null;
+  processorRedirectUrl?: string | null;
   processorStatus: string;
   sourceContext?: string | null;
   sourceReferenceId?: string | null;
@@ -144,6 +147,7 @@ export type PaymentCreatedEvent = DomainEvent<
     processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
     processorPaymentReference: string;
     processorClientSecret: string | null;
+    processorRedirectUrl: string | null;
     processorStatus: string;
     sourceContext: string | null;
     sourceReferenceId: string | null;
@@ -266,6 +270,7 @@ export const decidePayment: AggregateDecider<
               "Processor payment reference is required.",
             ),
             processorClientSecret: normalizeOptionalText(command.processorClientSecret),
+            processorRedirectUrl: normalizeOptionalText(command.processorRedirectUrl),
             processorStatus: normalizeRequiredText(
               command.processorStatus,
               "Processor status is required.",
@@ -414,6 +419,7 @@ export const evolvePayment: AggregateEvolver<
         processorPaymentKind: event.data.processorPaymentKind,
         processorPaymentReference: event.data.processorPaymentReference,
         processorClientSecret: event.data.processorClientSecret,
+        processorRedirectUrl: event.data.processorRedirectUrl,
         processorStatus: event.data.processorStatus,
         sourceContext: event.data.sourceContext,
         sourceReferenceId: event.data.sourceReferenceId,

@@ -26,6 +26,23 @@ export type SettlementPayoutRow = Readonly<{
   retry_reason: string | null;
 }>;
 
+export type SettlementPayoutRiskSummaryRow = Readonly<{
+  failed_payout_count: number;
+  stale_requested_payout_count: number;
+  in_transit_payout_count: number;
+}>;
+
+export type SettlementProviderIdempotencyKeyRow = Readonly<{
+  operation_key: string;
+  provider_name: string;
+  operation_kind: string;
+  account_id: string | null;
+  payout_id: string | null;
+  provider_object_reference: string | null;
+  idempotency_key: string;
+  created_at: string;
+}>;
+
 const payoutSelect = `
   SELECT
     payout_id,
@@ -147,4 +164,108 @@ export async function getPayout(
   );
 
   return result.rows[0] ?? null;
+}
+
+export async function getAccountPayoutRiskSummary(
+  db: PgQueryable,
+  accountId: string,
+): Promise<SettlementPayoutRiskSummaryRow> {
+  const result = await db.query<{
+    failed_payout_count: string;
+    stale_requested_payout_count: string;
+    in_transit_payout_count: string;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE status = 'failed'
+           AND updated_at > NOW() - INTERVAL '7 days'
+       )::text AS failed_payout_count,
+       COUNT(*) FILTER (
+         WHERE status = 'requested'
+           AND updated_at < NOW() - INTERVAL '15 minutes'
+       )::text AS stale_requested_payout_count,
+       COUNT(*) FILTER (
+         WHERE status = 'in-transit'
+           AND updated_at < NOW() - INTERVAL '7 days'
+       )::text AS in_transit_payout_count
+     FROM settlement_payout_pages
+     WHERE account_id = $1`,
+    [accountId],
+  );
+  const row = result.rows[0];
+
+  return {
+    failed_payout_count: Number(row?.failed_payout_count ?? 0),
+    stale_requested_payout_count: Number(row?.stale_requested_payout_count ?? 0),
+    in_transit_payout_count: Number(row?.in_transit_payout_count ?? 0),
+  };
+}
+
+export async function recordSettlementProviderIdempotencyKey(
+  db: PgQueryable,
+  entry: Readonly<{
+    operationKey: string;
+    providerName: string;
+    operationKind: string;
+    accountId?: string | null;
+    payoutId?: string | null;
+    providerObjectReference?: string | null;
+    idempotencyKey: string;
+    createdAt?: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO settlement_provider_idempotency_keys (
+       operation_key,
+       provider_name,
+       operation_kind,
+       account_id,
+       payout_id,
+       provider_object_reference,
+       idempotency_key,
+       created_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (operation_key) DO UPDATE
+     SET provider_name = EXCLUDED.provider_name,
+         operation_kind = EXCLUDED.operation_kind,
+         account_id = EXCLUDED.account_id,
+         payout_id = EXCLUDED.payout_id,
+         provider_object_reference = EXCLUDED.provider_object_reference,
+         idempotency_key = EXCLUDED.idempotency_key`,
+    [
+      entry.operationKey,
+      entry.providerName,
+      entry.operationKind,
+      entry.accountId ?? null,
+      entry.payoutId ?? null,
+      entry.providerObjectReference ?? null,
+      entry.idempotencyKey,
+      entry.createdAt ?? new Date().toISOString(),
+    ],
+  );
+}
+
+export async function listSettlementProviderIdempotencyKeys(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; limit?: number }>,
+): Promise<SettlementProviderIdempotencyKeyRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 25, 100));
+  const result = await db.query<SettlementProviderIdempotencyKeyRow>(
+    `SELECT
+       operation_key,
+       provider_name,
+       operation_kind,
+       account_id,
+       payout_id,
+       provider_object_reference,
+       idempotency_key,
+       created_at
+     FROM settlement_provider_idempotency_keys
+     WHERE account_id = $1
+     ORDER BY created_at DESC, operation_key DESC
+     LIMIT $2`,
+    [params.accountId, limit],
+  );
+
+  return result.rows;
 }

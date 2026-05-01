@@ -514,6 +514,11 @@ export default function MarketplaceAccountPaymentRoute() {
                   <Text size="sm" tone="secondary">
                     Provider events: {data.payment.provider_events.length}
                   </Text>
+                  {data.payment.provider_events.map((event) => (
+                    <Text key={event.provider_event_id} size="sm" tone="secondary">
+                      Provider event {event.provider_event_id}: {providerEventLabel(event.event_kind)}
+                    </Text>
+                  ))}
                   {data.payment.failure_code ? (
                     <Text size="sm" tone="secondary">
                       Failure code: {data.payment.failure_code}
@@ -528,6 +533,22 @@ export default function MarketplaceAccountPaymentRoute() {
             <PageSection title="Secure Payment">
               {data.payment.processor_client_secret && data.payment.processor_publishable_key ? (
                 <StripeConfirmationCard payment={data.payment} />
+              ) : data.payment.processor_redirect_url ? (
+                <Surface elevated glow>
+                  <Stack gap={3}>
+                    <Badge tone="accent">Secure payment</Badge>
+                    <Text>
+                      Payment is ready. Continue to the secure checkout page to finish.
+                    </Text>
+                    <LinkButton
+                      href={data.payment.processor_redirect_url}
+                      size="lg"
+                      leadingIcon="lock"
+                    >
+                      Continue to secure checkout
+                    </LinkButton>
+                  </Stack>
+                </Surface>
               ) : (
                 <Surface tone="subtle" elevated>
                   <Text>Secure payment confirmation is not configured for this environment.</Text>

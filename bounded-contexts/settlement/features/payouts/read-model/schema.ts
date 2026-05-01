@@ -44,6 +44,21 @@ CREATE TABLE IF NOT EXISTS settlement_money_movement_webhook_events (
 CREATE INDEX IF NOT EXISTS settlement_money_movement_webhook_events_received_idx
   ON settlement_money_movement_webhook_events (received_at DESC);
 
+CREATE TABLE IF NOT EXISTS settlement_provider_idempotency_keys (
+  operation_key text PRIMARY KEY,
+  provider_name text NOT NULL,
+  operation_kind text NOT NULL,
+  account_id text NULL,
+  payout_id text NULL,
+  provider_object_reference text NULL,
+  idempotency_key text NOT NULL,
+  created_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS settlement_provider_idempotency_keys_account_idx
+  ON settlement_provider_idempotency_keys (account_id, created_at DESC)
+  WHERE account_id IS NOT NULL;
+
 ALTER TABLE settlement_payout_pages
   ADD COLUMN IF NOT EXISTS provider_transfer_reference text NULL;
 

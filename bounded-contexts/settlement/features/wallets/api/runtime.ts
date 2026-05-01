@@ -18,6 +18,7 @@ import type {
 } from "@chase-sets/primitives/typed-ids";
 import {
   getWallet,
+  listPendingCreditEntriesMaturedBy,
   listWalletEntries,
   type SettlementLedgerEntryRow,
   type SettlementWalletRow,
@@ -88,6 +89,10 @@ export type WalletServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: AccountId; version: number }>;
+  releaseMaturePendingSaleCredits: (
+    params: Readonly<{ now?: string; limit?: number }>,
+    context: EventStoreContext,
+  ) => Promise<{ released: number; skipped: number }>;
   projectors: readonly Projector[];
 }>;
 
@@ -184,6 +189,41 @@ export function createWalletRuntime(
         accountId: params.accountId,
         version: result.version,
       };
+    },
+    async releaseMaturePendingSaleCredits(params, context) {
+      const now = params.now ?? new Date().toISOString();
+      const entries = await listPendingCreditEntriesMaturedBy(deps.db, {
+        now,
+        limit: params.limit,
+      });
+      let released = 0;
+      let skipped = 0;
+
+      for (const entry of entries) {
+        try {
+          await commandHandler({
+            streamId: `settlement.wallet-${entry.account_id}`,
+            command: {
+              type: "MarkLedgerEntryAvailable",
+              ledgerEntryId: entry.ledger_entry_id as LedgerEntryId,
+              availableAt: now,
+            },
+            context,
+          });
+          released += 1;
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === "Ledger entry is already available."
+          ) {
+            skipped += 1;
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      return { released, skipped };
     },
     projectors: [
       createProjector({

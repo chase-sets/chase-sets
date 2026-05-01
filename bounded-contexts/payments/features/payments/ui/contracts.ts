@@ -13,6 +13,7 @@ export interface PaymentsPaymentDetail {
   processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
   processor_payment_reference: string;
   processor_client_secret: string | null;
+  processor_redirect_url: string | null;
   processor_status: string;
   source_context: string | null;
   source_reference_id: string | null;
@@ -26,6 +27,19 @@ export interface PaymentsPaymentDetail {
   cancelled_at: string | null;
   processor_publishable_key: string | null;
   provider_events: readonly PaymentsProviderEvent[];
+}
+
+export interface PaymentsCheckoutStatus {
+  order_ids: readonly string[];
+  currency_code: string;
+  amount: string;
+  wallet_credit: {
+    requested_amount: string;
+    applied_amount: string;
+    external_amount: string;
+  };
+  can_start_payment: boolean;
+  unavailable_reasons: readonly string[];
 }
 
 export interface PaymentsProviderEvent {

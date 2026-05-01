@@ -15,6 +15,7 @@ export type PaymentDetailRow = Readonly<{
   processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
   processor_payment_reference: string;
   processor_client_secret: string | null;
+  processor_redirect_url: string | null;
   processor_status: string;
   source_context: string | null;
   source_reference_id: string | null;
@@ -34,6 +35,16 @@ export type PaymentProviderEventRow = Readonly<{
   event_kind: string;
   provider_object_reference: string | null;
   received_at: string;
+}>;
+
+export type PaymentProviderIdempotencyKeyRow = Readonly<{
+  operation_key: string;
+  provider_name: string;
+  operation_kind: string;
+  account_id: string | null;
+  provider_object_reference: string | null;
+  idempotency_key: string;
+  created_at: string;
 }>;
 
 type PaymentPageRow = Omit<PaymentDetailRow, "order_ids"> & Readonly<{
@@ -66,6 +77,7 @@ const paymentSelect = `
     processor_payment_kind,
     processor_payment_reference,
     processor_client_secret,
+    processor_redirect_url,
     processor_status,
     source_context,
     source_reference_id,
@@ -178,4 +190,117 @@ export async function listPaymentProviderEvents(
   );
 
   return result.rows;
+}
+
+export async function getPaymentProviderEvent(
+  db: PgQueryable,
+  params: Readonly<{ providerEventId: string; accountId: string }>,
+): Promise<PaymentProviderEventRow | null> {
+  const result = await db.query<PaymentProviderEventRow>(
+    `SELECT
+       event.provider_event_id,
+       event.provider_name,
+       event.event_kind,
+       event.provider_object_reference,
+       event.received_at
+     FROM payments_provider_webhook_events event
+     LEFT JOIN payments_payment_pages payment
+       ON payment.processor_name = event.provider_name
+      AND (
+        payment.processor_payment_reference = event.provider_object_reference
+        OR payment.payment_id = event.provider_object_reference
+      )
+     WHERE event.provider_event_id = $1
+       AND payment.buyer_account_id = $2`,
+    [params.providerEventId, params.accountId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function recordPaymentProviderIdempotencyKey(
+  db: PgQueryable,
+  entry: Readonly<{
+    operationKey: string;
+    providerName: string;
+    operationKind: string;
+    accountId?: string | null;
+    providerObjectReference?: string | null;
+    idempotencyKey: string;
+    createdAt?: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO payments_provider_idempotency_keys (
+       operation_key,
+       provider_name,
+       operation_kind,
+       account_id,
+       provider_object_reference,
+       idempotency_key,
+       created_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (operation_key) DO UPDATE
+     SET provider_name = EXCLUDED.provider_name,
+         operation_kind = EXCLUDED.operation_kind,
+         account_id = EXCLUDED.account_id,
+         provider_object_reference = EXCLUDED.provider_object_reference,
+         idempotency_key = EXCLUDED.idempotency_key`,
+    [
+      entry.operationKey,
+      entry.providerName,
+      entry.operationKind,
+      entry.accountId ?? null,
+      entry.providerObjectReference ?? null,
+      entry.idempotencyKey,
+      entry.createdAt ?? new Date().toISOString(),
+    ],
+  );
+}
+
+export async function listPaymentProviderIdempotencyKeys(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; limit?: number }>,
+): Promise<PaymentProviderIdempotencyKeyRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 25, 100));
+  const result = await db.query<PaymentProviderIdempotencyKeyRow>(
+    `SELECT
+       operation_key,
+       provider_name,
+       operation_kind,
+       account_id,
+       provider_object_reference,
+       idempotency_key,
+       created_at
+     FROM payments_provider_idempotency_keys
+     WHERE account_id = $1
+     ORDER BY created_at DESC, operation_key DESC
+     LIMIT $2`,
+    [params.accountId, limit],
+  );
+
+  return result.rows;
+}
+
+export async function listPaymentsNeedingReconciliation(
+  db: PgQueryable,
+  params: Readonly<{ limit?: number }> = {},
+): Promise<PaymentDetailRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const result = await db.query<PaymentPageRow>(
+    `${paymentSelect}
+     WHERE (
+       status = 'pending-confirmation'
+       AND updated_at < NOW() - INTERVAL '15 minutes'
+     )
+     OR (
+       status = 'failed'
+       AND processor_payment_kind <> 'balance-credit'
+     )
+     ORDER BY updated_at ASC, payment_id ASC
+     LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows.map(mapPaymentRow);
 }

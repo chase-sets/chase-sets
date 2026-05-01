@@ -10,7 +10,7 @@ export type ProcessorPaymentKind =
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
   publishableKey: string | null;
-  confirmationExperience: "processor-managed-form";
+  confirmationExperience: "processor-managed-form" | "processor-hosted-page";
   dynamicPaymentMethods: boolean;
   sensitivePaymentDetailsHandledByProcessor: boolean;
 }>;
@@ -35,6 +35,7 @@ export type CreatedProcessorPayment = Readonly<{
   processorPaymentKind: ProcessorPaymentKind;
   processorPaymentReference: string;
   processorClientSecret: string | null;
+  processorRedirectUrl: string | null;
   processorStatus: string;
 }>;
 

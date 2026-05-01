@@ -28,9 +28,12 @@ afterEach(() => {
   delete process.env.STRIPE_PUBLISHABLE_KEY;
   delete process.env.STRIPE_WEBHOOK_SECRET;
   delete process.env.STRIPE_API_BASE_URL;
+  delete process.env.STRIPE_CHECKOUT_UI_MODE;
   delete process.env.STRIPE_CONNECT_RETURN_URL;
   delete process.env.STRIPE_CONNECT_REFRESH_URL;
+  delete process.env.PAYMENT_RECONCILIATION_INTERVAL_MS;
   delete process.env.PAYOUT_RECONCILIATION_INTERVAL_MS;
+  delete process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS;
   delete process.env.NODE_ENV;
 });
 
@@ -42,7 +45,9 @@ describe("platform api config", () => {
 
     expect(config.sharedDatabaseUrl).toBe("postgresql://localhost/chase_sets");
     expect(config.contextDatabaseUrls).toEqual({});
+    expect(config.paymentReconciliationIntervalMs).toBe(300_000);
     expect(config.payoutReconciliationIntervalMs).toBe(300_000);
+    expect(config.sellerFundsReleaseIntervalMs).toBe(300_000);
   });
 
   it("loads per-context database urls without a shared fallback", () => {
@@ -139,6 +144,19 @@ describe("platform api config", () => {
       "checkout.session.completed",
     );
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payout.failed");
+  });
+
+  it("loads hosted Checkout fallback configuration", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CHECKOUT_UI_MODE = "hosted";
+
+    expect(loadConfig().paymentProcessor).toMatchObject({
+      kind: "stripe",
+      checkoutUiMode: "hosted",
+    });
   });
 
   it("can disable scheduled payout reconciliation", () => {

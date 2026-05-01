@@ -1,6 +1,10 @@
 import { hc } from "hono/client";
 import type { buildPaymentsApi } from "./api";
-import type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
+import type {
+  PaymentsCheckoutStatus,
+  PaymentsPaymentDetail,
+  PaymentsProviderEvent,
+} from "./features/payments/api/contracts";
 
 type PaymentsApiApp = ReturnType<typeof buildPaymentsApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -79,8 +83,37 @@ export function createPaymentsApiClient({
         }),
       );
     },
+    async getCheckoutStatus(params: Readonly<{
+      orderIds: readonly string[];
+      currencyCode?: string;
+      requestedBalanceCreditAmount?: string | null;
+    }>): Promise<PaymentsCheckoutStatus> {
+      const query = {
+        orderIds: params.orderIds.join(","),
+        currencyCode: params.currencyCode ?? "usd",
+        requestedBalanceCreditAmount: params.requestedBalanceCreditAmount ?? undefined,
+      };
+      return parseJsonResponse(
+        await client.account.checkout.status.$get({
+          query,
+          header: headers,
+        }),
+      );
+    },
+    async getProviderEvent(providerEventId: string): Promise<PaymentsProviderEvent> {
+      return parseJsonResponse(
+        await client.account["provider-events"][":providerEventId"].$get({
+          param: { providerEventId },
+          header: headers,
+        }),
+      );
+    },
   };
 }
 
-export type { PaymentsPaymentDetail } from "./features/payments/api/contracts";
+export type {
+  PaymentsCheckoutStatus,
+  PaymentsPaymentDetail,
+  PaymentsProviderEvent,
+} from "./features/payments/api/contracts";
 export const paymentsApi = createPaymentsApiClient();

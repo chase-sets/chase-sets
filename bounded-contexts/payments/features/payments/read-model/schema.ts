@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   processor_payment_kind text NOT NULL DEFAULT 'payment-intent',
   processor_payment_reference text NOT NULL UNIQUE,
   processor_client_secret text NULL,
+  processor_redirect_url text NULL,
   processor_status text NOT NULL,
   source_context text NULL,
   source_reference_id text NULL,
@@ -46,6 +47,23 @@ ALTER TABLE payments_payment_pages
 
 ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS processor_payment_kind text NOT NULL DEFAULT 'payment-intent';
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS processor_redirect_url text NULL;
+
+CREATE TABLE IF NOT EXISTS payments_provider_idempotency_keys (
+  operation_key text PRIMARY KEY,
+  provider_name text NOT NULL,
+  operation_kind text NOT NULL,
+  account_id text NULL,
+  provider_object_reference text NULL,
+  idempotency_key text NOT NULL,
+  created_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS payments_provider_idempotency_keys_account_idx
+  ON payments_provider_idempotency_keys (account_id, created_at DESC)
+  WHERE account_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS payments_provider_webhook_events (
   provider_event_id text PRIMARY KEY,

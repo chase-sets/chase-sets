@@ -110,6 +110,31 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     }
   });
 
+  app.get("/checkout/status", async (c) => {
+    const access = requirePaymentAccess(c, "orders.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      const orderIds =
+        c.req.queries("orderId") ??
+        c.req.query("orderIds")?.split(",").map((value) => value.trim()) ??
+        [];
+      const status = await services.getCheckoutStatus({
+        accountId: access.actor.accountId as never,
+        orderIds: orderIds.filter(Boolean) as never,
+        currencyCode: c.req.query("currencyCode") ?? "usd",
+        requestedBalanceCreditAmount:
+          c.req.query("requestedBalanceCreditAmount") ?? null,
+      });
+
+      return c.json(status);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
   app.get("/payments/:id", async (c) => {
     const access = requirePaymentAccess(c, "orders.view");
     if (access.response) {
@@ -125,6 +150,37 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     }
 
     return c.json(payment);
+  });
+
+  app.get("/provider-events/:providerEventId", async (c) => {
+    const access = requirePaymentAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const event = await services.getProviderEvent({
+      providerEventId: c.req.param("providerEventId"),
+      accountId: access.actor.accountId,
+    });
+    if (!event) {
+      return c.json({ error: "Provider event not found." }, 404);
+    }
+
+    return c.json(event);
+  });
+
+  app.get("/provider-idempotency", async (c) => {
+    const access = requirePaymentAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json({
+      items: await services.listProviderIdempotencyKeys({
+        accountId: access.actor.accountId,
+        limit: Number(c.req.query("limit") ?? 25),
+      }),
+    });
   });
 
   return app;

@@ -21,6 +21,7 @@ export function buildPaymentProjectionHandlers(
         processorPaymentKind?: string | null;
         processorPaymentReference: string;
         processorClientSecret: string | null;
+        processorRedirectUrl?: string | null;
         processorStatus: string;
         sourceContext: string | null;
         sourceReferenceId: string | null;
@@ -43,6 +44,7 @@ export function buildPaymentProjectionHandlers(
            processor_payment_kind,
            processor_payment_reference,
            processor_client_secret,
+           processor_redirect_url,
            processor_status,
            source_context,
            source_reference_id,
@@ -56,7 +58,7 @@ export function buildPaymentProjectionHandlers(
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'pending-confirmation', NULL, NULL, $18, $18, NULL, NULL, NULL, $19
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'pending-confirmation', NULL, NULL, $19, $19, NULL, NULL, NULL, $20
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -72,6 +74,7 @@ export function buildPaymentProjectionHandlers(
              processor_payment_kind = EXCLUDED.processor_payment_kind,
              processor_payment_reference = EXCLUDED.processor_payment_reference,
              processor_client_secret = EXCLUDED.processor_client_secret,
+             processor_redirect_url = EXCLUDED.processor_redirect_url,
              processor_status = EXCLUDED.processor_status,
              source_context = EXCLUDED.source_context,
              source_reference_id = EXCLUDED.source_reference_id,
@@ -94,6 +97,7 @@ export function buildPaymentProjectionHandlers(
           data.processorPaymentKind ?? "payment-intent",
           data.processorPaymentReference,
           data.processorClientSecret,
+          data.processorRedirectUrl ?? null,
           data.processorStatus,
           data.sourceContext,
           data.sourceReferenceId,

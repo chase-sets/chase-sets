@@ -92,6 +92,7 @@ function existingPaymentRow() {
     processor_payment_kind: "payment-intent",
     processor_payment_reference: "pi_existing",
     processor_client_secret: "pi_existing_secret",
+    processor_redirect_url: null,
     processor_status: "requires_payment_method",
     source_context: "checkout",
     source_reference_id: "chk_1",
@@ -120,6 +121,7 @@ function createProcessorGateway() {
       processorPaymentKind: "payment-intent" as const,
       processorPaymentReference: `pi_${input.paymentId}`,
       processorClientSecret: `secret_${input.paymentId}`,
+      processorRedirectUrl: null,
       processorStatus: "requires_payment_method",
     })),
     createRefund: vi.fn(async () => {

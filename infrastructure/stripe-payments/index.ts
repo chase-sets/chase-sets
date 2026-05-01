@@ -16,12 +16,14 @@ export type StripePaymentProcessorGatewayOptions = Readonly<{
   publishableKey: string;
   webhookSecret: string;
   apiBaseUrl?: string;
+  checkoutUiMode?: "elements" | "hosted";
   webhookToleranceSeconds?: number;
 }>;
 
 type StripeCheckoutSessionResponse = Readonly<{
   id: string;
   client_secret?: string | null;
+  url?: string | null;
   status?: string | null;
   payment_status?: string | null;
   payment_intent?: string | Readonly<{ id?: string | null }> | null;
@@ -313,11 +315,15 @@ export function createStripePaymentProcessorGateway(
   const apiBaseUrl = options.apiBaseUrl?.trim() || "https://api.stripe.com";
   const authorization = `Basic ${encodeBasicAuth(options.secretKey)}`;
   const webhookToleranceSeconds = options.webhookToleranceSeconds ?? 300;
+  const checkoutUiMode = options.checkoutUiMode ?? "elements";
 
   const publicConfiguration: PaymentProcessorPublicConfig = {
     processorName: "stripe",
     publishableKey: options.publishableKey,
-    confirmationExperience: "processor-managed-form",
+    confirmationExperience:
+      checkoutUiMode === "hosted"
+        ? "processor-hosted-page"
+        : "processor-managed-form",
     dynamicPaymentMethods: true,
     sensitivePaymentDetailsHandledByProcessor: true,
   };
@@ -354,14 +360,24 @@ export function createStripePaymentProcessorGateway(
       );
       const paymentReturnUrl =
         normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payments";
+      const sessionNavigation: Record<string, string> =
+        checkoutUiMode === "hosted"
+          ? {
+              ui_mode: "hosted",
+              success_url: paymentReturnUrl,
+              cancel_url: paymentReturnUrl,
+            }
+          : {
+              ui_mode: "elements",
+              return_url: paymentReturnUrl,
+            };
       const body = await stripeRequest<StripeCheckoutSessionResponse>(
         "/v1/checkout/sessions",
         {
           method: "POST",
           body: toFormBody({
             mode: "payment",
-            ui_mode: "elements",
-            return_url: paymentReturnUrl,
+            ...sessionNavigation,
             client_reference_id: input.paymentId,
             "line_items[0][quantity]": "1",
             "line_items[0][price_data][currency]": input.currencyCode,
@@ -401,6 +417,7 @@ export function createStripePaymentProcessorGateway(
         processorPaymentKind: "checkout-session",
         processorPaymentReference: body.id,
         processorClientSecret: body.client_secret?.trim() ?? null,
+        processorRedirectUrl: body.url?.trim() ?? null,
         processorStatus:
           body.payment_status?.trim() ?? body.status?.trim() ?? "open",
       };

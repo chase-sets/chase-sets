@@ -187,6 +187,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         processorPaymentKind: processorPayment.processorPaymentKind,
         processorPaymentReference: processorPayment.processorPaymentReference,
         processorClientSecret: processorPayment.processorClientSecret,
+        processorRedirectUrl: processorPayment.processorRedirectUrl,
         processorStatus: processorPayment.processorStatus,
         createdAt,
       },

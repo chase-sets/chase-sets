@@ -70,6 +70,29 @@ function estimatedArrivalLabel(row: SettlementPayoutRow) {
   return "After provider submission";
 }
 
+function payoutUnavailableReasons(
+  wallet: SettlementWalletRow,
+  payoutReadiness?: SettlementPayoutReadinessRow | null,
+) {
+  const reasons: string[] = [];
+  const availableBalance = Number.parseFloat(wallet.available_balance_amount);
+  if (!payoutReadiness || payoutReadiness.status === "not-started") {
+    reasons.push("Set up a payout account before requesting funds.");
+  } else if (payoutReadiness.status !== "ready") {
+    reasons.push("Finish payout setup and resolve any open requirements.");
+  }
+  if (payoutReadiness?.status === "ready" && !payoutReadiness.updated_at) {
+    reasons.push("Check setup status before requesting a payout.");
+  }
+  if (payoutReadiness?.missing_requirements.length) {
+    reasons.push("Provider requirements are still open.");
+  }
+  if (availableBalance <= 0) {
+    reasons.push("Available balance is zero. Pending funds become available after settlement review.");
+  }
+  return reasons;
+}
+
 export function SettlementPayoutListPage({
   wallet,
   payouts,
@@ -91,7 +114,15 @@ export function SettlementPayoutListPage({
   canSetupPayouts?: boolean;
   showOperations?: boolean;
 }) {
-  const canRequestPayout = canRequestPayouts && payoutReadiness?.status === "ready";
+  const setupFresh = Boolean(payoutReadiness?.updated_at);
+  const canRequestPayout =
+    canRequestPayouts &&
+    payoutReadiness?.status === "ready" &&
+    setupFresh &&
+    Number.parseFloat(wallet.available_balance_amount) > 0;
+  const unavailableReasons = canRequestPayout
+    ? []
+    : payoutUnavailableReasons(wallet, payoutReadiness);
   const confirmationRemainingBalance = payoutConfirmation
     ? subtractMoney(wallet.available_balance_amount, payoutConfirmation.amount)
     : null;
@@ -139,6 +170,16 @@ export function SettlementPayoutListPage({
                 Payouts must be between {formatMoney(payoutAmountPolicy.minimumAmount, payoutAmountPolicy.currencyCode)} and {formatMoney(payoutAmountPolicy.maximumAmount, payoutAmountPolicy.currencyCode)}. Arrival is usually 1-3 business days after the provider accepts the payout.
               </Text>
             </Stack>
+            {unavailableReasons.length > 0 ? (
+              <Stack gap={1}>
+                <Text size="sm" weight="semibold">Why payouts are unavailable</Text>
+                {unavailableReasons.map((reason) => (
+                  <Text key={reason} size="sm" tone="secondary">
+                    {reason}
+                  </Text>
+                ))}
+              </Stack>
+            ) : null}
             {payoutConfirmation ? (
               <Stack gap={2}>
                 <form method="post">

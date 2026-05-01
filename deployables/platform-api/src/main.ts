@@ -8,6 +8,7 @@ import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processin
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
+import type { PaymentServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
@@ -24,6 +25,7 @@ const paymentProcessorGateway =
         publishableKey: config.paymentProcessor.publishableKey,
         webhookSecret: config.paymentProcessor.webhookSecret,
         apiBaseUrl: config.paymentProcessor.apiBaseUrl,
+        checkoutUiMode: config.paymentProcessor.checkoutUiMode,
       })
     : createFakePaymentProcessorGateway();
 const moneyMovementGateway =
@@ -89,6 +91,54 @@ startProjectorPolling(runtime.subscriptionRunners, PROJECTION_INTERVAL_MS, (erro
 });
 
 let reconciliationRunning = false;
+let paymentReconciliationRunning = false;
+let sellerFundsReleaseRunning = false;
+if (config.paymentReconciliationIntervalMs) {
+  setInterval(() => {
+    if (paymentReconciliationRunning) {
+      return;
+    }
+    paymentReconciliationRunning = true;
+    const paymentServices = runtime.services.payments as PaymentServices;
+    void paymentServices
+      .listPaymentsNeedingReconciliation({ limit: 100 })
+      .then((payments) => {
+        console.info(JSON.stringify({
+          type: "payments.reconciliation-needed",
+          count: payments.length,
+          paymentIds: payments.map((payment) => payment.payment_id),
+        }));
+      })
+      .catch((error: unknown) => {
+        console.error("Payment reconciliation scan failed:", error);
+      })
+      .finally(() => {
+        paymentReconciliationRunning = false;
+      });
+  }, config.paymentReconciliationIntervalMs);
+}
+
+if (config.sellerFundsReleaseIntervalMs) {
+  setInterval(() => {
+    if (sellerFundsReleaseRunning) {
+      return;
+    }
+    sellerFundsReleaseRunning = true;
+    const settlementServices = runtime.services.settlement as SettlementServices;
+    void settlementServices.wallets
+      .releaseMaturePendingSaleCredits({ limit: 500 }, SYSTEM_CONTEXT)
+      .then((result: unknown) => {
+        console.info(JSON.stringify({ type: "settlement.funds-release", result }));
+      })
+      .catch((error: unknown) => {
+        console.error("Seller funds release failed:", error);
+      })
+      .finally(() => {
+        sellerFundsReleaseRunning = false;
+      });
+  }, config.sellerFundsReleaseIntervalMs);
+}
+
 if (config.payoutReconciliationIntervalMs) {
   setInterval(() => {
     if (reconciliationRunning) {

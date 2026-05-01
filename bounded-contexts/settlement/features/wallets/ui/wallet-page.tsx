@@ -13,6 +13,10 @@ import {
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
+import {
+  sellerFundsAvailableAt,
+  sellerFundsHoldPolicy,
+} from "../domain/funds-hold-policy";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -28,6 +32,21 @@ function fundsStatusTone(status: string) {
 
 function checklistTone(isComplete: boolean) {
   return isComplete ? "success" : "neutral";
+}
+
+function fundsAvailabilityLabel(row: SettlementLedgerEntryRow) {
+  if (row.funds_status === "available") {
+    return row.available_at
+      ? `Available ${new Date(row.available_at).toLocaleDateString()}`
+      : "Available now";
+  }
+  if (row.direction === "credit" && row.kind === "sale") {
+    const availableAt = sellerFundsAvailableAt(row.posted_at);
+    return availableAt
+      ? `Expected ${new Date(availableAt).toLocaleDateString()}`
+      : "Pending review";
+  }
+  return "Pending";
 }
 
 export function SettlementWalletPage({
@@ -116,7 +135,9 @@ export function SettlementWalletPage({
             <Stack gap={2}>
               <Text weight="semibold">Pending</Text>
               <Text size="lg">{formatMoney(wallet.pending_balance_amount, wallet.currency_code)}</Text>
-              <Text size="sm" tone="secondary">Funds in transit, not yet available for payout.</Text>
+              <Text size="sm" tone="secondary">
+                Sale funds are held for {sellerFundsHoldPolicy.holdDays} days before they become available.
+              </Text>
             </Stack>
           </Card>
           <Card>
@@ -211,7 +232,10 @@ export function SettlementWalletPage({
               header: "Status",
               cell: (row) =>
                 row.direction === "credit" ? (
-                  <Badge tone={fundsStatusTone(row.funds_status)}>{row.funds_status}</Badge>
+                  <Stack gap={1}>
+                    <Badge tone={fundsStatusTone(row.funds_status)}>{row.funds_status}</Badge>
+                    <Text size="sm" tone="secondary">{fundsAvailabilityLabel(row)}</Text>
+                  </Stack>
                 ) : null,
             },
             {

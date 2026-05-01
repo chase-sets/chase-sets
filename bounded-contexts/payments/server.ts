@@ -7,6 +7,7 @@ export type {
   BalanceCreditResolution,
 } from "./features/payments/api/balance-credit-resolver";
 export { normalizeRequestedBalanceCreditAmount } from "./features/payments/api/balance-credit-request";
+export type { PaymentServices } from "./features/payments/api/runtime";
 export type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,

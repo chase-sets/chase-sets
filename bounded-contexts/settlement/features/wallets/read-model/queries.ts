@@ -113,3 +113,37 @@ export async function listWalletEntries(
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
+
+export async function listPendingCreditEntriesMaturedBy(
+  db: PgQueryable,
+  params: Readonly<{ now: string; limit?: number }>,
+): Promise<SettlementLedgerEntryRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 250, 1000));
+  const result = await db.query<SettlementLedgerEntryRow>(
+    `SELECT
+       ledger_entry_id,
+       account_id,
+       kind,
+       direction,
+       amount::text AS amount,
+       currency_code,
+       funds_status,
+       order_id,
+       payment_id,
+       payout_id,
+       description,
+       posted_at,
+       available_at,
+       updated_at
+     FROM settlement_ledger_entry_pages
+     WHERE direction = 'credit'
+       AND funds_status = 'pending'
+       AND kind = 'sale'
+       AND posted_at <= ($1::timestamptz - INTERVAL '2 days')
+     ORDER BY posted_at ASC, ledger_entry_id ASC
+     LIMIT $2`,
+    [params.now, limit],
+  );
+
+  return result.rows;
+}

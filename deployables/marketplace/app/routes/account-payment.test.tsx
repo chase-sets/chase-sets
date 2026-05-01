@@ -41,6 +41,7 @@ type PaymentsPaymentDetail = Readonly<{
   processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
   processor_payment_reference: string;
   processor_client_secret: string | null;
+  processor_redirect_url: string | null;
   processor_status: string;
   status: string;
   failure_code: string | null;
@@ -128,6 +129,7 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     processor_payment_kind: "payment-intent",
     processor_payment_reference: "pi_123",
     processor_client_secret: null,
+    processor_redirect_url: null,
     processor_status: "requires_payment_method",
     status: "pending-confirmation",
     failure_code: null,

@@ -33,9 +33,14 @@ import {
   getAccountPayment,
   getPaymentById,
   getPaymentByProcessorReference,
+  getPaymentProviderEvent,
   listPaymentProviderEvents,
+  listPaymentProviderIdempotencyKeys,
+  listPaymentsNeedingReconciliation,
+  recordPaymentProviderIdempotencyKey,
   getPaymentBySource,
   type PaymentDetailRow,
+  type PaymentProviderIdempotencyKeyRow,
   type PaymentProviderEventRow,
 } from "../read-model/queries";
 import {
@@ -146,6 +151,34 @@ export type PaymentServices = Readonly<{
     processor_publishable_key: string | null;
     provider_events: readonly PaymentProviderEventRow[];
   }>) | null>;
+  getCheckoutStatus: (
+    params: Readonly<{
+      accountId: AccountId;
+      orderIds: readonly OrderId[];
+      currencyCode?: string;
+      requestedBalanceCreditAmount?: string | null;
+    }>,
+  ) => Promise<Readonly<{
+    order_ids: readonly string[];
+    currency_code: string;
+    amount: string;
+    wallet_credit: Readonly<{
+      requested_amount: string;
+      applied_amount: string;
+      external_amount: string;
+    }>;
+    can_start_payment: boolean;
+    unavailable_reasons: readonly string[];
+  }>>;
+  getProviderEvent: (
+    params: Readonly<{ providerEventId: string; accountId: string }>,
+  ) => Promise<PaymentProviderEventRow | null>;
+  listProviderIdempotencyKeys: (
+    params: Readonly<{ accountId: string; limit?: number }>,
+  ) => Promise<PaymentProviderIdempotencyKeyRow[]>;
+  listPaymentsNeedingReconciliation: (
+    params?: Readonly<{ limit?: number }>,
+  ) => Promise<PaymentDetailRow[]>;
   processWebhook: (
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
     context: EventStoreContext,
@@ -177,16 +210,19 @@ export function createPaymentRuntime(
     processor_publishable_key: string | null;
     provider_events: readonly PaymentProviderEventRow[];
   }> {
-    const canConfirmWithProcessor =
-      payment.status === "pending-confirmation" &&
-      Boolean(payment.processor_client_secret);
+    const canConfirmWithProcessor = payment.status === "pending-confirmation";
+    const canUseProcessorManagedForm =
+      canConfirmWithProcessor && Boolean(payment.processor_client_secret);
 
     return {
       ...payment,
-      processor_client_secret: canConfirmWithProcessor
+      processor_client_secret: canUseProcessorManagedForm
         ? payment.processor_client_secret
         : null,
-      processor_publishable_key: canConfirmWithProcessor
+      processor_redirect_url: canConfirmWithProcessor
+        ? payment.processor_redirect_url
+        : null,
+      processor_publishable_key: canUseProcessorManagedForm
         ? publicConfig.publishableKey
         : null,
       provider_events: providerEvents,
@@ -195,6 +231,60 @@ export function createPaymentRuntime(
 
   return {
     commandHandler,
+    async getCheckoutStatus(params) {
+      const accountId = normalizeRequiredText(
+        params.accountId,
+        "Account is required.",
+      ) as AccountId;
+      const orderIds = normalizeOrderIds(params.orderIds);
+      const orders = await loadAccountOrders(deps.db, orderIds, accountId);
+      const amount = sumOrderAmounts(orders);
+      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
+      const requestedBalanceCreditAmount = normalizeMoneyAmount(
+        params.requestedBalanceCreditAmount ?? "0.00",
+        {
+          fieldName: "Balance credit amount",
+          allowZero: true,
+        },
+      );
+      const balanceCredit = deps.balanceCreditResolver
+        ? await deps.balanceCreditResolver.resolveBalanceCredit({
+            buyerAccountId: accountId,
+            currencyCode,
+            requestedAmount: requestedBalanceCreditAmount,
+            orderTotalAmount: amount,
+          })
+        : {
+            requestedAmount: requestedBalanceCreditAmount,
+            appliedAmount: "0.00",
+            remainingExternalAmount: amount,
+          };
+      const appliedAmount = normalizeMoneyAmount(balanceCredit.appliedAmount, {
+        fieldName: "Balance credit amount",
+        allowZero: true,
+      });
+      const externalAmount = normalizeMoneyAmount(
+        balanceCredit.remainingExternalAmount || subtractMoney(amount, appliedAmount),
+        {
+          fieldName: "External payment amount",
+          allowZero: true,
+        },
+      );
+
+      return {
+        order_ids: orderIds,
+        currency_code: currencyCode,
+        amount,
+        wallet_credit: {
+          requested_amount: balanceCredit.requestedAmount,
+          applied_amount: appliedAmount,
+          external_amount: externalAmount,
+        },
+        can_start_payment: compareMoney(amount, "0.00") > 0,
+        unavailable_reasons:
+          compareMoney(amount, "0.00") > 0 ? [] : ["no-payable-order-balance"],
+      };
+    },
     async createAccountPayment(params, context) {
       const accountId = normalizeRequiredText(
         params.accountId,
@@ -255,12 +345,14 @@ export function createPaymentRuntime(
       const sellerNetAmount = sumFeeAmounts(orders, "seller_net_amount");
       const paymentId = createId("pay") as PaymentId;
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
+      const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
       const processorPayment = compareMoney(processorAmount, "0.00") === 0
         ? {
-          processorName: publicConfig.processorName,
-          processorPaymentKind: "balance-credit" as const,
-          processorPaymentReference: `balance-credit:${paymentId}`,
+            processorName: publicConfig.processorName,
+            processorPaymentKind: "balance-credit" as const,
+            processorPaymentReference: `balance-credit:${paymentId}`,
             processorClientSecret: null,
+            processorRedirectUrl: null,
             processorStatus: "balance-credit-captured",
           }
         : await deps.processorGateway.createPaymentSession({
@@ -276,7 +368,7 @@ export function createPaymentRuntime(
             returnUrl: returnUrlBase
               ? `${returnUrlBase}/account/payments/${paymentId}`
               : null,
-            idempotencyKey: `payments:payment:${paymentId}:create`,
+            idempotencyKey: providerIdempotencyKey,
             clientRiskContext: params.clientRiskContext ?? null,
           });
       const createdAt = new Date().toISOString();
@@ -299,12 +391,22 @@ export function createPaymentRuntime(
           processorPaymentKind: processorPayment.processorPaymentKind,
           processorPaymentReference: processorPayment.processorPaymentReference,
           processorClientSecret: processorPayment.processorClientSecret,
+          processorRedirectUrl: processorPayment.processorRedirectUrl,
           processorStatus: processorPayment.processorStatus,
           sourceContext,
           sourceReferenceId,
           createdAt,
         },
         context,
+      });
+      await recordPaymentProviderIdempotencyKey(deps.db, {
+        operationKey: `payment:${paymentId}:create`,
+        providerName: processorPayment.processorName,
+        operationKind: "payment-session-create",
+        accountId,
+        providerObjectReference: processorPayment.processorPaymentReference,
+        idempotencyKey: providerIdempotencyKey,
+        createdAt,
       });
 
       if (compareMoney(processorAmount, "0.00") === 0) {
@@ -334,6 +436,7 @@ export function createPaymentRuntime(
         processor_payment_kind: processorPayment.processorPaymentKind,
         processor_payment_reference: processorPayment.processorPaymentReference,
         processor_client_secret: processorPayment.processorClientSecret,
+        processor_redirect_url: processorPayment.processorRedirectUrl,
         processor_status: processorPayment.processorStatus,
         source_context: sourceContext,
         source_reference_id: sourceReferenceId,
@@ -363,6 +466,11 @@ export function createPaymentRuntime(
       });
       return exposePayment(payment, providerEvents);
     },
+    getProviderEvent: (params) => getPaymentProviderEvent(deps.db, params),
+    listProviderIdempotencyKeys: (params) =>
+      listPaymentProviderIdempotencyKeys(deps.db, params),
+    listPaymentsNeedingReconciliation: (params) =>
+      listPaymentsNeedingReconciliation(deps.db, params),
     async processWebhook(params, context) {
       const webhookEvent = await deps.processorGateway.parseWebhook(params);
       if (!webhookEvent) {

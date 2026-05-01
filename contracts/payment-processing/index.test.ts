@@ -16,6 +16,7 @@ describe("payment processing contract", () => {
         processorPaymentKind: "checkout-session",
         processorPaymentReference: "pi_test",
         processorClientSecret: null,
+        processorRedirectUrl: null,
         processorStatus: "requires_payment_method",
       }),
       createRefund: async () => ({

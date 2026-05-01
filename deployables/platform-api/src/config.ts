@@ -14,6 +14,7 @@ export type PlatformApiPaymentProcessorConfig =
       publishableKey: string;
       webhookSecret: string;
       apiBaseUrl?: string;
+      checkoutUiMode?: "elements" | "hosted";
     }>;
 
 export type PlatformApiMoneyMovementConfig =
@@ -35,6 +36,8 @@ export type PlatformApiBaseConfig = Readonly<{
   sharedDatabaseUrl: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<PlatformApiContextName, string>>>;
   port: number;
+  paymentReconciliationIntervalMs?: number | null;
+  sellerFundsReleaseIntervalMs?: number | null;
   payoutReconciliationIntervalMs?: number | null;
 }>;
 
@@ -109,6 +112,14 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     sharedDatabaseUrl,
     contextDatabaseUrls,
     port: Number(process.env.PORT ?? 6182),
+    paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv(
+      "PAYMENT_RECONCILIATION_INTERVAL_MS",
+      300_000,
+    ),
+    sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv(
+      "SELLER_FUNDS_RELEASE_INTERVAL_MS",
+      300_000,
+    ),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv(
       "PAYOUT_RECONCILIATION_INTERVAL_MS",
       300_000,
@@ -126,6 +137,7 @@ export function loadConfig(): PlatformApiConfig {
   const stripePublishableKey = getOptionalEnv("STRIPE_PUBLISHABLE_KEY");
   const stripeWebhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
   const stripeApiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
+  const stripeCheckoutUiMode = getOptionalEnv("STRIPE_CHECKOUT_UI_MODE");
   const stripeConnectReturnUrl =
     getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
   const stripeConnectRefreshUrl =
@@ -181,6 +193,8 @@ export function loadConfig(): PlatformApiConfig {
         publishableKey: stripePublishableKey,
         webhookSecret: stripeWebhookSecret,
         apiBaseUrl: stripeApiBaseUrl,
+        checkoutUiMode:
+          stripeCheckoutUiMode === "hosted" ? "hosted" : "elements",
       },
     };
   }

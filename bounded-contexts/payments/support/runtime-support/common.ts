@@ -172,6 +172,7 @@ export type PaymentSummary = Readonly<{
   processorName: PaymentProcessorName;
   processorPaymentReference: string;
   processorClientSecret: string | null;
+  processorRedirectUrl: string | null;
   processorStatus: string;
   status: PaymentStatus;
   failureCode: string | null;

@@ -28,8 +28,11 @@ export function buildSettlementApi(services: SettlementServices) {
     ]);
     const availableAmount = Number.parseFloat(wallet.available_balance_amount);
     const setupReady = payoutReadiness.status === "ready";
+    const setupStale = !payoutReadiness.updated_at ||
+      Date.now() - Date.parse(payoutReadiness.updated_at) > 24 * 60 * 60 * 1000;
     const restrictions = [
       ...(setupReady ? [] : ["payout-setup-incomplete"]),
+      ...(setupReady && setupStale ? ["payout-setup-refresh-required"] : []),
       ...(payoutReadiness.missing_requirements.length > 0
         ? ["provider-requirements-open"]
         : []),
@@ -55,7 +58,7 @@ export function buildSettlementApi(services: SettlementServices) {
         last_checked_at: payoutReadiness.updated_at,
       },
       payouts: {
-        can_request: setupReady && availableAmount > 0,
+        can_request: setupReady && !setupStale && availableAmount > 0,
         unavailable_reasons: restrictions,
       },
       restrictions,

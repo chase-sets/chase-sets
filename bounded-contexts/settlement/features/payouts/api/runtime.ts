@@ -30,9 +30,13 @@ import { assertPayoutAmountWithinPolicy } from "../domain/payout-policy";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import {
   getPayout,
+  getAccountPayoutRiskSummary,
   getPayoutByProviderPayoutReference,
+  listSettlementProviderIdempotencyKeys,
   listPayoutsNeedingReconciliation,
   listPayouts,
+  recordSettlementProviderIdempotencyKey,
+  type SettlementProviderIdempotencyKeyRow,
   type SettlementPayoutRow,
 } from "../read-model/queries";
 import type { WalletServices } from "../../wallets/api/runtime";
@@ -65,6 +69,9 @@ export type PayoutServices = Readonly<{
   listPayoutsNeedingReconciliation: (
     params?: Readonly<{ limit?: number; filter?: string | null }>,
   ) => Promise<SettlementPayoutRow[]>;
+  listProviderIdempotencyKeys: (
+    params: Readonly<{ accountId: string; limit?: number }>,
+  ) => Promise<SettlementProviderIdempotencyKeyRow[]>;
   requestPayout: (
     params: Readonly<{
       accountId: AccountId;
@@ -134,6 +141,13 @@ function providerObjectReferenceFromEvent(event: MoneyMovementWebhookEvent) {
   return event.kind === "payout-completed" || event.kind === "payout-failed"
     ? event.providerPayoutReference
     : null;
+}
+
+function payoutReadinessIsStale(updatedAt: string | null) {
+  if (!updatedAt) {
+    return false;
+  }
+  return Date.now() - Date.parse(updatedAt) > 30 * 24 * 60 * 60 * 1000;
 }
 
 export function createPayoutRuntime(
@@ -427,6 +441,8 @@ export function createPayoutRuntime(
     getPayout: (payoutId, accountId) => getPayout(deps.db, payoutId, accountId),
     listPayoutsNeedingReconciliation: (params) =>
       listPayoutsNeedingReconciliation(deps.db, params),
+    listProviderIdempotencyKeys: (params) =>
+      listSettlementProviderIdempotencyKeys(deps.db, params),
     async requestPayout(params, context) {
       await recordOperation({
         kind: "payout-requested",
@@ -446,6 +462,22 @@ export function createPayoutRuntime(
       if (!readiness.provider_reference) {
         throw new SettlementDomainError(
           "Payout setup must include a provider account.",
+        );
+      }
+      if (payoutReadinessIsStale(readiness.updated_at)) {
+        throw new SettlementDomainError(
+          "Payout setup status must be refreshed before requesting a payout.",
+        );
+      }
+      const riskSummary = await getAccountPayoutRiskSummary(deps.db, params.accountId);
+      if (riskSummary.failed_payout_count > 0) {
+        throw new SettlementDomainError(
+          "Recent payout failures must be reviewed before requesting another payout.",
+        );
+      }
+      if (riskSummary.stale_requested_payout_count > 0) {
+        throw new SettlementDomainError(
+          "A previous payout request needs reconciliation before requesting another payout.",
         );
       }
 
@@ -500,6 +532,7 @@ export function createPayoutRuntime(
           context,
         );
 
+        const transferIdempotencyKey = `settlement:payout:${payoutId}:transfer`;
         const transfer =
           await deps.moneyMovementGateway.transferPlatformBalanceToConnectedAccount({
             payoutId,
@@ -507,8 +540,18 @@ export function createPayoutRuntime(
             providerReference: readiness.provider_reference,
             amount,
             currencyCode,
-            idempotencyKey: `settlement:payout:${payoutId}:transfer`,
+            idempotencyKey: transferIdempotencyKey,
           });
+        await recordSettlementProviderIdempotencyKey(deps.db, {
+          operationKey: `payout:${payoutId}:transfer`,
+          providerName: deps.moneyMovementGateway.providerName,
+          operationKind: "platform-transfer-create",
+          accountId: params.accountId,
+          payoutId,
+          providerObjectReference: transfer.providerTransferReference,
+          idempotencyKey: transferIdempotencyKey,
+          createdAt: new Date().toISOString(),
+        });
         await recordOperation({
           kind: "provider-transfer-submitted",
           accountId: params.accountId,
@@ -517,6 +560,7 @@ export function createPayoutRuntime(
           currencyCode,
           providerTransferReference: transfer.providerTransferReference,
         });
+        const payoutIdempotencyKey = `settlement:payout:${payoutId}:payout`;
         const providerPayout =
           await deps.moneyMovementGateway.createConnectedAccountPayout({
             payoutId,
@@ -524,8 +568,18 @@ export function createPayoutRuntime(
             providerReference: readiness.provider_reference,
             amount,
             currencyCode,
-            idempotencyKey: `settlement:payout:${payoutId}:payout`,
+            idempotencyKey: payoutIdempotencyKey,
           });
+        await recordSettlementProviderIdempotencyKey(deps.db, {
+          operationKey: `payout:${payoutId}:payout`,
+          providerName: deps.moneyMovementGateway.providerName,
+          operationKind: "connected-account-payout-create",
+          accountId: params.accountId,
+          payoutId,
+          providerObjectReference: providerPayout.providerPayoutReference,
+          idempotencyKey: payoutIdempotencyKey,
+          createdAt: new Date().toISOString(),
+        });
         await recordOperation({
           kind: "provider-payout-submitted",
           accountId: params.accountId,
