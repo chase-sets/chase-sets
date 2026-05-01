@@ -94,6 +94,13 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "account-payout-operations",
+          "routePath": "account/payout-operations",
+          "fileExport": "./routes/marketplace/account-payout-operations",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
           "routeId": "account-payout",
           "routePath": "account/payouts/:payoutId",
           "fileExport": "./routes/marketplace/account-payout",

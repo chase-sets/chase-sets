@@ -1,4 +1,4 @@
-import { createFakePaymentProcessorGateway } from "@chase-sets/payments/server";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { createPlatformApiHost } from "./app";

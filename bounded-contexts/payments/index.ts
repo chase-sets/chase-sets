@@ -10,7 +10,7 @@ import contextManifest from "./context.json";
 import type { PaymentsServices, PaymentsServiceOptions } from "./support/runtime-support/services";
 import { buildPaymentsApi } from "./api";
 import { buildPaymentsOrderInputProjectionHandlers } from "./features/payments/integrations/order-input/order-input-projection";
-import { createStripeWebhookRoutes } from "./features/payments/api/route";
+import { createPaymentProcessorWebhookRoutes } from "./features/payments/api/route";
 import { createPaymentsServices } from "./support/runtime-support/services";
 import { paymentsSchemaSql } from "./support/runtime-support/schema";
 import { seedPaymentsDatabase } from "./support/runtime-support/seed";
@@ -49,7 +49,7 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [
     buildPaymentsApi(services.payments),
-    createStripeWebhookRoutes(services.payments),
+    createPaymentProcessorWebhookRoutes(services.payments),
   ],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {

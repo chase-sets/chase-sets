@@ -6,22 +6,22 @@ import {
 } from "./domain";
 
 describe("settlement payout domain", () => {
-  it("schedules, sends, and completes a payout", () => {
-    const scheduledState = decidePayout(initialPayoutState, {
-      type: "SchedulePayout",
+  it("requests, sends, and completes a payout", () => {
+    const requestedState = decidePayout(initialPayoutState, {
+      type: "RequestPayout",
       payoutId: "pyo_1" as never,
       accountId: "acc_seller" as never,
       amount: "25.00",
       currencyCode: "usd",
       destinationReference: "bank_123",
       note: "Weekly payout",
-      scheduledAt: "2026-04-02T00:00:00.000Z",
+      requestedAt: "2026-04-02T00:00:00.000Z",
     }).reduce(evolvePayout, initialPayoutState);
 
-    const sentState = decidePayout(scheduledState, {
+    const sentState = decidePayout(requestedState, {
       type: "MarkPayoutInTransit",
       sentAt: "2026-04-02T01:00:00.000Z",
-    }).reduce(evolvePayout, scheduledState);
+    }).reduce(evolvePayout, requestedState);
 
     const completedState = decidePayout(sentState, {
       type: "CompletePayout",
@@ -34,20 +34,20 @@ describe("settlement payout domain", () => {
   });
 
   it("fails idempotently", () => {
-    const scheduledState = decidePayout(initialPayoutState, {
-      type: "SchedulePayout",
+    const requestedState = decidePayout(initialPayoutState, {
+      type: "RequestPayout",
       payoutId: "pyo_1" as never,
       accountId: "acc_seller" as never,
       amount: "25.00",
       currencyCode: "usd",
-      scheduledAt: "2026-04-02T00:00:00.000Z",
+      requestedAt: "2026-04-02T00:00:00.000Z",
     }).reduce(evolvePayout, initialPayoutState);
 
-    const failedState = decidePayout(scheduledState, {
+    const failedState = decidePayout(requestedState, {
       type: "FailPayout",
       failureReason: "Bank rejected transfer",
       failedAt: "2026-04-02T01:00:00.000Z",
-    }).reduce(evolvePayout, scheduledState);
+    }).reduce(evolvePayout, requestedState);
 
     expect(failedState.status).toBe("failed");
     expect(
@@ -62,12 +62,12 @@ describe("settlement payout domain", () => {
   it("rejects completion after failure", () => {
     const failedState = [
       {
-        type: "SchedulePayout" as const,
+        type: "RequestPayout" as const,
         payoutId: "pyo_1" as never,
         accountId: "acc_seller" as never,
         amount: "25.00",
         currencyCode: "usd" as const,
-        scheduledAt: "2026-04-02T00:00:00.000Z",
+        requestedAt: "2026-04-02T00:00:00.000Z",
       },
       {
         type: "FailPayout" as const,
@@ -84,6 +84,6 @@ describe("settlement payout domain", () => {
         type: "CompletePayout",
         completedAt: "2026-04-02T02:00:00.000Z",
       }),
-    ).toThrow("Only scheduled or in-transit payouts can complete.");
+    ).toThrow("Only requested or in-transit payouts can complete.");
   });
 });

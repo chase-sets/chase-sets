@@ -1,8 +1,7 @@
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
-import type {
-  CurrencyCode,
-  PaymentProcessorName,
-} from "./common";
+
+export type PaymentCurrencyCode = "usd";
+export type PaymentProcessorName = "stripe";
 
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
@@ -14,7 +13,7 @@ export type CreateProcessorPaymentInput = Readonly<{
   buyerAccountId: AccountId;
   orderIds: readonly OrderId[];
   amount: string;
-  currencyCode: CurrencyCode;
+  currencyCode: PaymentCurrencyCode;
   description: string;
 }>;
 
@@ -30,7 +29,7 @@ export type CreateProcessorRefundInput = Readonly<{
   processorPaymentReference: string;
   orderIds: readonly OrderId[];
   amount: string;
-  currencyCode: CurrencyCode;
+  currencyCode: PaymentCurrencyCode;
   reason: string;
 }>;
 

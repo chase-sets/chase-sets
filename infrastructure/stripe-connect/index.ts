@@ -11,6 +11,7 @@ export type StripeConnectMoneyMovementOptions = Readonly<{
   apiBaseUrl?: string;
   onboardingReturnUrl?: string;
   onboardingRefreshUrl?: string;
+  webhookToleranceSeconds?: number;
 }>;
 
 type StripeAccountResponse = Readonly<{
@@ -42,6 +43,10 @@ type StripeAccountResponse = Readonly<{
 type StripeAccountLinkResponse = Readonly<{
   url?: string | null;
   expires_at?: number | null;
+}>;
+
+type StripeLoginLinkResponse = Readonly<{
+  url?: string | null;
 }>;
 
 type StripeBalanceResponse = Readonly<{
@@ -130,8 +135,18 @@ function verifyStripeSignature(
   rawBody: string,
   signatureHeader: string | null,
   webhookSecret: string,
+  toleranceSeconds: number,
 ) {
   const parsed = parseStripeSignature(signatureHeader);
+  const timestampSeconds = Number.parseInt(parsed.timestamp, 10);
+  if (!Number.isFinite(timestampSeconds)) {
+    throw new Error("Stripe webhook signature timestamp is malformed.");
+  }
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - timestampSeconds) > toleranceSeconds) {
+    throw new Error("Stripe webhook signature timestamp is outside tolerance.");
+  }
+
   const payload = `${parsed.timestamp}.${rawBody}`;
   const expected = createHmac("sha256", webhookSecret).update(payload).digest("hex");
   const expectedBuffer = Buffer.from(expected, "hex");
@@ -143,6 +158,28 @@ function verifyStripeSignature(
   ) {
     throw new Error("Stripe webhook signature verification failed.");
   }
+}
+
+function validateHostedRedirectUrl(value: string | null | undefined, fieldName: string) {
+  if (!value) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${fieldName} must be an absolute URL.`);
+  }
+
+  const isLocalHttp =
+    parsed.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+  if (parsed.protocol !== "https:" && !isLocalHttp) {
+    throw new Error(`${fieldName} must use HTTPS.`);
+  }
+
+  return parsed.toString();
 }
 
 function statusToCapabilityStatus(status: string | null | undefined) {
@@ -217,6 +254,7 @@ export function createStripeConnectMoneyMovementGateway(
 ): MoneyMovementGateway {
   const apiBaseUrl = options.apiBaseUrl?.trim() || "https://api.stripe.com";
   const authorization = `Basic ${encodeBasicAuth(options.secretKey)}`;
+  const webhookToleranceSeconds = options.webhookToleranceSeconds ?? 300;
 
   async function stripeRequest<T>(
     path: string,
@@ -265,6 +303,23 @@ export function createStripeConnectMoneyMovementGateway(
     );
   }
 
+  async function configureOnDemandPayouts(
+    providerReference: string,
+    idempotencyKey: string,
+  ) {
+    await stripeRequest<unknown>("/v1/balance_settings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: toFormBody({
+        "payments[payouts][schedule][interval]": "manual",
+      }),
+      idempotencyKey,
+      stripeAccount: providerReference,
+    });
+  }
+
   return {
     providerName: "stripe",
     async ensurePayoutAccount(input) {
@@ -282,17 +337,30 @@ export function createStripeConnectMoneyMovementGateway(
             "configuration[recipient][capabilities][stripe_balance][payouts][requested]":
               "true",
             "defaults[responsibilities][losses_collector]": "application",
+            "defaults[responsibilities][fees_collector]": "application",
             "dashboard[type]": "express",
           }),
           idempotencyKey: input.idempotencyKey,
         },
       );
 
-      return mapAccountReadiness(account);
+      const readiness = mapAccountReadiness(account);
+      await configureOnDemandPayouts(
+        readiness.providerReference,
+        `${input.idempotencyKey}:manual-payouts`,
+      );
+
+      return readiness;
     },
     async createOnboardingSession(input) {
-      const returnUrl = input.returnUrl ?? options.onboardingReturnUrl;
-      const refreshUrl = input.refreshUrl ?? options.onboardingRefreshUrl;
+      const returnUrl = validateHostedRedirectUrl(
+        input.returnUrl ?? options.onboardingReturnUrl,
+        "Payout setup return URL",
+      );
+      const refreshUrl = validateHostedRedirectUrl(
+        input.refreshUrl ?? options.onboardingRefreshUrl,
+        "Payout setup refresh URL",
+      );
       if (!returnUrl || !refreshUrl) {
         throw new Error("Payout setup return and refresh URLs are required.");
       }
@@ -334,6 +402,35 @@ export function createStripeConnectMoneyMovementGateway(
           ? new Date(accountLink.expires_at * 1000).toISOString()
           : null,
         readiness,
+      };
+    },
+    async createAccountManagementSession(input) {
+      const returnUrl = validateHostedRedirectUrl(
+        input.returnUrl,
+        "Payout account return URL",
+      );
+      const loginLink = await stripeRequest<StripeLoginLinkResponse>(
+        `/v1/accounts/${encodeURIComponent(input.providerReference)}/login_links`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: toFormBody({
+            redirect_url: returnUrl,
+          }),
+          idempotencyKey: input.idempotencyKey,
+        },
+      );
+
+      if (!loginLink.url?.trim()) {
+        throw new Error("Stripe did not return an account management URL.");
+      }
+
+      return {
+        providerReference: input.providerReference,
+        url: loginLink.url,
+        expiresAt: null,
       };
     },
     async refreshPayoutReadiness(input) {
@@ -379,6 +476,10 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async createConnectedAccountPayout(input) {
+      await configureOnDemandPayouts(
+        input.providerReference,
+        `${input.idempotencyKey}:manual-payouts`,
+      );
       const payout = await stripeRequest<StripePayoutResponse>("/v1/payouts", {
         method: "POST",
         headers: {
@@ -424,7 +525,12 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async parseMoneyMovementWebhook(input) {
-      verifyStripeSignature(input.rawBody, input.signatureHeader, options.webhookSecret);
+      verifyStripeSignature(
+        input.rawBody,
+        input.signatureHeader,
+        options.webhookSecret,
+        webhookToleranceSeconds,
+      );
       const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
       const object = event.data?.object;
       const occurredAt = occurredAtFromEvent(event);

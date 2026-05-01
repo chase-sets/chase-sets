@@ -231,6 +231,12 @@
       "@chase-sets/ordering/server": [
         "./bounded-contexts/ordering/server.ts"
       ],
+      "@chase-sets/payment-processing": [
+        "./contracts/payment-processing/index.ts"
+      ],
+      "@chase-sets/payment-processing-testing": [
+        "./infrastructure/payment-processing-testing/index.ts"
+      ],
       "@chase-sets/payments": [
         "./bounded-contexts/payments/index.ts"
       ],
@@ -282,6 +288,9 @@
       "@chase-sets/primitives/*": [
         "./contracts/primitives/*.ts"
       ],
+      "@chase-sets/provider-webhook-inbox": [
+        "./infrastructure/provider-webhook-inbox/index.ts"
+      ],
       "@chase-sets/reputation": [
         "./bounded-contexts/reputation/index.ts"
       ],
@@ -314,6 +323,9 @@
       ],
       "@chase-sets/stripe-connect": [
         "./infrastructure/stripe-connect/index.ts"
+      ],
+      "@chase-sets/stripe-payments": [
+        "./infrastructure/stripe-payments/index.ts"
       ]
     }
   }

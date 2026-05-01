@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createFakePaymentProcessorGateway } from "@chase-sets/payments/server";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 

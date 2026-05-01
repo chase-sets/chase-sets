@@ -6,7 +6,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
 import { getApiHostContextNames, getApiHostSeedOrder, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
-import { createFakePaymentProcessorGateway } from "@chase-sets/payments/server";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";

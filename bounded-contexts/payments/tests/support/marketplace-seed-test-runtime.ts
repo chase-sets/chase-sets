@@ -22,7 +22,7 @@ import { module as orderingModule } from "@chase-sets/ordering";
 import { module as pricingModule } from "@chase-sets/pricing";
 import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
-import { createFakePaymentProcessorGateway } from "../../support/runtime-support/fake-gateway";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { module as paymentsModule } from "../..";
 
 export const marketplaceSeedContextNames = [

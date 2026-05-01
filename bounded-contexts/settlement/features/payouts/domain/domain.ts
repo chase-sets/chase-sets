@@ -28,7 +28,7 @@ export type PayoutState = Readonly<{
   providerStatus: string | null;
   providerFailureCode: string | null;
   providerFailureMessage: string | null;
-  scheduledAt: string | null;
+  requestedAt: string | null;
   sentAt: string | null;
   completedAt: string | null;
   failedAt: string | null;
@@ -48,22 +48,22 @@ export const initialPayoutState: PayoutState = {
   providerStatus: null,
   providerFailureCode: null,
   providerFailureMessage: null,
-  scheduledAt: null,
+  requestedAt: null,
   sentAt: null,
   completedAt: null,
   failedAt: null,
   failureReason: null,
 };
 
-export type SchedulePayoutCommand = Readonly<{
-  type: "SchedulePayout";
+export type RequestPayoutCommand = Readonly<{
+  type: "RequestPayout";
   payoutId: PayoutId;
   accountId: AccountId;
   amount: string;
   currencyCode: CurrencyCode;
   destinationReference?: string | null;
   note?: string | null;
-  scheduledAt: string;
+  requestedAt: string;
 }>;
 
 export type MarkPayoutInTransitCommand = Readonly<{
@@ -90,13 +90,13 @@ export type FailPayoutCommand = Readonly<{
 }>;
 
 export type PayoutCommand =
-  | SchedulePayoutCommand
+  | RequestPayoutCommand
   | MarkPayoutInTransitCommand
   | CompletePayoutCommand
   | FailPayoutCommand;
 
-export type PayoutScheduledEvent = DomainEvent<
-  "settlement.payout.scheduled",
+export type PayoutRequestedEvent = DomainEvent<
+  "settlement.payout.requested",
   Readonly<{
     payoutId: PayoutId;
     accountId: AccountId;
@@ -104,7 +104,7 @@ export type PayoutScheduledEvent = DomainEvent<
     currencyCode: CurrencyCode;
     destinationReference: string | null;
     note: string | null;
-    scheduledAt: string;
+    requestedAt: string;
   }>
 >;
 
@@ -141,7 +141,7 @@ export type PayoutFailedEvent = DomainEvent<
 >;
 
 export type PayoutEvent =
-  | PayoutScheduledEvent
+  | PayoutRequestedEvent
   | PayoutInTransitEvent
   | PayoutCompletedEvent
   | PayoutFailedEvent;
@@ -152,11 +152,11 @@ export const decidePayout: AggregateDecider<
   PayoutEvent
 > = (state, command) => {
   switch (command.type) {
-    case "SchedulePayout":
-      assert(state.payoutId === null, "Payout has already been scheduled.");
+    case "RequestPayout":
+      assert(state.payoutId === null, "Payout has already been requested.");
       return [
         {
-          type: "settlement.payout.scheduled",
+          type: "settlement.payout.requested",
           data: {
             payoutId: command.payoutId,
             accountId: command.accountId,
@@ -166,19 +166,19 @@ export const decidePayout: AggregateDecider<
             currencyCode: normalizeCurrencyCode(command.currencyCode),
             destinationReference: normalizeOptionalText(command.destinationReference),
             note: normalizeOptionalText(command.note),
-            scheduledAt: ensureIsoTimestamp(
-              command.scheduledAt,
-              "Payout scheduling must record a timestamp.",
+            requestedAt: ensureIsoTimestamp(
+              command.requestedAt,
+              "Payout request must record a timestamp.",
             ),
           },
         },
       ];
     case "MarkPayoutInTransit":
-      assert(state.payoutId !== null, "Payout must be scheduled first.");
+      assert(state.payoutId !== null, "Payout must be requested first.");
       if (state.status === "in-transit") {
         return [];
       }
-      assert(state.status === "scheduled", "Only scheduled payouts can be sent.");
+      assert(state.status === "requested", "Only requested payouts can be sent.");
       return [
         {
           type: "settlement.payout.in-transit-recorded",
@@ -199,13 +199,13 @@ export const decidePayout: AggregateDecider<
         },
       ];
     case "CompletePayout":
-      assert(state.payoutId !== null, "Payout must be scheduled first.");
+      assert(state.payoutId !== null, "Payout must be requested first.");
       if (state.status === "completed") {
         return [];
       }
       assert(
-        state.status === "scheduled" || state.status === "in-transit",
-        "Only scheduled or in-transit payouts can complete.",
+        state.status === "requested" || state.status === "in-transit",
+        "Only requested or in-transit payouts can complete.",
       );
       return [
         {
@@ -221,7 +221,7 @@ export const decidePayout: AggregateDecider<
         },
       ];
     case "FailPayout":
-      assert(state.payoutId !== null, "Payout must be scheduled first.");
+      assert(state.payoutId !== null, "Payout must be requested first.");
       if (state.status === "failed") {
         return [];
       }
@@ -254,7 +254,7 @@ export const evolvePayout: AggregateEvolver<
   PayoutEvent
 > = (state, event) => {
   switch (event.type) {
-    case "settlement.payout.scheduled":
+    case "settlement.payout.requested":
       return {
         payoutId: event.data.payoutId,
         accountId: event.data.accountId,
@@ -262,13 +262,13 @@ export const evolvePayout: AggregateEvolver<
         currencyCode: event.data.currencyCode,
         destinationReference: event.data.destinationReference,
         note: event.data.note,
-        status: "scheduled",
+        status: "requested",
         providerTransferReference: null,
         providerPayoutReference: null,
         providerStatus: null,
         providerFailureCode: null,
         providerFailureMessage: null,
-        scheduledAt: event.data.scheduledAt,
+        requestedAt: event.data.requestedAt,
         sentAt: null,
         completedAt: null,
         failedAt: null,

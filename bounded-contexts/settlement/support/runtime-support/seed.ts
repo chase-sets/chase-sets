@@ -118,14 +118,14 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
   await services.payouts.commandHandler({
     streamId: `settlement.payout-${settlementReservedSeedIds.payouts.completed}`,
     command: {
-      type: "SchedulePayout",
+      type: "RequestPayout",
       payoutId: settlementReservedSeedIds.payouts.completed,
       accountId: sellerAccountId,
       amount: "50.00",
       currencyCode: "usd",
       destinationReference: "bank_seed_completed",
       note: "Completed payout seed",
-      scheduledAt: "2026-03-24T10:00:00.000Z",
+      requestedAt: "2026-03-24T10:00:00.000Z",
     },
     context,
   });
@@ -164,14 +164,14 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
   await services.payouts.commandHandler({
     streamId: `settlement.payout-${settlementReservedSeedIds.payouts.failed}`,
     command: {
-      type: "SchedulePayout",
+      type: "RequestPayout",
       payoutId: settlementReservedSeedIds.payouts.failed,
       accountId: sellerAccountId,
       amount: "20.00",
       currencyCode: "usd",
       destinationReference: "bank_seed_failed",
       note: "Failed payout seed",
-      scheduledAt: "2026-03-24T11:00:00.000Z",
+      requestedAt: "2026-03-24T11:00:00.000Z",
     },
     context,
   });

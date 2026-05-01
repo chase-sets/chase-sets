@@ -118,7 +118,7 @@ function createPayoutReadiness(status: "not-started" | "pending" | "ready" | "re
 }
 
 describe("settlement payout runtime", () => {
-  it("debits the wallet when scheduling a payout and credits it back when the payout fails", async () => {
+  it("debits the wallet when requesting a payout and credits it back when the payout fails", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     let payoutRow: Record<string, unknown> | null = null;
 
@@ -168,7 +168,7 @@ describe("settlement payout runtime", () => {
     });
     await seedAvailableWallet(wallets);
 
-    const scheduled = await payouts.schedulePayout(
+    const requested = await payouts.requestPayout(
       {
         accountId: "acc_seller" as never,
         amount: "12.50",
@@ -179,14 +179,14 @@ describe("settlement payout runtime", () => {
     );
 
     payoutRow = {
-      payout_id: scheduled.payoutId,
+      payout_id: requested.payoutId,
       account_id: "acc_seller",
       amount: "12.50",
       currency_code: "usd",
       destination_reference: "bank_123",
       note: "Weekly payout",
-      status: "scheduled",
-      scheduled_at: "2026-04-02T00:00:00.000Z",
+      status: "requested",
+      requested_at: "2026-04-02T00:00:00.000Z",
       updated_at: "2026-04-02T00:00:00.000Z",
       sent_at: null,
       completed_at: null,
@@ -196,7 +196,7 @@ describe("settlement payout runtime", () => {
 
     await payouts.failPayout(
       {
-        payoutId: scheduled.payoutId,
+        payoutId: requested.payoutId,
         accountId: "acc_seller",
         failureReason: "Bank rejected transfer",
         failedAt: "2026-04-02T01:00:00.000Z",
@@ -216,7 +216,7 @@ describe("settlement payout runtime", () => {
     );
 
     expect(payoutEvents.map((event) => event.eventType)).toEqual([
-      "settlement.payout.scheduled",
+      "settlement.payout.requested",
       "settlement.payout.in-transit-recorded",
       "settlement.payout.failed",
     ]);
@@ -233,7 +233,7 @@ describe("settlement payout runtime", () => {
     });
   });
 
-  it("blocks payout scheduling until payout readiness is ready", async () => {
+  it("blocks payout requests until payout readiness is ready", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {
       query: async (sql: string) => {
@@ -273,7 +273,7 @@ describe("settlement payout runtime", () => {
     });
 
     await expect(
-      payouts.schedulePayout(
+      payouts.requestPayout(
         {
           accountId: "acc_seller" as never,
           amount: "12.50",
@@ -281,7 +281,7 @@ describe("settlement payout runtime", () => {
         },
         context,
       ),
-    ).rejects.toThrow("Payout setup must be complete before scheduling payouts.");
+    ).rejects.toThrow("Payout setup must be complete before requesting payouts.");
     expect(readAllEvents()).toHaveLength(0);
   });
 
@@ -326,7 +326,7 @@ describe("settlement payout runtime", () => {
     });
     await seedAvailableWallet(wallets);
 
-    const scheduled = await payouts.schedulePayout(
+    const requested = await payouts.requestPayout(
       {
         accountId: "acc_seller" as never,
         amount: "12.50",
@@ -335,10 +335,10 @@ describe("settlement payout runtime", () => {
     );
 
     expect(moneyMovementGateway.usedIdempotencyKeys).toContain(
-      `settlement:payout:${scheduled.payoutId}:transfer`,
+      `settlement:payout:${requested.payoutId}:transfer`,
     );
     expect(moneyMovementGateway.usedIdempotencyKeys).toContain(
-      `settlement:payout:${scheduled.payoutId}:payout`,
+      `settlement:payout:${requested.payoutId}:payout`,
     );
   });
 
@@ -384,7 +384,7 @@ describe("settlement payout runtime", () => {
     });
 
     await expect(
-      payouts.schedulePayout(
+      payouts.requestPayout(
         {
           accountId: "acc_seller" as never,
           amount: "12.50",
@@ -392,6 +392,68 @@ describe("settlement payout runtime", () => {
         context,
       ),
     ).rejects.toThrow("Platform balance is too low for this payout.");
+    expect(readAllEvents()).toHaveLength(0);
+  });
+
+  it("enforces payout amount policy before provider money movement", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20000.00",
+                total_credited_amount: "20000.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const moneyMovementGateway = createFakeMoneyMovementGateway();
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway,
+    });
+
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "4.99",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Payout amount must be at least 5.00 USD.");
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "10000.01",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Payout amount cannot exceed 10000.00 USD.");
+    expect(moneyMovementGateway.usedIdempotencyKeys).toEqual([]);
     expect(readAllEvents()).toHaveLength(0);
   });
 
@@ -438,7 +500,7 @@ describe("settlement payout runtime", () => {
     });
     await seedAvailableWallet(wallets);
 
-    await payouts.schedulePayout(
+    await payouts.requestPayout(
       {
         accountId: "acc_seller" as never,
         amount: "12.50",
@@ -451,7 +513,7 @@ describe("settlement payout runtime", () => {
         .filter((event) => event.eventType.startsWith("settlement.payout."))
         .map((event) => event.eventType),
     ).toEqual([
-      "settlement.payout.scheduled",
+      "settlement.payout.requested",
       "settlement.payout.failed",
     ]);
     expect(
@@ -471,8 +533,9 @@ describe("settlement payout runtime", () => {
   it("processes duplicate payout failure webhooks without duplicate reversals", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     let payoutRow: Record<string, unknown> | null = null;
+    const processedProviderEvents = new Set<string>();
     const db = {
-      query: async (sql: string) => {
+      query: async (sql: string, values?: readonly unknown[]) => {
         if (sql.includes("FROM settlement_wallet_pages")) {
           return {
             rows: [
@@ -498,6 +561,18 @@ describe("settlement payout runtime", () => {
           };
         }
 
+        if (sql.includes("settlement_money_movement_webhook_events")) {
+          const providerEventId = String(values?.[0] ?? "");
+          if (processedProviderEvents.has(providerEventId)) {
+            return { rows: [], rowCount: 0 };
+          }
+          processedProviderEvents.add(providerEventId);
+          return {
+            rows: [{ provider_event_id: providerEventId }],
+            rowCount: 1,
+          };
+        }
+
         return { rows: [], rowCount: 0 };
       },
     };
@@ -515,7 +590,7 @@ describe("settlement payout runtime", () => {
       moneyMovementGateway: createFakeMoneyMovementGateway(),
     });
     await seedAvailableWallet(wallets);
-    const scheduled = await payouts.schedulePayout(
+    const requested = await payouts.requestPayout(
       {
         accountId: "acc_seller" as never,
         amount: "12.50",
@@ -523,19 +598,19 @@ describe("settlement payout runtime", () => {
       context,
     );
     payoutRow = {
-      payout_id: scheduled.payoutId,
+      payout_id: requested.payoutId,
       account_id: "acc_seller",
       amount: "12.50",
       currency_code: "usd",
       destination_reference: null,
       note: null,
       status: "in-transit",
-      provider_transfer_reference: `tr_${scheduled.payoutId}`,
-      provider_payout_reference: `po_${scheduled.payoutId}`,
+      provider_transfer_reference: `tr_${requested.payoutId}`,
+      provider_payout_reference: `po_${requested.payoutId}`,
       provider_status: "pending",
       provider_failure_code: null,
       provider_failure_message: null,
-      scheduled_at: "2026-04-02T00:00:00.000Z",
+      requested_at: "2026-04-02T00:00:00.000Z",
       updated_at: "2026-04-02T00:00:00.000Z",
       sent_at: "2026-04-02T00:00:00.000Z",
       completed_at: null,
@@ -546,7 +621,7 @@ describe("settlement payout runtime", () => {
     const rawBody = JSON.stringify({
       kind: "payout-failed",
       providerEventId: "evt_fake_failure",
-      providerPayoutReference: `po_${scheduled.payoutId}`,
+      providerPayoutReference: `po_${requested.payoutId}`,
     });
     await payouts.processMoneyMovementWebhook({ rawBody, signatureHeader: null }, context);
     await payouts.processMoneyMovementWebhook({ rawBody, signatureHeader: null }, context);

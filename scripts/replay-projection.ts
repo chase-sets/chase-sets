@@ -31,7 +31,7 @@ async function loadPlatformApiRuntime(): Promise<RuntimeHandle> {
     import("../deployables/platform-api/src/config.ts"),
     import("../deployables/platform-api/src/app.ts"),
     import("../deployables/platform-api/src/database-pools.ts"),
-    import("../bounded-contexts/payments/server.ts"),
+    import("../infrastructure/payment-processing-testing/index.ts"),
   ]);
   const config = loadBootstrapConfig();
   const pools = createPlatformApiPools(config);

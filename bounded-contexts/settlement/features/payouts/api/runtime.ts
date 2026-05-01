@@ -9,6 +9,7 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { recordProviderWebhookEvent as recordProviderWebhookInboxEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -25,10 +26,12 @@ import {
   createNoopSettlementOperationsRecorder,
   type SettlementOperationsRecorder,
 } from "./operations";
+import { assertPayoutAmountWithinPolicy } from "../domain/payout-policy";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import {
   getPayout,
   getPayoutByProviderPayoutReference,
+  listPayoutsNeedingReconciliation,
   listPayouts,
   type SettlementPayoutRow,
 } from "../read-model/queries";
@@ -59,7 +62,10 @@ export type PayoutServices = Readonly<{
     params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
   ) => Promise<{ items: SettlementPayoutRow[]; total: number }>;
   getPayout: (payoutId: string, accountId: string) => Promise<SettlementPayoutRow | null>;
-  schedulePayout: (
+  listPayoutsNeedingReconciliation: (
+    params?: Readonly<{ limit?: number; filter?: string | null }>,
+  ) => Promise<SettlementPayoutRow[]>;
+  requestPayout: (
     params: Readonly<{
       accountId: AccountId;
       amount: string;
@@ -96,6 +102,16 @@ export type PayoutServices = Readonly<{
     params: Readonly<{ providerPayoutReference: string }>,
     context: EventStoreContext,
   ) => Promise<{ received: boolean; ignored: boolean }>;
+  reconcilePayoutsNeedingAttention: (
+    params: Readonly<{ limit?: number }>,
+    context: EventStoreContext,
+  ) => Promise<{
+    checked: number;
+    reconciled: number;
+    ignored: number;
+    skipped: number;
+    errors: readonly Readonly<{ payoutId: string; message: string }>[];
+  }>;
   projectors: readonly Projector[];
 }>;
 
@@ -109,6 +125,15 @@ async function requireExistingPayout(
     throw new SettlementDomainError("Payout was not found.");
   }
   return payout;
+}
+
+function providerObjectReferenceFromEvent(event: MoneyMovementWebhookEvent) {
+  if (event.kind === "payout-readiness-updated") {
+    return event.providerReference;
+  }
+  return event.kind === "payout-completed" || event.kind === "payout-failed"
+    ? event.providerPayoutReference
+    : null;
 }
 
 export function createPayoutRuntime(
@@ -137,6 +162,16 @@ export function createPayoutRuntime(
       ...event,
       providerName: event.providerName ?? deps.moneyMovementGateway.providerName,
       occurredAt: event.occurredAt ?? new Date().toISOString(),
+    });
+  }
+
+  async function recordProviderWebhookEvent(event: MoneyMovementWebhookEvent) {
+    return recordProviderWebhookInboxEvent(deps.db, {
+      tableName: "settlement_money_movement_webhook_events",
+      providerEventId: event.providerEventId,
+      providerName: deps.moneyMovementGateway.providerName,
+      eventKind: event.kind,
+      providerObjectReference: providerObjectReferenceFromEvent(event),
     });
   }
 
@@ -308,11 +343,91 @@ export function createPayoutRuntime(
     }
   }
 
+  async function reconcileProviderPayout(
+    params: Readonly<{ providerPayoutReference: string }>,
+    context: EventStoreContext,
+  ) {
+    const payout = await getPayoutByProviderPayoutReference(
+      deps.db,
+      params.providerPayoutReference,
+    );
+    if (!payout) {
+      await recordOperation({
+        kind: "money-movement-webhook-ignored",
+        providerPayoutReference: params.providerPayoutReference,
+        reason: "Payout not found during reconciliation.",
+      });
+      return { received: true, ignored: true };
+    }
+
+    const readiness = await deps.payoutReadiness.getPayoutReadiness(
+      payout.account_id,
+    );
+    if (!readiness.provider_reference) {
+      throw new SettlementDomainError(
+        "Payout setup must include a provider account for reconciliation.",
+      );
+    }
+
+    const providerPayout =
+      await deps.moneyMovementGateway.retrieveConnectedAccountPayout({
+        providerReference: readiness.provider_reference,
+        providerPayoutReference: params.providerPayoutReference,
+      });
+
+    if (["paid", "succeeded", "completed"].includes(providerPayout.providerStatus)) {
+      const result = await commandHandler({
+        streamId: `settlement.payout-${payout.payout_id}`,
+        command: {
+          type: "CompletePayout",
+          providerStatus: providerPayout.providerStatus,
+          completedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      if (result.newEvents.length > 0) {
+        await recordOperation({
+          kind: "payout-completed",
+          accountId: payout.account_id,
+          payoutId: payout.payout_id,
+          providerPayoutReference: params.providerPayoutReference,
+        });
+      }
+      return { received: true, ignored: result.newEvents.length === 0 };
+    }
+
+    if (["failed", "canceled", "cancelled"].includes(providerPayout.providerStatus)) {
+      await failPayoutAndReverseWallet(
+        {
+          payoutId: payout.payout_id,
+          accountId: payout.account_id,
+          failureReason: providerPayout.failureMessage,
+          providerStatus: providerPayout.providerStatus,
+          providerFailureCode: providerPayout.failureCode,
+          providerFailureMessage: providerPayout.failureMessage,
+        },
+        context,
+      );
+      await recordOperation({
+        kind: "payout-failed",
+        accountId: payout.account_id,
+        payoutId: payout.payout_id,
+        providerPayoutReference: params.providerPayoutReference,
+        reason: providerPayout.failureMessage,
+      });
+      return { received: true, ignored: false };
+    }
+
+    return { received: true, ignored: true };
+  }
+
   return {
     commandHandler,
     listPayouts: (params) => listPayouts(deps.db, params),
     getPayout: (payoutId, accountId) => getPayout(deps.db, payoutId, accountId),
-    async schedulePayout(params, context) {
+    listPayoutsNeedingReconciliation: (params) =>
+      listPayoutsNeedingReconciliation(deps.db, params),
+    async requestPayout(params, context) {
       await recordOperation({
         kind: "payout-requested",
         accountId: params.accountId,
@@ -321,14 +436,11 @@ export function createPayoutRuntime(
       });
       const wallet = await deps.wallets.getWallet(params.accountId);
       const readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
-      const amount = normalizeMoneyAmount(params.amount, {
-        fieldName: "Payout amount",
-      });
       const currencyCode = normalizeCurrencyCode(wallet.currency_code);
-
+      const amount = assertPayoutAmountWithinPolicy(params.amount, currencyCode);
       if (readiness.status !== "ready") {
         throw new SettlementDomainError(
-          "Payout setup must be complete before scheduling payouts.",
+          "Payout setup must be complete before requesting payouts.",
         );
       }
       if (!readiness.provider_reference) {
@@ -355,18 +467,18 @@ export function createPayoutRuntime(
       }
 
       const payoutId = createId("pyo") as PayoutId;
-      const scheduledAt = new Date().toISOString();
+      const requestedAt = new Date().toISOString();
       const result = await commandHandler({
         streamId: `settlement.payout-${payoutId}`,
         command: {
-          type: "SchedulePayout",
+          type: "RequestPayout",
           payoutId,
           accountId: params.accountId,
           amount,
           currencyCode,
           destinationReference: params.destinationReference ?? null,
           note: params.note ?? null,
-          scheduledAt,
+          requestedAt,
         },
         context,
       });
@@ -383,7 +495,7 @@ export function createPayoutRuntime(
             fundsStatus: "available",
             payoutId,
             description: params.note ?? `Payout ${payoutId}`,
-            postedAt: scheduledAt,
+            postedAt: requestedAt,
           },
           context,
         );
@@ -517,81 +629,59 @@ export function createPayoutRuntime(
         });
         return { received: true, ignored: true };
       }
-      return handleMoneyMovementEvent(event, context);
-    },
-    async reconcileProviderPayout(params, context) {
-      const payout = await getPayoutByProviderPayoutReference(
-        deps.db,
-        params.providerPayoutReference,
-      );
-      if (!payout) {
+      const isNewProviderEvent = await recordProviderWebhookEvent(event);
+      if (!isNewProviderEvent) {
         await recordOperation({
           kind: "money-movement-webhook-ignored",
-          providerPayoutReference: params.providerPayoutReference,
-          reason: "Payout not found during reconciliation.",
+          providerEventId: event.providerEventId,
+          providerPayoutReference: providerObjectReferenceFromEvent(event) ?? undefined,
+          reason: "Provider webhook event was already processed.",
         });
         return { received: true, ignored: true };
       }
+      return handleMoneyMovementEvent(event, context);
+    },
+    reconcileProviderPayout,
+    async reconcilePayoutsNeedingAttention(params, context) {
+      const payouts = await listPayoutsNeedingReconciliation(deps.db, {
+        limit: params.limit,
+      });
+      let reconciled = 0;
+      let ignored = 0;
+      let skipped = 0;
+      const errors: Array<Readonly<{ payoutId: string; message: string }>> = [];
 
-      const readiness = await deps.payoutReadiness.getPayoutReadiness(
-        payout.account_id,
-      );
-      if (!readiness.provider_reference) {
-        throw new SettlementDomainError(
-          "Payout setup must include a provider account for reconciliation.",
-        );
-      }
+      for (const payout of payouts) {
+        if (!payout.provider_payout_reference) {
+          skipped += 1;
+          continue;
+        }
 
-      const providerPayout =
-        await deps.moneyMovementGateway.retrieveConnectedAccountPayout({
-          providerReference: readiness.provider_reference,
-          providerPayoutReference: params.providerPayoutReference,
-        });
-
-      if (["paid", "succeeded", "completed"].includes(providerPayout.providerStatus)) {
-        const result = await commandHandler({
-          streamId: `settlement.payout-${payout.payout_id}`,
-          command: {
-            type: "CompletePayout",
-            providerStatus: providerPayout.providerStatus,
-            completedAt: new Date().toISOString(),
-          },
-          context,
-        });
-        if (result.newEvents.length > 0) {
-          await recordOperation({
-            kind: "payout-completed",
-            accountId: payout.account_id,
+        try {
+          const result = await reconcileProviderPayout(
+            { providerPayoutReference: payout.provider_payout_reference },
+            context,
+          );
+          if (result.ignored) {
+            ignored += 1;
+          } else {
+            reconciled += 1;
+          }
+        } catch (error) {
+          errors.push({
             payoutId: payout.payout_id,
-            providerPayoutReference: params.providerPayoutReference,
+            message: error instanceof Error ? error.message : "Reconciliation failed.",
           });
         }
-        return { received: true, ignored: result.newEvents.length === 0 };
       }
 
-      if (["failed", "canceled", "cancelled"].includes(providerPayout.providerStatus)) {
-        await failPayoutAndReverseWallet(
-          {
-            payoutId: payout.payout_id,
-            accountId: payout.account_id,
-            failureReason: providerPayout.failureMessage,
-            providerStatus: providerPayout.providerStatus,
-            providerFailureCode: providerPayout.failureCode,
-            providerFailureMessage: providerPayout.failureMessage,
-          },
-          context,
-        );
-        await recordOperation({
-          kind: "payout-failed",
-          accountId: payout.account_id,
-          payoutId: payout.payout_id,
-          providerPayoutReference: params.providerPayoutReference,
-          reason: providerPayout.failureMessage,
-        });
-        return { received: true, ignored: false };
-      }
-
-      return { received: true, ignored: true };
+      return {
+        checked: payouts.length,
+        reconciled,
+        ignored,
+        skipped,
+        errors,
+      };
     },
     projectors: [
       createProjector({

@@ -13,7 +13,7 @@ export type SettlementPayoutRow = Readonly<{
   provider_status: string | null;
   provider_failure_code: string | null;
   provider_failure_message: string | null;
-  scheduled_at: string;
+  requested_at: string;
   updated_at: string;
   sent_at: string | null;
   completed_at: string | null;
@@ -35,7 +35,7 @@ const payoutSelect = `
     provider_status,
     provider_failure_code,
     provider_failure_message,
-    scheduled_at,
+    requested_at,
     updated_at,
     sent_at,
     completed_at,
@@ -84,6 +84,44 @@ export async function getPayoutByProviderPayoutReference(
   );
 
   return result.rows[0] ?? null;
+}
+
+export async function listPayoutsNeedingReconciliation(
+  db: PgQueryable,
+  params: Readonly<{ limit?: number; filter?: string | null }> = {},
+): Promise<SettlementPayoutRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const filterSql = (() => {
+    switch (params.filter ?? "all") {
+      case "missing-provider-reference":
+        return "AND provider_payout_reference IS NULL";
+      case "in-transit":
+        return "AND status = 'in-transit'";
+      case "failed":
+        return "AND status = 'failed'";
+      case "stale-requested":
+        return "AND status = 'requested' AND updated_at < NOW() - INTERVAL '15 minutes'";
+      default:
+        return "";
+    }
+  })();
+  const result = await db.query<SettlementPayoutRow>(
+    `${payoutSelect}
+     WHERE (
+       status = 'in-transit'
+       OR status = 'failed'
+       OR (
+         status = 'requested'
+         AND updated_at < NOW() - INTERVAL '15 minutes'
+       )
+     )
+     ${filterSql}
+     ORDER BY updated_at ASC, payout_id ASC
+     LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows;
 }
 
 export async function getPayout(

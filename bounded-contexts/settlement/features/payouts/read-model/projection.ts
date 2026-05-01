@@ -5,7 +5,7 @@ export function buildPayoutProjectionHandlers(
   db: PgQueryable,
 ): ProjectorHandlerMap {
   return {
-    "settlement.payout.scheduled": async (event) => {
+    "settlement.payout.requested": async (event) => {
       const data = event.data as {
         payoutId: string;
         accountId: string;
@@ -13,7 +13,7 @@ export function buildPayoutProjectionHandlers(
         currencyCode: string;
         destinationReference: string | null;
         note: string | null;
-        scheduledAt: string;
+        requestedAt: string;
       };
 
       await db.query(
@@ -30,7 +30,7 @@ export function buildPayoutProjectionHandlers(
            provider_status,
            provider_failure_code,
            provider_failure_message,
-           scheduled_at,
+           requested_at,
            updated_at,
            sent_at,
            completed_at,
@@ -38,7 +38,7 @@ export function buildPayoutProjectionHandlers(
            failure_reason,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, 'scheduled', NULL, NULL, NULL, NULL, NULL, $7, $7, NULL, NULL, NULL, NULL, $8
+           $1, $2, $3, $4, $5, $6, 'requested', NULL, NULL, NULL, NULL, NULL, $7, $7, NULL, NULL, NULL, NULL, $8
          )
          ON CONFLICT (payout_id) DO UPDATE
          SET account_id = EXCLUDED.account_id,
@@ -47,7 +47,7 @@ export function buildPayoutProjectionHandlers(
              destination_reference = EXCLUDED.destination_reference,
              note = EXCLUDED.note,
              status = EXCLUDED.status,
-             scheduled_at = EXCLUDED.scheduled_at,
+             requested_at = EXCLUDED.requested_at,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE settlement_payout_pages.last_stream_version < EXCLUDED.last_stream_version`,
@@ -58,7 +58,7 @@ export function buildPayoutProjectionHandlers(
           data.currencyCode,
           data.destinationReference,
           data.note,
-          data.scheduledAt,
+          data.requestedAt,
           event.streamVersion,
         ],
       );

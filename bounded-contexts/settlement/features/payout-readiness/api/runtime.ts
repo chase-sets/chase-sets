@@ -57,6 +57,13 @@ export type PayoutReadinessServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ url: string; providerReference: string; expiresAt: string | null }>;
+  createAccountManagementSession: (
+    params: Readonly<{
+      accountId: AccountId;
+      returnUrl?: string | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ url: string; providerReference: string; expiresAt: string | null }>;
   refreshProviderReadiness: (
     params: Readonly<{ accountId: AccountId }>,
     context: EventStoreContext,
@@ -212,6 +219,28 @@ export function createPayoutReadinessRuntime(
         },
         context,
       );
+
+      return {
+        url: session.url,
+        providerReference: session.providerReference,
+        expiresAt: session.expiresAt,
+      };
+    },
+    async createAccountManagementSession(params, _context) {
+      const existing = await getPayoutReadiness(deps.db, params.accountId);
+      if (!existing.provider_reference) {
+        throw new SettlementDomainError(
+          "Payout setup must be started before managing payout account details.",
+        );
+      }
+
+      const session =
+        await deps.moneyMovementGateway.createAccountManagementSession({
+          accountId: params.accountId,
+          providerReference: existing.provider_reference,
+          returnUrl: params.returnUrl,
+          idempotencyKey: `settlement:payout-account:${params.accountId}:manage`,
+        });
 
       return {
         url: session.url,

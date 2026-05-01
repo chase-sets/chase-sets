@@ -205,7 +205,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 {
                   icon: "lock",
                   title: "Secure Payment",
-                  description: "Purchases remain pending payment until Stripe confirms capture.",
+                  description: "Purchases remain pending payment until the secure processor confirms capture.",
                 },
                 {
                   icon: "shield",
@@ -215,7 +215,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 {
                   icon: "creditCard",
                   title: "Payment Setup",
-                  description: "The next step initializes the external processor flow.",
+                  description: "The next step initializes a secure payment form; card details are not stored by the marketplace.",
                 },
               ]}
             />

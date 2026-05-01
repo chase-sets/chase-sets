@@ -3,7 +3,7 @@ import type {
   CreateProcessorRefundInput,
   PaymentProcessorGateway,
   PaymentProcessorWebhookEvent,
-} from "./processor-gateway";
+} from "@chase-sets/payment-processing";
 
 type FakeWebhookEnvelope = Readonly<{
   eventId?: string;

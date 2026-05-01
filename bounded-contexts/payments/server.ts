@@ -11,10 +11,8 @@ export type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
   PaymentProcessorWebhookEvent,
-} from "./support/runtime-support/processor-gateway";
+} from "@chase-sets/payment-processing";
 export { PaymentsDomainError } from "./support/runtime-support/common";
-export { createFakePaymentProcessorGateway } from "./support/runtime-support/fake-gateway";
-export { createStripePaymentProcessorGateway } from "./support/runtime-support/stripe-gateway";
 import { createPaymentsApiClient } from "./support/request-support/api-client";
 
 export function createPaymentsRequestApiClient(request: Request) {

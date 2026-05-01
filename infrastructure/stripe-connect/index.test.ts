@@ -6,6 +6,7 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -18,7 +19,24 @@ function stripeSignature(rawBody: string, secret: string, timestamp = 1_776_000_
 
 describe("money movement adapters", () => {
   it("Stripe adapter requests Accounts v2 transfer and payout capabilities", async () => {
+    const calls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(String(input));
+      if (String(input) === "https://stripe.test/v1/balance_settings") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Account")).toBe("acct_123");
+        expect(headers.get("Idempotency-Key")).toBe("account-key:manual-payouts");
+        expect(String(init?.body)).toContain(
+          "payments%5Bpayouts%5D%5Bschedule%5D%5Binterval%5D=manual",
+        );
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
       expect(String(input)).toBe("https://stripe.test/v2/core/accounts");
       expect(init?.method).toBe("POST");
       expect(init?.headers).toBeInstanceOf(Headers);
@@ -27,6 +45,9 @@ describe("money movement adapters", () => {
       expect(headers.get("Idempotency-Key")).toBe("account-key");
       expect(String(init?.body)).toContain("stripe_transfers");
       expect(String(init?.body)).toContain("payouts");
+      expect(String(init?.body)).toContain(
+        "defaults%5Bresponsibilities%5D%5Bfees_collector%5D=application",
+      );
 
       return new Response(
         JSON.stringify({
@@ -65,6 +86,10 @@ describe("money movement adapters", () => {
       payoutCapabilityStatus: "active",
       payoutDestinationStatus: "ready",
     });
+    expect(calls).toEqual([
+      "https://stripe.test/v2/core/accounts",
+      "https://stripe.test/v1/balance_settings",
+    ]);
   });
 
   it("Stripe adapter creates recipient onboarding account links with nested v2 parameters", async () => {
@@ -135,6 +160,46 @@ describe("money movement adapters", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("Stripe adapter creates hosted account management sessions through the adapter", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://stripe.test/v1/accounts/acct_123/login_links");
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toBeInstanceOf(Headers);
+      const headers = init?.headers as Headers;
+      expect(headers.get("Stripe-Version")).toBe("2026-02-25.clover");
+      expect(headers.get("Idempotency-Key")).toBe("manage-key");
+      expect(String(init?.body)).toContain(
+        "redirect_url=https%3A%2F%2Fexample.test%2Faccount%2Fpayouts",
+      );
+
+      return new Response(
+        JSON.stringify({
+          url: "https://connect.stripe.test/express/acct_123",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.createAccountManagementSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_123",
+        returnUrl: "https://example.test/account/payouts",
+        idempotencyKey: "manage-key",
+      }),
+    ).resolves.toEqual({
+      providerReference: "acct_123",
+      url: "https://connect.stripe.test/express/acct_123",
+      expiresAt: null,
+    });
+  });
+
   it("Stripe adapter surfaces provider error messages", async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(
@@ -158,6 +223,8 @@ describe("money movement adapters", () => {
   });
 
   it("Stripe webhook parser maps payout failures to provider-neutral events", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-12T13:21:00.000Z"));
     const adapter = createStripeConnectMoneyMovementGateway({
       secretKey: "sk_test",
       webhookSecret: "whsec_test",
@@ -189,5 +256,26 @@ describe("money movement adapters", () => {
       failureMessage: "The account is closed.",
       occurredAt: "2026-04-12T13:20:00.000Z",
     });
+  });
+
+  it("Stripe webhook parser rejects stale signatures", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-12T14:00:00.000Z"));
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+    });
+    const rawBody = JSON.stringify({
+      type: "payout.paid",
+      created: 1_776_000_000,
+      data: { object: { id: "po_123", status: "paid" } },
+    });
+
+    await expect(
+      adapter.parseMoneyMovementWebhook({
+        rawBody,
+        signatureHeader: stripeSignature(rawBody, "whsec_test"),
+      }),
+    ).rejects.toThrow("Stripe webhook signature timestamp is outside tolerance.");
   });
 });

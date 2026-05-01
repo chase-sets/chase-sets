@@ -32,14 +32,32 @@ function requirePayoutReadinessAccess(
   return { actor, response: null };
 }
 
-function parseMissingRequirements(value: unknown) {
-  return Array.isArray(value)
-    ? value.map(String).map((item) => item.trim()).filter(Boolean)
-    : [];
-}
-
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
+}
+
+function hostedRedirectUrlFromBody(
+  body: Record<string, unknown>,
+  fieldName: string,
+  requestUrl: string,
+) {
+  const value = body[fieldName];
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Payout setup redirects must use absolute URLs.");
+  }
+
+  if (parsed.origin !== new URL(requestUrl).origin) {
+    throw new Error("Payout setup redirects must stay on this site.");
+  }
+
+  return parsed.toString();
 }
 
 export function createPayoutReadinessRoutes(
@@ -67,14 +85,44 @@ export function createPayoutReadinessRoutes(
       return c.json({ error: "Authentication context missing." }, 401);
     }
 
-    const body = await c.req.json().catch(() => ({}));
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
 
     try {
+      const returnUrl = hostedRedirectUrlFromBody(body, "returnUrl", c.req.url);
+      const refreshUrl = hostedRedirectUrlFromBody(body, "refreshUrl", c.req.url);
       const result = await services.createOnboardingSession(
         {
           accountId: access.actor.accountId as never,
-          returnUrl: typeof body.returnUrl === "string" ? body.returnUrl : null,
-          refreshUrl: typeof body.refreshUrl === "string" ? body.refreshUrl : null,
+          returnUrl,
+          refreshUrl,
+        },
+        context,
+      );
+
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
+  app.post("/payout-setup/account-management-session", async (c) => {
+    const access = requirePayoutReadinessAccess(c, "payouts.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: "Authentication context missing." }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+
+    try {
+      const result = await services.createAccountManagementSession(
+        {
+          accountId: access.actor.accountId as never,
+          returnUrl: hostedRedirectUrlFromBody(body, "returnUrl", c.req.url),
         },
         context,
       );
@@ -105,55 +153,6 @@ export function createPayoutReadinessRoutes(
       );
 
       return c.json(readiness);
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
-    }
-  });
-
-  app.post("/payout-readiness/provider-status", async (c) => {
-    const access = requirePayoutReadinessAccess(c, "payouts.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
-    }
-
-    const body = await c.req.json();
-
-    try {
-      const result = await services.recordProviderReadiness(
-        {
-          accountId: access.actor.accountId as never,
-          status: String(body.status ?? "not-started"),
-          missingRequirements: parseMissingRequirements(body.missingRequirements),
-          providerReference:
-            body.providerReference === null || body.providerReference === undefined
-              ? null
-              : String(body.providerReference),
-          onboardingStatus:
-            typeof body.onboardingStatus === "string"
-              ? body.onboardingStatus
-              : undefined,
-          transferCapabilityStatus:
-            typeof body.transferCapabilityStatus === "string"
-              ? body.transferCapabilityStatus
-              : undefined,
-          payoutCapabilityStatus:
-            typeof body.payoutCapabilityStatus === "string"
-              ? body.payoutCapabilityStatus
-              : undefined,
-          payoutDestinationStatus:
-            typeof body.payoutDestinationStatus === "string"
-              ? body.payoutDestinationStatus
-              : undefined,
-        },
-        context,
-      );
-
-      return c.json({ account_id: result.accountId, version: result.version });
     } catch (error) {
       return c.json({ error: errorMessage(error) }, 400);
     }

@@ -23,6 +23,17 @@ describe("fake money movement gateway", () => {
       payoutCapabilityStatus: "active",
       payoutDestinationStatus: "ready",
     });
+    await expect(
+      gateway.createAccountManagementSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_fake",
+        returnUrl: "https://example.test/account/payouts",
+        idempotencyKey: "manage-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_fake",
+      url: "https://example.test/payout-account/acct_fake",
+    });
   });
 
   it("tracks idempotency keys and rejects insufficient platform balance", async () => {

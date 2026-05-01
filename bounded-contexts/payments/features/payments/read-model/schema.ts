@@ -42,4 +42,15 @@ ALTER TABLE payments_payment_pages
 
 ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS processor_amount numeric(12, 2) NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS payments_provider_webhook_events (
+  provider_event_id text PRIMARY KEY,
+  provider_name text NOT NULL,
+  event_kind text NOT NULL,
+  provider_object_reference text NULL,
+  received_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS payments_provider_webhook_events_received_idx
+  ON payments_provider_webhook_events (received_at DESC);
 `;

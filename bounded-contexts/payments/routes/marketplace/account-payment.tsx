@@ -266,9 +266,9 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
   return (
     <Surface elevated glow>
       <Stack gap={3}>
-        <Badge tone="accent">Stripe confirmation</Badge>
+        <Badge tone="accent">Secure payment</Badge>
         <Text>
-          Payment is ready. Enter your payment details and confirm to let Stripe capture the charge.
+          Payment is ready. Enter your payment details in the secure processor form and confirm the charge.
         </Text>
         <div ref={containerRef} />
         {errorMessage ? (
@@ -298,7 +298,7 @@ export default function MarketplaceAccountPaymentRoute() {
       <PageHeader
         eyebrow="Secure Checkout"
         title={`Payment ${data.payment.payment_id}`}
-        description="Track processor state, purchase coverage, marketplace fees, and seller net from one protected payment surface."
+        description="Track payment state, purchase coverage, marketplace fees, and seller net from one protected payment surface."
         actions={
           <LinkButton href="/account/purchases" tone="secondary">
             Back to purchases
@@ -326,8 +326,8 @@ export default function MarketplaceAccountPaymentRoute() {
               items={[
                 {
                   icon: "lock",
-                  title: "Secure Processor Flow",
-                  description: "Stripe confirmation remains isolated to the payment step.",
+                  title: "Secure Payment Flow",
+                  description: "Payment details stay inside the secure processor form.",
                 },
                 {
                   icon: "shield",
@@ -362,12 +362,12 @@ export default function MarketplaceAccountPaymentRoute() {
           ) : null}
 
           {data.payment.status === "pending-confirmation" ? (
-            <PageSection title="Stripe Confirmation">
+            <PageSection title="Secure Payment">
               {data.payment.processor_client_secret && data.payment.processor_publishable_key ? (
                 <StripeConfirmationCard payment={data.payment} />
               ) : (
                 <Surface tone="subtle" elevated>
-                  <Text>Stripe payment confirmation is not configured for this environment.</Text>
+                  <Text>Secure payment confirmation is not configured for this environment.</Text>
                 </Surface>
               )}
             </PageSection>

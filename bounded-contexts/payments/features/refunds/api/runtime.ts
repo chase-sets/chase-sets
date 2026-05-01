@@ -17,7 +17,7 @@ import {
   PaymentsDomainError,
   type RefundId,
 } from "../../../support/runtime-support/common";
-import type { PaymentProcessorGateway } from "../../../support/runtime-support/processor-gateway";
+import type { PaymentProcessorGateway } from "@chase-sets/payment-processing";
 import { getPaymentById } from "../../payments/read-model/queries";
 import { buildRefundProjectionHandlers } from "../read-model/projection";
 import {

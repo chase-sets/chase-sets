@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS settlement_payout_pages (
   provider_status text NULL,
   provider_failure_code text NULL,
   provider_failure_message text NULL,
-  scheduled_at timestamptz NOT NULL,
+  requested_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   sent_at timestamptz NULL,
   completed_at timestamptz NULL,
@@ -28,6 +28,17 @@ CREATE INDEX IF NOT EXISTS settlement_payout_pages_provider_payout_idx
   ON settlement_payout_pages (provider_payout_reference)
   WHERE provider_payout_reference IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS settlement_money_movement_webhook_events (
+  provider_event_id text PRIMARY KEY,
+  provider_name text NOT NULL,
+  event_kind text NOT NULL,
+  provider_object_reference text NULL,
+  received_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS settlement_money_movement_webhook_events_received_idx
+  ON settlement_money_movement_webhook_events (received_at DESC);
+
 ALTER TABLE settlement_payout_pages
   ADD COLUMN IF NOT EXISTS provider_transfer_reference text NULL;
 
@@ -42,4 +53,27 @@ ALTER TABLE settlement_payout_pages
 
 ALTER TABLE settlement_payout_pages
   ADD COLUMN IF NOT EXISTS provider_failure_message text NULL;
+
+ALTER TABLE settlement_money_movement_webhook_events
+  ADD COLUMN IF NOT EXISTS event_kind text NULL;
+
+ALTER TABLE settlement_money_movement_webhook_events
+  ADD COLUMN IF NOT EXISTS provider_object_reference text NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'settlement_payout_pages'
+      AND column_name = 'scheduled_at'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'settlement_payout_pages'
+      AND column_name = 'requested_at'
+  ) THEN
+    ALTER TABLE settlement_payout_pages RENAME COLUMN scheduled_at TO requested_at;
+  END IF;
+END $$;
 `;

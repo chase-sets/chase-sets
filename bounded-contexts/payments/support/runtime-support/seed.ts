@@ -3,7 +3,7 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { createPaymentsServices } from "./services";
-import { createFakePaymentProcessorGateway } from "./fake-gateway";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";

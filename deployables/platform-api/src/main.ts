@@ -4,10 +4,8 @@ import {
   refreshProjectionReplaySummary,
 } from "@chase-sets/bounded-context-runtime";
 import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
-import {
-  createFakePaymentProcessorGateway,
-  createStripePaymentProcessorGateway,
-} from "@chase-sets/payments/server";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
+import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { resolveActorFromRequest } from "./auth-request-context";

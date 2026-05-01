@@ -108,7 +108,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   return app;
 }
 
-export function createStripeWebhookRoutes(
+export function createPaymentProcessorWebhookRoutes(
   services: PaymentServices,
 ) {
   const app = new Hono();

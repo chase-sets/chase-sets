@@ -21,7 +21,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   try {
     const payout = await settlementApi.getPayout(params.payoutId!);
-    return { payout };
+    return {
+      payout,
+      requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
+    };
   } catch (error) {
     if (error instanceof SettlementApiError && error.status === 404) {
       throw new Response("Payout not found.", { status: 404 });
@@ -41,6 +44,7 @@ export default function MarketplaceAccountPayoutRoute() {
     <SettlementPayoutDetailPage
       backHref="/account/payouts"
       payout={data.payout as SettlementPayoutRow}
+      requestSuccess={data.requestSuccess}
     />
   );
 }

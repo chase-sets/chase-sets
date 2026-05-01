@@ -9,6 +9,7 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -24,7 +25,7 @@ import {
 import type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
-} from "../../../support/runtime-support/processor-gateway";
+} from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
 import { listPaymentOrderInputs } from "../integrations/order-input/order-input-queries";
 import { buildPaymentProjectionHandlers } from "../read-model/projection";
@@ -318,6 +319,16 @@ export function createPaymentRuntime(
     async processWebhook(params, context) {
       const webhookEvent = await deps.processorGateway.parseWebhook(params);
       if (!webhookEvent) {
+        return { received: true, ignored: true };
+      }
+      const isNewProviderEvent = await recordProviderWebhookEvent(deps.db, {
+        tableName: "payments_provider_webhook_events",
+        providerEventId: webhookEvent.eventId,
+        providerName: webhookEvent.processorName,
+        eventKind: webhookEvent.kind,
+        providerObjectReference: webhookEvent.processorPaymentReference,
+      });
+      if (!isNewProviderEvent) {
         return { received: true, ignored: true };
       }
 

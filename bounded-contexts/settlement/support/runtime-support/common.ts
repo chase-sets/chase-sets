@@ -16,7 +16,7 @@ export type LedgerEntryKind =
   | "payout-reversal"
   | "adjustment";
 
-export type PayoutStatus = "scheduled" | "in-transit" | "completed" | "failed";
+export type PayoutStatus = "requested" | "in-transit" | "completed" | "failed";
 export type PayoutReadinessStatus =
   | "not-started"
   | "pending"
@@ -66,7 +66,7 @@ export type PayoutSummary = Readonly<{
   providerStatus: string | null;
   providerFailureCode: string | null;
   providerFailureMessage: string | null;
-  scheduledAt: string;
+  requestedAt: string;
   sentAt: string | null;
   completedAt: string | null;
   failedAt: string | null;
@@ -227,8 +227,8 @@ export function normalizeLedgerEntryKind(value: string): LedgerEntryKind {
 
 export function normalizePayoutStatus(value: string): PayoutStatus {
   switch (value.trim()) {
-    case "scheduled":
-      return "scheduled";
+    case "requested":
+      return "requested";
     case "in-transit":
       return "in-transit";
     case "completed":

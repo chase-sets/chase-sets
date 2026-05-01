@@ -1,5 +1,6 @@
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type {
+  CreatedAccountManagementSession,
   CreatedOnboardingSession,
   CreatedProviderPayout,
   CreatedProviderTransfer,
@@ -106,6 +107,16 @@ export function createFakeMoneyMovementGateway(
         url: `https://example.test/payout-setup/${input.providerReference}`,
         expiresAt: null,
         readiness,
+      };
+    },
+    async createAccountManagementSession(
+      input,
+    ): Promise<CreatedAccountManagementSession> {
+      usedIdempotencyKeys.push(input.idempotencyKey);
+      return {
+        providerReference: input.providerReference,
+        url: `https://example.test/payout-account/${input.providerReference}`,
+        expiresAt: null,
       };
     },
     async refreshPayoutReadiness(input) {

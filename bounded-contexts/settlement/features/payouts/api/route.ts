@@ -61,6 +61,44 @@ export function createPayoutRoutes(services: PayoutServices) {
     });
   });
 
+  app.get("/payouts/reconciliation", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const limit = Number(c.req.query("limit") ?? 100);
+    const filter = c.req.query("filter") ?? null;
+    const items = await services.listPayoutsNeedingReconciliation({ limit, filter });
+
+    return c.json({
+      items,
+      total: items.length,
+      count: items.length,
+    });
+  });
+
+  app.post("/payouts/reconciliation/run", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: "Authentication context missing." }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const limit = Number((body as { limit?: unknown }).limit ?? 100);
+    const result = await services.reconcilePayoutsNeedingAttention(
+      { limit },
+      context,
+    );
+
+    return c.json(result);
+  });
+
   app.get("/payouts/:id", async (c) => {
     const access = requirePayoutAccess(c, "payouts.view");
     if (access.response) {
@@ -92,7 +130,7 @@ export function createPayoutRoutes(services: PayoutServices) {
     const body = await c.req.json();
 
     try {
-      const result = await services.schedulePayout(
+      const result = await services.requestPayout(
         {
           accountId: access.actor.accountId as never,
           amount: String(body.amount ?? ""),

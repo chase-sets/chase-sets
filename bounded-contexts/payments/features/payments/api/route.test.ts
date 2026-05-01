@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PaymentsApiEnv } from "./route";
 import {
   createAccountPaymentRoutes,
-  createStripeWebhookRoutes,
+  createPaymentProcessorWebhookRoutes,
 } from "./route";
 import type { PaymentServices } from "./runtime";
 
@@ -214,12 +214,12 @@ describe("payments routes", () => {
     await expect(response.json()).resolves.toEqual({ error: "Forbidden." });
   });
 
-  it("accepts Stripe webhooks without marketplace auth context", async () => {
+  it("accepts provider webhooks without marketplace auth context", async () => {
     const services = createServices();
-    const app = new Hono().route("/stripe", createStripeWebhookRoutes(services));
+    const app = new Hono().route("/provider", createPaymentProcessorWebhookRoutes(services));
 
     const response = await app.fetch(
-      new Request("http://payments.test/stripe/webhooks", {
+      new Request("http://payments.test/provider/webhooks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: "evt_1" }),

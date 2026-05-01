@@ -10,7 +10,7 @@ import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
-} from "./processor-gateway";
+} from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "../../features/payments/api/balance-credit-resolver";
 
 export type PaymentsServiceOptions = Readonly<{

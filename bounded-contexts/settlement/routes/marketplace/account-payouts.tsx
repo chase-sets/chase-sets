@@ -10,13 +10,31 @@ import {
   SettlementApiError,
   type SettlementPayoutRow,
   type SettlementPayoutReadinessRow,
+  type SettlementWalletRow,
 } from "../../support/request-support/api-client";
 import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
 import { SettlementPayoutListPage } from "../../features/payouts/ui/payout-list-page";
+import { resolvePayoutAmountSelection } from "../../features/payouts/api/payout-form";
 
 type PayoutActionData = Readonly<{
-  error: string;
+  error?: string;
+  draft?: Readonly<{
+    amount: string;
+    note: string | null;
+  }>;
+  confirmation?: Readonly<{
+    amount: string;
+    note: string | null;
+  }>;
 }>;
+
+function normalizeQuickAmount(formData: FormData) {
+  return resolvePayoutAmountSelection({
+    amount: String(formData.get("amount") ?? ""),
+    shortcut: String(formData.get("quickAmount") ?? ""),
+    availableAmount: String(formData.get("availableAmount") ?? "0"),
+  });
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const requestUrl = new URL(request.url);
@@ -32,17 +50,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return redirect("/account/payouts");
   }
 
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "payouts.view",
   });
   const settlementApi = createSettlementRequestApiClient(request);
 
-  const [payouts, payoutReadiness] = await Promise.all([
+  const [wallet, payouts, payoutReadiness] = await Promise.all([
+    settlementApi.getWallet(),
     settlementApi.listPayouts(),
     settlementApi.getPayoutReadiness(),
   ]);
-  return { payouts, payoutReadiness };
+  return {
+    wallet,
+    payouts,
+    payoutReadiness,
+    canManagePayouts: actor.permissions.includes("payouts.manage"),
+  };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -55,14 +79,34 @@ export async function action({ request }: ActionFunctionArgs) {
   const settlementApi = createSettlementRequestApiClient(request);
 
   try {
-    if (intent === "schedule-payout") {
+    if (intent === "preview-payout") {
+      const amount = normalizeQuickAmount(formData);
+      const note = formData.get("note") ? String(formData.get("note")) : null;
+      return {
+        confirmation: {
+          amount,
+          note,
+        },
+      };
+    }
+
+    if (intent === "edit-payout") {
+      return {
+        draft: {
+          amount: String(formData.get("amount") ?? ""),
+          note: formData.get("note") ? String(formData.get("note")) : null,
+        },
+      };
+    }
+
+    if (intent === "confirm-payout") {
       const result = (await settlementApi.createPayout({
         amount: formData.get("amount"),
-        destinationReference: formData.get("destinationReference") || null,
+        destinationReference: null,
         note: formData.get("note") || null,
       })) as Readonly<{ id: string }>;
 
-      return redirect(`/account/payouts/${result.id}`);
+      return redirect(`/account/payouts/${result.id}?requested=1`);
     }
 
     if (intent === "start-payout-setup") {
@@ -77,6 +121,14 @@ export async function action({ request }: ActionFunctionArgs) {
     if (intent === "refresh-payout-setup") {
       await settlementApi.refreshPayoutSetup();
       return redirect("/account/payouts");
+    }
+
+    if (intent === "manage-payout-account") {
+      const result = await settlementApi.createPayoutAccountManagementSession({
+        returnUrl: new URL("/account/payouts?setup=returned", request.url).toString(),
+      });
+
+      return redirect(result.url);
     }
 
     return redirect("/account/payouts");
@@ -98,9 +150,13 @@ export default function MarketplaceAccountPayoutsRoute() {
 
   return (
     <SettlementPayoutListPage
+      wallet={data.wallet as SettlementWalletRow}
       payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
       payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
       errorMessage={actionData?.error ?? null}
+      payoutDraft={actionData?.draft ?? null}
+      payoutConfirmation={actionData?.confirmation ?? null}
+      showOperations={data.canManagePayouts}
     />
   );
 }

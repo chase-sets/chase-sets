@@ -83,7 +83,7 @@
       "drainProjectorsOnWrite": true
     },
     {
-      "mountPath": "/api/payments/stripe",
+      "mountPath": "/api/payments/provider",
       "kind": "additional",
       "requiresAuth": false,
       "drainProjectorsOnWrite": true

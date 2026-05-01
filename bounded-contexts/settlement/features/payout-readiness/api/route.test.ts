@@ -60,7 +60,7 @@ describe("settlement payout setup routes", () => {
     }));
     const app = createApp({ createOnboardingSession }, ["payouts.manage"]);
 
-    const response = await app.request("/payout-setup/onboarding-session", {
+    const response = await app.request("https://example.test/payout-setup/onboarding-session", {
       method: "POST",
       body: JSON.stringify({
         returnUrl: "https://example.test/return",
@@ -78,6 +78,59 @@ describe("settlement payout setup routes", () => {
         accountId: "acc_seller",
         returnUrl: "https://example.test/return",
         refreshUrl: "https://example.test/refresh",
+      }),
+      context,
+    );
+  });
+
+  it("rejects payout setup redirects to another origin", async () => {
+    const createOnboardingSession = vi.fn(async () => ({
+      providerReference: "acct_test",
+      url: "https://connect.test/setup",
+      expiresAt: null,
+    }));
+    const app = createApp({ createOnboardingSession }, ["payouts.manage"]);
+
+    const response = await app.request("https://example.test/payout-setup/onboarding-session", {
+      method: "POST",
+      body: JSON.stringify({
+        returnUrl: "https://attacker.test/return",
+        refreshUrl: "https://example.test/refresh",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Payout setup redirects must stay on this site.",
+    });
+    expect(createOnboardingSession).not.toHaveBeenCalled();
+  });
+
+  it("creates account management sessions through the payout adapter", async () => {
+    const createAccountManagementSession = vi.fn(async () => ({
+      providerReference: "acct_test",
+      url: "https://connect.test/dashboard",
+      expiresAt: null,
+    }));
+    const app = createApp({ createAccountManagementSession }, ["payouts.manage"]);
+
+    const response = await app.request("https://example.test/payout-setup/account-management-session", {
+      method: "POST",
+      body: JSON.stringify({
+        returnUrl: "https://example.test/account/payouts",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      url: "https://connect.test/dashboard",
+    });
+    expect(createAccountManagementSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        returnUrl: "https://example.test/account/payouts",
       }),
       context,
     );
@@ -102,5 +155,19 @@ describe("settlement payout setup routes", () => {
       { accountId: "acc_seller" },
       context,
     );
+  });
+
+  it("does not expose manual provider readiness mutation to sellers", async () => {
+    const recordProviderReadiness = vi.fn();
+    const app = createApp({ recordProviderReadiness }, ["payouts.manage"]);
+
+    const response = await app.request("/payout-readiness/provider-status", {
+      method: "POST",
+      body: JSON.stringify({ status: "ready" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(404);
+    expect(recordProviderReadiness).not.toHaveBeenCalled();
   });
 });

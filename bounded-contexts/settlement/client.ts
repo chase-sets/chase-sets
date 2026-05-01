@@ -88,19 +88,21 @@ export function createSettlementApiClient({
         await client["payout-readiness"].$get({ header: headers }),
       );
     },
-    async recordPayoutProviderStatus(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client["payout-readiness"]["provider-status"].$post({
-          json: body,
-          header: headers,
-        }),
-      );
-    },
     async createPayoutSetupOnboardingSession(
       body: Record<string, unknown> = {},
     ): Promise<Readonly<{ url: string; providerReference: string; expiresAt: string | null }>> {
       return parseJsonResponse(
         await client["payout-setup"]["onboarding-session"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async createPayoutAccountManagementSession(
+      body: Record<string, unknown> = {},
+    ): Promise<Readonly<{ url: string; providerReference: string; expiresAt: string | null }>> {
+      return parseJsonResponse(
+        await client["payout-setup"]["account-management-session"].$post({
           json: body,
           header: headers,
         }),
@@ -118,6 +120,24 @@ export function createSettlementApiClient({
       return parseJsonResponse(
         await client.payouts[":id"].$get({
           param: { id: payoutId },
+          header: headers,
+        }),
+      );
+    },
+    async listPayoutsNeedingReconciliation(
+      query = "",
+    ): Promise<ListResponse<SettlementPayoutRow>> {
+      return parseJsonResponse(
+        await client.payouts.reconciliation.$get({
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async runPayoutReconciliation(body: Record<string, unknown> = {}) {
+      return parseJsonResponse(
+        await client.payouts.reconciliation.run.$post({
+          json: body,
           header: headers,
         }),
       );
