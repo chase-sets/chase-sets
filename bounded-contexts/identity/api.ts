@@ -227,7 +227,12 @@ function requirePermission(
   return async (c: Context<IdentityApiEnv>, next: () => Promise<void>) => {
     const actor = c.var.actor;
     if (!actor) {
-      return c.json({ error: "Authentication required." }, 401);
+      return c.json({
+        error: {
+          code: "authentication_required",
+          message: "Authentication required.",
+        },
+      }, 401);
     }
 
     const requiredPermission =
@@ -236,7 +241,12 @@ function requirePermission(
         : writePermission;
 
     if (!hasPermission(actor, requiredPermission)) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({
+        error: {
+          code: "authorization_forbidden",
+          message: "Forbidden.",
+        },
+      }, 403);
     }
 
     await next();
@@ -349,7 +359,12 @@ export function buildIdentityApi(services: IdentityServices) {
     const apiKeyId = c.req.param("id");
     const apiKey = await services.apiKeys.getApiKey(apiKeyId);
     if (!apiKey) {
-      return c.json({ error: "API key not found." }, 404);
+      return c.json({
+        error: {
+          code: "not_found",
+          message: "API key not found.",
+        },
+      }, 404);
     }
     const context = getRequiredContext(c);
     const secret = services.auth.issueOpaqueToken("key");
@@ -387,7 +402,12 @@ export function buildIdentityApi(services: IdentityServices) {
       !apiKeySecret ||
       !services.auth.verifySecret(secret, apiKeySecret.secret_hash)
     ) {
-      return c.json({ error: "Invalid API key." }, 401);
+      return c.json({
+        error: {
+          code: "authentication_required",
+          message: "Invalid API key.",
+        },
+      }, 401);
     }
     await services.apiKeys.commandHandler({
       streamId: `identity.api-key-${apiKeySecret.api_key_id}`,

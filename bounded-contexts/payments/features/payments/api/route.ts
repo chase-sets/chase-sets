@@ -16,7 +16,7 @@ function requirePaymentAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -26,7 +26,7 @@ function requirePaymentAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -65,7 +65,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -106,7 +106,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(payment, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -131,7 +131,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(status);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -143,7 +143,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -172,7 +172,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(payment, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -197,7 +197,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(recovery);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -212,7 +212,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       access.actor.accountId,
     );
     if (!payment) {
-      return c.json({ error: "Payment not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Payment not found." } }, 404);
     }
 
     return c.json(payment);
@@ -229,7 +229,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       accountId: access.actor.accountId,
     });
     if (!timeline) {
-      return c.json({ error: "Payment not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Payment not found." } }, 404);
     }
 
     return c.json(timeline);
@@ -246,7 +246,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       accountId: access.actor.accountId,
     });
     if (!event) {
-      return c.json({ error: "Provider event not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Provider event not found." } }, 404);
     }
 
     return c.json(event);
@@ -316,7 +316,7 @@ export function createPaymentProcessorWebhookRoutes(
 
       return c.json(result, 200);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

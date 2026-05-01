@@ -12,7 +12,7 @@ function requireCartAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -22,7 +22,7 @@ function requireCartAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -79,7 +79,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -105,9 +105,9 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
         context,
       );
 
-      return c.json({ id: result.lineId, version: result.version }, 201);
+      return c.json({ id: result.lineId, version: result.version, status: "added" }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -119,7 +119,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -134,9 +134,9 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
         context,
       );
 
-      return c.json({ id: result.lineId, version: result.version });
+      return c.json({ id: result.lineId, version: result.version, status: "quantity-updated" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -148,7 +148,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     try {
@@ -160,9 +160,9 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
         context,
       );
 
-      return c.json({ id: result.lineId, version: result.version });
+      return c.json({ id: result.lineId, version: result.version, status: "removed" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

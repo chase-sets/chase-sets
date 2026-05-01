@@ -100,7 +100,11 @@ describe("marketplace offer routes", () => {
     );
 
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({ id: "off_1", version: 1 });
+    await expect(response.json()).resolves.toEqual({
+      id: "off_1",
+      version: 1,
+      status: "submitted",
+    });
     expect(services.submitOffer).toHaveBeenCalledWith(
       expect.objectContaining({
         buyerAccountId: "acc_buyer",
@@ -130,7 +134,12 @@ describe("marketplace offer routes", () => {
     );
 
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: "Forbidden." });
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "authorization_forbidden",
+        message: "Forbidden.",
+      },
+    });
   });
 
   it("returns offer matches from the matching demand board", async () => {
@@ -206,7 +215,11 @@ describe("marketplace offer routes", () => {
     );
 
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({ id: "off_1", version: 2 });
+    await expect(response.json()).resolves.toEqual({
+      id: "off_1",
+      version: 2,
+      status: "accepted",
+    });
     expect(services.acceptOffer).toHaveBeenCalledWith(
       {
         offerId: "off_1",

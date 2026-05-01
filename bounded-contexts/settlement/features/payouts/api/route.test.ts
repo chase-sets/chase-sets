@@ -60,6 +60,7 @@ describe("settlement payout routes", () => {
     await expect(response.json()).resolves.toEqual({
       id: "pyo_test",
       version: 1,
+      status: "requested",
     });
     expect(requestPayout).toHaveBeenCalledWith(
       {
@@ -294,7 +295,10 @@ describe("settlement money movement webhook route", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Stripe webhook signature verification failed.",
+      error: {
+        code: "validation_failed",
+        message: "Stripe webhook signature verification failed.",
+      },
     });
   });
 

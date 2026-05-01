@@ -168,7 +168,7 @@ export function componentRoutes(services: ComponentServices) {
     const component = await services.getComponentDetail(c.req.param("id"));
 
     if (!component) {
-      return c.json({ error: "Component not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Component not found." } }, 404);
     }
 
     return c.json(component);

@@ -12,7 +12,7 @@ function requireShipmentAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -22,7 +22,7 @@ function requireShipmentAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -71,7 +71,7 @@ export function createAccountShipmentRoutes(services: FulfillmentShipmentService
       access.actor.accountId,
     );
     if (!shipment) {
-      return c.json({ error: "Shipment not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Shipment not found." } }, 404);
     }
 
     return c.json(shipment);
@@ -115,7 +115,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
       access.actor.accountId,
     );
     if (!shipment) {
-      return c.json({ error: "Shipment not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Shipment not found." } }, 404);
     }
 
     return c.json(shipment);
@@ -129,7 +129,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -143,9 +143,9 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         },
         context,
       );
-      return c.json({ id: result.shipmentId, version: result.version });
+      return c.json({ id: result.shipmentId, version: result.version, status: "packed" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -157,7 +157,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -174,9 +174,9 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         },
         context,
       );
-      return c.json({ id: result.shipmentId, version: result.version });
+      return c.json({ id: result.shipmentId, version: result.version, status: "label-attached" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -188,7 +188,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     try {
@@ -199,9 +199,9 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         },
         context,
       );
-      return c.json({ id: result.shipmentId, version: result.version });
+      return c.json({ id: result.shipmentId, version: result.version, status: "dispatched" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -213,7 +213,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     try {
@@ -224,9 +224,9 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         },
         context,
       );
-      return c.json({ id: result.shipmentId, version: result.version });
+      return c.json({ id: result.shipmentId, version: result.version, status: "delivered" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -238,7 +238,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -255,9 +255,9 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         },
         context,
       );
-      return c.json({ id: result.shipmentId, version: result.version });
+      return c.json({ id: result.shipmentId, version: result.version, status: "return-recorded" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -269,7 +269,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -287,9 +287,9 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         },
         context,
       );
-      return c.json({ id: result.shipmentId, version: result.version });
+      return c.json({ id: result.shipmentId, version: result.version, status: "exception-raised" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

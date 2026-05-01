@@ -1,4 +1,9 @@
 import type { Context } from "hono";
+import {
+  conflictResponse,
+  internalErrorResponse,
+  validationFailedResponse,
+} from "@chase-sets/http/responses";
 
 type EventStoreErrorLike = Readonly<{
   code: string;
@@ -24,18 +29,18 @@ function isEventStoreError(error: unknown): error is EventStoreErrorLike {
 
 export function errorHandler(error: unknown, c: Context): Response {
   if (isDomainError(error)) {
-    return c.json({ error: error.message }, 400);
+    return c.json(validationFailedResponse(error.message), 400);
   }
 
   if (isEventStoreError(error)) {
     if (error.code === "concurrency_conflict") {
-      return c.json({ error: error.message, code: "concurrency_conflict" }, 409);
+      return c.json(conflictResponse(error.message), 409);
     }
 
     console.error("Event store error:", error);
-    return c.json({ error: "Internal server error." }, 500);
+    return c.json(internalErrorResponse(), 500);
   }
 
   console.error("Unhandled error:", error);
-  return c.json({ error: "Internal server error." }, 500);
+  return c.json(internalErrorResponse(), 500);
 }

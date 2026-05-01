@@ -99,7 +99,7 @@ export function categoryRoutes(services: CategoryServices) {
     const category = await services.getCategoryDetail(c.req.param("id"));
 
     if (!category) {
-      return c.json({ error: "Category not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Category not found." } }, 404);
     }
 
     return c.json(category);

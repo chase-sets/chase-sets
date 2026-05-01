@@ -10,7 +10,7 @@ function requireRecommendationAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -20,7 +20,7 @@ function requireRecommendationAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -71,7 +71,7 @@ export function createAccountRecommendationRoutes(
       access.actor.accountId,
     );
     if (!recommendation) {
-      return c.json({ error: "Recommendation not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Recommendation not found." } }, 404);
     }
 
     return c.json(recommendation);
@@ -85,7 +85,7 @@ export function createAccountRecommendationRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -106,7 +106,7 @@ export function createAccountRecommendationRoutes(
       );
       return c.json({ id: result.recommendationId, version: result.version });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

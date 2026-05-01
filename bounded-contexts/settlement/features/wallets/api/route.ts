@@ -14,7 +14,7 @@ function requireWalletAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -24,7 +24,7 @@ function requireWalletAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -158,7 +158,7 @@ export function createWalletRoutes(services: WalletServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -189,7 +189,12 @@ export function createWalletRoutes(services: WalletServices) {
         return duplicateLedgerEntryResponse();
       }
       return c.json(
-        { error: error instanceof Error ? error.message : "Adjustment failed." },
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Adjustment failed.",
+          },
+        },
         400,
       );
     }
@@ -202,7 +207,7 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
     const body = await c.req.json();
 
@@ -222,7 +227,12 @@ export function createWalletRoutes(services: WalletServices) {
         return duplicateLedgerEntryResponse();
       }
       return c.json(
-        { error: error instanceof Error ? error.message : "Refund debit failed." },
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Refund debit failed.",
+          },
+        },
         400,
       );
     }
@@ -235,7 +245,7 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
     const body = await c.req.json();
 
@@ -255,7 +265,12 @@ export function createWalletRoutes(services: WalletServices) {
         return duplicateLedgerEntryResponse();
       }
       return c.json(
-        { error: error instanceof Error ? error.message : "Dispute hold failed." },
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Dispute hold failed.",
+          },
+        },
         400,
       );
     }
@@ -268,7 +283,7 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
     const body = await c.req.json();
 
@@ -288,7 +303,12 @@ export function createWalletRoutes(services: WalletServices) {
         return duplicateLedgerEntryResponse();
       }
       return c.json(
-        { error: error instanceof Error ? error.message : "Dispute release failed." },
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Dispute release failed.",
+          },
+        },
         400,
       );
     }

@@ -11,7 +11,7 @@ function requireAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -21,7 +21,7 @@ function requireAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -66,7 +66,7 @@ export function createScheduleRoutes(
 
     const schedule = await services.getSchedule(c.req.param("id"));
     if (!schedule) {
-      return c.json({ error: "Schedule not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Schedule not found." } }, 404);
     }
 
     return c.json(schedule);
@@ -79,7 +79,7 @@ export function createScheduleRoutes(
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -117,7 +117,7 @@ export function createScheduleRoutes(
 
       return c.json({ id: result.scheduleId, version: result.version, preview }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

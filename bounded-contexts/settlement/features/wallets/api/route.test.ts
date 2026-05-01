@@ -55,7 +55,10 @@ describe("settlement wallet routes", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Target account is required for operator wallet commands.",
+      error: {
+        code: "validation_failed",
+        message: "Target account is required for operator wallet commands.",
+      },
     });
     expect(postEntry).not.toHaveBeenCalled();
   });

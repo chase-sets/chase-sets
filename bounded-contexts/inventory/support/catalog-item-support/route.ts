@@ -8,7 +8,7 @@ export function inventoryCatalogItemRoutes(services: InventoryCatalogItemService
     const item = await services.getCatalogItem(c.req.param("id"));
 
     if (!item) {
-      return c.json({ error: "Catalog item not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Catalog item not found." } }, 404);
     }
 
     return c.json(item);

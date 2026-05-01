@@ -18,10 +18,20 @@ export function buildSettlementApi(services: SettlementServices) {
   app.get("/account-status", async (c) => {
     const actor = c.get("actor");
     if (!actor) {
-      return c.json({ error: "Authentication required." }, 401);
+      return c.json({
+        error: {
+          code: "authentication_required",
+          message: "Authentication required.",
+        },
+      }, 401);
     }
     if (!actor.permissions.includes("payouts.view")) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({
+        error: {
+          code: "authorization_forbidden",
+          message: "Forbidden.",
+        },
+      }, 403);
     }
 
     const [wallet, payoutReadiness] = await Promise.all([

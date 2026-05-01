@@ -51,11 +51,19 @@ export const STRIPE_PLATFORM_API_VERSION = "2026-02-25.clover";
 
 export const REQUIRED_STRIPE_WEBHOOK_EVENTS = [
   "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
   "checkout.session.async_payment_failed",
   "checkout.session.expired",
+  "payment_intent.processing",
+  "payment_intent.amount_capturable_updated",
+  "payment_intent.succeeded",
+  "payment_intent.payment_failed",
   "charge.refunded",
   "charge.dispute.created",
-  "account.updated",
+  "charge.dispute.updated",
+  "charge.dispute.closed",
+  "v2.core.account[requirements].updated",
+  "v2.core.account.updated",
   "payout.paid",
   "payout.failed",
 ] as const;

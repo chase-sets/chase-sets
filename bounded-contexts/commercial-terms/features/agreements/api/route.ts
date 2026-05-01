@@ -10,7 +10,7 @@ function requireAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -20,7 +20,7 @@ function requireAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -62,7 +62,7 @@ export function createAgreementRoutes(services: AgreementServices) {
 
     const agreement = await services.getAgreement(c.req.param("id"));
     if (!agreement) {
-      return c.json({ error: "Agreement not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Agreement not found." } }, 404);
     }
 
     return c.json(agreement);
@@ -75,7 +75,7 @@ export function createAgreementRoutes(services: AgreementServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -104,7 +104,7 @@ export function createAgreementRoutes(services: AgreementServices) {
 
       return c.json({ id: result.agreementId, version: result.version }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

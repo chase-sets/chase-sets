@@ -13,7 +13,7 @@ function requireRefundAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -23,7 +23,7 @@ function requireRefundAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -44,7 +44,7 @@ export function createRefundRoutes(services: RefundServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -61,10 +61,15 @@ export function createRefundRoutes(services: RefundServices) {
         context as EventStoreContext,
       );
 
-      return c.json({ id: result.refundId, version: result.version }, 201);
+      return c.json({ id: result.refundId, version: result.version, status: "requested" }, 201);
     } catch (error) {
       return c.json(
-        { error: error instanceof Error ? error.message : "Refund failed." },
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Refund failed.",
+          },
+        },
         400,
       );
     }

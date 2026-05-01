@@ -179,7 +179,7 @@ export function blueprintRoutes(services: BlueprintServices) {
     const blueprint = await services.getBlueprintDetail(c.req.param("id"));
 
     if (!blueprint) {
-      return c.json({ error: "Blueprint not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Blueprint not found." } }, 404);
     }
 
     return c.json(blueprint);

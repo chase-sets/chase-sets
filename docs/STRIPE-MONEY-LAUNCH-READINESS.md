@@ -14,9 +14,9 @@ This checklist keeps checkout, wallet, payout, transfer, and webhook operations 
 - `STRIPE_SECRET_KEY`
 - `STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_WEBHOOK_SECRET`
-- `STRIPE_API_BASE_URL`
 - Connect onboarding return URL
 - Connect onboarding refresh URL
+- `STRIPE_API_BASE_URL` is optional and should normally be unset outside adapter tests or controlled sandbox endpoints.
 
 ## Checkout Smoke Test
 
@@ -36,10 +36,12 @@ This checklist keeps checkout, wallet, payout, transfer, and webhook operations 
 6. Request the payout.
 7. Confirm the payout timeline includes wallet debit, platform transfer, connected payout, and final provider status.
 
+Run the executable test-mode workflow in [STRIPE-TEST-MODE-SMOKE-TEST.md](./STRIPE-TEST-MODE-SMOKE-TEST.md) before enabling a shared or production-like environment.
+
 ## Webhook Events
 
-- Payments: checkout completion, checkout async failure, checkout expiration, payment intent success/failure, refunds, disputes.
-- Money movement: account requirement updates, payout paid, payout failed.
+- Payments: checkout completion, checkout async success/failure, checkout expiration, payment intent processing/capture/success/failure, refunds, disputes.
+- Money movement: Accounts v2 requirement/account updates, payout paid, payout failed.
 - Webhooks must use raw body signature verification and provider event idempotency.
 
 ## Operator Checks
@@ -56,6 +58,7 @@ This checklist keeps checkout, wallet, payout, transfer, and webhook operations 
 ## Migration And Backfill
 
 - Payment and payout read-model additions are rollout-safe through schema bootstrap and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- Run `npm run check:money-rollout` before deployment to verify the expected read-model additions are present.
 - Existing payout readiness rows remain readable with nullable provider references and conservative setup defaults.
 - Existing payout rows remain readable with nullable provider transfer/payout references and zero retry/reconciliation defaults.
 - Operator wallet idempotency uses deterministic ledger entry ids, so duplicate retries do not require a new table.
@@ -65,3 +68,5 @@ This checklist keeps checkout, wallet, payout, transfer, and webhook operations 
 - Do not switch production to fake adapters.
 - Disable seller payout requests before disabling webhooks.
 - Reconciliation can be run after webhook recovery to replay provider status into read models.
+
+See [MONEY-OPERATIONS-RUNBOOK.md](./MONEY-OPERATIONS-RUNBOOK.md) for incident ownership, payout failure handling, duplicate webhook checks, and platform balance triage.

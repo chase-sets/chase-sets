@@ -73,7 +73,7 @@ export function membershipRoutes(services: MembershipServices) {
   app.get("/:id", async (c) => {
     const membership = await services.getMembership(c.req.param("id"));
     if (!membership) {
-      return c.json({ error: "Membership not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Membership not found." } }, 404);
     }
     const actor = c.var.actor;
     if (
@@ -81,7 +81,7 @@ export function membershipRoutes(services: MembershipServices) {
       !hasPermission(actor, "memberships.manage") &&
       membership.user_id !== actor.userId
     ) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
     return c.json(membership);
   });

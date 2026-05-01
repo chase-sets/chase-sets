@@ -187,7 +187,7 @@ export function dimensionRoutes(services: DimensionServices) {
     const dimension = await services.getDimension(c.req.param("id"));
 
     if (!dimension) {
-      return c.json({ error: "Dimension not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Dimension not found." } }, 404);
     }
 
     return c.json(dimension);

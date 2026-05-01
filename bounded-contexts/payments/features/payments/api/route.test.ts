@@ -309,7 +309,12 @@ describe("payments routes", () => {
     );
 
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: "Forbidden." });
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "authorization_forbidden",
+        message: "Forbidden.",
+      },
+    });
   });
 
   it("accepts provider webhooks without marketplace auth context", async () => {

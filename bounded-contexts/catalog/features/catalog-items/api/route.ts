@@ -219,7 +219,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const item = await services.getCatalogItemDetail(c.req.param("id"));
 
     if (!item) {
-      return c.json({ error: "Catalog item not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Catalog item not found." } }, 404);
     }
 
     return c.json(item);

@@ -183,10 +183,11 @@ describe("reputation review routes", () => {
     );
 
     expect(opportunityResponse.status).toBe(200);
-    expect(submitResponse.status).toBe(200);
+    expect(submitResponse.status).toBe(201);
     await expect(submitResponse.json()).resolves.toEqual({
       id: "rev_1",
       version: 1,
+      status: "submitted",
     });
     expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith(
       "ord_1",
@@ -230,7 +231,10 @@ describe("reputation review routes", () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({
-      error: "Review opportunity not found.",
+      error: {
+        code: "not_found",
+        message: "Review opportunity not found.",
+      },
     });
   });
 
@@ -287,6 +291,11 @@ describe("reputation review routes", () => {
     );
 
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: "Forbidden." });
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "authorization_forbidden",
+        message: "Forbidden.",
+      },
+    });
   });
 });

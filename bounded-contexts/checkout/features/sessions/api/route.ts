@@ -17,7 +17,7 @@ function requireCheckoutAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -27,7 +27,7 @@ function requireCheckoutAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -73,7 +73,7 @@ export function createAccountCheckoutSessionRoutes(
 
       const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -87,7 +87,7 @@ export function createAccountCheckoutSessionRoutes(
           },
           context,
         );
-        return c.json({ session_id: result.sessionId }, 201);
+        return c.json({ session_id: result.sessionId, status: "started" }, 201);
       }
 
       const source = body.source && typeof body.source === "object"
@@ -114,9 +114,9 @@ export function createAccountCheckoutSessionRoutes(
         },
         context,
       );
-      return c.json({ session_id: result.sessionId }, 201);
+      return c.json({ session_id: result.sessionId, status: "started" }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -131,7 +131,7 @@ export function createAccountCheckoutSessionRoutes(
       access.actor.accountId,
     );
     if (!session) {
-      return c.json({ error: "Checkout session not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Checkout session not found." } }, 404);
     }
 
     return c.json(session);
@@ -145,7 +145,7 @@ export function createAccountCheckoutSessionRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -159,9 +159,12 @@ export function createAccountCheckoutSessionRoutes(
         },
         context,
       );
-      return c.json({ session_id: c.req.param("sessionId") });
+      return c.json({
+        session_id: c.req.param("sessionId"),
+        status: "shipping-option-selected",
+      });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -173,7 +176,7 @@ export function createAccountCheckoutSessionRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
       const sessionId = c.req.param("sessionId");
@@ -185,11 +188,15 @@ export function createAccountCheckoutSessionRoutes(
     try {
       let session = await services.getSession(sessionId, access.actor.accountId);
       if (!session) {
-        return c.json({ error: "Checkout session not found." }, 404);
+        return c.json({ error: { code: "not_found", message: "Checkout session not found." } }, 404);
       }
 
       if (session.payment_id) {
-        return c.json({ payment_id: session.payment_id, order_ids: session.order_ids });
+        return c.json({
+          payment_id: session.payment_id,
+          order_ids: session.order_ids,
+          status: "confirmed",
+        });
       }
 
       let orderIds = [...session.order_ids];
@@ -227,10 +234,11 @@ export function createAccountCheckoutSessionRoutes(
       return c.json({
         payment_id: paymentId,
         order_ids: orderIds,
+        status: "confirmed",
         session,
       });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

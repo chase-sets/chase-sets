@@ -1,0 +1,212 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Chase Sets Headless Marketplace API",
+    "version": "0.1.0",
+    "summary": "REST API surface for the marketplace-web buyer and seller experience."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local platform API"
+    }
+  ],
+  "security": [
+    {
+      "sessionCookie": []
+    },
+    {
+      "apiKeyBearer": []
+    }
+  ],
+  "tags": [
+    { "name": "Discovery" },
+    { "name": "Cart and Checkout" },
+    { "name": "Listings and Offers" },
+    { "name": "Orders and Shipments" },
+    { "name": "Payments and Settlement" },
+    { "name": "Reputation" },
+    { "name": "Inventory" },
+    { "name": "Identity" }
+  ],
+  "paths": {
+    "/api/marketplace/items": { "get": { "tags": ["Discovery"], "summary": "Search marketplace items.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/items/{id}": { "get": { "tags": ["Discovery"], "summary": "Get a marketplace item detail page.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/categories": { "get": { "tags": ["Discovery"], "summary": "List browse categories.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/products/{productId}/market-summary": { "get": { "tags": ["Discovery"], "summary": "Get market summary for a product.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/products/{productId}/listings": { "get": { "tags": ["Discovery"], "summary": "List public listings for a product.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+
+    "/api/marketplace/account/cart": { "get": { "tags": ["Cart and Checkout"], "summary": "Get the current account cart.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" } } }, "post": { "tags": ["Cart and Checkout"], "summary": "Add a cart line.", "responses": { "201": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
+    "/api/marketplace/account/cart/{lineId}/quantity": { "post": { "tags": ["Cart and Checkout"], "summary": "Set cart line quantity.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/cart/{lineId}/remove": { "post": { "tags": ["Cart and Checkout"], "summary": "Remove a cart line.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/checkout-sessions": { "post": { "tags": ["Cart and Checkout"], "summary": "Create a checkout session from cart or buy-now intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/checkout-sessions/{sessionId}": { "get": { "tags": ["Cart and Checkout"], "summary": "Get checkout session state.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/checkout-sessions/{sessionId}/shipping-option": { "post": { "tags": ["Cart and Checkout"], "summary": "Select checkout shipping option.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/checkout-sessions/{sessionId}/confirm": { "post": { "tags": ["Cart and Checkout"], "summary": "Confirm checkout and create orders/payment intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+
+    "/api/marketplace/account/listing-inventory": { "get": { "tags": ["Listings and Offers"], "summary": "List seller inventory available for listings.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/listings": { "get": { "tags": ["Listings and Offers"], "summary": "List seller listings.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Listings and Offers"], "summary": "Create a listing.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/listings/preview": { "post": { "tags": ["Listings and Offers"], "summary": "Preview listing commercial terms.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/listings/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get a seller listing.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/listings/{id}/price": { "post": { "tags": ["Listings and Offers"], "summary": "Update listing price.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/listings/{id}/quantity-cap": { "post": { "tags": ["Listings and Offers"], "summary": "Update listing quantity cap.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/listings/{id}/publish": { "post": { "tags": ["Listings and Offers"], "summary": "Publish listing.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/listings/{id}/pause": { "post": { "tags": ["Listings and Offers"], "summary": "Pause listing.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/listings/{id}/withdraw": { "post": { "tags": ["Listings and Offers"], "summary": "Withdraw listing.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/offers/submitted": { "get": { "tags": ["Listings and Offers"], "summary": "List submitted buyer offers.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Listings and Offers"], "summary": "Submit a buyer offer.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/offers/submitted/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get submitted offer detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/offers/matches": { "get": { "tags": ["Listings and Offers"], "summary": "List seller offer matches.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/offers/matches/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get seller offer match detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/offers/matches/{id}/accept": { "post": { "tags": ["Listings and Offers"], "summary": "Accept a matched offer.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/offers/match-sell-list": { "get": { "tags": ["Listings and Offers"], "summary": "List offer matches selected for batch acceptance.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Listings and Offers"], "summary": "Add an offer match to the sell list.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/offers/match-sell-list/accept": { "post": { "tags": ["Listings and Offers"], "summary": "Accept all offer matches in the sell list.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+
+    "/api/marketplace/account/purchases/checkout": { "post": { "tags": ["Orders and Shipments"], "summary": "Create orders from checkout.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/purchases": { "get": { "tags": ["Orders and Shipments"], "summary": "List buyer purchases.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/purchases/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer purchase detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/purchases/{id}/cancel": { "post": { "tags": ["Orders and Shipments"], "summary": "Cancel a buyer purchase.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/sales": { "get": { "tags": ["Orders and Shipments"], "summary": "List seller sales.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/sales/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller sale detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/sales/{id}/cancel": { "post": { "tags": ["Orders and Shipments"], "summary": "Cancel a seller sale.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/shipments": { "get": { "tags": ["Orders and Shipments"], "summary": "List buyer shipments.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/shipments/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer shipment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/sales/shipments": { "get": { "tags": ["Orders and Shipments"], "summary": "List seller shipments.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/sales/shipments/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller shipment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/sales/shipments/{id}/pack": { "post": { "tags": ["Orders and Shipments"], "summary": "Pack seller shipment.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/sales/shipments/{id}/label": { "post": { "tags": ["Orders and Shipments"], "summary": "Attach seller shipment label.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/sales/shipments/{id}/dispatch": { "post": { "tags": ["Orders and Shipments"], "summary": "Dispatch seller shipment.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/sales/shipments/{id}/deliver": { "post": { "tags": ["Orders and Shipments"], "summary": "Mark seller shipment delivered.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/sales/shipments/{id}/return": { "post": { "tags": ["Orders and Shipments"], "summary": "Record seller shipment return.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/sales/shipments/{id}/exception": { "post": { "tags": ["Orders and Shipments"], "summary": "Raise seller shipment exception.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+
+    "/api/marketplace/account/payments": { "post": { "tags": ["Payments and Settlement"], "summary": "Create account payment.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/checkout/status": { "get": { "tags": ["Payments and Settlement"], "summary": "Get checkout payment status.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/checkout/recover": { "post": { "tags": ["Payments and Settlement"], "summary": "Recover checkout payment.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/checkout/recovery": { "get": { "tags": ["Payments and Settlement"], "summary": "Get checkout recovery options.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/payments/{id}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/payments/{id}/timeline": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment money timeline.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/payments/{paymentId}/refunds": { "post": { "tags": ["Payments and Settlement"], "summary": "Issue a buyer-visible refund.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/provider-events/{providerEventId}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment provider event.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/provider-idempotency": { "get": { "tags": ["Payments and Settlement"], "summary": "List payment provider idempotency keys.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/reconciliation/runs": { "get": { "tags": ["Payments and Settlement"], "summary": "List payment reconciliation runs.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/provider-health": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment provider health.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+
+    "/api/marketplace/accounts/{accountId}/review-summary": { "get": { "tags": ["Reputation"], "summary": "Get public account review summary.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/accounts/{accountId}/reviews": { "get": { "tags": ["Reputation"], "summary": "List public account reviews.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/reviews/written": { "get": { "tags": ["Reputation"], "summary": "List reviews written by current account.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/reviews/received": { "get": { "tags": ["Reputation"], "summary": "List reviews received by current account.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/reviews/opportunities/orders/{orderId}": { "get": { "tags": ["Reputation"], "summary": "Get review opportunity for an order.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/reviews/{id}": { "get": { "tags": ["Reputation"], "summary": "Get account review detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/reviews": { "post": { "tags": ["Reputation"], "summary": "Submit a review.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/reviews/{id}/update": { "post": { "tags": ["Reputation"], "summary": "Update a review.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/reviews/{id}/withdraw": { "post": { "tags": ["Reputation"], "summary": "Withdraw a review.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+
+    "/api/inventory/catalog-items/{id}": { "get": { "tags": ["Inventory"], "summary": "Get catalog item snapshot for inventory intake.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/inventory/storage-locations": { "get": { "tags": ["Inventory"], "summary": "List storage locations.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Inventory"], "summary": "Create storage location.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/inventory/storage-locations/{id}": { "patch": { "tags": ["Inventory"], "summary": "Update storage location.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/inventory/items": { "get": { "tags": ["Inventory"], "summary": "List inventory items.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Inventory"], "summary": "Create inventory item.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/inventory/items/{id}": { "get": { "tags": ["Inventory"], "summary": "Get inventory item.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/inventory/items/{id}/adjustments": { "post": { "tags": ["Inventory"], "summary": "Adjust inventory item quantity.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/inventory/items/{id}/holds": { "post": { "tags": ["Inventory"], "summary": "Place inventory hold.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/inventory/holds/{id}/release": { "post": { "tags": ["Inventory"], "summary": "Release inventory hold.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+
+    "/api/identity/accounts": { "get": { "tags": ["Identity"], "summary": "List accounts.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Identity"], "summary": "Create account.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/accounts/{id}": { "get": { "tags": ["Identity"], "summary": "Get account.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "put": { "tags": ["Identity"], "summary": "Update account profile.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/memberships": { "get": { "tags": ["Identity"], "summary": "List account team memberships.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Identity"], "summary": "Grant membership.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/memberships/{id}": { "get": { "tags": ["Identity"], "summary": "Get membership.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/identity/memberships/{id}/role": { "put": { "tags": ["Identity"], "summary": "Change membership role.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/memberships/{id}/revoke": { "post": { "tags": ["Identity"], "summary": "Revoke membership.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/memberships/{id}/reinstate": { "post": { "tags": ["Identity"], "summary": "Reinstate membership.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/invitations": { "get": { "tags": ["Identity"], "summary": "List invitations.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Identity"], "summary": "Create invitation.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/invitations/{id}": { "get": { "tags": ["Identity"], "summary": "Get invitation.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/identity/invitations/{id}/resend": { "post": { "tags": ["Identity"], "summary": "Resend invitation.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/invitations/{id}/cancel": { "post": { "tags": ["Identity"], "summary": "Cancel invitation.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/api-keys": { "get": { "tags": ["Identity"], "summary": "List API keys.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Identity"], "summary": "Create API key.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/api-keys/{id}": { "get": { "tags": ["Identity"], "summary": "Get API key.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/identity/api-keys/{id}/revoke": { "post": { "tags": ["Identity"], "summary": "Revoke API key.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/api-keys/{id}/rotate": { "post": { "tags": ["Identity"], "summary": "Rotate API key secret.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/identity/consents": { "get": { "tags": ["Identity"], "summary": "List account consents.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+
+    "/api/settlement/account-status": { "get": { "tags": ["Payments and Settlement"], "summary": "Get seller money status.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/wallet": { "get": { "tags": ["Payments and Settlement"], "summary": "Get seller wallet.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/wallet/entries": { "get": { "tags": ["Payments and Settlement"], "summary": "List wallet ledger entries.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/settlement/payout-readiness": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout readiness.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payout-setup/progress": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout setup progress.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payout-setup/onboarding-session": { "post": { "tags": ["Payments and Settlement"], "summary": "Create payout onboarding session.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payout-setup/account-management-session": { "post": { "tags": ["Payments and Settlement"], "summary": "Create payout account management session.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payout-setup/refresh": { "post": { "tags": ["Payments and Settlement"], "summary": "Refresh payout setup state.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payouts": { "get": { "tags": ["Payments and Settlement"], "summary": "List seller payouts.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Payments and Settlement"], "summary": "Request payout.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/settlement/payouts/preview": { "post": { "tags": ["Payments and Settlement"], "summary": "Preview payout request.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payouts/{id}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payouts/{id}/timeline": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout money timeline.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/money-health": { "get": { "tags": ["Payments and Settlement"], "summary": "Get money operations health.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/provider-health": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout provider health.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "chase_sets_session"
+      },
+      "apiKeyBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": { "type": "string" },
+                    "code": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ListResponse": {
+        "type": "object",
+        "required": ["items", "total", "count"],
+        "properties": {
+          "items": { "type": "array", "items": {} },
+          "total": { "type": "integer" },
+          "count": { "type": "integer" }
+        }
+      },
+      "CommandResponse": {
+        "type": "object",
+        "required": ["id", "version", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "version": { "type": "integer" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    "responses": {
+      "Ok": { "description": "Successful response." },
+      "List": { "description": "List response.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListResponse" } } } },
+      "Command": { "description": "Command accepted.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommandResponse" } } } },
+      "AuthenticationRequired": { "description": "Authentication required.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": { "description": "Forbidden.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "ValidationFailed": { "description": "Validation failed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "Resource not found.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}

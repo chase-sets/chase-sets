@@ -143,7 +143,35 @@ describe("platform api config", () => {
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain(
       "checkout.session.completed",
     );
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain(
+      "payment_intent.succeeded",
+    );
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain(
+      "v2.core.account[requirements].updated",
+    );
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payout.failed");
+  });
+
+  it("forces Stripe adapters and disables fake fallback in production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NODE_ENV = "production";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
+
+    const config = loadConfig();
+
+    expect(config.paymentProcessor).toMatchObject({ kind: "stripe" });
+    expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
+    expect(config.stripeGoLive).toMatchObject({
+      paymentsConfigured: true,
+      connectConfigured: true,
+      onboardingUrlsConfigured: true,
+      fakeFallbackAllowed: false,
+      liveSecretKeyLikely: true,
+    });
   });
 
   it("loads hosted Checkout fallback configuration", () => {

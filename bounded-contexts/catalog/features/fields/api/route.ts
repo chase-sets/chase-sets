@@ -100,7 +100,7 @@ export function fieldRoutes(services: FieldServices) {
     const field = await services.getField(c.req.param("id"));
 
     if (!field) {
-      return c.json({ error: "Field not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Field not found." } }, 404);
     }
 
     return c.json(field);

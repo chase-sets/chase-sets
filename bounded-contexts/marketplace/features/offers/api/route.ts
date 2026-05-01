@@ -12,7 +12,7 @@ function requireOfferAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -22,7 +22,7 @@ function requireOfferAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -91,7 +91,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     );
 
     if (!offer) {
-      return c.json({ error: "Submitted offer not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Submitted offer not found." } }, 404);
     }
 
     return c.json(offer);
@@ -105,7 +105,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -132,9 +132,9 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
         context,
       );
 
-      return c.json({ id: result.offerId, version: result.version }, 201);
+      return c.json({ id: result.offerId, version: result.version, status: "submitted" }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -177,7 +177,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     );
 
     if (!offer) {
-      return c.json({ error: "Offer match not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Offer match not found." } }, 404);
     }
 
     return c.json(offer);
@@ -190,12 +190,12 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     try {
@@ -207,9 +207,9 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
         context,
       );
 
-      return c.json({ id: result.offerId, version: result.version }, 201);
+      return c.json({ id: result.offerId, version: result.version, status: "accepted" }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -220,7 +220,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
 
     const items = await services.listOfferMatchSellList(access.actor.accountId);
@@ -239,7 +239,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
 
     const body = await c.req.json();
@@ -250,9 +250,9 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
         offerId: String(body.offerId ?? "") as never,
       });
 
-      return c.json({ id: String(body.offerId ?? "") }, 201);
+      return c.json({ id: String(body.offerId ?? ""), status: "selected" }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -263,12 +263,12 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     try {
@@ -281,7 +281,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
 
       return c.json(result, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

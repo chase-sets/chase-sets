@@ -120,7 +120,12 @@ describeWithDatabase("inventory api", () => {
       }
 
       console.error(error);
-      return c.json({ error: "Internal server error." }, 500);
+      return c.json({
+        error: {
+          code: "internal_error",
+          message: "Internal server error.",
+        },
+      }, 500);
     });
     app.use("/api/inventory/*", async (c, next) => {
       c.set("actor", {
@@ -322,7 +327,12 @@ describeWithDatabase("inventory api", () => {
       }
 
       console.error(error);
-      return c.json({ error: "Internal server error." }, 500);
+      return c.json({
+        error: {
+          code: "internal_error",
+          message: "Internal server error.",
+        },
+      }, 500);
     });
     unauthorizedApp.use("/api/inventory/*", async (c, next) => {
       c.set("actor", {

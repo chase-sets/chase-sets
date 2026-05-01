@@ -44,7 +44,7 @@ export function sessionRoutes(services: SessionServices) {
   app.get("/:id", async (c) => {
     const session = await services.getSession(c.req.param("id"));
     if (!session) {
-      return c.json({ error: "Session not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Session not found." } }, 404);
     }
     return c.json(session);
   });

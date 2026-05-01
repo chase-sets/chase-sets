@@ -31,7 +31,7 @@ export function inventoryItemRoutes(
     const item = await items.getItem(c.req.param("id"), actor.accountId);
 
     if (!item) {
-      return c.json({ error: "Inventory item not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Inventory item not found." } }, 404);
     }
 
     return c.json(item);
@@ -57,7 +57,7 @@ export function inventoryItemRoutes(
       c.get("context"),
     );
 
-    return c.json({ id: result.itemId, version: result.version }, 201);
+      return c.json({ id: result.itemId, version: result.version, status: "created" }, 201);
   });
 
   app.post("/:id/adjustments", async (c) => {
@@ -73,7 +73,7 @@ export function inventoryItemRoutes(
       c.get("context"),
     );
 
-    return c.json({ id: result.itemId, version: result.version });
+      return c.json({ id: result.itemId, version: result.version, status: "adjusted" });
   });
 
   app.post("/:id/holds", async (c) => {
@@ -90,7 +90,7 @@ export function inventoryItemRoutes(
       c.get("context"),
     );
 
-    return c.json({ id: result.holdId, version: result.version }, 201);
+      return c.json({ id: result.holdId, version: result.version, status: "placed" }, 201);
   });
 
   return app;

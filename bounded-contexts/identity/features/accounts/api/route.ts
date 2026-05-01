@@ -93,12 +93,12 @@ export function accountRoutes(services: AccountServices) {
     const actor = c.var.actor;
     const accountId = c.req.param("id");
     if (actor && !hasPermission(actor, "accounts.manage") && actor.accountId !== accountId) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
 
     const account = await services.getAccount(accountId);
     if (!account) {
-      return c.json({ error: "Account not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Account not found." } }, 404);
     }
     return c.json(account);
   });

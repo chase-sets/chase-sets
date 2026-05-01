@@ -118,7 +118,10 @@ describe("checkout session routes", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Cart must contain at least one line.",
+      error: {
+        code: "validation_failed",
+        message: "Cart must contain at least one line.",
+      },
     });
   });
 
@@ -148,7 +151,10 @@ describe("checkout session routes", () => {
     );
 
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({ session_id: "chk_buy_now" });
+    await expect(response.json()).resolves.toEqual({
+      session_id: "chk_buy_now",
+      status: "started",
+    });
     expect(services.createBuyNow).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "acc_buyer",
@@ -175,7 +181,10 @@ describe("checkout session routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ session_id: "chk_1" });
+    await expect(response.json()).resolves.toEqual({
+      session_id: "chk_1",
+      status: "shipping-option-selected",
+    });
     expect(services.selectShippingOption).toHaveBeenCalledWith(
       {
         sessionId: "chk_1",
@@ -301,6 +310,7 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toEqual({
       payment_id: "pay_1",
       order_ids: ["ord_1"],
+      status: "confirmed",
     });
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();

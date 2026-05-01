@@ -12,7 +12,7 @@ function requireReviewAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -22,7 +22,7 @@ function requireReviewAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -123,7 +123,7 @@ export function createAccountReviewRoutes(
       access.actor.accountId,
     );
     if (!opportunity) {
-      return c.json({ error: "Review opportunity not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Review opportunity not found." } }, 404);
     }
 
     return c.json(opportunity);
@@ -140,7 +140,7 @@ export function createAccountReviewRoutes(
       access.actor.accountId,
     );
     if (!review) {
-      return c.json({ error: "Review not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Review not found." } }, 404);
     }
 
     return c.json(review);
@@ -154,7 +154,7 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -173,9 +173,9 @@ export function createAccountReviewRoutes(
         },
         context,
       );
-      return c.json({ id: result.reviewId, version: result.version });
+      return c.json({ id: result.reviewId, version: result.version, status: "submitted" }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -187,7 +187,7 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -205,9 +205,9 @@ export function createAccountReviewRoutes(
         },
         context,
       );
-      return c.json({ id: result.reviewId, version: result.version });
+      return c.json({ id: result.reviewId, version: result.version, status: "updated" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -219,7 +219,7 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     try {
@@ -230,9 +230,9 @@ export function createAccountReviewRoutes(
         },
         context,
       );
-      return c.json({ id: result.reviewId, version: result.version });
+      return c.json({ id: result.reviewId, version: result.version, status: "withdrawn" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

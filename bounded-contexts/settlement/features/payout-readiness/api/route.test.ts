@@ -129,7 +129,10 @@ describe("settlement payout setup routes", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
-      error: "Payout setup redirects must stay on this site.",
+      error: {
+        code: "validation_failed",
+        message: "Payout setup redirects must stay on this site.",
+      },
     });
     expect(createOnboardingSession).not.toHaveBeenCalled();
   });

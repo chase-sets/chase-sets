@@ -17,7 +17,7 @@ function requirePayoutAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -27,7 +27,7 @@ function requirePayoutAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -133,7 +133,7 @@ export function createPayoutRoutes(services: PayoutServices) {
         }),
       );
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -176,7 +176,7 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -200,7 +200,7 @@ export function createPayoutRoutes(services: PayoutServices) {
       access.actor.accountId,
     );
     if (!payout) {
-      return c.json({ error: "Payout not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Payout not found." } }, 404);
     }
 
     return c.json(payout);
@@ -220,7 +220,12 @@ export function createPayoutRoutes(services: PayoutServices) {
         }),
       );
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 404);
+      return c.json({
+        error: {
+          code: "not_found",
+          message: errorMessage(error),
+        },
+      }, 404);
     }
   });
 
@@ -232,7 +237,7 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -254,9 +259,9 @@ export function createPayoutRoutes(services: PayoutServices) {
         context,
       );
 
-      return c.json({ id: result.payoutId, version: result.version }, 201);
+      return c.json({ id: result.payoutId, version: result.version, status: "requested" }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -286,7 +291,7 @@ export function createMoneyMovementWebhookRoutes(services: PayoutServices) {
 
       return c.json(result, 200);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 

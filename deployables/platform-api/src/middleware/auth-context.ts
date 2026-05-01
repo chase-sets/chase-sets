@@ -17,6 +17,7 @@ import {
   createAuthBootstrapContext,
   resolveActorFromRequest,
 } from "../auth-request-context";
+import { authenticationRequiredResponse } from "@chase-sets/http/responses";
 
 const TENANT_HEADER = "x-tenant-id";
 const USER_HEADER = "x-user-id";
@@ -116,7 +117,7 @@ export function createIdentityAuthMiddleware(services: PlatformIdentityServices)
       return;
     }
 
-    return c.json({ error: "Authentication required." }, 401);
+    return c.json(authenticationRequiredResponse(), 401);
   };
 }
 

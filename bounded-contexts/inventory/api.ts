@@ -34,12 +34,22 @@ export function buildInventoryApi(services: InventoryServices) {
   app.use("*", async (c, next) => {
     const actor = c.get("actor");
     if (!actor) {
-      return c.json({ error: "Authentication required." }, 401);
+      return c.json({
+        error: {
+          code: "authentication_required",
+          message: "Authentication required.",
+        },
+      }, 401);
     }
 
     const requiredPermission = requiredPermissionForMethod(c.req.method);
     if (!actor.permissions.includes(requiredPermission)) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({
+        error: {
+          code: "authorization_forbidden",
+          message: "Forbidden.",
+        },
+      }, 403);
     }
 
     await next();

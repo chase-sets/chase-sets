@@ -13,7 +13,7 @@ function requireOrderAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Authentication required." }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -23,7 +23,7 @@ function requireOrderAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: "Forbidden." }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -48,7 +48,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     const body = await c.req.json();
@@ -91,9 +91,9 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
         context,
       );
 
-      return c.json({ orderIds: result.orderIds }, 201);
+      return c.json({ orderIds: result.orderIds, status: "created" }, 201);
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -126,7 +126,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const order = await services.getPurchase(c.req.param("id"), access.actor.accountId);
     if (!order) {
-      return c.json({ error: "Purchase not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Purchase not found." } }, 404);
     }
 
     return c.json(order);
@@ -140,7 +140,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     try {
@@ -151,9 +151,9 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
         },
         context,
       );
-      return c.json({ id: result.orderId, version: result.version });
+      return c.json({ id: result.orderId, version: result.version, status: "cancelled" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
@@ -192,7 +192,7 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
 
     const order = await services.getSale(c.req.param("id"), access.actor.accountId);
     if (!order) {
-      return c.json({ error: "Sale not found." }, 404);
+      return c.json({ error: { code: "not_found", message: "Sale not found." } }, 404);
     }
 
     return c.json(order);
@@ -206,7 +206,7 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
     }
 
     try {
@@ -217,9 +217,9 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
         },
         context,
       );
-      return c.json({ id: result.orderId, version: result.version });
+      return c.json({ id: result.orderId, version: result.version, status: "cancelled" });
     } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
 
