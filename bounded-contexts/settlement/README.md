@@ -68,6 +68,8 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Register provider webhooks for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`. Settlement consumes them through the unauthenticated provider webhook mount and maps them into provider-neutral payout/readiness events.
 - Smoke test in Stripe test mode by starting payout setup for a seller, completing hosted onboarding, refreshing payout setup, requesting a small payout from an available wallet balance, and replaying payout paid/failed webhooks.
 - Existing payout readiness and payout read models backfill provider fields with nullable references and conservative setup defaults, so old rows remain readable.
+- Operator refund/dispute wallet commands are idempotent through deterministic ledger entry ids derived from caller-supplied idempotency keys. No separate idempotency table is required; duplicate retries resolve against the existing wallet aggregate and ledger read model.
+- Production schema rollout is covered by the context schema bootstrap using `CREATE TABLE IF NOT EXISTS` plus `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for payment provider events, payment idempotency keys, payment reconciliation runs, payout provider fields, payout idempotency keys, payout reconciliation runs, and provider webhook inboxes. Existing rows keep nullable provider references and zero-count reconciliation defaults until replay/reconciliation updates them.
 
 ## Open Extraction Candidates
 

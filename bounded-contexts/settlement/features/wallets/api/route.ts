@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { SettlementApiEnv } from "../../../api";
 import type { WalletServices } from "./runtime";
@@ -35,21 +34,68 @@ function requireWalletAccess(
   return { actor, response: null };
 }
 
+function normalizeRequiredBodyText(
+  body: Record<string, unknown>,
+  fieldName: string,
+  message: string,
+) {
+  const value = body[fieldName];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(message);
+  }
+  return value.trim();
+}
+
+function deterministicLedgerEntryId(idempotencyKey: string): LedgerEntryId {
+  let hash = 2166136261;
+  for (let index = 0; index < idempotencyKey.length; index += 1) {
+    hash ^= idempotencyKey.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `led_${Math.abs(hash).toString(36).padStart(26, "0").slice(0, 26)}` as LedgerEntryId;
+}
+
+function duplicateLedgerEntryResponse() {
+  return new Response(
+    JSON.stringify({ idempotent: true, duplicate: true }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
 async function postOperatorWalletEntry(
   services: WalletServices,
   params: Readonly<{
     body: Record<string, unknown>;
-    accountId: string;
     kind: "refund" | "adjustment";
     direction: "credit" | "debit";
     defaultDescription: string;
     context: NonNullable<SettlementApiEnv["Variables"]["context"]>;
   }>,
 ) {
+  const accountId = normalizeRequiredBodyText(
+    params.body,
+    "accountId",
+    "Target account is required for operator wallet commands.",
+  ) as AccountId;
+  const idempotencyKey = normalizeRequiredBodyText(
+    params.body,
+    "idempotencyKey",
+    "Idempotency key is required for operator wallet commands.",
+  );
+  const auditReason = normalizeRequiredBodyText(
+    params.body,
+    "auditReason",
+    "Audit reason is required for operator wallet commands.",
+  );
+  const description = String(params.body.description ?? params.defaultDescription);
+
   return services.postEntry(
     {
-      accountId: String(params.body.accountId ?? params.accountId) as AccountId,
-      ledgerEntryId: createId("led") as LedgerEntryId,
+      accountId,
+      ledgerEntryId: deterministicLedgerEntryId(idempotencyKey),
       kind: params.kind,
       direction: params.direction,
       amount: String(params.body.amount ?? ""),
@@ -58,11 +104,16 @@ async function postOperatorWalletEntry(
       paymentId: params.body.paymentId
         ? String(params.body.paymentId) as PaymentId
         : null,
-      description: String(params.body.description ?? params.defaultDescription),
+      description: `${description} (${auditReason})`,
       postedAt: new Date().toISOString(),
     },
     params.context,
   );
+}
+
+function isDuplicateLedgerEntryError(error: unknown) {
+  return error instanceof Error &&
+    error.message === "Ledger entry has already been posted.";
 }
 
 export function createWalletRoutes(services: WalletServices) {
@@ -126,7 +177,6 @@ export function createWalletRoutes(services: WalletServices) {
     try {
       const result = await postOperatorWalletEntry(services, {
         body,
-        accountId: access.actor.accountId,
         kind,
         direction,
         defaultDescription: description,
@@ -135,6 +185,9 @@ export function createWalletRoutes(services: WalletServices) {
 
       return c.json(result, 201);
     } catch (error) {
+      if (isDuplicateLedgerEntryError(error)) {
+        return duplicateLedgerEntryResponse();
+      }
       return c.json(
         { error: error instanceof Error ? error.message : "Adjustment failed." },
         400,
@@ -157,7 +210,6 @@ export function createWalletRoutes(services: WalletServices) {
       return c.json(
         await postOperatorWalletEntry(services, {
           body,
-          accountId: access.actor.accountId,
           kind: "refund",
           direction: "debit",
           defaultDescription: "Seller refund debit",
@@ -166,6 +218,9 @@ export function createWalletRoutes(services: WalletServices) {
         201,
       );
     } catch (error) {
+      if (isDuplicateLedgerEntryError(error)) {
+        return duplicateLedgerEntryResponse();
+      }
       return c.json(
         { error: error instanceof Error ? error.message : "Refund debit failed." },
         400,
@@ -188,7 +243,6 @@ export function createWalletRoutes(services: WalletServices) {
       return c.json(
         await postOperatorWalletEntry(services, {
           body,
-          accountId: access.actor.accountId,
           kind: "adjustment",
           direction: "debit",
           defaultDescription: "Dispute hold",
@@ -197,6 +251,9 @@ export function createWalletRoutes(services: WalletServices) {
         201,
       );
     } catch (error) {
+      if (isDuplicateLedgerEntryError(error)) {
+        return duplicateLedgerEntryResponse();
+      }
       return c.json(
         { error: error instanceof Error ? error.message : "Dispute hold failed." },
         400,
@@ -219,7 +276,6 @@ export function createWalletRoutes(services: WalletServices) {
       return c.json(
         await postOperatorWalletEntry(services, {
           body,
-          accountId: access.actor.accountId,
           kind: "adjustment",
           direction: "credit",
           defaultDescription: "Dispute hold released",
@@ -228,6 +284,9 @@ export function createWalletRoutes(services: WalletServices) {
         201,
       );
     } catch (error) {
+      if (isDuplicateLedgerEntryError(error)) {
+        return duplicateLedgerEntryResponse();
+      }
       return c.json(
         { error: error instanceof Error ? error.message : "Dispute release failed." },
         400,

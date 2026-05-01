@@ -50,6 +50,15 @@ This checklist keeps checkout, wallet, payout, transfer, and webhook operations 
   - refund debit
   - dispute hold
   - dispute release
+- Operator wallet actions require a target seller account, an idempotency key, and an audit reason.
+- Diagnostics and timelines must expose provider-neutral references only. Do not expose secrets, webhook signatures, raw provider payloads, processor client secrets, hosted setup URLs after creation, or internal auth context.
+
+## Migration And Backfill
+
+- Payment and payout read-model additions are rollout-safe through schema bootstrap and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- Existing payout readiness rows remain readable with nullable provider references and conservative setup defaults.
+- Existing payout rows remain readable with nullable provider transfer/payout references and zero retry/reconciliation defaults.
+- Operator wallet idempotency uses deterministic ledger entry ids, so duplicate retries do not require a new table.
 
 ## Rollback
 

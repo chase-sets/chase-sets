@@ -83,6 +83,33 @@ describe("settlement payout setup routes", () => {
     );
   });
 
+  it("returns payout setup progress for payout viewers", async () => {
+    const getPayoutSetupProgress = vi.fn(async () => ({
+      account_id: "acc_seller",
+      status: "pending",
+      ready: false,
+      last_checked_at: null,
+      steps: [
+        {
+          id: "hosted-onboarding",
+          label: "Hosted setup",
+          status: "pending",
+          detail: "Continue the hosted setup flow.",
+        },
+      ],
+    }));
+    const app = createApp({ getPayoutSetupProgress }, ["payouts.view"]);
+
+    const response = await app.request("/payout-setup/progress");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      account_id: "acc_seller",
+      steps: [expect.objectContaining({ id: "hosted-onboarding" })],
+    });
+    expect(getPayoutSetupProgress).toHaveBeenCalledWith("acc_seller");
+  });
+
   it("rejects payout setup redirects to another origin", async () => {
     const createOnboardingSession = vi.fn(async () => ({
       providerReference: "acct_test",

@@ -100,6 +100,7 @@ function createServices(): PaymentServices {
       provider_events: [],
     })),
     getAccountPayment: vi.fn(async () => null),
+    getPaymentMoneyTimeline: vi.fn(async () => null),
     getCheckoutStatus: vi.fn(async () => ({
       order_ids: ["ord_1"],
       currency_code: "usd",
@@ -111,11 +112,37 @@ function createServices(): PaymentServices {
       },
       can_start_payment: true,
       unavailable_reasons: [],
+      unavailable_reason_details: [],
+    })),
+    getCheckoutRecoveryOptions: vi.fn(async () => ({
+      recovery_reference_id: "acc_buyer:ord_1:usd:0.00",
+      can_recover: true,
+      recommended_action: "start-payment",
+      checkout_status: {
+        order_ids: ["ord_1"],
+        currency_code: "usd",
+        amount: "24.99",
+        wallet_credit: {
+          requested_amount: "0.00",
+          applied_amount: "0.00",
+          external_amount: "24.99",
+        },
+        can_start_payment: true,
+        unavailable_reasons: [],
+        unavailable_reason_details: [],
+      },
     })),
     getProviderEvent: vi.fn(async () => null),
     listProviderIdempotencyKeys: vi.fn(async () => []),
     listPaymentsNeedingReconciliation: vi.fn(async () => []),
     listReconciliationRuns: vi.fn(async () => []),
+    getProviderHealth: vi.fn(async () => ({
+      provider_name: "stripe",
+      confirmation_experience: "processor-managed-form",
+      dynamic_payment_methods: true,
+      sensitive_payment_details_handled_by_provider: true,
+      webhook_signature_required: true,
+    })),
     scanPaymentsNeedingReconciliation: vi.fn(async () => ({
       checked: 0,
       attention: 0,
@@ -300,5 +327,102 @@ describe("payments routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ received: true, ignored: false });
     expect(services.processWebhook).toHaveBeenCalled();
+  });
+
+  it("returns checkout recovery options for the current account", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/checkout/recovery?orderIds=ord_1"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      recovery_reference_id: "acc_buyer:ord_1:usd:0.00",
+    });
+    expect(services.getCheckoutRecoveryOptions).toHaveBeenCalledWith({
+      accountId: "acc_buyer",
+      orderIds: ["ord_1"],
+      currencyCode: "usd",
+      requestedBalanceCreditAmount: null,
+    });
+  });
+
+  it("returns payment timelines for the current account", async () => {
+    const services = createServices();
+    vi.mocked(services.getPaymentMoneyTimeline).mockResolvedValueOnce({
+      payment_id: "pay_1",
+      account_id: "acc_buyer",
+      items: [
+        {
+          occurred_at: "2026-04-01T00:00:00.000Z",
+          kind: "payment-created",
+          label: "Payment started",
+          reference: "pay_1",
+          amount: "24.99",
+          currency_code: "usd",
+        },
+      ],
+    });
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/payments/pay_1/timeline"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      payment_id: "pay_1",
+      items: [expect.objectContaining({ kind: "payment-created" })],
+    });
+  });
+
+  it("returns provider health only for order managers", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/provider-health"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sensitive_payment_details_handled_by_provider: true,
+      webhook_signature_required: true,
+    });
   });
 });

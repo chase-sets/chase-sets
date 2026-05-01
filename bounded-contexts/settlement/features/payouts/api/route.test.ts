@@ -86,6 +86,126 @@ describe("settlement payout routes", () => {
     expect(requestPayout).not.toHaveBeenCalled();
   });
 
+  it("previews payout requests through the payout runtime", async () => {
+    const previewPayoutRequest = vi.fn(async () => ({
+      account_id: "acc_seller",
+      requested_amount: "12.50",
+      currency_code: "usd",
+      available_balance_amount: "20.00",
+      platform_available_amount: "100.00",
+      estimated_wallet_balance_after: "7.50",
+      can_request: true,
+      unavailable_reasons: [],
+      unavailable_reason_details: [],
+    }));
+    const app = createAuthenticatedApp(
+      { previewPayoutRequest },
+      ["payouts.request"],
+    );
+
+    const response = await app.request("/payouts/preview", {
+      method: "POST",
+      body: JSON.stringify({ amount: "12.50" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      can_request: true,
+      estimated_wallet_balance_after: "7.50",
+    });
+    expect(previewPayoutRequest).toHaveBeenCalledWith({
+      accountId: "acc_seller",
+      amount: "12.50",
+    });
+  });
+
+  it("returns payout money timelines for the current account", async () => {
+    const getPayoutMoneyTimeline = vi.fn(async () => ({
+      payout_id: "pyo_test",
+      account_id: "acc_seller",
+      items: [
+        {
+          occurred_at: "2026-04-01T00:00:00.000Z",
+          kind: "payout-requested",
+          label: "Payout requested",
+          reference: "pyo_test",
+          amount: "12.50",
+          currency_code: "usd",
+        },
+      ],
+    }));
+    const app = createAuthenticatedApp(
+      { getPayoutMoneyTimeline },
+      ["payouts.view"],
+    );
+
+    const response = await app.request("/payouts/pyo_test/timeline");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      payout_id: "pyo_test",
+      items: [expect.objectContaining({ kind: "payout-requested" })],
+    });
+    expect(getPayoutMoneyTimeline).toHaveBeenCalledWith({
+      payoutId: "pyo_test",
+      accountId: "acc_seller",
+    });
+  });
+
+  it("exposes provider health only to payout reconcilers", async () => {
+    const getProviderHealth = vi.fn(async () => ({
+      provider_name: "stripe",
+      adapter_mode: "provider",
+      webhook_signature_required: true,
+      platform_balance_supported: true,
+      connected_account_payouts_supported: true,
+    }));
+    const app = createAuthenticatedApp(
+      { getProviderHealth },
+      ["payouts.reconcile"],
+    );
+
+    const response = await app.request("/provider-health");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      provider_name: "stripe",
+      webhook_signature_required: true,
+    });
+  });
+
+  it("lists provider idempotency keys only for payout reconcilers", async () => {
+    const listProviderIdempotencyKeys = vi.fn(async () => [
+      {
+        operation_key: "payout:pyo_test:payout",
+        provider_name: "stripe",
+        operation_kind: "connected-account-payout-create",
+        account_id: "acc_seller",
+        payout_id: "pyo_test",
+        provider_object_reference: "po_test",
+        idempotency_key: "settlement:payout:pyo_test:payout",
+        created_at: "2026-04-01T00:00:00.000Z",
+      },
+    ]);
+    const app = createAuthenticatedApp(
+      { listProviderIdempotencyKeys },
+      ["payouts.reconcile"],
+    );
+
+    const response = await app.request("/payouts/provider-idempotency?limit=5");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      count: 1,
+      items: [expect.objectContaining({ idempotency_key: "settlement:payout:pyo_test:payout" })],
+    });
+    expect(listProviderIdempotencyKeys).toHaveBeenCalledWith({
+      accountId: "acc_seller",
+      limit: 5,
+    });
+  });
+
   it("runs reconciliation only for payout reconcilers", async () => {
     const reconcilePayoutsNeedingAttention = vi.fn(async () => ({
       checked: 1,
