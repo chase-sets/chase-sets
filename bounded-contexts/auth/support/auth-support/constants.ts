@@ -2,6 +2,18 @@ export const AUTH_BOOTSTRAP_TENANT_ID = "tnt_identity" as const;
 export const AUTH_BOOTSTRAP_USER_ID = "usr_identity_system" as const;
 export const AUTH_BOOTSTRAP_ACCOUNT_ID = "acc_identity_system" as const;
 
+export const AUTH_PERMISSION_PRESETS = {
+  paymentsOperator: ["orders.manage", "orders.view"],
+  payoutsOperator: [
+    "payouts.manage",
+    "payouts.reconcile",
+    "payouts.request",
+    "payouts.setup",
+    "payouts.view",
+  ],
+  payoutsViewer: ["payouts.view"],
+} satisfies Readonly<Record<string, readonly string[]>>;
+
 export const AUTH_ROLE_PERMISSIONS = {
   owner: [
     "accounts.manage",
@@ -20,11 +32,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "offers.view",
     "orders.manage",
     "orders.view",
-    "payouts.manage",
-    "payouts.reconcile",
-    "payouts.request",
-    "payouts.setup",
-    "payouts.view",
+    ...AUTH_PERMISSION_PRESETS.payoutsOperator,
     "reputation.manage",
     "reputation.view",
     "security.manage",
@@ -45,11 +53,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "offers.view",
     "orders.manage",
     "orders.view",
-    "payouts.manage",
-    "payouts.reconcile",
-    "payouts.request",
-    "payouts.setup",
-    "payouts.view",
+    ...AUTH_PERMISSION_PRESETS.payoutsOperator,
     "reputation.manage",
     "reputation.view",
   ],
@@ -72,7 +76,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "listings.view",
     "offers.view",
     "orders.view",
-    "payouts.view",
+    ...AUTH_PERMISSION_PRESETS.payoutsViewer,
     "reputation.view",
   ],
 } satisfies Readonly<Record<string, readonly string[]>>;

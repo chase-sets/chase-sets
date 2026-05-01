@@ -125,6 +125,11 @@ export function SettlementPayoutDetailPage({
             {showSupportDetails && payout.provider_status ? (
               <Text size="sm" tone="secondary">Provider status: {payout.provider_status}</Text>
             ) : null}
+            {payout.last_reconciled_at ? (
+              <Text size="sm" tone="secondary">
+                Last provider check: {new Date(payout.last_reconciled_at).toLocaleString()}
+              </Text>
+            ) : null}
           </Stack>
         </Card>
       </PageSection>
@@ -150,6 +155,16 @@ export function SettlementPayoutDetailPage({
               </Badge>
               <Text size="sm" tone="secondary">
                 {payout.provider_payout_reference ?? "Waiting for provider payout reference"}
+              </Text>
+            </Stack>
+            <Stack gap={1}>
+              <Badge tone={timelineTone(Boolean(payout.last_provider_event_at)) as any}>
+                Provider event received
+              </Badge>
+              <Text size="sm" tone="secondary">
+                {payout.last_provider_event_at
+                  ? new Date(payout.last_provider_event_at).toLocaleString()
+                  : "Waiting for provider event"}
               </Text>
             </Stack>
             <Stack gap={1}>
@@ -183,6 +198,22 @@ export function SettlementPayoutDetailPage({
               <Text size="sm" tone="secondary">
                 Provider status: {payout.provider_status ?? "Unknown"}
               </Text>
+              <Text size="sm" tone="secondary">
+                Last provider event: {payout.last_provider_event_at ? new Date(payout.last_provider_event_at).toLocaleString() : "None"}
+              </Text>
+              <Text size="sm" tone="secondary">
+                Last reconciliation check: {payout.last_reconciled_at ? new Date(payout.last_reconciled_at).toLocaleString() : "None"}
+              </Text>
+              <Text size="sm" tone="secondary">
+                Retry policy: {payout.next_retry_at
+                  ? `${payout.retry_count} attempt${payout.retry_count === 1 ? "" : "s"}; next ${new Date(payout.next_retry_at).toLocaleString()}`
+                  : payout.retry_count > 0
+                    ? `${payout.retry_count} attempt${payout.retry_count === 1 ? "" : "s"}; no automatic retry pending`
+                    : "No retry scheduled"}
+              </Text>
+              {payout.retry_reason ? (
+                <Text size="sm" tone="secondary">Retry reason: {payout.retry_reason}</Text>
+              ) : null}
               {payout.provider_failure_code ? (
                 <Text size="sm" tone="secondary">
                   Provider failure code: {payout.provider_failure_code}

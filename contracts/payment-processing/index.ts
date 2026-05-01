@@ -18,6 +18,7 @@ export type CreateProcessorPaymentInput = Readonly<{
   amount: string;
   currencyCode: PaymentCurrencyCode;
   description: string;
+  returnUrl?: string | null;
   idempotencyKey?: string | null;
   clientRiskContext?: Readonly<{
     ipAddress?: string | null;
@@ -50,7 +51,8 @@ export type CreatedProcessorRefund = Readonly<{
 export type ProcessorWebhookEventKind =
   | "payment-authorized"
   | "payment-captured"
-  | "payment-failed";
+  | "payment-failed"
+  | "payment-cancelled";
 
 export type PaymentProcessorWebhookEvent = Readonly<{
   eventId: string;
@@ -65,6 +67,13 @@ export type PaymentProcessorWebhookEvent = Readonly<{
 
 export interface PaymentProcessorGateway {
   getPublicConfiguration(): PaymentProcessorPublicConfig;
+  /**
+   * Creates the provider-managed payment confirmation surface.
+   *
+   * Implementations may use a Checkout Session, PaymentIntent, or another
+   * provider-native primitive as long as sensitive payment details stay with the
+   * processor and the returned reference is the stable webhook lookup key.
+   */
   createPaymentIntent(
     input: CreateProcessorPaymentInput,
   ): Promise<CreatedProcessorPayment>;

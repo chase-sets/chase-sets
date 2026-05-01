@@ -27,6 +27,9 @@ function operationsTone(row: SettlementPayoutRow) {
 }
 
 function operationsLabel(row: SettlementPayoutRow) {
+  if (row.status === "failed" && row.next_retry_at) {
+    return "Retry queued";
+  }
   if (!row.provider_payout_reference) {
     return "Needs provider reference";
   }
@@ -138,6 +141,22 @@ export function SettlementPayoutOperationsPage({
               key: "provider_status",
               header: "Provider status",
               cell: (row) => row.provider_status ?? "Unknown",
+            },
+            {
+              key: "last_reconciled_at",
+              header: "Last checked",
+              cell: (row) => row.last_reconciled_at
+                ? new Date(row.last_reconciled_at).toLocaleString()
+                : "Not checked",
+            },
+            {
+              key: "retry",
+              header: "Retry policy",
+              cell: (row) => row.next_retry_at
+                ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}; next ${new Date(row.next_retry_at).toLocaleString()}`
+                : row.retry_count > 0
+                  ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}`
+                  : "None",
             },
             {
               key: "updated_at",

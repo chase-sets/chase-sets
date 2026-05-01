@@ -16,8 +16,8 @@ describe("fake payment processor gateway", () => {
 
     expect(payment).toMatchObject({
       processorName: "stripe",
-      processorPaymentReference: "pi_seed_pay_123",
-      processorStatus: "requires_capture",
+      processorPaymentReference: "cs_seed_pay_123",
+      processorStatus: "open",
     });
   });
 });

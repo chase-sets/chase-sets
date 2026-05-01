@@ -125,6 +125,7 @@ export type PaymentServices = Readonly<{
       sourceContext?: string | null;
       sourceReferenceId?: string | null;
       requestedBalanceCreditAmount?: string | null;
+      returnUrlBase?: string | null;
       clientRiskContext?: Readonly<{
         ipAddress?: string | null;
         userAgent?: string | null;
@@ -239,6 +240,7 @@ export function createPaymentRuntime(
       const paymentFeeAmount = sumFeeAmounts(orders, "payment_fee_amount");
       const sellerNetAmount = sumFeeAmounts(orders, "seller_net_amount");
       const paymentId = createId("pay") as PaymentId;
+      const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
       const processorPayment = compareMoney(processorAmount, "0.00") === 0
         ? {
             processorName: publicConfig.processorName,
@@ -256,6 +258,9 @@ export function createPaymentRuntime(
               orderIds.length === 1
                 ? `Chase Sets order ${orderIds[0]}`
                 : `Chase Sets checkout for ${orderIds.length} orders`,
+            returnUrl: returnUrlBase
+              ? `${returnUrlBase}/account/payments/${paymentId}`
+              : null,
             idempotencyKey: `payments:payment:${paymentId}:create`,
             clientRiskContext: params.clientRiskContext ?? null,
           });
@@ -392,6 +397,16 @@ export function createPaymentRuntime(
               failureCode: webhookEvent.failureCode,
               failureMessage: webhookEvent.failureMessage,
               failedAt: webhookEvent.occurredAt,
+            },
+            context,
+          });
+          break;
+        case "payment-cancelled":
+          await commandHandler({
+            streamId,
+            command: {
+              type: "CancelPayment",
+              cancelledAt: webhookEvent.occurredAt,
             },
             context,
           });

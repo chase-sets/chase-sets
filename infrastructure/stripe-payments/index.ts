@@ -19,10 +19,12 @@ export type StripePaymentProcessorGatewayOptions = Readonly<{
   webhookToleranceSeconds?: number;
 }>;
 
-type StripePaymentIntentResponse = Readonly<{
+type StripeCheckoutSessionResponse = Readonly<{
   id: string;
   client_secret?: string | null;
   status?: string | null;
+  payment_status?: string | null;
+  payment_intent?: string | Readonly<{ id?: string | null }> | null;
 }>;
 
 type StripeRefundResponse = Readonly<{
@@ -38,6 +40,7 @@ type StripeEventEnvelope = Readonly<{
     object?: Readonly<{
       id?: string;
       status?: string | null;
+      payment_status?: string | null;
       last_payment_error?: Readonly<{
         code?: string | null;
         message?: string | null;
@@ -79,6 +82,14 @@ function toFormBody(entries: Record<string, string>) {
   }
 
   return params;
+}
+
+function paymentIntentReferenceFromSession(session: StripeCheckoutSessionResponse) {
+  const paymentIntent = session.payment_intent;
+  if (typeof paymentIntent === "string") {
+    return normalizeOptionalText(paymentIntent);
+  }
+  return normalizeOptionalText(paymentIntent?.id ?? null);
 }
 
 async function parseStripeResponse<T>(response: Response): Promise<T> {
@@ -151,22 +162,59 @@ function verifyStripeSignature(
 }
 
 function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEvent | null {
-  const paymentIntent = event.data?.object;
-  const processorPaymentReference = paymentIntent?.id?.trim();
+  const paymentObject = event.data?.object;
+  const processorPaymentReference = paymentObject?.id?.trim();
 
-  if (!paymentIntent || !processorPaymentReference) {
+  if (!paymentObject || !processorPaymentReference) {
     return null;
   }
 
-  const processorStatus = paymentIntent.status?.trim() ?? event.type;
+  const processorStatus =
+    paymentObject.payment_status?.trim() ??
+    paymentObject.status?.trim() ??
+    event.type;
   const occurredAt = new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000)
     .toISOString();
-  const failureCode = normalizeOptionalText(paymentIntent.last_payment_error?.code ?? null);
+  const failureCode = normalizeOptionalText(paymentObject.last_payment_error?.code ?? null);
   const failureMessage = normalizeOptionalText(
-    paymentIntent.last_payment_error?.message ?? null,
+    paymentObject.last_payment_error?.message ?? null,
   );
 
   switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded":
+      return {
+        eventId: event.id,
+        kind: "payment-captured",
+        processorName: "stripe",
+        processorPaymentReference,
+        processorStatus,
+        failureCode: null,
+        failureMessage: null,
+        occurredAt,
+      };
+    case "checkout.session.async_payment_failed":
+      return {
+        eventId: event.id,
+        kind: "payment-failed",
+        processorName: "stripe",
+        processorPaymentReference,
+        processorStatus,
+        failureCode,
+        failureMessage,
+        occurredAt,
+      };
+    case "checkout.session.expired":
+      return {
+        eventId: event.id,
+        kind: "payment-cancelled",
+        processorName: "stripe",
+        processorPaymentReference,
+        processorStatus,
+        failureCode: null,
+        failureMessage: "Payment session expired before confirmation.",
+        occurredAt,
+      };
     case "payment_intent.processing":
     case "payment_intent.amount_capturable_updated":
       return {
@@ -251,15 +299,24 @@ export function createStripePaymentProcessorGateway(
       const amount = moneyToMinorUnits(
         normalizeMoneyAmount(input.amount, "Payment amount"),
       );
-      const body = await stripeRequest<StripePaymentIntentResponse>(
-        "/v1/payment_intents",
+      const paymentReturnUrl =
+        normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payments";
+      const body = await stripeRequest<StripeCheckoutSessionResponse>(
+        "/v1/checkout/sessions",
         {
           method: "POST",
           body: toFormBody({
-            amount: String(amount),
-            currency: input.currencyCode,
-            "automatic_payment_methods[enabled]": "true",
-            "payment_method_options[card][request_three_d_secure]": "automatic",
+            mode: "payment",
+            ui_mode: "elements",
+            return_url: paymentReturnUrl,
+            "line_items[0][quantity]": "1",
+            "line_items[0][price_data][currency]": input.currencyCode,
+            "line_items[0][price_data][unit_amount]": String(amount),
+            "line_items[0][price_data][product_data][name]": input.description,
+            "payment_intent_data[payment_method_options][card][request_three_d_secure]": "automatic",
+            "payment_intent_data[metadata][payment_id]": input.paymentId,
+            "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,
+            "payment_intent_data[metadata][order_ids]": input.orderIds.join(","),
             description: input.description,
             "metadata[payment_id]": input.paymentId,
             "metadata[buyer_account_id]": input.buyerAccountId,
@@ -279,14 +336,15 @@ export function createStripePaymentProcessorGateway(
       );
 
       if (!body.id?.trim()) {
-        throw new Error("Stripe did not return a payment intent id.");
+        throw new Error("Stripe did not return a checkout session id.");
       }
 
       return {
         processorName: "stripe",
         processorPaymentReference: body.id,
         processorClientSecret: body.client_secret?.trim() ?? null,
-        processorStatus: body.status?.trim() ?? "requires_payment_method",
+        processorStatus:
+          body.payment_status?.trim() ?? body.status?.trim() ?? "open",
       };
     },
     async createRefund(
@@ -295,10 +353,23 @@ export function createStripePaymentProcessorGateway(
       const amount = moneyToMinorUnits(
         normalizeMoneyAmount(input.amount, "Refund amount"),
       );
+      const paymentIntentReference = input.processorPaymentReference.startsWith("cs_")
+        ? paymentIntentReferenceFromSession(
+            await stripeRequest<StripeCheckoutSessionResponse>(
+              `/v1/checkout/sessions/${encodeURIComponent(input.processorPaymentReference)}`,
+              { method: "GET" },
+            ),
+          )
+        : input.processorPaymentReference;
+
+      if (!paymentIntentReference) {
+        throw new Error("Stripe checkout session does not have a refundable payment intent.");
+      }
+
       const body = await stripeRequest<StripeRefundResponse>("/v1/refunds", {
         method: "POST",
         body: toFormBody({
-          payment_intent: input.processorPaymentReference,
+          payment_intent: paymentIntentReference,
           amount: String(amount),
           reason: "requested_by_customer",
           "metadata[payment_id]": input.paymentId,

@@ -19,6 +19,11 @@ export type SettlementPayoutRow = Readonly<{
   completed_at: string | null;
   failed_at: string | null;
   failure_reason: string | null;
+  last_provider_event_at: string | null;
+  last_reconciled_at: string | null;
+  retry_count: number;
+  next_retry_at: string | null;
+  retry_reason: string | null;
 }>;
 
 const payoutSelect = `
@@ -40,7 +45,12 @@ const payoutSelect = `
     sent_at,
     completed_at,
     failed_at,
-    failure_reason
+    failure_reason,
+    last_provider_event_at,
+    last_reconciled_at,
+    retry_count,
+    next_retry_at,
+    retry_reason
   FROM settlement_payout_pages
 `;
 

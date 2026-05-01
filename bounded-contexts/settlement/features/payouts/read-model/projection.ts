@@ -36,9 +36,14 @@ export function buildPayoutProjectionHandlers(
            completed_at,
            failed_at,
            failure_reason,
+           last_provider_event_at,
+           last_reconciled_at,
+           retry_count,
+           next_retry_at,
+           retry_reason,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, 'requested', NULL, NULL, NULL, NULL, NULL, $7, $7, NULL, NULL, NULL, NULL, $8
+           $1, $2, $3, $4, $5, $6, 'requested', NULL, NULL, NULL, NULL, NULL, $7, $7, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, $8
          )
          ON CONFLICT (payout_id) DO UPDATE
          SET account_id = EXCLUDED.account_id,
@@ -82,6 +87,9 @@ export function buildPayoutProjectionHandlers(
              provider_failure_message = NULL,
              sent_at = $5,
              updated_at = $5,
+             last_provider_event_at = $5,
+             retry_reason = NULL,
+             next_retry_at = NULL,
              last_stream_version = $6
          WHERE payout_id = $1
            AND last_stream_version < $6`,
@@ -112,6 +120,10 @@ export function buildPayoutProjectionHandlers(
              updated_at = $3,
              failed_at = NULL,
              failure_reason = NULL,
+             last_provider_event_at = $3,
+             last_reconciled_at = $3,
+             retry_reason = NULL,
+             next_retry_at = NULL,
              last_stream_version = $4
          WHERE payout_id = $1
            AND last_stream_version < $4`,
@@ -142,6 +154,11 @@ export function buildPayoutProjectionHandlers(
              failed_at = $5,
              failure_reason = $6,
              updated_at = $5,
+             last_provider_event_at = $5,
+             last_reconciled_at = $5,
+             retry_count = retry_count + 1,
+             next_retry_at = $5::timestamptz + INTERVAL '15 minutes',
+             retry_reason = COALESCE($4, $6),
              last_stream_version = $7
          WHERE payout_id = $1
            AND last_stream_version < $7`,

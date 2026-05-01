@@ -25,6 +25,7 @@ import {
   Divider,
   Grid,
   LinkButton,
+  NativeSelect,
   OrderSummary,
   Page,
   PageHeader,
@@ -50,6 +51,31 @@ function parseOrderIds(value: string | null) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function parseMoneyAmount(value: FormDataEntryValue | null) {
+  const parsed = Number.parseFloat(String(value ?? "0"));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function decimalMoney(value: number) {
+  return Math.max(0, value).toFixed(2);
+}
+
+function requestedBalanceCreditFromForm(formData: FormData) {
+  const mode = String(formData.get("balanceCreditMode") ?? "none");
+  if (mode === "none") {
+    return null;
+  }
+  if (mode === "max") {
+    const total = parseMoneyAmount(formData.get("totalAmount"));
+    const available = parseMoneyAmount(formData.get("availableBalance"));
+    return decimalMoney(Math.min(total, available));
+  }
+
+  return normalizeRequestedBalanceCreditAmount(
+    formData.get("requestedBalanceCreditAmount"),
+  );
 }
 
 async function loadWalletBalance(request: Request) {
@@ -116,7 +142,7 @@ export async function action({ request }: ActionFunctionArgs) {
     const payment = await paymentsApi.createAccountPayment({
       orderIds,
       requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
-        formData.get("requestedBalanceCreditAmount"),
+        requestedBalanceCreditFromForm(formData),
       ),
     });
     return redirect(`/account/payments/${payment.payment_id}`);
@@ -165,6 +191,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
   const sellerNetAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.seller_net_amount), 0)
     .toFixed(2);
+  const availableBalanceAmount = Number.parseFloat(data.wallet?.available_balance_amount ?? "0.00");
+  const maxBalanceCreditAmount = decimalMoney(Math.min(Number.parseFloat(totalAmount), availableBalanceAmount));
+  const externalAfterMaxAmount = decimalMoney(Number.parseFloat(totalAmount) - Number.parseFloat(maxBalanceCreditAmount));
 
   return (
     <Page>
@@ -241,15 +270,40 @@ export default function MarketplaceAccountPaymentNewRoute() {
               <Form method="post" ref={formRef}>
                 <Stack gap={3}>
                   <input type="hidden" name="orderIds" value={data.orderIds.join(",")} />
+                  <input type="hidden" name="totalAmount" value={totalAmount} />
+                  <input
+                    type="hidden"
+                    name="availableBalance"
+                    value={data.wallet?.available_balance_amount ?? "0.00"}
+                  />
+                  <NativeSelect
+                    label="Wallet balance"
+                    name="balanceCreditMode"
+                    defaultValue={availableBalanceAmount > 0 ? "max" : "none"}
+                    items={[
+                      { value: "none", label: "Do not use balance" },
+                      {
+                        value: "max",
+                        label: `Use up to ${formatMoney(maxBalanceCreditAmount)}`,
+                        disabled: availableBalanceAmount <= 0,
+                      },
+                      { value: "custom", label: "Use a custom amount" },
+                    ]}
+                    description={
+                      data.wallet
+                        ? `Using the maximum leaves ${formatMoney(externalAfterMaxAmount)} for secure external payment.`
+                        : "No wallet balance is available for this checkout."
+                    }
+                  />
                   <TextInput
-                    label="Use balance"
+                    label="Custom wallet amount"
                     name="requestedBalanceCreditAmount"
                     placeholder="0.00"
                     inputMode="decimal"
                     description={
                       data.wallet
-                        ? `${data.wallet.available_balance_amount} ${data.wallet.currency_code.toUpperCase()} available for platform purchases`
-                        : "Apply available wallet balance to this payment"
+                        ? `${data.wallet.available_balance_amount} ${data.wallet.currency_code.toUpperCase()} available; choose custom only when you want less than the maximum.`
+                        : "Apply available wallet balance to this payment."
                     }
                   />
                   <Button type="submit" size="lg" leadingIcon="lock">

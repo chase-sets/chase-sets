@@ -40,6 +40,20 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
+function resolvePublicOrigin(requestUrl: string, headers: Headers) {
+  const parsed = new URL(requestUrl);
+  const host =
+    headers.get("x-forwarded-host") ??
+    headers.get("host") ??
+    parsed.host;
+  const protocol =
+    headers.get("x-forwarded-proto") ??
+    parsed.protocol.replace(":", "") ??
+    "https";
+
+  return `${protocol}://${host}`;
+}
+
 export function createAccountPaymentRoutes(services: PaymentServices) {
   const app = new Hono<PaymentsApiEnv>();
 
@@ -75,6 +89,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
             body.requestedBalanceCreditAmount,
           ),
+          returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
           clientRiskContext: {
             ipAddress:
               c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??

@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS settlement_payout_pages (
   completed_at timestamptz NULL,
   failed_at timestamptz NULL,
   failure_reason text NULL,
+  last_provider_event_at timestamptz NULL,
+  last_reconciled_at timestamptz NULL,
+  retry_count integer NOT NULL DEFAULT 0,
+  next_retry_at timestamptz NULL,
+  retry_reason text NULL,
   last_stream_version bigint NOT NULL DEFAULT 0
 );
 
@@ -53,6 +58,21 @@ ALTER TABLE settlement_payout_pages
 
 ALTER TABLE settlement_payout_pages
   ADD COLUMN IF NOT EXISTS provider_failure_message text NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS last_provider_event_at timestamptz NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS last_reconciled_at timestamptz NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS retry_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS next_retry_at timestamptz NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS retry_reason text NULL;
 
 ALTER TABLE settlement_money_movement_webhook_events
   ADD COLUMN IF NOT EXISTS event_kind text NULL;

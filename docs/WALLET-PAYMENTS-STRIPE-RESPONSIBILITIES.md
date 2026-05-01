@@ -14,13 +14,21 @@ Settlement owns wallet truth, seller payout setup state, payout requests, payout
 
 ## Risk And Data Handling
 
-- Buyer card details are collected through Stripe.js Payment Element or another processor-managed form, not marketplace-owned inputs.
+- Buyer card details are collected through Stripe.js Checkout Sessions with embedded Elements, Payment Element, or another processor-managed form, not marketplace-owned inputs.
 - Stripe.js must load from `https://js.stripe.com/v3/` so the processor can collect the browser and device signals used for fraud review.
 - Buyer payments use automatic payment methods and automatic 3D Secure handling through the payment processor adapter.
 - Seller payout destination, identity, and account requirements are collected through hosted Connect setup or account management.
 - The marketplace stores provider references, statuses, and failure messages, not bank account numbers, tax identity details, or card data.
 - Provider webhooks use raw-body signature verification and idempotent provider event recording before state transitions.
 - Settlement fails fast when platform balance cannot support a payout request, and provider transfer or payout failures post a single wallet reversal.
+
+## Charge And Funds Strategy
+
+- Buyer checkout creates one provider-managed payment session per internal payment, with wallet balance credit applied before the external payment amount is sent to the processor.
+- Platform-held funds are intentional for v1: buyer payments settle to the platform balance, settlement records seller wallet credit, and money moves to the connected seller account only when the seller requests an on-demand payout.
+- Do not mix direct connected-account charges, destination charges, and platform-held charges in the same seller wallet flow. A future charge strategy change should be a migration with explicit ledger and reconciliation rules.
+- Payout requests transfer from the platform balance to the connected account first, then create the connected-account payout. The seller-facing source of truth remains the settlement wallet ledger.
+- Stripe handles card collection, dynamic payment methods, 3D Secure, hosted onboarding, payout destination collection, transfer execution, payout execution, and webhook signatures. Marketplace code stores only provider references and support-safe statuses.
 
 ## Operational Model
 

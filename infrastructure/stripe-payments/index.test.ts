@@ -10,13 +10,14 @@ function signature(rawBody: string, secret: string, timestamp: number) {
 }
 
 describe("Stripe payment processor gateway", () => {
-  it("creates PaymentIntents through Stripe with API version and metadata", async () => {
+  it("creates Checkout Sessions through Stripe with API version, managed Elements, and metadata", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
-          id: "pi_123",
-          client_secret: "pi_123_secret",
-          status: "requires_payment_method",
+          id: "cs_123",
+          client_secret: "cs_123_secret",
+          status: "open",
+          payment_status: "unpaid",
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -36,11 +37,12 @@ describe("Stripe payment processor gateway", () => {
       amount: "12.34",
       currencyCode: "usd",
       description: "Test payment",
+      returnUrl: "https://marketplace.test/account/payments/pay_123",
     });
 
-    expect(payment.processorPaymentReference).toBe("pi_123");
+    expect(payment.processorPaymentReference).toBe("cs_123");
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://stripe.test/v1/payment_intents",
+      "https://stripe.test/v1/checkout/sessions",
       expect.objectContaining({
         method: "POST",
         headers: expect.any(Headers),
@@ -51,15 +53,20 @@ describe("Stripe payment processor gateway", () => {
     expect((init.headers as Headers).get("Idempotency-Key")).toBe(
       "payments:payment:pay_123:create",
     );
+    expect(String(init.body)).toContain("ui_mode=elements");
+    expect(String(init.body)).toContain("mode=payment");
+    expect(String(init.body)).toContain(
+      "return_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_123",
+    );
     expect(String(init.body)).toContain("metadata%5Bpayment_id%5D=pay_123");
     expect(String(init.body)).toContain(
-      "payment_method_options%5Bcard%5D%5Brequest_three_d_secure%5D=automatic",
+      "payment_intent_data%5Bpayment_method_options%5D%5Bcard%5D%5Brequest_three_d_secure%5D=automatic",
     );
 
     vi.unstubAllGlobals();
   });
 
-  it("parses signed Stripe payment failure webhooks into provider-neutral events", async () => {
+  it("parses signed Stripe checkout failure webhooks into provider-neutral events", async () => {
     const gateway = createStripePaymentProcessorGateway({
       secretKey: "sk_test",
       publishableKey: "pk_test",
@@ -69,12 +76,13 @@ describe("Stripe payment processor gateway", () => {
     const now = Math.floor(Date.now() / 1000);
     const rawBody = JSON.stringify({
       id: "evt_123",
-      type: "payment_intent.payment_failed",
+      type: "checkout.session.async_payment_failed",
       created: now,
       data: {
         object: {
-          id: "pi_123",
-          status: "requires_payment_method",
+          id: "cs_123",
+          status: "open",
+          payment_status: "unpaid",
           last_payment_error: {
             code: "card_declined",
             message: "The card was declined.",
@@ -91,7 +99,7 @@ describe("Stripe payment processor gateway", () => {
     ).resolves.toMatchObject({
       eventId: "evt_123",
       kind: "payment-failed",
-      processorPaymentReference: "pi_123",
+      processorPaymentReference: "cs_123",
       failureCode: "card_declined",
     });
   });

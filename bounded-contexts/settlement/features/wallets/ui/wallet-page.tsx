@@ -26,6 +26,10 @@ function fundsStatusTone(status: string) {
   return status === "available" ? "success" : "warning";
 }
 
+function checklistTone(isComplete: boolean) {
+  return isComplete ? "success" : "neutral";
+}
+
 export function SettlementWalletPage({
   wallet,
   entries,
@@ -35,6 +39,39 @@ export function SettlementWalletPage({
   entries: readonly SettlementLedgerEntryRow[];
   payoutReadiness?: SettlementPayoutReadinessRow | null;
 }) {
+  const availableBalance = Number.parseFloat(wallet.available_balance_amount);
+  const hasLedgerActivity = entries.length > 0;
+  const setupChecklist = [
+    {
+      label: "Start payout setup",
+      complete: Boolean(payoutReadiness?.provider_reference),
+      detail: payoutReadiness?.provider_reference
+        ? "Provider account created"
+        : "Create the hosted payout setup session",
+    },
+    {
+      label: "Finish account verification",
+      complete: payoutReadiness?.status === "ready",
+      detail: payoutReadiness
+        ? `Setup is ${payoutReadiness.status.replace("-", " ")}`
+        : "Setup has not started",
+    },
+    {
+      label: "Add payout destination",
+      complete: payoutReadiness?.payout_destination_status === "ready",
+      detail: payoutReadiness?.payout_destination_status === "ready"
+        ? "Destination is ready"
+        : "Add or verify a payout destination",
+    },
+    {
+      label: "Earn available funds",
+      complete: hasLedgerActivity && availableBalance > 0,
+      detail: availableBalance > 0
+        ? `${formatMoney(wallet.available_balance_amount, wallet.currency_code)} available`
+        : "Available funds appear here after sales settle",
+    },
+  ];
+
   return (
     <Page>
       <PageHeader
@@ -85,6 +122,22 @@ export function SettlementWalletPage({
           </Card>
         </PageSection>
       ) : null}
+
+      <PageSection title="Seller Setup Checklist">
+        <Grid columns={{ base: 1, md: 2 }} gap={3}>
+          {setupChecklist.map((item) => (
+            <Card key={item.label}>
+              <Stack gap={2}>
+                <Badge tone={checklistTone(item.complete)}>
+                  {item.complete ? "Done" : "Next"}
+                </Badge>
+                <Text weight="semibold">{item.label}</Text>
+                <Text size="sm" tone="secondary">{item.detail}</Text>
+              </Stack>
+            </Card>
+          ))}
+        </Grid>
+      </PageSection>
 
       <PageSection title="Ledger">
         <DataTable

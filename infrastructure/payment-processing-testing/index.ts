@@ -20,7 +20,7 @@ export type FakePaymentProcessorGatewayOptions = Readonly<{
 }>;
 
 function createPaymentReference(input: CreateProcessorPaymentInput) {
-  return `pi_seed_${input.paymentId}`;
+  return `cs_seed_${input.paymentId}`;
 }
 
 function createRefundReference(input: CreateProcessorRefundInput) {
@@ -44,8 +44,8 @@ export function createFakePaymentProcessorGateway(
       return {
         processorName: "stripe",
         processorPaymentReference: createPaymentReference(input),
-        processorClientSecret: `secret_seed_${input.paymentId}`,
-        processorStatus: "requires_capture",
+        processorClientSecret: `cs_seed_${input.paymentId}_secret_seed`,
+        processorStatus: "open",
       };
     },
     async createRefund(input) {

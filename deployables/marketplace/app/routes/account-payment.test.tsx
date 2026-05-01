@@ -171,7 +171,7 @@ describe("marketplace account payment route", () => {
     );
 
     expect(screen.getByText("Payment pay_1")).toBeTruthy();
-    expect(screen.getAllByText("captured").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Paid").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$11.00").length).toBeGreaterThan(0);
     expect(screen.getByText("ready-for-fulfillment")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open purchase" })).toBeTruthy();

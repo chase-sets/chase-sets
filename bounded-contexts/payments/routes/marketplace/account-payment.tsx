@@ -37,11 +37,19 @@ type StripePaymentElement = {
   destroy(): void;
 };
 
+type StripeCheckoutController = {
+  createPaymentElement(): StripePaymentElement;
+  confirm(options?: { redirect: "if_required" }): Promise<{ error?: { message?: string } }>;
+};
+
 type StripeElements = {
   create(type: "payment"): StripePaymentElement;
 };
 
 type StripeClient = {
+  initCheckout?: (options: {
+    clientSecret: string;
+  }) => StripeCheckoutController | Promise<StripeCheckoutController>;
   elements(options: { clientSecret: string }): StripeElements;
   confirmPayment(options: {
     elements: StripeElements;
@@ -128,8 +136,43 @@ function statusTone(status: string) {
   }
 }
 
+function paymentStatusCopy(status: string) {
+  switch (status) {
+    case "pending-confirmation":
+      return {
+        label: "Ready for payment",
+        description: "Your checkout is ready. Confirm payment in the secure form.",
+      };
+    case "authorized":
+      return {
+        label: "Payment authorized",
+        description: "The payment was accepted and is waiting for final capture.",
+      };
+    case "captured":
+      return {
+        label: "Paid",
+        description: "Payment is complete and the covered purchases can move forward.",
+      };
+    case "failed":
+      return {
+        label: "Payment needs attention",
+        description: "The secure processor could not complete this payment.",
+      };
+    case "cancelled":
+      return {
+        label: "Payment cancelled",
+        description: "This payment session is closed. Start a new payment to continue.",
+      };
+    default:
+      return {
+        label: "Payment in progress",
+        description: "The payment is being updated by the secure processor.",
+      };
+  }
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "orders.view",
   });
@@ -145,6 +188,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     return {
       payment,
       orders,
+      showSupportDetails: actor.permissions.includes("orders.manage"),
     };
   } catch (error) {
     if (
@@ -165,6 +209,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
   const revalidator = useRevalidator();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stripeRef = useRef<StripeClient | null>(null);
+  const checkoutRef = useRef<StripeCheckoutController | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
   const elementRef = useRef<StripePaymentElement | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -186,19 +231,32 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
     setIsReady(false);
 
     void loadStripeFactory()
-      .then((factory) => {
+      .then(async (factory) => {
         if (cancelled) {
           return;
         }
 
         const stripe = factory(payment.processor_publishable_key!);
-        const elements = stripe.elements({
-          clientSecret: payment.processor_client_secret!,
-        });
-        const paymentElement = elements.create("payment");
+        const clientSecret = payment.processor_client_secret!;
+        const checkout = clientSecret.startsWith("cs_") && stripe.initCheckout
+          ? await stripe.initCheckout({ clientSecret })
+          : null;
+        if (cancelled) {
+          return;
+        }
+
+        const elements = checkout
+          ? null
+          : stripe.elements({
+              clientSecret,
+            });
+        const paymentElement = checkout
+          ? checkout.createPaymentElement()
+          : elements!.create("payment");
         paymentElement.mount(containerRef.current!);
 
         stripeRef.current = stripe;
+        checkoutRef.current = checkout;
         elementsRef.current = elements;
         elementRef.current = paymentElement;
         setIsReady(true);
@@ -213,6 +271,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
       cancelled = true;
       elementRef.current?.destroy();
       elementRef.current = null;
+      checkoutRef.current = null;
       elementsRef.current = null;
       stripeRef.current = null;
       setIsReady(false);
@@ -237,7 +296,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
   }, [payment.status, revalidator]);
 
   async function handleConfirm() {
-    if (!stripeRef.current || !elementsRef.current) {
+    if (!stripeRef.current || (!checkoutRef.current && !elementsRef.current)) {
       setErrorMessage("Stripe is still loading.");
       return;
     }
@@ -245,10 +304,12 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
-      const result = await stripeRef.current.confirmPayment({
-        elements: elementsRef.current,
-        redirect: "if_required",
-      });
+      const result = checkoutRef.current
+        ? await checkoutRef.current.confirm({ redirect: "if_required" })
+        : await stripeRef.current.confirmPayment({
+            elements: elementsRef.current!,
+            redirect: "if_required",
+          });
 
       if (result.error?.message) {
         setErrorMessage(result.error.message);
@@ -292,6 +353,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
 
 export default function MarketplaceAccountPaymentRoute() {
   const data = useLoaderData<typeof loader>();
+  const statusCopy = paymentStatusCopy(data.payment.status);
 
   return (
     <Page>
@@ -312,7 +374,7 @@ export default function MarketplaceAccountPaymentRoute() {
             <OrderSummary
               title="Payment Summary"
               lines={[
-                { label: "Status", value: <Badge tone={statusTone(data.payment.status)}>{data.payment.status}</Badge> },
+                { label: "Status", value: <Badge tone={statusTone(data.payment.status)}>{statusCopy.label}</Badge> },
                 { label: "Wallet balance used", value: formatMoney(data.payment.balance_credit_amount) },
                 { label: "External payment", value: formatMoney(data.payment.processor_amount) },
                 { label: "Marketplace fees", value: formatMoney(data.payment.marketplace_fee_amount) },
@@ -359,6 +421,76 @@ export default function MarketplaceAccountPaymentRoute() {
                 ) : null}
               </Stack>
             </Surface>
+          ) : null}
+
+          <PageSection title="Payment Status">
+            <Surface elevated>
+              <Stack gap={2}>
+                <Badge tone={statusTone(data.payment.status) as any}>{statusCopy.label}</Badge>
+                <Text>{statusCopy.description}</Text>
+              </Stack>
+            </Surface>
+          </PageSection>
+
+          <PageSection title="Event Timeline">
+            <Surface elevated>
+              <Stack gap={2}>
+                <Stack gap={1}>
+                  <Badge tone="success">Payment created</Badge>
+                  <Text size="sm" tone="secondary">
+                    {new Date(data.payment.created_at).toLocaleString()}
+                  </Text>
+                </Stack>
+                <Stack gap={1}>
+                  <Badge tone={data.payment.captured_at ? "success" : statusTone(data.payment.status) as any}>
+                    {data.payment.captured_at
+                      ? "Payment captured"
+                      : data.payment.failed_at
+                        ? "Payment failed"
+                        : data.payment.cancelled_at
+                          ? "Payment cancelled"
+                          : "Waiting for provider event"}
+                  </Badge>
+                  <Text size="sm" tone="secondary">
+                    {data.payment.captured_at
+                      ? new Date(data.payment.captured_at).toLocaleString()
+                      : data.payment.failed_at
+                        ? new Date(data.payment.failed_at).toLocaleString()
+                        : data.payment.cancelled_at
+                          ? new Date(data.payment.cancelled_at).toLocaleString()
+                          : data.payment.processor_status}
+                  </Text>
+                </Stack>
+              </Stack>
+            </Surface>
+          </PageSection>
+
+          {data.showSupportDetails ? (
+            <PageSection title="Support Details">
+              <Surface elevated>
+                <Stack gap={2}>
+                  <Text size="sm" tone="secondary">Internal payment: {data.payment.payment_id}</Text>
+                  <Text size="sm" tone="secondary">Account: {data.payment.buyer_account_id}</Text>
+                  <Text size="sm" tone="secondary">
+                    Processor reference: {data.payment.processor_payment_reference}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    Processor status: {data.payment.processor_status}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    Source: {data.payment.source_context ?? "direct"} / {data.payment.source_reference_id ?? "none"}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    Updated: {new Date(data.payment.updated_at).toLocaleString()}
+                  </Text>
+                  {data.payment.failure_code ? (
+                    <Text size="sm" tone="secondary">
+                      Failure code: {data.payment.failure_code}
+                    </Text>
+                  ) : null}
+                </Stack>
+              </Surface>
+            </PageSection>
           ) : null}
 
           {data.payment.status === "pending-confirmation" ? (
