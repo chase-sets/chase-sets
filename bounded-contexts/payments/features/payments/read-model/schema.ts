@@ -65,6 +65,20 @@ CREATE INDEX IF NOT EXISTS payments_provider_idempotency_keys_account_idx
   ON payments_provider_idempotency_keys (account_id, created_at DESC)
   WHERE account_id IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS payments_reconciliation_runs (
+  reconciliation_run_id text PRIMARY KEY,
+  kind text NOT NULL,
+  checked_count integer NOT NULL,
+  attention_count integer NOT NULL,
+  status text NOT NULL,
+  summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+  started_at timestamptz NOT NULL,
+  completed_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS payments_reconciliation_runs_completed_idx
+  ON payments_reconciliation_runs (completed_at DESC);
+
 CREATE TABLE IF NOT EXISTS payments_provider_webhook_events (
   provider_event_id text PRIMARY KEY,
   provider_name text NOT NULL,

@@ -7,6 +7,8 @@ import {
   createPayoutRoutes,
 } from "./features/payouts/api/route";
 import { createPayoutReadinessRoutes } from "./features/payout-readiness/api/route";
+import { payoutUnavailableReasonLabel } from "./features/payouts/domain/reason-codes";
+import { buildPayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 
 export type SettlementApiEnv = AuthenticatedApiEnv;
 
@@ -38,6 +40,7 @@ export function buildSettlementApi(services: SettlementServices) {
         : []),
       ...(availableAmount > 0 ? [] : ["no-available-wallet-balance"]),
     ];
+    const payoutSetupProgress = buildPayoutSetupProgress(payoutReadiness);
 
     return c.json({
       account_id: actor.accountId,
@@ -56,10 +59,15 @@ export function buildSettlementApi(services: SettlementServices) {
         payout_destination_status: payoutReadiness.payout_destination_status,
         missing_requirements: payoutReadiness.missing_requirements,
         last_checked_at: payoutReadiness.updated_at,
+        steps: payoutSetupProgress.steps,
       },
       payouts: {
         can_request: setupReady && !setupStale && availableAmount > 0,
         unavailable_reasons: restrictions,
+        unavailable_reason_details: restrictions.map((code) => ({
+          code,
+          message: payoutUnavailableReasonLabel(code),
+        })),
       },
       restrictions,
       next_actions: [

@@ -7,6 +7,7 @@ import { useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
+  type SettlementProviderIdempotencyKeyRow,
   type SettlementPayoutRow,
   createSettlementRequestApiClient,
 } from "../../support/request-support/api-client";
@@ -30,9 +31,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const requestUrl = new URL(request.url);
   const filter = requestUrl.searchParams.get("filter") ?? "all";
   const query = filter === "all" ? "" : `filter=${encodeURIComponent(filter)}`;
-  const payouts = await settlementApi.listPayoutsNeedingReconciliation(query);
+  const [payouts, idempotencyKeys] = await Promise.all([
+    settlementApi.listPayoutsNeedingReconciliation(query),
+    settlementApi.listPayoutProviderIdempotencyKeys("limit=10"),
+  ]);
 
-  return { payouts, filter };
+  return { payouts, idempotencyKeys, filter };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -61,6 +65,9 @@ export default function MarketplaceAccountPayoutOperationsRoute() {
   return (
     <SettlementPayoutOperationsPage
       payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
+      idempotencyKeys={
+        (data.idempotencyKeys.items ?? []) as SettlementProviderIdempotencyKeyRow[]
+      }
       runResult={actionData}
       currentFilter={data.filter}
       lastCheckedAt={actionData ? new Date().toISOString() : null}

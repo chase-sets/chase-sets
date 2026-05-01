@@ -8,6 +8,11 @@ import type {
   PaymentProcessorPublicConfig,
   PaymentProcessorWebhookEvent,
 } from "@chase-sets/payment-processing";
+import {
+  ProviderAdapterError,
+  providerFailureCategoryFromHttpStatus,
+  providerFailureCategoryFromText,
+} from "@chase-sets/http/provider-errors";
 
 const STRIPE_API_VERSION = "2026-02-25.clover";
 
@@ -118,7 +123,14 @@ async function parseStripeResponse<T>(response: Response): Promise<T> {
         ? (body as { error: { message: string } }).error.message
         : `Stripe request failed with status ${response.status}.`;
 
-    throw new Error(message);
+    throw new ProviderAdapterError(
+      providerFailureCategoryFromText(
+        message,
+        providerFailureCategoryFromHttpStatus(response.status),
+      ),
+      message,
+      response.status,
+    );
   }
 
   return body as T;

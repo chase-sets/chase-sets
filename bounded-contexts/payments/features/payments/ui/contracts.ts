@@ -40,6 +40,17 @@ export interface PaymentsCheckoutStatus {
   };
   can_start_payment: boolean;
   unavailable_reasons: readonly string[];
+  unavailable_reason_details: readonly {
+    code: string;
+    message: string;
+  }[];
+}
+
+export interface PaymentsCheckoutRecoveryOptions {
+  recovery_reference_id: string;
+  can_recover: boolean;
+  recommended_action: "start-payment" | "use-existing-payment" | "unavailable";
+  checkout_status: PaymentsCheckoutStatus;
 }
 
 export interface PaymentsProviderEvent {

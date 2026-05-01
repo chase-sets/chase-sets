@@ -135,6 +135,72 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     }
   });
 
+  app.post("/checkout/recover", async (c) => {
+    const access = requirePaymentAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: "Authentication context missing." }, 401);
+    }
+
+    const body = await c.req.json();
+    try {
+      const payment = await services.recoverCheckoutPayment(
+        {
+          accountId: access.actor.accountId as never,
+          orderIds: Array.isArray(body.orderIds)
+            ? body.orderIds.map(String)
+            : [],
+          currencyCode: String(body.currencyCode ?? "usd"),
+          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
+            body.requestedBalanceCreditAmount,
+          ),
+          returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
+          clientRiskContext: {
+            ipAddress:
+              c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+              c.req.header("x-real-ip") ??
+              null,
+            userAgent: c.req.header("user-agent") ?? null,
+          },
+        },
+        context,
+      );
+
+      return c.json(payment, 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
+  app.get("/checkout/recovery", async (c) => {
+    const access = requirePaymentAccess(c, "orders.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      const orderIds =
+        c.req.queries("orderId") ??
+        c.req.query("orderIds")?.split(",").map((value) => value.trim()) ??
+        [];
+      const recovery = await services.getCheckoutRecoveryOptions({
+        accountId: access.actor.accountId as never,
+        orderIds: orderIds.filter(Boolean) as never,
+        currencyCode: c.req.query("currencyCode") ?? "usd",
+        requestedBalanceCreditAmount:
+          c.req.query("requestedBalanceCreditAmount") ?? null,
+      });
+
+      return c.json(recovery);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
   app.get("/payments/:id", async (c) => {
     const access = requirePaymentAccess(c, "orders.view");
     if (access.response) {
@@ -150,6 +216,23 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     }
 
     return c.json(payment);
+  });
+
+  app.get("/payments/:id/timeline", async (c) => {
+    const access = requirePaymentAccess(c, "orders.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const timeline = await services.getPaymentMoneyTimeline({
+      paymentId: c.req.param("id"),
+      accountId: access.actor.accountId,
+    });
+    if (!timeline) {
+      return c.json({ error: "Payment not found." }, 404);
+    }
+
+    return c.json(timeline);
   });
 
   app.get("/provider-events/:providerEventId", async (c) => {
@@ -181,6 +264,28 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
         limit: Number(c.req.query("limit") ?? 25),
       }),
     });
+  });
+
+  app.get("/reconciliation/runs", async (c) => {
+    const access = requirePaymentAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const items = await services.listReconciliationRuns({
+      limit: Number(c.req.query("limit") ?? 25),
+    });
+
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/provider-health", async (c) => {
+    const access = requirePaymentAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getProviderHealth());
   });
 
   return app;

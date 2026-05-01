@@ -48,7 +48,7 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
   projectionGroups,
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [
-    buildPaymentsApi(services.payments),
+    buildPaymentsApi(services),
     createPaymentProcessorWebhookRoutes(services.payments),
   ],
   projectors: (services) => services.projectors,

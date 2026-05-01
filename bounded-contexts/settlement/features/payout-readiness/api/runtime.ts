@@ -34,6 +34,10 @@ import {
   getPayoutReadinessByProviderReference,
   type SettlementPayoutReadinessRow,
 } from "../read-model/queries";
+import {
+  buildPayoutSetupProgress,
+  type PayoutSetupProgress,
+} from "../domain/setup-progress";
 
 type PayoutReadinessRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -49,6 +53,7 @@ export type PayoutReadinessServices = Readonly<{
     PayoutReadinessEvent
   >;
   getPayoutReadiness: (accountId: string) => Promise<SettlementPayoutReadinessRow>;
+  getPayoutSetupProgress: (accountId: string) => Promise<PayoutSetupProgress>;
   createOnboardingSession: (
     params: Readonly<{
       accountId: AccountId;
@@ -171,6 +176,9 @@ export function createPayoutReadinessRuntime(
   return {
     commandHandler,
     getPayoutReadiness: (accountId) => getPayoutReadiness(deps.db, accountId),
+    async getPayoutSetupProgress(accountId) {
+      return buildPayoutSetupProgress(await getPayoutReadiness(deps.db, accountId));
+    },
     async createOnboardingSession(params, context) {
       const existing = await getPayoutReadiness(deps.db, params.accountId);
       const ensured = existing.provider_reference

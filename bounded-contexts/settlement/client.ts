@@ -5,8 +5,13 @@ import type {
   SettlementLedgerEntryRow,
   SettlementWalletRow,
 } from "./features/wallets/read-model/queries";
-import type { SettlementPayoutRow } from "./features/payouts/read-model/queries";
+import type {
+  SettlementPayoutRow,
+  SettlementProviderIdempotencyKeyRow,
+  SettlementReconciliationRunRow,
+} from "./features/payouts/read-model/queries";
 import type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
+import type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 
 type SettlementApiApp = ReturnType<typeof buildSettlementApi>;
 
@@ -29,13 +34,33 @@ export type SettlementAccountStatus = Readonly<{
     payout_destination_status: string;
     missing_requirements: readonly string[];
     last_checked_at: string | null;
+    steps: PayoutSetupProgress["steps"];
   }>;
   payouts: Readonly<{
     can_request: boolean;
     unavailable_reasons: readonly string[];
+    unavailable_reason_details: readonly Readonly<{
+      code: string;
+      message: string;
+    }>[];
   }>;
   restrictions: readonly string[];
   next_actions: readonly string[];
+}>;
+
+export type SettlementPayoutPreview = Readonly<{
+  account_id: string;
+  requested_amount: string;
+  currency_code: string;
+  available_balance_amount: string;
+  platform_available_amount: string;
+  estimated_wallet_balance_after: string;
+  can_request: boolean;
+  unavailable_reasons: readonly string[];
+  unavailable_reason_details: readonly Readonly<{
+    code: string;
+    message: string;
+  }>[];
 }>;
 
 export class SettlementApiError extends Error {
@@ -106,6 +131,24 @@ export function createSettlementApiClient({
         }),
       );
     },
+    async postRefundDebit(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.wallet["refund-debits"].$post({ json: body, header: headers }),
+      );
+    },
+    async postDisputeHold(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.wallet["dispute-holds"].$post({ json: body, header: headers }),
+      );
+    },
+    async postDisputeRelease(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.wallet["dispute-releases"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async listPayouts(query = ""): Promise<ListResponse<SettlementPayoutRow>> {
       return parseJsonResponse(
         await client.payouts.$get({
@@ -117,6 +160,11 @@ export function createSettlementApiClient({
     async getPayoutReadiness(): Promise<SettlementPayoutReadinessRow> {
       return parseJsonResponse(
         await client["payout-readiness"].$get({ header: headers }),
+      );
+    },
+    async getPayoutSetupProgress(): Promise<PayoutSetupProgress> {
+      return parseJsonResponse(
+        await client["payout-setup"].progress.$get({ header: headers }),
       );
     },
     async createPayoutSetupOnboardingSession(
@@ -155,6 +203,14 @@ export function createSettlementApiClient({
         }),
       );
     },
+    async getPayoutMoneyTimeline(payoutId: string) {
+      return parseJsonResponse(
+        await client.payouts[":id"].timeline.$get({
+          param: { id: payoutId },
+          header: headers,
+        }),
+      );
+    },
     async listPayoutsNeedingReconciliation(
       query = "",
     ): Promise<ListResponse<SettlementPayoutRow>> {
@@ -173,6 +229,53 @@ export function createSettlementApiClient({
         }),
       );
     },
+    async listPayoutReconciliationRuns(
+      query = "",
+    ): Promise<ListResponse<SettlementReconciliationRunRow>> {
+      return parseJsonResponse(
+        await client.payouts.reconciliation.runs.$get({
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async listPayoutProviderIdempotencyKeys(
+      query = "",
+    ): Promise<ListResponse<SettlementProviderIdempotencyKeyRow>> {
+      return parseJsonResponse(
+        await client.payouts["provider-idempotency"].$get({
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async getPlatformBalanceForecast(): Promise<Readonly<{
+      currency_code: string;
+      available_amount: string;
+      pending_payout_demand_amount: string;
+      forecast_after_pending_demand_amount: string;
+    }>> {
+      return parseJsonResponse(
+        await client.payouts["platform-balance-forecast"].$get({
+          header: headers,
+        }),
+      );
+    },
+    async previewPayout(body: Record<string, unknown>): Promise<SettlementPayoutPreview> {
+      return parseJsonResponse(
+        await client.payouts.preview.$post({ json: body, header: headers }),
+      );
+    },
+    async getMoneyHealth() {
+      return parseJsonResponse(
+        await client["money-health"].$get({ header: headers }),
+      );
+    },
+    async getProviderHealth() {
+      return parseJsonResponse(
+        await client["provider-health"].$get({ header: headers }),
+      );
+    },
     async createPayout(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.payouts.$post({ json: body, header: headers }),
@@ -182,6 +285,11 @@ export function createSettlementApiClient({
 }
 
 export type { SettlementWalletRow, SettlementLedgerEntryRow } from "./features/wallets/read-model/queries";
-export type { SettlementPayoutRow } from "./features/payouts/read-model/queries";
+export type {
+  SettlementPayoutRow,
+  SettlementProviderIdempotencyKeyRow,
+  SettlementReconciliationRunRow,
+} from "./features/payouts/read-model/queries";
 export type { SettlementPayoutReadinessRow } from "./features/payout-readiness/read-model/queries";
+export type { PayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
 export const settlementApi = createSettlementApiClient();

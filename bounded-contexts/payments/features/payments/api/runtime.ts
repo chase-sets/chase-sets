@@ -22,6 +22,7 @@ import {
   PaymentsDomainError,
   subtractMoney,
 } from "../../../support/runtime-support/common";
+import { checkoutUnavailableReasonLabel } from "./reason-codes";
 import type {
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
@@ -36,11 +37,14 @@ import {
   getPaymentProviderEvent,
   listPaymentProviderEvents,
   listPaymentProviderIdempotencyKeys,
+  listPaymentReconciliationRuns,
   listPaymentsNeedingReconciliation,
+  recordPaymentReconciliationRun,
   recordPaymentProviderIdempotencyKey,
   getPaymentBySource,
   type PaymentDetailRow,
   type PaymentProviderIdempotencyKeyRow,
+  type PaymentReconciliationRunRow,
   type PaymentProviderEventRow,
 } from "../read-model/queries";
 import {
@@ -59,6 +63,39 @@ type PaymentRuntimeDeps = Readonly<{
   processorGateway: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
 }>;
+
+type CheckoutStatusResult = Readonly<{
+  order_ids: readonly string[];
+  currency_code: string;
+  amount: string;
+  wallet_credit: Readonly<{
+    requested_amount: string;
+    applied_amount: string;
+    external_amount: string;
+  }>;
+  can_start_payment: boolean;
+  unavailable_reasons: readonly string[];
+  unavailable_reason_details: readonly Readonly<{
+    code: string;
+    message: string;
+  }>[];
+}>;
+
+function checkoutRecoveryReference(
+  params: Readonly<{
+    accountId: AccountId;
+    orderIds: readonly OrderId[];
+    currencyCode: string;
+    requestedBalanceCreditAmount: string;
+  }>,
+) {
+  return [
+    params.accountId,
+    [...params.orderIds].sort().join(","),
+    params.currencyCode,
+    params.requestedBalanceCreditAmount,
+  ].join(":");
+}
 
 function sumOrderAmounts(
   orders: readonly Readonly<{ total_amount: string }>[],
@@ -144,14 +181,24 @@ export type PaymentServices = Readonly<{
     processor_publishable_key: string | null;
     provider_events: readonly PaymentProviderEventRow[];
   }>>;
-  getAccountPayment: (
-    paymentId: string,
-    accountId: string,
-  ) => Promise<(PaymentDetailRow & Readonly<{
+  recoverCheckoutPayment: (
+    params: Readonly<{
+      accountId: AccountId;
+      orderIds: readonly OrderId[];
+      currencyCode?: string;
+      requestedBalanceCreditAmount?: string | null;
+      returnUrlBase?: string | null;
+      clientRiskContext?: Readonly<{
+        ipAddress?: string | null;
+        userAgent?: string | null;
+      }> | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<PaymentDetailRow & Readonly<{
     processor_publishable_key: string | null;
     provider_events: readonly PaymentProviderEventRow[];
-  }>) | null>;
-  getCheckoutStatus: (
+  }>>;
+  getCheckoutRecoveryOptions: (
     params: Readonly<{
       accountId: AccountId;
       orderIds: readonly OrderId[];
@@ -159,17 +206,40 @@ export type PaymentServices = Readonly<{
       requestedBalanceCreditAmount?: string | null;
     }>,
   ) => Promise<Readonly<{
-    order_ids: readonly string[];
-    currency_code: string;
-    amount: string;
-    wallet_credit: Readonly<{
-      requested_amount: string;
-      applied_amount: string;
-      external_amount: string;
-    }>;
-    can_start_payment: boolean;
-    unavailable_reasons: readonly string[];
+    recovery_reference_id: string;
+    can_recover: boolean;
+    recommended_action: "start-payment" | "use-existing-payment" | "unavailable";
+    checkout_status: CheckoutStatusResult;
   }>>;
+  getAccountPayment: (
+    paymentId: string,
+    accountId: string,
+  ) => Promise<(PaymentDetailRow & Readonly<{
+    processor_publishable_key: string | null;
+    provider_events: readonly PaymentProviderEventRow[];
+  }>) | null>;
+  getPaymentMoneyTimeline: (
+    params: Readonly<{ paymentId: string; accountId: string }>,
+  ) => Promise<Readonly<{
+    payment_id: string;
+    account_id: string;
+    items: readonly Readonly<{
+      occurred_at: string;
+      kind: string;
+      label: string;
+      reference: string | null;
+      amount: string | null;
+      currency_code: string | null;
+    }>[];
+  }> | null>;
+  getCheckoutStatus: (
+    params: Readonly<{
+      accountId: AccountId;
+      orderIds: readonly OrderId[];
+      currencyCode?: string;
+      requestedBalanceCreditAmount?: string | null;
+    }>,
+  ) => Promise<CheckoutStatusResult>;
   getProviderEvent: (
     params: Readonly<{ providerEventId: string; accountId: string }>,
   ) => Promise<PaymentProviderEventRow | null>;
@@ -179,6 +249,19 @@ export type PaymentServices = Readonly<{
   listPaymentsNeedingReconciliation: (
     params?: Readonly<{ limit?: number }>,
   ) => Promise<PaymentDetailRow[]>;
+  listReconciliationRuns: (
+    params?: Readonly<{ limit?: number }>,
+  ) => Promise<PaymentReconciliationRunRow[]>;
+  getProviderHealth: () => Promise<Readonly<{
+    provider_name: string;
+    confirmation_experience: PaymentProcessorPublicConfig["confirmationExperience"];
+    dynamic_payment_methods: boolean;
+    sensitive_payment_details_handled_by_provider: boolean;
+    webhook_signature_required: boolean;
+  }>>;
+  scanPaymentsNeedingReconciliation: (
+    params?: Readonly<{ limit?: number }>,
+  ) => Promise<Readonly<{ checked: number; attention: number; payment_ids: readonly string[] }>>;
   processWebhook: (
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
     context: EventStoreContext,
@@ -283,6 +366,15 @@ export function createPaymentRuntime(
         can_start_payment: compareMoney(amount, "0.00") > 0,
         unavailable_reasons:
           compareMoney(amount, "0.00") > 0 ? [] : ["no-payable-order-balance"],
+        unavailable_reason_details:
+          compareMoney(amount, "0.00") > 0
+            ? []
+            : [
+                {
+                  code: "no-payable-order-balance",
+                  message: checkoutUnavailableReasonLabel("no-payable-order-balance"),
+                },
+              ],
       };
     },
     async createAccountPayment(params, context) {
@@ -454,6 +546,77 @@ export function createPaymentRuntime(
         provider_events: [],
       };
     },
+    recoverCheckoutPayment(params, context) {
+      const orderIds = normalizeOrderIds(params.orderIds);
+      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
+      const requestedBalanceCreditAmount = normalizeMoneyAmount(
+        params.requestedBalanceCreditAmount ?? "0.00",
+        {
+          fieldName: "Balance credit amount",
+          allowZero: true,
+        },
+      );
+      return this.createAccountPayment(
+        {
+          ...params,
+          orderIds,
+          currencyCode,
+          requestedBalanceCreditAmount,
+          sourceContext: "checkout-recovery",
+          sourceReferenceId: checkoutRecoveryReference({
+            accountId: params.accountId,
+            orderIds,
+            currencyCode,
+            requestedBalanceCreditAmount,
+          }),
+        },
+        context,
+      );
+    },
+    async getCheckoutRecoveryOptions(params) {
+      const accountId = normalizeRequiredText(
+        params.accountId,
+        "Account is required.",
+      ) as AccountId;
+      const orderIds = normalizeOrderIds(params.orderIds);
+      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
+      const requestedBalanceCreditAmount = normalizeMoneyAmount(
+        params.requestedBalanceCreditAmount ?? "0.00",
+        {
+          fieldName: "Balance credit amount",
+          allowZero: true,
+        },
+      );
+      const checkoutStatus = await this.getCheckoutStatus({
+        accountId,
+        orderIds,
+        currencyCode,
+        requestedBalanceCreditAmount,
+      });
+      const recoveryReferenceId = checkoutRecoveryReference({
+        accountId,
+        orderIds,
+        currencyCode,
+        requestedBalanceCreditAmount,
+      });
+      const existing = await getPaymentBySource(
+        deps.db,
+        "checkout-recovery",
+        recoveryReferenceId,
+        accountId,
+      );
+
+      return {
+        recovery_reference_id: recoveryReferenceId,
+        can_recover: checkoutStatus.can_start_payment,
+        recommended_action: existing
+          ? "use-existing-payment"
+          : checkoutStatus.can_start_payment
+            ? "start-payment"
+            : "unavailable",
+        checkout_status: checkoutStatus,
+      };
+    },
     async getAccountPayment(paymentId, accountId) {
       const payment = await getAccountPayment(deps.db, paymentId, accountId);
       if (!payment) {
@@ -466,11 +629,128 @@ export function createPaymentRuntime(
       });
       return exposePayment(payment, providerEvents);
     },
+    async getPaymentMoneyTimeline(params) {
+      const payment = await getAccountPayment(
+        deps.db,
+        params.paymentId,
+        params.accountId,
+      );
+      if (!payment) {
+        return null;
+      }
+      const [providerEvents, idempotencyKeys] = await Promise.all([
+        listPaymentProviderEvents(deps.db, {
+          providerName: payment.processor_name,
+          providerObjectReference: payment.processor_payment_reference,
+          internalPaymentId: payment.payment_id,
+        }),
+        listPaymentProviderIdempotencyKeys(deps.db, {
+          accountId: params.accountId,
+          limit: 100,
+        }),
+      ]);
+      const items = [
+        {
+          occurred_at: payment.created_at,
+          kind: "payment-created",
+          label: "Payment started",
+          reference: payment.payment_id,
+          amount: payment.amount,
+          currency_code: payment.currency_code,
+        },
+        ...idempotencyKeys
+          .filter(
+            (entry) =>
+              entry.provider_object_reference === payment.processor_payment_reference ||
+              entry.operation_key.includes(payment.payment_id),
+          )
+          .map((entry) => ({
+            occurred_at: entry.created_at,
+            kind: entry.operation_kind,
+            label: "Provider operation submitted",
+            reference: entry.provider_object_reference ?? entry.operation_key,
+            amount: null,
+            currency_code: null,
+          })),
+        ...providerEvents.map((event) => ({
+          occurred_at: event.received_at,
+          kind: event.event_kind,
+          label: "Provider event received",
+          reference: event.provider_event_id,
+          amount: null,
+          currency_code: null,
+        })),
+        ...(payment.captured_at
+          ? [
+              {
+                occurred_at: payment.captured_at,
+                kind: "payment-captured",
+                label: "Payment captured",
+                reference: payment.processor_payment_reference,
+                amount: payment.amount,
+                currency_code: payment.currency_code,
+              },
+            ]
+          : []),
+        ...(payment.failed_at
+          ? [
+              {
+                occurred_at: payment.failed_at,
+                kind: "payment-failed",
+                label: "Payment failed",
+                reference: payment.processor_payment_reference,
+                amount: payment.amount,
+                currency_code: payment.currency_code,
+              },
+            ]
+          : []),
+      ].sort((left, right) =>
+        left.occurred_at.localeCompare(right.occurred_at),
+      );
+
+      return {
+        payment_id: payment.payment_id,
+        account_id: payment.buyer_account_id,
+        items,
+      };
+    },
     getProviderEvent: (params) => getPaymentProviderEvent(deps.db, params),
     listProviderIdempotencyKeys: (params) =>
       listPaymentProviderIdempotencyKeys(deps.db, params),
     listPaymentsNeedingReconciliation: (params) =>
       listPaymentsNeedingReconciliation(deps.db, params),
+    listReconciliationRuns: (params) =>
+      listPaymentReconciliationRuns(deps.db, params),
+    async getProviderHealth() {
+      return {
+        provider_name: publicConfig.processorName,
+        confirmation_experience: publicConfig.confirmationExperience,
+        dynamic_payment_methods: publicConfig.dynamicPaymentMethods,
+        sensitive_payment_details_handled_by_provider:
+          publicConfig.sensitivePaymentDetailsHandledByProcessor,
+        webhook_signature_required: true,
+      };
+    },
+    async scanPaymentsNeedingReconciliation(params) {
+      const startedAt = new Date().toISOString();
+      const payments = await listPaymentsNeedingReconciliation(deps.db, params);
+      const result = {
+        checked: payments.length,
+        attention: payments.length,
+        payment_ids: payments.map((payment) => payment.payment_id),
+      };
+      await recordPaymentReconciliationRun(deps.db, {
+        reconciliationRunId: createId("rec"),
+        kind: "payments",
+        checked: result.checked,
+        attention: result.attention,
+        status: "completed",
+        summary: result,
+        startedAt,
+        completedAt: new Date().toISOString(),
+      });
+      return result;
+    },
     async processWebhook(params, context) {
       const webhookEvent = await deps.processorGateway.parseWebhook(params);
       if (!webhookEvent) {

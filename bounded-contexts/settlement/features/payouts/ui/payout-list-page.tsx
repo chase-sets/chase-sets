@@ -20,6 +20,7 @@ import {
   capPayoutAmountToPolicy,
   payoutAmountPolicy,
 } from "../domain/payout-policy";
+import { payoutUnavailableReasonLabel } from "../domain/reason-codes";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -77,18 +78,20 @@ function payoutUnavailableReasons(
   const reasons: string[] = [];
   const availableBalance = Number.parseFloat(wallet.available_balance_amount);
   if (!payoutReadiness || payoutReadiness.status === "not-started") {
-    reasons.push("Set up a payout account before requesting funds.");
+    reasons.push(payoutUnavailableReasonLabel("payout-setup-incomplete"));
   } else if (payoutReadiness.status !== "ready") {
-    reasons.push("Finish payout setup and resolve any open requirements.");
+    reasons.push(payoutUnavailableReasonLabel("payout-setup-incomplete"));
   }
   if (payoutReadiness?.status === "ready" && !payoutReadiness.updated_at) {
-    reasons.push("Check setup status before requesting a payout.");
+    reasons.push(payoutUnavailableReasonLabel("payout-setup-refresh-required"));
   }
   if (payoutReadiness?.missing_requirements.length) {
-    reasons.push("Provider requirements are still open.");
+    reasons.push(payoutUnavailableReasonLabel("provider-requirements-open"));
   }
   if (availableBalance <= 0) {
-    reasons.push("Available balance is zero. Pending funds become available after settlement review.");
+    reasons.push(
+      `${payoutUnavailableReasonLabel("no-available-wallet-balance")} Pending funds become available after settlement review.`,
+    );
   }
   return reasons;
 }
@@ -103,16 +106,29 @@ export function SettlementPayoutListPage({
   canRequestPayouts = false,
   canSetupPayouts = false,
   showOperations = false,
+  setupNotice = null,
 }: {
   wallet: SettlementWalletRow;
   payouts: readonly SettlementPayoutRow[];
   payoutReadiness?: SettlementPayoutReadinessRow | null;
   errorMessage?: string | null;
   payoutDraft?: Readonly<{ amount: string; note: string | null }> | null;
-  payoutConfirmation?: Readonly<{ amount: string; note: string | null }> | null;
+  payoutConfirmation?: Readonly<{
+    amount: string;
+    note: string | null;
+    preview?: Readonly<{
+      estimated_wallet_balance_after: string;
+      can_request: boolean;
+      unavailable_reason_details: readonly Readonly<{
+        code: string;
+        message: string;
+      }>[];
+    }>;
+  }> | null;
   canRequestPayouts?: boolean;
   canSetupPayouts?: boolean;
   showOperations?: boolean;
+  setupNotice?: string | null;
 }) {
   const setupFresh = Boolean(payoutReadiness?.updated_at);
   const canRequestPayout =
@@ -124,8 +140,11 @@ export function SettlementPayoutListPage({
     ? []
     : payoutUnavailableReasons(wallet, payoutReadiness);
   const confirmationRemainingBalance = payoutConfirmation
-    ? subtractMoney(wallet.available_balance_amount, payoutConfirmation.amount)
+    ? payoutConfirmation.preview?.estimated_wallet_balance_after ??
+      subtractMoney(wallet.available_balance_amount, payoutConfirmation.amount)
     : null;
+  const confirmationCanRequest =
+    canRequestPayout && (payoutConfirmation?.preview?.can_request ?? true);
 
   return (
     <Page>
@@ -150,6 +169,14 @@ export function SettlementPayoutListPage({
       {errorMessage ? (
         <Card>
           <Text>{errorMessage}</Text>
+        </Card>
+      ) : null}
+      {setupNotice ? (
+        <Card>
+          <Stack gap={1}>
+            <Badge tone="success">Setup checked</Badge>
+            <Text>{setupNotice}</Text>
+          </Stack>
         </Card>
       ) : null}
 
@@ -206,13 +233,27 @@ export function SettlementPayoutListPage({
                       <Text size="sm" tone="secondary">
                         If the provider cannot complete the transfer or payout, the wallet is credited back automatically.
                       </Text>
+                      {payoutConfirmation.preview?.unavailable_reason_details.length ? (
+                        <Stack gap={1}>
+                          <Text size="sm" weight="semibold">
+                            Before this can be requested
+                          </Text>
+                          {payoutConfirmation.preview.unavailable_reason_details.map(
+                            (reason) => (
+                              <Text key={reason.code} size="sm" tone="secondary">
+                                {reason.message}
+                              </Text>
+                            ),
+                          )}
+                        </Stack>
+                      ) : null}
                       {payoutConfirmation.note ? (
                         <Text size="sm" tone="secondary">
                           Note: {payoutConfirmation.note}
                         </Text>
                       ) : null}
                     </Stack>
-                    <Button type="submit" disabled={!canRequestPayout}>
+                    <Button type="submit" disabled={!confirmationCanRequest}>
                       Confirm payout
                     </Button>
                   </Stack>

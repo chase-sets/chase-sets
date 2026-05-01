@@ -1,0 +1,38 @@
+export const moneyStatusLabels = {
+  "no-payable-order-balance": "There is no payable order balance.",
+  "order-not-found": "One or more orders were not found.",
+  "order-not-ready": "One or more orders are not ready for payment.",
+  "payout-setup-incomplete": "Finish payout setup before requesting funds.",
+  "payout-setup-refresh-required": "Check payout setup status before requesting funds.",
+  "provider-requirements-open": "Resolve the open payout setup requirements.",
+  "no-available-wallet-balance": "Available balance is zero.",
+  "recent-payout-failure": "A recent payout failure needs review.",
+  "payout-reconciliation-required":
+    "A previous payout request needs reconciliation.",
+  "platform-balance-insufficient":
+    "Funds are temporarily unavailable for payout.",
+  "amount-below-minimum": "Enter an amount above the minimum payout.",
+  "amount-above-maximum": "Enter an amount below the maximum payout.",
+  "amount-exceeds-available-balance":
+    "Enter an amount within the available wallet balance.",
+} as const;
+
+export type MoneyStatusCode = keyof typeof moneyStatusLabels;
+
+export type MoneyStatusDetail = Readonly<{
+  code: string;
+  message: string;
+}>;
+
+export function moneyStatusLabel(code: MoneyStatusCode | string) {
+  return moneyStatusLabels[code as MoneyStatusCode] ?? code.replaceAll("-", " ");
+}
+
+export function moneyStatusDetails(
+  codes: readonly (MoneyStatusCode | string)[],
+): readonly MoneyStatusDetail[] {
+  return codes.map((code) => ({
+    code,
+    message: moneyStatusLabel(code),
+  }));
+}

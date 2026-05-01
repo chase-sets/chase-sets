@@ -9,6 +9,10 @@ function signature(rawBody: string, secret: string, timestamp: number) {
   return `t=${timestamp},v1=${digest}`;
 }
 
+function formSnapshot(body: BodyInit | null | undefined) {
+  return Object.fromEntries(new URLSearchParams(String(body)).entries());
+}
+
 describe("Stripe payment processor gateway", () => {
   it("creates Checkout Sessions through Stripe with API version, managed Elements, and metadata", async () => {
     const fetchMock = vi.fn(async () =>
@@ -62,6 +66,16 @@ describe("Stripe payment processor gateway", () => {
     expect(String(init.body)).toContain(
       "payment_intent_data%5Bpayment_method_options%5D%5Bcard%5D%5Brequest_three_d_secure%5D=automatic",
     );
+    expect(formSnapshot(init.body)).toMatchObject({
+      mode: "payment",
+      ui_mode: "elements",
+      return_url: "https://marketplace.test/account/payments/pay_123",
+      client_reference_id: "pay_123",
+      "metadata[funds_strategy]": "platform-held",
+      "payment_intent_data[payment_method_options][card][request_three_d_secure]":
+        "automatic",
+      "payment_intent_data[transfer_group]": "payment:pay_123",
+    });
 
     vi.unstubAllGlobals();
   });
@@ -113,6 +127,14 @@ describe("Stripe payment processor gateway", () => {
       "cancel_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_hosted",
     );
     expect(String(init.body)).not.toContain("return_url=");
+    expect(formSnapshot(init.body)).toMatchObject({
+      mode: "payment",
+      ui_mode: "hosted",
+      success_url: "https://marketplace.test/account/payments/pay_hosted",
+      cancel_url: "https://marketplace.test/account/payments/pay_hosted",
+      client_reference_id: "pay_hosted",
+      "metadata[funds_strategy]": "platform-held",
+    });
 
     vi.unstubAllGlobals();
   });

@@ -43,6 +43,20 @@ export type SettlementProviderIdempotencyKeyRow = Readonly<{
   created_at: string;
 }>;
 
+export type SettlementReconciliationRunRow = Readonly<{
+  reconciliation_run_id: string;
+  kind: string;
+  checked_count: number;
+  reconciled_count: number;
+  ignored_count: number;
+  skipped_count: number;
+  error_count: number;
+  status: string;
+  summary: unknown;
+  started_at: string;
+  completed_at: string;
+}>;
+
 const payoutSelect = `
   SELECT
     payout_id,
@@ -265,6 +279,80 @@ export async function listSettlementProviderIdempotencyKeys(
      ORDER BY created_at DESC, operation_key DESC
      LIMIT $2`,
     [params.accountId, limit],
+  );
+
+  return result.rows;
+}
+
+export async function recordSettlementReconciliationRun(
+  db: PgQueryable,
+  run: Readonly<{
+    reconciliationRunId: string;
+    kind: string;
+    checked: number;
+    reconciled: number;
+    ignored: number;
+    skipped: number;
+    errorCount: number;
+    status: string;
+    summary?: unknown;
+    startedAt: string;
+    completedAt: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO settlement_reconciliation_runs (
+       reconciliation_run_id,
+       kind,
+       checked_count,
+       reconciled_count,
+       ignored_count,
+       skipped_count,
+       error_count,
+       status,
+       summary,
+       started_at,
+       completed_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+     ON CONFLICT (reconciliation_run_id) DO NOTHING`,
+    [
+      run.reconciliationRunId,
+      run.kind,
+      run.checked,
+      run.reconciled,
+      run.ignored,
+      run.skipped,
+      run.errorCount,
+      run.status,
+      JSON.stringify(run.summary ?? {}),
+      run.startedAt,
+      run.completedAt,
+    ],
+  );
+}
+
+export async function listSettlementReconciliationRuns(
+  db: PgQueryable,
+  params: Readonly<{ limit?: number }> = {},
+): Promise<SettlementReconciliationRunRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 25, 100));
+  const result = await db.query<SettlementReconciliationRunRow>(
+    `SELECT
+       reconciliation_run_id,
+       kind,
+       checked_count,
+       reconciled_count,
+       ignored_count,
+       skipped_count,
+       error_count,
+       status,
+       summary,
+       started_at,
+       completed_at
+     FROM settlement_reconciliation_runs
+     ORDER BY completed_at DESC, reconciliation_run_id DESC
+     LIMIT $1`,
+    [limit],
   );
 
   return result.rows;

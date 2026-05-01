@@ -94,6 +94,13 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "account-money-health",
+          "routePath": "account/money-health",
+          "fileExport": "./routes/marketplace/account-money-health",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
           "routeId": "account-payout-operations",
           "routePath": "account/payout-operations",
           "fileExport": "./routes/marketplace/account-payout-operations",

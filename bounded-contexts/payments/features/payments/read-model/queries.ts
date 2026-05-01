@@ -47,6 +47,17 @@ export type PaymentProviderIdempotencyKeyRow = Readonly<{
   created_at: string;
 }>;
 
+export type PaymentReconciliationRunRow = Readonly<{
+  reconciliation_run_id: string;
+  kind: string;
+  checked_count: number;
+  attention_count: number;
+  status: string;
+  summary: unknown;
+  started_at: string;
+  completed_at: string;
+}>;
+
 type PaymentPageRow = Omit<PaymentDetailRow, "order_ids"> & Readonly<{
   order_ids: unknown;
 }>;
@@ -303,4 +314,66 @@ export async function listPaymentsNeedingReconciliation(
   );
 
   return result.rows.map(mapPaymentRow);
+}
+
+export async function recordPaymentReconciliationRun(
+  db: PgQueryable,
+  run: Readonly<{
+    reconciliationRunId: string;
+    kind: string;
+    checked: number;
+    attention: number;
+    status: string;
+    summary?: unknown;
+    startedAt: string;
+    completedAt: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO payments_reconciliation_runs (
+       reconciliation_run_id,
+       kind,
+       checked_count,
+       attention_count,
+       status,
+       summary,
+       started_at,
+       completed_at
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+     ON CONFLICT (reconciliation_run_id) DO NOTHING`,
+    [
+      run.reconciliationRunId,
+      run.kind,
+      run.checked,
+      run.attention,
+      run.status,
+      JSON.stringify(run.summary ?? {}),
+      run.startedAt,
+      run.completedAt,
+    ],
+  );
+}
+
+export async function listPaymentReconciliationRuns(
+  db: PgQueryable,
+  params: Readonly<{ limit?: number }> = {},
+): Promise<PaymentReconciliationRunRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 25, 100));
+  const result = await db.query<PaymentReconciliationRunRow>(
+    `SELECT
+       reconciliation_run_id,
+       kind,
+       checked_count,
+       attention_count,
+       status,
+       summary,
+       started_at,
+       completed_at
+     FROM payments_reconciliation_runs
+     ORDER BY completed_at DESC, reconciliation_run_id DESC
+     LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows;
 }

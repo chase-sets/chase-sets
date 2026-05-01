@@ -74,6 +74,15 @@ export function createPayoutReadinessRoutes(
     return c.json(await services.getPayoutReadiness(access.actor.accountId));
   });
 
+  app.get("/payout-setup/progress", async (c) => {
+    const access = requirePayoutReadinessAccess(c, "payouts.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getPayoutSetupProgress(access.actor.accountId));
+  });
+
   app.post("/payout-setup/onboarding-session", async (c) => {
     const access = requirePayoutReadinessAccess(c, "payouts.setup");
     if (access.response) {

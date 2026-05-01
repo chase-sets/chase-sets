@@ -59,6 +59,23 @@ CREATE INDEX IF NOT EXISTS settlement_provider_idempotency_keys_account_idx
   ON settlement_provider_idempotency_keys (account_id, created_at DESC)
   WHERE account_id IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS settlement_reconciliation_runs (
+  reconciliation_run_id text PRIMARY KEY,
+  kind text NOT NULL,
+  checked_count integer NOT NULL,
+  reconciled_count integer NOT NULL,
+  ignored_count integer NOT NULL,
+  skipped_count integer NOT NULL,
+  error_count integer NOT NULL,
+  status text NOT NULL,
+  summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+  started_at timestamptz NOT NULL,
+  completed_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS settlement_reconciliation_runs_completed_idx
+  ON settlement_reconciliation_runs (completed_at DESC);
+
 ALTER TABLE settlement_payout_pages
   ADD COLUMN IF NOT EXISTS provider_transfer_reference text NULL;
 

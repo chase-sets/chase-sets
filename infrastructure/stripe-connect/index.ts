@@ -4,6 +4,11 @@ import type {
   MoneyMovementWebhookEvent,
   ProviderPayoutReadiness,
 } from "@chase-sets/money-movement";
+import {
+  ProviderAdapterError,
+  providerFailureCategoryFromHttpStatus,
+  providerFailureCategoryFromText,
+} from "@chase-sets/http/provider-errors";
 
 export type StripeConnectMoneyMovementOptions = Readonly<{
   secretKey: string;
@@ -286,7 +291,14 @@ export function createStripeConnectMoneyMovementGateway(
           ? (body as { error: { message: string } }).error.message
           : `Stripe request failed with status ${response.status}.`;
 
-      throw new Error(message);
+      throw new ProviderAdapterError(
+        providerFailureCategoryFromText(
+          message,
+          providerFailureCategoryFromHttpStatus(response.status),
+        ),
+        message,
+        response.status,
+      );
     }
 
     return body as T;

@@ -5,6 +5,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import { buildPayoutSetupProgress } from "../domain/setup-progress";
 
 function readinessTone(status: SettlementPayoutReadinessRow["status"]) {
   switch (status) {
@@ -140,6 +141,32 @@ function checkedAtLabel(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not checked yet";
 }
 
+function progressTone(status: string) {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "needs-attention":
+      return "warning";
+    case "pending":
+      return "accent";
+    default:
+      return "neutral";
+  }
+}
+
+function progressLabel(status: string) {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "needs-attention":
+      return "Needs attention";
+    case "pending":
+      return "In review";
+    default:
+      return "Not started";
+  }
+}
+
 export function PayoutReadinessPanel({
   payoutReadiness,
   readyDescription = "Payout setup is complete.",
@@ -153,6 +180,7 @@ export function PayoutReadinessPanel({
   const missingRequirementGroups = groupedRequirements(
     payoutReadiness.missing_requirements,
   );
+  const progress = buildPayoutSetupProgress(payoutReadiness);
 
   return (
     <Stack gap={2}>
@@ -166,6 +194,17 @@ export function PayoutReadinessPanel({
       <Text size="sm" tone="secondary">
         Last checked: {checkedAtLabel(payoutReadiness.updated_at)}
       </Text>
+      <Stack gap={1}>
+        {progress.steps.map((step) => (
+          <Stack key={step.id} gap={1}>
+            <Badge tone={progressTone(step.status) as any}>
+              {progressLabel(step.status)}
+            </Badge>
+            <Text size="sm" weight="semibold">{step.label}</Text>
+            <Text size="sm" tone="secondary">{step.detail}</Text>
+          </Stack>
+        ))}
+      </Stack>
       <Text size="sm" tone="secondary">
         Onboarding: {setupStatusLabel(payoutReadiness.onboarding_status)}
       </Text>

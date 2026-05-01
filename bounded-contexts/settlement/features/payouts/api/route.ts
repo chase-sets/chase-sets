@@ -82,6 +82,92 @@ export function createPayoutRoutes(services: PayoutServices) {
     });
   });
 
+  app.get("/payouts/reconciliation/runs", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.reconcile");
+    if (access.response) {
+      return access.response;
+    }
+
+    const items = await services.listReconciliationRuns({
+      limit: Number(c.req.query("limit") ?? 25),
+    });
+
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/payouts/provider-idempotency", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.reconcile");
+    if (access.response) {
+      return access.response;
+    }
+
+    const items = await services.listProviderIdempotencyKeys({
+      accountId: access.actor.accountId,
+      limit: Number(c.req.query("limit") ?? 25),
+    });
+
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/payouts/platform-balance-forecast", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.reconcile");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getPlatformBalanceForecast({ currencyCode: "usd" }));
+  });
+
+  app.post("/payouts/preview", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.request");
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = await c.req.json();
+    try {
+      return c.json(
+        await services.previewPayoutRequest({
+          accountId: access.actor.accountId as never,
+          amount: String(body.amount ?? ""),
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
+  app.get("/money-health", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.reconcile");
+    if (access.response) {
+      return access.response;
+    }
+
+    const [payouts, reconciliationRuns, platformBalanceForecast, providerHealth] =
+      await Promise.all([
+        services.listPayoutsNeedingReconciliation({ limit: 25 }),
+        services.listReconciliationRuns({ limit: 10 }),
+        services.getPlatformBalanceForecast({ currencyCode: "usd" }),
+        services.getProviderHealth(),
+      ]);
+
+    return c.json({
+      payouts_needing_attention: payouts,
+      reconciliation_runs: reconciliationRuns,
+      platform_balance_forecast: platformBalanceForecast,
+      provider_health: providerHealth,
+    });
+  });
+
+  app.get("/provider-health", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.reconcile");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getProviderHealth());
+  });
+
   app.post("/payouts/reconciliation/run", async (c) => {
     const access = requirePayoutAccess(c, "payouts.reconcile");
     if (access.response) {
@@ -118,6 +204,24 @@ export function createPayoutRoutes(services: PayoutServices) {
     }
 
     return c.json(payout);
+  });
+
+  app.get("/payouts/:id/timeline", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      return c.json(
+        await services.getPayoutMoneyTimeline({
+          payoutId: c.req.param("id"),
+          accountId: access.actor.accountId,
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 404);
+    }
   });
 
   app.post("/payouts", async (c) => {

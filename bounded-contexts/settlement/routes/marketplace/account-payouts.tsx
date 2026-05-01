@@ -8,6 +8,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   SettlementApiError,
+  type SettlementPayoutPreview,
   type SettlementPayoutRow,
   type SettlementPayoutReadinessRow,
   type SettlementWalletRow,
@@ -25,6 +26,7 @@ type PayoutActionData = Readonly<{
   confirmation?: Readonly<{
     amount: string;
     note: string | null;
+    preview: SettlementPayoutPreview;
   }>;
 }>;
 
@@ -47,7 +49,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       permission: "payouts.setup",
     });
     await createSettlementRequestApiClient(request).refreshPayoutSetup();
-    return redirect("/account/payouts");
+    return redirect("/account/payouts?setup=updated");
   }
 
   const actor = await requireActorFromAuthApi({
@@ -68,6 +70,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
     canRequestPayouts: actor.permissions.includes("payouts.request"),
     canSetupPayouts: actor.permissions.includes("payouts.setup"),
     canReconcilePayouts: actor.permissions.includes("payouts.reconcile"),
+    setupNotice:
+      requestUrl.searchParams.get("setup") === "updated"
+        ? "Payout setup status was refreshed."
+        : null,
   };
 }
 
@@ -87,10 +93,12 @@ export async function action({ request }: ActionFunctionArgs) {
       }
       const amount = normalizeQuickAmount(formData);
       const note = formData.get("note") ? String(formData.get("note")) : null;
+      const preview = await settlementApi.previewPayout({ amount });
       return {
         confirmation: {
           amount,
           note,
+          preview,
         },
       };
     }
@@ -179,6 +187,7 @@ export default function MarketplaceAccountPayoutsRoute() {
       canRequestPayouts={data.canRequestPayouts}
       canSetupPayouts={data.canSetupPayouts}
       showOperations={data.canReconcilePayouts}
+      setupNotice={data.setupNotice}
     />
   );
 }

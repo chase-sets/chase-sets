@@ -10,7 +10,10 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type { SettlementPayoutRow } from "../read-model/queries";
+import type {
+  SettlementPayoutRow,
+  SettlementProviderIdempotencyKeyRow,
+} from "../read-model/queries";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -41,11 +44,13 @@ function operationsLabel(row: SettlementPayoutRow) {
 
 export function SettlementPayoutOperationsPage({
   payouts,
+  idempotencyKeys = [],
   runResult,
   currentFilter = "all",
   lastCheckedAt,
 }: {
   payouts: readonly SettlementPayoutRow[];
+  idempotencyKeys?: readonly SettlementProviderIdempotencyKeyRow[];
   runResult?: Readonly<{
     checked: number;
     reconciled: number;
@@ -80,9 +85,14 @@ export function SettlementPayoutOperationsPage({
         title="Payout Operations"
         description="Monitor payouts that may need provider reconciliation or support review."
         actions={
-          <LinkButton href="/account/payouts" tone="secondary">
-            Back to payouts
-          </LinkButton>
+          <Stack direction="row" gap={2}>
+            <LinkButton href="/account/money-health" tone="secondary">
+              Money health
+            </LinkButton>
+            <LinkButton href="/account/payouts" tone="secondary">
+              Back to payouts
+            </LinkButton>
+          </Stack>
         }
       />
 
@@ -214,6 +224,42 @@ export function SettlementPayoutOperationsPage({
           ]}
           emptyTitle="No payouts need attention"
           emptyDescription="Provider payout reconciliation is clear."
+        />
+      </PageSection>
+
+      <PageSection title="Recent Provider Attempts">
+        <DataTable
+          rows={[...idempotencyKeys]}
+          getRowId={(row) => row.operation_key}
+          columns={[
+            {
+              key: "operation",
+              header: "Operation",
+              cell: (row) => row.operation_kind,
+            },
+            {
+              key: "payout",
+              header: "Payout",
+              cell: (row) => row.payout_id ?? "None",
+            },
+            {
+              key: "provider",
+              header: "Provider reference",
+              cell: (row) => row.provider_object_reference ?? "Pending",
+            },
+            {
+              key: "idempotency",
+              header: "Idempotency key",
+              cell: (row) => row.idempotency_key,
+            },
+            {
+              key: "created",
+              header: "Created",
+              cell: (row) => new Date(row.created_at).toLocaleString(),
+            },
+          ]}
+          emptyTitle="No provider attempts"
+          emptyDescription="Provider transfer and payout submissions appear here."
         />
       </PageSection>
     </Page>

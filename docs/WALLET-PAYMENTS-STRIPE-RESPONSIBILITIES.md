@@ -63,6 +63,19 @@ Settlement owns wallet truth, seller payout setup state, payout requests, payout
 - Replay the same webhook event from the Stripe Dashboard and confirm the API reports it as ignored without duplicate ledger entries.
 - Test hosted checkout fallback locally by setting `STRIPE_CHECKOUT_UI_MODE=hosted` and confirming the payment page shows a secure checkout continuation link instead of embedded Elements.
 
+## Webhook Event Coverage Matrix
+
+| Provider event | Adapter event | Domain transition | Ledger effect |
+| --- | --- | --- | --- |
+| `checkout.session.completed` | `payment-captured` | Payments records capture | Buyer balance credit debit if wallet credit was applied |
+| `checkout.session.async_payment_failed` | `payment-failed` | Payments records failure | None |
+| `checkout.session.expired` | `payment-cancelled` | Payments cancels payment | None |
+| `charge.refunded` | `payment-refunded` | Provider event recorded for operations | None until explicit refund settlement workflow |
+| `charge.dispute.created` | `payment-disputed` | Provider event recorded for operations | None until explicit dispute hold workflow |
+| `account.updated` | `payout-readiness-updated` | Settlement refreshes payout setup | None |
+| `payout.paid` | `payout-completed` | Settlement completes payout | Payout debit remains final |
+| `payout.failed` | `payout-failed` | Settlement fails payout | Single payout reversal credit |
+
 ## End-To-End Money Flow
 
 ```mermaid

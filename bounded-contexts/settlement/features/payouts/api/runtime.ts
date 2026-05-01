@@ -18,6 +18,7 @@ import {
   normalizeMoneyAmount,
   SettlementDomainError,
 } from "../../../support/runtime-support/common";
+import { moneyStatusDetails } from "@chase-sets/http/money-status";
 import type {
   MoneyMovementGateway,
   MoneyMovementWebhookEvent,
@@ -26,16 +27,22 @@ import {
   createNoopSettlementOperationsRecorder,
   type SettlementOperationsRecorder,
 } from "./operations";
-import { assertPayoutAmountWithinPolicy } from "../domain/payout-policy";
+import {
+  assertPayoutAmountWithinPolicy,
+  payoutAmountPolicy,
+} from "../domain/payout-policy";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import {
   getPayout,
   getAccountPayoutRiskSummary,
   getPayoutByProviderPayoutReference,
   listSettlementProviderIdempotencyKeys,
+  listSettlementReconciliationRuns,
   listPayoutsNeedingReconciliation,
   listPayouts,
+  recordSettlementReconciliationRun,
   recordSettlementProviderIdempotencyKey,
+  type SettlementReconciliationRunRow,
   type SettlementProviderIdempotencyKeyRow,
   type SettlementPayoutRow,
 } from "../read-model/queries";
@@ -66,12 +73,60 @@ export type PayoutServices = Readonly<{
     params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
   ) => Promise<{ items: SettlementPayoutRow[]; total: number }>;
   getPayout: (payoutId: string, accountId: string) => Promise<SettlementPayoutRow | null>;
+  getPayoutMoneyTimeline: (
+    params: Readonly<{ payoutId: string; accountId: string }>,
+  ) => Promise<Readonly<{
+    payout_id: string;
+    account_id: string;
+    items: readonly Readonly<{
+      occurred_at: string;
+      kind: string;
+      label: string;
+      reference: string | null;
+      amount: string | null;
+      currency_code: string | null;
+    }>[];
+  }>>;
   listPayoutsNeedingReconciliation: (
     params?: Readonly<{ limit?: number; filter?: string | null }>,
   ) => Promise<SettlementPayoutRow[]>;
   listProviderIdempotencyKeys: (
     params: Readonly<{ accountId: string; limit?: number }>,
   ) => Promise<SettlementProviderIdempotencyKeyRow[]>;
+  listReconciliationRuns: (
+    params?: Readonly<{ limit?: number }>,
+  ) => Promise<SettlementReconciliationRunRow[]>;
+  getPlatformBalanceForecast: (
+    params?: Readonly<{ currencyCode?: "usd" }>,
+  ) => Promise<Readonly<{
+    currency_code: string;
+    available_amount: string;
+    pending_payout_demand_amount: string;
+    forecast_after_pending_demand_amount: string;
+  }>>;
+  getProviderHealth: () => Promise<Readonly<{
+    provider_name: string;
+    adapter_mode: "fake" | "provider";
+    webhook_signature_required: boolean;
+    platform_balance_supported: boolean;
+    connected_account_payouts_supported: boolean;
+  }>>;
+  previewPayoutRequest: (
+    params: Readonly<{ accountId: AccountId; amount: string }>,
+  ) => Promise<Readonly<{
+    account_id: string;
+    requested_amount: string;
+    currency_code: string;
+    available_balance_amount: string;
+    platform_available_amount: string;
+    estimated_wallet_balance_after: string;
+    can_request: boolean;
+    unavailable_reasons: readonly string[];
+    unavailable_reason_details: readonly Readonly<{
+      code: string;
+      message: string;
+    }>[];
+  }>>;
   requestPayout: (
     params: Readonly<{
       accountId: AccountId;
@@ -148,6 +203,10 @@ function payoutReadinessIsStale(updatedAt: string | null) {
     return false;
   }
   return Date.now() - Date.parse(updatedAt) > 30 * 24 * 60 * 60 * 1000;
+}
+
+function subtractMoney(left: string, right: string) {
+  return (Number.parseFloat(left) - Number.parseFloat(right)).toFixed(2);
 }
 
 export function createPayoutRuntime(
@@ -439,10 +498,203 @@ export function createPayoutRuntime(
     commandHandler,
     listPayouts: (params) => listPayouts(deps.db, params),
     getPayout: (payoutId, accountId) => getPayout(deps.db, payoutId, accountId),
+    async getPayoutMoneyTimeline(params) {
+      const payout = await requireExistingPayout(
+        deps.db,
+        params.payoutId,
+        params.accountId,
+      );
+      const [walletEntries, idempotencyKeys] = await Promise.all([
+        deps.wallets.listWalletEntries({
+          accountId: params.accountId,
+          limit: 250,
+        }),
+        listSettlementProviderIdempotencyKeys(deps.db, {
+          accountId: params.accountId,
+          limit: 100,
+        }),
+      ]);
+      const items = [
+        {
+          occurred_at: payout.requested_at,
+          kind: "payout-requested",
+          label: "Payout requested",
+          reference: payout.payout_id,
+          amount: payout.amount,
+          currency_code: payout.currency_code,
+        },
+        ...walletEntries.items
+          .filter((entry) => entry.payout_id === payout.payout_id)
+          .map((entry) => ({
+            occurred_at: entry.posted_at,
+            kind: `wallet-${entry.kind}`,
+            label:
+              entry.direction === "credit"
+                ? "Wallet credited"
+                : "Wallet debited",
+            reference: entry.ledger_entry_id,
+            amount: entry.amount,
+            currency_code: entry.currency_code,
+          })),
+        ...idempotencyKeys
+          .filter((entry) => entry.payout_id === payout.payout_id)
+          .map((entry) => ({
+            occurred_at: entry.created_at,
+            kind: entry.operation_kind,
+            label: "Provider operation submitted",
+            reference: entry.provider_object_reference ?? entry.operation_key,
+            amount: null,
+            currency_code: null,
+          })),
+        ...(payout.sent_at
+          ? [
+              {
+                occurred_at: payout.sent_at,
+                kind: "provider-payout-submitted",
+                label: "Provider payout submitted",
+                reference: payout.provider_payout_reference,
+                amount: payout.amount,
+                currency_code: payout.currency_code,
+              },
+            ]
+          : []),
+        ...(payout.completed_at
+          ? [
+              {
+                occurred_at: payout.completed_at,
+                kind: "payout-completed",
+                label: "Payout completed",
+                reference: payout.provider_payout_reference,
+                amount: payout.amount,
+                currency_code: payout.currency_code,
+              },
+            ]
+          : []),
+        ...(payout.failed_at
+          ? [
+              {
+                occurred_at: payout.failed_at,
+                kind: "payout-failed",
+                label: "Payout failed",
+                reference: payout.provider_payout_reference,
+                amount: payout.amount,
+                currency_code: payout.currency_code,
+              },
+            ]
+          : []),
+      ].sort((left, right) =>
+        left.occurred_at.localeCompare(right.occurred_at),
+      );
+
+      return {
+        payout_id: payout.payout_id,
+        account_id: payout.account_id,
+        items,
+      };
+    },
     listPayoutsNeedingReconciliation: (params) =>
       listPayoutsNeedingReconciliation(deps.db, params),
     listProviderIdempotencyKeys: (params) =>
       listSettlementProviderIdempotencyKeys(deps.db, params),
+    listReconciliationRuns: (params) =>
+      listSettlementReconciliationRuns(deps.db, params),
+    async getPlatformBalanceForecast(params) {
+      const currencyCode = normalizeCurrencyCode(params?.currencyCode ?? "usd");
+      const [platformBalance, payouts] = await Promise.all([
+        deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
+        listPayoutsNeedingReconciliation(deps.db, {
+          limit: 500,
+          filter: "in-transit",
+        }),
+      ]);
+      const pendingDemand = payouts
+        .filter((payout) => payout.currency_code === currencyCode)
+        .reduce((sum, payout) => sum + Number.parseFloat(payout.amount), 0)
+        .toFixed(2);
+
+      return {
+        currency_code: currencyCode,
+        available_amount: platformBalance.availableAmount,
+        pending_payout_demand_amount: pendingDemand,
+        forecast_after_pending_demand_amount: (
+          Number.parseFloat(platformBalance.availableAmount) -
+          Number.parseFloat(pendingDemand)
+        ).toFixed(2),
+      };
+    },
+    async getProviderHealth() {
+      return {
+        provider_name: deps.moneyMovementGateway.providerName,
+        adapter_mode:
+          deps.moneyMovementGateway.providerName === "fake" ? "fake" : "provider",
+        webhook_signature_required:
+          deps.moneyMovementGateway.providerName !== "fake",
+        platform_balance_supported: true,
+        connected_account_payouts_supported: true,
+      };
+    },
+    async previewPayoutRequest(params) {
+      const wallet = await deps.wallets.getWallet(params.accountId);
+      const readiness = await deps.payoutReadiness.getPayoutReadiness(
+        params.accountId,
+      );
+      const currencyCode = normalizeCurrencyCode(wallet.currency_code);
+      const amount = normalizeMoneyAmount(params.amount, {
+        fieldName: "Payout amount",
+      });
+      const [riskSummary, platformBalance] = await Promise.all([
+        getAccountPayoutRiskSummary(deps.db, params.accountId),
+        deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
+      ]);
+      const unavailableReasons: string[] = [];
+
+      if (readiness.status !== "ready" || !readiness.provider_reference) {
+        unavailableReasons.push("payout-setup-incomplete");
+      }
+      if (readiness.status === "ready" && payoutReadinessIsStale(readiness.updated_at)) {
+        unavailableReasons.push("payout-setup-refresh-required");
+      }
+      if (readiness.missing_requirements.length > 0) {
+        unavailableReasons.push("provider-requirements-open");
+      }
+      if (compareMoney(wallet.available_balance_amount, "0.00") <= 0) {
+        unavailableReasons.push("no-available-wallet-balance");
+      }
+      if (compareMoney(amount, payoutAmountPolicy.minimumAmount) < 0) {
+        unavailableReasons.push("amount-below-minimum");
+      }
+      if (compareMoney(amount, payoutAmountPolicy.maximumAmount) > 0) {
+        unavailableReasons.push("amount-above-maximum");
+      }
+      if (compareMoney(wallet.available_balance_amount, amount) < 0) {
+        unavailableReasons.push("amount-exceeds-available-balance");
+      }
+      if (compareMoney(platformBalance.availableAmount, amount) < 0) {
+        unavailableReasons.push("platform-balance-insufficient");
+      }
+      if (riskSummary.failed_payout_count > 0) {
+        unavailableReasons.push("recent-payout-failure");
+      }
+      if (riskSummary.stale_requested_payout_count > 0) {
+        unavailableReasons.push("payout-reconciliation-required");
+      }
+
+      const uniqueReasons = [...new Set(unavailableReasons)];
+      return {
+        account_id: params.accountId,
+        requested_amount: amount,
+        currency_code: currencyCode,
+        available_balance_amount: wallet.available_balance_amount,
+        platform_available_amount: platformBalance.availableAmount,
+        estimated_wallet_balance_after:
+          compareMoney(wallet.available_balance_amount, amount) >= 0
+            ? subtractMoney(wallet.available_balance_amount, amount)
+            : "0.00",
+        can_request: uniqueReasons.length === 0,
+        unavailable_reasons: uniqueReasons,
+        unavailable_reason_details: moneyStatusDetails(uniqueReasons),
+      };
+    },
     async requestPayout(params, context) {
       await recordOperation({
         kind: "payout-requested",
@@ -697,6 +949,7 @@ export function createPayoutRuntime(
     },
     reconcileProviderPayout,
     async reconcilePayoutsNeedingAttention(params, context) {
+      const startedAt = new Date().toISOString();
       const payouts = await listPayoutsNeedingReconciliation(deps.db, {
         limit: params.limit,
       });
@@ -729,13 +982,28 @@ export function createPayoutRuntime(
         }
       }
 
-      return {
+      const result = {
         checked: payouts.length,
         reconciled,
         ignored,
         skipped,
         errors,
       };
+      await recordSettlementReconciliationRun(deps.db, {
+        reconciliationRunId: createId("rec"),
+        kind: "payouts",
+        checked: result.checked,
+        reconciled: result.reconciled,
+        ignored: result.ignored,
+        skipped: result.skipped,
+        errorCount: result.errors.length,
+        status: result.errors.length > 0 ? "completed-with-errors" : "completed",
+        summary: result,
+        startedAt,
+        completedAt: new Date().toISOString(),
+      });
+
+      return result;
     },
     projectors: [
       createProjector({

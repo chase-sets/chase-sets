@@ -101,12 +101,12 @@ if (config.paymentReconciliationIntervalMs) {
     paymentReconciliationRunning = true;
     const paymentServices = runtime.services.payments as PaymentServices;
     void paymentServices
-      .listPaymentsNeedingReconciliation({ limit: 100 })
-      .then((payments) => {
+      .scanPaymentsNeedingReconciliation({ limit: 100 })
+      .then((result) => {
         console.info(JSON.stringify({
           type: "payments.reconciliation-needed",
-          count: payments.length,
-          paymentIds: payments.map((payment) => payment.payment_id),
+          count: result.attention,
+          paymentIds: result.payment_ids,
         }));
       })
       .catch((error: unknown) => {

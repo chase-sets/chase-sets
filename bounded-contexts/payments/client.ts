@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import type { buildPaymentsApi } from "./api";
 import type {
   PaymentsCheckoutStatus,
+  PaymentsCheckoutRecoveryOptions,
   PaymentsPaymentDetail,
   PaymentsProviderEvent,
 } from "./features/payments/api/contracts";
@@ -83,6 +84,14 @@ export function createPaymentsApiClient({
         }),
       );
     },
+    async getPaymentMoneyTimeline(paymentId: string) {
+      return parseJsonResponse(
+        await client.account.payments[":id"].timeline.$get({
+          param: { id: paymentId },
+          header: headers,
+        }),
+      );
+    },
     async getCheckoutStatus(params: Readonly<{
       orderIds: readonly string[];
       currencyCode?: string;
@@ -100,6 +109,50 @@ export function createPaymentsApiClient({
         }),
       );
     },
+    async recoverCheckoutPayment(
+      body: CreateAccountPaymentRequest,
+    ): Promise<PaymentsPaymentDetail> {
+      return parseJsonResponse(
+        await client.account.checkout.recover.$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async getCheckoutRecoveryOptions(params: Readonly<{
+      orderIds: readonly string[];
+      currencyCode?: string;
+      requestedBalanceCreditAmount?: string | null;
+    }>): Promise<PaymentsCheckoutRecoveryOptions> {
+      return parseJsonResponse(
+        await client.account.checkout.recovery.$get({
+          query: {
+            orderIds: params.orderIds.join(","),
+            currencyCode: params.currencyCode ?? "usd",
+            requestedBalanceCreditAmount:
+              params.requestedBalanceCreditAmount ?? undefined,
+          },
+          header: headers,
+        }),
+      );
+    },
+    async issueRefund(
+      paymentId: string,
+      body: Readonly<{ amount: string; reason: string; orderIds?: readonly string[] }>,
+    ): Promise<Readonly<{ id: string; version: number }>> {
+      return parseJsonResponse(
+        await client.account.payments[":paymentId"].refunds.$post({
+          param: { paymentId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async getProviderHealth() {
+      return parseJsonResponse(
+        await client.account["provider-health"].$get({ header: headers }),
+      );
+    },
     async getProviderEvent(providerEventId: string): Promise<PaymentsProviderEvent> {
       return parseJsonResponse(
         await client.account["provider-events"][":providerEventId"].$get({
@@ -113,6 +166,7 @@ export function createPaymentsApiClient({
 
 export type {
   PaymentsCheckoutStatus,
+  PaymentsCheckoutRecoveryOptions,
   PaymentsPaymentDetail,
   PaymentsProviderEvent,
 } from "./features/payments/api/contracts";
