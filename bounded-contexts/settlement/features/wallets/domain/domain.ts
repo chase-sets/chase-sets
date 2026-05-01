@@ -14,6 +14,7 @@ import {
   addMoney,
   assert,
   assertNever,
+  compareMoney,
   ensureIsoTimestamp,
   normalizeCurrencyCode,
   normalizeLedgerEntryDirection,
@@ -181,6 +182,12 @@ export const decideWallet: AggregateDecider<
       assert(
         state.currencyCode === normalizeCurrencyCode(command.currencyCode),
         "Ledger entries must use the wallet currency.",
+      );
+      assert(
+        command.direction !== "debit" ||
+          command.fundsStatus !== "available" ||
+          compareMoney(state.availableBalanceAmount, command.amount) >= 0,
+        "Available balance is too low for this ledger entry.",
       );
 
       return [

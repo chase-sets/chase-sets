@@ -8,11 +8,16 @@ import type { Projector } from "@chase-sets/event-core/projector";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
-import { createFakeMoneyMovementGateway } from "./fake-money-movement-gateway";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
+import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
+import {
+  createNoopSettlementOperationsRecorder,
+  type SettlementOperationsRecorder,
+} from "../../features/payouts/api/operations";
 
 export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
+  operationsRecorder?: SettlementOperationsRecorder;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -33,6 +38,8 @@ export function createSettlementServices(
   const db = pool as PgQueryable;
   const moneyMovementGateway =
     ports.moneyMovementGateway ?? createFakeMoneyMovementGateway();
+  const operationsRecorder =
+    ports.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const wallets = createWalletRuntime({
     eventStore,
     checkpointStore,
@@ -51,6 +58,7 @@ export function createSettlementServices(
     wallets,
     payoutReadiness,
     moneyMovementGateway,
+    operationsRecorder,
   });
 
   return {

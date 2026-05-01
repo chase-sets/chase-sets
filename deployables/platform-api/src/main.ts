@@ -8,7 +8,7 @@ import {
   createFakePaymentProcessorGateway,
   createStripePaymentProcessorGateway,
 } from "@chase-sets/payments/server";
-import { createFakeMoneyMovementGateway } from "@chase-sets/settlement/server";
+import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
@@ -37,6 +37,11 @@ const moneyMovementGateway =
         onboardingRefreshUrl: config.moneyMovement.onboardingRefreshUrl,
       })
     : createFakeMoneyMovementGateway();
+const settlementOperationsRecorder = {
+  record(event: Record<string, unknown>) {
+    console.info(JSON.stringify({ type: "settlement.operation", ...event }));
+  },
+};
 
 if (config.paymentProcessor.kind === "fake") {
   console.warn(
@@ -54,6 +59,7 @@ const runtime = createPlatformApiHost({
   hostPorts: {
     processorGateway: paymentProcessorGateway,
     moneyMovementGateway,
+    operationsRecorder: settlementOperationsRecorder,
   },
 });
 const app = buildPlatformApiApp(runtime, {

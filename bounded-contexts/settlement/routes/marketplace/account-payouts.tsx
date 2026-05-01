@@ -19,6 +19,19 @@ type PayoutActionData = Readonly<{
 }>;
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  const requestUrl = new URL(request.url);
+  if (
+    requestUrl.searchParams.get("setup") === "returned" ||
+    requestUrl.searchParams.get("setup") === "refresh"
+  ) {
+    await requireActorFromAuthApi({
+      request,
+      permission: "payouts.manage",
+    });
+    await createSettlementRequestApiClient(request).refreshPayoutSetup();
+    return redirect("/account/payouts");
+  }
+
   await requireActorFromAuthApi({
     request,
     permission: "payouts.view",
@@ -50,6 +63,20 @@ export async function action({ request }: ActionFunctionArgs) {
       })) as Readonly<{ id: string }>;
 
       return redirect(`/account/payouts/${result.id}`);
+    }
+
+    if (intent === "start-payout-setup") {
+      const result = await settlementApi.createPayoutSetupOnboardingSession({
+        returnUrl: new URL("/account/payouts?setup=returned", request.url).toString(),
+        refreshUrl: new URL("/account/payouts?setup=refresh", request.url).toString(),
+      });
+
+      return redirect(result.url);
+    }
+
+    if (intent === "refresh-payout-setup") {
+      await settlementApi.refreshPayoutSetup();
+      return redirect("/account/payouts");
     }
 
     return redirect("/account/payouts");

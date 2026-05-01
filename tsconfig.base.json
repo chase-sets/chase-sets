@@ -213,6 +213,9 @@
       "@chase-sets/money-movement": [
         "./contracts/money-movement/index.ts"
       ],
+      "@chase-sets/money-movement-testing": [
+        "./infrastructure/money-movement-testing/index.ts"
+      ],
       "@chase-sets/ordering": [
         "./bounded-contexts/ordering/index.ts"
       ],

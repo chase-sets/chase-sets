@@ -67,6 +67,96 @@ describe("money movement adapters", () => {
     });
   });
 
+  it("Stripe adapter creates recipient onboarding account links with nested v2 parameters", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+
+      if (String(input) === "https://stripe.test/v2/core/account_links") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Version")).toBe("2026-02-25.clover");
+        expect(headers.get("Idempotency-Key")).toBe("onboarding-key");
+        expect(String(init?.body)).toContain(
+          "use_case%5Baccount_onboarding%5D%5Bconfigurations%5D%5B%5D=recipient",
+        );
+        expect(String(init?.body)).toContain(
+          "use_case%5Baccount_onboarding%5D%5Bcollection_options%5D%5Bfields%5D=eventually_due",
+        );
+
+        return new Response(
+          JSON.stringify({
+            url: "https://connect.stripe.test/setup",
+            expires_at: 1_776_000_600,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      expect(String(input)).toContain("/v2/core/accounts/acct_123?");
+      return new Response(
+        JSON.stringify({
+          id: "acct_123",
+          requirements: { currently_due: [] },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: { status: "active" },
+                  payouts: { status: "active" },
+                },
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.createOnboardingSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_123",
+        returnUrl: "https://example.test/return",
+        refreshUrl: "https://example.test/refresh",
+        idempotencyKey: "onboarding-key",
+      }),
+    ).resolves.toMatchObject({
+      url: "https://connect.stripe.test/setup",
+      providerReference: "acct_123",
+    });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("Stripe adapter surfaces provider error messages", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ error: { message: "Accounts v2 is not enabled." } }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      ),
+    ) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.ensurePayoutAccount({
+        accountId: "acc_seller" as never,
+        currencyCode: "usd",
+        idempotencyKey: "account-key",
+      }),
+    ).rejects.toThrow("Accounts v2 is not enabled.");
+  });
+
   it("Stripe webhook parser maps payout failures to provider-neutral events", async () => {
     const adapter = createStripeConnectMoneyMovementGateway({
       secretKey: "sk_test",
@@ -92,6 +182,7 @@ describe("money movement adapters", () => {
       }),
     ).resolves.toEqual({
       kind: "payout-failed",
+      providerEventId: "stripe:payout.failed:po_123",
       providerPayoutReference: "po_123",
       providerStatus: "failed",
       failureCode: "account_closed",

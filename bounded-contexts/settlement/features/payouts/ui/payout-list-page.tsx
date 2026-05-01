@@ -66,7 +66,7 @@ export function SettlementPayoutListPage({
         <Card>
           <Stack gap={3}>
             {payoutReadiness ? (
-              <PayoutReadinessPanel payoutReadiness={payoutReadiness} />
+              <PayoutReadinessPanel payoutReadiness={payoutReadiness} showActions />
             ) : null}
             <form method="post">
               <Stack gap={3}>

@@ -88,12 +88,21 @@ export function loadBootstrapConfig(): PlatformApiBaseConfig {
 
 export function loadConfig(): PlatformApiConfig {
   const baseConfig = loadBaseConfig();
-  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-  const stripePublishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
-  const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  const stripeApiBaseUrl = process.env.STRIPE_API_BASE_URL;
-  const stripeConnectReturnUrl = process.env.STRIPE_CONNECT_RETURN_URL;
-  const stripeConnectRefreshUrl = process.env.STRIPE_CONNECT_REFRESH_URL;
+  const stripeSecretKey = getOptionalEnv("STRIPE_SECRET_KEY");
+  const stripePublishableKey = getOptionalEnv("STRIPE_PUBLISHABLE_KEY");
+  const stripeWebhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
+  const stripeApiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
+  const stripeConnectReturnUrl =
+    getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
+  const stripeConnectRefreshUrl =
+    getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
+  const productionLike = process.env.NODE_ENV === "production";
+
+  if (productionLike && (!stripeSecretKey || !stripeWebhookSecret)) {
+    throw new Error(
+      "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required for Stripe Connect money movement in production.",
+    );
+  }
 
   const moneyMovement = stripeSecretKey && stripeWebhookSecret
     ? {

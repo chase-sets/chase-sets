@@ -36,15 +36,24 @@ export type CreatedProviderPayout = Readonly<{
   providerStatus: string;
 }>;
 
+export type RetrievedProviderPayout = Readonly<{
+  providerPayoutReference: string;
+  providerStatus: string;
+  failureCode: string | null;
+  failureMessage: string | null;
+}>;
+
 export type MoneyMovementWebhookEvent =
   | Readonly<{
       kind: "payout-completed";
+      providerEventId: string;
       providerPayoutReference: string;
       providerStatus: string;
       occurredAt: string;
     }>
   | Readonly<{
       kind: "payout-failed";
+      providerEventId: string;
       providerPayoutReference: string;
       providerStatus: string;
       failureCode: string | null;
@@ -53,6 +62,7 @@ export type MoneyMovementWebhookEvent =
     }>
   | Readonly<{
       kind: "payout-readiness-updated";
+      providerEventId: string;
       providerReference: string;
       readiness: ProviderPayoutReadiness;
       occurredAt: string;
@@ -105,6 +115,12 @@ export type MoneyMovementGateway = Readonly<{
       idempotencyKey: string;
     }>,
   ) => Promise<CreatedProviderPayout>;
+  retrieveConnectedAccountPayout: (
+    input: Readonly<{
+      providerReference: string;
+      providerPayoutReference: string;
+    }>,
+  ) => Promise<RetrievedProviderPayout>;
   parseMoneyMovementWebhook: (
     input: Readonly<{ rawBody: string; signatureHeader: string | null }>,
   ) => Promise<MoneyMovementWebhookEvent | null>;

@@ -56,6 +56,8 @@ type StripeTransferResponse = Readonly<{
 type StripePayoutResponse = Readonly<{
   id?: string;
   status?: string | null;
+  failure_code?: string | null;
+  failure_message?: string | null;
 }>;
 
 type StripeEventEnvelope = Readonly<{
@@ -73,12 +75,21 @@ function encodeBasicAuth(secretKey: string) {
   return Buffer.from(`${secretKey}:`).toString("base64");
 }
 
-function toFormBody(entries: Record<string, string | null | undefined>) {
+function toFormBody(
+  entries: Record<string, string | readonly string[] | null | undefined>,
+) {
   const params = new URLSearchParams();
 
   for (const [key, value] of Object.entries(entries)) {
-    if (value !== null && value !== undefined) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+    if (typeof value === "string") {
       params.set(key, value);
+      continue;
+    }
+    for (const item of value) {
+      params.append(key, item);
     }
   }
 
@@ -197,6 +208,10 @@ function occurredAtFromEvent(event: StripeEventEnvelope) {
     .toISOString();
 }
 
+function providerEventIdFromEvent(event: StripeEventEnvelope, fallbackReference: string) {
+  return event.id?.trim() || `stripe:${event.type ?? "event"}:${fallbackReference}`;
+}
+
 export function createStripeConnectMoneyMovementGateway(
   options: StripeConnectMoneyMovementOptions,
 ): MoneyMovementGateway {
@@ -291,11 +306,14 @@ export function createStripeConnectMoneyMovementGateway(
           },
           body: toFormBody({
             account: input.providerReference,
-            type: "account_onboarding",
             "use_case[type]": "account_onboarding",
+            "use_case[account_onboarding][configurations][]": ["recipient"],
             "use_case[account_onboarding][return_url]": returnUrl,
             "use_case[account_onboarding][refresh_url]": refreshUrl,
-            "collection_options[fields]": "eventually_due",
+            "use_case[account_onboarding][collection_options][fields]":
+              "eventually_due",
+            "use_case[account_onboarding][collection_options][future_requirements]":
+              "include",
           }),
           idempotencyKey: input.idempotencyKey,
         },
@@ -385,6 +403,26 @@ export function createStripeConnectMoneyMovementGateway(
         providerStatus: payout.status?.trim() || "pending",
       };
     },
+    async retrieveConnectedAccountPayout(input) {
+      const payout = await stripeRequest<StripePayoutResponse>(
+        `/v1/payouts/${encodeURIComponent(input.providerPayoutReference)}`,
+        {
+          method: "GET",
+          stripeAccount: input.providerReference,
+        },
+      );
+
+      if (!payout.id?.trim()) {
+        throw new Error("Stripe did not return a payout id.");
+      }
+
+      return {
+        providerPayoutReference: payout.id,
+        providerStatus: payout.status?.trim() || "pending",
+        failureCode: payout.failure_code?.trim() || null,
+        failureMessage: payout.failure_message?.trim() || null,
+      };
+    },
     async parseMoneyMovementWebhook(input) {
       verifyStripeSignature(input.rawBody, input.signatureHeader, options.webhookSecret);
       const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
@@ -402,6 +440,7 @@ export function createStripeConnectMoneyMovementGateway(
         }
         return {
           kind: "payout-completed",
+          providerEventId: providerEventIdFromEvent(event, providerPayoutReference),
           providerPayoutReference,
           providerStatus: String(object.status ?? "paid"),
           occurredAt,
@@ -415,6 +454,7 @@ export function createStripeConnectMoneyMovementGateway(
         }
         return {
           kind: "payout-failed",
+          providerEventId: providerEventIdFromEvent(event, providerPayoutReference),
           providerPayoutReference,
           providerStatus: String(object.status ?? "failed"),
           failureCode:
@@ -431,9 +471,11 @@ export function createStripeConnectMoneyMovementGateway(
         event.type === "v2.core.account[requirements].updated" ||
         event.type === "v2.core.account.updated"
       ) {
+        const providerReference = String(object.id ?? "").trim();
         return {
           kind: "payout-readiness-updated",
-          providerReference: String(object.id ?? ""),
+          providerEventId: providerEventIdFromEvent(event, providerReference),
+          providerReference,
           readiness: mapAccountReadiness(object as StripeAccountResponse),
           occurredAt,
         } satisfies MoneyMovementWebhookEvent;

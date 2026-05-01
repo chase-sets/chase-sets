@@ -21,6 +21,10 @@ import type {
   MoneyMovementGateway,
   MoneyMovementWebhookEvent,
 } from "@chase-sets/money-movement";
+import {
+  createNoopSettlementOperationsRecorder,
+  type SettlementOperationsRecorder,
+} from "./operations";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import {
   getPayout,
@@ -46,6 +50,7 @@ type PayoutRuntimeDeps = Readonly<{
   wallets: WalletServices;
   payoutReadiness: PayoutReadinessServices;
   moneyMovementGateway: MoneyMovementGateway;
+  operationsRecorder?: SettlementOperationsRecorder;
 }>;
 
 export type PayoutServices = Readonly<{
@@ -87,6 +92,10 @@ export type PayoutServices = Readonly<{
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
     context: EventStoreContext,
   ) => Promise<{ received: boolean; ignored: boolean }>;
+  reconcileProviderPayout: (
+    params: Readonly<{ providerPayoutReference: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ received: boolean; ignored: boolean }>;
   projectors: readonly Projector[];
 }>;
 
@@ -105,6 +114,8 @@ async function requireExistingPayout(
 export function createPayoutRuntime(
   deps: PayoutRuntimeDeps,
 ): PayoutServices {
+  const operationsRecorder =
+    deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -116,6 +127,19 @@ export function createPayoutRuntime(
     decide: decidePayout,
   });
 
+  async function recordOperation(
+    event: Omit<
+      Parameters<SettlementOperationsRecorder["record"]>[0],
+      "occurredAt"
+    > & Partial<Pick<Parameters<SettlementOperationsRecorder["record"]>[0], "occurredAt">>,
+  ) {
+    await operationsRecorder.record({
+      ...event,
+      providerName: event.providerName ?? deps.moneyMovementGateway.providerName,
+      occurredAt: event.occurredAt ?? new Date().toISOString(),
+    });
+  }
+
   async function failPayoutAndReverseWallet(
     params: Readonly<{
       payoutId: string;
@@ -125,14 +149,23 @@ export function createPayoutRuntime(
       providerFailureCode?: string | null;
       providerFailureMessage?: string | null;
       failedAt?: string;
+      amount?: string;
+      currencyCode?: string;
     }>,
     context: EventStoreContext,
   ) {
-    const payout = await requireExistingPayout(
-      deps.db,
-      params.payoutId,
-      params.accountId,
-    );
+    const payout = await getPayout(deps.db, params.payoutId, params.accountId) ??
+      (params.amount && params.currencyCode
+        ? {
+            payout_id: params.payoutId,
+            account_id: params.accountId,
+            amount: params.amount,
+            currency_code: params.currencyCode,
+          }
+        : null);
+    if (!payout) {
+      throw new SettlementDomainError("Payout was not found.");
+    }
     const failedAt = params.failedAt ?? new Date().toISOString();
     const result = await commandHandler({
       streamId: `settlement.payout-${params.payoutId}`,
@@ -166,6 +199,17 @@ export function createPayoutRuntime(
         },
         context,
       );
+      await recordOperation({
+        kind: "payout-reversal-posted",
+        accountId: payout.account_id,
+        payoutId: payout.payout_id,
+        amount: payout.amount,
+        currencyCode: payout.currency_code,
+        reason:
+          params.failureReason ??
+          params.providerFailureMessage ??
+          `Reversed failed payout ${payout.payout_id}`,
+      });
     }
 
     return {
@@ -185,9 +229,15 @@ export function createPayoutRuntime(
           event.providerPayoutReference,
         );
         if (!payout) {
+          await recordOperation({
+            kind: "money-movement-webhook-ignored",
+            providerEventId: event.providerEventId,
+            providerPayoutReference: event.providerPayoutReference,
+            reason: "Payout not found for provider payout reference.",
+          });
           return { received: true, ignored: true };
         }
-        await commandHandler({
+        const result = await commandHandler({
           streamId: `settlement.payout-${payout.payout_id}`,
           command: {
             type: "CompletePayout",
@@ -196,7 +246,17 @@ export function createPayoutRuntime(
           },
           context,
         });
-        return { received: true, ignored: false };
+        if (result.newEvents.length > 0) {
+          await recordOperation({
+            kind: "payout-completed",
+            providerEventId: event.providerEventId,
+            accountId: payout.account_id,
+            payoutId: payout.payout_id,
+            providerPayoutReference: event.providerPayoutReference,
+            occurredAt: event.occurredAt,
+          });
+        }
+        return { received: true, ignored: result.newEvents.length === 0 };
       }
       case "payout-failed": {
         const payout = await getPayoutByProviderPayoutReference(
@@ -204,6 +264,12 @@ export function createPayoutRuntime(
           event.providerPayoutReference,
         );
         if (!payout) {
+          await recordOperation({
+            kind: "money-movement-webhook-ignored",
+            providerEventId: event.providerEventId,
+            providerPayoutReference: event.providerPayoutReference,
+            reason: "Payout not found for provider payout reference.",
+          });
           return { received: true, ignored: true };
         }
         await failPayoutAndReverseWallet(
@@ -218,6 +284,15 @@ export function createPayoutRuntime(
           },
           context,
         );
+        await recordOperation({
+          kind: "payout-failed",
+          providerEventId: event.providerEventId,
+          accountId: payout.account_id,
+          payoutId: payout.payout_id,
+          providerPayoutReference: event.providerPayoutReference,
+          reason: event.failureMessage,
+          occurredAt: event.occurredAt,
+        });
         return { received: true, ignored: false };
       }
       case "payout-readiness-updated":
@@ -238,6 +313,12 @@ export function createPayoutRuntime(
     listPayouts: (params) => listPayouts(deps.db, params),
     getPayout: (payoutId, accountId) => getPayout(deps.db, payoutId, accountId),
     async schedulePayout(params, context) {
+      await recordOperation({
+        kind: "payout-requested",
+        accountId: params.accountId,
+        amount: params.amount,
+        currencyCode: "usd",
+      });
       const wallet = await deps.wallets.getWallet(params.accountId);
       const readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
       const amount = normalizeMoneyAmount(params.amount, {
@@ -263,6 +344,13 @@ export function createPayoutRuntime(
         currencyCode,
       });
       if (compareMoney(platformBalance.availableAmount, amount) < 0) {
+        await recordOperation({
+          kind: "platform-balance-insufficient",
+          accountId: params.accountId,
+          amount,
+          currencyCode,
+          reason: `Available platform balance ${platformBalance.availableAmount} is below requested payout amount.`,
+        });
         throw new SettlementDomainError("Platform balance is too low for this payout.");
       }
 
@@ -309,6 +397,14 @@ export function createPayoutRuntime(
             currencyCode,
             idempotencyKey: `settlement:payout:${payoutId}:transfer`,
           });
+        await recordOperation({
+          kind: "provider-transfer-submitted",
+          accountId: params.accountId,
+          payoutId,
+          amount,
+          currencyCode,
+          providerTransferReference: transfer.providerTransferReference,
+        });
         const providerPayout =
           await deps.moneyMovementGateway.createConnectedAccountPayout({
             payoutId,
@@ -318,6 +414,14 @@ export function createPayoutRuntime(
             currencyCode,
             idempotencyKey: `settlement:payout:${payoutId}:payout`,
           });
+        await recordOperation({
+          kind: "provider-payout-submitted",
+          accountId: params.accountId,
+          payoutId,
+          amount,
+          currencyCode,
+          providerPayoutReference: providerPayout.providerPayoutReference,
+        });
 
         await commandHandler({
           streamId: `settlement.payout-${payoutId}`,
@@ -331,6 +435,17 @@ export function createPayoutRuntime(
           context,
         });
       } catch (error) {
+        await recordOperation({
+          kind: "payout-failed",
+          accountId: params.accountId,
+          payoutId,
+          amount,
+          currencyCode,
+          reason:
+            error instanceof Error
+              ? error.message
+              : "Provider payout submission failed.",
+        });
         await failPayoutAndReverseWallet(
           {
             payoutId,
@@ -344,6 +459,8 @@ export function createPayoutRuntime(
               error instanceof Error
                 ? error.message
                 : "Provider payout submission failed.",
+            amount,
+            currencyCode,
           },
           context,
         );
@@ -394,9 +511,87 @@ export function createPayoutRuntime(
     async processMoneyMovementWebhook(params, context) {
       const event = await deps.moneyMovementGateway.parseMoneyMovementWebhook(params);
       if (!event) {
+        await recordOperation({
+          kind: "money-movement-webhook-ignored",
+          reason: "Provider webhook event was unsupported.",
+        });
         return { received: true, ignored: true };
       }
       return handleMoneyMovementEvent(event, context);
+    },
+    async reconcileProviderPayout(params, context) {
+      const payout = await getPayoutByProviderPayoutReference(
+        deps.db,
+        params.providerPayoutReference,
+      );
+      if (!payout) {
+        await recordOperation({
+          kind: "money-movement-webhook-ignored",
+          providerPayoutReference: params.providerPayoutReference,
+          reason: "Payout not found during reconciliation.",
+        });
+        return { received: true, ignored: true };
+      }
+
+      const readiness = await deps.payoutReadiness.getPayoutReadiness(
+        payout.account_id,
+      );
+      if (!readiness.provider_reference) {
+        throw new SettlementDomainError(
+          "Payout setup must include a provider account for reconciliation.",
+        );
+      }
+
+      const providerPayout =
+        await deps.moneyMovementGateway.retrieveConnectedAccountPayout({
+          providerReference: readiness.provider_reference,
+          providerPayoutReference: params.providerPayoutReference,
+        });
+
+      if (["paid", "succeeded", "completed"].includes(providerPayout.providerStatus)) {
+        const result = await commandHandler({
+          streamId: `settlement.payout-${payout.payout_id}`,
+          command: {
+            type: "CompletePayout",
+            providerStatus: providerPayout.providerStatus,
+            completedAt: new Date().toISOString(),
+          },
+          context,
+        });
+        if (result.newEvents.length > 0) {
+          await recordOperation({
+            kind: "payout-completed",
+            accountId: payout.account_id,
+            payoutId: payout.payout_id,
+            providerPayoutReference: params.providerPayoutReference,
+          });
+        }
+        return { received: true, ignored: result.newEvents.length === 0 };
+      }
+
+      if (["failed", "canceled", "cancelled"].includes(providerPayout.providerStatus)) {
+        await failPayoutAndReverseWallet(
+          {
+            payoutId: payout.payout_id,
+            accountId: payout.account_id,
+            failureReason: providerPayout.failureMessage,
+            providerStatus: providerPayout.providerStatus,
+            providerFailureCode: providerPayout.failureCode,
+            providerFailureMessage: providerPayout.failureMessage,
+          },
+          context,
+        );
+        await recordOperation({
+          kind: "payout-failed",
+          accountId: payout.account_id,
+          payoutId: payout.payout_id,
+          providerPayoutReference: params.providerPayoutReference,
+          reason: providerPayout.failureMessage,
+        });
+        return { received: true, ignored: false };
+      }
+
+      return { received: true, ignored: true };
     },
     projectors: [
       createProjector({

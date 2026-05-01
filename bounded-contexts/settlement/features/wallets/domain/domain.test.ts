@@ -76,6 +76,44 @@ describe("settlement wallet domain", () => {
     expect(debitedState.totalDebitedAmount).toBe("10.00");
   });
 
+  it("rejects available debits that exceed the available balance", () => {
+    const creditedState = [
+      {
+        type: "OpenWallet" as const,
+        accountId: "acc_seller" as never,
+        currencyCode: "usd" as const,
+        openedAt: "2026-04-02T00:00:00.000Z",
+      },
+      {
+        type: "PostLedgerEntry" as const,
+        ledgerEntryId: "led_credit" as never,
+        kind: "sale" as const,
+        direction: "credit" as const,
+        amount: "10.00",
+        currencyCode: "usd" as const,
+        fundsStatus: "available" as const,
+        postedAt: "2026-04-02T00:01:00.000Z",
+      },
+    ].reduce(
+      (state, command) => decideWallet(state, command).reduce(evolveWallet, state),
+      initialWalletState,
+    );
+
+    expect(() =>
+      decideWallet(creditedState, {
+        type: "PostLedgerEntry",
+        ledgerEntryId: "led_payout" as never,
+        kind: "payout",
+        direction: "debit",
+        amount: "12.00",
+        currencyCode: "usd",
+        fundsStatus: "available",
+        payoutId: "pyo_1" as never,
+        postedAt: "2026-04-02T00:02:00.000Z",
+      }),
+    ).toThrow("Available balance is too low for this ledger entry.");
+  });
+
   it("rejects duplicate ledger entry ids", () => {
     const state = [
       {

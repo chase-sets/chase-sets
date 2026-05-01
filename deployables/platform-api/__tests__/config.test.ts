@@ -30,6 +30,7 @@ afterEach(() => {
   delete process.env.STRIPE_API_BASE_URL;
   delete process.env.STRIPE_CONNECT_RETURN_URL;
   delete process.env.STRIPE_CONNECT_REFRESH_URL;
+  delete process.env.NODE_ENV;
 });
 
 describe("platform api config", () => {
@@ -93,5 +94,14 @@ describe("platform api config", () => {
       onboardingReturnUrl: "https://example.test/return",
       onboardingRefreshUrl: "https://example.test/refresh",
     });
+  });
+
+  it("fails production config when Stripe Connect money movement secrets are missing", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NODE_ENV = "production";
+
+    expect(() => loadConfig()).toThrow(
+      "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required for Stripe Connect money movement in production.",
+    );
   });
 });

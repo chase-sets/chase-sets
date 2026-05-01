@@ -3,17 +3,12 @@ import type {
   CreatedOnboardingSession,
   CreatedProviderPayout,
   CreatedProviderTransfer,
+  CurrencyCode,
   MoneyMovementGateway,
   ProviderPayoutReadiness,
   ProviderPlatformBalance,
+  RetrievedProviderPayout,
 } from "@chase-sets/money-movement";
-import {
-  compareMoney,
-  normalizeCurrencyCode,
-  normalizeMoneyAmount,
-  SettlementDomainError,
-  type CurrencyCode,
-} from "./common";
 
 export type FakeMoneyMovementGatewayOptions = Readonly<{
   availableAmount?: string;
@@ -24,6 +19,30 @@ export type FakeMoneyMovementGatewayOptions = Readonly<{
 
 export type FakeMoneyMovementGateway = MoneyMovementGateway &
   Readonly<{ usedIdempotencyKeys: readonly string[] }>;
+
+function normalizeMoneyAmount(value: string, fieldName: string) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${fieldName} must be a non-negative amount.`);
+  }
+  return parsed.toFixed(2);
+}
+
+function compareMoney(left: string, right: string) {
+  return Number.parseFloat(left) - Number.parseFloat(right);
+}
+
+function subtractMoney(left: string, right: string) {
+  return (Number.parseFloat(left) - Number.parseFloat(right)).toFixed(2);
+}
+
+function normalizeCurrencyCode(value: string): CurrencyCode {
+  const normalized = value.trim().toLowerCase();
+  if (normalized !== "usd") {
+    throw new Error("Currency must be USD.");
+  }
+  return normalized;
+}
 
 function readyReadiness(providerReference: string): ProviderPayoutReadiness {
   return {
@@ -51,10 +70,12 @@ export function createFakeMoneyMovementGateway(
   options: FakeMoneyMovementGatewayOptions = {},
 ): FakeMoneyMovementGateway {
   const accounts = new Map<AccountId, ProviderPayoutReadiness>();
+  const payouts = new Map<string, RetrievedProviderPayout>();
   const usedIdempotencyKeys: string[] = [];
-  let availableAmount = normalizeMoneyAmount(options.availableAmount ?? "999999.00", {
-    fieldName: "Platform balance",
-  });
+  let availableAmount = normalizeMoneyAmount(
+    options.availableAmount ?? "999999.00",
+    "Platform balance",
+  );
 
   function readinessFor(accountId: AccountId) {
     const existing = accounts.get(accountId);
@@ -101,16 +122,13 @@ export function createFakeMoneyMovementGateway(
     ): Promise<CreatedProviderTransfer> {
       usedIdempotencyKeys.push(input.idempotencyKey);
       if (options.failTransfer) {
-        throw new SettlementDomainError("Provider transfer failed.");
+        throw new Error("Provider transfer failed.");
       }
-      const amount = normalizeMoneyAmount(input.amount, {
-        fieldName: "Transfer amount",
-      });
+      const amount = normalizeMoneyAmount(input.amount, "Transfer amount");
       if (compareMoney(availableAmount, amount) < 0) {
-        throw new SettlementDomainError("Platform balance is too low for this payout.");
+        throw new Error("Platform balance is too low for this payout.");
       }
-      availableAmount = (Number.parseFloat(availableAmount) - Number.parseFloat(amount))
-        .toFixed(2);
+      availableAmount = subtractMoney(availableAmount, amount);
       return {
         providerTransferReference: `tr_${input.payoutId}`,
         providerStatus: "paid",
@@ -119,30 +137,62 @@ export function createFakeMoneyMovementGateway(
     async createConnectedAccountPayout(input): Promise<CreatedProviderPayout> {
       usedIdempotencyKeys.push(input.idempotencyKey);
       if (options.failPayout) {
-        throw new SettlementDomainError("Provider payout failed.");
+        throw new Error("Provider payout failed.");
       }
-      return {
-        providerPayoutReference: `po_${input.payoutId}`,
+      const providerPayoutReference = `po_${input.payoutId}`;
+      payouts.set(providerPayoutReference, {
+        providerPayoutReference,
         providerStatus: "pending",
+        failureCode: null,
+        failureMessage: null,
+      });
+      return {
+        providerPayoutReference,
+        providerStatus: "pending",
+      };
+    },
+    async retrieveConnectedAccountPayout(input): Promise<RetrievedProviderPayout> {
+      return payouts.get(input.providerPayoutReference) ?? {
+        providerPayoutReference: input.providerPayoutReference,
+        providerStatus: "pending",
+        failureCode: null,
+        failureMessage: null,
       };
     },
     async parseMoneyMovementWebhook(input) {
       const event = JSON.parse(input.rawBody) as {
         kind?: string;
+        providerEventId?: string;
         providerPayoutReference?: string;
         providerReference?: string;
+        providerStatus?: string;
       };
+      const providerEventId = event.providerEventId ?? `evt_fake_${event.kind ?? "unknown"}`;
       if (event.kind === "payout-completed" && event.providerPayoutReference) {
+        payouts.set(event.providerPayoutReference, {
+          providerPayoutReference: event.providerPayoutReference,
+          providerStatus: event.providerStatus ?? "paid",
+          failureCode: null,
+          failureMessage: null,
+        });
         return {
           kind: "payout-completed",
+          providerEventId,
           providerPayoutReference: event.providerPayoutReference,
-          providerStatus: "paid",
+          providerStatus: event.providerStatus ?? "paid",
           occurredAt: new Date().toISOString(),
         };
       }
       if (event.kind === "payout-failed" && event.providerPayoutReference) {
+        payouts.set(event.providerPayoutReference, {
+          providerPayoutReference: event.providerPayoutReference,
+          providerStatus: "failed",
+          failureCode: "fake_failure",
+          failureMessage: "Fake payout failure.",
+        });
         return {
           kind: "payout-failed",
+          providerEventId,
           providerPayoutReference: event.providerPayoutReference,
           providerStatus: "failed",
           failureCode: "fake_failure",
@@ -153,6 +203,7 @@ export function createFakeMoneyMovementGateway(
       if (event.kind === "payout-readiness-updated" && event.providerReference) {
         return {
           kind: "payout-readiness-updated",
+          providerEventId,
           providerReference: event.providerReference,
           readiness: readyReadiness(event.providerReference),
           occurredAt: new Date().toISOString(),
@@ -163,5 +214,5 @@ export function createFakeMoneyMovementGateway(
     get usedIdempotencyKeys() {
       return usedIdempotencyKeys;
     },
-  } as FakeMoneyMovementGateway;
+  } satisfies FakeMoneyMovementGateway;
 }

@@ -53,6 +53,14 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 3. Payouts are issued only after eligibility rules are satisfied.
 4. Settlement reconciles against Payments but does not own payment processor state.
 
+## Stripe Connect Rollout Notes
+
+- Configure platform API with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` for Stripe Connect money movement; production startup fails without both.
+- Optional onboarding URLs are `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`; seller routes can also pass request-specific return and refresh URLs when creating setup sessions.
+- Register provider webhooks for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`. Settlement consumes them through the unauthenticated provider webhook mount and maps them into provider-neutral payout/readiness events.
+- Smoke test in Stripe test mode by starting payout setup for a seller, completing hosted onboarding, refreshing payout setup, requesting a small payout from an available wallet balance, and replaying payout paid/failed webhooks.
+- Existing payout readiness and payout read models backfill provider fields with nullable references and conservative setup defaults, so old rows remain readable.
+
 ## Open Extraction Candidates
 
 - Treasury operations can be extracted later if cash management becomes materially more complex.
