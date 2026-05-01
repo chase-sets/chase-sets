@@ -8,6 +8,11 @@ export type SettlementPayoutRow = Readonly<{
   destination_reference: string | null;
   note: string | null;
   status: string;
+  provider_transfer_reference: string | null;
+  provider_payout_reference: string | null;
+  provider_status: string | null;
+  provider_failure_code: string | null;
+  provider_failure_message: string | null;
   scheduled_at: string;
   updated_at: string;
   sent_at: string | null;
@@ -25,6 +30,11 @@ const payoutSelect = `
     destination_reference,
     note,
     status,
+    provider_transfer_reference,
+    provider_payout_reference,
+    provider_status,
+    provider_failure_code,
+    provider_failure_message,
     scheduled_at,
     updated_at,
     sent_at,
@@ -61,6 +71,19 @@ export async function listPayouts(
     items: itemsResult.rows,
     total: Number(countResult.rows[0]?.count ?? 0),
   };
+}
+
+export async function getPayoutByProviderPayoutReference(
+  db: PgQueryable,
+  providerPayoutReference: string,
+): Promise<SettlementPayoutRow | null> {
+  const result = await db.query<SettlementPayoutRow>(
+    `${payoutSelect}
+     WHERE provider_payout_reference = $1`,
+    [providerPayoutReference],
+  );
+
+  return result.rows[0] ?? null;
 }
 
 export async function getPayout(

@@ -7,8 +7,14 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { SettlementServices } from "./support/runtime-support/services";
-import { buildSettlementApi } from "./api";
+import type {
+  SettlementHostPorts,
+  SettlementServices,
+} from "./support/runtime-support/services";
+import {
+  buildSettlementApi,
+  buildSettlementMoneyMovementWebhookApi,
+} from "./api";
 import { createSettlementServices } from "./support/runtime-support/services";
 import { settlementSchemaSql } from "./support/runtime-support/schema";
 import { seedSettlementDatabase } from "./support/runtime-support/seed";
@@ -38,15 +44,26 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<SettlementServices, PgTransactionalPool, void> = {
+export const module: BcApiModule<
+  SettlementServices,
+  PgTransactionalPool,
+  SettlementHostPorts
+> = {
   contextName: "settlement",
   routePrefix: "/api/settlement",
   streamPrefix: "settlement.",
   schemaSql: settlementSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<SettlementServices, PgTransactionalPool, void>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<
+    SettlementServices,
+    PgTransactionalPool,
+    SettlementHostPorts
+  >["apiMounts"],
   projectionGroups,
-  createServices: (pool) => createSettlementServices(pool),
-  buildApis: (services) => [buildSettlementApi(services)],
+  createServices: (pool, ports) => createSettlementServices(pool, ports),
+  buildApis: (services) => [
+    buildSettlementApi(services),
+    buildSettlementMoneyMovementWebhookApi(services),
+  ],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const paymentsSubscription = getEventSubscription(

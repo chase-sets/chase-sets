@@ -210,6 +210,9 @@
       "@chase-sets/marketplace/server": [
         "./bounded-contexts/marketplace/server.ts"
       ],
+      "@chase-sets/money-movement": [
+        "./contracts/money-movement/index.ts"
+      ],
       "@chase-sets/ordering": [
         "./bounded-contexts/ordering/index.ts"
       ],
@@ -305,6 +308,9 @@
       ],
       "@chase-sets/settlement/server": [
         "./bounded-contexts/settlement/server.ts"
+      ],
+      "@chase-sets/stripe-connect": [
+        "./infrastructure/stripe-connect/index.ts"
       ]
     }
   }

@@ -1,4 +1,5 @@
 import { createFakePaymentProcessorGateway } from "@chase-sets/payments/server";
+import { createFakeMoneyMovementGateway } from "@chase-sets/settlement/server";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { createPlatformApiHost } from "./app";
 import { loadBootstrapConfig } from "./config";
@@ -14,6 +15,7 @@ async function bootstrap() {
       pools,
       hostPorts: {
         processorGateway: createFakePaymentProcessorGateway(),
+        moneyMovementGateway: createFakeMoneyMovementGateway(),
       },
     });
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime);

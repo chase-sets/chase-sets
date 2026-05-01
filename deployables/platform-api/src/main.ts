@@ -8,6 +8,8 @@ import {
   createFakePaymentProcessorGateway,
   createStripePaymentProcessorGateway,
 } from "@chase-sets/payments/server";
+import { createFakeMoneyMovementGateway } from "@chase-sets/settlement/server";
+import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
 import { loadConfig } from "./config";
@@ -25,10 +27,25 @@ const paymentProcessorGateway =
         apiBaseUrl: config.paymentProcessor.apiBaseUrl,
       })
     : createFakePaymentProcessorGateway();
+const moneyMovementGateway =
+  config.moneyMovement.kind === "stripe"
+    ? createStripeConnectMoneyMovementGateway({
+        secretKey: config.moneyMovement.secretKey,
+        webhookSecret: config.moneyMovement.webhookSecret,
+        apiBaseUrl: config.moneyMovement.apiBaseUrl,
+        onboardingReturnUrl: config.moneyMovement.onboardingReturnUrl,
+        onboardingRefreshUrl: config.moneyMovement.onboardingRefreshUrl,
+      })
+    : createFakeMoneyMovementGateway();
 
 if (config.paymentProcessor.kind === "fake") {
   console.warn(
     "Platform API is using the fake payment processor because Stripe env vars are incomplete. Set STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET to enable Stripe locally.",
+  );
+}
+if (config.moneyMovement.kind === "fake") {
+  console.warn(
+    "Platform API is using the fake money movement provider because Stripe Connect env vars are incomplete. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to enable Stripe Connect locally.",
   );
 }
 
@@ -36,6 +53,7 @@ const runtime = createPlatformApiHost({
   pools,
   hostPorts: {
     processorGateway: paymentProcessorGateway,
+    moneyMovementGateway,
   },
 });
 const app = buildPlatformApiApp(runtime, {

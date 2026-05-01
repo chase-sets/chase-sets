@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SettlementApiEnv } from "../../../api";
 import type { PayoutServices } from "./runtime";
 
@@ -113,82 +114,31 @@ export function createPayoutRoutes(services: PayoutServices) {
     }
   });
 
-  app.post("/payouts/:id/send", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.manage");
-    if (access.response) {
-      return access.response;
-    }
+  return app;
+}
 
-    const context = c.get("context");
-    if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
-    }
+export function createMoneyMovementWebhookRoutes(services: PayoutServices) {
+  const app = new Hono();
 
+  app.post("/money-movement/webhooks", async (c) => {
     try {
-      const result = await services.markPayoutInTransit(
+      const rawBody = await c.req.raw.text();
+      const signatureHeader = c.req.header("Stripe-Signature") ?? null;
+      const result = await services.processMoneyMovementWebhook(
         {
-          payoutId: c.req.param("id"),
-          accountId: access.actor.accountId,
+          rawBody,
+          signatureHeader,
         },
-        context,
-      );
-      return c.json({ id: result.payoutId, version: result.version });
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
-    }
-  });
-
-  app.post("/payouts/:id/complete", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
-    }
-
-    try {
-      const result = await services.completePayout(
         {
-          payoutId: c.req.param("id"),
-          accountId: access.actor.accountId,
-        },
-        context,
+          tenantId: "tnt_identity" as never,
+          audit: {
+            performedByUserId: "usr_identity_system" as never,
+            forAccountId: "acc_identity_system" as never,
+          },
+        } as EventStoreContext,
       );
-      return c.json({ id: result.payoutId, version: result.version });
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 400);
-    }
-  });
 
-  app.post("/payouts/:id/fail", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json({ error: "Authentication context missing." }, 401);
-    }
-
-    const body = await c.req.json().catch(() => ({}));
-
-    try {
-      const result = await services.failPayout(
-        {
-          payoutId: c.req.param("id"),
-          accountId: access.actor.accountId,
-          failureReason:
-            typeof body.failureReason === "string"
-              ? body.failureReason
-              : null,
-        },
-        context,
-      );
-      return c.json({ id: result.payoutId, version: result.version });
+      return c.json(result, 200);
     } catch (error) {
       return c.json({ error: errorMessage(error) }, 400);
     }

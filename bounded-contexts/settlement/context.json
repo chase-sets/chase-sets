@@ -65,7 +65,13 @@
       "requiredDuringBootstrap": true
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "moneyMovementGateway",
+      "providedBy": "platform-api",
+      "purpose": "Provider-neutral money movement adapter for payout setup, platform-balance transfers, connected-account payouts, and payout webhooks."
+    }
+  ],
   "apiDeployables": [
     "platform-api"
   ],
@@ -74,6 +80,12 @@
       "mountPath": "/api/settlement",
       "kind": "primary",
       "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    },
+    {
+      "mountPath": "/api/settlement/provider",
+      "kind": "additional",
+      "requiresAuth": false,
       "drainProjectorsOnWrite": true
     }
   ],

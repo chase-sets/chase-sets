@@ -6,8 +6,14 @@ import type {
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   ensureIsoTimestamp,
+  normalizeProviderCapabilityStatus,
+  normalizeProviderPayoutDestinationStatus,
+  normalizeProviderSetupStatus,
   normalizeOptionalText,
   normalizePayoutReadinessStatus,
+  type ProviderCapabilityStatus,
+  type ProviderPayoutDestinationStatus,
+  type ProviderSetupStatus,
   type PayoutReadinessStatus,
 } from "../../../support/runtime-support/common";
 
@@ -16,6 +22,10 @@ export type PayoutReadinessState = Readonly<{
   status: PayoutReadinessStatus;
   missingRequirements: readonly string[];
   providerReference: string | null;
+  onboardingStatus: ProviderSetupStatus;
+  transferCapabilityStatus: ProviderCapabilityStatus;
+  payoutCapabilityStatus: ProviderCapabilityStatus;
+  payoutDestinationStatus: ProviderPayoutDestinationStatus;
   updatedAt: string | null;
 }>;
 
@@ -24,6 +34,10 @@ export const initialPayoutReadinessState: PayoutReadinessState = {
   status: "not-started",
   missingRequirements: [],
   providerReference: null,
+  onboardingStatus: "not-started",
+  transferCapabilityStatus: "inactive",
+  payoutCapabilityStatus: "inactive",
+  payoutDestinationStatus: "missing",
   updatedAt: null,
 };
 
@@ -33,6 +47,10 @@ export type RecordPayoutReadinessCommand = Readonly<{
   status: PayoutReadinessStatus;
   missingRequirements?: readonly string[];
   providerReference?: string | null;
+  onboardingStatus?: ProviderSetupStatus | string;
+  transferCapabilityStatus?: ProviderCapabilityStatus | string;
+  payoutCapabilityStatus?: ProviderCapabilityStatus | string;
+  payoutDestinationStatus?: ProviderPayoutDestinationStatus | string;
   recordedAt: string;
 }>;
 
@@ -45,6 +63,10 @@ export type PayoutReadinessRecordedEvent = DomainEvent<
     status: PayoutReadinessStatus;
     missingRequirements: string[];
     providerReference: string | null;
+    onboardingStatus: ProviderSetupStatus;
+    transferCapabilityStatus: ProviderCapabilityStatus;
+    payoutCapabilityStatus: ProviderCapabilityStatus;
+    payoutDestinationStatus: ProviderPayoutDestinationStatus;
     recordedAt: string;
   }>
 >;
@@ -71,6 +93,18 @@ export const decidePayoutReadiness: AggregateDecider<
             status: normalizePayoutReadinessStatus(command.status),
             missingRequirements: normalizeRequirements(command.missingRequirements),
             providerReference: normalizeOptionalText(command.providerReference),
+            onboardingStatus: normalizeProviderSetupStatus(
+              command.onboardingStatus ?? "not-started",
+            ),
+            transferCapabilityStatus: normalizeProviderCapabilityStatus(
+              command.transferCapabilityStatus ?? "inactive",
+            ),
+            payoutCapabilityStatus: normalizeProviderCapabilityStatus(
+              command.payoutCapabilityStatus ?? "inactive",
+            ),
+            payoutDestinationStatus: normalizeProviderPayoutDestinationStatus(
+              command.payoutDestinationStatus ?? "missing",
+            ),
             recordedAt: ensureIsoTimestamp(
               command.recordedAt,
               "Payout readiness recording must include a timestamp.",
@@ -92,6 +126,10 @@ export const evolvePayoutReadiness: AggregateEvolver<
         status: event.data.status,
         missingRequirements: event.data.missingRequirements,
         providerReference: event.data.providerReference,
+        onboardingStatus: event.data.onboardingStatus,
+        transferCapabilityStatus: event.data.transferCapabilityStatus,
+        payoutCapabilityStatus: event.data.payoutCapabilityStatus,
+        payoutDestinationStatus: event.data.payoutDestinationStatus,
         updatedAt: event.data.recordedAt,
       };
   }

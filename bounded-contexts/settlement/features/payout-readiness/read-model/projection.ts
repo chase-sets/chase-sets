@@ -11,6 +11,10 @@ export function buildPayoutReadinessProjectionHandlers(
         status: string;
         missingRequirements: readonly string[];
         providerReference: string | null;
+        onboardingStatus?: string;
+        transferCapabilityStatus?: string;
+        payoutCapabilityStatus?: string;
+        payoutDestinationStatus?: string;
         recordedAt: string;
       };
 
@@ -20,13 +24,21 @@ export function buildPayoutReadinessProjectionHandlers(
            status,
            missing_requirements,
            provider_reference,
+           onboarding_status,
+           transfer_capability_status,
+           payout_capability_status,
+           payout_destination_status,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (account_id) DO UPDATE
          SET status = EXCLUDED.status,
              missing_requirements = EXCLUDED.missing_requirements,
              provider_reference = EXCLUDED.provider_reference,
+             onboarding_status = EXCLUDED.onboarding_status,
+             transfer_capability_status = EXCLUDED.transfer_capability_status,
+             payout_capability_status = EXCLUDED.payout_capability_status,
+             payout_destination_status = EXCLUDED.payout_destination_status,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE settlement_payout_readiness_pages.last_stream_version < EXCLUDED.last_stream_version`,
@@ -35,6 +47,10 @@ export function buildPayoutReadinessProjectionHandlers(
           data.status,
           JSON.stringify(Array.isArray(data.missingRequirements) ? data.missingRequirements : []),
           data.providerReference,
+          data.onboardingStatus ?? "not-started",
+          data.transferCapabilityStatus ?? "inactive",
+          data.payoutCapabilityStatus ?? "inactive",
+          data.payoutDestinationStatus ?? "missing",
           data.recordedAt,
           event.streamVersion,
         ],

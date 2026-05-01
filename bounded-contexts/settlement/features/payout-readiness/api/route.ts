@@ -56,6 +56,60 @@ export function createPayoutReadinessRoutes(
     return c.json(await services.getPayoutReadiness(access.actor.accountId));
   });
 
+  app.post("/payout-setup/onboarding-session", async (c) => {
+    const access = requirePayoutReadinessAccess(c, "payouts.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: "Authentication context missing." }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      const result = await services.createOnboardingSession(
+        {
+          accountId: access.actor.accountId as never,
+          returnUrl: typeof body.returnUrl === "string" ? body.returnUrl : null,
+          refreshUrl: typeof body.refreshUrl === "string" ? body.refreshUrl : null,
+        },
+        context,
+      );
+
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
+  app.post("/payout-setup/refresh", async (c) => {
+    const access = requirePayoutReadinessAccess(c, "payouts.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: "Authentication context missing." }, 401);
+    }
+
+    try {
+      const readiness = await services.refreshProviderReadiness(
+        {
+          accountId: access.actor.accountId as never,
+        },
+        context,
+      );
+
+      return c.json(readiness);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
   app.post("/payout-readiness/provider-status", async (c) => {
     const access = requirePayoutReadinessAccess(c, "payouts.manage");
     if (access.response) {
@@ -79,6 +133,22 @@ export function createPayoutReadinessRoutes(
             body.providerReference === null || body.providerReference === undefined
               ? null
               : String(body.providerReference),
+          onboardingStatus:
+            typeof body.onboardingStatus === "string"
+              ? body.onboardingStatus
+              : undefined,
+          transferCapabilityStatus:
+            typeof body.transferCapabilityStatus === "string"
+              ? body.transferCapabilityStatus
+              : undefined,
+          payoutCapabilityStatus:
+            typeof body.payoutCapabilityStatus === "string"
+              ? body.payoutCapabilityStatus
+              : undefined,
+          payoutDestinationStatus:
+            typeof body.payoutDestinationStatus === "string"
+              ? body.payoutDestinationStatus
+              : undefined,
         },
         context,
       );

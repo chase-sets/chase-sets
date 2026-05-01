@@ -16,6 +16,19 @@ export type PlatformApiPaymentProcessorConfig =
       apiBaseUrl?: string;
     }>;
 
+export type PlatformApiMoneyMovementConfig =
+  | Readonly<{
+      kind: "fake";
+    }>
+  | Readonly<{
+      kind: "stripe";
+      secretKey: string;
+      webhookSecret: string;
+      apiBaseUrl?: string;
+      onboardingReturnUrl?: string;
+      onboardingRefreshUrl?: string;
+    }>;
+
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
 
 export type PlatformApiBaseConfig = Readonly<{
@@ -26,6 +39,7 @@ export type PlatformApiBaseConfig = Readonly<{
 
 export type PlatformApiConfig = PlatformApiBaseConfig & Readonly<{
   paymentProcessor: PlatformApiPaymentProcessorConfig;
+  moneyMovement: PlatformApiMoneyMovementConfig;
 }>;
 
 const platformApiContexts = getApiHostContextNames(apiContextRegistry, "platform-api");
@@ -78,10 +92,26 @@ export function loadConfig(): PlatformApiConfig {
   const stripePublishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
   const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   const stripeApiBaseUrl = process.env.STRIPE_API_BASE_URL;
+  const stripeConnectReturnUrl = process.env.STRIPE_CONNECT_RETURN_URL;
+  const stripeConnectRefreshUrl = process.env.STRIPE_CONNECT_REFRESH_URL;
+
+  const moneyMovement = stripeSecretKey && stripeWebhookSecret
+    ? {
+        kind: "stripe" as const,
+        secretKey: stripeSecretKey,
+        webhookSecret: stripeWebhookSecret,
+        apiBaseUrl: stripeApiBaseUrl,
+        onboardingReturnUrl: stripeConnectReturnUrl,
+        onboardingRefreshUrl: stripeConnectRefreshUrl,
+      }
+    : {
+        kind: "fake" as const,
+      };
 
   if (stripeSecretKey && stripePublishableKey && stripeWebhookSecret) {
     return {
       ...baseConfig,
+      moneyMovement,
       paymentProcessor: {
         kind: "stripe",
         secretKey: stripeSecretKey,
@@ -94,6 +124,7 @@ export function loadConfig(): PlatformApiConfig {
 
   return {
     ...baseConfig,
+    moneyMovement,
     paymentProcessor: {
       kind: "fake",
     },

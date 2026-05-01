@@ -7,6 +7,11 @@ CREATE TABLE IF NOT EXISTS settlement_payout_pages (
   destination_reference text NULL,
   note text NULL,
   status text NOT NULL,
+  provider_transfer_reference text NULL,
+  provider_payout_reference text NULL,
+  provider_status text NULL,
+  provider_failure_code text NULL,
+  provider_failure_message text NULL,
   scheduled_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
   sent_at timestamptz NULL,
@@ -18,4 +23,23 @@ CREATE TABLE IF NOT EXISTS settlement_payout_pages (
 
 CREATE INDEX IF NOT EXISTS settlement_payout_pages_account_idx
   ON settlement_payout_pages (account_id, updated_at DESC, payout_id DESC);
+
+CREATE INDEX IF NOT EXISTS settlement_payout_pages_provider_payout_idx
+  ON settlement_payout_pages (provider_payout_reference)
+  WHERE provider_payout_reference IS NOT NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS provider_transfer_reference text NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS provider_payout_reference text NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS provider_status text NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS provider_failure_code text NULL;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS provider_failure_message text NULL;
 `;

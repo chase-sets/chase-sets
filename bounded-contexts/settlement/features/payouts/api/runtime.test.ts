@@ -12,6 +12,7 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createWalletRuntime } from "../../wallets/api/runtime";
 import { createPayoutRuntime } from "./runtime";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
+import { createFakeMoneyMovementGateway } from "../../../support/runtime-support/fake-money-movement-gateway";
 
 function createInMemoryEventStore() {
   let globalPosition = 0;
@@ -87,6 +88,10 @@ function createPayoutReadiness(status: "not-started" | "pending" | "ready" | "re
       status,
       missing_requirements: status === "ready" ? [] : ["provider-onboarding"],
       provider_reference: "acct_test",
+      onboarding_status: status === "ready" ? "complete" : "pending",
+      transfer_capability_status: status === "ready" ? "active" : "pending",
+      payout_capability_status: status === "ready" ? "active" : "pending",
+      payout_destination_status: status === "ready" ? "ready" : "missing",
       updated_at: "2026-04-02T00:00:00.000Z",
     }),
   } as PayoutReadinessServices;
@@ -139,6 +144,7 @@ describe("settlement payout runtime", () => {
       db: db as never,
       wallets,
       payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
     });
 
     const scheduled = await payouts.schedulePayout(
@@ -186,6 +192,7 @@ describe("settlement payout runtime", () => {
 
     expect(payoutEvents.map((event) => event.eventType)).toEqual([
       "settlement.payout.scheduled",
+      "settlement.payout.in-transit-recorded",
       "settlement.payout.failed",
     ]);
     expect(walletEntryEvents).toHaveLength(2);
@@ -237,6 +244,7 @@ describe("settlement payout runtime", () => {
       db: db as never,
       wallets,
       payoutReadiness: createPayoutReadiness("pending"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
     });
 
     await expect(
@@ -249,6 +257,115 @@ describe("settlement payout runtime", () => {
         context,
       ),
     ).rejects.toThrow("Payout setup must be complete before scheduling payouts.");
+    expect(readAllEvents()).toHaveLength(0);
+  });
+
+  it("uses deterministic provider idempotency keys for transfer and payout submission", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const moneyMovementGateway = createFakeMoneyMovementGateway();
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway,
+    });
+
+    const scheduled = await payouts.schedulePayout(
+      {
+        accountId: "acc_seller" as never,
+        amount: "12.50",
+      },
+      context,
+    );
+
+    expect(moneyMovementGateway.usedIdempotencyKeys).toContain(
+      `settlement:payout:${scheduled.payoutId}:transfer`,
+    );
+    expect(moneyMovementGateway.usedIdempotencyKeys).toContain(
+      `settlement:payout:${scheduled.payoutId}:payout`,
+    );
+  });
+
+  it("fails before creating payout events when platform balance is too low", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway({
+        availableAmount: "10.00",
+      }),
+    });
+
+    await expect(
+      payouts.schedulePayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "12.50",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Platform balance is too low for this payout.");
     expect(readAllEvents()).toHaveLength(0);
   });
 });

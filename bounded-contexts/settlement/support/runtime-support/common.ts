@@ -22,6 +22,9 @@ export type PayoutReadinessStatus =
   | "pending"
   | "ready"
   | "restricted";
+export type ProviderSetupStatus = "not-started" | "pending" | "complete";
+export type ProviderCapabilityStatus = "inactive" | "pending" | "active";
+export type ProviderPayoutDestinationStatus = "missing" | "pending" | "ready";
 
 export type WalletSummary = Readonly<{
   accountId: AccountId;
@@ -58,6 +61,11 @@ export type PayoutSummary = Readonly<{
   destinationReference: string | null;
   note: string | null;
   status: PayoutStatus;
+  providerTransferReference: string | null;
+  providerPayoutReference: string | null;
+  providerStatus: string | null;
+  providerFailureCode: string | null;
+  providerFailureMessage: string | null;
   scheduledAt: string;
   sentAt: string | null;
   completedAt: string | null;
@@ -70,6 +78,10 @@ export type PayoutReadinessSummary = Readonly<{
   status: PayoutReadinessStatus;
   missingRequirements: readonly string[];
   providerReference: string | null;
+  onboardingStatus: ProviderSetupStatus;
+  transferCapabilityStatus: ProviderCapabilityStatus;
+  payoutCapabilityStatus: ProviderCapabilityStatus;
+  payoutDestinationStatus: ProviderPayoutDestinationStatus;
   updatedAt: string;
 }>;
 
@@ -240,6 +252,51 @@ export function normalizePayoutReadinessStatus(value: string): PayoutReadinessSt
       return "restricted";
     default:
       throw new SettlementDomainError("Payout readiness status is not supported.");
+  }
+}
+
+export function normalizeProviderSetupStatus(value: string): ProviderSetupStatus {
+  switch (value.trim()) {
+    case "not-started":
+      return "not-started";
+    case "pending":
+      return "pending";
+    case "complete":
+      return "complete";
+    default:
+      throw new SettlementDomainError("Provider setup status is not supported.");
+  }
+}
+
+export function normalizeProviderCapabilityStatus(
+  value: string,
+): ProviderCapabilityStatus {
+  switch (value.trim()) {
+    case "inactive":
+      return "inactive";
+    case "pending":
+      return "pending";
+    case "active":
+      return "active";
+    default:
+      throw new SettlementDomainError("Provider capability status is not supported.");
+  }
+}
+
+export function normalizeProviderPayoutDestinationStatus(
+  value: string,
+): ProviderPayoutDestinationStatus {
+  switch (value.trim()) {
+    case "missing":
+      return "missing";
+    case "pending":
+      return "pending";
+    case "ready":
+      return "ready";
+    default:
+      throw new SettlementDomainError(
+        "Provider payout destination status is not supported.",
+      );
   }
 }
 

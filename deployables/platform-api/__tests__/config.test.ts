@@ -28,6 +28,8 @@ afterEach(() => {
   delete process.env.STRIPE_PUBLISHABLE_KEY;
   delete process.env.STRIPE_WEBHOOK_SECRET;
   delete process.env.STRIPE_API_BASE_URL;
+  delete process.env.STRIPE_CONNECT_RETURN_URL;
+  delete process.env.STRIPE_CONNECT_REFRESH_URL;
 });
 
 describe("platform api config", () => {
@@ -72,5 +74,24 @@ describe("platform api config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
 
     expect(loadConfig().paymentProcessor).toEqual({ kind: "fake" });
+    expect(loadConfig().moneyMovement).toEqual({ kind: "fake" });
+  });
+
+  it("loads Stripe Connect money movement config from Stripe env vars", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_API_BASE_URL = "https://stripe.test";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
+
+    expect(loadConfig().moneyMovement).toEqual({
+      kind: "stripe",
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+      onboardingReturnUrl: "https://example.test/return",
+      onboardingRefreshUrl: "https://example.test/refresh",
+    });
   });
 });

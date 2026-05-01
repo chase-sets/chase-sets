@@ -96,6 +96,24 @@ export function createSettlementApiClient({
         }),
       );
     },
+    async createPayoutSetupOnboardingSession(
+      body: Record<string, unknown> = {},
+    ): Promise<Readonly<{ url: string; providerReference: string; expiresAt: string | null }>> {
+      return parseJsonResponse(
+        await client["payout-setup"]["onboarding-session"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async refreshPayoutSetup(): Promise<SettlementPayoutReadinessRow> {
+      return parseJsonResponse(
+        await client["payout-setup"].refresh.$post({
+          json: {},
+          header: headers,
+        }),
+      );
+    },
     async getPayout(payoutId: string): Promise<SettlementPayoutRow> {
       return parseJsonResponse(
         await client.payouts[":id"].$get({
@@ -107,33 +125,6 @@ export function createSettlementApiClient({
     async createPayout(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.payouts.$post({ json: body, header: headers }),
-      );
-    },
-    async sendPayout(payoutId: string) {
-      return parseJsonResponse(
-        await client.payouts[":id"].send.$post({
-          param: { id: payoutId },
-          json: {},
-          header: headers,
-        }),
-      );
-    },
-    async completePayout(payoutId: string) {
-      return parseJsonResponse(
-        await client.payouts[":id"].complete.$post({
-          param: { id: payoutId },
-          json: {},
-          header: headers,
-        }),
-      );
-    },
-    async failPayout(payoutId: string, body: Record<string, unknown> = {}) {
-      return parseJsonResponse(
-        await client.payouts[":id"].fail.$post({
-          param: { id: payoutId },
-          json: body,
-          header: headers,
-        }),
       );
     },
   };

@@ -1,6 +1,5 @@
 import {
   Badge,
-  Button,
   Card,
   LinkButton,
   Page,
@@ -8,7 +7,6 @@ import {
   PageSection,
   Stack,
   Text,
-  TextInput,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow } from "../read-model/queries";
 
@@ -32,11 +30,9 @@ function statusTone(status: string) {
 export function SettlementPayoutDetailPage({
   backHref,
   payout,
-  errorMessage,
 }: {
   backHref: string;
   payout: SettlementPayoutRow;
-  errorMessage?: string | null;
 }) {
   return (
     <Page>
@@ -50,12 +46,6 @@ export function SettlementPayoutDetailPage({
           </LinkButton>
         }
       />
-
-      {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
-      ) : null}
 
       <PageSection title="Summary">
         <Card>
@@ -87,46 +77,29 @@ export function SettlementPayoutDetailPage({
             {payout.failure_reason ? (
               <Text tone="secondary">Reason: {payout.failure_reason}</Text>
             ) : null}
+            {payout.provider_status ? (
+              <Text size="sm" tone="secondary">
+                Provider status: {payout.provider_status}
+              </Text>
+            ) : null}
+            {payout.provider_transfer_reference ? (
+              <Text size="sm" tone="secondary">
+                Provider transfer: {payout.provider_transfer_reference}
+              </Text>
+            ) : null}
+            {payout.provider_payout_reference ? (
+              <Text size="sm" tone="secondary">
+                Provider payout: {payout.provider_payout_reference}
+              </Text>
+            ) : null}
+            {payout.provider_failure_message ? (
+              <Text tone="secondary">
+                Provider message: {payout.provider_failure_message}
+              </Text>
+            ) : null}
           </Stack>
         </Card>
       </PageSection>
-
-      {payout.status === "scheduled" ? (
-        <PageSection title="Actions">
-          <Card>
-            <form method="post">
-              <input type="hidden" name="intent" value="send-payout" />
-              <Button type="submit">Mark in transit</Button>
-            </form>
-          </Card>
-        </PageSection>
-      ) : null}
-
-      {payout.status === "in-transit" ? (
-        <PageSection title="Actions">
-          <Stack gap={3}>
-            <Card>
-              <form method="post">
-                <input type="hidden" name="intent" value="complete-payout" />
-                <Button type="submit">Mark completed</Button>
-              </form>
-            </Card>
-            <Card>
-              <form method="post">
-                <Stack gap={3}>
-                  <input type="hidden" name="intent" value="fail-payout" />
-                  <TextInput
-                    label="Failure reason"
-                    name="failureReason"
-                    placeholder="Describe why the payout failed"
-                  />
-                  <Button type="submit" tone="danger">Mark failed</Button>
-                </Stack>
-              </form>
-            </Card>
-          </Stack>
-        </PageSection>
-      ) : null}
     </Page>
   );
 }

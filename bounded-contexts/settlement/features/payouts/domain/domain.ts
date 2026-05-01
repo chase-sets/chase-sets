@@ -23,6 +23,11 @@ export type PayoutState = Readonly<{
   destinationReference: string | null;
   note: string | null;
   status: PayoutStatus | null;
+  providerTransferReference: string | null;
+  providerPayoutReference: string | null;
+  providerStatus: string | null;
+  providerFailureCode: string | null;
+  providerFailureMessage: string | null;
   scheduledAt: string | null;
   sentAt: string | null;
   completedAt: string | null;
@@ -38,6 +43,11 @@ export const initialPayoutState: PayoutState = {
   destinationReference: null,
   note: null,
   status: null,
+  providerTransferReference: null,
+  providerPayoutReference: null,
+  providerStatus: null,
+  providerFailureCode: null,
+  providerFailureMessage: null,
   scheduledAt: null,
   sentAt: null,
   completedAt: null,
@@ -58,17 +68,24 @@ export type SchedulePayoutCommand = Readonly<{
 
 export type MarkPayoutInTransitCommand = Readonly<{
   type: "MarkPayoutInTransit";
+  providerTransferReference?: string | null;
+  providerPayoutReference?: string | null;
+  providerStatus?: string | null;
   sentAt: string;
 }>;
 
 export type CompletePayoutCommand = Readonly<{
   type: "CompletePayout";
+  providerStatus?: string | null;
   completedAt: string;
 }>;
 
 export type FailPayoutCommand = Readonly<{
   type: "FailPayout";
   failureReason?: string | null;
+  providerStatus?: string | null;
+  providerFailureCode?: string | null;
+  providerFailureMessage?: string | null;
   failedAt: string;
 }>;
 
@@ -95,6 +112,9 @@ export type PayoutInTransitEvent = DomainEvent<
   "settlement.payout.in-transit-recorded",
   Readonly<{
     payoutId: PayoutId;
+    providerTransferReference: string | null;
+    providerPayoutReference: string | null;
+    providerStatus: string | null;
     sentAt: string;
   }>
 >;
@@ -103,6 +123,7 @@ export type PayoutCompletedEvent = DomainEvent<
   "settlement.payout.completed",
   Readonly<{
     payoutId: PayoutId;
+    providerStatus: string | null;
     completedAt: string;
   }>
 >;
@@ -112,6 +133,9 @@ export type PayoutFailedEvent = DomainEvent<
   Readonly<{
     payoutId: PayoutId;
     failureReason: string | null;
+    providerStatus: string | null;
+    providerFailureCode: string | null;
+    providerFailureMessage: string | null;
     failedAt: string;
   }>
 >;
@@ -160,6 +184,13 @@ export const decidePayout: AggregateDecider<
           type: "settlement.payout.in-transit-recorded",
           data: {
             payoutId: state.payoutId,
+            providerTransferReference: normalizeOptionalText(
+              command.providerTransferReference,
+            ),
+            providerPayoutReference: normalizeOptionalText(
+              command.providerPayoutReference,
+            ),
+            providerStatus: normalizeOptionalText(command.providerStatus),
             sentAt: ensureIsoTimestamp(
               command.sentAt,
               "Payout send must record a timestamp.",
@@ -181,6 +212,7 @@ export const decidePayout: AggregateDecider<
           type: "settlement.payout.completed",
           data: {
             payoutId: state.payoutId,
+            providerStatus: normalizeOptionalText(command.providerStatus),
             completedAt: ensureIsoTimestamp(
               command.completedAt,
               "Payout completion must record a timestamp.",
@@ -200,6 +232,11 @@ export const decidePayout: AggregateDecider<
           data: {
             payoutId: state.payoutId,
             failureReason: normalizeOptionalText(command.failureReason),
+            providerStatus: normalizeOptionalText(command.providerStatus),
+            providerFailureCode: normalizeOptionalText(command.providerFailureCode),
+            providerFailureMessage: normalizeOptionalText(
+              command.providerFailureMessage,
+            ),
             failedAt: ensureIsoTimestamp(
               command.failedAt,
               "Payout failure must record a timestamp.",
@@ -226,6 +263,11 @@ export const evolvePayout: AggregateEvolver<
         destinationReference: event.data.destinationReference,
         note: event.data.note,
         status: "scheduled",
+        providerTransferReference: null,
+        providerPayoutReference: null,
+        providerStatus: null,
+        providerFailureCode: null,
+        providerFailureMessage: null,
         scheduledAt: event.data.scheduledAt,
         sentAt: null,
         completedAt: null,
@@ -236,12 +278,22 @@ export const evolvePayout: AggregateEvolver<
       return {
         ...state,
         status: "in-transit",
+        providerTransferReference:
+          event.data.providerTransferReference ?? state.providerTransferReference,
+        providerPayoutReference:
+          event.data.providerPayoutReference ?? state.providerPayoutReference,
+        providerStatus: event.data.providerStatus ?? state.providerStatus,
+        providerFailureCode: null,
+        providerFailureMessage: null,
         sentAt: event.data.sentAt,
       };
     case "settlement.payout.completed":
       return {
         ...state,
         status: "completed",
+        providerStatus: event.data.providerStatus ?? state.providerStatus,
+        providerFailureCode: null,
+        providerFailureMessage: null,
         completedAt: event.data.completedAt,
         failedAt: null,
         failureReason: null,
@@ -250,6 +302,9 @@ export const evolvePayout: AggregateEvolver<
       return {
         ...state,
         status: "failed",
+        providerStatus: event.data.providerStatus ?? state.providerStatus,
+        providerFailureCode: event.data.providerFailureCode,
+        providerFailureMessage: event.data.providerFailureMessage,
         failedAt: event.data.failedAt,
         failureReason: event.data.failureReason,
       };
