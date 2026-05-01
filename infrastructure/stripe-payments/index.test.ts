@@ -48,7 +48,13 @@ describe("Stripe payment processor gateway", () => {
     );
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Headers).get("Stripe-Version")).toBe("2026-02-25.clover");
+    expect((init.headers as Headers).get("Idempotency-Key")).toBe(
+      "payments:payment:pay_123:create",
+    );
     expect(String(init.body)).toContain("metadata%5Bpayment_id%5D=pay_123");
+    expect(String(init.body)).toContain(
+      "payment_method_options%5Bcard%5D%5Brequest_three_d_secure%5D=automatic",
+    );
 
     vi.unstubAllGlobals();
   });

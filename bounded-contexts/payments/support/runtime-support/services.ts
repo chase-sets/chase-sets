@@ -35,7 +35,13 @@ function createMissingProcessorGateway(): PaymentProcessorGateway {
   };
 
   return {
-    getPublicConfiguration: () => ({ processorName: "stripe", publishableKey: null }),
+    getPublicConfiguration: () => ({
+      processorName: "stripe",
+      publishableKey: null,
+      confirmationExperience: "processor-managed-form",
+      dynamicPaymentMethods: true,
+      sensitivePaymentDetailsHandledByProcessor: true,
+    }),
     createPaymentIntent: async () => fail(),
     createRefund: async () => fail(),
     parseWebhook: async () => fail(),

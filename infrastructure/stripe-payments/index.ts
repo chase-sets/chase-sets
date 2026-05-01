@@ -216,13 +216,23 @@ export function createStripePaymentProcessorGateway(
   const publicConfiguration: PaymentProcessorPublicConfig = {
     processorName: "stripe",
     publishableKey: options.publishableKey,
+    confirmationExperience: "processor-managed-form",
+    dynamicPaymentMethods: true,
+    sensitivePaymentDetailsHandledByProcessor: true,
   };
 
-  async function stripeRequest<T>(path: string, init: RequestInit) {
+  async function stripeRequest<T>(
+    path: string,
+    init: RequestInit,
+    options: Readonly<{ idempotencyKey?: string | null }> = {},
+  ) {
     const headers = new Headers(init.headers);
     headers.set("Authorization", authorization);
     headers.set("Content-Type", "application/x-www-form-urlencoded");
     headers.set("Stripe-Version", STRIPE_API_VERSION);
+    if (options.idempotencyKey?.trim()) {
+      headers.set("Idempotency-Key", options.idempotencyKey.trim());
+    }
 
     const response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,
@@ -249,11 +259,22 @@ export function createStripePaymentProcessorGateway(
             amount: String(amount),
             currency: input.currencyCode,
             "automatic_payment_methods[enabled]": "true",
+            "payment_method_options[card][request_three_d_secure]": "automatic",
             description: input.description,
             "metadata[payment_id]": input.paymentId,
             "metadata[buyer_account_id]": input.buyerAccountId,
             "metadata[order_ids]": input.orderIds.join(","),
+            "metadata[client_ip_collected]": input.clientRiskContext?.ipAddress
+              ? "true"
+              : "false",
+            "metadata[user_agent_collected]": input.clientRiskContext?.userAgent
+              ? "true"
+              : "false",
           }),
+        },
+        {
+          idempotencyKey:
+            input.idempotencyKey ?? `payments:payment:${input.paymentId}:create`,
         },
       );
 
@@ -284,6 +305,8 @@ export function createStripePaymentProcessorGateway(
           "metadata[order_ids]": input.orderIds.join(","),
           "metadata[refund_reason]": input.reason,
         }),
+      }, {
+        idempotencyKey: `payments:payment:${input.paymentId}:refund:${input.amount}`,
       });
 
       if (!body.id?.trim()) {

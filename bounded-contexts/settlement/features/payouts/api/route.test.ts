@@ -45,7 +45,7 @@ describe("settlement payout routes", () => {
       payoutId: "pyo_test",
       version: 1,
     }));
-    const app = createAuthenticatedApp({ requestPayout }, ["payouts.manage"]);
+    const app = createAuthenticatedApp({ requestPayout }, ["payouts.request"]);
 
     const response = await app.request("/payouts", {
       method: "POST",
@@ -72,7 +72,7 @@ describe("settlement payout routes", () => {
     );
   });
 
-  it("requires payout management permission before requesting payouts", async () => {
+  it("requires payout request permission before requesting payouts", async () => {
     const requestPayout = vi.fn();
     const app = createAuthenticatedApp({ requestPayout }, ["payouts.view"]);
 
@@ -86,7 +86,7 @@ describe("settlement payout routes", () => {
     expect(requestPayout).not.toHaveBeenCalled();
   });
 
-  it("runs reconciliation only for payout managers", async () => {
+  it("runs reconciliation only for payout reconcilers", async () => {
     const reconcilePayoutsNeedingAttention = vi.fn(async () => ({
       checked: 1,
       reconciled: 1,
@@ -96,7 +96,7 @@ describe("settlement payout routes", () => {
     }));
     const app = createAuthenticatedApp(
       { reconcilePayoutsNeedingAttention },
-      ["payouts.manage"],
+      ["payouts.reconcile"],
     );
 
     const response = await app.request("/payouts/reconciliation/run", {

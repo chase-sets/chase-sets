@@ -44,7 +44,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   ) {
     await requireActorFromAuthApi({
       request,
-      permission: "payouts.manage",
+      permission: "payouts.setup",
     });
     await createSettlementRequestApiClient(request).refreshPayoutSetup();
     return redirect("/account/payouts");
@@ -65,14 +65,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
     wallet,
     payouts,
     payoutReadiness,
-    canManagePayouts: actor.permissions.includes("payouts.manage"),
+    canRequestPayouts: actor.permissions.includes("payouts.request"),
+    canSetupPayouts: actor.permissions.includes("payouts.setup"),
+    canReconcilePayouts: actor.permissions.includes("payouts.reconcile"),
   };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
-    permission: "payouts.manage",
+    permission: "payouts.view",
   });
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
@@ -80,6 +82,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "preview-payout") {
+      if (!actor.permissions.includes("payouts.request")) {
+        return { error: "You do not have permission to request payouts." };
+      }
       const amount = normalizeQuickAmount(formData);
       const note = formData.get("note") ? String(formData.get("note")) : null;
       return {
@@ -91,6 +96,9 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "edit-payout") {
+      if (!actor.permissions.includes("payouts.request")) {
+        return { error: "You do not have permission to request payouts." };
+      }
       return {
         draft: {
           amount: String(formData.get("amount") ?? ""),
@@ -100,6 +108,9 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "confirm-payout") {
+      if (!actor.permissions.includes("payouts.request")) {
+        return { error: "You do not have permission to request payouts." };
+      }
       const result = (await settlementApi.createPayout({
         amount: formData.get("amount"),
         destinationReference: null,
@@ -110,6 +121,9 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "start-payout-setup") {
+      if (!actor.permissions.includes("payouts.setup")) {
+        return { error: "You do not have permission to update payout setup." };
+      }
       const result = await settlementApi.createPayoutSetupOnboardingSession({
         returnUrl: new URL("/account/payouts?setup=returned", request.url).toString(),
         refreshUrl: new URL("/account/payouts?setup=refresh", request.url).toString(),
@@ -119,11 +133,17 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "refresh-payout-setup") {
+      if (!actor.permissions.includes("payouts.setup")) {
+        return { error: "You do not have permission to update payout setup." };
+      }
       await settlementApi.refreshPayoutSetup();
       return redirect("/account/payouts");
     }
 
     if (intent === "manage-payout-account") {
+      if (!actor.permissions.includes("payouts.setup")) {
+        return { error: "You do not have permission to update payout setup." };
+      }
       const result = await settlementApi.createPayoutAccountManagementSession({
         returnUrl: new URL("/account/payouts?setup=returned", request.url).toString(),
       });
@@ -156,7 +176,9 @@ export default function MarketplaceAccountPayoutsRoute() {
       errorMessage={actionData?.error ?? null}
       payoutDraft={actionData?.draft ?? null}
       payoutConfirmation={actionData?.confirmation ?? null}
-      showOperations={data.canManagePayouts}
+      canRequestPayouts={data.canRequestPayouts}
+      canSetupPayouts={data.canSetupPayouts}
+      showOperations={data.canReconcilePayouts}
     />
   );
 }

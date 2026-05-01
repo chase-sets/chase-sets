@@ -6,6 +6,9 @@ export type PaymentProcessorName = "stripe";
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
   publishableKey: string | null;
+  confirmationExperience: "processor-managed-form";
+  dynamicPaymentMethods: boolean;
+  sensitivePaymentDetailsHandledByProcessor: boolean;
 }>;
 
 export type CreateProcessorPaymentInput = Readonly<{
@@ -15,6 +18,11 @@ export type CreateProcessorPaymentInput = Readonly<{
   amount: string;
   currencyCode: PaymentCurrencyCode;
   description: string;
+  idempotencyKey?: string | null;
+  clientRiskContext?: Readonly<{
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  }> | null;
 }>;
 
 export type CreatedProcessorPayment = Readonly<{

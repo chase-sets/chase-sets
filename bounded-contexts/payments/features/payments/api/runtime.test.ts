@@ -110,6 +110,9 @@ function createProcessorGateway() {
     getPublicConfiguration: vi.fn(() => ({
       processorName: "stripe" as const,
       publishableKey: "pk_test_123",
+      confirmationExperience: "processor-managed-form" as const,
+      dynamicPaymentMethods: true,
+      sensitivePaymentDetailsHandledByProcessor: true,
     })),
     createPaymentIntent: vi.fn(async (input: { paymentId: string; amount: string }) => ({
       processorName: "stripe" as const,
@@ -166,6 +169,9 @@ describe("payment runtime", () => {
       getPublicConfiguration: vi.fn(() => ({
         processorName: "stripe" as const,
         publishableKey: "pk_test_123",
+        confirmationExperience: "processor-managed-form" as const,
+        dynamicPaymentMethods: true,
+        sensitivePaymentDetailsHandledByProcessor: true,
       })),
       createPaymentIntent: vi.fn(async () => {
         throw new Error("Processor payment should not be recreated.");

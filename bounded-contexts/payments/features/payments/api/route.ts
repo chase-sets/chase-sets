@@ -75,6 +75,13 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
             body.requestedBalanceCreditAmount,
           ),
+          clientRiskContext: {
+            ipAddress:
+              c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+              c.req.header("x-real-ip") ??
+              null,
+            userAgent: c.req.header("user-agent") ?? null,
+          },
           ...(sourceContext && sourceReferenceId
             ? { sourceContext, sourceReferenceId }
             : {}),

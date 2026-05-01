@@ -268,7 +268,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
       <Stack gap={3}>
         <Badge tone="accent">Secure payment</Badge>
         <Text>
-          Payment is ready. Enter your payment details in the secure processor form and confirm the charge.
+          Payment is ready. Enter your payment details in the secure managed form and confirm the charge.
         </Text>
         <div ref={containerRef} />
         {errorMessage ? (
@@ -327,12 +327,12 @@ export default function MarketplaceAccountPaymentRoute() {
                 {
                   icon: "lock",
                   title: "Secure Payment Flow",
-                  description: "Payment details stay inside the secure processor form.",
+                  description: "Payment details stay inside the secure managed form.",
                 },
                 {
                   icon: "shield",
                   title: "Purchase Coverage",
-      description: `Covers ${data.payment.order_ids.length} purchase${data.payment.order_ids.length === 1 ? "" : "s"}.`,
+                  description: `Covers ${data.payment.order_ids.length} purchase${data.payment.order_ids.length === 1 ? "" : "s"}.`,
                 },
                 {
                   icon: "creditCard",

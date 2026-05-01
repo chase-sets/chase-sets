@@ -30,6 +30,7 @@ afterEach(() => {
   delete process.env.STRIPE_API_BASE_URL;
   delete process.env.STRIPE_CONNECT_RETURN_URL;
   delete process.env.STRIPE_CONNECT_REFRESH_URL;
+  delete process.env.PAYOUT_RECONCILIATION_INTERVAL_MS;
   delete process.env.NODE_ENV;
 });
 
@@ -41,6 +42,7 @@ describe("platform api config", () => {
 
     expect(config.sharedDatabaseUrl).toBe("postgresql://localhost/chase_sets");
     expect(config.contextDatabaseUrls).toEqual({});
+    expect(config.payoutReconciliationIntervalMs).toBe(300_000);
   });
 
   it("loads per-context database urls without a shared fallback", () => {
@@ -96,12 +98,19 @@ describe("platform api config", () => {
     });
   });
 
-  it("fails production config when Stripe Connect money movement secrets are missing", () => {
+  it("fails production config when Stripe payment or Connect secrets are missing", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
 
     expect(() => loadConfig()).toThrow(
-      "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required for Stripe Connect money movement in production.",
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
     );
+  });
+
+  it("can disable scheduled payout reconciliation", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PAYOUT_RECONCILIATION_INTERVAL_MS = "0";
+
+    expect(loadConfig().payoutReconciliationIntervalMs).toBeNull();
   });
 });

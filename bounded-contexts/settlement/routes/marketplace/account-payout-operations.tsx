@@ -23,7 +23,7 @@ type ReconciliationRunResult = Readonly<{
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
     request,
-    permission: "payouts.manage",
+    permission: "payouts.reconcile",
   });
 
   const settlementApi = createSettlementRequestApiClient(request);
@@ -38,7 +38,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export async function action({ request }: ActionFunctionArgs) {
   await requireActorFromAuthApi({
     request,
-    permission: "payouts.manage",
+    permission: "payouts.reconcile",
   });
 
   const formData = await request.formData();

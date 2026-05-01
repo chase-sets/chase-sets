@@ -205,17 +205,17 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 {
                   icon: "lock",
                   title: "Secure Payment",
-                  description: "Purchases remain pending payment until the secure processor confirms capture.",
+                  description: "Payment details are collected by the secure processor so marketplace servers never handle card numbers.",
                 },
                 {
                   icon: "shield",
                   title: "Buyer Protection",
-                  description: "Checkout preserves seller splits and marketplace fees.",
+                  description: "The secure form can use wallets, dynamic payment methods, and extra verification when needed.",
                 },
                 {
                   icon: "creditCard",
                   title: "Payment Setup",
-                  description: "The next step initializes a secure payment form; card details are not stored by the marketplace.",
+                  description: "The next step initializes a managed payment form tied to this checkout.",
                 },
               ]}
             />
@@ -230,7 +230,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 <Text weight="semibold">Ready to initialize payment</Text>
                 <Text size="sm" tone="secondary">
                   Payment covers {data.orders.length} purchase
-                  {data.orders.length === 1 ? "" : "s"} created by checkout.
+                  {data.orders.length === 1 ? "" : "s"} created by checkout. The secure payment form appears on the next screen.
                 </Text>
               </Stack>
               {actionData?.error ? (

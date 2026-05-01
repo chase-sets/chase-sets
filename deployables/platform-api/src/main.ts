@@ -8,6 +8,7 @@ import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processin
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
+import type { SettlementServices } from "@chase-sets/settlement/server";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
 import { loadConfig } from "./config";
@@ -71,6 +72,13 @@ const app = buildPlatformApiApp(runtime, {
 });
 
 const PROJECTION_INTERVAL_MS = 1_000;
+const SYSTEM_CONTEXT = {
+  tenantId: "tnt_identity" as never,
+  audit: {
+    performedByUserId: "usr_identity_system" as never,
+    forAccountId: "acc_identity_system" as never,
+  },
+};
 
 startProjectorPolling(runtime.projectors, PROJECTION_INTERVAL_MS, (error) => {
   console.error("Projection error:", error);
@@ -78,6 +86,28 @@ startProjectorPolling(runtime.projectors, PROJECTION_INTERVAL_MS, (error) => {
 startProjectorPolling(runtime.subscriptionRunners, PROJECTION_INTERVAL_MS, (error) => {
   console.error("Subscription error:", error);
 });
+
+let reconciliationRunning = false;
+if (config.payoutReconciliationIntervalMs) {
+  setInterval(() => {
+    if (reconciliationRunning) {
+      return;
+    }
+    reconciliationRunning = true;
+    const settlementServices = runtime.services.settlement as SettlementServices;
+    void settlementServices.payouts
+      .reconcilePayoutsNeedingAttention({ limit: 100 }, SYSTEM_CONTEXT)
+      .then((result: unknown) => {
+        console.info(JSON.stringify({ type: "settlement.reconciliation", result }));
+      })
+      .catch((error: unknown) => {
+        console.error("Payout reconciliation failed:", error);
+      })
+      .finally(() => {
+        reconciliationRunning = false;
+      });
+  }, config.payoutReconciliationIntervalMs);
+}
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Platform API listening on port ${info.port}`);

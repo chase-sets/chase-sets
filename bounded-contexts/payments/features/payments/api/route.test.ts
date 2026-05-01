@@ -67,7 +67,13 @@ function createServices(): PaymentServices {
     })),
     getAccountPayment: vi.fn(async () => null),
     processWebhook: vi.fn(async () => ({ received: true, ignored: false })),
-    publicConfig: { processorName: "stripe", publishableKey: "pk_test_123" },
+    publicConfig: {
+      processorName: "stripe",
+      publishableKey: "pk_test_123",
+      confirmationExperience: "processor-managed-form",
+      dynamicPaymentMethods: true,
+      sensitivePaymentDetailsHandledByProcessor: true,
+    },
     projectors: [],
   };
 }
@@ -107,6 +113,10 @@ describe("payments routes", () => {
         orderIds: ["ord_1"],
         currencyCode: "usd",
         requestedBalanceCreditAmount: null,
+        clientRiskContext: {
+          ipAddress: null,
+          userAgent: null,
+        },
       },
       expect.any(Object),
     );
@@ -148,6 +158,10 @@ describe("payments routes", () => {
         sourceContext: "checkout",
         sourceReferenceId: "chk_1",
         requestedBalanceCreditAmount: null,
+        clientRiskContext: {
+          ipAddress: null,
+          userAgent: null,
+        },
       },
       expect.any(Object),
     );

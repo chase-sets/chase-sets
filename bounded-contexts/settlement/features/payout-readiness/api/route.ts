@@ -6,7 +6,7 @@ function requirePayoutReadinessAccess(
   c: {
     get(key: "actor"): SettlementApiEnv["Variables"]["actor"];
   },
-  permission: "payouts.view" | "payouts.manage",
+  permission: "payouts.view" | "payouts.setup" | "payouts.manage",
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -75,7 +75,7 @@ export function createPayoutReadinessRoutes(
   });
 
   app.post("/payout-setup/onboarding-session", async (c) => {
-    const access = requirePayoutReadinessAccess(c, "payouts.manage");
+    const access = requirePayoutReadinessAccess(c, "payouts.setup");
     if (access.response) {
       return access.response;
     }
@@ -106,7 +106,7 @@ export function createPayoutReadinessRoutes(
   });
 
   app.post("/payout-setup/account-management-session", async (c) => {
-    const access = requirePayoutReadinessAccess(c, "payouts.manage");
+    const access = requirePayoutReadinessAccess(c, "payouts.setup");
     if (access.response) {
       return access.response;
     }
@@ -134,7 +134,7 @@ export function createPayoutReadinessRoutes(
   });
 
   app.post("/payout-setup/refresh", async (c) => {
-    const access = requirePayoutReadinessAccess(c, "payouts.manage");
+    const access = requirePayoutReadinessAccess(c, "payouts.setup");
     if (access.response) {
       return access.response;
     }

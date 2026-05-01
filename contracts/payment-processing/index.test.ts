@@ -7,6 +7,9 @@ describe("payment processing contract", () => {
       getPublicConfiguration: () => ({
         processorName: "stripe",
         publishableKey: null,
+        confirmationExperience: "processor-managed-form",
+        dynamicPaymentMethods: true,
+        sensitivePaymentDetailsHandledByProcessor: true,
       }),
       createPaymentIntent: async () => ({
         processorName: "stripe",
@@ -23,5 +26,10 @@ describe("payment processing contract", () => {
     } satisfies PaymentProcessorGateway;
 
     expect(gateway.getPublicConfiguration().processorName).toBe("stripe");
+    expect(gateway.getPublicConfiguration()).toMatchObject({
+      confirmationExperience: "processor-managed-form",
+      dynamicPaymentMethods: true,
+      sensitivePaymentDetailsHandledByProcessor: true,
+    });
   });
 });

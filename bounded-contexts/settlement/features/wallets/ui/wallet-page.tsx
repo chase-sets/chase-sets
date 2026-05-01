@@ -2,6 +2,7 @@ import {
   Badge,
   Card,
   DataTable,
+  Grid,
   LinkButton,
   Page,
   PageHeader,
@@ -48,7 +49,7 @@ export function SettlementWalletPage({
       />
 
       <PageSection title="Balance">
-        <Stack gap={3}>
+        <Grid columns={{ base: 1, md: 2 }} gap={3}>
           <Card>
             <Stack gap={2}>
               <Text weight="semibold">Pending</Text>
@@ -63,6 +64,17 @@ export function SettlementWalletPage({
               <Text size="sm" tone="secondary">Funds ready for platform purchases and, after payout setup, payouts.</Text>
             </Stack>
           </Card>
+        </Grid>
+        <Stack gap={1}>
+          <Text size="sm" tone="secondary">
+            Lifetime credits: {formatMoney(wallet.total_credited_amount, wallet.currency_code)}
+          </Text>
+          <Text size="sm" tone="secondary">
+            Lifetime debits: {formatMoney(wallet.total_debited_amount, wallet.currency_code)}
+          </Text>
+          <Text size="sm" tone="secondary">
+            Available balance can be used for marketplace purchases or requested as a payout after setup is ready. Payout requests move money into a payout-in-progress ledger entry until the provider confirms the result.
+          </Text>
         </Stack>
       </PageSection>
 

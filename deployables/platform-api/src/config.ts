@@ -35,6 +35,7 @@ export type PlatformApiBaseConfig = Readonly<{
   sharedDatabaseUrl: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<PlatformApiContextName, string>>>;
   port: number;
+  payoutReconciliationIntervalMs?: number | null;
 }>;
 
 export type PlatformApiConfig = PlatformApiBaseConfig & Readonly<{
@@ -48,6 +49,11 @@ function getOptionalEnv(name: string) {
   const value = process.env[name];
 
   return value?.trim() ? value.trim() : null;
+}
+
+function getOptionalPositiveNumberEnv(name: string, defaultValue: number) {
+  const parsed = Number(process.env[name] ?? defaultValue);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 export function getContextDatabaseEnvName(contextName: PlatformApiContextName) {
@@ -79,6 +85,10 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     sharedDatabaseUrl,
     contextDatabaseUrls,
     port: Number(process.env.PORT ?? 6182),
+    payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv(
+      "PAYOUT_RECONCILIATION_INTERVAL_MS",
+      300_000,
+    ),
   };
 }
 
@@ -98,9 +108,12 @@ export function loadConfig(): PlatformApiConfig {
     getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
   const productionLike = process.env.NODE_ENV === "production";
 
-  if (productionLike && (!stripeSecretKey || !stripeWebhookSecret)) {
+  if (
+    productionLike &&
+    (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret)
+  ) {
     throw new Error(
-      "STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required for Stripe Connect money movement in production.",
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
     );
   }
 

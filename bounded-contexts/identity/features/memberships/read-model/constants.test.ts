@@ -20,7 +20,13 @@ describe("identity role permissions", () => {
 
   it("keeps payout scheduling as an authority permission instead of an account capability", () => {
     expect(ROLE_PERMISSIONS.owner).toContain("payouts.manage");
+    expect(ROLE_PERMISSIONS.owner).toContain("payouts.reconcile");
+    expect(ROLE_PERMISSIONS.owner).toContain("payouts.request");
+    expect(ROLE_PERMISSIONS.owner).toContain("payouts.setup");
     expect(ROLE_PERMISSIONS.viewer).toContain("payouts.view");
     expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.manage");
+    expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.reconcile");
+    expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.request");
+    expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.setup");
   });
 });

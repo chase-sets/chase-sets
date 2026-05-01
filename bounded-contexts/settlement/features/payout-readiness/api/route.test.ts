@@ -58,7 +58,7 @@ describe("settlement payout setup routes", () => {
       url: "https://connect.test/setup",
       expiresAt: null,
     }));
-    const app = createApp({ createOnboardingSession }, ["payouts.manage"]);
+    const app = createApp({ createOnboardingSession }, ["payouts.setup"]);
 
     const response = await app.request("https://example.test/payout-setup/onboarding-session", {
       method: "POST",
@@ -89,7 +89,7 @@ describe("settlement payout setup routes", () => {
       url: "https://connect.test/setup",
       expiresAt: null,
     }));
-    const app = createApp({ createOnboardingSession }, ["payouts.manage"]);
+    const app = createApp({ createOnboardingSession }, ["payouts.setup"]);
 
     const response = await app.request("https://example.test/payout-setup/onboarding-session", {
       method: "POST",
@@ -113,7 +113,7 @@ describe("settlement payout setup routes", () => {
       url: "https://connect.test/dashboard",
       expiresAt: null,
     }));
-    const app = createApp({ createAccountManagementSession }, ["payouts.manage"]);
+    const app = createApp({ createAccountManagementSession }, ["payouts.setup"]);
 
     const response = await app.request("https://example.test/payout-setup/account-management-session", {
       method: "POST",
@@ -142,7 +142,7 @@ describe("settlement payout setup routes", () => {
       status: "ready",
       missing_requirements: [],
     }));
-    const app = createApp({ refreshProviderReadiness }, ["payouts.manage"]);
+    const app = createApp({ refreshProviderReadiness }, ["payouts.setup"]);
 
     const response = await app.request("/payout-setup/refresh", {
       method: "POST",
@@ -159,7 +159,7 @@ describe("settlement payout setup routes", () => {
 
   it("does not expose manual provider readiness mutation to sellers", async () => {
     const recordProviderReadiness = vi.fn();
-    const app = createApp({ recordProviderReadiness }, ["payouts.manage"]);
+    const app = createApp({ recordProviderReadiness }, ["payouts.setup"]);
 
     const response = await app.request("/payout-readiness/provider-status", {
       method: "POST",

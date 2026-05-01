@@ -53,10 +53,12 @@ export function SettlementPayoutDetailPage({
   backHref,
   payout,
   requestSuccess = false,
+  showSupportDetails = false,
 }: {
   backHref: string;
   payout: SettlementPayoutRow;
   requestSuccess?: boolean;
+  showSupportDetails?: boolean;
 }) {
   const requestedAt = new Date(payout.requested_at).toLocaleString();
   const transferSubmitted = Boolean(payout.provider_transfer_reference || payout.sent_at);
@@ -120,25 +122,8 @@ export function SettlementPayoutDetailPage({
             {payout.failure_reason ? (
               <Text tone="secondary">Reason: {payout.failure_reason}</Text>
             ) : null}
-            {payout.provider_status ? (
-              <Text size="sm" tone="secondary">
-                Provider status: {payout.provider_status}
-              </Text>
-            ) : null}
-            {payout.provider_transfer_reference ? (
-              <Text size="sm" tone="secondary">
-                Provider transfer: {payout.provider_transfer_reference}
-              </Text>
-            ) : null}
-            {payout.provider_payout_reference ? (
-              <Text size="sm" tone="secondary">
-                Provider payout: {payout.provider_payout_reference}
-              </Text>
-            ) : null}
-            {payout.provider_failure_message ? (
-              <Text tone="secondary">
-                Provider message: {payout.provider_failure_message}
-              </Text>
+            {showSupportDetails && payout.provider_status ? (
+              <Text size="sm" tone="secondary">Provider status: {payout.provider_status}</Text>
             ) : null}
           </Stack>
         </Card>
@@ -182,6 +167,36 @@ export function SettlementPayoutDetailPage({
           </Stack>
         </Card>
       </PageSection>
+
+      {showSupportDetails ? (
+        <PageSection title="Support Details">
+          <Card>
+            <Stack gap={2}>
+              <Text size="sm" tone="secondary">Internal payout: {payout.payout_id}</Text>
+              <Text size="sm" tone="secondary">Account: {payout.account_id}</Text>
+              <Text size="sm" tone="secondary">
+                Provider transfer: {payout.provider_transfer_reference ?? "Missing"}
+              </Text>
+              <Text size="sm" tone="secondary">
+                Provider payout: {payout.provider_payout_reference ?? "Missing"}
+              </Text>
+              <Text size="sm" tone="secondary">
+                Provider status: {payout.provider_status ?? "Unknown"}
+              </Text>
+              {payout.provider_failure_code ? (
+                <Text size="sm" tone="secondary">
+                  Provider failure code: {payout.provider_failure_code}
+                </Text>
+              ) : null}
+              {payout.provider_failure_message ? (
+                <Text size="sm" tone="secondary">
+                  Provider message: {payout.provider_failure_message}
+                </Text>
+              ) : null}
+            </Stack>
+          </Card>
+        </PageSection>
+      ) : null}
     </Page>
   );
 }

@@ -13,7 +13,7 @@ import { createSettlementRequestApiClient } from "../../support/request-support/
 import { SettlementPayoutDetailPage } from "../../features/payouts/ui/payout-detail-page";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "payouts.view",
   });
@@ -24,6 +24,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     return {
       payout,
       requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
+      showSupportDetails: actor.permissions.includes("payouts.reconcile"),
     };
   } catch (error) {
     if (error instanceof SettlementApiError && error.status === 404) {
@@ -45,6 +46,7 @@ export default function MarketplaceAccountPayoutRoute() {
       backHref="/account/payouts"
       payout={data.payout as SettlementPayoutRow}
       requestSuccess={data.requestSuccess}
+      showSupportDetails={data.showSupportDetails}
     />
   );
 }

@@ -35,6 +35,9 @@ export function createFakePaymentProcessorGateway(
       return {
         processorName: "stripe",
         publishableKey: options.publishableKey ?? "pk_seed_offline",
+        confirmationExperience: "processor-managed-form",
+        dynamicPaymentMethods: true,
+        sensitivePaymentDetailsHandledByProcessor: true,
       };
     },
     async createPaymentIntent(input) {

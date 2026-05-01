@@ -7,7 +7,11 @@ function requirePayoutAccess(
   c: {
     get(key: "actor"): SettlementApiEnv["Variables"]["actor"];
   },
-  permission: "payouts.view" | "payouts.manage",
+  permission:
+    | "payouts.view"
+    | "payouts.request"
+    | "payouts.reconcile"
+    | "payouts.manage",
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -62,7 +66,7 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.get("/payouts/reconciliation", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.manage");
+    const access = requirePayoutAccess(c, "payouts.reconcile");
     if (access.response) {
       return access.response;
     }
@@ -79,7 +83,7 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.post("/payouts/reconciliation/run", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.manage");
+    const access = requirePayoutAccess(c, "payouts.reconcile");
     if (access.response) {
       return access.response;
     }
@@ -117,7 +121,7 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.post("/payouts", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.manage");
+    const access = requirePayoutAccess(c, "payouts.request");
     if (access.response) {
       return access.response;
     }

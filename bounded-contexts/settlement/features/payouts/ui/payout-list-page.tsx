@@ -25,6 +25,10 @@ function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
 }
 
+function subtractMoney(left: string, right: string) {
+  return (Number.parseFloat(left) - Number.parseFloat(right)).toFixed(2);
+}
+
 function statusTone(status: string) {
   switch (status) {
     case "completed":
@@ -73,6 +77,8 @@ export function SettlementPayoutListPage({
   errorMessage,
   payoutDraft,
   payoutConfirmation,
+  canRequestPayouts = false,
+  canSetupPayouts = false,
   showOperations = false,
 }: {
   wallet: SettlementWalletRow;
@@ -81,9 +87,14 @@ export function SettlementPayoutListPage({
   errorMessage?: string | null;
   payoutDraft?: Readonly<{ amount: string; note: string | null }> | null;
   payoutConfirmation?: Readonly<{ amount: string; note: string | null }> | null;
+  canRequestPayouts?: boolean;
+  canSetupPayouts?: boolean;
   showOperations?: boolean;
 }) {
-  const canRequestPayout = payoutReadiness?.status === "ready";
+  const canRequestPayout = canRequestPayouts && payoutReadiness?.status === "ready";
+  const confirmationRemainingBalance = payoutConfirmation
+    ? subtractMoney(wallet.available_balance_amount, payoutConfirmation.amount)
+    : null;
 
   return (
     <Page>
@@ -115,7 +126,10 @@ export function SettlementPayoutListPage({
         <Card>
           <Stack gap={3}>
             {payoutReadiness ? (
-              <PayoutReadinessPanel payoutReadiness={payoutReadiness} showActions />
+              <PayoutReadinessPanel
+                payoutReadiness={payoutReadiness}
+                showActions={canSetupPayouts}
+              />
             ) : null}
             <Stack gap={1}>
               <Text size="sm" tone="secondary">
@@ -140,10 +154,16 @@ export function SettlementPayoutListPage({
                         Amount: {formatMoney(payoutConfirmation.amount, wallet.currency_code)}
                       </Text>
                       <Text size="sm" tone="secondary">
+                        Available after request: {formatMoney(confirmationRemainingBalance ?? "0.00", wallet.currency_code)}
+                      </Text>
+                      <Text size="sm" tone="secondary">
                         Payout account: Saved payout account
                       </Text>
                       <Text size="sm" tone="secondary">
                         Estimated arrival: Usually 1-3 business days after provider acceptance
+                      </Text>
+                      <Text size="sm" tone="secondary">
+                        If the provider cannot complete the transfer or payout, the wallet is credited back automatically.
                       </Text>
                       {payoutConfirmation.note ? (
                         <Text size="sm" tone="secondary">
@@ -219,7 +239,7 @@ export function SettlementPayoutListPage({
                   defaultValue={payoutDraft?.note ?? ""}
                 />
                 <Button type="submit" disabled={!canRequestPayout}>
-                  Request payout
+                  Preview payout
                 </Button>
               </Stack>
             </form>

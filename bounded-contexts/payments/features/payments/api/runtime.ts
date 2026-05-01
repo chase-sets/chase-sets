@@ -125,6 +125,10 @@ export type PaymentServices = Readonly<{
       sourceContext?: string | null;
       sourceReferenceId?: string | null;
       requestedBalanceCreditAmount?: string | null;
+      clientRiskContext?: Readonly<{
+        ipAddress?: string | null;
+        userAgent?: string | null;
+      }> | null;
     }>,
     context: EventStoreContext,
   ) => Promise<PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }>>;
@@ -156,6 +160,24 @@ export function createPaymentRuntime(
 
   const publicConfig = deps.processorGateway.getPublicConfiguration();
 
+  function exposePayment(
+    payment: PaymentDetailRow,
+  ): PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }> {
+    const canConfirmWithProcessor =
+      payment.status === "pending-confirmation" &&
+      Boolean(payment.processor_client_secret);
+
+    return {
+      ...payment,
+      processor_client_secret: canConfirmWithProcessor
+        ? payment.processor_client_secret
+        : null,
+      processor_publishable_key: canConfirmWithProcessor
+        ? publicConfig.publishableKey
+        : null,
+    };
+  }
+
   return {
     commandHandler,
     async createAccountPayment(params, context) {
@@ -173,10 +195,7 @@ export function createPaymentRuntime(
           accountId,
         );
         if (existing) {
-          return {
-            ...existing,
-            processor_publishable_key: publicConfig.publishableKey,
-          };
+          return exposePayment(existing);
         }
       }
       const orderIds = normalizeOrderIds(params.orderIds);
@@ -237,6 +256,8 @@ export function createPaymentRuntime(
               orderIds.length === 1
                 ? `Chase Sets order ${orderIds[0]}`
                 : `Chase Sets checkout for ${orderIds.length} orders`,
+            idempotencyKey: `payments:payment:${paymentId}:create`,
+            clientRiskContext: params.clientRiskContext ?? null,
           });
       const createdAt = new Date().toISOString();
 
@@ -309,12 +330,7 @@ export function createPaymentRuntime(
     },
     async getAccountPayment(paymentId, accountId) {
       const payment = await getAccountPayment(deps.db, paymentId, accountId);
-      return payment
-        ? {
-            ...payment,
-            processor_publishable_key: publicConfig.publishableKey,
-          }
-        : null;
+      return payment ? exposePayment(payment) : null;
     },
     async processWebhook(params, context) {
       const webhookEvent = await deps.processorGateway.parseWebhook(params);
