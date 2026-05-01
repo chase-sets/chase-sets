@@ -41,6 +41,30 @@ export type PlatformApiBaseConfig = Readonly<{
 export type PlatformApiConfig = PlatformApiBaseConfig & Readonly<{
   paymentProcessor: PlatformApiPaymentProcessorConfig;
   moneyMovement: PlatformApiMoneyMovementConfig;
+  stripeGoLive: StripeGoLiveCheckReport;
+}>;
+
+export const STRIPE_PLATFORM_API_VERSION = "2026-02-25.clover";
+
+export const REQUIRED_STRIPE_WEBHOOK_EVENTS = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+  "charge.refunded",
+  "charge.dispute.created",
+  "account.updated",
+  "payout.paid",
+  "payout.failed",
+] as const;
+
+export type StripeGoLiveCheckReport = Readonly<{
+  apiVersion: typeof STRIPE_PLATFORM_API_VERSION;
+  requiredWebhookEvents: readonly string[];
+  paymentsConfigured: boolean;
+  connectConfigured: boolean;
+  onboardingUrlsConfigured: boolean;
+  fakeFallbackAllowed: boolean;
+  liveSecretKeyLikely: boolean;
 }>;
 
 const platformApiContexts = getApiHostContextNames(apiContextRegistry, "platform-api");
@@ -116,6 +140,14 @@ export function loadConfig(): PlatformApiConfig {
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
     );
   }
+  if (
+    productionLike &&
+    (!stripeConnectReturnUrl || !stripeConnectRefreshUrl)
+  ) {
+    throw new Error(
+      "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for hosted payout setup in production.",
+    );
+  }
 
   const moneyMovement = stripeSecretKey && stripeWebhookSecret
     ? {
@@ -134,6 +166,15 @@ export function loadConfig(): PlatformApiConfig {
     return {
       ...baseConfig,
       moneyMovement,
+      stripeGoLive: {
+        apiVersion: STRIPE_PLATFORM_API_VERSION,
+        requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
+        paymentsConfigured: true,
+        connectConfigured: moneyMovement.kind === "stripe",
+        onboardingUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
+        fakeFallbackAllowed: !productionLike,
+        liveSecretKeyLikely: stripeSecretKey.startsWith("sk_live"),
+      },
       paymentProcessor: {
         kind: "stripe",
         secretKey: stripeSecretKey,
@@ -147,6 +188,15 @@ export function loadConfig(): PlatformApiConfig {
   return {
     ...baseConfig,
     moneyMovement,
+    stripeGoLive: {
+      apiVersion: STRIPE_PLATFORM_API_VERSION,
+      requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
+      paymentsConfigured: false,
+      connectConfigured: moneyMovement.kind === "stripe",
+      onboardingUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
+      fakeFallbackAllowed: !productionLike,
+      liveSecretKeyLikely: Boolean(stripeSecretKey?.startsWith("sk_live")),
+    },
     paymentProcessor: {
       kind: "fake",
     },

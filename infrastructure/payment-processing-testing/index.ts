@@ -40,9 +40,10 @@ export function createFakePaymentProcessorGateway(
         sensitivePaymentDetailsHandledByProcessor: true,
       };
     },
-    async createPaymentIntent(input) {
+    async createPaymentSession(input) {
       return {
         processorName: "stripe",
+        processorPaymentKind: "checkout-session",
         processorPaymentReference: createPaymentReference(input),
         processorClientSecret: `cs_seed_${input.paymentId}_secret_seed`,
         processorStatus: "open",
@@ -69,7 +70,9 @@ export function createFakePaymentProcessorGateway(
         eventId: body.eventId ?? `evt_seed_${body.kind}_${body.processorPaymentReference}`,
         kind: body.kind,
         processorName: "stripe",
+        processorPaymentKind: "checkout-session",
         processorPaymentReference: body.processorPaymentReference,
+        internalPaymentId: null,
         processorStatus: body.processorStatus,
         failureCode: body.failureCode ?? null,
         failureMessage: body.failureMessage ?? null,

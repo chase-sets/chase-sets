@@ -52,6 +52,7 @@ if (config.moneyMovement.kind === "fake") {
     "Platform API is using the fake money movement provider because Stripe Connect env vars are incomplete. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to enable Stripe Connect locally.",
   );
 }
+console.info(JSON.stringify({ type: "stripe.go-live-checks", ...config.stripeGoLive }));
 
 const runtime = createPlatformApiHost({
   pools,

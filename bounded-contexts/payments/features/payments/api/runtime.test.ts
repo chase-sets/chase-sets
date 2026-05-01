@@ -89,6 +89,7 @@ function existingPaymentRow() {
     seller_net_amount: "23.49",
     currency_code: "usd",
     processor_name: "stripe",
+    processor_payment_kind: "payment-intent",
     processor_payment_reference: "pi_existing",
     processor_client_secret: "pi_existing_secret",
     processor_status: "requires_payment_method",
@@ -114,8 +115,9 @@ function createProcessorGateway() {
       dynamicPaymentMethods: true,
       sensitivePaymentDetailsHandledByProcessor: true,
     })),
-    createPaymentIntent: vi.fn(async (input: { paymentId: string; amount: string }) => ({
+    createPaymentSession: vi.fn(async (input: { paymentId: string; amount: string }) => ({
       processorName: "stripe" as const,
+      processorPaymentKind: "payment-intent" as const,
       processorPaymentReference: `pi_${input.paymentId}`,
       processorClientSecret: `secret_${input.paymentId}`,
       processorStatus: "requires_payment_method",
@@ -173,7 +175,7 @@ describe("payment runtime", () => {
         dynamicPaymentMethods: true,
         sensitivePaymentDetailsHandledByProcessor: true,
       })),
-      createPaymentIntent: vi.fn(async () => {
+      createPaymentSession: vi.fn(async () => {
         throw new Error("Processor payment should not be recreated.");
       }),
       createRefund: vi.fn(async () => {
@@ -217,7 +219,7 @@ describe("payment runtime", () => {
       source_reference_id: "chk_1",
       processor_publishable_key: "pk_test_123",
     });
-    expect(processorGateway.createPaymentIntent).not.toHaveBeenCalled();
+    expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
   });
 
   it("applies available balance credit and creates an external payment for the remainder", async () => {
@@ -255,7 +257,7 @@ describe("payment runtime", () => {
       requestedAmount: "10.00",
       orderTotalAmount: "24.99",
     });
-    expect(processorGateway.createPaymentIntent).toHaveBeenCalledWith(
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
       expect.objectContaining({ amount: "14.99" }),
     );
     expect(result).toMatchObject({
@@ -295,7 +297,7 @@ describe("payment runtime", () => {
       context,
     );
 
-    expect(processorGateway.createPaymentIntent).not.toHaveBeenCalled();
+    expect(processorGateway.createPaymentSession).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       amount: "24.99",
       balance_credit_amount: "24.99",

@@ -38,6 +38,7 @@ type PaymentsPaymentDetail = Readonly<{
   amount: string;
   currency_code: string;
   processor_name: string;
+  processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
   processor_payment_reference: string;
   processor_client_secret: string | null;
   processor_status: string;
@@ -50,6 +51,13 @@ type PaymentsPaymentDetail = Readonly<{
   failed_at: string | null;
   cancelled_at: string | null;
   processor_publishable_key: string | null;
+  provider_events: readonly {
+    provider_event_id: string;
+    provider_name: string;
+    event_kind: string;
+    provider_object_reference: string | null;
+    received_at: string;
+  }[];
   marketplace_fee_amount: string;
   payment_fee_amount: string;
   seller_net_amount: string;
@@ -117,6 +125,7 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     amount: "11.00",
     currency_code: "USD",
     processor_name: "stripe",
+    processor_payment_kind: "payment-intent",
     processor_payment_reference: "pi_123",
     processor_client_secret: null,
     processor_status: "requires_payment_method",
@@ -129,6 +138,7 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     failed_at: null,
     cancelled_at: null,
     processor_publishable_key: null,
+    provider_events: [],
     marketplace_fee_amount: "1.00",
     payment_fee_amount: "0.50",
     seller_net_amount: "9.50",

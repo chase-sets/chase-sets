@@ -10,6 +10,7 @@ export interface PaymentsPaymentDetail {
   seller_net_amount: string;
   currency_code: string;
   processor_name: string;
+  processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
   processor_payment_reference: string;
   processor_client_secret: string | null;
   processor_status: string;
@@ -24,4 +25,13 @@ export interface PaymentsPaymentDetail {
   failed_at: string | null;
   cancelled_at: string | null;
   processor_publishable_key: string | null;
+  provider_events: readonly PaymentsProviderEvent[];
+}
+
+export interface PaymentsProviderEvent {
+  provider_event_id: string;
+  provider_name: string;
+  event_kind: string;
+  provider_object_reference: string | null;
+  received_at: string;
 }

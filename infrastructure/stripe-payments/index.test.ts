@@ -30,7 +30,7 @@ describe("Stripe payment processor gateway", () => {
       webhookSecret: "whsec_test",
       apiBaseUrl: "https://stripe.test",
     });
-    const payment = await gateway.createPaymentIntent({
+    const payment = await gateway.createPaymentSession({
       paymentId: "pay_123" as never,
       buyerAccountId: "acc_buyer" as never,
       orderIds: ["ord_123" as never],

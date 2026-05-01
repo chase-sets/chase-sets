@@ -31,6 +31,7 @@ export type PaymentState = Readonly<{
   sellerNetAmount: string | null;
   currencyCode: CurrencyCode | null;
   processorName: PaymentProcessorName | null;
+  processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit" | null;
   processorPaymentReference: string | null;
   processorClientSecret: string | null;
   processorStatus: string | null;
@@ -57,6 +58,7 @@ export const initialPaymentState: PaymentState = {
   sellerNetAmount: null,
   currencyCode: null,
   processorName: null,
+  processorPaymentKind: null,
   processorPaymentReference: null,
   processorClientSecret: null,
   processorStatus: null,
@@ -84,6 +86,7 @@ export type CreatePaymentCommand = Readonly<{
   sellerNetAmount: string;
   currencyCode: CurrencyCode;
   processorName: PaymentProcessorName;
+  processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
   processorPaymentReference: string;
   processorClientSecret: string | null;
   processorStatus: string;
@@ -138,6 +141,7 @@ export type PaymentCreatedEvent = DomainEvent<
     sellerNetAmount: string;
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
+    processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
     processorPaymentReference: string;
     processorClientSecret: string | null;
     processorStatus: string;
@@ -256,6 +260,7 @@ export const decidePayment: AggregateDecider<
             }),
             currencyCode: normalizeCurrencyCode(command.currencyCode),
             processorName: normalizeProcessorName(command.processorName),
+            processorPaymentKind: command.processorPaymentKind,
             processorPaymentReference: normalizeRequiredText(
               command.processorPaymentReference,
               "Processor payment reference is required.",
@@ -406,6 +411,7 @@ export const evolvePayment: AggregateEvolver<
         sellerNetAmount: event.data.sellerNetAmount,
         currencyCode: event.data.currencyCode,
         processorName: event.data.processorName,
+        processorPaymentKind: event.data.processorPaymentKind,
         processorPaymentReference: event.data.processorPaymentReference,
         processorClientSecret: event.data.processorClientSecret,
         processorStatus: event.data.processorStatus,

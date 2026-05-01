@@ -11,8 +11,9 @@ describe("payment processing contract", () => {
         dynamicPaymentMethods: true,
         sensitivePaymentDetailsHandledByProcessor: true,
       }),
-      createPaymentIntent: async () => ({
+      createPaymentSession: async () => ({
         processorName: "stripe",
+        processorPaymentKind: "checkout-session",
         processorPaymentReference: "pi_test",
         processorClientSecret: null,
         processorStatus: "requires_payment_method",

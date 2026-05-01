@@ -171,6 +171,21 @@ function paymentStatusCopy(status: string) {
   }
 }
 
+function providerEventLabel(eventKind: string) {
+  switch (eventKind) {
+    case "payment-authorized":
+      return "Provider authorized payment";
+    case "payment-captured":
+      return "Provider captured payment";
+    case "payment-failed":
+      return "Provider reported failure";
+    case "payment-cancelled":
+      return "Provider closed payment session";
+    default:
+      return eventKind.replaceAll("-", " ");
+  }
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
     request,
@@ -407,12 +422,17 @@ export default function MarketplaceAccountPaymentRoute() {
         }
       >
         <Stack gap={4}>
-          {data.payment.failure_message ? (
+          {data.payment.failure_message || data.payment.status === "cancelled" ? (
             <Surface tone="subtle" elevated>
               <Stack gap={2}>
-                <Badge tone="danger">Payment issue</Badge>
-                <Text>{data.payment.failure_message}</Text>
-                {data.payment.status === "failed" ? (
+                <Badge tone="danger">
+                  {data.payment.status === "cancelled" ? "Payment session closed" : "Payment issue"}
+                </Badge>
+                <Text>
+                  {data.payment.failure_message ??
+                    "This secure payment session is no longer active. Start a new payment to continue checkout."}
+                </Text>
+                {data.payment.status === "failed" || data.payment.status === "cancelled" ? (
                   <LinkButton
                     href={`/account/payments/new?orderIds=${encodeURIComponent(data.payment.order_ids.join(","))}`}
                   >
@@ -441,6 +461,14 @@ export default function MarketplaceAccountPaymentRoute() {
                     {new Date(data.payment.created_at).toLocaleString()}
                   </Text>
                 </Stack>
+                {data.payment.provider_events.map((event) => (
+                  <Stack key={event.provider_event_id} gap={1}>
+                    <Badge tone="accent">{providerEventLabel(event.event_kind)}</Badge>
+                    <Text size="sm" tone="secondary">
+                      {new Date(event.received_at).toLocaleString()}
+                    </Text>
+                  </Stack>
+                ))}
                 <Stack gap={1}>
                   <Badge tone={data.payment.captured_at ? "success" : statusTone(data.payment.status) as any}>
                     {data.payment.captured_at
@@ -482,6 +510,9 @@ export default function MarketplaceAccountPaymentRoute() {
                   </Text>
                   <Text size="sm" tone="secondary">
                     Updated: {new Date(data.payment.updated_at).toLocaleString()}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    Provider events: {data.payment.provider_events.length}
                   </Text>
                   {data.payment.failure_code ? (
                     <Text size="sm" tone="secondary">

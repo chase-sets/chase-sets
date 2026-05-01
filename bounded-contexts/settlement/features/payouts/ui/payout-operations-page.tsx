@@ -63,6 +63,15 @@ export function SettlementPayoutOperationsPage({
     ["failed", "Failed"],
     ["stale-requested", "Older than 15 minutes"],
   ] as const;
+  const failedCount = payouts.filter((payout) => payout.status === "failed").length;
+  const missingReferenceCount = payouts.filter((payout) => !payout.provider_payout_reference).length;
+  const retryQueuedCount = payouts.filter((payout) => Boolean(payout.next_retry_at)).length;
+  const staleCheckCount = payouts.filter((payout) => {
+    if (!payout.last_reconciled_at) {
+      return payout.status !== "requested";
+    }
+    return Date.now() - new Date(payout.last_reconciled_at).getTime() > 30 * 60 * 1000;
+  }).length;
 
   return (
     <Page>
@@ -104,6 +113,36 @@ export function SettlementPayoutOperationsPage({
       </PageSection>
 
       <PageSection title="Needs Attention">
+        <DataTable
+          rows={[
+            { id: "failed", label: "Failed payouts", value: failedCount, detail: "Provider reported failure or internal submission failed" },
+            { id: "missing-reference", label: "Missing provider references", value: missingReferenceCount, detail: "Transfer or payout reference has not been recorded" },
+            { id: "retry-queued", label: "Retry queued", value: retryQueuedCount, detail: "Retry policy has a next provider action time" },
+            { id: "stale-checks", label: "Stale reconciliation", value: staleCheckCount, detail: "Provider status has not been checked recently" },
+          ]}
+          getRowId={(row) => row.id}
+          columns={[
+            {
+              key: "label",
+              header: "Signal",
+              cell: (row) => row.label,
+            },
+            {
+              key: "value",
+              header: "Count",
+              cell: (row) => (
+                <Badge tone={row.value > 0 ? "warning" : "success"}>
+                  {row.value}
+                </Badge>
+              ),
+            },
+            {
+              key: "detail",
+              header: "Meaning",
+              cell: (row) => row.detail,
+            },
+          ]}
+        />
         <Stack direction="row" gap={2}>
           {filters.map(([value, label]) => (
             <LinkButton

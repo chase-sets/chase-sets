@@ -42,7 +42,7 @@ function createMissingProcessorGateway(): PaymentProcessorGateway {
       dynamicPaymentMethods: true,
       sensitivePaymentDetailsHandledByProcessor: true,
     }),
-    createPaymentIntent: async () => fail(),
+    createPaymentSession: async () => fail(),
     createRefund: async () => fail(),
     parseWebhook: async () => fail(),
   };

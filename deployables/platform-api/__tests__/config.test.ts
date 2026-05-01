@@ -107,6 +107,40 @@ describe("platform api config", () => {
     );
   });
 
+  it("fails production config when hosted payout setup URLs are missing", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NODE_ENV = "production";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+
+    expect(() => loadConfig()).toThrow(
+      "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for hosted payout setup in production.",
+    );
+  });
+
+  it("reports Stripe go-live checks", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
+
+    expect(loadConfig().stripeGoLive).toMatchObject({
+      apiVersion: "2026-02-25.clover",
+      paymentsConfigured: true,
+      connectConfigured: true,
+      onboardingUrlsConfigured: true,
+      fakeFallbackAllowed: true,
+      liveSecretKeyLikely: true,
+    });
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain(
+      "checkout.session.completed",
+    );
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payout.failed");
+  });
+
   it("can disable scheduled payout reconciliation", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PAYOUT_RECONCILIATION_INTERVAL_MS = "0";

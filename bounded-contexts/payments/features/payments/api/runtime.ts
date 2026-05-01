@@ -31,9 +31,12 @@ import { listPaymentOrderInputs } from "../integrations/order-input/order-input-
 import { buildPaymentProjectionHandlers } from "../read-model/projection";
 import {
   getAccountPayment,
+  getPaymentById,
   getPaymentByProcessorReference,
+  listPaymentProviderEvents,
   getPaymentBySource,
   type PaymentDetailRow,
+  type PaymentProviderEventRow,
 } from "../read-model/queries";
 import {
   decidePayment,
@@ -132,11 +135,17 @@ export type PaymentServices = Readonly<{
       }> | null;
     }>,
     context: EventStoreContext,
-  ) => Promise<PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }>>;
+  ) => Promise<PaymentDetailRow & Readonly<{
+    processor_publishable_key: string | null;
+    provider_events: readonly PaymentProviderEventRow[];
+  }>>;
   getAccountPayment: (
     paymentId: string,
     accountId: string,
-  ) => Promise<(PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }>) | null>;
+  ) => Promise<(PaymentDetailRow & Readonly<{
+    processor_publishable_key: string | null;
+    provider_events: readonly PaymentProviderEventRow[];
+  }>) | null>;
   processWebhook: (
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
     context: EventStoreContext,
@@ -163,7 +172,11 @@ export function createPaymentRuntime(
 
   function exposePayment(
     payment: PaymentDetailRow,
-  ): PaymentDetailRow & Readonly<{ processor_publishable_key: string | null }> {
+    providerEvents: readonly PaymentProviderEventRow[] = [],
+  ): PaymentDetailRow & Readonly<{
+    processor_publishable_key: string | null;
+    provider_events: readonly PaymentProviderEventRow[];
+  }> {
     const canConfirmWithProcessor =
       payment.status === "pending-confirmation" &&
       Boolean(payment.processor_client_secret);
@@ -176,6 +189,7 @@ export function createPaymentRuntime(
       processor_publishable_key: canConfirmWithProcessor
         ? publicConfig.publishableKey
         : null,
+      provider_events: providerEvents,
     };
   }
 
@@ -243,12 +257,13 @@ export function createPaymentRuntime(
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
       const processorPayment = compareMoney(processorAmount, "0.00") === 0
         ? {
-            processorName: publicConfig.processorName,
-            processorPaymentReference: `balance-credit:${paymentId}`,
+          processorName: publicConfig.processorName,
+          processorPaymentKind: "balance-credit" as const,
+          processorPaymentReference: `balance-credit:${paymentId}`,
             processorClientSecret: null,
             processorStatus: "balance-credit-captured",
           }
-        : await deps.processorGateway.createPaymentIntent({
+        : await deps.processorGateway.createPaymentSession({
             paymentId,
             buyerAccountId: accountId,
             orderIds,
@@ -281,6 +296,7 @@ export function createPaymentRuntime(
           sellerNetAmount,
           currencyCode,
           processorName: processorPayment.processorName,
+          processorPaymentKind: processorPayment.processorPaymentKind,
           processorPaymentReference: processorPayment.processorPaymentReference,
           processorClientSecret: processorPayment.processorClientSecret,
           processorStatus: processorPayment.processorStatus,
@@ -315,6 +331,7 @@ export function createPaymentRuntime(
         seller_net_amount: sellerNetAmount,
         currency_code: currencyCode,
         processor_name: processorPayment.processorName,
+        processor_payment_kind: processorPayment.processorPaymentKind,
         processor_payment_reference: processorPayment.processorPaymentReference,
         processor_client_secret: processorPayment.processorClientSecret,
         processor_status: processorPayment.processorStatus,
@@ -331,11 +348,20 @@ export function createPaymentRuntime(
         failed_at: null,
         cancelled_at: null,
         processor_publishable_key: publicConfig.publishableKey,
+        provider_events: [],
       };
     },
     async getAccountPayment(paymentId, accountId) {
       const payment = await getAccountPayment(deps.db, paymentId, accountId);
-      return payment ? exposePayment(payment) : null;
+      if (!payment) {
+        return null;
+      }
+      const providerEvents = await listPaymentProviderEvents(deps.db, {
+        providerName: payment.processor_name,
+        providerObjectReference: payment.processor_payment_reference,
+        internalPaymentId: payment.payment_id,
+      });
+      return exposePayment(payment, providerEvents);
     },
     async processWebhook(params, context) {
       const webhookEvent = await deps.processorGateway.parseWebhook(params);
@@ -347,17 +373,20 @@ export function createPaymentRuntime(
         providerEventId: webhookEvent.eventId,
         providerName: webhookEvent.processorName,
         eventKind: webhookEvent.kind,
-        providerObjectReference: webhookEvent.processorPaymentReference,
+        providerObjectReference:
+          webhookEvent.internalPaymentId ?? webhookEvent.processorPaymentReference,
       });
       if (!isNewProviderEvent) {
         return { received: true, ignored: true };
       }
 
-      const payment = await getPaymentByProcessorReference(
-        deps.db,
-        webhookEvent.processorName,
-        webhookEvent.processorPaymentReference,
-      );
+      const payment = webhookEvent.internalPaymentId
+        ? await getPaymentById(deps.db, webhookEvent.internalPaymentId)
+        : await getPaymentByProcessorReference(
+            deps.db,
+            webhookEvent.processorName,
+            webhookEvent.processorPaymentReference,
+          );
 
       if (!payment) {
         return { received: true, ignored: true };
@@ -410,6 +439,9 @@ export function createPaymentRuntime(
             },
             context,
           });
+          break;
+        case "payment-refunded":
+        case "payment-disputed":
           break;
         default:
           assert(false, "Unhandled payment webhook kind.");

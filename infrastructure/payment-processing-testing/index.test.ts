@@ -5,7 +5,7 @@ describe("fake payment processor gateway", () => {
   it("implements the payment processor port", async () => {
     const gateway = createFakePaymentProcessorGateway();
 
-    const payment = await gateway.createPaymentIntent({
+    const payment = await gateway.createPaymentSession({
       paymentId: "pay_123" as never,
       buyerAccountId: "acc_buyer" as never,
       orderIds: ["ord_123" as never],

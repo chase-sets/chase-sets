@@ -41,6 +41,8 @@ type StripeEventEnvelope = Readonly<{
       id?: string;
       status?: string | null;
       payment_status?: string | null;
+      payment_intent?: string | null;
+      metadata?: Readonly<Record<string, string | null | undefined>> | null;
       last_payment_error?: Readonly<{
         code?: string | null;
         message?: string | null;
@@ -48,6 +50,16 @@ type StripeEventEnvelope = Readonly<{
     }>;
   }>;
 }>;
+
+type StripeWebhookObject = NonNullable<NonNullable<StripeEventEnvelope["data"]>["object"]>;
+
+function paymentKindForStripeObject(reference: string) {
+  return reference.startsWith("cs_") ? "checkout-session" : "payment-intent";
+}
+
+function metadataPaymentId(object: StripeWebhookObject) {
+  return normalizeOptionalText(object.metadata?.payment_id ?? null);
+}
 
 function encodeBasicAuth(secretKey: string) {
   return Buffer.from(`${secretKey}:`).toString("base64");
@@ -179,6 +191,7 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
   const failureMessage = normalizeOptionalText(
     paymentObject.last_payment_error?.message ?? null,
   );
+  const internalPaymentId = metadataPaymentId(paymentObject) as PaymentProcessorWebhookEvent["internalPaymentId"];
 
   switch (event.type) {
     case "checkout.session.completed":
@@ -187,7 +200,9 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         eventId: event.id,
         kind: "payment-captured",
         processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
         processorPaymentReference,
+        internalPaymentId,
         processorStatus,
         failureCode: null,
         failureMessage: null,
@@ -198,7 +213,9 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         eventId: event.id,
         kind: "payment-failed",
         processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
         processorPaymentReference,
+        internalPaymentId,
         processorStatus,
         failureCode,
         failureMessage,
@@ -209,7 +226,9 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         eventId: event.id,
         kind: "payment-cancelled",
         processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
         processorPaymentReference,
+        internalPaymentId,
         processorStatus,
         failureCode: null,
         failureMessage: "Payment session expired before confirmation.",
@@ -221,7 +240,9 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         eventId: event.id,
         kind: "payment-authorized",
         processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
         processorPaymentReference,
+        internalPaymentId,
         processorStatus,
         failureCode: null,
         failureMessage: null,
@@ -232,7 +253,9 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         eventId: event.id,
         kind: "payment-captured",
         processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
         processorPaymentReference,
+        internalPaymentId,
         processorStatus,
         failureCode: null,
         failureMessage: null,
@@ -243,10 +266,40 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         eventId: event.id,
         kind: "payment-failed",
         processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
         processorPaymentReference,
+        internalPaymentId,
         processorStatus,
         failureCode,
         failureMessage,
+        occurredAt,
+      };
+    case "charge.refunded":
+      return {
+        eventId: event.id,
+        kind: "payment-refunded",
+        processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
+        processorPaymentReference,
+        internalPaymentId,
+        processorStatus,
+        failureCode: null,
+        failureMessage: null,
+        occurredAt,
+      };
+    case "charge.dispute.created":
+    case "charge.dispute.updated":
+    case "charge.dispute.closed":
+      return {
+        eventId: event.id,
+        kind: "payment-disputed",
+        processorName: "stripe",
+        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
+        processorPaymentReference,
+        internalPaymentId,
+        processorStatus,
+        failureCode: normalizeOptionalText(event.type),
+        failureMessage: null,
         occurredAt,
       };
     default:
@@ -293,7 +346,7 @@ export function createStripePaymentProcessorGateway(
     getPublicConfiguration() {
       return publicConfiguration;
     },
-    async createPaymentIntent(
+    async createPaymentSession(
       input: CreateProcessorPaymentInput,
     ): Promise<CreatedProcessorPayment> {
       const amount = moneyToMinorUnits(
@@ -309,16 +362,20 @@ export function createStripePaymentProcessorGateway(
             mode: "payment",
             ui_mode: "elements",
             return_url: paymentReturnUrl,
+            client_reference_id: input.paymentId,
             "line_items[0][quantity]": "1",
             "line_items[0][price_data][currency]": input.currencyCode,
             "line_items[0][price_data][unit_amount]": String(amount),
             "line_items[0][price_data][product_data][name]": input.description,
             "payment_intent_data[payment_method_options][card][request_three_d_secure]": "automatic",
+            "payment_intent_data[transfer_group]": `payment:${input.paymentId}`,
             "payment_intent_data[metadata][payment_id]": input.paymentId,
             "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,
             "payment_intent_data[metadata][order_ids]": input.orderIds.join(","),
             description: input.description,
             "metadata[payment_id]": input.paymentId,
+            "metadata[funds_strategy]": "platform-held",
+            "metadata[transfer_group]": `payment:${input.paymentId}`,
             "metadata[buyer_account_id]": input.buyerAccountId,
             "metadata[order_ids]": input.orderIds.join(","),
             "metadata[client_ip_collected]": input.clientRiskContext?.ipAddress
@@ -341,6 +398,7 @@ export function createStripePaymentProcessorGateway(
 
       return {
         processorName: "stripe",
+        processorPaymentKind: "checkout-session",
         processorPaymentReference: body.id,
         processorClientSecret: body.client_secret?.trim() ?? null,
         processorStatus:

@@ -156,7 +156,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   );
 
   const createPayment = async (paymentId: PaymentId, order: OrderRow, createdAt: string) => {
-    const processorPayment = await processorGateway.createPaymentIntent({
+    const processorPayment = await processorGateway.createPaymentSession({
       paymentId,
       buyerAccountId: order.buyer_account_id as never,
       orderIds: [order.order_id as never],
@@ -184,6 +184,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         }),
         currencyCode: "usd",
         processorName: processorPayment.processorName,
+        processorPaymentKind: processorPayment.processorPaymentKind,
         processorPaymentReference: processorPayment.processorPaymentReference,
         processorClientSecret: processorPayment.processorClientSecret,
         processorStatus: processorPayment.processorStatus,

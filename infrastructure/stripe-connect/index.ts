@@ -460,8 +460,10 @@ export function createStripeConnectMoneyMovementGateway(
           currency: input.currencyCode,
           destination: input.providerReference,
           transfer_group: `payout:${input.payoutId}`,
+          "metadata[funds_strategy]": "platform-held-on-demand-payout",
           "metadata[payout_id]": input.payoutId,
           "metadata[account_id]": input.accountId,
+          "metadata[source_balance]": "platform",
         }),
         idempotencyKey: input.idempotencyKey,
       });
@@ -488,6 +490,8 @@ export function createStripeConnectMoneyMovementGateway(
         body: toFormBody({
           amount: String(moneyToMinorUnits(input.amount)),
           currency: input.currencyCode,
+          "metadata[funds_strategy]": "platform-held-on-demand-payout",
+          "metadata[transfer_group]": `payout:${input.payoutId}`,
           "metadata[payout_id]": input.payoutId,
           "metadata[account_id]": input.accountId,
         }),

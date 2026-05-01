@@ -12,6 +12,7 @@ export type PaymentDetailRow = Readonly<{
   seller_net_amount: string;
   currency_code: string;
   processor_name: string;
+  processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
   processor_payment_reference: string;
   processor_client_secret: string | null;
   processor_status: string;
@@ -25,6 +26,14 @@ export type PaymentDetailRow = Readonly<{
   captured_at: string | null;
   failed_at: string | null;
   cancelled_at: string | null;
+}>;
+
+export type PaymentProviderEventRow = Readonly<{
+  provider_event_id: string;
+  provider_name: string;
+  event_kind: string;
+  provider_object_reference: string | null;
+  received_at: string;
 }>;
 
 type PaymentPageRow = Omit<PaymentDetailRow, "order_ids"> & Readonly<{
@@ -54,6 +63,7 @@ const paymentSelect = `
     seller_net_amount::text AS seller_net_amount,
     currency_code,
     processor_name,
+    processor_payment_kind,
     processor_payment_reference,
     processor_client_secret,
     processor_status,
@@ -132,4 +142,40 @@ export async function getPaymentBySource(
 
   const row = result.rows[0];
   return row ? mapPaymentRow(row) : null;
+}
+
+export async function listPaymentProviderEvents(
+  db: PgQueryable,
+  params: Readonly<{
+    providerName: string;
+    providerObjectReference: string;
+    internalPaymentId?: string | null;
+    limit?: number;
+  }>,
+): Promise<PaymentProviderEventRow[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 25, 100));
+  const result = await db.query<PaymentProviderEventRow>(
+    `SELECT
+       provider_event_id,
+       provider_name,
+       event_kind,
+       provider_object_reference,
+       received_at
+     FROM payments_provider_webhook_events
+     WHERE provider_name = $1
+       AND (
+         provider_object_reference = $2
+         OR provider_object_reference = $3
+       )
+     ORDER BY received_at ASC, provider_event_id ASC
+     LIMIT $4`,
+    [
+      params.providerName,
+      params.providerObjectReference,
+      params.internalPaymentId ?? params.providerObjectReference,
+      limit,
+    ],
+  );
+
+  return result.rows;
 }

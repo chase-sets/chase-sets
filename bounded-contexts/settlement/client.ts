@@ -12,6 +12,32 @@ type SettlementApiApp = ReturnType<typeof buildSettlementApi>;
 
 const DEFAULT_BASE_URL = "/api/settlement";
 
+export type SettlementAccountStatus = Readonly<{
+  account_id: string;
+  wallet: Readonly<{
+    currency_code: string;
+    pending_balance_amount: string;
+    available_balance_amount: string;
+    can_use_balance_credit: boolean;
+  }>;
+  payout_setup: Readonly<{
+    status: string;
+    ready: boolean;
+    onboarding_status: string;
+    transfer_capability_status: string;
+    payout_capability_status: string;
+    payout_destination_status: string;
+    missing_requirements: readonly string[];
+    last_checked_at: string | null;
+  }>;
+  payouts: Readonly<{
+    can_request: boolean;
+    unavailable_reasons: readonly string[];
+  }>;
+  restrictions: readonly string[];
+  next_actions: readonly string[];
+}>;
+
 export class SettlementApiError extends Error {
   public constructor(
     public readonly status: number,
@@ -60,6 +86,11 @@ export function createSettlementApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async getAccountStatus(): Promise<SettlementAccountStatus> {
+      return parseJsonResponse(
+        await client["account-status"].$get({ header: headers }),
+      );
+    },
     async getWallet(): Promise<SettlementWalletRow> {
       return parseJsonResponse(
         await client.wallet.$get({ header: headers }),

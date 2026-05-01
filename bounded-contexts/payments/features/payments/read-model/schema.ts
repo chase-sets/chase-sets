@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   seller_net_amount numeric(12, 2) NOT NULL,
   currency_code text NOT NULL,
   processor_name text NOT NULL,
+  processor_payment_kind text NOT NULL DEFAULT 'payment-intent',
   processor_payment_reference text NOT NULL UNIQUE,
   processor_client_secret text NULL,
   processor_status text NOT NULL,
@@ -42,6 +43,9 @@ ALTER TABLE payments_payment_pages
 
 ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS processor_amount numeric(12, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS processor_payment_kind text NOT NULL DEFAULT 'payment-intent';
 
 CREATE TABLE IF NOT EXISTS payments_provider_webhook_events (
   provider_event_id text PRIMARY KEY,

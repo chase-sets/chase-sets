@@ -2,6 +2,10 @@ import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed
 
 export type PaymentCurrencyCode = "usd";
 export type PaymentProcessorName = "stripe";
+export type ProcessorPaymentKind =
+  | "checkout-session"
+  | "payment-intent"
+  | "balance-credit";
 
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
@@ -28,6 +32,7 @@ export type CreateProcessorPaymentInput = Readonly<{
 
 export type CreatedProcessorPayment = Readonly<{
   processorName: PaymentProcessorName;
+  processorPaymentKind: ProcessorPaymentKind;
   processorPaymentReference: string;
   processorClientSecret: string | null;
   processorStatus: string;
@@ -52,13 +57,17 @@ export type ProcessorWebhookEventKind =
   | "payment-authorized"
   | "payment-captured"
   | "payment-failed"
-  | "payment-cancelled";
+  | "payment-cancelled"
+  | "payment-refunded"
+  | "payment-disputed";
 
 export type PaymentProcessorWebhookEvent = Readonly<{
   eventId: string;
   kind: ProcessorWebhookEventKind;
   processorName: PaymentProcessorName;
+  processorPaymentKind: ProcessorPaymentKind;
   processorPaymentReference: string;
+  internalPaymentId?: PaymentId | null;
   processorStatus: string;
   failureCode: string | null;
   failureMessage: string | null;
@@ -74,7 +83,7 @@ export interface PaymentProcessorGateway {
    * provider-native primitive as long as sensitive payment details stay with the
    * processor and the returned reference is the stable webhook lookup key.
    */
-  createPaymentIntent(
+  createPaymentSession(
     input: CreateProcessorPaymentInput,
   ): Promise<CreatedProcessorPayment>;
   createRefund(

@@ -40,6 +40,31 @@ export function SettlementWalletPage({
   payoutReadiness?: SettlementPayoutReadinessRow | null;
 }) {
   const availableBalance = Number.parseFloat(wallet.available_balance_amount);
+  const pendingBalance = Number.parseFloat(wallet.pending_balance_amount);
+  const setupReady = payoutReadiness?.status === "ready";
+  const payoutAvailability = setupReady && availableBalance > 0
+    ? {
+        tone: "success",
+        label: "Payout available now",
+        detail: `${formatMoney(wallet.available_balance_amount, wallet.currency_code)} can be requested for payout.`,
+      }
+    : !setupReady
+      ? {
+          tone: "warning",
+          label: "Setup is the blocker",
+          detail: "Finish payout setup before requesting available funds.",
+        }
+      : pendingBalance > 0
+        ? {
+            tone: "warning",
+            label: "Funds are still pending",
+            detail: `${formatMoney(wallet.pending_balance_amount, wallet.currency_code)} is pending and appears here when it becomes available.`,
+          }
+        : {
+            tone: "neutral",
+            label: "No payoutable funds",
+            detail: "Available funds appear here after sales settle.",
+          };
   const hasLedgerActivity = entries.length > 0;
   const setupChecklist = [
     {
@@ -122,6 +147,18 @@ export function SettlementWalletPage({
           </Card>
         </PageSection>
       ) : null}
+
+      <PageSection title="Payout Availability">
+        <Card>
+          <Stack gap={2}>
+            <Badge tone={payoutAvailability.tone as any}>{payoutAvailability.label}</Badge>
+            <Text>{payoutAvailability.detail}</Text>
+            <Text size="sm" tone="secondary">
+              Available funds can be requested on demand after setup is ready. Pending funds remain protected until settlement makes them available.
+            </Text>
+          </Stack>
+        </Card>
+      </PageSection>
 
       <PageSection title="Seller Setup Checklist">
         <Grid columns={{ base: 1, md: 2 }} gap={3}>
