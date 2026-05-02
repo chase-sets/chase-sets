@@ -113,7 +113,7 @@ function createPayoutReadiness(status: "not-started" | "pending" | "ready" | "re
       transfer_capability_status: status === "ready" ? "active" : "pending",
       payout_capability_status: status === "ready" ? "active" : "pending",
       payout_destination_status: status === "ready" ? "ready" : "missing",
-      updated_at: "2026-04-02T00:00:00.000Z",
+      updated_at: new Date().toISOString(),
     }),
   } as PayoutReadinessServices;
 }
