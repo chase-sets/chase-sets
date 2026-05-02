@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
@@ -20,7 +21,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Consents | Marketplace" });
+  buildOpenGraphMeta({ title: t("identity.routes.marketplace.accountConsents.consents.marketplace") });
 
 export default function MarketplaceAccountConsentsRoute() {
   const data = useLoaderData<typeof loader>();

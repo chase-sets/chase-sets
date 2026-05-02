@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Card, LinkButton, Stack, Text } from "@chase-sets/design-system";
 
 export type OrderReviewOpportunity = Readonly<{
@@ -28,14 +29,16 @@ export function OrderReviewOpportunityCallout({
       <Stack gap={2}>
         <Text weight="semibold">
           {opportunity.active_review_id
-            ? "Your account review is already active."
-            : `This verified ${transactionLabel} is ready for your ${counterpartyRole} counterparty review.`}
+            ? t("ordering.features.orders.ui.orderReviewOpportunityCallout.your.account.review.is.already.active")
+            : t("ordering.features.orders.ui.orderReviewOpportunityCallout.ready.for.counterparty.review", {
+                transactionLabel,
+                counterpartyRole,
+              })}
         </Text>
         <Text size="sm" tone="secondary">
-          Reviews open only after delivery verifies both accounts in the transaction.
-        </Text>
+          {t("ordering.features.orders.ui.orderReviewOpportunityCallout.reviews.open.only.after.delivery.verifies")}</Text>
         <LinkButton href={href}>
-          {opportunity.active_review_id ? "Open your review" : "Leave account review"}
+          {opportunity.active_review_id ? t("ordering.features.orders.ui.orderReviewOpportunityCallout.open.your.review") : t("ordering.features.orders.ui.orderReviewOpportunityCallout.leave.account.review")}
         </LinkButton>
       </Stack>
     </Card>

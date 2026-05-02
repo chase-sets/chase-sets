@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -15,7 +16,7 @@ import { normalizeRequestedBalanceCreditAmount } from "../support/request-suppor
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Choose shipping and create purchases grouped by seller account before payment.";
+  t("checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped");
 
 async function loadWalletBalance(request: Request) {
   const response = await createForwardedAuthFetch(request)(
@@ -35,7 +36,7 @@ async function loadWalletBalance(request: Request) {
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "orders.view" });
   if (!params.sessionId) {
-    throw new Response("Checkout session not found.", { status: 404 });
+    throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
   }
   const api = createCheckoutRequestApiClient(request);
   const session = await api.getCheckoutSession(params.sessionId);
@@ -54,7 +55,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export async function action({ request, params }: ActionFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "orders.manage" });
   if (!params.sessionId) {
-    throw new Response("Checkout session not found.", { status: 404 });
+    throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found.2"), { status: 404 });
   }
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
@@ -76,14 +77,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return null;
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Request failed.",
+      error: error instanceof Error ? error.message : t("checkout.routes.checkoutSession.request.failed"),
     };
   }
 }
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Checkout | Marketplace",
+    title: t("checkout.routes.checkoutSession.checkout.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 

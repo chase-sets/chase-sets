@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AccountId, LedgerEntryId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { SettlementApiEnv } from "../../../api";
@@ -14,7 +15,7 @@ function requireWalletAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -24,7 +25,7 @@ function requireWalletAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("settlement.features.wallets.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -104,7 +105,10 @@ async function postOperatorWalletEntry(
       paymentId: params.body.paymentId
         ? String(params.body.paymentId) as PaymentId
         : null,
-      description: `${description} (${auditReason})`,
+      description: t("settlement.features.wallets.api.route.ledger.description.with.reason", {
+        description,
+        reason: auditReason,
+      }),
       postedAt: new Date().toISOString(),
     },
     params.context,
@@ -158,7 +162,7 @@ export function createWalletRoutes(services: WalletServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();
@@ -168,10 +172,10 @@ export function createWalletRoutes(services: WalletServices) {
     const description = String(
       body.description ??
         (workflow === "seller-refund-debit"
-          ? "Seller refund adjustment"
+          ? t("settlement.features.wallets.api.route.seller.refund.adjustment")
           : workflow === "dispute-release"
-            ? "Dispute hold released"
-            : "Dispute hold"),
+            ? t("settlement.features.wallets.api.route.dispute.hold.released")
+            : t("settlement.features.wallets.api.route.dispute.hold")),
     );
 
     try {
@@ -192,7 +196,7 @@ export function createWalletRoutes(services: WalletServices) {
         {
           error: {
             code: "validation_failed",
-            message: error instanceof Error ? error.message : "Adjustment failed.",
+            message: error instanceof Error ? error.message : t("settlement.features.wallets.api.route.adjustment.failed"),
           },
         },
         400,
@@ -207,7 +211,7 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.context.missing.2") } }, 401);
     }
     const body = await c.req.json();
 
@@ -230,7 +234,7 @@ export function createWalletRoutes(services: WalletServices) {
         {
           error: {
             code: "validation_failed",
-            message: error instanceof Error ? error.message : "Refund debit failed.",
+            message: error instanceof Error ? error.message : t("settlement.features.wallets.api.route.refund.debit.failed"),
           },
         },
         400,
@@ -245,7 +249,7 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.context.missing.3") } }, 401);
     }
     const body = await c.req.json();
 
@@ -268,7 +272,7 @@ export function createWalletRoutes(services: WalletServices) {
         {
           error: {
             code: "validation_failed",
-            message: error instanceof Error ? error.message : "Dispute hold failed.",
+            message: error instanceof Error ? error.message : t("settlement.features.wallets.api.route.dispute.hold.failed"),
           },
         },
         400,
@@ -283,7 +287,7 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.context.missing.4") } }, 401);
     }
     const body = await c.req.json();
 
@@ -306,7 +310,7 @@ export function createWalletRoutes(services: WalletServices) {
         {
           error: {
             code: "validation_failed",
-            message: error instanceof Error ? error.message : "Dispute release failed.",
+            message: error instanceof Error ? error.message : t("settlement.features.wallets.api.route.dispute.release.failed"),
           },
         },
         400,

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { Field } from "../../support/request-support/api-client";
@@ -12,7 +13,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return api.listFields<ListResponse<Field>>(DEFAULT_LIST_QUERY);
 }
 
-export const meta: MetaFunction = () => [{ title: "Fields | Catalog Admin" }];
+export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.fields.fields.catalog.admin") }];
 
 export default function FieldsRoute() {
   const data = useLoaderData<typeof loader>();

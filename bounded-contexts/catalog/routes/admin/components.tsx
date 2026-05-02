@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import {
@@ -14,7 +15,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return api.listComponents<ListResponse<Component>>(DEFAULT_LIST_QUERY);
 }
 
-export const meta: MetaFunction = () => [{ title: "Components | Catalog Admin" }];
+export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.components.components.catalog.admin") }];
 
 export default function ComponentsRoute() {
   const data = useLoaderData<typeof loader>();

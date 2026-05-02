@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -19,7 +20,7 @@ import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page
 import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-review-opportunity-callout";
 
 const MARKETPLACE_DESCRIPTION =
-  "Inspect a sale, cancel it while open, and review the counterpart feedback workflow.";
+  t("ordering.routes.accountSale.inspect.a.sale.cancel.it.while");
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -27,7 +28,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     permission: "orders.view",
   });
   if (!actor.permissions.includes("listings.view")) {
-    throw new Response("Forbidden.", { status: 403 });
+    throw new Response(t("ordering.routes.accountSale.forbidden"), { status: 403 });
   }
 
   const orderingApi = createOrderingRequestApiClient(request);
@@ -56,7 +57,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof OrderingApiError && error.status === 404) {
-      throw new Response("Sale not found.", { status: 404 });
+      throw new Response(t("ordering.routes.accountSale.sale.not.found"), { status: 404 });
     }
 
     throw error;
@@ -78,14 +79,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return null;
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Request failed.",
+      error: error instanceof Error ? error.message : t("ordering.routes.accountSale.request.failed"),
     };
   }
 }
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Sale | Marketplace",
+    title: t("ordering.routes.accountSale.sale.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 
@@ -100,7 +101,7 @@ export default function OrderingAccountSaleRoute() {
       backHref="/account/sales"
       order={data.sale as SaleDetail}
       errorMessage={actionData?.error ?? null}
-      supplementarySectionTitle="Review"
+      supplementarySectionTitle={t("ordering.routes.accountSale.review")}
       supplementarySection={
         reviewOpportunity ? (
           <OrderReviewOpportunityCallout

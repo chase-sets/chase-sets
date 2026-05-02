@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Card,
   DataTable,
@@ -23,7 +24,9 @@ export function AdminListPage<T>({
       <Text size="lg" weight="semibold">
         {title}
       </Text>
-      <Card title={`${items.length} items`}>
+      <Card title={t("auth.features.sessions.ui.adminPages.item.count", {
+        count: items.length,
+      })}>
         {items.length === 0 ? (
           <Text tone="secondary">{emptyMessage}</Text>
         ) : (

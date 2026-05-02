@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CommercialTermsApiEnv } from "../../../api";
 import type { ResolutionServices } from "../../resolutions/api/runtime";
@@ -11,7 +12,7 @@ function requireAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("commercialTerms.features.schedules.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -21,7 +22,7 @@ function requireAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("commercialTerms.features.schedules.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -32,7 +33,7 @@ function requireAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("commercialTerms.features.schedules.api.route.request.failed");
 }
 
 export function createScheduleRoutes(
@@ -66,7 +67,7 @@ export function createScheduleRoutes(
 
     const schedule = await services.getSchedule(c.req.param("id"));
     if (!schedule) {
-      return c.json({ error: { code: "not_found", message: "Schedule not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("commercialTerms.features.schedules.api.route.schedule.not.found") } }, 404);
     }
 
     return c.json(schedule);
@@ -79,7 +80,7 @@ export function createScheduleRoutes(
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("commercialTerms.features.schedules.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();

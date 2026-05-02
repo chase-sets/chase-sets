@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import {
   Button,
@@ -30,7 +31,7 @@ function displayItemLabel(item: InventoryItemListItem) {
 }
 
 function displayCost(item: InventoryItemListItem) {
-  return item.acquisition_cost_amount ? `$${item.acquisition_cost_amount}` : "Not set";
+  return item.acquisition_cost_amount ? `$${item.acquisition_cost_amount}` : t("inventory.features.inventoryItems.ui.inventoryItemListPage.not.set");
 }
 
 function listingHref(item: InventoryItemListItem) {
@@ -87,7 +88,7 @@ export function InventoryItemListPage({
           const body = (await response.json().catch(() => null)) as
             | { error?: string }
             | null;
-          throw new Error(body?.error ?? "Catalog item lookup failed.");
+          throw new Error(body?.error ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"));
         }
 
         return response.json() as Promise<InventoryCatalogItemSnapshot>;
@@ -109,7 +110,7 @@ export function InventoryItemListPage({
         setCatalogItem(null);
         setVersionSelections({});
         setCatalogLookupError(
-          error instanceof Error ? error.message : "Catalog item lookup failed.",
+          error instanceof Error ? error.message : t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
         );
       })
       .finally(() => {
@@ -143,13 +144,12 @@ export function InventoryItemListPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Seller"
-        title="Inventory"
-        description="Manage private seller stock, availability, and operational locations."
+        eyebrow={t("inventory.features.inventoryItems.ui.inventoryItemListPage.seller")}
+        title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.inventory")}
+        description={t("inventory.features.inventoryItems.ui.inventoryItemListPage.manage.private.seller.stock.availability.and")}
         actions={
           <LinkButton href="/account/inventory/locations" tone="secondary">
-            Manage locations
-          </LinkButton>
+            {t("inventory.features.inventoryItems.ui.inventoryItemListPage.manage.locations")}</LinkButton>
         }
       />
 
@@ -159,25 +159,24 @@ export function InventoryItemListPage({
         </Card>
       ) : null}
 
-      <PageSection title="Create Inventory Item">
+      <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item")}>
         <Card>
           <form method="post">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="create-item" />
               <TextInput
-                label="Catalog item ID"
+                label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id")}
                 name="catalogItemId"
                 required
                 placeholder="cat_..."
                 value={catalogItemId}
                 onChange={(event) => setCatalogItemId(event.target.value)}
-                description="Enter a catalog item ID to load product options."
+                description={t("inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to")}
               />
               <input type="hidden" name="selectedOptions" value={serializedVersionSelection} />
               {catalogLookupPending ? (
                 <Text size="sm" tone="secondary">
-                  Loading catalog item...
-                </Text>
+                  {t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item")}</Text>
               ) : null}
               {catalogItem ? (
                 <Card>
@@ -222,8 +221,7 @@ export function InventoryItemListPage({
                       })
                     ) : (
                       <Text size="sm" tone="secondary">
-                        This catalog item does not require product options.
-                      </Text>
+                        {t("inventory.features.inventoryItems.ui.inventoryItemListPage.this.catalog.item.does.not.require")}</Text>
                     )}
                   </Stack>
                 </Card>
@@ -234,40 +232,42 @@ export function InventoryItemListPage({
                 </Text>
               ) : null}
               <NativeSelect
-                label="Storage location"
+                label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
                 name="storageLocationId"
                 required
                 defaultValue=""
-                placeholder="Select a location"
+                placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location")}
                 items={locations.map((location) => ({
                   value: location.storage_location_id,
-                  label: `${location.name} (${location.ship_from_code})`,
+                  label: t("inventory.features.inventoryItems.ui.inventoryItemListPage.location.option", {
+                    name: location.name,
+                    shipFromCode: location.ship_from_code,
+                  }),
                 }))}
               />
-              <NumberInput label="Total quantity" name="totalQuantity" required min="1" />
+              <NumberInput label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity")} name="totalQuantity" required min="1" />
               <TextInput
-                label="Acquisition cost"
+                label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost")}
                 name="acquisitionCostAmount"
                 placeholder="4.25"
                 inputMode="decimal"
               />
-              <Button type="submit">Create inventory item</Button>
+              <Button type="submit">{t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item.2")}</Button>
               <LinkButton href="/account/inventory/locations" tone="ghost">
-                Need a location first?
-              </LinkButton>
+                {t("inventory.features.inventoryItems.ui.inventoryItemListPage.need.a.location.first")}</LinkButton>
             </Stack>
           </form>
         </Card>
       </PageSection>
 
-      <PageSection title="Current Inventory Items">
+      <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.current.inventory.items")}>
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.item_id}
           columns={[
             {
               key: "item",
-              header: "Inventory Item",
+              header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.inventory.item"),
                   cell: (row) => (
                     <Stack gap={1}>
                       <Text weight="semibold">{displayItemLabel(row)}</Text>
@@ -286,7 +286,7 @@ export function InventoryItemListPage({
                 },
             {
               key: "location",
-              header: "Location",
+              header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.location"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text>{row.storage_location_name}</Text>
@@ -298,30 +298,30 @@ export function InventoryItemListPage({
             },
             {
               key: "quantity",
-              header: "Total",
+              header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.total"),
               align: "right",
               cell: (row) => row.total_quantity,
             },
             {
               key: "held",
-              header: "Held",
+              header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.held"),
               align: "right",
               cell: (row) => row.held_quantity,
             },
             {
               key: "available",
-              header: "Available",
+              header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.available"),
               align: "right",
               cell: (row) => row.available_quantity,
             },
             {
               key: "cost",
-              header: "Acquisition Cost",
+              header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.2"),
               cell: (row) => displayCost(row),
             },
             {
               key: "actions",
-              header: "Actions",
+              header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.actions"),
               cell: (row) => (
                 <Stack gap={2}>
                   <LinkButton
@@ -329,23 +329,21 @@ export function InventoryItemListPage({
                     tone="secondary"
                     size="sm"
                   >
-                    Open
-                  </LinkButton>
+                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.open")}</LinkButton>
                   {row.available_quantity > 0 ? (
                     <LinkButton
                       href={listingHref(row)}
                       tone="ghost"
                       size="sm"
                     >
-                      Create listing
-                    </LinkButton>
+                      {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing")}</LinkButton>
                   ) : null}
                 </Stack>
               ),
             },
           ]}
-          emptyTitle="No inventory items yet"
-          emptyDescription="Create your first inventory item to start tracking availability."
+          emptyTitle={t("inventory.features.inventoryItems.ui.inventoryItemListPage.no.inventory.items.yet")}
+          emptyDescription={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.your.first.inventory.item.to")}
         />
       </PageSection>
     </Page>

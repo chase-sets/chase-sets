@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { LinkButton, Stack } from "@chase-sets/design-system";
 import { useLoaderData } from "react-router";
@@ -27,7 +28,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Reviews | Marketplace" });
+  buildOpenGraphMeta({ title: t("reputation.routes.marketplace.accountReviewSummary.reviews.marketplace") });
 
 export default function MarketplaceAccountReviewSummaryRoute() {
   const data = useLoaderData<typeof loader>();
@@ -35,17 +36,15 @@ export default function MarketplaceAccountReviewSummaryRoute() {
 
   return (
     <ReviewSummaryPage
-      accountLabel={summary.account_display_name ?? "Your reviews"}
+      accountLabel={summary.account_display_name ?? t("reputation.routes.marketplace.accountReviewSummary.your.reviews")}
       summary={summary}
       reviews={(data.reviews as ListResponse<ReviewListItem>).items}
       actions={
         <Stack direction="row" gap={2}>
           <LinkButton href="/account/reviews/received" tone="secondary">
-            Received reviews
-          </LinkButton>
+            {t("reputation.routes.marketplace.accountReviewSummary.received.reviews")}</LinkButton>
           <LinkButton href="/account/reviews/written" tone="secondary">
-            Written reviews
-          </LinkButton>
+            {t("reputation.routes.marketplace.accountReviewSummary.written.reviews")}</LinkButton>
         </Stack>
       }
     />

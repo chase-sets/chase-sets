@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Banner,
   Button,
@@ -51,7 +52,7 @@ export function SignInPage(props: Readonly<{
       setPasskeyPayload(payload);
       window.setTimeout(() => passkeyFormRef.current?.requestSubmit(), 0);
     } catch (error) {
-      setPasskeyError(error instanceof Error ? error.message : "Passkey sign-in failed.");
+      setPasskeyError(error instanceof Error ? error.message : t("auth.features.signIn.ui.signInPage.passkey.sign.in.failed"));
     } finally {
       setPasskeyLoading(false);
     }
@@ -59,26 +60,24 @@ export function SignInPage(props: Readonly<{
 
   const statusMessage =
     props.notice?.status === "magic-link-sent"
-      ? "Magic link ready. Check your email, or continue here in local recovery mode."
+      ? t("auth.features.signIn.ui.signInPage.magic.link.ready.check.your.email")
       : null;
 
   return (
     <Stack gap={4}>
       <Stack gap={2}>
         <Text size="lg" weight="semibold">
-          Sign In
-        </Text>
+          {t("auth.features.signIn.ui.signInPage.sign.in")}</Text>
         <Text tone="secondary">
-          Use a password, magic link, or passkey to continue.
-        </Text>
+          {t("auth.features.signIn.ui.signInPage.use.a.password.magic.link.or")}</Text>
       </Stack>
 
       {props.errorMessage ? (
-        <Banner title="Sign-in failed" description={props.errorMessage} tone="danger" role="alert" />
+        <Banner title={t("auth.features.signIn.ui.signInPage.sign.in.failed")} description={props.errorMessage} tone="danger" role="alert" />
       ) : null}
       {statusMessage ? (
         <Banner
-          title="Magic link sent"
+          title={t("auth.features.signIn.ui.signInPage.magic.link.sent")}
           description={statusMessage}
           tone="success"
           actions={
@@ -88,8 +87,7 @@ export function SignInPage(props: Readonly<{
                 <input type="hidden" name="intent" value="magic-link-consume" readOnly />
                 <input type="hidden" name="token" value={props.notice.token} readOnly />
                 <Button type="submit" tone="secondary" size="sm">
-                  Continue
-                </Button>
+                  {t("auth.features.signIn.ui.signInPage.continue")}</Button>
               </form>
             ) : null
           }
@@ -101,9 +99,9 @@ export function SignInPage(props: Readonly<{
         value={method}
         onValueChange={(value) => setMethod(value as SignInMethod)}
         items={[
-          { value: "password", label: "Password", icon: "lock" },
-          { value: "magic-link", label: "Magic Link", icon: "message" },
-          { value: "passkey", label: "Passkey", icon: "shield" },
+          { value: "password", label: t("auth.features.signIn.ui.signInPage.password"), icon: "lock" },
+          { value: "magic-link", label: t("auth.features.signIn.ui.signInPage.magic.link"), icon: "message" },
+          { value: "passkey", label: t("auth.features.signIn.ui.signInPage.passkey"), icon: "shield" },
         ]}
       />
 
@@ -113,11 +111,10 @@ export function SignInPage(props: Readonly<{
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />
               <input type="hidden" name="intent" value="password" readOnly />
-              <TextInput label="Email" name="email" type="email" required />
-              <PasswordInput label="Password" name="password" required />
+              <TextInput label={t("auth.features.signIn.ui.signInPage.email")} name="email" type="email" required />
+              <PasswordInput label={t("auth.features.signIn.ui.signInPage.password.2")} name="password" required />
               <Button type="submit" leadingIcon="lock">
-                Sign In
-              </Button>
+                {t("auth.features.signIn.ui.signInPage.sign.in.2")}</Button>
             </Stack>
           </form>
         </Card>
@@ -130,20 +127,18 @@ export function SignInPage(props: Readonly<{
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <input type="hidden" name="intent" value="magic-link-request" readOnly />
-                <TextInput label="Email" name="email" type="email" required />
+                <TextInput label={t("auth.features.signIn.ui.signInPage.email.2")} name="email" type="email" required />
                 <Button type="submit" leadingIcon="message">
-                  Send Magic Link
-                </Button>
+                  {t("auth.features.signIn.ui.signInPage.send.magic.link")}</Button>
               </Stack>
             </form>
             <form action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <input type="hidden" name="intent" value="magic-link-consume" readOnly />
-                <TextInput label="Magic Link Token" name="token" required />
+                <TextInput label={t("auth.features.signIn.ui.signInPage.magic.link.token")} name="token" required />
                 <Button type="submit" tone="secondary">
-                  Continue With Token
-                </Button>
+                  {t("auth.features.signIn.ui.signInPage.continue.with.token")}</Button>
               </Stack>
             </form>
           </Stack>
@@ -162,13 +157,12 @@ export function SignInPage(props: Readonly<{
               <HiddenFields fields={props.hiddenFields} />
               <input type="hidden" name="intent" value="passkey-sign-in" readOnly />
               <PasskeyHiddenFields payload={passkeyPayload} />
-              <TextInput label="Email" name="email" type="email" required />
+              <TextInput label={t("auth.features.signIn.ui.signInPage.email.3")} name="email" type="email" required />
               {passkeyError ? (
-                <Banner title="Passkey unavailable" description={passkeyError} tone="warning" role="alert" />
+                <Banner title={t("auth.features.signIn.ui.signInPage.passkey.unavailable")} description={passkeyError} tone="warning" role="alert" />
               ) : null}
               <Button type="submit" leadingIcon="shield" loading={passkeyLoading}>
-                Use Passkey
-              </Button>
+                {t("auth.features.signIn.ui.signInPage.use.passkey")}</Button>
             </Stack>
           </form>
         </Card>

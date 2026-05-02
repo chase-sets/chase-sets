@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -25,7 +26,7 @@ import {
 const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Manage active, draft, paused, and withdrawn listings from your marketplace account.";
+  t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
 
 function toInventoryOption(
   inventoryItem: InventoryItemListItem,
@@ -125,7 +126,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Listings | Marketplace",
+    title: t("marketplace.routes.accountListings.listings.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -10,7 +11,7 @@ import { createMarketplaceRequestApiClient } from "../support/request-support/ap
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Review pricing, demand, and status for one submitted offer.";
+  t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "offers.view" });
@@ -22,7 +23,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {
-      throw new Response("Submitted offer not found.", { status: 404 });
+      throw new Response(t("marketplace.routes.accountOfferSubmitted.submitted.offer.not.found"), { status: 404 });
     }
 
     throw error;
@@ -31,7 +32,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Submitted Offer | Marketplace",
+    title: t("marketplace.routes.accountOfferSubmitted.submitted.offer.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 

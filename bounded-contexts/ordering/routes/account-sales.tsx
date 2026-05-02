@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -11,7 +12,7 @@ import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
 
 const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Review sales created by checkout and accepted offers.";
+  t("ordering.routes.accountSales.review.sales.created.by.checkout.and");
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -19,7 +20,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "orders.view",
   });
   if (!actor.permissions.includes("listings.view")) {
-    throw new Response("Forbidden.", { status: 403 });
+    throw new Response(t("ordering.routes.accountSales.forbidden"), { status: 403 });
   }
 
   const api = createOrderingRequestApiClient(request);
@@ -31,7 +32,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Sales | Marketplace",
+    title: t("ordering.routes.accountSales.sales.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 
@@ -40,10 +41,10 @@ export default function OrderingAccountSalesRoute() {
 
   return (
     <OrderingOrderListPage
-      title="Sales"
-      eyebrow="Seller"
-      emptyTitle="No sales yet"
-      emptyDescription="Accepted offers and checkout activity create sales."
+      title={t("ordering.routes.accountSales.sales")}
+      eyebrow={t("ordering.routes.accountSales.seller")}
+      emptyTitle={t("ordering.routes.accountSales.no.sales.yet")}
+      emptyDescription={t("ordering.routes.accountSales.accepted.offers.and.checkout.activity.create")}
       orderDetailBasePath="/account/sales"
       orders={(data.sales as ListResponse<SaleListItem>).items}
     />

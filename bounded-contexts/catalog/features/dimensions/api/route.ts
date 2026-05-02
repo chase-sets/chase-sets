@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { DimensionServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -187,7 +188,7 @@ export function dimensionRoutes(services: DimensionServices) {
     const dimension = await services.getDimension(c.req.param("id"));
 
     if (!dimension) {
-      return c.json({ error: { code: "not_found", message: "Dimension not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("catalog.features.dimensions.api.route.dimension.not.found") } }, 404);
     }
 
     return c.json(dimension);

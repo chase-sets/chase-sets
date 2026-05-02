@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -37,7 +38,7 @@ function formatApplicability(
   }>,
 ): string {
   if (clauses.length === 0) {
-    return "Always";
+    return t("catalog.features.blueprints.ui.blueprintDetailPage.always");
   }
 
   return clauses
@@ -82,13 +83,26 @@ function parseApplicabilityClauses(
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: "Publish", action: "publish", tone: "primary" }];
+      return [{ label: t("catalog.features.blueprints.ui.blueprintDetailPage.publish"), action: "publish", tone: "primary" }];
     case "active":
-      return [{ label: "Deprecate", action: "deprecate", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.blueprints.ui.blueprintDetailPage.deprecate"), action: "deprecate", confirm: true, tone: "danger" }];
     case "deprecated":
-      return [{ label: "Archive", action: "archive", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.blueprints.ui.blueprintDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
     default:
       return [];
+  }
+}
+
+function lifecycleActionLabel(action: string) {
+  switch (action) {
+    case "publish":
+      return t("catalog.features.blueprints.ui.blueprintDetailPage.published");
+    case "deprecate":
+      return t("catalog.features.blueprints.ui.blueprintDetailPage.deprecated");
+    case "archive":
+      return t("catalog.features.blueprints.ui.blueprintDetailPage.archived");
+    default:
+      return action;
   }
 }
 
@@ -150,7 +164,9 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
       archive: () => archiveBlueprint(id),
     };
     await actions[action]?.();
-    addToast(`Blueprint ${action}ed`, "success");
+    addToast(t("catalog.features.blueprints.ui.blueprintDetailPage.lifecycle.completed", {
+      action: lifecycleActionLabel(action),
+    }), "success");
     refresh();
   }
 
@@ -165,14 +181,14 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
 
   async function handleRevise() {
     await reviseBlueprint(id, { key: editKey, name: editName, description: editDescription || undefined });
-    addToast("Blueprint revised", "success");
+    addToast(t("catalog.features.blueprints.ui.blueprintDetailPage.blueprint.revised"), "success");
     setEditing(false);
     refresh();
   }
 
   async function handleAttachComponent() {
     await attachComponent(id, componentId);
-    addToast("Component attached", "success");
+    addToast(t("catalog.features.blueprints.ui.blueprintDetailPage.component.attached"), "success");
     setShowAttachComponent(false);
     setComponentId("");
     refresh();
@@ -180,14 +196,14 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
 
   async function handleDetachComponent(compId: string) {
     await detachComponent(id, compId);
-    addToast("Component detached", "success");
+    addToast(t("catalog.features.blueprints.ui.blueprintDetailPage.component.detached"), "success");
     refresh();
   }
 
   async function handleSetProductResolutionRules() {
     const order = canonicalOrder.split(",").map((s) => s.trim()).filter(Boolean);
     await setBlueprintProductResolutionRules(id, order);
-    addToast("Product resolution rules set", "success");
+    addToast(t("catalog.features.blueprints.ui.blueprintDetailPage.product.resolution.rules.set"), "success");
     setShowSetProductResolutionRules(false);
     setCanonicalOrder("");
     refresh();
@@ -205,7 +221,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
   async function handleSetFieldRules() {
     const rules = editFieldRules.filter((r) => r.fieldId.trim());
     await setBlueprintFields(id, rules);
-    addToast("Field rules set", "success");
+    addToast(t("catalog.features.blueprints.ui.blueprintDetailPage.field.rules.set"), "success");
     setShowSetFieldRules(false);
     refresh();
   }
@@ -234,7 +250,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
         appliesWhen: parseApplicabilityClauses(r.appliesWhen),
       }));
     await setBlueprintDimensions(id, rules);
-    addToast("Dimension rules set", "success");
+    addToast(t("catalog.features.blueprints.ui.blueprintDetailPage.dimension.rules.set"), "success");
     setShowSetDimRules(false);
     refresh();
   }
@@ -247,9 +263,9 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
   return (
     <>
       <EntityDetailPage
-        title={data?.name ?? "Blueprint"}
+        title={data?.name ?? t("catalog.features.blueprints.ui.blueprintDetailPage.blueprint")}
         breadcrumbs={[
-          { label: "Blueprints", href: "/blueprints" },
+          { label: t("catalog.features.blueprints.ui.blueprintDetailPage.blueprints"), href: "/blueprints" },
           { label: data?.name ?? id },
         ]}
         actions={
@@ -262,8 +278,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
               />
               {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditing}>
-                  Edit
-                </Button>
+                  {t("catalog.features.blueprints.ui.blueprintDetailPage.edit")}</Button>
               )}
             </Inline>
           ) : undefined
@@ -276,33 +291,33 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
           <Stack gap={6}>
             <KeyValueList
               items={[
-                { key: "Key", value: data.key },
-                { key: "Name", value: data.name },
-                { key: "Description", value: data.description ?? "—" },
-                { key: "Status", value: data.status },
-                { key: "Updated", value: data.updated_at },
+                { key: t("catalog.features.blueprints.ui.blueprintDetailPage.key"), value: data.key },
+                { key: t("catalog.features.blueprints.ui.blueprintDetailPage.name"), value: data.name },
+                { key: t("catalog.features.blueprints.ui.blueprintDetailPage.description"), value: data.description ?? "—" },
+                { key: t("catalog.features.blueprints.ui.blueprintDetailPage.status"), value: data.status },
+                { key: t("catalog.features.blueprints.ui.blueprintDetailPage.updated"), value: data.updated_at },
               ]}
             />
 
-            <PageSection title="Components">
+            <PageSection title={t("catalog.features.blueprints.ui.blueprintDetailPage.components")}>
               <Stack gap={3}>
                 {data.status === "draft" && (
                   <Inline>
-                    <Button size="sm" onClick={() => setShowAttachComponent(true)}>Attach Component</Button>
+                    <Button size="sm" onClick={() => setShowAttachComponent(true)}>{t("catalog.features.blueprints.ui.blueprintDetailPage.attach.component")}</Button>
                   </Inline>
                 )}
                 {components.length === 0 ? (
-                  <Text tone="secondary">No components attached.</Text>
+                  <Text tone="secondary">{t("catalog.features.blueprints.ui.blueprintDetailPage.no.components.attached")}</Text>
                 ) : (
                   <DataTable
                     rows={components}
                     columns={[
-                      { key: "componentId", header: "Component", cell: (row) => row.name },
+                      { key: "componentId", header: t("catalog.features.blueprints.ui.blueprintDetailPage.component"), cell: (row) => row.name },
                       {
                         key: "actions",
                         header: "",
                         cell: (row) => data.status === "draft" ? (
-                          <Button size="sm" tone="danger" onClick={() => handleDetachComponent(row.componentId)}>Detach</Button>
+                          <Button size="sm" tone="danger" onClick={() => handleDetachComponent(row.componentId)}>{t("catalog.features.blueprints.ui.blueprintDetailPage.detach")}</Button>
                         ) : null,
                       },
                     ]}
@@ -312,59 +327,59 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
               </Stack>
             </PageSection>
 
-            <PageSection title="Field Rules">
+            <PageSection title={t("catalog.features.blueprints.ui.blueprintDetailPage.field.rules")}>
               <Stack gap={3}>
                 {data.status === "draft" && (
                   <Inline>
-                    <Button size="sm" onClick={startSetFieldRules}>Set Field Rules</Button>
+                    <Button size="sm" onClick={startSetFieldRules}>{t("catalog.features.blueprints.ui.blueprintDetailPage.set.field.rules")}</Button>
                   </Inline>
                 )}
                 <DataTable
                   rows={fieldRules}
                   columns={[
-                    { key: "fieldId", header: "Field", cell: (row) => row.fieldName },
-                    { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
+                    { key: "fieldId", header: t("catalog.features.blueprints.ui.blueprintDetailPage.field"), cell: (row) => row.fieldName },
+                    { key: "required", header: t("catalog.features.blueprints.ui.blueprintDetailPage.required"), cell: (row) => row.required ? t("catalog.features.blueprints.ui.blueprintDetailPage.yes") : t("catalog.features.blueprints.ui.blueprintDetailPage.no") },
                   ] as DataColumn<FieldRule>[]}
                   getRowId={(row) => row.fieldId}
-                  emptyTitle="No field rules"
+                  emptyTitle={t("catalog.features.blueprints.ui.blueprintDetailPage.no.field.rules")}
                 />
               </Stack>
             </PageSection>
 
-            <PageSection title="Dimension Rules">
+            <PageSection title={t("catalog.features.blueprints.ui.blueprintDetailPage.dimension.rules")}>
               <Stack gap={3}>
                 {data.status === "draft" && (
                   <Inline>
-                    <Button size="sm" onClick={startSetDimRules}>Set Dimension Rules</Button>
+                    <Button size="sm" onClick={startSetDimRules}>{t("catalog.features.blueprints.ui.blueprintDetailPage.set.dimension.rules")}</Button>
                   </Inline>
                 )}
                 <DataTable
                   rows={dimensionRules}
                   columns={[
-                    { key: "dimensionId", header: "Dimension", cell: (row) => row.dimensionName },
-                    { key: "required", header: "Required", cell: (row) => row.required ? "Yes" : "No" },
+                    { key: "dimensionId", header: t("catalog.features.blueprints.ui.blueprintDetailPage.dimension"), cell: (row) => row.dimensionName },
+                    { key: "required", header: t("catalog.features.blueprints.ui.blueprintDetailPage.required.2"), cell: (row) => row.required ? t("catalog.features.blueprints.ui.blueprintDetailPage.yes.2") : t("catalog.features.blueprints.ui.blueprintDetailPage.no.2") },
                     {
                       key: "allowedOptions",
-                      header: "Allowed Options",
-                      cell: (row) => row.allowedOptions.length > 0 ? row.allowedOptions.map((option) => option.code).join(", ") : "All",
+                      header: t("catalog.features.blueprints.ui.blueprintDetailPage.allowed.options"),
+                      cell: (row) => row.allowedOptions.length > 0 ? row.allowedOptions.map((option) => option.code).join(", ") : t("catalog.features.blueprints.ui.blueprintDetailPage.all"),
                     },
                     {
                       key: "appliesWhen",
-                      header: "Applies When",
+                      header: t("catalog.features.blueprints.ui.blueprintDetailPage.applies.when"),
                       cell: (row) => formatApplicability(row.appliesWhen),
                     },
                   ] as DataColumn<DimensionRule>[]}
                   getRowId={(row) => row.dimensionId}
-                  emptyTitle="No dimension rules"
+                  emptyTitle={t("catalog.features.blueprints.ui.blueprintDetailPage.no.dimension.rules")}
                 />
               </Stack>
             </PageSection>
 
-            <PageSection title="Product Resolution Rules">
+            <PageSection title={t("catalog.features.blueprints.ui.blueprintDetailPage.product.resolution.rules")}>
               <Stack gap={3}>
                 <KeyValueList
                   items={[
-                    { key: "Canonical Dimension Order", value: canonicalDimensionOrder.length > 0 ? canonicalDimensionOrder.map((dimension) => dimension.dimensionName).join(", ") : "Not set" },
+                    { key: t("catalog.features.blueprints.ui.blueprintDetailPage.canonical.dimension.order"), value: canonicalDimensionOrder.length > 0 ? canonicalDimensionOrder.map((dimension) => dimension.dimensionName).join(", ") : t("catalog.features.blueprints.ui.blueprintDetailPage.not.set") },
                   ]}
                 />
                 {data.status === "draft" && (
@@ -373,8 +388,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                       setCanonicalOrder(canonicalDimensionOrder.map((dimension) => dimension.dimensionId).join(", "));
                       setShowSetProductResolutionRules(true);
                     }}>
-                      Set Product Resolution Rules
-                    </Button>
+                      {t("catalog.features.blueprints.ui.blueprintDetailPage.set.product.resolution.rules")}</Button>
                   </Inline>
                 )}
               </Stack>
@@ -386,34 +400,34 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
       <Dialog
         open={editing}
         onOpenChange={setEditing}
-        title="Edit Blueprint"
-        footer={<Button onClick={handleRevise}>Save</Button>}
+        title={t("catalog.features.blueprints.ui.blueprintDetailPage.edit.blueprint")}
+        footer={<Button onClick={handleRevise}>{t("catalog.features.blueprints.ui.blueprintDetailPage.save")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
-          <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
-          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          <TextInput label={t("catalog.features.blueprints.ui.blueprintDetailPage.key")} value={editKey} onChange={(e) => setEditKey(e.target.value)} />
+          <TextInput label={t("catalog.features.blueprints.ui.blueprintDetailPage.name")} value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label={t("catalog.features.blueprints.ui.blueprintDetailPage.description")} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
         </Stack>
       </Dialog>
 
       <Dialog
         open={showAttachComponent}
         onOpenChange={setShowAttachComponent}
-        title="Attach Component"
-        footer={<Button onClick={handleAttachComponent}>Attach</Button>}
+        title={t("catalog.features.blueprints.ui.blueprintDetailPage.attach.component.2")}
+        footer={<Button onClick={handleAttachComponent}>{t("catalog.features.blueprints.ui.blueprintDetailPage.attach")}</Button>}
       >
-        <TextInput label="Component ID" value={componentId} onChange={(e) => setComponentId(e.target.value)} />
+        <TextInput label={t("catalog.features.blueprints.ui.blueprintDetailPage.component.id")} value={componentId} onChange={(e) => setComponentId(e.target.value)} />
       </Dialog>
 
       <Dialog
         open={showSetProductResolutionRules}
         onOpenChange={setShowSetProductResolutionRules}
-        title="Set Product Resolution Rules"
-        description="Enter dimension IDs separated by commas in the canonical order."
-        footer={<Button onClick={handleSetProductResolutionRules}>Save</Button>}
+        title={t("catalog.features.blueprints.ui.blueprintDetailPage.set.product.resolution.rules.2")}
+        description={t("catalog.features.blueprints.ui.blueprintDetailPage.enter.dimension.ids.separated.by.commas")}
+        footer={<Button onClick={handleSetProductResolutionRules}>{t("catalog.features.blueprints.ui.blueprintDetailPage.save.2")}</Button>}
       >
         <TextInput
-          label="Canonical Dimension Order"
+          label={t("catalog.features.blueprints.ui.blueprintDetailPage.canonical.dimension.order")}
           value={canonicalOrder}
           onChange={(e) => setCanonicalOrder(e.target.value)}
         />
@@ -422,36 +436,34 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
       <Dialog
         open={showSetFieldRules}
         onOpenChange={setShowSetFieldRules}
-        title="Set Field Rules"
-        description="Configure which fields apply to this blueprint."
-        footer={<Button onClick={handleSetFieldRules}>Save</Button>}
+        title={t("catalog.features.blueprints.ui.blueprintDetailPage.set.field.rules.2")}
+        description={t("catalog.features.blueprints.ui.blueprintDetailPage.configure.which.fields.apply.to.this")}
+        footer={<Button onClick={handleSetFieldRules}>{t("catalog.features.blueprints.ui.blueprintDetailPage.save.3")}</Button>}
       >
         <Stack gap={3}>
           {editFieldRules.map((rule, i) => (
             <Inline key={i} gap={2}>
               <TextInput
-                label={i === 0 ? "Field ID" : undefined}
+                label={i === 0 ? t("catalog.features.blueprints.ui.blueprintDetailPage.field.id") : undefined}
                 value={rule.fieldId}
                 onChange={(e) =>
                   setEditFieldRules((prev) => prev.map((r, j) => (j === i ? { ...r, fieldId: e.target.value } : r)))
                 }
               />
               <Checkbox
-                label="Required"
+                label={t("catalog.features.blueprints.ui.blueprintDetailPage.required.3")}
                 checked={rule.required}
                 onCheckedChange={(v) =>
                   setEditFieldRules((prev) => prev.map((r, j) => (j === i ? { ...r, required: v === true } : r)))
                 }
               />
               <Button size="sm" tone="danger" onClick={() => setEditFieldRules((prev) => prev.filter((_, j) => j !== i))}>
-                Remove
-              </Button>
+                {t("catalog.features.blueprints.ui.blueprintDetailPage.remove")}</Button>
             </Inline>
           ))}
           <Inline>
             <Button size="sm" tone="secondary" onClick={() => setEditFieldRules((prev) => [...prev, { fieldId: "", required: false }])}>
-              Add Rule
-            </Button>
+              {t("catalog.features.blueprints.ui.blueprintDetailPage.add.rule")}</Button>
           </Inline>
         </Stack>
       </Dialog>
@@ -459,41 +471,40 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
       <Dialog
         open={showSetDimRules}
         onOpenChange={setShowSetDimRules}
-        title="Set Dimension Rules"
-        description="Configure which dimensions apply to this blueprint."
-        footer={<Button onClick={handleSetDimRules}>Save</Button>}
+        title={t("catalog.features.blueprints.ui.blueprintDetailPage.set.dimension.rules.2")}
+        description={t("catalog.features.blueprints.ui.blueprintDetailPage.configure.which.dimensions.apply.to.this")}
+        footer={<Button onClick={handleSetDimRules}>{t("catalog.features.blueprints.ui.blueprintDetailPage.save.4")}</Button>}
       >
         <Stack gap={3}>
           {editDimRules.map((rule, i) => (
             <Stack key={i} gap={2}>
               <Inline gap={2}>
                 <TextInput
-                  label={i === 0 ? "Dimension ID" : undefined}
+                  label={i === 0 ? t("catalog.features.blueprints.ui.blueprintDetailPage.dimension.id") : undefined}
                   value={rule.dimensionId}
                   onChange={(e) =>
                     setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, dimensionId: e.target.value } : r)))
                   }
                 />
                 <Checkbox
-                  label="Required"
+                  label={t("catalog.features.blueprints.ui.blueprintDetailPage.required.4")}
                   checked={rule.required}
                   onCheckedChange={(v) =>
                     setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, required: v === true } : r)))
                   }
                 />
                 <Button size="sm" tone="danger" onClick={() => setEditDimRules((prev) => prev.filter((_, j) => j !== i))}>
-                  Remove
-                </Button>
+                  {t("catalog.features.blueprints.ui.blueprintDetailPage.remove.2")}</Button>
               </Inline>
               <TextInput
-                label="Allowed Option IDs (comma-separated, leave empty for all)"
+                label={t("catalog.features.blueprints.ui.blueprintDetailPage.allowed.option.ids.comma.separated.leave")}
                 value={rule.allowedOptionIds}
                 onChange={(e) =>
                   setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, allowedOptionIds: e.target.value } : r)))
                 }
               />
               <TextInput
-                label="Applies When (dimensionId=optionId|optionId, comma-separated)"
+                label={t("catalog.features.blueprints.ui.blueprintDetailPage.applies.when.dimensionid.optionid.optionid.comma")}
                 value={rule.appliesWhen}
                 onChange={(e) =>
                   setEditDimRules((prev) => prev.map((r, j) => (j === i ? { ...r, appliesWhen: e.target.value } : r)))
@@ -503,13 +514,11 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
           ))}
           <Inline>
             <Button size="sm" tone="secondary" onClick={() => setEditDimRules((prev) => [...prev, { dimensionId: "", required: false, allowedOptionIds: "", appliesWhen: "" }])}>
-              Add Rule
-            </Button>
+              {t("catalog.features.blueprints.ui.blueprintDetailPage.add.rule.2")}</Button>
           </Inline>
         </Stack>
       </Dialog>
     </>
   );
 }
-
 

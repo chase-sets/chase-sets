@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
@@ -54,11 +55,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({
     title: data?.seller
-      ? `${data.seller.seller_display_name ?? "Seller"} | Marketplace`
-      : "Seller Not Found | Marketplace",
+      ? t("discovery.routes.publicSeller.seller.meta.title", {
+          sellerName: data.seller.seller_display_name ?? t("discovery.routes.publicSeller.seller"),
+        })
+      : t("discovery.routes.publicSeller.seller.not.found.marketplace"),
     description: data?.seller
-      ? `Browse ${data.seller.active_listing_count} active marketplace listings.`
-      : "This marketplace seller is not available.",
+      ? t("discovery.routes.publicSeller.browse.active.listings", {
+          count: data.seller.active_listing_count,
+        })
+      : t("discovery.routes.publicSeller.this.marketplace.seller.is.not.available"),
   }),
   ...(data?.canonicalUrl
     ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }]
@@ -72,8 +77,8 @@ export default function PublicSellerRoute() {
   if (!seller) {
     return (
       <Container width="content">
-        <PageSection title="Seller not found">
-          <Text>This seller is not available right now.</Text>
+        <PageSection title={t("discovery.routes.publicSeller.seller.not.found")}>
+          <Text>{t("discovery.routes.publicSeller.this.seller.is.not.available.right")}</Text>
         </PageSection>
       </Container>
     );
@@ -83,10 +88,16 @@ export default function PublicSellerRoute() {
     <Container width="expanded">
       <Stack gap={6}>
         <Stack gap={2}>
-          <Heading level={1}>{seller.seller_display_name ?? "Seller"}</Heading>
+          <Heading level={1}>{seller.seller_display_name ?? t("discovery.routes.publicSeller.seller.2")}</Heading>
           <Text size="lg" tone="secondary">
-            {seller.active_listing_count} active listing
-            {seller.active_listing_count === 1 ? "" : "s"}
+            {t("discovery.routes.publicSeller.active.listing.count", {
+              count: seller.active_listing_count,
+              listingLabel: t(
+                seller.active_listing_count === 1
+                  ? "discovery.routes.publicSeller.listing.singular"
+                  : "discovery.routes.publicSeller.listing.plural",
+              ),
+            })}
           </Text>
         </Stack>
 
@@ -96,15 +107,17 @@ export default function PublicSellerRoute() {
               <MarketplaceProductCard
                 key={listing.listing_id}
                 href={`/listings/${listing.listing_slug}`}
-                title={listing.item_title ?? "Marketplace listing"}
+                title={listing.item_title ?? t("discovery.routes.publicSeller.marketplace.listing")}
                 subtitle={listing.item_subtitle ?? listing.product_summary}
-                description={listing.product_summary ?? "Active marketplace listing"}
+                description={listing.product_summary ?? t("discovery.routes.publicSeller.active.marketplace.listing")}
                 fallbackImageSrc={discoveryAssetUrls.defaultProductImage}
-                fallbackImageAlt="Pokemon card back"
+                fallbackImageAlt={t("discovery.routes.publicSeller.pokemon.card.back")}
                 status="available"
                 price={formatMoney(listing.price_amount)}
-                meta={`${listing.quantity_cap} available`}
-                actionLabel="View listing"
+                meta={t("discovery.routes.publicSeller.quantity.available", {
+                  quantity: listing.quantity_cap,
+                })}
+                actionLabel={t("discovery.routes.publicSeller.view.listing")}
                 categoryTags={[]}
                 metadataTags={[]}
               />
@@ -112,10 +125,10 @@ export default function PublicSellerRoute() {
           </Grid>
         ) : (
           <EmptyState
-            title="No active listings"
-            description="This seller does not have active marketplace listings right now."
+            title={t("discovery.routes.publicSeller.no.active.listings")}
+            description={t("discovery.routes.publicSeller.this.seller.does.not.have.active")}
             icon="store"
-            actions={<LinkButton href="/search">Browse marketplace</LinkButton>}
+            actions={<LinkButton href="/search">{t("discovery.routes.publicSeller.browse.marketplace")}</LinkButton>}
           />
         )}
       </Stack>

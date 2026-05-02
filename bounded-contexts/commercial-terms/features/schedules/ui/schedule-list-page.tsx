@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -29,9 +30,9 @@ export function ScheduleListPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Admin"
-        title="Fee Schedules"
-        description="Manage default marketplace and payment fee schedules by account type."
+        eyebrow={t("commercialTerms.features.schedules.ui.scheduleListPage.admin")}
+        title={t("commercialTerms.features.schedules.ui.scheduleListPage.fee.schedules")}
+        description={t("commercialTerms.features.schedules.ui.scheduleListPage.manage.default.marketplace.and.payment.fee")}
       />
 
       {errorMessage ? (
@@ -40,85 +41,85 @@ export function ScheduleListPage({
         </Card>
       ) : null}
 
-      <PageSection title="Create Schedule">
+      <PageSection title={t("commercialTerms.features.schedules.ui.scheduleListPage.create.schedule")}>
         <Card>
           <form method="post">
             <Stack gap={3}>
-              <TextInput label="Label" name="label" required />
+              <TextInput label={t("commercialTerms.features.schedules.ui.scheduleListPage.label")} name="label" required />
               <NativeSelect
-                label="Account Type"
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.account.type")}
                 name="accountType"
                 required
                 defaultValue="business"
                 items={[
-                  { value: "personal", label: "Personal" },
-                  { value: "business", label: "Business" },
-                  { value: "enterprise", label: "Enterprise" },
+                  { value: "personal", label: t("commercialTerms.features.schedules.ui.scheduleListPage.personal") },
+                  { value: "business", label: t("commercialTerms.features.schedules.ui.scheduleListPage.business") },
+                  { value: "enterprise", label: t("commercialTerms.features.schedules.ui.scheduleListPage.enterprise") },
                 ]}
               />
               <NumberInput
-                label="Marketplace Fee (bps)"
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee.bps")}
                 name="marketplaceFeePercentageBps"
                 min="0"
                 defaultValue="850"
                 required
               />
               <TextInput
-                label="Marketplace Fixed Amount"
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fixed.amount")}
                 name="marketplaceFeeFixedAmount"
                 inputMode="decimal"
                 defaultValue="0.10"
                 required
               />
               <NumberInput
-                label="Payment Fee (bps)"
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.payment.fee.bps")}
                 name="paymentFeePercentageBps"
                 min="0"
                 defaultValue="290"
                 required
               />
               <TextInput
-                label="Payment Fixed Amount"
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.payment.fixed.amount")}
                 name="paymentFeeFixedAmount"
                 inputMode="decimal"
                 defaultValue="0.30"
                 required
               />
               <NativeSelect
-                label="Status"
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.status")}
                 name="status"
                 required
                 defaultValue="active"
                 items={[
-                  { value: "active", label: "Active" },
-                  { value: "inactive", label: "Inactive" },
+                  { value: "active", label: t("commercialTerms.features.schedules.ui.scheduleListPage.active") },
+                  { value: "inactive", label: t("commercialTerms.features.schedules.ui.scheduleListPage.inactive") },
                 ]}
               />
               <TextInput
-                label="Effective From"
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.effective.from")}
                 name="effectiveFrom"
                 defaultValue={new Date().toISOString()}
                 required
               />
               <TextInput
-                label="Effective Until"
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.effective.until")}
                 name="effectiveUntil"
-                placeholder="Optional ISO timestamp"
+                placeholder={t("commercialTerms.features.schedules.ui.scheduleListPage.optional.iso.timestamp")}
               />
-              <Button type="submit">Create schedule</Button>
+              <Button type="submit">{t("commercialTerms.features.schedules.ui.scheduleListPage.create.schedule.2")}</Button>
             </Stack>
           </form>
         </Card>
       </PageSection>
 
-      <PageSection title="Current Schedules">
+      <PageSection title={t("commercialTerms.features.schedules.ui.scheduleListPage.current.schedules")}>
         <DataTable
           rows={[...items]}
           getRowId={(row) => row.schedule_id}
           columns={[
             {
               key: "label",
-              header: "Label",
+              header: t("commercialTerms.features.schedules.ui.scheduleListPage.label.2"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{row.label}</Text>
@@ -130,33 +131,32 @@ export function ScheduleListPage({
             },
             {
               key: "marketplace",
-              header: "Marketplace Fee",
+              header: t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee"),
               cell: (row) =>
                 `${row.marketplace_fee_percentage_bps} bps + $${row.marketplace_fee_fixed_amount}`,
             },
             {
               key: "payment",
-              header: "Payment Fee",
+              header: t("commercialTerms.features.schedules.ui.scheduleListPage.payment.fee"),
               cell: (row) =>
                 `${row.payment_fee_percentage_bps} bps + $${row.payment_fee_fixed_amount}`,
             },
             {
               key: "status",
-              header: "Status",
+              header: t("commercialTerms.features.schedules.ui.scheduleListPage.status.2"),
               cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
             },
             {
               key: "actions",
-              header: "Actions",
+              header: t("commercialTerms.features.schedules.ui.scheduleListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/commercial-terms/schedules/${row.schedule_id}`} tone="secondary" size="sm">
-                  Open
-                </LinkButton>
+                  {t("commercialTerms.features.schedules.ui.scheduleListPage.open")}</LinkButton>
               ),
             },
           ]}
-          emptyTitle="No schedules yet"
-          emptyDescription="Create a default schedule before commercial terms are resolved for sellers."
+          emptyTitle={t("commercialTerms.features.schedules.ui.scheduleListPage.no.schedules.yet")}
+          emptyDescription={t("commercialTerms.features.schedules.ui.scheduleListPage.create.a.default.schedule.before.commercial")}
         />
       </PageSection>
     </Page>

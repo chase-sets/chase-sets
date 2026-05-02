@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -45,7 +46,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof FulfillmentApiError && error.status === 404) {
-      throw new Response("Shipment not found.", { status: 404 });
+      throw new Response(t("fulfillment.routes.marketplace.accountSaleShipment.shipment.not.found"), { status: 404 });
     }
 
     throw error;
@@ -103,13 +104,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return redirect(`/account/sales/shipments/${shipmentId}`);
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Request failed.",
+      error: error instanceof Error ? error.message : t("fulfillment.routes.marketplace.accountSaleShipment.request.failed"),
     };
   }
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Sale Shipment | Marketplace" });
+  buildOpenGraphMeta({ title: t("fulfillment.routes.marketplace.accountSaleShipment.sale.shipment.marketplace") });
 
 export default function MarketplaceAccountSaleShipmentRoute() {
   const data = useLoaderData<typeof loader>();

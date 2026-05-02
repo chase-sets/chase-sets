@@ -1,10 +1,11 @@
+import { t } from "@chase-sets/localization";
 import { Button, Card, Stack, Text } from "@chase-sets/design-system";
 
 export function AccountSelectionPage({
   memberships,
   action,
   errorMessage,
-  submitLabel = "Continue",
+  submitLabel = t("auth.features.accountSelection.ui.accountSelectionPage.continue"),
 }: {
   memberships: readonly { accountId: string; roleKey: string }[];
   action?: string;
@@ -15,11 +16,9 @@ export function AccountSelectionPage({
     <Stack gap={4}>
       <Stack gap={2}>
         <Text size="lg" weight="semibold">
-          Choose Account
-        </Text>
+          {t("auth.features.accountSelection.ui.accountSelectionPage.choose.account")}</Text>
         <Text tone="secondary">
-          This user can act for more than one account.
-        </Text>
+          {t("auth.features.accountSelection.ui.accountSelectionPage.this.user.can.act.for.more")}</Text>
       </Stack>
       {errorMessage ? (
         <div role="alert">
@@ -38,7 +37,7 @@ export function AccountSelectionPage({
               />
               <Stack gap={1}>
                 <Text weight="semibold">{membership.accountId}</Text>
-                <Text tone="secondary">Role: {membership.roleKey}</Text>
+                <Text tone="secondary">{t("auth.features.accountSelection.ui.accountSelectionPage.role")}{membership.roleKey}</Text>
               </Stack>
               <Button type="submit">{submitLabel}</Button>
             </Stack>

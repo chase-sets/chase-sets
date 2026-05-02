@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -11,7 +12,7 @@ import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
 
 const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Track purchases and drill into each purchase's shipping state.";
+  t("ordering.routes.accountPurchases.track.purchases.and.drill.into.each");
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "orders.view" });
@@ -24,7 +25,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Purchases | Marketplace",
+    title: t("ordering.routes.accountPurchases.purchases.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 
@@ -33,10 +34,10 @@ export default function OrderingAccountPurchasesRoute() {
 
   return (
     <OrderingOrderListPage
-      title="Purchases"
-      eyebrow="Buyer"
-      emptyTitle="No purchases yet"
-      emptyDescription="Your checkout activity and accepted offers will appear here."
+      title={t("ordering.routes.accountPurchases.purchases")}
+      eyebrow={t("ordering.routes.accountPurchases.buyer")}
+      emptyTitle={t("ordering.routes.accountPurchases.no.purchases.yet")}
+      emptyDescription={t("ordering.routes.accountPurchases.your.checkout.activity.and.accepted.offers")}
       orderDetailBasePath="/account/purchases"
       orders={(data.purchases as ListResponse<PurchaseListItem>).items}
     />

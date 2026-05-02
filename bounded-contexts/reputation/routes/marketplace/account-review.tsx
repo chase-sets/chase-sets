@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -22,7 +23,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof ReputationApiError && error.status === 404) {
-      throw new Response("Review not found.", { status: 404 });
+      throw new Response(t("reputation.routes.marketplace.accountReview.review.not.found"), { status: 404 });
     }
 
     throw error;
@@ -30,7 +31,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Review | Marketplace" });
+  buildOpenGraphMeta({ title: t("reputation.routes.marketplace.accountReview.review.marketplace") });
 
 export default function MarketplaceAccountReviewRoute() {
   const data = useLoaderData<typeof loader>();

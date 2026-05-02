@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
@@ -69,7 +70,7 @@ let stripeFactoryPromise: Promise<StripeFactory> | null = null;
 
 function loadStripeFactory(): Promise<StripeFactory> {
   if (typeof window === "undefined") {
-    return Promise.reject(new Error("Stripe can only load in the browser."));
+    return Promise.reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.can.only.load.in.the")));
   }
 
   if (window.Stripe) {
@@ -89,10 +90,10 @@ function loadStripeFactory(): Promise<StripeFactory> {
             return;
           }
 
-          reject(new Error("Stripe.js loaded without exposing Stripe."));
+          reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.loaded.without.exposing.stripe")));
         });
         existingScript.addEventListener("error", () => {
-          reject(new Error("Stripe.js failed to load."));
+          reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.failed.to.load")));
         });
         return;
       }
@@ -107,10 +108,10 @@ function loadStripeFactory(): Promise<StripeFactory> {
           return;
         }
 
-        reject(new Error("Stripe.js loaded without exposing Stripe."));
+        reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.loaded.without.exposing.stripe.2")));
       };
       script.onerror = () => {
-        reject(new Error("Stripe.js failed to load."));
+        reject(new Error(t("payments.routes.marketplace.accountPayment.stripe.js.failed.to.load.2")));
       };
       document.head.appendChild(script);
     });
@@ -140,33 +141,33 @@ function paymentStatusCopy(status: string) {
   switch (status) {
     case "pending-confirmation":
       return {
-        label: "Ready for payment",
-        description: "Your checkout is ready. Confirm payment in the secure form.",
+        label: t("payments.routes.marketplace.accountPayment.ready.for.payment"),
+        description: t("payments.routes.marketplace.accountPayment.your.checkout.is.ready.confirm.payment"),
       };
     case "authorized":
       return {
-        label: "Payment authorized",
-        description: "The payment was accepted and is waiting for final capture.",
+        label: t("payments.routes.marketplace.accountPayment.payment.authorized"),
+        description: t("payments.routes.marketplace.accountPayment.the.payment.was.accepted.and.is"),
       };
     case "captured":
       return {
-        label: "Paid",
-        description: "Payment is complete and the covered purchases can move forward.",
+        label: t("payments.routes.marketplace.accountPayment.paid"),
+        description: t("payments.routes.marketplace.accountPayment.payment.is.complete.and.the.covered"),
       };
     case "failed":
       return {
-        label: "Payment needs attention",
-        description: "The secure processor could not complete this payment.",
+        label: t("payments.routes.marketplace.accountPayment.payment.needs.attention"),
+        description: t("payments.routes.marketplace.accountPayment.the.secure.processor.could.not.complete"),
       };
     case "cancelled":
       return {
-        label: "Payment cancelled",
-        description: "This payment session is closed. Start a new payment to continue.",
+        label: t("payments.routes.marketplace.accountPayment.payment.cancelled"),
+        description: t("payments.routes.marketplace.accountPayment.this.payment.session.is.closed.start"),
       };
     default:
       return {
-        label: "Payment in progress",
-        description: "The payment is being updated by the secure processor.",
+        label: t("payments.routes.marketplace.accountPayment.payment.in.progress"),
+        description: t("payments.routes.marketplace.accountPayment.the.payment.is.being.updated.by"),
       };
   }
 }
@@ -174,13 +175,13 @@ function paymentStatusCopy(status: string) {
 function providerEventLabel(eventKind: string) {
   switch (eventKind) {
     case "payment-authorized":
-      return "Provider authorized payment";
+      return t("payments.routes.marketplace.accountPayment.provider.authorized.payment");
     case "payment-captured":
-      return "Provider captured payment";
+      return t("payments.routes.marketplace.accountPayment.provider.captured.payment");
     case "payment-failed":
-      return "Provider reported failure";
+      return t("payments.routes.marketplace.accountPayment.provider.reported.failure");
     case "payment-cancelled":
-      return "Provider closed payment session";
+      return t("payments.routes.marketplace.accountPayment.provider.closed.payment.session");
     default:
       return eventKind.replaceAll("-", " ");
   }
@@ -210,7 +211,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       (error instanceof PaymentsApiError && error.status === 404) ||
       (error instanceof Error && "status" in error && error.status === 404)
     ) {
-      throw new Response("Payment not found.", { status: 404 });
+      throw new Response(t("payments.routes.marketplace.accountPayment.payment.not.found"), { status: 404 });
     }
 
     throw error;
@@ -218,7 +219,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Payment | Marketplace" });
+  buildOpenGraphMeta({ title: t("payments.routes.marketplace.accountPayment.payment.marketplace") });
 
 function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail }) {
   const revalidator = useRevalidator();
@@ -278,7 +279,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
       })
       .catch((error) => {
         if (!cancelled) {
-          setErrorMessage(error instanceof Error ? error.message : "Stripe could not load.");
+          setErrorMessage(error instanceof Error ? error.message : t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
         }
       });
 
@@ -312,7 +313,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
 
   async function handleConfirm() {
     if (!stripeRef.current || (!checkoutRef.current && !elementsRef.current)) {
-      setErrorMessage("Stripe is still loading.");
+      setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.is.still.loading"));
       return;
     }
 
@@ -342,10 +343,9 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
   return (
     <Surface elevated glow>
       <Stack gap={3}>
-        <Badge tone="accent">Secure payment</Badge>
+        <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment")}</Badge>
         <Text>
-          Payment is ready. Enter your payment details in the secure managed form and confirm the charge.
-        </Text>
+          {t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
         <div ref={containerRef} />
         {errorMessage ? (
           <Surface tone="subtle">
@@ -359,7 +359,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
           size="lg"
           leadingIcon="lock"
         >
-          {isSubmitting ? "Confirming payment..." : "Confirm payment"}
+          {isSubmitting ? t("payments.routes.marketplace.accountPayment.confirming.payment") : t("payments.routes.marketplace.accountPayment.confirm.payment")}
         </Button>
       </Stack>
     </Surface>
@@ -373,13 +373,14 @@ export default function MarketplaceAccountPaymentRoute() {
   return (
     <Page>
       <PageHeader
-        eyebrow="Secure Checkout"
-        title={`Payment ${data.payment.payment_id}`}
-        description="Track payment state, purchase coverage, marketplace fees, and seller net from one protected payment surface."
+        eyebrow={t("payments.routes.marketplace.accountPayment.secure.checkout")}
+        title={t("payments.routes.marketplace.accountPayment.payment.title", {
+          paymentId: data.payment.payment_id,
+        })}
+        description={t("payments.routes.marketplace.accountPayment.track.payment.state.purchase.coverage.marketplace")}
         actions={
           <LinkButton href="/account/purchases" tone="secondary">
-            Back to purchases
-          </LinkButton>
+            {t("payments.routes.marketplace.accountPayment.back.to.purchases")}</LinkButton>
         }
       />
 
@@ -387,15 +388,15 @@ export default function MarketplaceAccountPaymentRoute() {
         summary={
           <Stack gap={4}>
             <OrderSummary
-              title="Payment Summary"
+              title={t("payments.routes.marketplace.accountPayment.payment.summary")}
               lines={[
-                { label: "Status", value: <Badge tone={statusTone(data.payment.status)}>{statusCopy.label}</Badge> },
-                { label: "Wallet balance used", value: formatMoney(data.payment.balance_credit_amount) },
-                { label: "External payment", value: formatMoney(data.payment.processor_amount) },
-                { label: "Marketplace fees", value: formatMoney(data.payment.marketplace_fee_amount) },
-                { label: "Payment fees", value: formatMoney(data.payment.payment_fee_amount) },
-                { label: "Seller net", value: formatMoney(data.payment.seller_net_amount) },
-                { label: "Processor", value: data.payment.processor_name },
+                { label: t("payments.routes.marketplace.accountPayment.status"), value: <Badge tone={statusTone(data.payment.status)}>{statusCopy.label}</Badge> },
+                { label: t("payments.routes.marketplace.accountPayment.wallet.balance.used"), value: formatMoney(data.payment.balance_credit_amount) },
+                { label: t("payments.routes.marketplace.accountPayment.external.payment"), value: formatMoney(data.payment.processor_amount) },
+                { label: t("payments.routes.marketplace.accountPayment.marketplace.fees"), value: formatMoney(data.payment.marketplace_fee_amount) },
+                { label: t("payments.routes.marketplace.accountPayment.payment.fees"), value: formatMoney(data.payment.payment_fee_amount) },
+                { label: t("payments.routes.marketplace.accountPayment.seller.net"), value: formatMoney(data.payment.seller_net_amount) },
+                { label: t("payments.routes.marketplace.accountPayment.processor"), value: data.payment.processor_name },
               ]}
               total={formatMoney(data.payment.amount)}
             />
@@ -403,18 +404,25 @@ export default function MarketplaceAccountPaymentRoute() {
               items={[
                 {
                   icon: "lock",
-                  title: "Secure Payment Flow",
-                  description: "Payment details stay inside the secure managed form.",
+                  title: t("payments.routes.marketplace.accountPayment.secure.payment.flow"),
+                  description: t("payments.routes.marketplace.accountPayment.payment.details.stay.inside.the.secure"),
                 },
                 {
                   icon: "shield",
-                  title: "Purchase Coverage",
-                  description: `Covers ${data.payment.order_ids.length} purchase${data.payment.order_ids.length === 1 ? "" : "s"}.`,
+                  title: t("payments.routes.marketplace.accountPayment.purchase.coverage"),
+                  description: t("payments.routes.marketplace.accountPayment.covers.purchases", {
+                    count: data.payment.order_ids.length,
+                    purchaseLabel: t(
+                      data.payment.order_ids.length === 1
+                        ? "payments.routes.marketplace.accountPayment.purchase.singular"
+                        : "payments.routes.marketplace.accountPayment.purchase.plural",
+                    ),
+                  }),
                 },
                 {
                   icon: "creditCard",
-                  title: "Fee Transparency",
-                  description: "Marketplace and processor fees stay visible before and after capture.",
+                  title: t("payments.routes.marketplace.accountPayment.fee.transparency"),
+                  description: t("payments.routes.marketplace.accountPayment.marketplace.and.processor.fees.stay.visible"),
                 },
               ]}
             />
@@ -426,24 +434,23 @@ export default function MarketplaceAccountPaymentRoute() {
             <Surface tone="subtle" elevated>
               <Stack gap={2}>
                 <Badge tone="danger">
-                  {data.payment.status === "cancelled" ? "Payment session closed" : "Payment issue"}
+                  {data.payment.status === "cancelled" ? t("payments.routes.marketplace.accountPayment.payment.session.closed") : t("payments.routes.marketplace.accountPayment.payment.issue")}
                 </Badge>
                 <Text>
                   {data.payment.failure_message ??
-                    "This secure payment session is no longer active. Start a new payment to continue checkout."}
+                    t("payments.routes.marketplace.accountPayment.this.secure.payment.session.is.no")}
                 </Text>
                 {data.payment.status === "failed" || data.payment.status === "cancelled" ? (
                   <LinkButton
                     href={`/account/payments/new?orderIds=${encodeURIComponent(data.payment.order_ids.join(","))}`}
                   >
-                    Retry payment
-                  </LinkButton>
+                    {t("payments.routes.marketplace.accountPayment.retry.payment")}</LinkButton>
                 ) : null}
               </Stack>
             </Surface>
           ) : null}
 
-          <PageSection title="Payment Status">
+          <PageSection title={t("payments.routes.marketplace.accountPayment.payment.status")}>
             <Surface elevated>
               <Stack gap={2}>
                 <Badge tone={statusTone(data.payment.status) as any}>{statusCopy.label}</Badge>
@@ -452,11 +459,11 @@ export default function MarketplaceAccountPaymentRoute() {
             </Surface>
           </PageSection>
 
-          <PageSection title="Event Timeline">
+          <PageSection title={t("payments.routes.marketplace.accountPayment.event.timeline")}>
             <Surface elevated>
               <Stack gap={2}>
                 <Stack gap={1}>
-                  <Badge tone="success">Payment created</Badge>
+                  <Badge tone="success">{t("payments.routes.marketplace.accountPayment.payment.created")}</Badge>
                   <Text size="sm" tone="secondary">
                     {new Date(data.payment.created_at).toLocaleString()}
                   </Text>
@@ -472,12 +479,12 @@ export default function MarketplaceAccountPaymentRoute() {
                 <Stack gap={1}>
                   <Badge tone={data.payment.captured_at ? "success" : statusTone(data.payment.status) as any}>
                     {data.payment.captured_at
-                      ? "Payment captured"
+                      ? t("payments.routes.marketplace.accountPayment.payment.captured")
                       : data.payment.failed_at
-                        ? "Payment failed"
+                        ? t("payments.routes.marketplace.accountPayment.payment.failed")
                         : data.payment.cancelled_at
-                          ? "Payment cancelled"
-                          : "Waiting for provider event"}
+                          ? t("payments.routes.marketplace.accountPayment.payment.cancelled.2")
+                          : t("payments.routes.marketplace.accountPayment.waiting.for.provider.event")}
                   </Badge>
                   <Text size="sm" tone="secondary">
                     {data.payment.captured_at
@@ -494,34 +501,34 @@ export default function MarketplaceAccountPaymentRoute() {
           </PageSection>
 
           {data.showSupportDetails ? (
-            <PageSection title="Support Details">
+            <PageSection title={t("payments.routes.marketplace.accountPayment.support.details")}>
               <Surface elevated>
                 <Stack gap={2}>
-                  <Text size="sm" tone="secondary">Internal payment: {data.payment.payment_id}</Text>
-                  <Text size="sm" tone="secondary">Account: {data.payment.buyer_account_id}</Text>
+                  <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPayment.internal.payment")}{data.payment.payment_id}</Text>
+                  <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPayment.account")}{data.payment.buyer_account_id}</Text>
                   <Text size="sm" tone="secondary">
-                    Processor reference: {data.payment.processor_payment_reference}
+                    {t("payments.routes.marketplace.accountPayment.processor.reference")}{data.payment.processor_payment_reference}
                   </Text>
                   <Text size="sm" tone="secondary">
-                    Processor status: {data.payment.processor_status}
+                    {t("payments.routes.marketplace.accountPayment.processor.status")}{data.payment.processor_status}
                   </Text>
                   <Text size="sm" tone="secondary">
-                    Source: {data.payment.source_context ?? "direct"} / {data.payment.source_reference_id ?? "none"}
+                    {t("payments.routes.marketplace.accountPayment.source")}{data.payment.source_context ?? "direct"} / {data.payment.source_reference_id ?? "none"}
                   </Text>
                   <Text size="sm" tone="secondary">
-                    Updated: {new Date(data.payment.updated_at).toLocaleString()}
+                    {t("payments.routes.marketplace.accountPayment.updated")}{new Date(data.payment.updated_at).toLocaleString()}
                   </Text>
                   <Text size="sm" tone="secondary">
-                    Provider events: {data.payment.provider_events.length}
+                    {t("payments.routes.marketplace.accountPayment.provider.events")}{data.payment.provider_events.length}
                   </Text>
                   {data.payment.provider_events.map((event) => (
                     <Text key={event.provider_event_id} size="sm" tone="secondary">
-                      Provider event {event.provider_event_id}: {providerEventLabel(event.event_kind)}
+                      {t("payments.routes.marketplace.accountPayment.provider.event")}{event.provider_event_id}: {providerEventLabel(event.event_kind)}
                     </Text>
                   ))}
                   {data.payment.failure_code ? (
                     <Text size="sm" tone="secondary">
-                      Failure code: {data.payment.failure_code}
+                      {t("payments.routes.marketplace.accountPayment.failure.code")}{data.payment.failure_code}
                     </Text>
                   ) : null}
                 </Stack>
@@ -530,67 +537,63 @@ export default function MarketplaceAccountPaymentRoute() {
           ) : null}
 
           {data.payment.status === "pending-confirmation" ? (
-            <PageSection title="Secure Payment">
+            <PageSection title={t("payments.routes.marketplace.accountPayment.secure.payment.2")}>
               {data.payment.processor_client_secret && data.payment.processor_publishable_key ? (
                 <StripeConfirmationCard payment={data.payment} />
               ) : data.payment.processor_redirect_url ? (
                 <Surface elevated glow>
                   <Stack gap={3}>
-                    <Badge tone="accent">Secure payment</Badge>
+                    <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment.3")}</Badge>
                     <Text>
-                      Payment is ready. Continue to the secure checkout page to finish.
-                    </Text>
+                      {t("payments.routes.marketplace.accountPayment.payment.is.ready.continue.to.the")}</Text>
                     <LinkButton
                       href={data.payment.processor_redirect_url}
                       size="lg"
                       leadingIcon="lock"
                     >
-                      Continue to secure checkout
-                    </LinkButton>
+                      {t("payments.routes.marketplace.accountPayment.continue.to.secure.checkout")}</LinkButton>
                   </Stack>
                 </Surface>
               ) : (
                 <Surface tone="subtle" elevated>
-                  <Text>Secure payment confirmation is not configured for this environment.</Text>
+                  <Text>{t("payments.routes.marketplace.accountPayment.secure.payment.confirmation.is.not.configured")}</Text>
                 </Surface>
               )}
             </PageSection>
           ) : data.payment.processor_amount === "0.00" ? (
-            <PageSection title="Wallet Balance">
+            <PageSection title={t("payments.routes.marketplace.accountPayment.wallet.balance")}>
               <Surface elevated glow>
                 <Stack gap={2}>
-                  <Badge tone="success">Paid with balance</Badge>
+                  <Badge tone="success">{t("payments.routes.marketplace.accountPayment.paid.with.balance")}</Badge>
                   <Text>
-                    This purchase was covered by available wallet balance and did not need an external charge.
-                  </Text>
+                    {t("payments.routes.marketplace.accountPayment.this.purchase.was.covered.by.available")}</Text>
                 </Stack>
               </Surface>
             </PageSection>
           ) : null}
 
-          <PageSection title="Purchases">
+          <PageSection title={t("payments.routes.marketplace.accountPayment.purchases")}>
             <Stack gap={3}>
               {data.orders.map((order: PurchaseDetail) => (
                 <Surface key={order.order_id} elevated>
                   <Stack gap={3}>
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>
                       <Stack gap={1}>
-                        <Text weight="semibold">Purchase {order.order_id}</Text>
+                        <Text weight="semibold">{t("payments.routes.marketplace.accountPayment.purchase")}{order.order_id}</Text>
                         <Badge tone="accent">{order.status}</Badge>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">Total</Text>
+                        <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPayment.total")}</Text>
                         <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">Seller net</Text>
+                        <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPayment.seller.net.2")}</Text>
                         <Text>{formatMoney(order.seller_net_amount)}</Text>
                       </Stack>
                     </Grid>
                     <Divider />
                     <LinkButton href={`/account/purchases/${order.order_id}`} tone="secondary">
-                      Open purchase
-                    </LinkButton>
+                      {t("payments.routes.marketplace.accountPayment.open.purchase")}</LinkButton>
                   </Stack>
                 </Surface>
               ))}

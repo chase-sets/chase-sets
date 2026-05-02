@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { ReputationApiEnv } from "../../../api";
 import type { ReviewServices } from "./runtime";
@@ -12,7 +13,7 @@ function requireReviewAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("reputation.features.reviews.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -22,7 +23,7 @@ function requireReviewAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("reputation.features.reviews.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -33,7 +34,7 @@ function requireReviewAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("reputation.features.reviews.api.route.request.failed");
 }
 
 export function createPublicReputationRoutes(
@@ -123,7 +124,7 @@ export function createAccountReviewRoutes(
       access.actor.accountId,
     );
     if (!opportunity) {
-      return c.json({ error: { code: "not_found", message: "Review opportunity not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("reputation.features.reviews.api.route.review.opportunity.not.found") } }, 404);
     }
 
     return c.json(opportunity);
@@ -140,7 +141,7 @@ export function createAccountReviewRoutes(
       access.actor.accountId,
     );
     if (!review) {
-      return c.json({ error: { code: "not_found", message: "Review not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("reputation.features.reviews.api.route.review.not.found") } }, 404);
     }
 
     return c.json(review);
@@ -154,7 +155,7 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("reputation.features.reviews.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();
@@ -187,7 +188,7 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("reputation.features.reviews.api.route.authentication.context.missing.2") } }, 401);
     }
 
     const body = await c.req.json();
@@ -219,7 +220,7 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("reputation.features.reviews.api.route.authentication.context.missing.3") } }, 401);
     }
 
     try {

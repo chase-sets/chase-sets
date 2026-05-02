@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -16,7 +17,7 @@ function requirePaymentAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("payments.features.payments.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -26,7 +27,7 @@ function requirePaymentAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("payments.features.payments.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -37,7 +38,7 @@ function requirePaymentAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("payments.features.payments.api.route.request.failed");
 }
 
 function resolvePublicOrigin(requestUrl: string, headers: Headers) {
@@ -65,7 +66,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("payments.features.payments.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();
@@ -143,7 +144,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("payments.features.payments.api.route.authentication.context.missing.2") } }, 401);
     }
 
     const body = await c.req.json();
@@ -212,7 +213,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       access.actor.accountId,
     );
     if (!payment) {
-      return c.json({ error: { code: "not_found", message: "Payment not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found") } }, 404);
     }
 
     return c.json(payment);
@@ -229,7 +230,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       accountId: access.actor.accountId,
     });
     if (!timeline) {
-      return c.json({ error: { code: "not_found", message: "Payment not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found.2") } }, 404);
     }
 
     return c.json(timeline);
@@ -246,7 +247,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       accountId: access.actor.accountId,
     });
     if (!event) {
-      return c.json({ error: { code: "not_found", message: "Provider event not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("payments.features.payments.api.route.provider.event.not.found") } }, 404);
     }
 
     return c.json(event);

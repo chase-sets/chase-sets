@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { AgreementDetailPage } from "../../features/agreements/ui/agreement-detail-page";
@@ -10,7 +11,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction = () => [{ title: "Commercial Agreement Detail | Commercial Terms" }];
+export const meta: MetaFunction = () => [{ title: t("commercialTerms.routes.admin.agreementsDetail.commercial.agreement.detail.commercial.terms") }];
 
 export default function CommercialTermsAgreementDetailRoute() {
   const data = useLoaderData<typeof loader>();

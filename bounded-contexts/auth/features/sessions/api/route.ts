@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthApiEnv } from "../../../api";
 import { toSessionStreamId } from "../domain/auth-flow";
@@ -44,7 +45,7 @@ export function sessionRoutes(services: SessionServices) {
   app.get("/:id", async (c) => {
     const session = await services.getSession(c.req.param("id"));
     if (!session) {
-      return c.json({ error: { code: "not_found", message: "Session not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("auth.features.sessions.api.route.session.not.found") } }, 404);
     }
     return c.json(session);
   });

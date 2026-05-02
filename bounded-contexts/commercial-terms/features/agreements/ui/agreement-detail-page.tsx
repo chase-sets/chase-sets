@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -18,33 +19,30 @@ export function AgreementDetailPage({ agreement }: { agreement: CommercialAgreem
   return (
     <Page>
       <PageHeader
-        eyebrow="Admin"
+        eyebrow={t("commercialTerms.features.agreements.ui.agreementDetailPage.admin")}
         title={agreement.label}
-        description="Inspect the account-specific commercial fee override."
+        description={t("commercialTerms.features.agreements.ui.agreementDetailPage.inspect.the.account.specific.commercial.fee")}
         actions={
           <LinkButton href="/commercial-terms/agreements" tone="secondary">
-            Back to agreements
-          </LinkButton>
+            {t("commercialTerms.features.agreements.ui.agreementDetailPage.back.to.agreements")}</LinkButton>
         }
       />
-      <PageSection title="Agreement">
+      <PageSection title={t("commercialTerms.features.agreements.ui.agreementDetailPage.agreement")}>
         <Card>
           <Stack gap={2}>
             <Badge tone={statusTone(agreement.status)}>{agreement.status}</Badge>
-            <Text>Agreement ID: {agreement.agreement_id}</Text>
-            <Text>Account: {agreement.account_display_name ?? agreement.account_id}</Text>
-            <Text>Account Type: {agreement.account_type ?? "Unknown"}</Text>
+            <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.agreement.id")}{agreement.agreement_id}</Text>
+            <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.account")}{agreement.account_display_name ?? agreement.account_id}</Text>
+            <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.account.type")}{agreement.account_type ?? t("commercialTerms.features.agreements.ui.agreementDetailPage.unknown")}</Text>
             <Text>
-              Marketplace Fee: {agreement.marketplace_fee_percentage_bps} bps + $
-              {agreement.marketplace_fee_fixed_amount}
+              {t("commercialTerms.features.agreements.ui.agreementDetailPage.marketplace.fee")}{agreement.marketplace_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementDetailPage.bps")}{agreement.marketplace_fee_fixed_amount}
             </Text>
             <Text>
-              Payment Fee: {agreement.payment_fee_percentage_bps} bps + $
-              {agreement.payment_fee_fixed_amount}
+              {t("commercialTerms.features.agreements.ui.agreementDetailPage.payment.fee")}{agreement.payment_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementDetailPage.bps.2")}{agreement.payment_fee_fixed_amount}
             </Text>
-            <Text>Effective From: {agreement.effective_from}</Text>
-            <Text>Effective Until: {agreement.effective_until ?? "Open-ended"}</Text>
-            <Text>Updated At: {agreement.updated_at}</Text>
+            <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.effective.from")}{agreement.effective_from}</Text>
+            <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.effective.until")}{agreement.effective_until ?? t("commercialTerms.features.agreements.ui.agreementDetailPage.open.ended")}</Text>
+            <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.updated.at")}{agreement.updated_at}</Text>
           </Stack>
         </Card>
       </PageSection>

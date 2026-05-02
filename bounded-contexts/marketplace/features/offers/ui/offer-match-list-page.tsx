@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -52,13 +53,12 @@ export function MarketplaceOfferMatchListPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Inventory"
-        title="Offer Matches"
-        description="Review offer matches that currently match your active listings."
+        eyebrow={t("marketplace.features.offers.ui.offerMatchListPage.inventory")}
+        title={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches")}
+        description={t("marketplace.features.offers.ui.offerMatchListPage.review.offer.matches.that.currently.match")}
         actions={
           <LinkButton href="/account/listings" tone="secondary">
-            View listings
-          </LinkButton>
+            {t("marketplace.features.offers.ui.offerMatchListPage.view.listings")}</LinkButton>
         }
       />
 
@@ -68,13 +68,12 @@ export function MarketplaceOfferMatchListPage({
         </Card>
       ) : null}
 
-      <PageSection title="Sell List">
+      <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.sell.list")}>
         <Card>
           <Stack gap={3}>
             <Text tone="secondary" size="sm">
               {cartData?.items.length ?? 0} offer
-              {(cartData?.items.length ?? 0) === 1 ? "" : "s"} queued in your sell list.
-            </Text>
+              {(cartData?.items.length ?? 0) === 1 ? "" : "s"} {t("marketplace.features.offers.ui.offerMatchListPage.queued.in.your.sell.list")}</Text>
             <form method="post">
               <Button
                 type="submit"
@@ -82,21 +81,20 @@ export function MarketplaceOfferMatchListPage({
                 value="accept-sell-list"
                 disabled={!cartData || cartData.items.length === 0}
               >
-                Accept sell list
-              </Button>
+                {t("marketplace.features.offers.ui.offerMatchListPage.accept.sell.list")}</Button>
             </form>
           </Stack>
         </Card>
       </PageSection>
 
-      <PageSection title="Offer Matches">
+      <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches.2")}>
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.offer_id}
           columns={[
             {
               key: "item",
-              header: "Item",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.item"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{row.item_title}</Text>
@@ -115,17 +113,17 @@ export function MarketplaceOfferMatchListPage({
             },
             {
               key: "buyer",
-              header: "Buyer",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.buyer"),
               cell: (row) => row.buyer_display_name ?? row.buyer_account_id,
             },
             {
               key: "price",
-              header: "Offer Price",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.offer.price"),
               cell: (row) => formatMoney(row.price_amount),
             },
             {
               key: "quantity",
-              header: "Quantity",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.quantity"),
               align: "right",
               cell: (row) => (
                 <Stack gap={1}>
@@ -138,34 +136,33 @@ export function MarketplaceOfferMatchListPage({
             },
             {
               key: "status",
-              header: "Status",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.status"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Badge tone={statusTone(row.status)}>{row.status}</Badge>
                   <Badge tone={row.can_fulfill ? "success" : "warning"}>
-                    {row.can_fulfill ? "Can fulfill" : "Needs supply"}
+                    {row.can_fulfill ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill") : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
                   </Badge>
-                  {row.in_sell_list ? <Badge tone="accent">In sell list</Badge> : null}
+                  {row.in_sell_list ? <Badge tone="accent">{t("marketplace.features.offers.ui.offerMatchListPage.in.sell.list")}</Badge> : null}
                 </Stack>
               ),
             },
             {
               key: "updated",
-              header: "Updated",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.updated"),
               cell: (row) => formatTimestamp(row.updated_at),
             },
             {
               key: "actions",
-              header: "Actions",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
-                  Open
-                </LinkButton>
+                  {t("marketplace.features.offers.ui.offerMatchListPage.open")}</LinkButton>
               ),
             },
           ]}
-          emptyTitle="No offer matches"
-          emptyDescription="Offer matches appear here when submitted offers match products you actively list."
+          emptyTitle={t("marketplace.features.offers.ui.offerMatchListPage.no.offer.matches")}
+          emptyDescription={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches.appear.here.when.submitted")}
         />
       </PageSection>
     </Page>

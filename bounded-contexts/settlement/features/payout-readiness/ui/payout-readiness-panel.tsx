@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -23,13 +24,13 @@ function readinessTone(status: SettlementPayoutReadinessRow["status"]) {
 function readinessTitle(status: SettlementPayoutReadinessRow["status"]) {
   switch (status) {
     case "ready":
-      return "Payouts are ready";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts.are.ready");
     case "restricted":
-      return "Payout setup needs attention";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.setup.needs.attention");
     case "not-started":
-      return "Set up payouts";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.set.up.payouts");
     default:
-      return "Finish setup to receive payouts";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.finish.setup.to.receive.payouts");
   }
 }
 
@@ -41,51 +42,51 @@ function readinessDescription(
     case "ready":
       return readyDescription;
     case "restricted":
-      return "Some payout details need to be corrected before payouts can be requested.";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.some.payout.details.need.to.be");
     case "not-started":
-      return "Add a payout account using the hosted setup flow before requesting payouts.";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.account.using.the");
     default:
-      return "Continue the hosted setup flow before requesting payouts.";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.continue.the.hosted.setup.flow.before");
   }
 }
 
 function readinessLabel(status: SettlementPayoutReadinessRow["status"]) {
   switch (status) {
     case "ready":
-      return "Ready";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready");
     case "restricted":
-      return "Needs attention";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.needs.attention");
     case "not-started":
-      return "Not started";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.not.started");
     default:
-      return "In progress";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.in.progress");
   }
 }
 
 function primaryActionLabel(status: SettlementPayoutReadinessRow["status"]) {
   switch (status) {
     case "not-started":
-      return "Start payout setup";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.start.payout.setup");
     case "restricted":
-      return "Fix payout setup";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.fix.payout.setup");
     default:
-      return "Continue payout setup";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.continue.payout.setup");
   }
 }
 
 function setupStatusLabel(value: string) {
   switch (value) {
     case "not-started":
-      return "Not started";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.not.started.2");
     case "pending":
-      return "Needs attention";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.needs.attention.2");
     case "complete":
     case "active":
     case "ready":
-      return "Ready";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready.2");
     case "inactive":
     case "missing":
-      return "Missing";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.missing");
     default:
       return value.replaceAll("_", " ").replaceAll(".", " ");
   }
@@ -102,7 +103,7 @@ function requirementGroup(value: string) {
     normalized.includes("bank") ||
     normalized.includes("payout")
   ) {
-    return "Payout account";
+    return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.account");
   }
   if (
     normalized.includes("individual") ||
@@ -111,7 +112,7 @@ function requirementGroup(value: string) {
     normalized.includes("person") ||
     normalized.includes("identity")
   ) {
-    return "Identity details";
+    return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.identity.details");
   }
   if (
     normalized.includes("business") ||
@@ -120,12 +121,12 @@ function requirementGroup(value: string) {
     normalized.includes("mcc") ||
     normalized.includes("url")
   ) {
-    return "Business profile";
+    return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.business.profile");
   }
   if (normalized.includes("tos") || normalized.includes("terms")) {
-    return "Account agreement";
+    return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.account.agreement");
   }
-  return "Verification review";
+  return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.verification.review");
 }
 
 function groupedRequirements(requirements: readonly string[]) {
@@ -138,7 +139,7 @@ function groupedRequirements(requirements: readonly string[]) {
 }
 
 function checkedAtLabel(value: string | null) {
-  return value ? new Date(value).toLocaleString() : "Not checked yet";
+  return value ? new Date(value).toLocaleString() : t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.not.checked.yet");
 }
 
 function progressTone(status: string) {
@@ -157,19 +158,19 @@ function progressTone(status: string) {
 function progressLabel(status: string) {
   switch (status) {
     case "ready":
-      return "Ready";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready.3");
     case "needs-attention":
-      return "Needs attention";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.needs.attention.3");
     case "pending":
-      return "In review";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.in.review");
     default:
-      return "Not started";
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.not.started.3");
   }
 }
 
 export function PayoutReadinessPanel({
   payoutReadiness,
-  readyDescription = "Payout setup is complete.",
+  readyDescription = t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.setup.is.complete"),
   showActions = false,
 }: {
   payoutReadiness: SettlementPayoutReadinessRow;
@@ -192,7 +193,7 @@ export function PayoutReadinessPanel({
         {readinessDescription(payoutReadiness.status, readyDescription)}
       </Text>
       <Text size="sm" tone="secondary">
-        Last checked: {checkedAtLabel(payoutReadiness.updated_at)}
+        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.last.checked")}{checkedAtLabel(payoutReadiness.updated_at)}
       </Text>
       <Stack gap={1}>
         {progress.steps.map((step) => (
@@ -206,20 +207,20 @@ export function PayoutReadinessPanel({
         ))}
       </Stack>
       <Text size="sm" tone="secondary">
-        Onboarding: {setupStatusLabel(payoutReadiness.onboarding_status)}
+        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.onboarding")}{setupStatusLabel(payoutReadiness.onboarding_status)}
       </Text>
       <Text size="sm" tone="secondary">
-        Transfers: {setupStatusLabel(payoutReadiness.transfer_capability_status)}
+        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers")}{setupStatusLabel(payoutReadiness.transfer_capability_status)}
       </Text>
       <Text size="sm" tone="secondary">
-        Payouts: {setupStatusLabel(payoutReadiness.payout_capability_status)}
+        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts")}{setupStatusLabel(payoutReadiness.payout_capability_status)}
       </Text>
       <Text size="sm" tone="secondary">
-        Payout destination: {setupStatusLabel(payoutReadiness.payout_destination_status)}
+        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.destination")}{setupStatusLabel(payoutReadiness.payout_destination_status)}
       </Text>
       {missingRequirementGroups.length > 0 ? (
         <Stack gap={1}>
-          <Text size="sm" weight="semibold">What needs attention</Text>
+          <Text size="sm" weight="semibold">{t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention")}</Text>
           {missingRequirementGroups.map(([group, requirements]) => (
             <Text key={group} size="sm" tone="secondary">
               {group}: {requirements.join(", ")}
@@ -239,15 +240,13 @@ export function PayoutReadinessPanel({
             <form method="post">
               <input type="hidden" name="intent" value="manage-payout-account" />
               <Button type="submit" tone="secondary">
-                Manage payout account
-              </Button>
+                {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.manage.payout.account")}</Button>
             </form>
           ) : null}
           <form method="post">
             <input type="hidden" name="intent" value="refresh-payout-setup" />
             <Button type="submit" tone="secondary">
-              Check setup status
-            </Button>
+              {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status")}</Button>
           </form>
         </Stack>
       ) : null}

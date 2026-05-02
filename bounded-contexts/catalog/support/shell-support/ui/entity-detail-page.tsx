@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   Banner,
@@ -34,11 +35,11 @@ export function EntityDetailPage({
       <Breadcrumbs items={breadcrumbs} />
       <PageHeader title={title} actions={actions} />
       <Stack gap={4}>
-        {error && <Banner tone="danger" title="Error" description={error} />}
+        {error && <Banner tone="danger" title={t("catalog.support.shellSupport.ui.entityDetailPage.error")} description={error} />}
         {loading ? (
-          <LoadingSpinner label="Loading..." />
+          <LoadingSpinner label={t("catalog.support.shellSupport.ui.entityDetailPage.loading")} />
         ) : notFound ? (
-          <EmptyState title="Not found" description="The requested item does not exist." icon="search" />
+          <EmptyState title={t("catalog.support.shellSupport.ui.entityDetailPage.not.found")} description={t("catalog.support.shellSupport.ui.entityDetailPage.the.requested.item.does.not.exist")} icon="search" />
         ) : (
           children
         )}

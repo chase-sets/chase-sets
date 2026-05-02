@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { Account } from "../../support/request-support/api-client";
@@ -12,7 +13,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction = () => [{ title: "Account Detail | Identity Admin" }];
+export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.accountsDetail.account.detail.identity.admin") }];
 
 export default function AccountDetailRoute() {
   const data = useLoaderData<typeof loader>();

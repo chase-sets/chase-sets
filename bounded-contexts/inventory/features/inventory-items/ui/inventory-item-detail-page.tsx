@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Button,
   Card,
@@ -31,19 +32,17 @@ export function InventoryItemDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Seller"
+        eyebrow={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.seller")}
         title={displayItemLabel(item)}
-        description={item.item_subtitle ?? "Inventory item detail"}
+        description={item.item_subtitle ?? t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.inventory.item.detail")}
         actions={
           <Stack gap={2}>
             {item.available_quantity > 0 ? (
               <LinkButton href={listingHref(item)}>
-                Create listing
-              </LinkButton>
+                {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.listing")}</LinkButton>
             ) : null}
             <LinkButton href="/account/inventory" tone="secondary">
-              Back to inventory
-            </LinkButton>
+              {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.back.to.inventory")}</LinkButton>
           </Stack>
         }
       />
@@ -54,70 +53,70 @@ export function InventoryItemDetailPage({
         </Card>
       ) : null}
 
-      <PageSection title="Inventory Item Summary">
+      <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.inventory.item.summary")}>
         <Card>
           <Stack gap={2}>
             <Text>
-              <strong>Catalog item:</strong> {item.catalog_catalog_item_id}
+              <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.catalog.item")}</strong> {item.catalog_catalog_item_id}
             </Text>
             {item.product_summary ? (
               <Text>
-                <strong>Product:</strong> {item.product_summary}
+                <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.product")}</strong> {item.product_summary}
               </Text>
             ) : null}
             <Text>
-              <strong>Location:</strong> {item.storage_location_name} ({item.ship_from_code})
+              <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.location")}</strong> {item.storage_location_name} ({item.ship_from_code})
             </Text>
             <Text>
-              <strong>Total quantity:</strong> {item.total_quantity}
+              <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.total.quantity")}</strong> {item.total_quantity}
             </Text>
             <Text>
-              <strong>Held quantity:</strong> {item.held_quantity}
+              <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.held.quantity")}</strong> {item.held_quantity}
             </Text>
             <Text>
-              <strong>Available quantity:</strong> {item.available_quantity}
+              <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.available.quantity")}</strong> {item.available_quantity}
             </Text>
           </Stack>
         </Card>
       </PageSection>
 
-      <PageSection title="Adjust Quantity">
+      <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjust.quantity")}>
         <Card>
           <form method="post">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="adjust-item" />
               <NumberInput
-                label="Quantity delta"
+                label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.quantity.delta")}
                 name="quantityDelta"
                 required
-                placeholder="-1 or 5"
+                placeholder={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.1.or.5")}
               />
-              <TextInput label="Reason" name="reason" required />
-              <Button type="submit">Apply adjustment</Button>
+              <TextInput label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.reason")} name="reason" required />
+              <Button type="submit">{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.apply.adjustment")}</Button>
             </Stack>
           </form>
         </Card>
       </PageSection>
 
-      <PageSection title="Create Hold">
+      <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.hold")}>
         <Card>
           <form method="post">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="create-hold" />
-              <NumberInput label="Hold quantity" name="quantity" required min="1" />
-              <TextInput label="Reason" name="reason" required />
-              <Textarea label="Notes" name="notes" rows={3} />
-              <Button type="submit">Create hold</Button>
+              <NumberInput label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.quantity")} name="quantity" required min="1" />
+              <TextInput label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.reason.2")} name="reason" required />
+              <Textarea label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.notes")} name="notes" rows={3} />
+              <Button type="submit">{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.hold.2")}</Button>
             </Stack>
           </form>
         </Card>
       </PageSection>
 
-      <PageSection title="Hold History">
+      <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.history")}>
         <Stack gap={4}>
           {item.holds.length === 0 ? (
             <Card>
-              <Text>No holds have been created for this inventory item.</Text>
+              <Text>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.no.holds.have.been.created.for")}</Text>
             </Card>
           ) : (
             item.holds.map((hold) => (
@@ -127,19 +126,18 @@ export function InventoryItemDetailPage({
                     {hold.reason} ({hold.quantity})
                   </Text>
                   <Text tone="secondary">
-                    {hold.status === "active" ? "Active hold" : "Released hold"}
+                    {hold.status === "active" ? t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.active.hold") : t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.released.hold")}
                   </Text>
                   {hold.notes ? <Text>{hold.notes}</Text> : null}
                   <Text tone="secondary" size="sm">
-                    Created {hold.created_at}
+                    {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.created")}{hold.created_at}
                   </Text>
                   {hold.status === "active" ? (
                     <form method="post">
                       <input type="hidden" name="intent" value="release-hold" />
                       <input type="hidden" name="holdId" value={hold.hold_id} />
                       <Button type="submit" tone="secondary">
-                        Release hold
-                      </Button>
+                        {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.release.hold")}</Button>
                     </form>
                   ) : null}
                 </Stack>

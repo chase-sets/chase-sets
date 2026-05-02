@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -14,7 +15,7 @@ import {
 import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-match-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Inspect and accept an offer match.";
+  t("marketplace.routes.accountOfferMatch.inspect.and.accept.an.offer.match");
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -22,7 +23,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     permission: "offers.view",
   });
   if (!actor.permissions.includes("listings.view")) {
-    throw new Response("Forbidden.", { status: 403 });
+    throw new Response(t("marketplace.routes.accountOfferMatch.forbidden"), { status: 403 });
   }
 
   const api = createMarketplaceRequestApiClient(request);
@@ -33,7 +34,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {
-      throw new Response("Offer match not found.", { status: 404 });
+      throw new Response(t("marketplace.routes.accountOfferMatch.offer.match.not.found"), { status: 404 });
     }
 
     throw error;
@@ -46,7 +47,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     permission: "offers.manage",
   });
   if (!actor.permissions.includes("listings.view")) {
-    throw new Response("Forbidden.", { status: 403 });
+    throw new Response(t("marketplace.routes.accountOfferMatch.forbidden.2"), { status: 403 });
   }
 
   const formData = await request.formData();
@@ -62,14 +63,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return null;
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Request failed.",
+      error: error instanceof Error ? error.message : t("marketplace.routes.accountOfferMatch.request.failed"),
     };
   }
 }
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Offer Match | Marketplace",
+    title: t("marketplace.routes.accountOfferMatch.offer.match.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 

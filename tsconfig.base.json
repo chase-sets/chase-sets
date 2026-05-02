@@ -198,6 +198,12 @@
       "@chase-sets/inventory/server": [
         "./bounded-contexts/inventory/server.ts"
       ],
+      "@chase-sets/localization": [
+        "./contracts/localization/index.ts"
+      ],
+      "@chase-sets/localization/locales/en": [
+        "./contracts/localization/locales/en.ts"
+      ],
       "@chase-sets/marketplace": [
         "./bounded-contexts/marketplace/index.ts"
       ],

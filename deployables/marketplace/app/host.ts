@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
 import { resolveWebHostRouteConfigRecords } from "@chase-sets/platform-runtime/web-route-config";
 import type { NavigationItem } from "@chase-sets/design-system";
@@ -53,35 +54,35 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
     icon: "user",
   },
   inventory: {
-    label: "Inventory",
+    label: t("marketplace.app.host.inventory"),
     icon: "package",
   },
   listings: {
-    label: "Listings",
+    label: t("marketplace.app.host.listings"),
     icon: "store",
   },
   "offer-matches": {
-    label: "Offer Matches",
+    label: t("marketplace.app.host.offer.matches"),
     icon: "tag",
   },
   "submitted-offers": {
-    label: "Submitted Offers",
+    label: t("marketplace.app.host.submitted.offers"),
     icon: "message",
   },
   orders: {
-    label: "Purchases",
+    label: t("marketplace.app.host.purchases"),
     icon: "bag",
   },
   reviews: {
-    label: "Reviews",
+    label: t("marketplace.app.host.reviews"),
     icon: "star",
   },
   sales: {
-    label: "Sales",
+    label: t("marketplace.app.host.sales"),
     icon: "dollar",
   },
   "sale-shipments": {
-    label: "Shipping",
+    label: t("marketplace.app.host.shipping"),
     icon: "truck",
   },
 };
@@ -153,7 +154,7 @@ function withSyntheticPayoutItems(
     ...items,
     {
       key: "payouts",
-      label: "Payouts",
+      label: t("marketplace.app.host.payouts"),
       icon: "wallet",
       href: "/account/payouts",
     },
@@ -189,7 +190,7 @@ function buildMarketplaceBottomNav(
 
   const sellingGroup: NavigationItem = {
     key: "selling-workspace",
-    label: "Sell",
+    label: t("marketplace.app.host.sell"),
     icon: "store",
     href: sellingLandingHref(sellingItems),
     children: sellingItems,
@@ -237,7 +238,7 @@ function groupMarketplaceTopNav(
 
   const sellingGroup: NavigationItem = {
     key: "selling-workspace",
-    label: "Sell",
+    label: t("marketplace.app.host.sell.2"),
     icon: "store",
     href: sellingLandingHref(sellingItems),
     children: sellingItems,

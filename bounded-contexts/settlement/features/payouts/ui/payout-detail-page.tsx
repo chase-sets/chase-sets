@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -30,13 +31,13 @@ function statusTone(status: string) {
 function statusLabel(status: string) {
   switch (status) {
     case "requested":
-      return "Requested";
+      return t("settlement.features.payouts.ui.payoutDetailPage.requested");
     case "in-transit":
-      return "On the way";
+      return t("settlement.features.payouts.ui.payoutDetailPage.on.the.way");
     case "completed":
-      return "Paid";
+      return t("settlement.features.payouts.ui.payoutDetailPage.paid");
     case "failed":
-      return "Needs attention";
+      return t("settlement.features.payouts.ui.payoutDetailPage.needs.attention");
     default:
       return status;
   }
@@ -69,114 +70,111 @@ export function SettlementPayoutDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Settlement"
-        title={`Payout ${payout.payout_id}`}
+        eyebrow={t("settlement.features.payouts.ui.payoutDetailPage.settlement")}
+        title={t("settlement.features.payouts.ui.payoutDetailPage.payout.title", {
+          payoutId: payout.payout_id,
+        })}
         description={formatMoney(payout.amount, payout.currency_code)}
         actions={
           <LinkButton href={backHref} tone="secondary">
-            Back to payouts
-          </LinkButton>
+            {t("settlement.features.payouts.ui.payoutDetailPage.back.to.payouts")}</LinkButton>
         }
       />
 
       {requestSuccess ? (
-        <PageSection title="Payout Requested">
+        <PageSection title={t("settlement.features.payouts.ui.payoutDetailPage.payout.requested")}>
           <Card>
             <Stack gap={2}>
-              <Text weight="semibold">Payout requested</Text>
+              <Text weight="semibold">{t("settlement.features.payouts.ui.payoutDetailPage.payout.requested.2")}</Text>
               <Text size="sm" tone="secondary">
-                {formatMoney(payout.amount, payout.currency_code)} is being sent to your saved payout account. Most payouts arrive in 1-3 business days after provider acceptance.
-              </Text>
+                {formatMoney(payout.amount, payout.currency_code)} {t("settlement.features.payouts.ui.payoutDetailPage.is.being.sent.to.your.saved")}</Text>
             </Stack>
           </Card>
         </PageSection>
       ) : null}
 
-      <PageSection title="Summary">
+      <PageSection title={t("settlement.features.payouts.ui.payoutDetailPage.summary")}>
         <Card>
           <Stack gap={2}>
             <Badge tone={statusTone(payout.status) as any}>
               {statusLabel(payout.status)}
             </Badge>
-            <Text>Amount: {formatMoney(payout.amount, payout.currency_code)}</Text>
-            <Text>Payout account: Saved payout account</Text>
-            {payout.note ? <Text>Note: {payout.note}</Text> : null}
+            <Text>{t("settlement.features.payouts.ui.payoutDetailPage.amount")}{formatMoney(payout.amount, payout.currency_code)}</Text>
+            <Text>{t("settlement.features.payouts.ui.payoutDetailPage.payout.account.saved.payout.account")}</Text>
+            {payout.note ? <Text>{t("settlement.features.payouts.ui.payoutDetailPage.note")}{payout.note}</Text> : null}
             <Text size="sm" tone="secondary">
-              Requested: {requestedAt}
+              {t("settlement.features.payouts.ui.payoutDetailPage.requested.2")}{requestedAt}
             </Text>
             {payout.sent_at ? (
               <Text size="sm" tone="secondary">
-                Sent: {new Date(payout.sent_at).toLocaleString()}
+                {t("settlement.features.payouts.ui.payoutDetailPage.sent")}{new Date(payout.sent_at).toLocaleString()}
               </Text>
             ) : null}
             {payout.completed_at ? (
               <Text size="sm" tone="secondary">
-                Completed: {new Date(payout.completed_at).toLocaleString()}
+                {t("settlement.features.payouts.ui.payoutDetailPage.completed")}{new Date(payout.completed_at).toLocaleString()}
               </Text>
             ) : null}
             {payout.failed_at ? (
               <Text size="sm" tone="secondary">
-                Failed: {new Date(payout.failed_at).toLocaleString()}
+                {t("settlement.features.payouts.ui.payoutDetailPage.failed")}{new Date(payout.failed_at).toLocaleString()}
               </Text>
             ) : null}
             {payout.failure_reason ? (
-              <Text tone="secondary">Reason: {payout.failure_reason}</Text>
+              <Text tone="secondary">{t("settlement.features.payouts.ui.payoutDetailPage.reason")}{payout.failure_reason}</Text>
             ) : null}
             {showSupportDetails && payout.provider_status ? (
-              <Text size="sm" tone="secondary">Provider status: {payout.provider_status}</Text>
+              <Text size="sm" tone="secondary">{t("settlement.features.payouts.ui.payoutDetailPage.provider.status")}{payout.provider_status}</Text>
             ) : null}
             {payout.last_reconciled_at ? (
               <Text size="sm" tone="secondary">
-                Last provider check: {new Date(payout.last_reconciled_at).toLocaleString()}
+                {t("settlement.features.payouts.ui.payoutDetailPage.last.provider.check")}{new Date(payout.last_reconciled_at).toLocaleString()}
               </Text>
             ) : null}
           </Stack>
         </Card>
       </PageSection>
 
-      <PageSection title="Status Timeline">
+      <PageSection title={t("settlement.features.payouts.ui.payoutDetailPage.status.timeline")}>
         <Card>
           <Stack gap={2}>
             <Stack gap={1}>
-              <Badge tone="success">Requested</Badge>
+              <Badge tone="success">{t("settlement.features.payouts.ui.payoutDetailPage.requested.3")}</Badge>
               <Text size="sm" tone="secondary">{requestedAt}</Text>
             </Stack>
             <Stack gap={1}>
               <Badge tone={timelineTone(transferSubmitted) as any}>
-                Provider transfer submitted
-              </Badge>
+                {t("settlement.features.payouts.ui.payoutDetailPage.provider.transfer.submitted")}</Badge>
               <Text size="sm" tone="secondary">
-                {payout.provider_transfer_reference ?? "Waiting for provider transfer reference"}
+                {payout.provider_transfer_reference ?? t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.transfer.reference")}
               </Text>
             </Stack>
             <Stack gap={1}>
               <Badge tone={timelineTone(payoutSubmitted) as any}>
-                Payout submitted
-              </Badge>
+                {t("settlement.features.payouts.ui.payoutDetailPage.payout.submitted")}</Badge>
               <Text size="sm" tone="secondary">
-                {payout.provider_payout_reference ?? "Waiting for provider payout reference"}
+                {payout.provider_payout_reference ?? t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.payout.reference")}
               </Text>
             </Stack>
             <Stack gap={1}>
               <Badge tone={timelineTone(Boolean(payout.last_provider_event_at)) as any}>
-                Provider event received
-              </Badge>
+                {t("settlement.features.payouts.ui.payoutDetailPage.provider.event.received")}</Badge>
               <Text size="sm" tone="secondary">
                 {payout.last_provider_event_at
                   ? new Date(payout.last_provider_event_at).toLocaleString()
-                  : "Waiting for provider event"}
+                  : t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.event")}
               </Text>
             </Stack>
             <Stack gap={1}>
               <Badge tone={timelineTone(completed, failed) as any}>
-                {failed ? "Needs attention" : "Paid"}
+                {failed ? t("settlement.features.payouts.ui.payoutDetailPage.needs.attention.2") : t("settlement.features.payouts.ui.payoutDetailPage.paid.2")}
               </Badge>
               <Text size="sm" tone="secondary">
                 {completed && payout.completed_at
                   ? new Date(payout.completed_at).toLocaleString()
                   : failed
-                    ? payout.failure_reason ?? payout.provider_failure_message ?? "Provider reported a payout failure."
-                    : "Usually 1-3 business days after provider acceptance"}
+                    ? payout.failure_reason ?? payout.provider_failure_message ?? t("settlement.features.payouts.ui.payoutDetailPage.provider.reported.a.payout.failure")
+                    : t("settlement.features.payouts.ui.payoutDetailPage.usually.1.3.business.days.after")}
               </Text>
             </Stack>
           </Stack>
@@ -184,44 +182,59 @@ export function SettlementPayoutDetailPage({
       </PageSection>
 
       {showSupportDetails ? (
-        <PageSection title="Support Details">
+        <PageSection title={t("settlement.features.payouts.ui.payoutDetailPage.support.details")}>
           <Card>
             <Stack gap={2}>
-              <Text size="sm" tone="secondary">Internal payout: {payout.payout_id}</Text>
-              <Text size="sm" tone="secondary">Account: {payout.account_id}</Text>
+              <Text size="sm" tone="secondary">{t("settlement.features.payouts.ui.payoutDetailPage.internal.payout")}{payout.payout_id}</Text>
+              <Text size="sm" tone="secondary">{t("settlement.features.payouts.ui.payoutDetailPage.account")}{payout.account_id}</Text>
               <Text size="sm" tone="secondary">
-                Provider transfer: {payout.provider_transfer_reference ?? "Missing"}
+                {t("settlement.features.payouts.ui.payoutDetailPage.provider.transfer")}{payout.provider_transfer_reference ?? t("settlement.features.payouts.ui.payoutDetailPage.missing")}
               </Text>
               <Text size="sm" tone="secondary">
-                Provider payout: {payout.provider_payout_reference ?? "Missing"}
+                {t("settlement.features.payouts.ui.payoutDetailPage.provider.payout")}{payout.provider_payout_reference ?? t("settlement.features.payouts.ui.payoutDetailPage.missing.2")}
               </Text>
               <Text size="sm" tone="secondary">
-                Provider status: {payout.provider_status ?? "Unknown"}
+                {t("settlement.features.payouts.ui.payoutDetailPage.provider.status.2")}{payout.provider_status ?? t("settlement.features.payouts.ui.payoutDetailPage.unknown")}
               </Text>
               <Text size="sm" tone="secondary">
-                Last provider event: {payout.last_provider_event_at ? new Date(payout.last_provider_event_at).toLocaleString() : "None"}
+                {t("settlement.features.payouts.ui.payoutDetailPage.last.provider.event")}{payout.last_provider_event_at ? new Date(payout.last_provider_event_at).toLocaleString() : t("settlement.features.payouts.ui.payoutDetailPage.none")}
               </Text>
               <Text size="sm" tone="secondary">
-                Last reconciliation check: {payout.last_reconciled_at ? new Date(payout.last_reconciled_at).toLocaleString() : "None"}
+                {t("settlement.features.payouts.ui.payoutDetailPage.last.reconciliation.check")}{payout.last_reconciled_at ? new Date(payout.last_reconciled_at).toLocaleString() : t("settlement.features.payouts.ui.payoutDetailPage.none.2")}
               </Text>
               <Text size="sm" tone="secondary">
-                Retry policy: {payout.next_retry_at
-                  ? `${payout.retry_count} attempt${payout.retry_count === 1 ? "" : "s"}; next ${new Date(payout.next_retry_at).toLocaleString()}`
+                {t("settlement.features.payouts.ui.payoutDetailPage.retry.policy")}{payout.next_retry_at
+                  ? t("settlement.features.payouts.ui.payoutDetailPage.retry.next", {
+                      count: payout.retry_count,
+                      attemptLabel: t(
+                        payout.retry_count === 1
+                          ? "settlement.features.payouts.ui.payoutDetailPage.attempt.singular"
+                          : "settlement.features.payouts.ui.payoutDetailPage.attempt.plural",
+                      ),
+                      nextAt: new Date(payout.next_retry_at).toLocaleString(),
+                    })
                   : payout.retry_count > 0
-                    ? `${payout.retry_count} attempt${payout.retry_count === 1 ? "" : "s"}; no automatic retry pending`
-                    : "No retry scheduled"}
+                    ? t("settlement.features.payouts.ui.payoutDetailPage.retry.none.pending", {
+                        count: payout.retry_count,
+                        attemptLabel: t(
+                          payout.retry_count === 1
+                            ? "settlement.features.payouts.ui.payoutDetailPage.attempt.singular"
+                            : "settlement.features.payouts.ui.payoutDetailPage.attempt.plural",
+                        ),
+                      })
+                    : t("settlement.features.payouts.ui.payoutDetailPage.no.retry.scheduled")}
               </Text>
               {payout.retry_reason ? (
-                <Text size="sm" tone="secondary">Retry reason: {payout.retry_reason}</Text>
+                <Text size="sm" tone="secondary">{t("settlement.features.payouts.ui.payoutDetailPage.retry.reason")}{payout.retry_reason}</Text>
               ) : null}
               {payout.provider_failure_code ? (
                 <Text size="sm" tone="secondary">
-                  Provider failure code: {payout.provider_failure_code}
+                  {t("settlement.features.payouts.ui.payoutDetailPage.provider.failure.code")}{payout.provider_failure_code}
                 </Text>
               ) : null}
               {payout.provider_failure_message ? (
                 <Text size="sm" tone="secondary">
-                  Provider message: {payout.provider_failure_message}
+                  {t("settlement.features.payouts.ui.payoutDetailPage.provider.message")}{payout.provider_failure_message}
                 </Text>
               ) : null}
             </Stack>

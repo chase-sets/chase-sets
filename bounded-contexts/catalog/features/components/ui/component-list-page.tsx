@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import {
@@ -14,16 +15,16 @@ import { useComponentList, createComponent } from "./use-components";
 import type { Component } from "./contracts";
 
 const columns: DataColumn<Component>[] = [
-  { key: "key", header: "Key", cell: (row) => row.key },
-  { key: "name", header: "Name", cell: (row) => row.name },
-  { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
+  { key: "key", header: t("catalog.features.components.ui.componentListPage.key"), cell: (row) => row.key },
+  { key: "name", header: t("catalog.features.components.ui.componentListPage.name"), cell: (row) => row.name },
+  { key: "status", header: t("catalog.features.components.ui.componentListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
 ];
 
 const statusOptions = [
-  { label: "Draft", value: "draft" },
-  { label: "Active", value: "active" },
-  { label: "Deprecated", value: "deprecated" },
-  { label: "Archived", value: "archived" },
+  { label: t("catalog.features.components.ui.componentListPage.draft"), value: "draft" },
+  { label: t("catalog.features.components.ui.componentListPage.active"), value: "active" },
+  { label: t("catalog.features.components.ui.componentListPage.deprecated"), value: "deprecated" },
+  { label: t("catalog.features.components.ui.componentListPage.archived"), value: "archived" },
 ];
 
 export function ComponentListPage({ initialData }: { initialData?: Parameters<typeof useComponentList>[1] }) {
@@ -50,7 +51,7 @@ export function ComponentListPage({ initialData }: { initialData?: Parameters<ty
   async function handleCreate() {
     const componentId = createId("cmp");
     await createComponent({ componentId, key, name, description: description || undefined });
-    addToast("Component created", "success");
+    addToast(t("catalog.features.components.ui.componentListPage.component.created"), "success");
     setShowCreate(false);
     setKey("");
     setName("");
@@ -61,7 +62,7 @@ export function ComponentListPage({ initialData }: { initialData?: Parameters<ty
   return (
     <>
       <EntityListPage
-        title="Components"
+        title={t("catalog.features.components.ui.componentListPage.components")}
         entityName="component"
         items={data?.items ?? null}
         total={data?.total}
@@ -79,19 +80,19 @@ export function ComponentListPage({ initialData }: { initialData?: Parameters<ty
         pageSize={50}
         onPageChange={setPage}
         createButton={
-          <Button onClick={() => setShowCreate(true)}>New Component</Button>
+          <Button onClick={() => setShowCreate(true)}>{t("catalog.features.components.ui.componentListPage.new.component")}</Button>
         }
       />
       <Dialog
         open={showCreate}
         onOpenChange={setShowCreate}
-        title="Create Component"
-        footer={<Button onClick={handleCreate}>Create</Button>}
+        title={t("catalog.features.components.ui.componentListPage.create.component")}
+        footer={<Button onClick={handleCreate}>{t("catalog.features.components.ui.componentListPage.create")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Key" value={key} onChange={(e) => setKey(e.target.value)} />
-          <TextInput label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <TextInput label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextInput label={t("catalog.features.components.ui.componentListPage.key.2")} value={key} onChange={(e) => setKey(e.target.value)} />
+          <TextInput label={t("catalog.features.components.ui.componentListPage.name.2")} value={name} onChange={(e) => setName(e.target.value)} />
+          <TextInput label={t("catalog.features.components.ui.componentListPage.description")} value={description} onChange={(e) => setDescription(e.target.value)} />
         </Stack>
       </Dialog>
     </>

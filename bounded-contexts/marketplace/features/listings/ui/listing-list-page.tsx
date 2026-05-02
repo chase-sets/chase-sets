@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Banner,
@@ -22,7 +23,7 @@ import type {
 
 function formatMoney(amount: string | null) {
   if (!amount) {
-    return "Not set";
+    return t("marketplace.features.listings.ui.listingListPage.not.set");
   }
 
   return `$${amount}`;
@@ -46,7 +47,9 @@ function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
     inventoryItem.item_title ?? inventoryItem.catalog_catalog_item_id,
     inventoryItem.item_subtitle,
     inventoryItem.product_summary,
-    `${inventoryItem.available_quantity} available`,
+    t("marketplace.features.listings.ui.listingListPage.quantity.available", {
+      quantity: inventoryItem.available_quantity,
+    }),
     inventoryItem.storage_location_name,
   ].filter(Boolean);
 
@@ -55,13 +58,19 @@ function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
 
 function renderFeeSummary(listing: MarketplaceListingListItem) {
   if (!listing.marketplace_fee_amount && !listing.payment_fee_amount && !listing.seller_net_amount) {
-    return "Fee quote unavailable";
+    return t("marketplace.features.listings.ui.listingListPage.fee.quote.unavailable");
   }
 
   const segments = [
-    `Marketplace ${formatMoney(listing.marketplace_fee_amount)}`,
-    `Payment ${formatMoney(listing.payment_fee_amount)}`,
-    `Net ${formatMoney(listing.seller_net_amount)}`,
+    t("marketplace.features.listings.ui.listingListPage.marketplace.fee.summary", {
+      amount: formatMoney(listing.marketplace_fee_amount),
+    }),
+    t("marketplace.features.listings.ui.listingListPage.payment.fee.summary", {
+      amount: formatMoney(listing.payment_fee_amount),
+    }),
+    t("marketplace.features.listings.ui.listingListPage.net.summary", {
+      amount: formatMoney(listing.seller_net_amount),
+    }),
   ];
 
   return segments.join(" | ");
@@ -69,9 +78,15 @@ function renderFeeSummary(listing: MarketplaceListingListItem) {
 
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
-    `Marketplace ${formatMoney(preview.marketplace_fee_amount)}`,
-    `Payment ${formatMoney(preview.payment_fee_amount)}`,
-    `Net ${formatMoney(preview.seller_net_amount)}`,
+    t("marketplace.features.listings.ui.listingListPage.marketplace.fee.summary", {
+      amount: formatMoney(preview.marketplace_fee_amount),
+    }),
+    t("marketplace.features.listings.ui.listingListPage.payment.fee.summary", {
+      amount: formatMoney(preview.payment_fee_amount),
+    }),
+    t("marketplace.features.listings.ui.listingListPage.net.summary", {
+      amount: formatMoney(preview.seller_net_amount),
+    }),
   ].join(" | ");
 }
 
@@ -112,13 +127,12 @@ export function MarketplaceListingListPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Seller"
-        title="Listings"
-        description="Create, publish, and manage seller listings backed by inventory."
+        eyebrow={t("marketplace.features.listings.ui.listingListPage.seller")}
+        title={t("marketplace.features.listings.ui.listingListPage.listings")}
+        description={t("marketplace.features.listings.ui.listingListPage.create.publish.and.manage.seller.listings")}
         actions={
           <LinkButton href="/account/inventory" tone="secondary">
-            View inventory
-          </LinkButton>
+            {t("marketplace.features.listings.ui.listingListPage.view.inventory")}</LinkButton>
         }
       />
 
@@ -128,47 +142,45 @@ export function MarketplaceListingListPage({
         </Card>
       ) : null}
 
-      <PageSection title="Create Listing">
+      <PageSection title={t("marketplace.features.listings.ui.listingListPage.create.listing")}>
         <Card>
           <form method="post">
             <Stack gap={3}>
               {!hasInventory ? (
                 <Banner
-                  title="No sellable inventory is available"
-                  description="Add stock with available quantity before creating a listing."
+                  title={t("marketplace.features.listings.ui.listingListPage.no.sellable.inventory.is.available")}
+                  description={t("marketplace.features.listings.ui.listingListPage.add.stock.with.available.quantity.before")}
                   actions={
                     <LinkButton href="/account/inventory" tone="secondary" size="sm">
-                      Add inventory
-                    </LinkButton>
+                      {t("marketplace.features.listings.ui.listingListPage.add.inventory")}</LinkButton>
                   }
                 />
               ) : null}
               {selectedInventory ? (
                 <Banner
-                  title="Selected inventory"
+                  title={t("marketplace.features.listings.ui.listingListPage.selected.inventory")}
                   description={
                     <>
                       {inventoryLabel(selectedInventory)}
                       <br />
-                      The listing will use this inventory item's product, location, and available quantity.
-                    </>
+                      {t("marketplace.features.listings.ui.listingListPage.the.listing.will.use.this.inventory")}</>
                   }
                 />
               ) : null}
               <NativeSelect
-                  label="Inventory item"
+                  label={t("marketplace.features.listings.ui.listingListPage.inventory.item")}
                 name="inventoryItemId"
                 required
                 disabled={!hasInventory}
                 defaultValue={createForm?.inventoryItemId ?? ""}
-                placeholder="Select inventory"
+                placeholder={t("marketplace.features.listings.ui.listingListPage.select.inventory")}
                 items={inventoryItems.map((inventoryItem) => ({
                   value: inventoryItem.item_id,
                   label: inventoryLabel(inventoryItem),
                 }))}
               />
               <TextInput
-                label="Price"
+                label={t("marketplace.features.listings.ui.listingListPage.price")}
                 name="priceAmount"
                 placeholder="24.99"
                 inputMode="decimal"
@@ -177,7 +189,7 @@ export function MarketplaceListingListPage({
                 disabled={!hasInventory}
               />
               <NumberInput
-                label="Quantity cap"
+                label={t("marketplace.features.listings.ui.listingListPage.quantity.cap")}
                 name="quantityCap"
                 min="1"
                 defaultValue={createForm?.quantityCap ?? "1"}
@@ -191,8 +203,7 @@ export function MarketplaceListingListPage({
                   value="create-and-publish-listing"
                   disabled={!hasInventory}
                 >
-                  Create and publish
-                </Button>
+                  {t("marketplace.features.listings.ui.listingListPage.create.and.publish")}</Button>
                 <Button
                   type="submit"
                   name="intent"
@@ -200,8 +211,7 @@ export function MarketplaceListingListPage({
                   tone="secondary"
                   disabled={!hasInventory}
                 >
-                  Save as draft
-                </Button>
+                  {t("marketplace.features.listings.ui.listingListPage.save.as.draft")}</Button>
                 <Button
                   type="submit"
                   name="intent"
@@ -209,8 +219,7 @@ export function MarketplaceListingListPage({
                   tone="secondary"
                   disabled={!hasInventory}
                 >
-                  Preview fees
-                </Button>
+                  {t("marketplace.features.listings.ui.listingListPage.preview.fees")}</Button>
               </Stack>
             </Stack>
           </form>
@@ -218,38 +227,37 @@ export function MarketplaceListingListPage({
         {createPreview ? (
           <Card>
             <Stack gap={2}>
-              <Text weight="semibold">Listing fee preview</Text>
+              <Text weight="semibold">{t("marketplace.features.listings.ui.listingListPage.listing.fee.preview")}</Text>
               <Text size="sm" tone="secondary">
-                Account type: {createPreview.account_type}
+                {t("marketplace.features.listings.ui.listingListPage.account.type")}{createPreview.account_type}
               </Text>
               <Text size="sm" tone="secondary">
                 {renderPreviewSummary(createPreview)}
               </Text>
               <Text size="sm" tone="secondary">
-                Basis amount: {formatMoney(createPreview.basis_amount)}
+                {t("marketplace.features.listings.ui.listingListPage.basis.amount")}{formatMoney(createPreview.basis_amount)}
               </Text>
               <Text size="sm" tone="secondary">
-                Terms schedule: {createPreview.schedule_id ?? "No schedule available"}
+                {t("marketplace.features.listings.ui.listingListPage.terms.schedule")}{createPreview.schedule_id ?? t("marketplace.features.listings.ui.listingListPage.no.schedule.available")}
               </Text>
               <Text size="sm" tone="secondary">
-                Agreement override: {createPreview.agreement_id ?? "None"}
+                {t("marketplace.features.listings.ui.listingListPage.agreement.override")}{createPreview.agreement_id ?? t("marketplace.features.listings.ui.listingListPage.none")}
               </Text>
               <Text size="sm" tone="secondary">
-                If you create the listing now, this quote will be frozen on the listing.
-              </Text>
+                {t("marketplace.features.listings.ui.listingListPage.if.you.create.the.listing.now")}</Text>
             </Stack>
           </Card>
         ) : null}
       </PageSection>
 
-      <PageSection title="Current Listings">
+      <PageSection title={t("marketplace.features.listings.ui.listingListPage.current.listings")}>
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.listing_id}
           columns={[
             {
               key: "listing",
-              header: "Listing",
+              header: t("marketplace.features.listings.ui.listingListPage.listing"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{row.item_title ?? row.catalog_catalog_item_id}</Text>
@@ -268,7 +276,7 @@ export function MarketplaceListingListPage({
             },
             {
               key: "price",
-              header: "Price",
+              header: t("marketplace.features.listings.ui.listingListPage.price.2"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{formatMoney(row.price_amount)}</Text>
@@ -280,27 +288,27 @@ export function MarketplaceListingListPage({
             },
             {
               key: "quantityCap",
-              header: "Cap",
+              header: t("marketplace.features.listings.ui.listingListPage.cap"),
               align: "right",
               cell: (row) => row.quantity_cap,
             },
             {
               key: "status",
-              header: "Status",
+              header: t("marketplace.features.listings.ui.listingListPage.status"),
               cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
             },
             {
               key: "location",
-              header: "Inventory",
+              header: t("marketplace.features.listings.ui.listingListPage.inventory"),
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text>{row.storage_location_name ?? "Location unavailable"}</Text>
+                  <Text>{row.storage_location_name ?? t("marketplace.features.listings.ui.listingListPage.location.unavailable")}</Text>
                   <Text size="sm" tone="secondary">
                     {row.ship_from_code ?? row.inventory_item_id}
                   </Text>
                   {row.terms_resolved_at ? (
                     <Text size="sm" tone="secondary">
-                      Terms resolved {new Date(row.terms_resolved_at).toLocaleString()}
+                      {t("marketplace.features.listings.ui.listingListPage.terms.resolved")}{new Date(row.terms_resolved_at).toLocaleString()}
                     </Text>
                   ) : null}
                 </Stack>
@@ -308,16 +316,15 @@ export function MarketplaceListingListPage({
             },
             {
               key: "actions",
-              header: "Actions",
+              header: t("marketplace.features.listings.ui.listingListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/account/listings/${row.listing_id}`} tone="secondary" size="sm">
-                  Open
-                </LinkButton>
+                  {t("marketplace.features.listings.ui.listingListPage.open")}</LinkButton>
               ),
             },
           ]}
-          emptyTitle="No listings yet"
-          emptyDescription="Create a listing from available inventory to start publishing market supply."
+          emptyTitle={t("marketplace.features.listings.ui.listingListPage.no.listings.yet")}
+          emptyDescription={t("marketplace.features.listings.ui.listingListPage.create.a.listing.from.available.inventory")}
         />
       </PageSection>
     </Page>

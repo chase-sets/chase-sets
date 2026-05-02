@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { PricingApiEnv } from "../../../api";
 import type { PricingRecommendationServices } from "./runtime";
@@ -10,7 +11,7 @@ function requireRecommendationAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -20,7 +21,7 @@ function requireRecommendationAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("pricing.features.recommendations.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -31,7 +32,7 @@ function requireRecommendationAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("pricing.features.recommendations.api.route.request.failed");
 }
 
 export function createAccountRecommendationRoutes(
@@ -71,7 +72,7 @@ export function createAccountRecommendationRoutes(
       access.actor.accountId,
     );
     if (!recommendation) {
-      return c.json({ error: { code: "not_found", message: "Recommendation not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("pricing.features.recommendations.api.route.recommendation.not.found") } }, 404);
     }
 
     return c.json(recommendation);
@@ -85,7 +86,7 @@ export function createAccountRecommendationRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();

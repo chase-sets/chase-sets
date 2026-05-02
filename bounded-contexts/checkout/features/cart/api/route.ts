@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
 import type { CheckoutCartServices } from "./runtime";
@@ -12,7 +13,7 @@ function requireCartAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -22,7 +23,7 @@ function requireCartAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("checkout.features.cart.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -33,7 +34,7 @@ function requireCartAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("checkout.features.cart.api.route.request.failed");
 }
 
 function parseVersionSelection(value: unknown) {
@@ -79,7 +80,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();
@@ -119,7 +120,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing.2") } }, 401);
     }
 
     const body = await c.req.json();
@@ -148,7 +149,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing.3") } }, 401);
     }
 
     try {

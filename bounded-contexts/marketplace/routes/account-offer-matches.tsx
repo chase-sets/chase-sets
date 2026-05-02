@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -11,7 +12,7 @@ import { MarketplaceOfferMatchListPage } from "../features/offers/ui/offer-match
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Review offer matches against your active inventory.";
+  t("marketplace.routes.accountOfferMatches.review.offer.matches.against.your.active");
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -19,7 +20,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "offers.view",
   });
   if (!actor.permissions.includes("listings.view")) {
-    throw new Response("Forbidden.", { status: 403 });
+    throw new Response(t("marketplace.routes.accountOfferMatches.forbidden"), { status: 403 });
   }
 
   const api = createMarketplaceRequestApiClient(request);
@@ -36,7 +37,7 @@ export async function action({ request }: ActionFunctionArgs) {
     permission: "offers.manage",
   });
   if (!actor.permissions.includes("listings.view")) {
-    throw new Response("Forbidden.", { status: 403 });
+    throw new Response(t("marketplace.routes.accountOfferMatches.forbidden.2"), { status: 403 });
   }
 
   const formData = await request.formData();
@@ -52,14 +53,14 @@ export async function action({ request }: ActionFunctionArgs) {
     return null;
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Request failed.",
+      error: error instanceof Error ? error.message : t("marketplace.routes.accountOfferMatches.request.failed"),
     };
   }
 }
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Offer Matches | Marketplace",
+    title: t("marketplace.routes.accountOfferMatches.offer.matches.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 

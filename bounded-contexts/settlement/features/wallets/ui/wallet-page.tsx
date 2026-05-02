@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -37,16 +38,20 @@ function checklistTone(isComplete: boolean) {
 function fundsAvailabilityLabel(row: SettlementLedgerEntryRow) {
   if (row.funds_status === "available") {
     return row.available_at
-      ? `Available ${new Date(row.available_at).toLocaleDateString()}`
-      : "Available now";
+      ? t("settlement.features.wallets.ui.walletPage.available.on.date", {
+          date: new Date(row.available_at).toLocaleDateString(),
+        })
+      : t("settlement.features.wallets.ui.walletPage.available.now");
   }
   if (row.direction === "credit" && row.kind === "sale") {
     const availableAt = sellerFundsAvailableAt(row.posted_at);
     return availableAt
-      ? `Expected ${new Date(availableAt).toLocaleDateString()}`
-      : "Pending review";
+      ? t("settlement.features.wallets.ui.walletPage.expected.on.date", {
+          date: new Date(availableAt).toLocaleDateString(),
+        })
+      : t("settlement.features.wallets.ui.walletPage.pending.review");
   }
-  return "Pending";
+  return t("settlement.features.wallets.ui.walletPage.pending");
 }
 
 export function SettlementWalletPage({
@@ -64,130 +69,134 @@ export function SettlementWalletPage({
   const payoutAvailability = setupReady && availableBalance > 0
     ? {
         tone: "success",
-        label: "Payout available now",
-        detail: `${formatMoney(wallet.available_balance_amount, wallet.currency_code)} can be requested for payout.`,
+        label: t("settlement.features.wallets.ui.walletPage.payout.available.now"),
+        detail: t("settlement.features.wallets.ui.walletPage.amount.can.be.requested.for.payout", {
+          amount: formatMoney(wallet.available_balance_amount, wallet.currency_code),
+        }),
       }
     : !setupReady
       ? {
           tone: "warning",
-          label: "Setup is the blocker",
-          detail: "Finish payout setup before requesting available funds.",
+          label: t("settlement.features.wallets.ui.walletPage.setup.is.the.blocker"),
+          detail: t("settlement.features.wallets.ui.walletPage.finish.payout.setup.before.requesting.available"),
         }
       : pendingBalance > 0
         ? {
             tone: "warning",
-            label: "Funds are still pending",
-            detail: `${formatMoney(wallet.pending_balance_amount, wallet.currency_code)} is pending and appears here when it becomes available.`,
+            label: t("settlement.features.wallets.ui.walletPage.funds.are.still.pending"),
+            detail: t("settlement.features.wallets.ui.walletPage.amount.is.pending", {
+              amount: formatMoney(wallet.pending_balance_amount, wallet.currency_code),
+            }),
           }
         : {
             tone: "neutral",
-            label: "No payoutable funds",
-            detail: "Available funds appear here after sales settle.",
+            label: t("settlement.features.wallets.ui.walletPage.no.payoutable.funds"),
+            detail: t("settlement.features.wallets.ui.walletPage.available.funds.appear.here.after.sales"),
           };
   const hasLedgerActivity = entries.length > 0;
   const setupChecklist = [
     {
-      label: "Start payout setup",
+      label: t("settlement.features.wallets.ui.walletPage.start.payout.setup"),
       complete: Boolean(payoutReadiness?.provider_reference),
       detail: payoutReadiness?.provider_reference
-        ? "Provider account created"
-        : "Create the hosted payout setup session",
+        ? t("settlement.features.wallets.ui.walletPage.provider.account.created")
+        : t("settlement.features.wallets.ui.walletPage.create.the.hosted.payout.setup.session"),
     },
     {
-      label: "Finish account verification",
+      label: t("settlement.features.wallets.ui.walletPage.finish.account.verification"),
       complete: payoutReadiness?.status === "ready",
       detail: payoutReadiness
-        ? `Setup is ${payoutReadiness.status.replace("-", " ")}`
-        : "Setup has not started",
+        ? t("settlement.features.wallets.ui.walletPage.setup.status", {
+            status: payoutReadiness.status.replace("-", " "),
+          })
+        : t("settlement.features.wallets.ui.walletPage.setup.has.not.started"),
     },
     {
-      label: "Add payout destination",
+      label: t("settlement.features.wallets.ui.walletPage.add.payout.destination"),
       complete: payoutReadiness?.payout_destination_status === "ready",
       detail: payoutReadiness?.payout_destination_status === "ready"
-        ? "Destination is ready"
-        : "Add or verify a payout destination",
+        ? t("settlement.features.wallets.ui.walletPage.destination.is.ready")
+        : t("settlement.features.wallets.ui.walletPage.add.or.verify.a.payout.destination"),
     },
     {
-      label: "Earn available funds",
+      label: t("settlement.features.wallets.ui.walletPage.earn.available.funds"),
       complete: hasLedgerActivity && availableBalance > 0,
       detail: availableBalance > 0
-        ? `${formatMoney(wallet.available_balance_amount, wallet.currency_code)} available`
-        : "Available funds appear here after sales settle",
+        ? t("settlement.features.wallets.ui.walletPage.amount.available", {
+            amount: formatMoney(wallet.available_balance_amount, wallet.currency_code),
+          })
+        : t("settlement.features.wallets.ui.walletPage.available.funds.appear.here.after.sales.2"),
     },
   ];
 
   return (
     <Page>
       <PageHeader
-        eyebrow="Settlement"
-        title="Wallet"
-        description="Track your pending and available balances, and review all ledger activity."
+        eyebrow={t("settlement.features.wallets.ui.walletPage.settlement")}
+        title={t("settlement.features.wallets.ui.walletPage.wallet")}
+        description={t("settlement.features.wallets.ui.walletPage.track.your.pending.and.available.balances")}
         actions={
           <LinkButton href="/account/payouts" tone="secondary">
-            View payouts
-          </LinkButton>
+            {t("settlement.features.wallets.ui.walletPage.view.payouts")}</LinkButton>
         }
       />
 
-      <PageSection title="Balance">
+      <PageSection title={t("settlement.features.wallets.ui.walletPage.balance")}>
         <Grid columns={{ base: 1, md: 2 }} gap={3}>
           <Card>
             <Stack gap={2}>
-              <Text weight="semibold">Pending</Text>
+              <Text weight="semibold">{t("settlement.features.wallets.ui.walletPage.pending.2")}</Text>
               <Text size="lg">{formatMoney(wallet.pending_balance_amount, wallet.currency_code)}</Text>
               <Text size="sm" tone="secondary">
-                Sale funds are held for {sellerFundsHoldPolicy.holdDays} days before they become available.
-              </Text>
+                {t("settlement.features.wallets.ui.walletPage.sale.funds.are.held.for")}{sellerFundsHoldPolicy.holdDays} {t("settlement.features.wallets.ui.walletPage.days.before.they.become.available")}</Text>
             </Stack>
           </Card>
           <Card>
             <Stack gap={2}>
-              <Text weight="semibold">Available</Text>
+              <Text weight="semibold">{t("settlement.features.wallets.ui.walletPage.available")}</Text>
               <Text size="lg">{formatMoney(wallet.available_balance_amount, wallet.currency_code)}</Text>
-              <Text size="sm" tone="secondary">Funds ready for platform purchases and, after payout setup, payouts.</Text>
+              <Text size="sm" tone="secondary">{t("settlement.features.wallets.ui.walletPage.funds.ready.for.platform.purchases.and")}</Text>
             </Stack>
           </Card>
         </Grid>
         <Stack gap={1}>
           <Text size="sm" tone="secondary">
-            Lifetime credits: {formatMoney(wallet.total_credited_amount, wallet.currency_code)}
+            {t("settlement.features.wallets.ui.walletPage.lifetime.credits")}{formatMoney(wallet.total_credited_amount, wallet.currency_code)}
           </Text>
           <Text size="sm" tone="secondary">
-            Lifetime debits: {formatMoney(wallet.total_debited_amount, wallet.currency_code)}
+            {t("settlement.features.wallets.ui.walletPage.lifetime.debits")}{formatMoney(wallet.total_debited_amount, wallet.currency_code)}
           </Text>
           <Text size="sm" tone="secondary">
-            Available balance can be used for marketplace purchases or requested as a payout after setup is ready. Payout requests move money into a payout-in-progress ledger entry until the provider confirms the result.
-          </Text>
+            {t("settlement.features.wallets.ui.walletPage.available.balance.can.be.used.for")}</Text>
         </Stack>
       </PageSection>
 
       {payoutReadiness ? (
-        <PageSection title="Payout Setup">
+        <PageSection title={t("settlement.features.wallets.ui.walletPage.payout.setup")}>
           <Card>
             <PayoutReadinessPanel payoutReadiness={payoutReadiness} />
           </Card>
         </PageSection>
       ) : null}
 
-      <PageSection title="Payout Availability">
+      <PageSection title={t("settlement.features.wallets.ui.walletPage.payout.availability")}>
         <Card>
           <Stack gap={2}>
             <Badge tone={payoutAvailability.tone as any}>{payoutAvailability.label}</Badge>
             <Text>{payoutAvailability.detail}</Text>
             <Text size="sm" tone="secondary">
-              Available funds can be requested on demand after setup is ready. Pending funds remain protected until settlement makes them available.
-            </Text>
+              {t("settlement.features.wallets.ui.walletPage.available.funds.can.be.requested.on")}</Text>
           </Stack>
         </Card>
       </PageSection>
 
-      <PageSection title="Seller Setup Checklist">
+      <PageSection title={t("settlement.features.wallets.ui.walletPage.seller.setup.checklist")}>
         <Grid columns={{ base: 1, md: 2 }} gap={3}>
           {setupChecklist.map((item) => (
             <Card key={item.label}>
               <Stack gap={2}>
                 <Badge tone={checklistTone(item.complete)}>
-                  {item.complete ? "Done" : "Next"}
+                  {item.complete ? t("settlement.features.wallets.ui.walletPage.done") : t("settlement.features.wallets.ui.walletPage.next")}
                 </Badge>
                 <Text weight="semibold">{item.label}</Text>
                 <Text size="sm" tone="secondary">{item.detail}</Text>
@@ -197,14 +206,14 @@ export function SettlementWalletPage({
         </Grid>
       </PageSection>
 
-      <PageSection title="Ledger">
+      <PageSection title={t("settlement.features.wallets.ui.walletPage.ledger")}>
         <DataTable
           rows={[...entries]}
           getRowId={(row) => row.ledger_entry_id}
           columns={[
             {
               key: "kind",
-              header: "Kind",
+              header: t("settlement.features.wallets.ui.walletPage.kind"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{row.kind}</Text>
@@ -216,20 +225,20 @@ export function SettlementWalletPage({
             },
             {
               key: "direction",
-              header: "Direction",
+              header: t("settlement.features.wallets.ui.walletPage.direction"),
               cell: (row) => (
                 <Badge tone={directionTone(row.direction)}>{row.direction}</Badge>
               ),
             },
             {
               key: "amount",
-              header: "Amount",
+              header: t("settlement.features.wallets.ui.walletPage.amount"),
               align: "right",
               cell: (row) => formatMoney(row.amount, row.currency_code),
             },
             {
               key: "status",
-              header: "Status",
+              header: t("settlement.features.wallets.ui.walletPage.status"),
               cell: (row) =>
                 row.direction === "credit" ? (
                   <Stack gap={1}>
@@ -240,12 +249,12 @@ export function SettlementWalletPage({
             },
             {
               key: "posted_at",
-              header: "Posted",
+              header: t("settlement.features.wallets.ui.walletPage.posted"),
               cell: (row) => new Date(row.posted_at).toLocaleDateString(),
             },
           ]}
-          emptyTitle="No ledger activity"
-          emptyDescription="Ledger entries appear here once sales, fees, and payouts are processed."
+          emptyTitle={t("settlement.features.wallets.ui.walletPage.no.ledger.activity")}
+          emptyDescription={t("settlement.features.wallets.ui.walletPage.ledger.entries.appear.here.once.sales")}
         />
       </PageSection>
     </Page>

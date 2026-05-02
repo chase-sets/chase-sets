@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -40,29 +41,32 @@ export function ReviewSubmissionPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Reviews"
-        title={`Review ${counterpartyLabel}`}
-        description={`Leave account feedback for this ${counterpartyRole} on order ${opportunity.order_id}.`}
+        eyebrow={t("reputation.features.reviews.ui.reviewSubmissionPage.reviews")}
+        title={t("reputation.features.reviews.ui.reviewSubmissionPage.review.counterparty.title", {
+          counterparty: counterpartyLabel,
+        })}
+        description={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback.description", {
+          counterpartyRole,
+          orderId: opportunity.order_id,
+        })}
         actions={
           <LinkButton href={backHref} tone="secondary">
-            Back
-          </LinkButton>
+            {t("reputation.features.reviews.ui.reviewSubmissionPage.back")}</LinkButton>
         }
       />
 
-      <PageSection title="Verified order">
+      <PageSection title={t("reputation.features.reviews.ui.reviewSubmissionPage.verified.order")}>
         <Card>
           <Stack gap={2}>
-            <Text>Order {opportunity.order_id}</Text>
-            <Text>Counterparty: {counterpartyLabel}</Text>
+            <Text>{t("reputation.features.reviews.ui.reviewSubmissionPage.order")}{opportunity.order_id}</Text>
+            <Text>{t("reputation.features.reviews.ui.reviewSubmissionPage.counterparty")}{counterpartyLabel}</Text>
             <Text size="sm" tone="secondary">
-              Reviews open only after the order has been verified by delivery.
-            </Text>
+              {t("reputation.features.reviews.ui.reviewSubmissionPage.reviews.open.only.after.the.order")}</Text>
           </Stack>
         </Card>
       </PageSection>
 
-      <PageSection title="Your review">
+      <PageSection title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}>
         <Card>
           <Stack gap={3}>
             {errorMessage ? <Text>{errorMessage}</Text> : null}
@@ -70,23 +74,23 @@ export function ReviewSubmissionPage({
               <Stack gap={3}>
                 <input type="hidden" name="rating" value={rating} />
                 <Stack gap={1}>
-                  <Text weight="semibold">Rating</Text>
+                  <Text weight="semibold">{t("reputation.features.reviews.ui.reviewSubmissionPage.rating")}</Text>
                   <Rating
                     interactive
-                    label="Review rating"
+                    label={t("reputation.features.reviews.ui.reviewSubmissionPage.review.rating")}
                     value={rating}
                     onValueChange={setRating}
                   />
                 </Stack>
                 <Textarea
                   name="feedback"
-                  label="Feedback"
+                  label={t("reputation.features.reviews.ui.reviewSubmissionPage.feedback")}
                   defaultValue={defaultFeedback}
                   rows={5}
-                  description="Tell the account what went well or what needs improvement."
+                  description={t("reputation.features.reviews.ui.reviewSubmissionPage.tell.the.account.what.went.well")}
                 />
                 <Button type="submit">
-                  {isSubmitting ? "Submitting review..." : "Submit account review"}
+                  {isSubmitting ? t("reputation.features.reviews.ui.reviewSubmissionPage.submitting.review") : t("reputation.features.reviews.ui.reviewSubmissionPage.submit.account.review")}
                 </Button>
               </Stack>
             </form>

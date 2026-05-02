@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { normalizeShippingOption } from "../domain/common";
 import type { OrderingApiEnv } from "../../../api";
@@ -13,7 +14,7 @@ function requireOrderAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -23,7 +24,7 @@ function requireOrderAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("ordering.features.orders.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -34,7 +35,7 @@ function requireOrderAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("ordering.features.orders.api.route.request.failed");
 }
 
 export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices) {
@@ -48,7 +49,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();
@@ -126,7 +127,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const order = await services.getPurchase(c.req.param("id"), access.actor.accountId);
     if (!order) {
-      return c.json({ error: { code: "not_found", message: "Purchase not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("ordering.features.orders.api.route.purchase.not.found") } }, 404);
     }
 
     return c.json(order);
@@ -140,7 +141,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.context.missing.2") } }, 401);
     }
 
     try {
@@ -192,7 +193,7 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
 
     const order = await services.getSale(c.req.param("id"), access.actor.accountId);
     if (!order) {
-      return c.json({ error: { code: "not_found", message: "Sale not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("ordering.features.orders.api.route.sale.not.found") } }, 404);
     }
 
     return c.json(order);
@@ -206,7 +207,7 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.context.missing.3") } }, 401);
     }
 
     try {

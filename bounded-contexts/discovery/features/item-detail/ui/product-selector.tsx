@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   SegmentedControl,
   Select,
@@ -42,7 +43,7 @@ export function ProductSelector({
         const items = [
           {
             value: ANY_OPTION_VALUE,
-            label: "Any",
+            label: t("discovery.features.itemDetail.ui.productSelector.any"),
           },
           ...dimension.allowedOptions.map((option) => ({
             value: option.optionId,

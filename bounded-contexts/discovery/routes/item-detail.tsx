@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -41,7 +42,7 @@ import { createCheckoutRequestApiClient } from "@chase-sets/checkout/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.";
+  t("discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with");
 
 const EMPTY_ITEM_DETAIL_RESULT = {
   item: null,
@@ -132,8 +133,7 @@ function MarketplaceOfferSubmissionSection({
 }) {
   const defaultActions = (
     <Button type="submit" tone="secondary" disabled={!productId} block>
-      Submit offer
-    </Button>
+      {t("discovery.routes.itemDetail.submit.offer")}</Button>
   );
   const form = (
     <form id={formId} method="post">
@@ -149,27 +149,36 @@ function MarketplaceOfferSubmissionSection({
         <input type="hidden" name="productSummary" value={productSummary ?? ""} />
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">Make an offer</Text>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.make.an.offer")}</Text>
             <Text size="sm" tone="secondary">
-              {productSummary ? `Offer for: ${productSummary}` : itemTitle}
+              {productSummary
+                ? t("discovery.routes.itemDetail.offer.for.product", { productSummary })
+                : itemTitle}
             </Text>
             <Text size="sm" tone="secondary">
               {productId
-                ? `${visibleListingCount} listing${visibleListingCount === 1 ? "" : "s"} match this selection.`
-                : "Choose options to make an offer."}
+                ? t("discovery.routes.itemDetail.listing.match.count", {
+                    count: visibleListingCount,
+                    listingLabel: t(
+                      visibleListingCount === 1
+                        ? "discovery.routes.itemDetail.listing.singular"
+                        : "discovery.routes.itemDetail.listing.plural",
+                    ),
+                  })
+                : t("discovery.routes.itemDetail.choose.options.to.make.an.offer")}
             </Text>
           </Stack>
         ) : null}
         {errorMessage ? <Text>{errorMessage}</Text> : null}
         <CurrencyInput
-          label="Offer price"
+          label={t("discovery.routes.itemDetail.offer.price")}
           name="priceAmount"
           placeholder="24.99"
           min="0"
           step="0.01"
           required
         />
-        <NumberInput label="Quantity requested" name="quantityRequested" min="1" required />
+        <NumberInput label={t("discovery.routes.itemDetail.quantity.requested")} name="quantityRequested" min="1" required />
         {actions !== undefined ? actions : defaultActions}
       </Stack>
     </form>
@@ -214,8 +223,7 @@ export function CheckoutPurchaseIntentSection({
         disabled={!productId || !selectedListing}
         block
       >
-        Buy now
-      </Button>
+        {t("discovery.routes.itemDetail.buy.now")}</Button>
       <Button
         type="submit"
         name="intent"
@@ -224,8 +232,7 @@ export function CheckoutPurchaseIntentSection({
         disabled={!productId}
         block
       >
-        Add to cart
-      </Button>
+        {t("discovery.routes.itemDetail.add.to.cart")}</Button>
     </>
   );
   const form = (
@@ -242,31 +249,41 @@ export function CheckoutPurchaseIntentSection({
         <input type="hidden" name="productSummary" value={productSummary ?? ""} />
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">Buy selected product</Text>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.buy.selected.product")}</Text>
             <Text size="sm" tone="secondary">
-              {productSummary ? `Buying: ${productSummary}` : itemTitle}
+              {productSummary
+                ? t("discovery.routes.itemDetail.buying.product", { productSummary })
+                : itemTitle}
             </Text>
             {selectedListing ? (
               <Text size="sm" tone="secondary">
-                Selected listing: ${selectedListing.price_amount} from{" "}
-                {selectedListing.seller_display_name ?? "Seller"}.
+                {t("discovery.routes.itemDetail.selected.listing.summary", {
+                  price: selectedListing.price_amount,
+                  seller: selectedListing.seller_display_name ?? t("discovery.routes.itemDetail.seller"),
+                })}
               </Text>
             ) : null}
             <Text size="sm" tone="secondary">
               {productId
-                ? `${visibleListingCount} listing${visibleListingCount === 1 ? "" : "s"} match this selection.`
-                : "Choose options to add this product to your cart."}
+                ? t("discovery.routes.itemDetail.listing.match.count", {
+                    count: visibleListingCount,
+                    listingLabel: t(
+                      visibleListingCount === 1
+                        ? "discovery.routes.itemDetail.listing.singular"
+                        : "discovery.routes.itemDetail.listing.plural",
+                    ),
+                  })
+                : t("discovery.routes.itemDetail.choose.options.to.add.this.product")}
             </Text>
             {productId && visibleListingCount === 0 ? (
               <Text size="sm" tone="secondary">
-                Add to cart saves buyer intent; checkout matches exact inventory when supply is available.
-              </Text>
+                {t("discovery.routes.itemDetail.add.to.cart.saves.buyer.intent")}</Text>
             ) : null}
           </Stack>
         ) : null}
         {errorMessage ? <Text>{errorMessage}</Text> : null}
         <NumberInput
-          label="Quantity"
+          label={t("discovery.routes.itemDetail.quantity")}
           name="quantity"
           min="1"
           defaultValue="1"
@@ -317,8 +334,7 @@ function MarketplaceOfferMatchSection({
         disabled={!selectedOffer?.can_fulfill}
         block
       >
-        Sell now
-      </Button>
+        {t("discovery.routes.itemDetail.sell.now")}</Button>
       <Button
         type="submit"
         name="intent"
@@ -327,7 +343,7 @@ function MarketplaceOfferMatchSection({
         disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
         block
       >
-        {selectedOffer?.in_sell_list ? "In sell list" : "Add to sell list"}
+        {selectedOffer?.in_sell_list ? t("discovery.routes.itemDetail.in.sell.list") : t("discovery.routes.itemDetail.add.to.sell.list")}
       </Button>
     </>
   );
@@ -337,28 +353,32 @@ function MarketplaceOfferMatchSection({
         <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">Accept offer</Text>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.accept.offer")}</Text>
             {selectedOffer ? (
               <>
                 <Text size="sm" tone="secondary">
-                  Selected offer: ${selectedOffer.price_amount} from{" "}
-                  {selectedOffer.buyer_display_name ?? selectedOffer.buyer_account_id}.
+                  {t("discovery.routes.itemDetail.selected.offer.summary", {
+                    price: selectedOffer.price_amount,
+                    buyer: selectedOffer.buyer_display_name ?? selectedOffer.buyer_account_id,
+                  })}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  Requested {selectedOffer.quantity_requested}; your active supply covers{" "}
-                  {selectedOffer.seller_available_quantity}.
+                  {t("discovery.routes.itemDetail.selected.offer.supply.summary", {
+                    requested: selectedOffer.quantity_requested,
+                    available: selectedOffer.seller_available_quantity,
+                  })}
                 </Text>
                 <Badge tone={selectedOffer.can_fulfill ? "success" : "warning"}>
-                  {selectedOffer.can_fulfill ? "Can fulfill" : "Needs supply"}
+                  {selectedOffer.can_fulfill ? t("discovery.routes.itemDetail.can.fulfill") : t("discovery.routes.itemDetail.needs.supply")}
                 </Badge>
               </>
             ) : (
               <Text size="sm" tone="secondary">
                 {!productId
-                  ? "Choose options to review matching offers."
+                  ? t("discovery.routes.itemDetail.choose.options.to.review.matching.offers")
                   : matchingOfferCount > 0
-                    ? "Matching offers need more active supply."
-                    : "No offers match this product yet."}
+                    ? t("discovery.routes.itemDetail.matching.offers.need.more.active.supply")
+                    : t("discovery.routes.itemDetail.no.offers.match.this.product.yet")}
                 </Text>
             )}
           </Stack>
@@ -391,25 +411,21 @@ export function MarketplaceSellerRegistrationSection({
     <Stack gap={3}>
       {showSummary ? (
         <Stack gap={1}>
-          <Text weight="semibold">Sell on Chase Sets</Text>
+          <Text weight="semibold">{t("discovery.routes.itemDetail.sell.on.chase.sets")}</Text>
           <Text size="sm" tone="secondary">
-            Register to list inventory, buy cards, and respond to offers from the same marketplace view.
-          </Text>
+            {t("discovery.routes.itemDetail.register.to.list.inventory.buy.cards")}</Text>
           {productSummary ? (
             <Text size="sm" tone="secondary">
-              Start with: {productSummary}
+              {t("discovery.routes.itemDetail.start.with")}{productSummary}
             </Text>
           ) : (
             <Text size="sm" tone="secondary">
-              Choose product options first, then register to apply with the item
-              already in context.
-            </Text>
+              {t("discovery.routes.itemDetail.choose.product.options.first.then.register")}</Text>
           )}
         </Stack>
       ) : null}
       <LinkButton href={registerHref} leadingIcon="plus" block>
-        Register to sell
-      </LinkButton>
+        {t("discovery.routes.itemDetail.register.to.sell")}</LinkButton>
     </Stack>
   );
 
@@ -461,7 +477,7 @@ function MarketplaceListingSubmissionSection({
       disabled={!productId || (!listing && matchingInventory.length === 0)}
       block
     >
-      {listing ? "Update listing" : "List at price"}
+      {listing ? t("discovery.routes.itemDetail.update.listing") : t("discovery.routes.itemDetail.list.at.price")}
     </Button>
   );
 
@@ -473,20 +489,25 @@ function MarketplaceListingSubmissionSection({
         {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">
-              {listing ? "Update your listing" : "List at price"}
+              {listing ? t("discovery.routes.itemDetail.update.your.listing") : t("discovery.routes.itemDetail.list.at.price.2")}
             </Text>
             <Text size="sm" tone="secondary">
               {productSummary
-                ? `Selling: ${productSummary}`
-                : "Choose options to list matching inventory."}
+                ? t("discovery.routes.itemDetail.selling.product", { productSummary })
+                : t("discovery.routes.itemDetail.choose.options.to.list.matching.inventory")}
             </Text>
             {listing ? (
               <Text size="sm" tone="secondary">
-                Your {listing.status} listing is ${listing.price_amount}.
+                {t("discovery.routes.itemDetail.your.listing.summary", {
+                  status: listing.status,
+                  price: listing.price_amount,
+                })}
               </Text>
             ) : bestListing ? (
               <Text size="sm" tone="secondary">
-                Current best listing is ${bestListing.price_amount}.
+                {t("discovery.routes.itemDetail.current.best.listing.summary", {
+                  price: bestListing.price_amount,
+                })}
               </Text>
             ) : null}
           </Stack>
@@ -499,27 +520,30 @@ function MarketplaceListingSubmissionSection({
           />
         ) : (
           <NativeSelect
-            label="Inventory"
+            label={t("discovery.routes.itemDetail.inventory")}
             name="inventoryItemId"
             defaultValue={selectedInventory?.item_id ?? ""}
             items={[
-              { value: "", label: "Choose inventory" },
+              { value: "", label: t("discovery.routes.itemDetail.choose.inventory") },
               ...matchingInventory.map((inventoryItem) => ({
                 value: inventoryItem.item_id,
-                label: `${inventoryItem.product_summary ?? "Selected product"} - ${inventoryItem.available_quantity} available`,
+                label: t("discovery.routes.itemDetail.inventory.option.label", {
+                  productSummary: inventoryItem.product_summary ?? t("discovery.routes.itemDetail.selected.product"),
+                  availableQuantity: inventoryItem.available_quantity,
+                }),
               })),
             ]}
             required
           />
         )}
         <CurrencyInput
-          label="Listing price"
+          label={t("discovery.routes.itemDetail.listing.price")}
           name="priceAmount"
           defaultValue={listing?.price_amount ?? bestListing?.price_amount ?? ""}
           required
         />
         <NumberInput
-          label="Quantity to list"
+          label={t("discovery.routes.itemDetail.quantity.to.list")}
           name="quantityCap"
           min={1}
           max={Math.max(availableQuantity, 1)}
@@ -551,8 +575,8 @@ export function ItemCommercePanel({
       {showSellerTab ? (
         <SegmentedControl
           items={[
-            { value: "buy", label: "Buy" },
-            { value: "sell", label: "Sell" },
+            { value: "buy", label: t("discovery.routes.itemDetail.buy") },
+            { value: "sell", label: t("discovery.routes.itemDetail.sell") },
           ]}
           value={mode}
           onValueChange={(value) => setMode(value === "sell" ? "sell" : "buy")}
@@ -661,7 +685,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
       canonicalUrl: null,
-      error: error instanceof Error ? error.message : "Item not found.",
+      error: error instanceof Error ? error.message : t("discovery.routes.itemDetail.item.not.found"),
     };
   }
 }
@@ -807,7 +831,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({
     title: data?.item
       ? `${data.item.title} | Marketplace`
-      : "Item Not Found | Marketplace",
+      : t("discovery.routes.itemDetail.item.not.found.marketplace"),
     description: data?.item?.description
       ? data.item.description
       : MARKETPLACE_DESCRIPTION,
@@ -851,8 +875,7 @@ export default function DiscoveryItemDetailRoute() {
                     disabled={!context.selectedProductId || !context.selectedListing}
                     block
                   >
-                    Buy now
-                  </Button>
+                    {t("discovery.routes.itemDetail.buy.now.2")}</Button>
                   <Button
                     form={formId}
                     type="submit"
@@ -862,8 +885,7 @@ export default function DiscoveryItemDetailRoute() {
                     disabled={!context.selectedProductId}
                     block
                   >
-                    Add to cart
-                  </Button>
+                    {t("discovery.routes.itemDetail.add.to.cart.2")}</Button>
                 </Stack>
               );
               const renderOfferActions = (formId: string) => (
@@ -874,8 +896,7 @@ export default function DiscoveryItemDetailRoute() {
                   disabled={!context.selectedProductId}
                   block
                 >
-                  Submit offer
-                </Button>
+                  {t("discovery.routes.itemDetail.submit.offer.2")}</Button>
               );
               const renderOfferMatchActions = (formId: string) => (
                 <Stack gap={2}>
@@ -887,8 +908,7 @@ export default function DiscoveryItemDetailRoute() {
                     disabled={!context.selectedAccountOfferMatch?.can_fulfill}
                     block
                   >
-                    Sell now
-                  </Button>
+                    {t("discovery.routes.itemDetail.sell.now.2")}</Button>
                   <Button
                     form={formId}
                     type="submit"
@@ -902,8 +922,8 @@ export default function DiscoveryItemDetailRoute() {
                     block
                   >
                     {context.selectedAccountOfferMatch?.in_sell_list
-                      ? "In sell list"
-                      : "Add to sell list"}
+                      ? t("discovery.routes.itemDetail.in.sell.list.2")
+                      : t("discovery.routes.itemDetail.add.to.sell.list.2")}
                   </Button>
                 </Stack>
               );
@@ -926,7 +946,7 @@ export default function DiscoveryItemDetailRoute() {
                     }
                     block
                   >
-                    {ownListing ? "Update listing" : "List at price"}
+                    {ownListing ? t("discovery.routes.itemDetail.update.listing.2") : t("discovery.routes.itemDetail.list.at.price.3")}
                   </Button>
                 );
               };
@@ -1033,22 +1053,22 @@ export default function DiscoveryItemDetailRoute() {
                       ? {
                           content: renderOfferMatch("mobile-sell-box", "plain", null),
                           footer: renderOfferMatchActions("mobile-sell-box"),
-                          title: "Accept offer",
+                          title: t("discovery.routes.itemDetail.accept.offer.2"),
                         }
                       : {
                           content: renderSellerRegistration("plain"),
-                          title: "Sell on Chase Sets",
+                          title: t("discovery.routes.itemDetail.sell.on.chase.sets.2"),
                         },
                     list: data.canUseSellerFeatures
                       ? {
                           content: renderListingSubmission("mobile-list-box", "plain", null),
                           footer: renderListingActions("mobile-list-box"),
-                          title: ownListing ? "Update listing" : "List at price",
+                          title: ownListing ? t("discovery.routes.itemDetail.update.listing.3") : t("discovery.routes.itemDetail.list.at.price.4"),
                         }
                       : undefined,
                   },
-                  sellLabel: data.canUseSellerFeatures ? "Sell" : "Sell",
-                  listLabel: "List",
+                  sellLabel: data.canUseSellerFeatures ? t("discovery.routes.itemDetail.sell.2") : t("discovery.routes.itemDetail.sell.3"),
+                  listLabel: t("discovery.routes.itemDetail.list"),
                 }
               );
             }

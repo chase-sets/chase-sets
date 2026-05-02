@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -56,7 +57,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Payout Operations | Marketplace" });
+  buildOpenGraphMeta({ title: t("settlement.routes.marketplace.accountPayoutOperations.payout.operations.marketplace") });
 
 export default function MarketplaceAccountPayoutOperationsRoute() {
   const data = useLoaderData<typeof loader>();

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useCallback, useEffect, useState } from "react";
 
 export interface UseFetchResult<T> {
@@ -39,7 +40,7 @@ export function useFetch<T>(
       .catch((errorValue) => {
         if (!cancelled) {
           setError(
-            errorValue instanceof Error ? errorValue.message : "Unknown error",
+            errorValue instanceof Error ? errorValue.message : t("identity.support.shellSupport.ui.useFetch.unknown.error"),
           );
           setLoading(false);
         }

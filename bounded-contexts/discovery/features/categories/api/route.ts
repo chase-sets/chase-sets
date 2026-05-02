@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { DiscoveryCategoryServices } from "./runtime";
 
@@ -20,7 +21,7 @@ export function discoveryCategoryRoutes(services: DiscoveryCategoryServices) {
     const category = await services.getCategoryBySlug(c.req.param("slug"));
 
     if (!category || category.item_count <= 0) {
-      return c.json({ error: { code: "not_found", message: "Category not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("discovery.features.categories.api.route.category.not.found") } }, 404);
     }
 
     return c.json(category);

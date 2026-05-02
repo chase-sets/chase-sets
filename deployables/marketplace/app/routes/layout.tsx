@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Outlet, useLocation, useRouteLoaderData } from "react-router";
 import { Button } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
@@ -83,8 +84,7 @@ export default function MarketplaceLayoutRoute() {
         rootData?.actor ? (
           <form action="/sign-out" method="post">
             <Button type="submit" tone="secondary">
-              Sign Out
-            </Button>
+              {t("marketplace.app.routes.layout.sign.out")}</Button>
           </form>
         ) : null
       }

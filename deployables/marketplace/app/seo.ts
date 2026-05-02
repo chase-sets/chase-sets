@@ -1,5 +1,6 @@
+import { t } from "@chase-sets/localization";
 const DEFAULT_MARKETPLACE_DESCRIPTION =
-  "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.";
+  t("marketplace.app.seo.browse.the.chase.sets.marketplace.with");
 
 export function buildCanonicalUrl({
   origin,

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -42,45 +43,45 @@ export function CheckoutSessionPage({
   const summary = (
     <Stack gap={4}>
       <OrderSummary
-        title="Checkout Summary"
+        title={t("checkout.features.sessions.ui.checkoutPage.checkout.summary")}
         lines={[
-          { label: "Items", value: lineCount },
-          { label: "Lines", value: lines.length },
-          { label: "Source", value: session.source_type === "buy-now" ? "Buy now" : "Cart" },
+          { label: t("checkout.features.sessions.ui.checkoutPage.items"), value: lineCount },
+          { label: t("checkout.features.sessions.ui.checkoutPage.lines"), value: lines.length },
+          { label: t("checkout.features.sessions.ui.checkoutPage.source"), value: session.source_type === "buy-now" ? t("checkout.features.sessions.ui.checkoutPage.buy.now") : t("checkout.features.sessions.ui.checkoutPage.cart") },
           {
-            label: "Pricing",
+            label: t("checkout.features.sessions.ui.checkoutPage.pricing"),
             value: session.order_ids.length > 0
-              ? "Order totals created"
-              : "Calculated when purchases are created",
+              ? t("checkout.features.sessions.ui.checkoutPage.order.totals.created")
+              : t("checkout.features.sessions.ui.checkoutPage.calculated.when.purchases.are.created"),
           },
           ...(wallet
             ? [
                 {
-                  label: "Available balance",
+                  label: t("checkout.features.sessions.ui.checkoutPage.available.balance"),
                   value: `${wallet.available_balance_amount} ${wallet.currency_code.toUpperCase()}`,
                 },
               ]
             : []),
         ]}
-        total={hasPayment ? "Payment ready" : "Ready to create purchases"}
-        totalLabel="Checkout status"
+        total={hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
+        totalLabel={t("checkout.features.sessions.ui.checkoutPage.checkout.status")}
       />
       <CheckoutTrustPanel
         items={[
           {
             icon: "shield",
-            title: "Buyer Protection",
-            description: "Eligible orders are protected through payment and fulfillment.",
+            title: t("checkout.features.sessions.ui.checkoutPage.buyer.protection"),
+            description: t("checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment"),
           },
           {
             icon: "lock",
-            title: "Secure Payment",
-            description: "Payment starts only after orders are grouped by seller account.",
+            title: t("checkout.features.sessions.ui.checkoutPage.secure.payment"),
+            description: t("checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are"),
           },
           {
             icon: "truck",
-            title: "Fulfillment Ready",
-            description: "Shipping preference is captured before order creation.",
+            title: t("checkout.features.sessions.ui.checkoutPage.fulfillment.ready"),
+            description: t("checkout.features.sessions.ui.checkoutPage.shipping.preference.is.captured.before.order"),
           },
         ]}
       />
@@ -90,22 +91,21 @@ export function CheckoutSessionPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Secure Checkout"
-        title="Checkout"
-        description="Choose shipping, create purchases grouped by seller account, and continue to payment."
+        eyebrow={t("checkout.features.sessions.ui.checkoutPage.secure.checkout")}
+        title={t("checkout.features.sessions.ui.checkoutPage.checkout")}
+        description={t("checkout.features.sessions.ui.checkoutPage.choose.shipping.create.purchases.grouped.by")}
         actions={
           <LinkButton href="/account/cart" tone="secondary">
-            Back to cart
-          </LinkButton>
+            {t("checkout.features.sessions.ui.checkoutPage.back.to.cart")}</LinkButton>
         }
       />
 
       {lines.length === 0 ? (
         <EmptyState
-          title="Your cart is empty"
-          description="Add a product before starting checkout."
+          title={t("checkout.features.sessions.ui.checkoutPage.your.cart.is.empty")}
+          description={t("checkout.features.sessions.ui.checkoutPage.add.a.product.before.starting.checkout")}
           icon="cart"
-          actions={<LinkButton href="/search">Browse marketplace</LinkButton>}
+          actions={<LinkButton href="/search">{t("checkout.features.sessions.ui.checkoutPage.browse.marketplace")}</LinkButton>}
         />
       ) : (
         <CheckoutLayout summary={summary}>
@@ -113,15 +113,15 @@ export function CheckoutSessionPage({
             {errorMessage ? (
               <Surface tone="subtle" elevated>
                 <Stack gap={2}>
-                  <Badge tone="danger">Checkout issue</Badge>
+                  <Badge tone="danger">{t("checkout.features.sessions.ui.checkoutPage.checkout.issue")}</Badge>
                   <Text>{errorMessage}</Text>
                 </Stack>
               </Surface>
             ) : null}
 
             <PageSection
-              title="Review Items"
-              description="Checkout creates purchases grouped by seller account with final totals before payment starts."
+              title={t("checkout.features.sessions.ui.checkoutPage.review.items")}
+              description={t("checkout.features.sessions.ui.checkoutPage.checkout.creates.purchases.grouped.by.seller")}
             >
               <Stack gap={3}>
                 {lines.map((line, index) => (
@@ -130,15 +130,15 @@ export function CheckoutSessionPage({
                       <Stack gap={1}>
                         <Text weight="semibold">{formatLineLabel(line)}</Text>
                         <Text size="sm" tone="secondary">
-                          Catalog item: {line.catalogItemId}
+                          {t("checkout.features.sessions.ui.checkoutPage.catalog.item")}{line.catalogItemId}
                         </Text>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">Product</Text>
-                        <Text weight="medium">{line.productSummary ?? "Standard"}</Text>
+                        <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.product")}</Text>
+                        <Text weight="medium">{line.productSummary ?? t("checkout.features.sessions.ui.checkoutPage.standard")}</Text>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">Quantity</Text>
+                        <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.quantity")}</Text>
                         <Badge tone="accent">{line.quantity}</Badge>
                       </Stack>
                     </Grid>
@@ -148,44 +148,45 @@ export function CheckoutSessionPage({
             </PageSection>
 
             {session.payment_id ? (
-              <PageSection title="Payment">
+              <PageSection title={t("checkout.features.sessions.ui.checkoutPage.payment")}>
                 <Surface elevated glow>
                   <Stack gap={3}>
-                    <Badge tone="success">Payment ready</Badge>
+                    <Badge tone="success">{t("checkout.features.sessions.ui.checkoutPage.payment.ready.2")}</Badge>
                     <Text>
-                      Purchases have been created and payment is ready to continue.
-                    </Text>
+                      {t("checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment")}</Text>
                     <LinkButton href={`/account/payments/${session.payment_id}`}>
-                      Continue to payment
-                    </LinkButton>
+                      {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}</LinkButton>
                   </Stack>
                 </Surface>
               </PageSection>
             ) : (
-              <PageSection title="Shipping">
+              <PageSection title={t("checkout.features.sessions.ui.checkoutPage.shipping")}>
                 <Surface elevated glow>
                   <form method="post">
                     <Stack gap={3}>
                       <input type="hidden" name="intent" value="confirm-checkout" />
                       <NativeSelect
-                        label="Shipping option"
+                        label={t("checkout.features.sessions.ui.checkoutPage.shipping.option")}
                         name="shippingOption"
                         defaultValue={session.shipping_option}
                         items={[
-                          { value: "standard", label: "Standard insured" },
-                          { value: "expedited", label: "Expedited" },
-                          { value: "priority", label: "Priority signature" },
+                          { value: "standard", label: t("checkout.features.sessions.ui.checkoutPage.standard.insured") },
+                          { value: "expedited", label: t("checkout.features.sessions.ui.checkoutPage.expedited") },
+                          { value: "priority", label: t("checkout.features.sessions.ui.checkoutPage.priority.signature") },
                         ]}
                       />
                       <TextInput
-                        label="Use balance"
+                        label={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
                         name="requestedBalanceCreditAmount"
                         placeholder="0.00"
                         inputMode="decimal"
                         description={
                           wallet
-                            ? `${wallet.available_balance_amount} ${wallet.currency_code.toUpperCase()} available for platform purchases`
-                            : "Apply available wallet balance to this checkout"
+                            ? t("checkout.features.sessions.ui.checkoutPage.wallet.available.description", {
+                                amount: wallet.available_balance_amount,
+                                currency: wallet.currency_code.toUpperCase(),
+                              })
+                            : t("checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this")
                         }
                       />
                       <Divider />
@@ -196,7 +197,7 @@ export function CheckoutSessionPage({
                         loading={isSubmitting}
                         disabled={isSubmitting}
                       >
-                        {isSubmitting ? "Creating purchases..." : "Continue to payment"}
+                        {isSubmitting ? t("checkout.features.sessions.ui.checkoutPage.creating.purchases") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}
                       </Button>
                     </Stack>
                   </form>

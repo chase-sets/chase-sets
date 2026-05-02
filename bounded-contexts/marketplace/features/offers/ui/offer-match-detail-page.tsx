@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -36,13 +37,12 @@ export function MarketplaceOfferMatchDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Inventory"
+        eyebrow={t("marketplace.features.offers.ui.offerMatchDetailPage.inventory")}
         title={offer.item_title}
-        description="Review an offer match that matches your active supply."
+        description={t("marketplace.features.offers.ui.offerMatchDetailPage.review.an.offer.match.that.matches")}
         actions={
           <LinkButton href="/account/offers/matches" tone="secondary">
-            Back to offer matches
-          </LinkButton>
+            {t("marketplace.features.offers.ui.offerMatchDetailPage.back.to.offer.matches")}</LinkButton>
         }
       />
 
@@ -52,7 +52,7 @@ export function MarketplaceOfferMatchDetailPage({
         </Card>
       ) : null}
 
-      <PageSection title="Offer Match Overview">
+      <PageSection title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}>
         <Card>
           <Stack gap={2}>
             {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
@@ -62,12 +62,12 @@ export function MarketplaceOfferMatchDetailPage({
               </Text>
             ) : null}
             <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
-            <Text>Buyer: {offer.buyer_display_name ?? offer.buyer_account_id}</Text>
-            <Text>Offer price: {formatMoney(offer.price_amount)}</Text>
-            <Text>Quantity requested: {offer.quantity_requested}</Text>
-            <Text>Active supply available: {offer.seller_available_quantity}</Text>
+            <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.buyer")}{offer.buyer_display_name ?? offer.buyer_account_id}</Text>
+            <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price")}{formatMoney(offer.price_amount)}</Text>
+            <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
+            <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available")}{offer.seller_available_quantity}</Text>
             <Badge tone={offer.can_fulfill ? "success" : "warning"}>
-              {offer.can_fulfill ? "Can fulfill" : "Needs supply"}
+              {offer.can_fulfill ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill") : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply")}
             </Badge>
             {canAccept && offer.status === "submitted" ? (
               <form method="post">
@@ -77,14 +77,13 @@ export function MarketplaceOfferMatchDetailPage({
                   value="accept-offer"
                   disabled={!offer.can_fulfill}
                 >
-                  Accept offer match
-                </Button>
+                  {t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match")}</Button>
               </form>
             ) : (
               <Text>
                 {offer.status === "accepted"
-                  ? "This offer match has already been accepted and converted into a sale."
-                  : "This view is read-only for now."}
+                  ? t("marketplace.features.offers.ui.offerMatchDetailPage.this.offer.match.has.already.been")
+                  : t("marketplace.features.offers.ui.offerMatchDetailPage.this.view.is.read.only.for")}
               </Text>
             )}
           </Stack>

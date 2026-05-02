@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   useEffect,
   useState,
@@ -117,7 +118,7 @@ function formatUpdatedAt(value: string): string {
 }
 
 function formatMoney(value: string | null): string {
-  return value ? `$${value}` : "Unavailable";
+  return value ? `$${value}` : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
 }
 
 function matchesSelectedOptions(
@@ -197,19 +198,39 @@ function getInitialSelections(data: DiscoveryItemDetail | null): Record<string, 
 }
 
 function formatListingCount(count: number): string {
-  return `${count} listing${count === 1 ? "" : "s"}`;
+  return t(
+    count === 1
+      ? "discovery.features.itemDetail.ui.itemDetailPage.listing.count.singular"
+      : "discovery.features.itemDetail.ui.itemDetailPage.listing.count.plural",
+    { count },
+  );
 }
 
 function formatSellerCount(count: number): string {
-  return `${count} seller${count === 1 ? "" : "s"}`;
+  return t(
+    count === 1
+      ? "discovery.features.itemDetail.ui.itemDetailPage.seller.count.singular"
+      : "discovery.features.itemDetail.ui.itemDetailPage.seller.count.plural",
+    { count },
+  );
 }
 
 function formatOfferCount(count: number): string {
-  return `${count} offer${count === 1 ? "" : "s"}`;
+  return t(
+    count === 1
+      ? "discovery.features.itemDetail.ui.itemDetailPage.offer.count.singular"
+      : "discovery.features.itemDetail.ui.itemDetailPage.offer.count.plural",
+    { count },
+  );
 }
 
 function formatBuyerCount(count: number): string {
-  return `${count} buyer${count === 1 ? "" : "s"}`;
+  return t(
+    count === 1
+      ? "discovery.features.itemDetail.ui.itemDetailPage.buyer.count.singular"
+      : "discovery.features.itemDetail.ui.itemDetailPage.buyer.count.plural",
+    { count },
+  );
 }
 
 function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | null {
@@ -321,10 +342,11 @@ function buildProductOptionSummaries({
             return [
               option.optionId,
               matchingOption.length > 0
-                ? `${matchingOption.length} from ${formatMoney(
-                    getLowestPrice(matchingOption),
-                  )}`
-                : "none",
+                ? t("discovery.features.itemDetail.ui.itemDetailPage.option.summary", {
+                    count: matchingOption.length,
+                    price: formatMoney(getLowestPrice(matchingOption)),
+                  })
+                : t("discovery.features.itemDetail.ui.itemDetailPage.none"),
             ];
           }),
         ),
@@ -365,18 +387,18 @@ export function ItemDetailPage({
   }, [data]);
 
   if (error) {
-    return <Banner tone="danger" title="Error" description={error} />;
+    return <Banner tone="danger" title={t("discovery.features.itemDetail.ui.itemDetailPage.error")} description={error} />;
   }
 
   if (!data) {
     return (
       <Banner
         tone="danger"
-        title={notFound ? "Not found" : "Error"}
+        title={notFound ? t("discovery.features.itemDetail.ui.itemDetailPage.not.found") : t("discovery.features.itemDetail.ui.itemDetailPage.error.2")}
         description={
           notFound
-            ? "This item could not be found."
-            : "This item is not available right now."
+            ? t("discovery.features.itemDetail.ui.itemDetailPage.this.item.could.not.be.found")
+            : t("discovery.features.itemDetail.ui.itemDetailPage.this.item.is.not.available.right")
         }
       />
     );
@@ -384,7 +406,10 @@ export function ItemDetailPage({
 
   const images = data.image_urls.map((url, index) => ({
     src: url,
-    alt: `${data.title} image ${index + 1}`,
+    alt: t("discovery.features.itemDetail.ui.itemDetailPage.image.alt", {
+      title: data.title,
+      index: index + 1,
+    }),
   }));
   const explicitSelectedOptions = data.product_schema
     ? summarizeSelections(data.product_schema, selections)
@@ -521,7 +546,7 @@ export function ItemDetailPage({
     ...(categories.length > 0
       ? [
           {
-            key: "Categories",
+            key: t("discovery.features.itemDetail.ui.itemDetailPage.categories"),
             value: categories.map((category) => category.name).join(", "),
           },
         ]
@@ -529,7 +554,7 @@ export function ItemDetailPage({
     ...(tags.length > 0
       ? [
           {
-            key: "Tags",
+            key: t("discovery.features.itemDetail.ui.itemDetailPage.tags"),
             value: (
               <Inline gap={1}>
                 {tags.map((tag) => (
@@ -543,7 +568,7 @@ export function ItemDetailPage({
         ]
       : []),
     {
-      key: "Last updated",
+      key: t("discovery.features.itemDetail.ui.itemDetailPage.last.updated"),
       value: formatUpdatedAt(data.updated_at),
     },
   ];
@@ -587,8 +612,8 @@ export function ItemDetailPage({
       aria-label={ariaLabel}
       fullWidth={fullWidth}
       items={[
-        { value: "buy", label: "Buy" },
-        { value: "sell", label: "Sell" },
+        { value: "buy", label: t("discovery.features.itemDetail.ui.itemDetailPage.buy") },
+        { value: "sell", label: t("discovery.features.itemDetail.ui.itemDetailPage.sell") },
       ]}
       value={marketIntent}
       onValueChange={(value) =>
@@ -598,20 +623,20 @@ export function ItemDetailPage({
   );
   const commerce = commerceContent ? (
     <Stack gap={3}>
-      {renderMarketIntentControl("Choose market intent")}
+      {renderMarketIntentControl(t("discovery.features.itemDetail.ui.itemDetailPage.choose.market.intent"))}
       {commerceContent}
     </Stack>
   ) : null;
   const productSummary =
     selectedProductSummary ??
-    (singleMatchingListing ? "1 matching listing" : "All listings");
-  const mobileCommerceSummary = selectedProductSummary ?? "Choose options";
+    (singleMatchingListing ? t("discovery.features.itemDetail.ui.itemDetailPage.1.matching.listing") : t("discovery.features.itemDetail.ui.itemDetailPage.all.listings"));
+  const mobileCommerceSummary = selectedProductSummary ?? t("discovery.features.itemDetail.ui.itemDetailPage.choose.options");
   const marketNote =
     marketIntent === "sell"
       ? selectedProductSummary ??
-        (hasActiveFilters ? "Filtered offers" : "All offers")
+        (hasActiveFilters ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.offers") : t("discovery.features.itemDetail.ui.itemDetailPage.all.offers"))
       : selectedProductSummary ??
-        (hasActiveFilters ? "Filtered active listings" : "All active listings");
+        (hasActiveFilters ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.active.listings") : t("discovery.features.itemDetail.ui.itemDetailPage.all.active.listings"));
   const marketSummaryPrice =
     marketIntent === "sell"
       ? formatMoney(getHighestOfferPrice(matchingOffers))
@@ -620,32 +645,32 @@ export function ItemDetailPage({
     marketIntent === "sell"
       ? [
           {
-            label: "Requested",
+            label: t("discovery.features.itemDetail.ui.itemDetailPage.requested"),
             value: matchingOffers.reduce(
               (sum, offer) => sum + offer.quantity_requested,
               0,
             ),
           },
           {
-            label: "Offers",
+            label: t("discovery.features.itemDetail.ui.itemDetailPage.offers"),
             value: formatOfferCount(matchingOffers.length),
           },
           {
-            label: "Buyers",
+            label: t("discovery.features.itemDetail.ui.itemDetailPage.buyers"),
             value: formatBuyerCount(buyerCount),
           },
         ]
       : [
           {
-            label: "Available",
+            label: t("discovery.features.itemDetail.ui.itemDetailPage.available"),
             value: selectedMarketSummary.total_visible_quantity,
           },
           {
-            label: "Listings",
+            label: t("discovery.features.itemDetail.ui.itemDetailPage.listings"),
             value: formatListingCount(selectedMarketSummary.active_listing_count),
           },
           {
-            label: "Sellers",
+            label: t("discovery.features.itemDetail.ui.itemDetailPage.sellers"),
             value: formatSellerCount(sellerCount),
           },
         ];
@@ -664,12 +689,12 @@ export function ItemDetailPage({
   const activeMobileCommerceTitle =
     activeMobileCommerceSection?.title ??
     (activeMobileCommerce === "buy"
-      ? "Buy selected product"
+      ? t("discovery.features.itemDetail.ui.itemDetailPage.buy.selected.product")
       : activeMobileCommerce === "offer"
-        ? "Make offer"
+        ? t("discovery.features.itemDetail.ui.itemDetailPage.make.offer")
         : activeMobileCommerce === "list"
-          ? commerceSections?.listLabel ?? "List"
-          : commerceSections?.sellLabel ?? "Sell");
+          ? commerceSections?.listLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.list")
+          : commerceSections?.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell"));
   const activeMobileCommerceDescription =
     activeMobileCommerceSection?.description ?? mobileCommerceSummary;
   const mobileBuyAction = selectedProductId ? (
@@ -678,12 +703,10 @@ export function ItemDetailPage({
       size="sm"
       onClick={() => setActiveMobileCommerce("buy")}
     >
-      Buy
-    </Button>
+      {t("discovery.features.itemDetail.ui.itemDetailPage.buy.2")}</Button>
   ) : (
     <LinkButton href="#select-options" size="sm">
-      Select options
-    </LinkButton>
+      {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}</LinkButton>
   );
   const mobileOfferAction = selectedProductId ? (
     <Button
@@ -692,12 +715,10 @@ export function ItemDetailPage({
       size="sm"
       onClick={() => setActiveMobileCommerce("offer")}
     >
-      Make offer
-    </Button>
+      {t("discovery.features.itemDetail.ui.itemDetailPage.make.offer.2")}</Button>
   ) : (
     <LinkButton href="#select-options" tone="secondary" size="sm">
-      Choose to offer
-    </LinkButton>
+      {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.offer")}</LinkButton>
   );
   const mobileSellAction = (commerceSections?.mobile?.sell ?? commerceSections?.sell) ? (
     selectedProductId ? (
@@ -706,12 +727,11 @@ export function ItemDetailPage({
         size="sm"
         onClick={() => setActiveMobileCommerce("sell")}
       >
-        {commerceSections.sellLabel ?? "Sell"}
+        {commerceSections.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell.2")}
       </Button>
     ) : (
       <LinkButton href="#select-options" size="sm">
-        Choose to sell
-      </LinkButton>
+        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.sell")}</LinkButton>
     )
   ) : null;
   const mobileListAction = commerceSections?.mobile?.list ? (
@@ -722,17 +742,16 @@ export function ItemDetailPage({
         size="sm"
         onClick={() => setActiveMobileCommerce("list")}
       >
-        {commerceSections.listLabel ?? "List"}
+        {commerceSections.listLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.list.2")}
       </Button>
     ) : (
       <LinkButton href="#select-options" tone="secondary" size="sm">
-        Choose to list
-      </LinkButton>
+        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.list")}</LinkButton>
     )
   ) : null;
   const mobileCommerceActionBar = commerce ? (
     <CommerceActionBar
-      intentControl={renderMarketIntentControl("Choose mobile market intent", true)}
+      intentControl={renderMarketIntentControl(t("discovery.features.itemDetail.ui.itemDetailPage.choose.mobile.market.intent"), true)}
       summary={mobileCommerceSummary}
       primaryAction={marketIntent === "sell" ? mobileSellAction : mobileBuyAction}
       secondaryAction={marketIntent === "sell" ? mobileListAction : mobileOfferAction}
@@ -758,7 +777,7 @@ export function ItemDetailPage({
     <Stagger>
       <Breadcrumbs
         items={[
-          { label: "Search", href: "/search" },
+          { label: t("discovery.features.itemDetail.ui.itemDetailPage.search"), href: "/search" },
           { label: data.title },
         ]}
       />
@@ -791,8 +810,7 @@ export function ItemDetailPage({
                     <Stack gap={3} id="select-options">
                       <Stack gap={1}>
                         <Text size="sm" weight="semibold">
-                          Choose options
-                        </Text>
+                          {t("discovery.features.itemDetail.ui.itemDetailPage.choose.options")}</Text>
                         <Text size="sm" tone="secondary">
                           {productSummary}
                         </Text>
@@ -812,7 +830,7 @@ export function ItemDetailPage({
                       />
                       {selectedListing?.product_summary ? (
                         <Text size="sm" tone="secondary">
-                          Matched listing: {selectedListing.product_summary}
+                          {t("discovery.features.itemDetail.ui.itemDetailPage.matched.listing")}{selectedListing.product_summary}
                         </Text>
                       ) : null}
                     </Stack>
@@ -827,7 +845,7 @@ export function ItemDetailPage({
                   aspectRatio="5/7"
                   fallbackImage={{
                     src: discoveryAssetUrls.defaultProductImage,
-                    alt: "Pokemon card back",
+                    alt: t("discovery.features.itemDetail.ui.itemDetailPage.pokemon.card.back"),
                   }}
                   maxHeightClassName="[--gallery-max-height:34rem]"
                   emptyState={
@@ -836,23 +854,22 @@ export function ItemDetailPage({
                         <Icon name="image" size="lg" tone="secondary" />
                       </Surface>
                       <Stack gap={1} align="center">
-                        <Text weight="semibold">Image coming soon</Text>
+                        <Text weight="semibold">{t("discovery.features.itemDetail.ui.itemDetailPage.image.coming.soon")}</Text>
                         <Text size="sm" tone="secondary">
-                          Catalog imagery has not been added yet.
-                        </Text>
+                          {t("discovery.features.itemDetail.ui.itemDetailPage.catalog.imagery.has.not.been.added")}</Text>
                       </Stack>
                     </Stack>
                   }
                 />
 
                 {data.description ? (
-                  <PageSection title="Description">
+                  <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.description")}>
                     <Text>{data.description}</Text>
                   </PageSection>
                 ) : null}
 
                 {detailItems.length > 0 ? (
-                  <PageSection title="Details">
+                  <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.details")}>
                     <KeyValueList
                       density="compact"
                       items={detailItems}
@@ -875,21 +892,28 @@ export function ItemDetailPage({
             <Stack gap={6}>
               {marketIntent === "buy" ? (
                 <Reveal preset="lift">
-                  <PageSection title="Listings">
+                  <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.listings.2")}>
                     <Stack gap={3}>
                       <Inline gap={2}>
                         <Text size="sm" tone="secondary">
-                          {hasActiveFilters ? (
-                            <>
-                              {visibleListings.length} of {data.market_listings.length}{" "}
-                              listing{data.market_listings.length === 1 ? "" : "s"}
-                            </>
-                          ) : (
-                            <>
-                              {visibleListings.length} active listing
-                              {visibleListings.length === 1 ? "" : "s"}
-                            </>
-                          )}
+                          {hasActiveFilters
+                            ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.listing.count", {
+                                visibleCount: visibleListings.length,
+                                totalCount: data.market_listings.length,
+                                listingLabel: t(
+                                  data.market_listings.length === 1
+                                    ? "discovery.features.itemDetail.ui.itemDetailPage.listing.singular"
+                                    : "discovery.features.itemDetail.ui.itemDetailPage.listing.plural",
+                                ),
+                              })
+                            : t("discovery.features.itemDetail.ui.itemDetailPage.active.listing.count", {
+                                count: visibleListings.length,
+                                listingLabel: t(
+                                  visibleListings.length === 1
+                                    ? "discovery.features.itemDetail.ui.itemDetailPage.listing.singular"
+                                    : "discovery.features.itemDetail.ui.itemDetailPage.listing.plural",
+                                ),
+                              })}
                         </Text>
                         {hasActiveFilters ? (
                           <Button
@@ -898,8 +922,7 @@ export function ItemDetailPage({
                             size="sm"
                             onClick={() => setSelections({})}
                           >
-                            Clear filters
-                          </Button>
+                            {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters")}</Button>
                         ) : null}
                       </Inline>
                       {visibleListings.length > 0 ? (
@@ -938,24 +961,22 @@ export function ItemDetailPage({
                                       {formatMoney(listing.price_amount)}
                                     </Text>
                                     {isSelected ? (
-                                      <Badge tone="success">Selected</Badge>
+                                      <Badge tone="success">{t("discovery.features.itemDetail.ui.itemDetailPage.selected")}</Badge>
                                     ) : null}
                                   </Inline>
                                   <Text size="sm" tone="secondary">
-                                    {listing.seller_display_name ?? "Seller"}
+                                    {listing.seller_display_name ?? t("discovery.features.itemDetail.ui.itemDetailPage.seller")}
                                   </Text>
                                 </Stack>
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
-                                    Available
-                                  </Text>
+                                    {t("discovery.features.itemDetail.ui.itemDetailPage.available.2")}</Text>
                                   <Text>{listing.visible_quantity}</Text>
                                 </Stack>
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
-                                    Product
-                                  </Text>
-                                  <Text>{listing.product_summary ?? "Standard"}</Text>
+                                    {t("discovery.features.itemDetail.ui.itemDetailPage.product")}</Text>
+                                  <Text>{listing.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard")}</Text>
                                 </Stack>
                               </Grid>
                             </Card>
@@ -963,23 +984,21 @@ export function ItemDetailPage({
                         })
                       ) : (
                         <EmptyState
-                          title="No active listings"
+                          title={t("discovery.features.itemDetail.ui.itemDetailPage.no.active.listings")}
                           description={
                             data.market_listings.length > 0
-                              ? "No active listings match these filters."
-                              : "Sellers have not published inventory for this item yet."
+                              ? t("discovery.features.itemDetail.ui.itemDetailPage.no.active.listings.match.these.filters")
+                              : t("discovery.features.itemDetail.ui.itemDetailPage.sellers.have.not.published.inventory.for")
                           }
                           icon="package"
                           actions={
                             <>
                               {selectedProductId ? (
                                 <LinkButton href="#make-offer" size="sm">
-                                  Make offer
-                                </LinkButton>
+                                  {t("discovery.features.itemDetail.ui.itemDetailPage.make.offer.3")}</LinkButton>
                               ) : (
                                 <LinkButton href="#select-options" size="sm">
-                                  Choose options
-                                </LinkButton>
+                                  {t("discovery.features.itemDetail.ui.itemDetailPage.choose.options.2")}</LinkButton>
                               )}
                               {hasActiveFilters ? (
                                 <Button
@@ -988,8 +1007,7 @@ export function ItemDetailPage({
                                   size="sm"
                                   onClick={() => setSelections({})}
                                 >
-                                  Clear filters
-                                </Button>
+                                  {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters.2")}</Button>
                               ) : null}
                             </>
                           }
@@ -1000,12 +1018,18 @@ export function ItemDetailPage({
                 </Reveal>
               ) : (
                 <Reveal preset="lift">
-                  <PageSection title="Offers">
+                  <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.offers.2")}>
                     <Stack gap={3}>
                       <Inline gap={2}>
                         <Text size="sm" tone="secondary">
-                          {matchingOffers.length} matching offer
-                          {matchingOffers.length === 1 ? "" : "s"}
+                          {t("discovery.features.itemDetail.ui.itemDetailPage.matching.offer.count", {
+                            count: matchingOffers.length,
+                            offerLabel: t(
+                              matchingOffers.length === 1
+                                ? "discovery.features.itemDetail.ui.itemDetailPage.offer.singular"
+                                : "discovery.features.itemDetail.ui.itemDetailPage.offer.plural",
+                            ),
+                          })}
                         </Text>
                         {hasActiveFilters ? (
                           <Button
@@ -1014,8 +1038,7 @@ export function ItemDetailPage({
                             size="sm"
                             onClick={() => setSelections({})}
                           >
-                            Clear filters
-                          </Button>
+                            {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters.3")}</Button>
                         ) : null}
                       </Inline>
                       {matchingOffers.length > 0 ? (
@@ -1054,7 +1077,7 @@ export function ItemDetailPage({
                                     <Text weight="semibold">
                                     {formatMoney(offer.price_amount)}
                                   </Text>
-                                  {isSelected ? <Badge tone="success">Selected</Badge> : null}
+                                  {isSelected ? <Badge tone="success">{t("discovery.features.itemDetail.ui.itemDetailPage.selected.2")}</Badge> : null}
                                 </Inline>
                                 <Text size="sm" tone="secondary">
                                   {offer.buyer_display_name ?? offer.buyer_account_id}
@@ -1062,31 +1085,28 @@ export function ItemDetailPage({
                                 </Stack>
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
-                                    Quantity
-                                  </Text>
+                                    {t("discovery.features.itemDetail.ui.itemDetailPage.quantity")}</Text>
                                   <Text>{offer.quantity_requested}</Text>
                                 </Stack>
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
-                                    Product
-                                  </Text>
-                                  <Text>{offer.product_summary ?? "Standard"}</Text>
+                                    {t("discovery.features.itemDetail.ui.itemDetailPage.product.2")}</Text>
+                                  <Text>{offer.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard.2")}</Text>
                                 </Stack>
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
-                                    Status
-                                  </Text>
+                                    {t("discovery.features.itemDetail.ui.itemDetailPage.status")}</Text>
                                   <Inline gap={2}>
                                     <Badge tone={offerStatusTone(offer.status)}>
                                       {offer.status}
                                     </Badge>
                                     {sellerOffer ? (
                                       <Badge tone={sellerOffer.can_fulfill ? "success" : "warning"}>
-                                        {sellerOffer.can_fulfill ? "Can fulfill" : "Needs supply"}
+                                        {sellerOffer.can_fulfill ? t("discovery.features.itemDetail.ui.itemDetailPage.can.fulfill") : t("discovery.features.itemDetail.ui.itemDetailPage.needs.supply")}
                                       </Badge>
                                     ) : null}
                                     {sellerOffer?.in_sell_list ? (
-                                      <Badge tone="accent">In sell list</Badge>
+                                      <Badge tone="accent">{t("discovery.features.itemDetail.ui.itemDetailPage.in.sell.list")}</Badge>
                                     ) : null}
                                   </Inline>
                                 </Stack>
@@ -1096,11 +1116,11 @@ export function ItemDetailPage({
                         })
                       ) : (
                         <EmptyState
-                          title="No matching offers"
+                          title={t("discovery.features.itemDetail.ui.itemDetailPage.no.matching.offers")}
                           description={
                             data.buyer_offer_matches.length > 0
-                              ? "No offers match these filters."
-                              : "Buyers have not placed offers for this item yet."
+                              ? t("discovery.features.itemDetail.ui.itemDetailPage.no.offers.match.these.filters")
+                              : t("discovery.features.itemDetail.ui.itemDetailPage.buyers.have.not.placed.offers.for")
                           }
                           icon="package"
                         />

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -17,21 +18,34 @@ import { useField, configureField, activateField, deprecateField, archiveField }
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: "Activate", action: "activate", tone: "primary" }];
+      return [{ label: t("catalog.features.fields.ui.fieldDetailPage.activate"), action: "activate", tone: "primary" }];
     case "active":
-      return [{ label: "Deprecate", action: "deprecate", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.fields.ui.fieldDetailPage.deprecate"), action: "deprecate", confirm: true, tone: "danger" }];
     case "deprecated":
-      return [{ label: "Archive", action: "archive", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.fields.ui.fieldDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
     default:
       return [];
   }
 }
 
+function lifecycleActionLabel(action: string) {
+  switch (action) {
+    case "activate":
+      return t("catalog.features.fields.ui.fieldDetailPage.activated");
+    case "deprecate":
+      return t("catalog.features.fields.ui.fieldDetailPage.deprecated");
+    case "archive":
+      return t("catalog.features.fields.ui.fieldDetailPage.archived");
+    default:
+      return action;
+  }
+}
+
 const valueTypeOptions = [
-  { value: "string", label: "String" },
-  { value: "number", label: "Number" },
-  { value: "boolean", label: "Boolean" },
-  { value: "date", label: "Date" },
+  { value: "string", label: t("catalog.features.fields.ui.fieldDetailPage.string") },
+  { value: "number", label: t("catalog.features.fields.ui.fieldDetailPage.number") },
+  { value: "boolean", label: t("catalog.features.fields.ui.fieldDetailPage.boolean") },
+  { value: "date", label: t("catalog.features.fields.ui.fieldDetailPage.date") },
 ];
 
 export function FieldDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useField>[1] }) {
@@ -53,7 +67,9 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
       archive: () => archiveField(id),
     };
     await actions[action]?.();
-    addToast(`Field ${action}d`, "success");
+    addToast(t("catalog.features.fields.ui.fieldDetailPage.lifecycle.completed", {
+      action: lifecycleActionLabel(action),
+    }), "success");
     refresh();
   }
 
@@ -78,7 +94,7 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
       valueType: editValueType,
       behavior: { filterable: editFilterable, searchable: editSearchable, sortable: editSortable },
     });
-    addToast("Field configured", "success");
+    addToast(t("catalog.features.fields.ui.fieldDetailPage.field.configured"), "success");
     setEditing(false);
     refresh();
   }
@@ -86,9 +102,9 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
   return (
     <>
       <EntityDetailPage
-        title={data?.name ?? "Field"}
+        title={data?.name ?? t("catalog.features.fields.ui.fieldDetailPage.field")}
         breadcrumbs={[
-          { label: "Fields", href: "/fields" },
+          { label: t("catalog.features.fields.ui.fieldDetailPage.fields"), href: "/fields" },
           { label: data?.name ?? id },
         ]}
         actions={
@@ -101,8 +117,7 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
               />
               {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditing}>
-                  Configure
-                </Button>
+                  {t("catalog.features.fields.ui.fieldDetailPage.configure")}</Button>
               )}
             </Inline>
           ) : undefined
@@ -114,15 +129,15 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
         {data && (
           <KeyValueList
             items={[
-              { key: "Key", value: data.key },
-              { key: "Name", value: data.name },
-              { key: "Description", value: data.description ?? "—" },
-              { key: "Value Type", value: data.value_type },
-              { key: "Filterable", value: data.filterable ? "Yes" : "No" },
-              { key: "Searchable", value: data.searchable ? "Yes" : "No" },
-              { key: "Sortable", value: data.sortable ? "Yes" : "No" },
-              { key: "Status", value: data.status },
-              { key: "Updated", value: data.updated_at },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.key"), value: data.key },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.name"), value: data.name },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.description"), value: data.description ?? "—" },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.value.type"), value: data.value_type },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.filterable"), value: data.filterable ? t("catalog.features.fields.ui.fieldDetailPage.yes") : t("catalog.features.fields.ui.fieldDetailPage.no") },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.searchable"), value: data.searchable ? t("catalog.features.fields.ui.fieldDetailPage.yes.2") : t("catalog.features.fields.ui.fieldDetailPage.no.2") },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.sortable"), value: data.sortable ? t("catalog.features.fields.ui.fieldDetailPage.yes.3") : t("catalog.features.fields.ui.fieldDetailPage.no.3") },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.status"), value: data.status },
+              { key: t("catalog.features.fields.ui.fieldDetailPage.updated"), value: data.updated_at },
             ]}
           />
         )}
@@ -131,23 +146,22 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
       <Dialog
         open={editing}
         onOpenChange={setEditing}
-        title="Configure Field"
-        footer={<Button onClick={handleConfigure}>Save</Button>}
+        title={t("catalog.features.fields.ui.fieldDetailPage.configure.field")}
+        footer={<Button onClick={handleConfigure}>{t("catalog.features.fields.ui.fieldDetailPage.save")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
-          <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
-          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
-          <Select label="Value Type" items={valueTypeOptions} value={editValueType} onValueChange={setEditValueType} />
-          <Checkbox label="Filterable" checked={editFilterable} onCheckedChange={(v) => setEditFilterable(v === true)} />
-          <Checkbox label="Searchable" checked={editSearchable} onCheckedChange={(v) => setEditSearchable(v === true)} />
-          <Checkbox label="Sortable" checked={editSortable} onCheckedChange={(v) => setEditSortable(v === true)} />
+          <TextInput label={t("catalog.features.fields.ui.fieldDetailPage.key")} value={editKey} onChange={(e) => setEditKey(e.target.value)} />
+          <TextInput label={t("catalog.features.fields.ui.fieldDetailPage.name")} value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label={t("catalog.features.fields.ui.fieldDetailPage.description")} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          <Select label={t("catalog.features.fields.ui.fieldDetailPage.value.type")} items={valueTypeOptions} value={editValueType} onValueChange={setEditValueType} />
+          <Checkbox label={t("catalog.features.fields.ui.fieldDetailPage.filterable")} checked={editFilterable} onCheckedChange={(v) => setEditFilterable(v === true)} />
+          <Checkbox label={t("catalog.features.fields.ui.fieldDetailPage.searchable")} checked={editSearchable} onCheckedChange={(v) => setEditSearchable(v === true)} />
+          <Checkbox label={t("catalog.features.fields.ui.fieldDetailPage.sortable")} checked={editSortable} onCheckedChange={(v) => setEditSortable(v === true)} />
         </Stack>
       </Dialog>
     </>
   );
 }
-
 
 
 

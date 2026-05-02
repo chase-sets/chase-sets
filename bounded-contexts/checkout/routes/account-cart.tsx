@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -10,7 +11,7 @@ import { createCheckoutRequestApiClient } from "../support/request-support/api-c
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Review cart lines, adjust quantity, and start checkout.";
+  t("checkout.routes.accountCart.review.cart.lines.adjust.quantity.and");
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "orders.view" });
@@ -43,14 +44,14 @@ export async function action({ request }: ActionFunctionArgs) {
     return null;
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Request failed.",
+      error: error instanceof Error ? error.message : t("checkout.routes.accountCart.request.failed"),
     };
   }
 }
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Cart | Marketplace",
+    title: t("checkout.routes.accountCart.cart.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 

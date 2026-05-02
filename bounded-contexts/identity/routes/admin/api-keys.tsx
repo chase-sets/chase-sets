@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { ApiKey } from "../../support/request-support/api-client";
@@ -10,7 +11,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return api.listApiKeys<ListResponse<ApiKey>>("limit=50&offset=0");
 }
 
-export const meta: MetaFunction = () => [{ title: "API Keys | Identity Admin" }];
+export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.apiKeys.api.keys.identity.admin") }];
 
 export default function ApiKeysRoute() {
   const data = useLoaderData<typeof loader>();

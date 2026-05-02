@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -35,10 +36,10 @@ function canRaiseException(status: string) {
 }
 
 const uspsServiceLevels = [
-  { value: "USPS_GROUND_ADVANTAGE", label: "USPS Ground Advantage" },
-  { value: "PRIORITY", label: "USPS Priority Mail" },
-  { value: "PRIORITY_EXPRESS", label: "USPS Priority Mail Express" },
-  { value: "MEDIA_MAIL", label: "USPS Media Mail" },
+  { value: "USPS_GROUND_ADVANTAGE", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.ground.advantage") },
+  { value: "PRIORITY", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.priority.mail") },
+  { value: "PRIORITY_EXPRESS", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.priority.mail.express") },
+  { value: "MEDIA_MAIL", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.media.mail") },
 ];
 
 export function FulfillmentShipmentDetailPage({
@@ -60,13 +61,17 @@ export function FulfillmentShipmentDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow={role === "buyer" ? "Buyer" : "Seller"}
-        title={`Shipment ${shipment.shipment_id}`}
-        description={`Order ${shipment.order_id} with ${counterpartLabel}`}
+        eyebrow={role === "buyer" ? t("fulfillment.features.shipments.ui.shipmentDetailPage.buyer") : t("fulfillment.features.shipments.ui.shipmentDetailPage.seller")}
+        title={t("fulfillment.features.shipments.ui.shipmentDetailPage.shipment.title", {
+          shipmentId: shipment.shipment_id,
+        })}
+        description={t("fulfillment.features.shipments.ui.shipmentDetailPage.order.with.counterpart", {
+          orderId: shipment.order_id,
+          counterpart: counterpartLabel,
+        })}
         actions={
           <LinkButton href={backHref} tone="secondary">
-            Back
-          </LinkButton>
+            {t("fulfillment.features.shipments.ui.shipmentDetailPage.back")}</LinkButton>
         }
       />
 
@@ -76,44 +81,47 @@ export function FulfillmentShipmentDetailPage({
         </Card>
       ) : null}
 
-      <PageSection title="Summary">
+      <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")}>
         <Card>
           <Stack gap={2}>
             <Badge tone={statusTone(shipment.status)}>{shipment.status}</Badge>
-            <Text>Shipping option: {shipment.shipping_option}</Text>
-            <Text>Shipping method: {shipment.shipping_method ?? "Not selected yet"}</Text>
-            <Text>Service level: {shipment.postage_service_level ?? "Not selected yet"}</Text>
-            <Text>Carrier: {shipment.carrier_name ?? "Not selected yet"}</Text>
-            <Text>Tracking: {shipment.tracking_identifier ?? "Not attached yet"}</Text>
-            <Text>Label status: {shipment.label_status}</Text>
-            <Text>Postage provider: {shipment.postage_provider_name ?? "Not selected yet"}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.option")}{shipment.shipping_option}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.method")}{shipment.shipping_method ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet")}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.service.level")}{shipment.postage_service_level ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.2")}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.carrier")}{shipment.carrier_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.3")}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking")}{shipment.tracking_identifier ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.attached.yet")}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status")}{shipment.label_status}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider")}{shipment.postage_provider_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4")}</Text>
             {shipment.postage_amount_cents != null ? (
               <Text>
-                Postage: {(shipment.postage_amount_cents / 100).toFixed(2)}{" "}
+                {t("fulfillment.features.shipments.ui.shipmentDetailPage.postage")}{(shipment.postage_amount_cents / 100).toFixed(2)}{" "}
                 {shipment.postage_currency ?? "USD"}
               </Text>
             ) : null}
             {shipment.label_document_url ? (
               <LinkButton href={shipment.label_document_url} tone="secondary">
-                Open label PDF
-              </LinkButton>
+                {t("fulfillment.features.shipments.ui.shipmentDetailPage.open.label.pdf")}</LinkButton>
             ) : null}
             {shipment.label_error_message ? (
               <Text tone="accent">{shipment.label_error_message}</Text>
             ) : null}
             {shipment.label_refund_status ? (
               <Text>
-                Refund: {shipment.label_refund_status}
-                {shipment.label_refund_reference ? ` (${shipment.label_refund_reference})` : ""}
+                {t("fulfillment.features.shipments.ui.shipmentDetailPage.refund")}{shipment.label_refund_status}
+                {shipment.label_refund_reference
+                  ? t("fulfillment.features.shipments.ui.shipmentDetailPage.refund.reference", {
+                      reference: shipment.label_refund_reference,
+                    })
+                  : ""}
               </Text>
             ) : null}
-            <Text>Package state: {shipment.package_status}</Text>
-            <Text>Package count: {shipment.package_count ?? "Not recorded yet"}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.package.state")}{shipment.package_status}</Text>
+            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.package.count")}{shipment.package_count ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet")}</Text>
           </Stack>
         </Card>
       </PageSection>
 
-      <PageSection title="Lines">
+      <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.lines")}>
         <Stack gap={3}>
           {shipment.lines.map((line) => (
             <Card key={line.line_id}>
@@ -125,20 +133,20 @@ export function FulfillmentShipmentDetailPage({
                   </Text>
                 ) : null}
                 <Text size="sm" tone="secondary">
-                  {line.product_summary ?? "Standard"}
+                  {line.product_summary ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.standard")}
                 </Text>
-                <Text>Quantity: {line.quantity}</Text>
+                <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.quantity")}{line.quantity}</Text>
               </Stack>
             </Card>
           ))}
         </Stack>
       </PageSection>
 
-      <PageSection title="Exceptions">
+      <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.exceptions")}>
         <Stack gap={3}>
           {shipment.exceptions.length === 0 ? (
             <Card>
-              <Text tone="secondary">No shipment exceptions recorded.</Text>
+              <Text tone="secondary">{t("fulfillment.features.shipments.ui.shipmentDetailPage.no.shipment.exceptions.recorded")}</Text>
             </Card>
           ) : (
             shipment.exceptions.map((exception) => (
@@ -146,7 +154,7 @@ export function FulfillmentShipmentDetailPage({
                 <Stack gap={1}>
                   <Text weight="semibold">{exception.exception_type}</Text>
                   <Text size="sm" tone="secondary">
-                    Raised at {exception.raised_at}
+                    {t("fulfillment.features.shipments.ui.shipmentDetailPage.raised.at")}{exception.raised_at}
                   </Text>
                   {exception.notes ? <Text>{exception.notes}</Text> : null}
                 </Stack>
@@ -157,22 +165,21 @@ export function FulfillmentShipmentDetailPage({
       </PageSection>
 
       {role === "seller" ? (
-        <PageSection title="Actions">
+        <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.actions")}>
           <Stack gap={3}>
             {shipment.status === "awaiting-package" ? (
               <Card>
                 <form method="post">
                   <Stack gap={3}>
                     <NumberInput
-                      label="Package count"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.package.count.2")}
                       name="packageCount"
                       required
                       min="1"
                       defaultValue={shipment.package_count ?? 1}
                     />
                     <Button type="submit" name="intent" value="prepare-package">
-                      Mark package ready
-                    </Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.package.ready")}</Button>
                   </Stack>
                 </form>
               </Card>
@@ -183,42 +190,42 @@ export function FulfillmentShipmentDetailPage({
                 <form method="post">
                   <Stack gap={3}>
                     <NativeSelect
-                      label="USPS service"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.service")}
                       name="serviceLevel"
                       required
                       defaultValue={shipment.postage_service_level ?? "USPS_GROUND_ADVANTAGE"}
                       items={uspsServiceLevels}
                     />
-                    <TextInput label="Sender name" name="senderName" required />
-                    <TextInput label="Sender company" name="senderCompany" />
-                    <TextInput label="Sender street" name="senderStreet1" required />
-                    <TextInput label="Sender street 2" name="senderStreet2" />
-                    <TextInput label="Sender city" name="senderCity" required />
-                    <TextInput label="Sender state" name="senderState" required />
-                    <TextInput label="Sender ZIP" name="senderPostalCode" required />
-                    <TextInput label="Sender country" name="senderCountry" required defaultValue="US" />
-                    <TextInput label="Sender phone" name="senderPhone" />
-                    <TextInput label="Sender email" name="senderEmail" type="email" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.name")} name="senderName" required />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.company")} name="senderCompany" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.street")} name="senderStreet1" required />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.street.2")} name="senderStreet2" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.city")} name="senderCity" required />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.state")} name="senderState" required />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.zip")} name="senderPostalCode" required />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.country")} name="senderCountry" required defaultValue="US" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.phone")} name="senderPhone" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.email")} name="senderEmail" type="email" />
                     <TextInput
-                      label="Recipient name"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.name")}
                       name="recipientName"
                       required
                     />
-                    <TextInput label="Recipient company" name="recipientCompany" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.company")} name="recipientCompany" />
                     <TextInput
-                      label="Recipient street"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.street")}
                       name="recipientStreet1"
                       required
                     />
-                    <TextInput label="Recipient street 2" name="recipientStreet2" />
-                    <TextInput label="Recipient city" name="recipientCity" required />
-                    <TextInput label="Recipient state" name="recipientState" required />
-                    <TextInput label="Recipient ZIP" name="recipientPostalCode" required />
-                    <TextInput label="Recipient country" name="recipientCountry" required defaultValue="US" />
-                    <TextInput label="Recipient phone" name="recipientPhone" />
-                    <TextInput label="Recipient email" name="recipientEmail" type="email" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.street.2")} name="recipientStreet2" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.city")} name="recipientCity" required />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.state")} name="recipientState" required />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.zip")} name="recipientPostalCode" required />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.country")} name="recipientCountry" required defaultValue="US" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.phone")} name="recipientPhone" />
+                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.email")} name="recipientEmail" type="email" />
                     <NumberInput
-                      label="Length (in)"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.length.in")}
                       name="packageLengthInches"
                       min="0.1"
                       step="0.1"
@@ -226,7 +233,7 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue="7"
                     />
                     <NumberInput
-                      label="Width (in)"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.width.in")}
                       name="packageWidthInches"
                       min="0.1"
                       step="0.1"
@@ -234,7 +241,7 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue="5"
                     />
                     <NumberInput
-                      label="Height (in)"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.height.in")}
                       name="packageHeightInches"
                       min="0.1"
                       step="0.1"
@@ -242,7 +249,7 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue="1"
                     />
                     <NumberInput
-                      label="Weight (oz)"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.weight.oz")}
                       name="packageWeightOunces"
                       min="0.1"
                       step="0.1"
@@ -250,8 +257,7 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue="4"
                     />
                     <Button type="submit" name="intent" value="purchase-label">
-                      Purchase USPS label
-                    </Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.usps.label")}</Button>
                   </Stack>
                 </form>
               </Card>
@@ -262,17 +268,15 @@ export function FulfillmentShipmentDetailPage({
                 <form method="post">
                   <Stack gap={3}>
                     <Button type="submit" name="intent" value="dispatch-shipment">
-                      Mark dispatched
-                    </Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.dispatched")}</Button>
                     <TextInput
-                      label="Tracking identifier"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking.identifier")}
                       name="trackingIdentifier"
                       readOnly
                       defaultValue={shipment.tracking_identifier ?? ""}
                     />
                     <Button type="submit" name="intent" value="void-label" tone="secondary">
-                      Void label
-                    </Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.void.label")}</Button>
                   </Stack>
                 </form>
               </Card>
@@ -283,20 +287,18 @@ export function FulfillmentShipmentDetailPage({
                 <Stack gap={3}>
                   <form method="post">
                     <Button type="submit" name="intent" value="deliver-shipment">
-                      Mark delivered
-                    </Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.delivered")}</Button>
                   </form>
                   <form method="post">
                     <Stack gap={3}>
                       <Textarea
-                        label="Return notes"
+                        label={t("fulfillment.features.shipments.ui.shipmentDetailPage.return.notes")}
                         name="reason"
                         rows={3}
                         defaultValue=""
                       />
                       <Button type="submit" name="intent" value="return-shipment" tone="secondary">
-                        Mark returned
-                      </Button>
+                        {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.returned")}</Button>
                     </Stack>
                   </form>
                 </Stack>
@@ -308,20 +310,19 @@ export function FulfillmentShipmentDetailPage({
                 <form method="post">
                   <Stack gap={3}>
                     <TextInput
-                      label="Exception type"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.exception.type")}
                       name="exceptionType"
                       required
                       defaultValue={shipment.current_exception_type ?? "carrier-delay"}
                     />
                     <Textarea
-                      label="Notes"
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.notes")}
                       name="notes"
                       rows={3}
                       defaultValue={shipment.current_exception_notes ?? ""}
                     />
                     <Button type="submit" name="intent" value="raise-exception" tone="secondary">
-                      Raise exception
-                    </Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.raise.exception")}</Button>
                   </Stack>
                 </form>
               </Card>

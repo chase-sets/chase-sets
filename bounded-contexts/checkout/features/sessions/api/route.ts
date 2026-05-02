@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
 import type { CheckoutSessionServices } from "./runtime";
@@ -17,7 +18,7 @@ function requireCheckoutAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("checkout.features.sessions.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -27,7 +28,7 @@ function requireCheckoutAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("checkout.features.sessions.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -38,7 +39,7 @@ function requireCheckoutAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("checkout.features.sessions.api.route.request.failed");
 }
 
 function parseSelectedOptions(value: unknown) {
@@ -73,7 +74,7 @@ export function createAccountCheckoutSessionRoutes(
 
       const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.sessions.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();
@@ -131,7 +132,7 @@ export function createAccountCheckoutSessionRoutes(
       access.actor.accountId,
     );
     if (!session) {
-      return c.json({ error: { code: "not_found", message: "Checkout session not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("checkout.features.sessions.api.route.checkout.session.not.found") } }, 404);
     }
 
     return c.json(session);
@@ -145,7 +146,7 @@ export function createAccountCheckoutSessionRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.sessions.api.route.authentication.context.missing.2") } }, 401);
     }
 
     const body = await c.req.json();
@@ -176,7 +177,7 @@ export function createAccountCheckoutSessionRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.sessions.api.route.authentication.context.missing.3") } }, 401);
     }
 
       const sessionId = c.req.param("sessionId");
@@ -188,7 +189,7 @@ export function createAccountCheckoutSessionRoutes(
     try {
       let session = await services.getSession(sessionId, access.actor.accountId);
       if (!session) {
-        return c.json({ error: { code: "not_found", message: "Checkout session not found." } }, 404);
+        return c.json({ error: { code: "not_found", message: t("checkout.features.sessions.api.route.checkout.session.not.found.2") } }, 404);
       }
 
       if (session.payment_id) {

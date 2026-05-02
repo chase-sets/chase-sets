@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { AuthMethod } from "../../features/sessions/domain/auth-flow";
 import {
   consumeAccountSelectionToken,
@@ -19,7 +20,7 @@ export function registerAccountSelectionRoutes(
     );
 
     if (!selection) {
-      return c.json({ error: "Account selection is invalid or has expired." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.accountSelectionRoutes.account.selection.is.invalid.or.has") }, 401);
     }
 
     const memberships = await services.identity.listActiveMembershipsForUser(
@@ -41,7 +42,7 @@ export function registerAccountSelectionRoutes(
     );
 
     if (!selection) {
-      return c.json({ error: "Account selection is invalid or has expired." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.accountSelectionRoutes.account.selection.is.invalid.or.has.2") }, 401);
     }
 
     const authResult = await startInteractiveAuth(services, {
@@ -53,7 +54,7 @@ export function registerAccountSelectionRoutes(
     });
 
     if (authResult.type !== "session-started") {
-      return c.json({ error: "Account selection could not be completed." }, 400);
+      return c.json({ error: t("auth.support.apiSupport.accountSelectionRoutes.account.selection.could.not.be.completed") }, 400);
     }
 
     return c.json(authResult);

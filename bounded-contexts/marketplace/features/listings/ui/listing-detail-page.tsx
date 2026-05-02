@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -18,14 +19,20 @@ function formatMoney(amount: string) {
 }
 
 function formatOptionalMoney(amount: string | null) {
-  return amount ? formatMoney(amount) : "Not set";
+  return amount ? formatMoney(amount) : t("marketplace.features.listings.ui.listingDetailPage.not.set");
 }
 
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
-    `Marketplace ${formatMoney(preview.marketplace_fee_amount)}`,
-    `Payment ${formatMoney(preview.payment_fee_amount)}`,
-    `Net ${formatMoney(preview.seller_net_amount)}`,
+    t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
+      amount: formatMoney(preview.marketplace_fee_amount),
+    }),
+    t("marketplace.features.listings.ui.listingDetailPage.payment.fee.summary", {
+      amount: formatMoney(preview.payment_fee_amount),
+    }),
+    t("marketplace.features.listings.ui.listingDetailPage.net.summary", {
+      amount: formatMoney(preview.seller_net_amount),
+    }),
   ].join(" | ");
 }
 
@@ -56,13 +63,12 @@ export function MarketplaceListingDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Seller"
+        eyebrow={t("marketplace.features.listings.ui.listingDetailPage.seller")}
         title={listing.item_title ?? listing.catalog_catalog_item_id}
-        description="Manage seller listing pricing, quantity caps, and publication state."
+        description={t("marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps")}
         actions={
           <LinkButton href="/account/listings" tone="secondary">
-            Back to listings
-          </LinkButton>
+            {t("marketplace.features.listings.ui.listingDetailPage.back.to.listings")}</LinkButton>
         }
       />
 
@@ -72,7 +78,7 @@ export function MarketplaceListingDetailPage({
         </Card>
       ) : null}
 
-      <PageSection title="Listing Overview">
+      <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}>
         <Card>
           <Stack gap={2}>
             {listing.item_subtitle ? (
@@ -84,36 +90,40 @@ export function MarketplaceListingDetailPage({
               </Text>
             ) : null}
             <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
-            <Text>Price: {formatMoney(listing.price_amount)}</Text>
-            <Text>Marketplace fee: {formatOptionalMoney(listing.marketplace_fee_amount)}</Text>
-            <Text>Payment fee: {formatOptionalMoney(listing.payment_fee_amount)}</Text>
-            <Text>Seller net: {formatOptionalMoney(listing.seller_net_amount)}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.price")}{formatMoney(listing.price_amount)}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(listing.marketplace_fee_amount)}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.payment.fee")}{formatOptionalMoney(listing.payment_fee_amount)}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(listing.seller_net_amount)}</Text>
             <Text>
-              Terms schedule: {listing.terms_schedule_id ?? "Default fallback unavailable"}
+              {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{listing.terms_schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.default.fallback.unavailable")}
             </Text>
-            <Text>Agreement override: {listing.terms_agreement_id ?? "None"}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.agreement.override")}{listing.terms_agreement_id ?? t("marketplace.features.listings.ui.listingDetailPage.none")}</Text>
             <Text>
-              Terms resolved at:{" "}
+              {t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at")}{" "}
               {listing.terms_resolved_at
                 ? new Date(listing.terms_resolved_at).toLocaleString()
-                : "Not set"}
+                : t("marketplace.features.listings.ui.listingDetailPage.not.set.2")}
             </Text>
-            <Text>Quantity cap: {listing.quantity_cap}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.quantity.cap")}{listing.quantity_cap}</Text>
             <Text>
-              Inventory: {listing.storage_location_name ?? "Unknown location"}{" "}
-              {listing.ship_from_code ? `(${listing.ship_from_code})` : ""}
+              {t("marketplace.features.listings.ui.listingDetailPage.inventory")}{listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location")}{" "}
+              {listing.ship_from_code
+                ? t("marketplace.features.listings.ui.listingDetailPage.ship.from.code", {
+                    shipFromCode: listing.ship_from_code,
+                  })
+                : ""}
             </Text>
           </Stack>
         </Card>
       </PageSection>
 
-      <PageSection title="Update Listing">
+      <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")}>
         <Stack gap={4}>
           <Card>
             <form method="post">
               <Stack gap={3}>
                 <TextInput
-                  label="Price"
+                  label={t("marketplace.features.listings.ui.listingDetailPage.price.2")}
                   name="priceAmount"
                   defaultValue={priceDraftAmount ?? listing.price_amount}
                   inputMode="decimal"
@@ -121,31 +131,29 @@ export function MarketplaceListingDetailPage({
                 />
                 <Stack gap={2}>
                   <Button type="submit" name="intent" value="update-price" tone="secondary">
-                    Save price
-                  </Button>
+                    {t("marketplace.features.listings.ui.listingDetailPage.save.price")}</Button>
                   <Button type="submit" name="intent" value="preview-price" tone="secondary">
-                    Preview fees
-                  </Button>
+                    {t("marketplace.features.listings.ui.listingDetailPage.preview.fees")}</Button>
                 </Stack>
               </Stack>
             </form>
             {pricePreview ? (
               <Stack gap={2}>
-                <Text weight="semibold">Updated fee preview</Text>
+                <Text weight="semibold">{t("marketplace.features.listings.ui.listingDetailPage.updated.fee.preview")}</Text>
                 <Text size="sm" tone="secondary">
-                  Account type: {pricePreview.account_type}
+                  {t("marketplace.features.listings.ui.listingDetailPage.account.type")}{pricePreview.account_type}
                 </Text>
                 <Text size="sm" tone="secondary">
                   {renderPreviewSummary(pricePreview)}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  Basis amount: {formatMoney(pricePreview.basis_amount)}
+                  {t("marketplace.features.listings.ui.listingDetailPage.basis.amount")}{formatMoney(pricePreview.basis_amount)}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  Terms schedule: {pricePreview.schedule_id ?? "No schedule available"}
+                  {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule.2")}{pricePreview.schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.no.schedule.available")}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  Agreement override: {pricePreview.agreement_id ?? "None"}
+                  {t("marketplace.features.listings.ui.listingDetailPage.agreement.override.2")}{pricePreview.agreement_id ?? t("marketplace.features.listings.ui.listingDetailPage.none.2")}
                 </Text>
               </Stack>
             ) : null}
@@ -156,15 +164,14 @@ export function MarketplaceListingDetailPage({
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="update-quantity-cap" />
                 <NumberInput
-                  label="Quantity cap"
+                  label={t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.2")}
                   name="quantityCap"
                   defaultValue={String(listing.quantity_cap)}
                   min="1"
                   required
                 />
                 <Button type="submit" tone="secondary">
-                  Save quantity cap
-                </Button>
+                  {t("marketplace.features.listings.ui.listingDetailPage.save.quantity.cap")}</Button>
               </Stack>
             </form>
           </Card>
@@ -174,20 +181,17 @@ export function MarketplaceListingDetailPage({
               <form method="post">
                 <input type="hidden" name="intent" value="publish" />
                 <Button type="submit" disabled={listing.status === "active" || listing.status === "withdrawn"}>
-                  Publish listing
-                </Button>
+                  {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}</Button>
               </form>
               <form method="post">
                 <input type="hidden" name="intent" value="pause" />
                 <Button type="submit" tone="secondary" disabled={listing.status !== "active"}>
-                  Pause listing
-                </Button>
+                  {t("marketplace.features.listings.ui.listingDetailPage.pause.listing")}</Button>
               </form>
               <form method="post">
                 <input type="hidden" name="intent" value="withdraw" />
                 <Button type="submit" tone="danger" disabled={listing.status === "withdrawn"}>
-                  Withdraw listing
-                </Button>
+                  {t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}</Button>
               </form>
             </Stack>
           </Card>

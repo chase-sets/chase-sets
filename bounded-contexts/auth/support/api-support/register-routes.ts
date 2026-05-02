@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
@@ -17,7 +18,7 @@ export function registerRegistrationRoutes(
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
     const existingUser = await services.identity.getUserByEmail(email);
     if (existingUser) {
-      return c.json({ error: "A user already exists for that email." }, 409);
+      return c.json({ error: t("auth.support.apiSupport.registerRoutes.a.user.already.exists.for.that") }, 409);
     }
 
     const identity = await identityMutations.createPersonalIdentity({

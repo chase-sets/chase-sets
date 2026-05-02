@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -72,7 +73,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     canReconcilePayouts: actor.permissions.includes("payouts.reconcile"),
     setupNotice:
       requestUrl.searchParams.get("setup") === "updated"
-        ? "Payout setup status was refreshed."
+        ? t("settlement.routes.marketplace.accountPayouts.payout.setup.status.was.refreshed")
         : null,
   };
 }
@@ -89,7 +90,7 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     if (intent === "preview-payout") {
       if (!actor.permissions.includes("payouts.request")) {
-        return { error: "You do not have permission to request payouts." };
+        return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to") };
       }
       const amount = normalizeQuickAmount(formData);
       const note = formData.get("note") ? String(formData.get("note")) : null;
@@ -105,7 +106,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     if (intent === "edit-payout") {
       if (!actor.permissions.includes("payouts.request")) {
-        return { error: "You do not have permission to request payouts." };
+        return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.2") };
       }
       return {
         draft: {
@@ -117,7 +118,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     if (intent === "confirm-payout") {
       if (!actor.permissions.includes("payouts.request")) {
-        return { error: "You do not have permission to request payouts." };
+        return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.3") };
       }
       const result = (await settlementApi.createPayout({
         amount: formData.get("amount"),
@@ -130,7 +131,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     if (intent === "start-payout-setup") {
       if (!actor.permissions.includes("payouts.setup")) {
-        return { error: "You do not have permission to update payout setup." };
+        return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.4") };
       }
       const result = await settlementApi.createPayoutSetupOnboardingSession({
         returnUrl: new URL("/account/payouts?setup=returned", request.url).toString(),
@@ -142,7 +143,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     if (intent === "refresh-payout-setup") {
       if (!actor.permissions.includes("payouts.setup")) {
-        return { error: "You do not have permission to update payout setup." };
+        return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.5") };
       }
       await settlementApi.refreshPayoutSetup();
       return redirect("/account/payouts");
@@ -150,7 +151,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     if (intent === "manage-payout-account") {
       if (!actor.permissions.includes("payouts.setup")) {
-        return { error: "You do not have permission to update payout setup." };
+        return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.6") };
       }
       const result = await settlementApi.createPayoutAccountManagementSession({
         returnUrl: new URL("/account/payouts?setup=returned", request.url).toString(),
@@ -170,7 +171,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Payouts | Marketplace" });
+  buildOpenGraphMeta({ title: t("settlement.routes.marketplace.accountPayouts.payouts.marketplace") });
 
 export default function MarketplaceAccountPayoutsRoute() {
   const data = useLoaderData<typeof loader>();

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import {
@@ -16,24 +17,24 @@ import { useFieldList, createField } from "./use-fields";
 import type { Field } from "./contracts";
 
 const columns: DataColumn<Field>[] = [
-  { key: "key", header: "Key", cell: (row) => row.key },
-  { key: "name", header: "Name", cell: (row) => row.name },
-  { key: "value_type", header: "Type", cell: (row) => row.value_type },
-  { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
+  { key: "key", header: t("catalog.features.fields.ui.fieldListPage.key"), cell: (row) => row.key },
+  { key: "name", header: t("catalog.features.fields.ui.fieldListPage.name"), cell: (row) => row.name },
+  { key: "value_type", header: t("catalog.features.fields.ui.fieldListPage.type"), cell: (row) => row.value_type },
+  { key: "status", header: t("catalog.features.fields.ui.fieldListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
 ];
 
 const valueTypeOptions = [
-  { value: "string", label: "String" },
-  { value: "number", label: "Number" },
-  { value: "boolean", label: "Boolean" },
-  { value: "date", label: "Date" },
+  { value: "string", label: t("catalog.features.fields.ui.fieldListPage.string") },
+  { value: "number", label: t("catalog.features.fields.ui.fieldListPage.number") },
+  { value: "boolean", label: t("catalog.features.fields.ui.fieldListPage.boolean") },
+  { value: "date", label: t("catalog.features.fields.ui.fieldListPage.date") },
 ];
 
 const statusOptions = [
-  { label: "Draft", value: "draft" },
-  { label: "Active", value: "active" },
-  { label: "Deprecated", value: "deprecated" },
-  { label: "Archived", value: "archived" },
+  { label: t("catalog.features.fields.ui.fieldListPage.draft"), value: "draft" },
+  { label: t("catalog.features.fields.ui.fieldListPage.active"), value: "active" },
+  { label: t("catalog.features.fields.ui.fieldListPage.deprecated"), value: "deprecated" },
+  { label: t("catalog.features.fields.ui.fieldListPage.archived"), value: "archived" },
 ];
 
 export function FieldListPage({ initialData }: { initialData?: Parameters<typeof useFieldList>[1] }) {
@@ -64,7 +65,7 @@ export function FieldListPage({ initialData }: { initialData?: Parameters<typeof
   async function handleCreate() {
     const fieldId = createId("fld");
     await createField({ fieldId, key, name, description: description || undefined, valueType, behavior: { filterable, searchable, sortable } });
-    addToast("Field created", "success");
+    addToast(t("catalog.features.fields.ui.fieldListPage.field.created"), "success");
     setShowCreate(false);
     setKey("");
     setName("");
@@ -79,7 +80,7 @@ export function FieldListPage({ initialData }: { initialData?: Parameters<typeof
   return (
     <>
       <EntityListPage
-        title="Fields"
+        title={t("catalog.features.fields.ui.fieldListPage.fields")}
         entityName="field"
         items={data?.items ?? null}
         total={data?.total}
@@ -97,23 +98,23 @@ export function FieldListPage({ initialData }: { initialData?: Parameters<typeof
         pageSize={50}
         onPageChange={setPage}
         createButton={
-          <Button onClick={() => setShowCreate(true)}>New Field</Button>
+          <Button onClick={() => setShowCreate(true)}>{t("catalog.features.fields.ui.fieldListPage.new.field")}</Button>
         }
       />
       <Dialog
         open={showCreate}
         onOpenChange={setShowCreate}
-        title="Create Field"
-        footer={<Button onClick={handleCreate}>Create</Button>}
+        title={t("catalog.features.fields.ui.fieldListPage.create.field")}
+        footer={<Button onClick={handleCreate}>{t("catalog.features.fields.ui.fieldListPage.create")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Key" value={key} onChange={(e) => setKey(e.target.value)} />
-          <TextInput label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <TextInput label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
-          <Select label="Value Type" items={valueTypeOptions} value={valueType} onValueChange={setValueType} />
-          <Checkbox label="Filterable" checked={filterable} onCheckedChange={(v) => setFilterable(v === true)} />
-          <Checkbox label="Searchable" checked={searchable} onCheckedChange={(v) => setSearchable(v === true)} />
-          <Checkbox label="Sortable" checked={sortable} onCheckedChange={(v) => setSortable(v === true)} />
+          <TextInput label={t("catalog.features.fields.ui.fieldListPage.key.2")} value={key} onChange={(e) => setKey(e.target.value)} />
+          <TextInput label={t("catalog.features.fields.ui.fieldListPage.name.2")} value={name} onChange={(e) => setName(e.target.value)} />
+          <TextInput label={t("catalog.features.fields.ui.fieldListPage.description")} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <Select label={t("catalog.features.fields.ui.fieldListPage.value.type")} items={valueTypeOptions} value={valueType} onValueChange={setValueType} />
+          <Checkbox label={t("catalog.features.fields.ui.fieldListPage.filterable")} checked={filterable} onCheckedChange={(v) => setFilterable(v === true)} />
+          <Checkbox label={t("catalog.features.fields.ui.fieldListPage.searchable")} checked={searchable} onCheckedChange={(v) => setSearchable(v === true)} />
+          <Checkbox label={t("catalog.features.fields.ui.fieldListPage.sortable")} checked={sortable} onCheckedChange={(v) => setSortable(v === true)} />
         </Stack>
       </Dialog>
     </>

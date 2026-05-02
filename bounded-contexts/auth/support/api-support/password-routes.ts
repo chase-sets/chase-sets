@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { getPasswordCredentialByUserId } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import { getBootstrapContext, type AuthApiApp } from "./support";
@@ -11,7 +12,7 @@ export function registerPasswordRoutes(
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
     const user = await services.identity.getUserByEmail(email);
     if (!user) {
-      return c.json({ error: "Invalid email or password." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.passwordRoutes.invalid.email.or.password") }, 401);
     }
 
     const passwordCredential = await getPasswordCredentialByUserId(
@@ -25,7 +26,7 @@ export function registerPasswordRoutes(
         passwordCredential.secret_hash,
       )
     ) {
-      return c.json({ error: "Invalid email or password." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.passwordRoutes.invalid.email.or.password.2") }, 401);
     }
 
     const authResult = await startInteractiveAuth(services, {

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { ComponentServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -168,7 +169,7 @@ export function componentRoutes(services: ComponentServices) {
     const component = await services.getComponentDetail(c.req.param("id"));
 
     if (!component) {
-      return c.json({ error: { code: "not_found", message: "Component not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("catalog.features.components.api.route.component.not.found") } }, 404);
     }
 
     return c.json(component);

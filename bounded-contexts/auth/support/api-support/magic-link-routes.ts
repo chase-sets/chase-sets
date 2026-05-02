@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_MAGIC_LINK_TTL_MS,
@@ -46,7 +47,7 @@ export function registerMagicLinkRoutes(
       services.auth.hashSecret(String(body.token ?? "")),
     );
     if (!record) {
-      return c.json({ error: "Magic link is invalid or has expired." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has") }, 401);
     }
 
     let user = record.user_id

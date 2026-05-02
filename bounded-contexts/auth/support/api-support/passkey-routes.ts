@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_CHALLENGE_TTL_MS,
@@ -59,13 +60,13 @@ export function registerPasskeyRoutes(
       challengeValue: String(body.challenge ?? ""),
     });
     if (!challenge) {
-      return c.json({ error: "Passkey challenge is invalid or expired." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired") }, 401);
     }
 
     const actor = c.var.actor;
     if (!actor && challenge.user_id) {
       return c.json(
-        { error: "Sign in before adding a passkey to an existing account." },
+        { error: t("auth.support.apiSupport.passkeyRoutes.sign.in.before.adding.a.passkey") },
         409,
       );
     }
@@ -88,10 +89,10 @@ export function registerPasskeyRoutes(
     }
 
     if (!userId) {
-      return c.json({ error: "Passkey registration requires a user." }, 400);
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.registration.requires.a.user") }, 400);
     }
     if (actor && userId !== actor.userId) {
-      return c.json({ error: "Passkeys can only be linked to your user." }, 403);
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkeys.can.only.be.linked.to") }, 403);
     }
 
     const credentialId = createId("crd");
@@ -128,7 +129,7 @@ export function registerPasskeyRoutes(
       challengeValue: String(body.challenge ?? ""),
     });
     if (!challenge) {
-      return c.json({ error: "Passkey challenge is invalid or expired." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired.2") }, 401);
     }
 
     const passkey = await getPasskeyCredentialByExternalId(
@@ -136,10 +137,10 @@ export function registerPasskeyRoutes(
       String(body.externalCredentialId ?? ""),
     );
     if (!passkey) {
-      return c.json({ error: "Unknown passkey credential." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.unknown.passkey.credential") }, 401);
     }
     if (!passkeyMatchesChallengeUser(challenge.user_id, passkey.user_id)) {
-      return c.json({ error: "Passkey does not match the requested account." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.does.not.match.the.requested") }, 401);
     }
 
     const authResult = await startInteractiveAuth(services, {

@@ -22,6 +22,7 @@
     "@chase-sets/event-core": "0.1.0",
     "@chase-sets/event-core-postgres": "0.1.0",
     "@chase-sets/http": "0.1.0",
+    "@chase-sets/localization": "0.0.0",
     "@chase-sets/platform-runtime": "0.1.0",
     "@chase-sets/primitives": "0.1.0"
   }

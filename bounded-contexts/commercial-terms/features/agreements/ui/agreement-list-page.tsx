@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -29,9 +30,9 @@ export function AgreementListPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Admin"
-        title="Commercial Agreements"
-        description="Manage account-specific overrides for marketplace and payment fees."
+        eyebrow={t("commercialTerms.features.agreements.ui.agreementListPage.admin")}
+        title={t("commercialTerms.features.agreements.ui.agreementListPage.commercial.agreements")}
+        description={t("commercialTerms.features.agreements.ui.agreementListPage.manage.account.specific.overrides.for.marketplace")}
       />
 
       {errorMessage ? (
@@ -40,75 +41,75 @@ export function AgreementListPage({
         </Card>
       ) : null}
 
-      <PageSection title="Create Agreement">
+      <PageSection title={t("commercialTerms.features.agreements.ui.agreementListPage.create.agreement")}>
         <Card>
           <form method="post">
             <Stack gap={3}>
-              <TextInput label="Label" name="label" required />
-              <TextInput label="Account ID" name="accountId" required />
+              <TextInput label={t("commercialTerms.features.agreements.ui.agreementListPage.label")} name="label" required />
+              <TextInput label={t("commercialTerms.features.agreements.ui.agreementListPage.account.id")} name="accountId" required />
               <NumberInput
-                label="Marketplace Fee (bps)"
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.marketplace.fee.bps")}
                 name="marketplaceFeePercentageBps"
                 min="0"
                 defaultValue="700"
                 required
               />
               <TextInput
-                label="Marketplace Fixed Amount"
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.marketplace.fixed.amount")}
                 name="marketplaceFeeFixedAmount"
                 inputMode="decimal"
                 defaultValue="0.05"
                 required
               />
               <NumberInput
-                label="Payment Fee (bps)"
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.payment.fee.bps")}
                 name="paymentFeePercentageBps"
                 min="0"
                 defaultValue="275"
                 required
               />
               <TextInput
-                label="Payment Fixed Amount"
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.payment.fixed.amount")}
                 name="paymentFeeFixedAmount"
                 inputMode="decimal"
                 defaultValue="0.25"
                 required
               />
               <NativeSelect
-                label="Status"
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.status")}
                 name="status"
                 required
                 defaultValue="active"
                 items={[
-                  { value: "active", label: "Active" },
-                  { value: "inactive", label: "Inactive" },
+                  { value: "active", label: t("commercialTerms.features.agreements.ui.agreementListPage.active") },
+                  { value: "inactive", label: t("commercialTerms.features.agreements.ui.agreementListPage.inactive") },
                 ]}
               />
               <TextInput
-                label="Effective From"
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.effective.from")}
                 name="effectiveFrom"
                 defaultValue={new Date().toISOString()}
                 required
               />
               <TextInput
-                label="Effective Until"
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.effective.until")}
                 name="effectiveUntil"
-                placeholder="Optional ISO timestamp"
+                placeholder={t("commercialTerms.features.agreements.ui.agreementListPage.optional.iso.timestamp")}
               />
-              <Button type="submit">Create agreement</Button>
+              <Button type="submit">{t("commercialTerms.features.agreements.ui.agreementListPage.create.agreement.2")}</Button>
             </Stack>
           </form>
         </Card>
       </PageSection>
 
-      <PageSection title="Current Agreements">
+      <PageSection title={t("commercialTerms.features.agreements.ui.agreementListPage.current.agreements")}>
         <DataTable
           rows={[...items]}
           getRowId={(row) => row.agreement_id}
           columns={[
             {
               key: "label",
-              header: "Agreement",
+              header: t("commercialTerms.features.agreements.ui.agreementListPage.agreement"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{row.label}</Text>
@@ -120,36 +121,34 @@ export function AgreementListPage({
             },
             {
               key: "fees",
-              header: "Fees",
+              header: t("commercialTerms.features.agreements.ui.agreementListPage.fees"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text size="sm">
-                    Marketplace: {row.marketplace_fee_percentage_bps} bps + $
-                    {row.marketplace_fee_fixed_amount}
+                    {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}{row.marketplace_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}{row.marketplace_fee_fixed_amount}
                   </Text>
                   <Text size="sm" tone="secondary">
-                    Payment: {row.payment_fee_percentage_bps} bps + ${row.payment_fee_fixed_amount}
+                    {t("commercialTerms.features.agreements.ui.agreementListPage.payment")}{row.payment_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps.2")}{row.payment_fee_fixed_amount}
                   </Text>
                 </Stack>
               ),
             },
             {
               key: "status",
-              header: "Status",
+              header: t("commercialTerms.features.agreements.ui.agreementListPage.status.2"),
               cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
             },
             {
               key: "actions",
-              header: "Actions",
+              header: t("commercialTerms.features.agreements.ui.agreementListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/commercial-terms/agreements/${row.agreement_id}`} tone="secondary" size="sm">
-                  Open
-                </LinkButton>
+                  {t("commercialTerms.features.agreements.ui.agreementListPage.open")}</LinkButton>
               ),
             },
           ]}
-          emptyTitle="No agreements yet"
-          emptyDescription="Create an account-specific agreement to override default schedules."
+          emptyTitle={t("commercialTerms.features.agreements.ui.agreementListPage.no.agreements.yet")}
+          emptyDescription={t("commercialTerms.features.agreements.ui.agreementListPage.create.an.account.specific.agreement.to")}
         />
       </PageSection>
     </Page>

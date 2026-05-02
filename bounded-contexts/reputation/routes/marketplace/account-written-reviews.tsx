@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { LinkButton, Stack } from "@chase-sets/design-system";
 import { useLoaderData } from "react-router";
@@ -25,27 +26,25 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Written Reviews | Marketplace" });
+  buildOpenGraphMeta({ title: t("reputation.routes.marketplace.accountWrittenReviews.written.reviews.marketplace") });
 
 export default function MarketplaceAccountWrittenReviewsRoute() {
   const data = useLoaderData<typeof loader>();
 
   return (
     <ReviewListPage
-      title="Written Reviews"
-      eyebrow="Reviews"
-      emptyTitle="No written reviews yet"
-      emptyDescription="Reviews you leave after completed transactions appear here."
+      title={t("reputation.routes.marketplace.accountWrittenReviews.written.reviews")}
+      eyebrow={t("reputation.routes.marketplace.accountWrittenReviews.reviews")}
+      emptyTitle={t("reputation.routes.marketplace.accountWrittenReviews.no.written.reviews.yet")}
+      emptyDescription={t("reputation.routes.marketplace.accountWrittenReviews.reviews.you.leave.after.completed.transactions")}
       reviewDetailBasePath="/account/reviews"
       reviews={(data.reviews as ListResponse<ReviewListItem>).items}
       actions={
         <Stack direction="row" gap={2}>
           <LinkButton href="/account/reviews" tone="secondary">
-            Summary
-          </LinkButton>
+            {t("reputation.routes.marketplace.accountWrittenReviews.summary")}</LinkButton>
           <LinkButton href="/account/reviews/received" tone="secondary">
-            Received reviews
-          </LinkButton>
+            {t("reputation.routes.marketplace.accountWrittenReviews.received.reviews")}</LinkButton>
         </Stack>
       }
     />

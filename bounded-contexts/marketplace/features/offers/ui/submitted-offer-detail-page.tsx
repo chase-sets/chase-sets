@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -33,13 +34,12 @@ export function MarketplaceSubmittedOfferDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Offers"
+        eyebrow={t("marketplace.features.offers.ui.submittedOfferDetailPage.offers")}
         title={offer.item_title}
-        description="Review the details of your submitted offer."
+        description={t("marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted")}
         actions={
           <LinkButton href="/account/offers/submitted" tone="secondary">
-            Back to submitted offers
-          </LinkButton>
+            {t("marketplace.features.offers.ui.submittedOfferDetailPage.back.to.submitted.offers")}</LinkButton>
         }
       />
 
@@ -49,7 +49,7 @@ export function MarketplaceSubmittedOfferDetailPage({
         </Card>
       ) : null}
 
-      <PageSection title="Submitted Offer Overview">
+      <PageSection title={t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview")}>
         <Card>
           <Stack gap={2}>
             {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
@@ -59,12 +59,10 @@ export function MarketplaceSubmittedOfferDetailPage({
               </Text>
             ) : null}
             <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
-            <Text>Offer price: {formatMoney(offer.price_amount)}</Text>
-            <Text>Quantity requested: {offer.quantity_requested}</Text>
+            <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.offer.price")}{formatMoney(offer.price_amount)}</Text>
+            <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
             <Text>
-              This submitted offer is marketplace-wide. Accounts can review it when they publish
-              matching active supply.
-            </Text>
+              {t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide")}</Text>
           </Stack>
         </Card>
       </PageSection>

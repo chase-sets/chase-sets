@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -32,13 +33,26 @@ import {
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: "Publish", action: "publish", tone: "primary" }];
+      return [{ label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish"), action: "publish", tone: "primary" }];
     case "active":
-      return [{ label: "Retire", action: "retire", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.retire"), action: "retire", confirm: true, tone: "danger" }];
     case "retired":
-      return [{ label: "Archive", action: "archive", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
     default:
       return [];
+  }
+}
+
+function lifecycleActionLabel(action: string) {
+  switch (action) {
+    case "publish":
+      return t("catalog.features.catalogItems.ui.catalogItemDetailPage.published");
+    case "retire":
+      return t("catalog.features.catalogItems.ui.catalogItemDetailPage.retired");
+    case "archive":
+      return t("catalog.features.catalogItems.ui.catalogItemDetailPage.archived");
+    default:
+      return action;
   }
 }
 
@@ -111,21 +125,23 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       archive: () => archiveCatalogItem(id),
     };
     await actions[action]?.();
-    addToast(`Catalog item ${action}d`, "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.lifecycle.completed", {
+      action: lifecycleActionLabel(action),
+    }), "success");
     refresh();
   }
 
   async function handlePublish() {
     const requiredIds = publishRequiredFieldIds.split(",").map((s) => s.trim()).filter(Boolean);
     await publishCatalogItem(id, publishBlueprintActive, requiredIds);
-    addToast("Catalog item published", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.catalog.item.published"), "success");
     setShowPublish(false);
     refresh();
   }
 
   async function handleAssignBlueprint() {
     await assignBlueprint(id, blueprintId);
-    addToast("Blueprint assigned", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint.assigned"), "success");
     setShowAssignBlueprint(false);
     setBlueprintId("");
     refresh();
@@ -133,7 +149,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
 
   async function handleSetFieldValue() {
     await apiSetFieldValue(id, fieldId, fieldValue);
-    addToast("Field value set", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.value.set"), "success");
     setShowSetField(false);
     setFieldId("");
     setFieldValue("");
@@ -142,13 +158,13 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
 
   async function handleClearFieldValue(fId: string) {
     await clearFieldValue(id, fId);
-    addToast("Field value cleared", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.value.cleared"), "success");
     refresh();
   }
 
   async function handleAssignCategory() {
     await assignCategory(id, categoryId);
-    addToast("Category assigned", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.category.assigned"), "success");
     setShowAssignCategory(false);
     setCategoryId("");
     refresh();
@@ -156,7 +172,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
 
   async function handleRemoveCategory(catId: string) {
     await removeCategory(id, catId);
-    addToast("Category removed", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.category.removed"), "success");
     refresh();
   }
 
@@ -166,7 +182,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       subtitle: editSubtitle || null,
       description: editDescription || undefined,
     });
-    addToast("Metadata revised", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.metadata.revised"), "success");
     setShowEditMetadata(false);
     refresh();
   }
@@ -183,7 +199,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   async function handleSetTags() {
     const tags = tagsInput.split(",").map((s) => s.trim()).filter(Boolean);
     await setTags(id, tags);
-    addToast("Tags updated", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags.updated"), "success");
     setShowSetTags(false);
     refresh();
   }
@@ -198,7 +214,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   async function handleSetImageUrls() {
     const urls = imageUrlsInput.split("\n").map((s) => s.trim()).filter(Boolean);
     await setImageUrls(id, urls);
-    addToast("Image URLs updated", "success");
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.updated"), "success");
     setShowSetImageUrls(false);
     refresh();
   }
@@ -214,13 +230,13 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   const categories = (data?.categories ?? []) as CategoryRef[];
 
   const fieldValueColumns: DataColumn<FieldValue>[] = [
-    { key: "fieldId", header: "Field", cell: (row) => row.fieldName },
-    { key: "value", header: "Value", cell: (row) => formatFieldValue(row.value) },
+    { key: "fieldId", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.field"), cell: (row) => row.fieldName },
+    { key: "value", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.value"), cell: (row) => formatFieldValue(row.value) },
     {
       key: "actions",
       header: "",
       cell: (row) => data?.status !== "archived" ? (
-        <Button size="sm" tone="danger" onClick={() => handleClearFieldValue(row.fieldId)}>Clear</Button>
+        <Button size="sm" tone="danger" onClick={() => handleClearFieldValue(row.fieldId)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.clear")}</Button>
       ) : null,
     },
   ];
@@ -228,9 +244,9 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   return (
     <>
       <EntityDetailPage
-        title={data?.title ?? "Catalog Item"}
+        title={data?.title ?? t("catalog.features.catalogItems.ui.catalogItemDetailPage.catalog.item")}
         breadcrumbs={[
-          { label: "Catalog Items", href: "/catalog-items" },
+          { label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.catalog.items"), href: "/catalog-items" },
           { label: data?.title ?? id },
         ]}
         actions={
@@ -243,8 +259,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
               />
               {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditMetadata}>
-                  Edit Metadata
-                </Button>
+                  {t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.metadata")}</Button>
               )}
             </Inline>
           ) : undefined
@@ -257,56 +272,56 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
           <Stack gap={6}>
             <KeyValueList
               items={[
-                { key: "Title", value: data.title },
-                { key: "Subtitle", value: data.subtitle ?? "—" },
-                { key: "Description", value: data.description ?? "—" },
-                { key: "Blueprint", value: data.blueprint?.name ?? "None" },
-                { key: "Status", value: data.status },
-                { key: "Updated", value: data.updated_at },
+                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.title"), value: data.title },
+                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle"), value: data.subtitle ?? "—" },
+                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.description"), value: data.description ?? "—" },
+                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint"), value: data.blueprint?.name ?? t("catalog.features.catalogItems.ui.catalogItemDetailPage.none") },
+                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.status"), value: data.status },
+                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.updated"), value: data.updated_at },
               ]}
             />
 
             {data.status === "draft" && !data.blueprint && (
-              <PageSection title="Blueprint">
-                <Button size="sm" onClick={() => setShowAssignBlueprint(true)}>Assign Blueprint</Button>
+              <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint")}>
+                <Button size="sm" onClick={() => setShowAssignBlueprint(true)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.blueprint")}</Button>
               </PageSection>
             )}
 
-            <PageSection title="Field Values">
+            <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.values")}>
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
-                    <Button size="sm" onClick={() => setShowSetField(true)}>Set Field Value</Button>
+                    <Button size="sm" onClick={() => setShowSetField(true)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.field.value")}</Button>
                   </Inline>
                 )}
                 <DataTable
                   rows={fieldValues}
                   columns={fieldValueColumns}
                   getRowId={(row) => row.fieldId}
-                  emptyTitle="No field values"
+                  emptyTitle={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.field.values")}
                 />
               </Stack>
             </PageSection>
 
-            <PageSection title="Categories">
+            <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.categories")}>
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
-                    <Button size="sm" onClick={() => setShowAssignCategory(true)}>Assign Category</Button>
+                    <Button size="sm" onClick={() => setShowAssignCategory(true)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.category")}</Button>
                   </Inline>
                 )}
                 {categories.length === 0 ? (
-                  <Text tone="secondary">No categories assigned.</Text>
+                  <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.categories.assigned")}</Text>
                 ) : (
                   <DataTable
                     rows={categories}
                     columns={[
-                      { key: "categoryId", header: "Category", cell: (row) => row.name },
+                      { key: "categoryId", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.category"), cell: (row) => row.name },
                       {
                         key: "actions",
                         header: "",
                         cell: (row) => data.status !== "archived" ? (
-                          <Button size="sm" tone="danger" onClick={() => handleRemoveCategory(row.categoryId)}>Remove</Button>
+                          <Button size="sm" tone="danger" onClick={() => handleRemoveCategory(row.categoryId)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.remove")}</Button>
                         ) : null,
                       },
                     ]}
@@ -316,30 +331,30 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
               </Stack>
             </PageSection>
 
-            <PageSection title="Tags">
+            <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags")}>
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
-                    <Button size="sm" onClick={startSetTags}>Set Tags</Button>
+                    <Button size="sm" onClick={startSetTags}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.tags")}</Button>
                   </Inline>
                 )}
                 {(data.tags ?? []).length === 0 ? (
-                  <Text tone="secondary">No tags.</Text>
+                  <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.tags")}</Text>
                 ) : (
                   <Text>{(data.tags ?? []).join(", ")}</Text>
                 )}
               </Stack>
             </PageSection>
 
-            <PageSection title="Image URLs">
+            <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls")}>
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
-                    <Button size="sm" onClick={startSetImageUrls}>Set Image URLs</Button>
+                    <Button size="sm" onClick={startSetImageUrls}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.urls")}</Button>
                   </Inline>
                 )}
                 {(data.image_urls ?? []).length === 0 ? (
-                  <Text tone="secondary">No image URLs.</Text>
+                  <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.urls")}</Text>
                 ) : (
                   <Stack gap={1}>
                     {(data.image_urls ?? []).map((url, i) => (
@@ -356,56 +371,56 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       <Dialog
         open={showAssignBlueprint}
         onOpenChange={setShowAssignBlueprint}
-        title="Assign Blueprint"
-        footer={<Button onClick={handleAssignBlueprint}>Assign</Button>}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.blueprint.2")}
+        footer={<Button onClick={handleAssignBlueprint}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign")}</Button>}
       >
-        <TextInput label="Blueprint ID" value={blueprintId} onChange={(e) => setBlueprintId(e.target.value)} />
+        <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint.id")} value={blueprintId} onChange={(e) => setBlueprintId(e.target.value)} />
       </Dialog>
 
       <Dialog
         open={showSetField}
         onOpenChange={setShowSetField}
-        title="Set Field Value"
-        footer={<Button onClick={handleSetFieldValue}>Set</Button>}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.field.value.2")}
+        footer={<Button onClick={handleSetFieldValue}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Field ID" value={fieldId} onChange={(e) => setFieldId(e.target.value)} />
-          <TextInput label="Value" value={fieldValue} onChange={(e) => setFieldValue(e.target.value)} />
+          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.id")} value={fieldId} onChange={(e) => setFieldId(e.target.value)} />
+          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.value.2")} value={fieldValue} onChange={(e) => setFieldValue(e.target.value)} />
         </Stack>
       </Dialog>
 
       <Dialog
         open={showAssignCategory}
         onOpenChange={setShowAssignCategory}
-        title="Assign Category"
-        footer={<Button onClick={handleAssignCategory}>Assign</Button>}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.category.2")}
+        footer={<Button onClick={handleAssignCategory}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.2")}</Button>}
       >
-        <TextInput label="Category ID" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} />
+        <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.category.id")} value={categoryId} onChange={(e) => setCategoryId(e.target.value)} />
       </Dialog>
 
       <Dialog
         open={showEditMetadata}
         onOpenChange={setShowEditMetadata}
-        title="Edit Metadata"
-        footer={<Button onClick={handleReviseMetadata}>Save</Button>}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.metadata.2")}
+        footer={<Button onClick={handleReviseMetadata}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
-          <TextInput label="Subtitle" value={editSubtitle} onChange={(e) => setEditSubtitle(e.target.value)} />
-          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.title")} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle")} value={editSubtitle} onChange={(e) => setEditSubtitle(e.target.value)} />
+          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.description")} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
         </Stack>
       </Dialog>
 
       <Dialog
         open={showPublish}
         onOpenChange={setShowPublish}
-        title="Publish Catalog Item"
-        description="Confirm that the blueprint is active and provide required field IDs."
-        footer={<Button onClick={handlePublish}>Publish</Button>}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.catalog.item")}
+        description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.confirm.that.the.blueprint.is.active")}
+        footer={<Button onClick={handlePublish}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.2")}</Button>}
       >
         <Stack gap={3}>
           <TextInput
-            label="Required Field IDs (comma-separated)"
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.required.field.ids.comma.separated")}
             value={publishRequiredFieldIds}
             onChange={(e) => setPublishRequiredFieldIds(e.target.value)}
           />
@@ -415,12 +430,12 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       <Dialog
         open={showSetTags}
         onOpenChange={setShowSetTags}
-        title="Set Tags"
-        description="Enter tags separated by commas."
-        footer={<Button onClick={handleSetTags}>Save</Button>}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.tags.2")}
+        description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.enter.tags.separated.by.commas")}
+        footer={<Button onClick={handleSetTags}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.2")}</Button>}
       >
         <TextInput
-          label="Tags"
+          label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags.2")}
           value={tagsInput}
           onChange={(e) => setTagsInput(e.target.value)}
         />
@@ -429,12 +444,12 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       <Dialog
         open={showSetImageUrls}
         onOpenChange={setShowSetImageUrls}
-        title="Set Image URLs"
-        description="Enter one URL per line."
-        footer={<Button onClick={handleSetImageUrls}>Save</Button>}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.urls.2")}
+        description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.enter.one.url.per.line")}
+        footer={<Button onClick={handleSetImageUrls}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.3")}</Button>}
       >
         <TextInput
-          label="Image URLs"
+          label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.2")}
           value={imageUrlsInput}
           onChange={(e) => setImageUrlsInput(e.target.value)}
         />
@@ -442,7 +457,6 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
     </>
   );
 }
-
 
 
 

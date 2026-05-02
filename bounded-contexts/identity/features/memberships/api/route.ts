@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MembershipId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
@@ -73,7 +74,7 @@ export function membershipRoutes(services: MembershipServices) {
   app.get("/:id", async (c) => {
     const membership = await services.getMembership(c.req.param("id"));
     if (!membership) {
-      return c.json({ error: { code: "not_found", message: "Membership not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("identity.features.memberships.api.route.membership.not.found") } }, 404);
     }
     const actor = c.var.actor;
     if (
@@ -81,7 +82,7 @@ export function membershipRoutes(services: MembershipServices) {
       !hasPermission(actor, "memberships.manage") &&
       membership.user_id !== actor.userId
     ) {
-      return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
+      return c.json({ error: { code: "authorization_forbidden", message: t("identity.features.memberships.api.route.forbidden") } }, 403);
     }
     return c.json(membership);
   });

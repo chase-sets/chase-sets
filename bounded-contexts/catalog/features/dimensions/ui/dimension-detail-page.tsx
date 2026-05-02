@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import {
@@ -33,35 +34,48 @@ import type { DimensionOption } from "./contracts";
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: "Activate", action: "activate", tone: "primary" }];
+      return [{ label: t("catalog.features.dimensions.ui.dimensionDetailPage.activate"), action: "activate", tone: "primary" }];
     case "active":
-      return [{ label: "Deprecate", action: "deprecate", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.dimensions.ui.dimensionDetailPage.deprecate"), action: "deprecate", confirm: true, tone: "danger" }];
     case "deprecated":
-      return [{ label: "Archive", action: "archive", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.dimensions.ui.dimensionDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
     default:
       return [];
   }
 }
 
+function lifecycleActionLabel(action: string) {
+  switch (action) {
+    case "activate":
+      return t("catalog.features.dimensions.ui.dimensionDetailPage.activated");
+    case "deprecate":
+      return t("catalog.features.dimensions.ui.dimensionDetailPage.deprecated");
+    case "archive":
+      return t("catalog.features.dimensions.ui.dimensionDetailPage.archived");
+    default:
+      return action;
+  }
+}
+
 const optionColumns: DataColumn<DimensionOption>[] = [
-  { key: "code", header: "Code", cell: (row) => row.code },
+  { key: "code", header: t("catalog.features.dimensions.ui.dimensionDetailPage.code"), cell: (row) => row.code },
   {
     key: "labels",
-    header: "Labels",
+    header: t("catalog.features.dimensions.ui.dimensionDetailPage.labels"),
     cell: (row) =>
       row.labels && row.labels.length > 0
         ? row.labels.map((l) => `${l.locale}: ${l.value}`).join(", ")
         : "—",
   },
-  { key: "numeric_value", header: "Numeric Value", cell: (row) => row.numeric_value ?? "—" },
-  { key: "display_order", header: "Order", cell: (row) => row.display_order },
-  { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
+  { key: "numeric_value", header: t("catalog.features.dimensions.ui.dimensionDetailPage.numeric.value"), cell: (row) => row.numeric_value ?? "—" },
+  { key: "display_order", header: t("catalog.features.dimensions.ui.dimensionDetailPage.order"), cell: (row) => row.display_order },
+  { key: "status", header: t("catalog.features.dimensions.ui.dimensionDetailPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
 ];
 
 const valueKindOptions = [
-  { label: "Unordered", value: "unordered" },
-  { label: "Ordered", value: "ordered" },
-  { label: "Numeric", value: "numeric" },
+  { label: t("catalog.features.dimensions.ui.dimensionDetailPage.unordered"), value: "unordered" },
+  { label: t("catalog.features.dimensions.ui.dimensionDetailPage.ordered"), value: "ordered" },
+  { label: t("catalog.features.dimensions.ui.dimensionDetailPage.numeric"), value: "numeric" },
 ];
 
 interface LabelEntry {
@@ -103,13 +117,15 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       archive: () => archiveDimension(id),
     };
     await actions[action]?.();
-    addToast(`Dimension ${action}d`, "success");
+    addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.lifecycle.completed", {
+      action: lifecycleActionLabel(action),
+    }), "success");
     refresh();
   }
 
   async function handleRevise() {
     await reviseDimension(id, { key: editKey, name: editName, description: editDescription || undefined, valueKind: editValueKind });
-    addToast("Dimension revised", "success");
+    addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.dimension.revised"), "success");
     setEditing(false);
     refresh();
   }
@@ -123,7 +139,7 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       labels: labels.length > 0 ? labels : undefined,
       numericValue: optionNumericValue ? Number(optionNumericValue) : undefined,
     });
-    addToast("Option added", "success");
+    addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.option.added"), "success");
     setShowAddOption(false);
     setOptionCode("");
     setOptionNumericValue("");
@@ -139,7 +155,7 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       labels: labels.length > 0 ? labels : undefined,
       numericValue: editOptionNumericValue ? Number(editOptionNumericValue) : undefined,
     });
-    addToast("Option revised", "success");
+    addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.option.revised"), "success");
     setEditingOption(null);
     refresh();
   }
@@ -157,20 +173,20 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
 
   async function handleDeprecateOption(optionId: string) {
     await deprecateOption(id, optionId);
-    addToast("Option deprecated", "success");
+    addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.option.deprecated"), "success");
     refresh();
   }
 
   async function handleReactivateOption(optionId: string) {
     await reactivateOption(id, optionId);
-    addToast("Option reactivated", "success");
+    addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.option.reactivated"), "success");
     refresh();
   }
 
   async function handleReorderOptions() {
     const optionIds = reorderInput.split(",").map((s) => s.trim()).filter(Boolean);
     await reorderOptions(id, optionIds);
-    addToast("Options reordered", "success");
+    addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.options.reordered"), "success");
     setShowReorder(false);
     refresh();
   }
@@ -202,24 +218,22 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
         {labels.map((label, i) => (
           <Inline key={i} gap={2}>
             <TextInput
-              label={i === 0 ? "Locale" : undefined}
+              label={i === 0 ? t("catalog.features.dimensions.ui.dimensionDetailPage.locale") : undefined}
               value={label.locale}
               onChange={(e) => updateLabel(labels, setLabels, i, "locale", e.target.value)}
             />
             <TextInput
-              label={i === 0 ? "Label" : undefined}
+              label={i === 0 ? t("catalog.features.dimensions.ui.dimensionDetailPage.label") : undefined}
               value={label.value}
               onChange={(e) => updateLabel(labels, setLabels, i, "value", e.target.value)}
             />
             <Button size="sm" tone="danger" onClick={() => setLabels(labels.filter((_, j) => j !== i))}>
-              Remove
-            </Button>
+              {t("catalog.features.dimensions.ui.dimensionDetailPage.remove")}</Button>
           </Inline>
         ))}
         <Inline>
           <Button size="sm" tone="secondary" onClick={() => setLabels([...labels, { locale: "", value: "" }])}>
-            Add Label
-          </Button>
+            {t("catalog.features.dimensions.ui.dimensionDetailPage.add.label")}</Button>
         </Inline>
       </Stack>
     );
@@ -228,9 +242,9 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
   return (
     <>
       <EntityDetailPage
-        title={data?.name ?? "Dimension"}
+        title={data?.name ?? t("catalog.features.dimensions.ui.dimensionDetailPage.dimension")}
         breadcrumbs={[
-          { label: "Dimensions", href: "/dimensions" },
+          { label: t("catalog.features.dimensions.ui.dimensionDetailPage.dimensions"), href: "/dimensions" },
           { label: data?.name ?? id },
         ]}
         actions={
@@ -243,8 +257,7 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
               />
               {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditing}>
-                  Edit
-                </Button>
+                  {t("catalog.features.dimensions.ui.dimensionDetailPage.edit")}</Button>
               )}
             </Inline>
           ) : undefined
@@ -257,25 +270,27 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
           <Stack gap={6}>
             <KeyValueList
               items={[
-                { key: "Key", value: data.key },
-                { key: "Name", value: data.name },
-                { key: "Description", value: data.description ?? "—" },
-                { key: "Value Kind", value: data.value_kind },
-                { key: "Status", value: data.status },
-                { key: "Updated", value: data.updated_at },
+                { key: t("catalog.features.dimensions.ui.dimensionDetailPage.key"), value: data.key },
+                { key: t("catalog.features.dimensions.ui.dimensionDetailPage.name"), value: data.name },
+                { key: t("catalog.features.dimensions.ui.dimensionDetailPage.description"), value: data.description ?? "—" },
+                { key: t("catalog.features.dimensions.ui.dimensionDetailPage.value.kind"), value: data.value_kind },
+                { key: t("catalog.features.dimensions.ui.dimensionDetailPage.status"), value: data.status },
+                { key: t("catalog.features.dimensions.ui.dimensionDetailPage.updated"), value: data.updated_at },
               ]}
             />
 
             <PageSection
-              title="Options"
-              description={`${data.options.length} option(s)`}
+              title={t("catalog.features.dimensions.ui.dimensionDetailPage.options")}
+              description={t("catalog.features.dimensions.ui.dimensionDetailPage.option.count", {
+                count: data.options.length,
+              })}
             >
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline gap={2}>
-                    <Button size="sm" onClick={() => setShowAddOption(true)}>Add Option</Button>
+                    <Button size="sm" onClick={() => setShowAddOption(true)}>{t("catalog.features.dimensions.ui.dimensionDetailPage.add.option")}</Button>
                     {data.options.length > 1 && (
-                      <Button size="sm" tone="secondary" onClick={startReorder}>Reorder</Button>
+                      <Button size="sm" tone="secondary" onClick={startReorder}>{t("catalog.features.dimensions.ui.dimensionDetailPage.reorder")}</Button>
                     )}
                   </Inline>
                 )}
@@ -285,31 +300,28 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
                     ...optionColumns,
                     {
                       key: "actions",
-                      header: "Actions",
+                      header: t("catalog.features.dimensions.ui.dimensionDetailPage.actions"),
                       cell: (row) => (
                         <Inline gap={1}>
                           {data.status !== "archived" && (
                             <Button size="sm" tone="secondary" onClick={() => startEditOption(row)}>
-                              Edit
-                            </Button>
+                              {t("catalog.features.dimensions.ui.dimensionDetailPage.edit.2")}</Button>
                           )}
                           {row.status === "active" && (
                             <Button size="sm" tone="secondary" onClick={() => handleDeprecateOption(row.option_id)}>
-                              Deprecate
-                            </Button>
+                              {t("catalog.features.dimensions.ui.dimensionDetailPage.deprecate.2")}</Button>
                           )}
                           {row.status === "deprecated" && (
                             <Button size="sm" tone="secondary" onClick={() => handleReactivateOption(row.option_id)}>
-                              Reactivate
-                            </Button>
+                              {t("catalog.features.dimensions.ui.dimensionDetailPage.reactivate")}</Button>
                           )}
                         </Inline>
                       ),
                     },
                   ]}
                   getRowId={(row) => row.option_id}
-                  emptyTitle="No options"
-                  emptyDescription="Add an option to this dimension."
+                  emptyTitle={t("catalog.features.dimensions.ui.dimensionDetailPage.no.options")}
+                  emptyDescription={t("catalog.features.dimensions.ui.dimensionDetailPage.add.an.option.to.this.dimension")}
                 />
               </Stack>
             </PageSection>
@@ -320,12 +332,12 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       <Dialog
         open={showAddOption}
         onOpenChange={setShowAddOption}
-        title="Add Option"
-        footer={<Button onClick={handleAddOption}>Add</Button>}
+        title={t("catalog.features.dimensions.ui.dimensionDetailPage.add.option.2")}
+        footer={<Button onClick={handleAddOption}>{t("catalog.features.dimensions.ui.dimensionDetailPage.add")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Code" value={optionCode} onChange={(e) => setOptionCode(e.target.value)} />
-          <TextInput label="Numeric Value (optional)" value={optionNumericValue} onChange={(e) => setOptionNumericValue(e.target.value)} />
+          <TextInput label={t("catalog.features.dimensions.ui.dimensionDetailPage.code.2")} value={optionCode} onChange={(e) => setOptionCode(e.target.value)} />
+          <TextInput label={t("catalog.features.dimensions.ui.dimensionDetailPage.numeric.value.optional")} value={optionNumericValue} onChange={(e) => setOptionNumericValue(e.target.value)} />
           {renderLabelsEditor(optionLabels, setOptionLabels)}
         </Stack>
       </Dialog>
@@ -333,12 +345,12 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       <Dialog
         open={editingOption !== null}
         onOpenChange={(open) => { if (!open) setEditingOption(null); }}
-        title="Edit Option"
-        footer={<Button onClick={handleReviseOption}>Save</Button>}
+        title={t("catalog.features.dimensions.ui.dimensionDetailPage.edit.option")}
+        footer={<Button onClick={handleReviseOption}>{t("catalog.features.dimensions.ui.dimensionDetailPage.save")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Code" value={editOptionCode} onChange={(e) => setEditOptionCode(e.target.value)} />
-          <TextInput label="Numeric Value (optional)" value={editOptionNumericValue} onChange={(e) => setEditOptionNumericValue(e.target.value)} />
+          <TextInput label={t("catalog.features.dimensions.ui.dimensionDetailPage.code.3")} value={editOptionCode} onChange={(e) => setEditOptionCode(e.target.value)} />
+          <TextInput label={t("catalog.features.dimensions.ui.dimensionDetailPage.numeric.value.optional.2")} value={editOptionNumericValue} onChange={(e) => setEditOptionNumericValue(e.target.value)} />
           {renderLabelsEditor(editOptionLabels, setEditOptionLabels)}
         </Stack>
       </Dialog>
@@ -346,12 +358,12 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       <Dialog
         open={showReorder}
         onOpenChange={setShowReorder}
-        title="Reorder Options"
-        description="Enter option IDs separated by commas in the desired order."
-        footer={<Button onClick={handleReorderOptions}>Save</Button>}
+        title={t("catalog.features.dimensions.ui.dimensionDetailPage.reorder.options")}
+        description={t("catalog.features.dimensions.ui.dimensionDetailPage.enter.option.ids.separated.by.commas")}
+        footer={<Button onClick={handleReorderOptions}>{t("catalog.features.dimensions.ui.dimensionDetailPage.save.2")}</Button>}
       >
         <TextInput
-          label="Option IDs"
+          label={t("catalog.features.dimensions.ui.dimensionDetailPage.option.ids")}
           value={reorderInput}
           onChange={(e) => setReorderInput(e.target.value)}
         />
@@ -360,15 +372,15 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
       <Dialog
         open={editing}
         onOpenChange={setEditing}
-        title="Edit Dimension"
-        footer={<Button onClick={handleRevise}>Save</Button>}
+        title={t("catalog.features.dimensions.ui.dimensionDetailPage.edit.dimension")}
+        footer={<Button onClick={handleRevise}>{t("catalog.features.dimensions.ui.dimensionDetailPage.save.3")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
-          <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
-          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          <TextInput label={t("catalog.features.dimensions.ui.dimensionDetailPage.key")} value={editKey} onChange={(e) => setEditKey(e.target.value)} />
+          <TextInput label={t("catalog.features.dimensions.ui.dimensionDetailPage.name")} value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label={t("catalog.features.dimensions.ui.dimensionDetailPage.description")} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
           <Select
-            label="Value Kind"
+            label={t("catalog.features.dimensions.ui.dimensionDetailPage.value.kind")}
             items={valueKindOptions}
             value={editValueKind}
             onValueChange={setEditValueKind}
@@ -378,6 +390,4 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
-
-
 

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
 import type { MarketplaceListingServices } from "./runtime";
@@ -12,7 +13,7 @@ function requireListingAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -23,7 +24,7 @@ function requireListingAccess(
     return {
       actor: null,
       response: new Response(
-        JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }),
+        JSON.stringify({ error: { code: "authorization_forbidden", message: t("marketplace.features.listings.api.route.forbidden") } }),
         {
           status: 403,
           headers: { "Content-Type": "application/json" },
@@ -36,7 +37,7 @@ function requireListingAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("marketplace.features.listings.api.route.request.failed");
 }
 
 export function createAccountListingRoutes(services: MarketplaceListingServices) {
@@ -118,7 +119,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     );
 
     if (!listing) {
-      return c.json({ error: { code: "not_found", message: "Listing not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("marketplace.features.listings.api.route.listing.not.found") } }, 404);
     }
 
     return c.json(listing);
@@ -132,7 +133,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json();
@@ -162,7 +163,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.2") } }, 401);
     }
 
     const body = await c.req.json();
@@ -191,7 +192,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.3") } }, 401);
     }
 
     const body = await c.req.json();
@@ -220,7 +221,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.4") } }, 401);
     }
 
     try {
@@ -246,7 +247,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.5") } }, 401);
     }
 
     try {
@@ -272,7 +273,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.6") } }, 401);
     }
 
     try {

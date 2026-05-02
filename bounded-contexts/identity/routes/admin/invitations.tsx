@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import type { Invitation } from "../../support/request-support/api-client";
@@ -10,7 +11,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return api.listInvitations<ListResponse<Invitation>>("limit=50&offset=0");
 }
 
-export const meta: MetaFunction = () => [{ title: "Invitations | Identity Admin" }];
+export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.invitations.invitations.identity.admin") }];
 
 export default function InvitationsRoute() {
   const data = useLoaderData<typeof loader>();

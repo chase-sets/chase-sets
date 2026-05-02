@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
@@ -49,9 +50,9 @@ export function MarketplaceSubmittedOfferListPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Offers"
-        title="Submitted Offers"
-        description="Review the offers your account has submitted."
+        eyebrow={t("marketplace.features.offers.ui.submittedOfferListPage.offers")}
+        title={t("marketplace.features.offers.ui.submittedOfferListPage.submitted.offers")}
+        description={t("marketplace.features.offers.ui.submittedOfferListPage.review.the.offers.your.account.has")}
       />
 
       {errorMessage ? (
@@ -60,14 +61,14 @@ export function MarketplaceSubmittedOfferListPage({
         </Card>
       ) : null}
 
-      <PageSection title="Submitted Offers">
+      <PageSection title={t("marketplace.features.offers.ui.submittedOfferListPage.submitted.offers.2")}>
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.offer_id}
           columns={[
             {
               key: "item",
-              header: "Item",
+              header: t("marketplace.features.offers.ui.submittedOfferListPage.item"),
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{row.item_title}</Text>
@@ -86,37 +87,36 @@ export function MarketplaceSubmittedOfferListPage({
             },
             {
               key: "price",
-              header: "Offer Price",
+              header: t("marketplace.features.offers.ui.submittedOfferListPage.offer.price"),
               cell: (row) => formatMoney(row.price_amount),
             },
             {
               key: "quantity",
-              header: "Quantity",
+              header: t("marketplace.features.offers.ui.submittedOfferListPage.quantity"),
               align: "right",
               cell: (row) => row.quantity_requested,
             },
             {
               key: "status",
-              header: "Status",
+              header: t("marketplace.features.offers.ui.submittedOfferListPage.status"),
               cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
             },
             {
               key: "updated",
-              header: "Updated",
+              header: t("marketplace.features.offers.ui.submittedOfferListPage.updated"),
               cell: (row) => formatTimestamp(row.updated_at),
             },
             {
               key: "actions",
-              header: "Actions",
+              header: t("marketplace.features.offers.ui.submittedOfferListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/account/offers/submitted/${row.offer_id}`} tone="secondary" size="sm">
-                  Open
-                </LinkButton>
+                  {t("marketplace.features.offers.ui.submittedOfferListPage.open")}</LinkButton>
               ),
             },
           ]}
-          emptyTitle="No submitted offers yet"
-          emptyDescription="Submit an offer from any item detail page to start tracking marketplace demand."
+          emptyTitle={t("marketplace.features.offers.ui.submittedOfferListPage.no.submitted.offers.yet")}
+          emptyDescription={t("marketplace.features.offers.ui.submittedOfferListPage.submit.an.offer.from.any.item")}
         />
       </PageSection>
     </Page>

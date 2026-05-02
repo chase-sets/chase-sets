@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { BlueprintServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -179,7 +180,7 @@ export function blueprintRoutes(services: BlueprintServices) {
     const blueprint = await services.getBlueprintDetail(c.req.param("id"));
 
     if (!blueprint) {
-      return c.json({ error: { code: "not_found", message: "Blueprint not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("catalog.features.blueprints.api.route.blueprint.not.found") } }, 404);
     }
 
     return c.json(blueprint);

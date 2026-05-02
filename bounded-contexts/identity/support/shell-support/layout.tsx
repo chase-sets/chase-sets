@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState, type ReactNode } from "react";
 import {
   AdminShell,
@@ -23,7 +24,7 @@ export function IdentityAdminLayout({
   return (
     <ChaseRoot colorMode={colorMode}>
       <AdminShell
-        brand={<SellerBadge name="Identity Ops" verified />}
+        brand={<SellerBadge name={t("identity.support.shellSupport.layout.identity.ops")} verified />}
         navItems={[...navItems]}
         activeKey={activeKey}
         actions={actions}

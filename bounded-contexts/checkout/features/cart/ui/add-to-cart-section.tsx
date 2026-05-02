@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Button,
   Card,
@@ -25,7 +26,7 @@ export function CheckoutAddToCartSection({
   errorMessage?: string | null;
 }) {
   return (
-    <PageSection title="Add To Cart">
+    <PageSection title={t("checkout.features.cart.ui.addToCartSection.add.to.cart")}>
       <Card>
         <form method="post">
           <Stack gap={3}>
@@ -37,24 +38,23 @@ export function CheckoutAddToCartSection({
             <Stack gap={1}>
               <Text weight="semibold">{itemTitle}</Text>
               <Text size="sm" tone="secondary">
-                {productSummary ?? "Standard product"}
+                {productSummary ?? t("checkout.features.cart.ui.addToCartSection.standard.product")}
               </Text>
               <Text size="sm" tone="secondary">
-                Matching visible listings right now: {visibleListingCount}
+                {t("checkout.features.cart.ui.addToCartSection.matching.visible.listings.right.now")}{visibleListingCount}
               </Text>
               <Text size="sm" tone="secondary">
-                Cart lines capture buyer intent. Exact listing and inventory matching happens at checkout.
-              </Text>
+                {t("checkout.features.cart.ui.addToCartSection.cart.lines.capture.buyer.intent.exact")}</Text>
             </Stack>
             {errorMessage ? <Text>{errorMessage}</Text> : null}
             <NumberInput
-              label="Quantity"
+              label={t("checkout.features.cart.ui.addToCartSection.quantity")}
               name="quantity"
               min="1"
               defaultValue="1"
               required
             />
-            <Button type="submit">Add to cart</Button>
+            <Button type="submit">{t("checkout.features.cart.ui.addToCartSection.add.to.cart.2")}</Button>
           </Stack>
         </form>
       </Card>

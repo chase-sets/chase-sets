@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { FieldServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -100,7 +101,7 @@ export function fieldRoutes(services: FieldServices) {
     const field = await services.getField(c.req.param("id"));
 
     if (!field) {
-      return c.json({ error: { code: "not_found", message: "Field not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("catalog.features.fields.api.route.field.not.found") } }, 404);
     }
 
     return c.json(field);

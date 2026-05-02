@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -65,8 +66,8 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Inventory | Marketplace",
-    description: "Manage inventory items, stock counts, and storage context for your marketplace account.",
+    title: t("inventory.routes.marketplace.accountInventory.inventory.marketplace"),
+    description: t("inventory.routes.marketplace.accountInventory.manage.inventory.items.stock.counts.and"),
   });
 
 export default function MarketplaceInventoryRoute() {

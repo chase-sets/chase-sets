@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Banner,
   Button,
@@ -53,7 +54,7 @@ export function RegisterPage(props: Readonly<{
       window.setTimeout(() => passkeyFormRef.current?.requestSubmit(), 0);
     } catch (error) {
       setPasskeyError(
-        error instanceof Error ? error.message : "Passkey registration failed.",
+        error instanceof Error ? error.message : t("auth.features.registration.ui.registerPage.passkey.registration.failed"),
       );
     } finally {
       setPasskeyLoading(false);
@@ -64,24 +65,21 @@ export function RegisterPage(props: Readonly<{
     <Stack gap={4}>
       <Stack gap={2}>
         <Text size="lg" weight="semibold">
-          Create Account
-        </Text>
+          {t("auth.features.registration.ui.registerPage.create.account")}</Text>
         <Text tone="secondary">
-          Create your personal identity and owner account to start buying and
-          selling.
-        </Text>
+          {t("auth.features.registration.ui.registerPage.create.your.personal.identity.and.owner")}</Text>
       </Stack>
 
       {props.errorMessage ? (
         <Banner
-          title="Registration failed"
+          title={t("auth.features.registration.ui.registerPage.registration.failed")}
           description={props.errorMessage}
           tone="danger"
           role="alert"
         />
       ) : null}
       {props.notice?.status === "passkey-recovery" ? (
-        <Banner title="Passkey added" description={props.notice.message} tone="success" />
+        <Banner title={t("auth.features.registration.ui.registerPage.passkey.added")} description={props.notice.message} tone="success" />
       ) : null}
 
       <SegmentedControl
@@ -89,8 +87,8 @@ export function RegisterPage(props: Readonly<{
         value={method}
         onValueChange={(value) => setMethod(value as RegistrationMethod)}
         items={[
-          { value: "password", label: "Password", icon: "lock" },
-          { value: "passkey", label: "Passkey", icon: "shield" },
+          { value: "password", label: t("auth.features.registration.ui.registerPage.password"), icon: "lock" },
+          { value: "passkey", label: t("auth.features.registration.ui.registerPage.passkey"), icon: "shield" },
         ]}
       />
 
@@ -100,12 +98,11 @@ export function RegisterPage(props: Readonly<{
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />
               <input type="hidden" name="intent" value="password" readOnly />
-              <TextInput label="Display Name" name="displayName" required />
-              <TextInput label="Email" name="email" type="email" required />
-              <PasswordInput label="Password" name="password" required />
+              <TextInput label={t("auth.features.registration.ui.registerPage.display.name")} name="displayName" required />
+              <TextInput label={t("auth.features.registration.ui.registerPage.email")} name="email" type="email" required />
+              <PasswordInput label={t("auth.features.registration.ui.registerPage.password.2")} name="password" required />
               <Button type="submit" leadingIcon="lock">
-                Create Account
-              </Button>
+                {t("auth.features.registration.ui.registerPage.create.account.2")}</Button>
             </Stack>
           </form>
         </Card>
@@ -123,19 +120,18 @@ export function RegisterPage(props: Readonly<{
               <HiddenFields fields={props.hiddenFields} />
               <input type="hidden" name="intent" value="passkey-register" readOnly />
               <PasskeyHiddenFields payload={passkeyPayload} />
-              <TextInput label="Display Name" name="displayName" required />
-              <TextInput label="Email" name="email" type="email" required />
+              <TextInput label={t("auth.features.registration.ui.registerPage.display.name.2")} name="displayName" required />
+              <TextInput label={t("auth.features.registration.ui.registerPage.email.2")} name="email" type="email" required />
               {passkeyError ? (
                 <Banner
-                  title="Passkey unavailable"
+                  title={t("auth.features.registration.ui.registerPage.passkey.unavailable")}
                   description={passkeyError}
                   tone="warning"
                   role="alert"
                 />
               ) : null}
               <Button type="submit" leadingIcon="shield" loading={passkeyLoading}>
-                Create With Passkey
-              </Button>
+                {t("auth.features.registration.ui.registerPage.create.with.passkey")}</Button>
             </Stack>
           </form>
         </Card>

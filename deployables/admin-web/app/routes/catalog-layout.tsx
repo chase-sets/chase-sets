@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLocation } from "react-router";
 import { Button } from "@chase-sets/design-system";
@@ -27,8 +28,7 @@ export default function CatalogAdminLayoutRoute() {
       actions={
         <form action="/catalog/sign-out" method="post">
           <Button type="submit" tone="secondary">
-            Sign Out
-          </Button>
+            {t("adminWeb.app.routes.catalogLayout.sign.out")}</Button>
         </form>
       }
     >

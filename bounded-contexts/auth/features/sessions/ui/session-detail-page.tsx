@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { AdminDetailPage } from "./admin-pages";
 import type { Session } from "./contracts";
 
@@ -7,11 +8,11 @@ export function SessionDetailPage({ data }: { data: Session }) {
       title={data.session_id}
       status={data.status}
       sections={[
-        { label: "User ID", value: data.user_id },
-        { label: "Active Account", value: data.account_id },
-        { label: "Available Accounts", value: data.available_account_ids.join(", ") },
-        { label: "Authentication Method", value: data.authentication_method },
-        { label: "Expires At", value: data.expires_at },
+        { label: t("auth.features.sessions.ui.sessionDetailPage.user.id"), value: data.user_id },
+        { label: t("auth.features.sessions.ui.sessionDetailPage.active.account"), value: data.account_id },
+        { label: t("auth.features.sessions.ui.sessionDetailPage.available.accounts"), value: data.available_account_ids.join(", ") },
+        { label: t("auth.features.sessions.ui.sessionDetailPage.authentication.method"), value: data.authentication_method },
+        { label: t("auth.features.sessions.ui.sessionDetailPage.expires.at"), value: data.expires_at },
       ]}
     />
   );

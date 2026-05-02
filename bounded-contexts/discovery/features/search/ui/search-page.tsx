@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import {
   SearchInput,
@@ -29,10 +30,10 @@ import { useDebounce } from "./use-debounce";
 const PAGE_SIZE = 24;
 
 const sortOptions = [
-  { label: "Relevance", value: "relevance" },
-  { label: "Title A-Z", value: "title_asc" },
-  { label: "Title Z-A", value: "title_desc" },
-  { label: "Newest", value: "newest" },
+  { label: t("discovery.features.search.ui.searchPage.relevance"), value: "relevance" },
+  { label: t("discovery.features.search.ui.searchPage.title.a.z"), value: "title_asc" },
+  { label: t("discovery.features.search.ui.searchPage.title.z.a"), value: "title_desc" },
+  { label: t("discovery.features.search.ui.searchPage.newest"), value: "newest" },
 ];
 
 function formatListingMeta(item: DiscoverySearchItem): string {
@@ -40,16 +41,26 @@ function formatListingMeta(item: DiscoverySearchItem): string {
   const visibleQuantity = item.market_summary?.total_visible_quantity ?? 0;
 
   if (listingCount === 0) {
-    return "No active listings";
+    return t("discovery.features.search.ui.searchPage.no.active.listings");
   }
 
-  return `${listingCount} listing${listingCount === 1 ? "" : "s"} • ${visibleQuantity} available`;
+  return t("discovery.features.search.ui.searchPage.listing.meta", {
+    listingCount,
+    listingLabel: t(
+      listingCount === 1
+        ? "discovery.features.search.ui.searchPage.listing.singular"
+        : "discovery.features.search.ui.searchPage.listing.plural",
+    ),
+    visibleQuantity,
+  });
 }
 
 function formatPrice(item: DiscoverySearchItem): string {
   const lowestPrice = item.market_summary?.lowest_price_amount;
 
-  return lowestPrice ? `From $${lowestPrice}` : "Market only";
+  return lowestPrice
+    ? t("discovery.features.search.ui.searchPage.from.price", { price: `$${lowestPrice}` })
+    : t("discovery.features.search.ui.searchPage.market.only");
 }
 
 export interface SearchPageProps {
@@ -104,7 +115,7 @@ export function SearchPage({
     0,
   );
   const activeCategoryLabel =
-    categories.find((item) => item.slug === category)?.name ?? "All Categories";
+    categories.find((item) => item.slug === category)?.name ?? t("discovery.features.search.ui.searchPage.all.categories");
   const hasFocusedResults =
     search.trim().length > 0 || Boolean(category) || sort !== "relevance" || page > 1;
 
@@ -126,16 +137,16 @@ export function SearchPage({
           <Stack gap={6}>
             <MarketplaceLandingHero
               badges={[
-                { label: "Marketplace", tone: "accent" },
-                { label: "Verified supply", tone: "success" },
+                { label: t("discovery.features.search.ui.searchPage.marketplace"), tone: "accent" },
+                { label: t("discovery.features.search.ui.searchPage.verified.supply"), tone: "success" },
               ]}
-              title="Find cards, comics, figures, sneakers, and memorabilia worth chasing."
-              description="Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in."
+              title={t("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and")}
+              description={t("discovery.features.search.ui.searchPage.search.live.supply.compare.active.markets")}
               search={
                 <SearchInput
-                  label="Marketplace search"
+                  label={t("discovery.features.search.ui.searchPage.marketplace.search")}
                   hideLabel
-                  placeholder="Search Pikachu, Spider-Man, Jordan, vintage packs..."
+                  placeholder={t("discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage")}
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                 />
@@ -143,7 +154,7 @@ export function SearchPage({
               filters={[
                 {
                   id: "",
-                  label: "All",
+                  label: t("discovery.features.search.ui.searchPage.all"),
                   selected: !category,
                   onSelect: () => onCategoryChange(""),
                 },
@@ -155,15 +166,15 @@ export function SearchPage({
                 })),
               ]}
               metrics={[
-                { label: "Results", value: data?.total ?? 0, detail: activeCategoryLabel },
-                { label: "Available Now", value: liveListingItems, detail: "With active listings" },
-                { label: "Market Only", value: marketOnlyItems, detail: `${catalogDepth} tracked items` },
+                { label: t("discovery.features.search.ui.searchPage.results"), value: data?.total ?? 0, detail: activeCategoryLabel },
+                { label: t("discovery.features.search.ui.searchPage.available.now"), value: liveListingItems, detail: t("discovery.features.search.ui.searchPage.with.active.listings") },
+                { label: t("discovery.features.search.ui.searchPage.market.only.2"), value: marketOnlyItems, detail: t("discovery.features.search.ui.searchPage.tracked.items", { count: catalogDepth }) },
               ]}
             />
             <PromoStrip
               icon="shield"
-              title="Buyer confidence is built into discovery."
-              description="Verified supply, transparent pricing, and item-level market history help buyers move with confidence."
+              title={t("discovery.features.search.ui.searchPage.buyer.confidence.is.built.into.discovery")}
+              description={t("discovery.features.search.ui.searchPage.verified.supply.transparent.pricing.and.item")}
             />
           </Stack>
         )
@@ -174,13 +185,13 @@ export function SearchPage({
           <FilterBar sticky={false}>
             <SearchInput
               hideLabel
-              placeholder="Search catalog items..."
+              placeholder={t("discovery.features.search.ui.searchPage.search.catalog.items")}
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
             <Select
               hideLabel
-              label="Sort"
+              label={t("discovery.features.search.ui.searchPage.sort")}
               items={sortOptions}
               value={sort}
               onValueChange={onSortChange}
@@ -188,17 +199,17 @@ export function SearchPage({
           </FilterBar>
         ) : null}
 
-        {error ? <Banner tone="danger" title="Error" description={error} /> : null}
+        {error ? <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} /> : null}
 
         {loading && !data ? (
-          <LoadingSpinner label="Searching..." />
+          <LoadingSpinner label={t("discovery.features.search.ui.searchPage.searching")} />
         ) : data && data.items.length === 0 ? (
           <EmptyState
-            title="No items found"
+            title={t("discovery.features.search.ui.searchPage.no.items.found")}
             description={
               search || category
-                ? "Try adjusting your search or filters."
-                : "No catalog items are available yet."
+                ? t("discovery.features.search.ui.searchPage.try.adjusting.your.search.or.filters")
+                : t("discovery.features.search.ui.searchPage.no.catalog.items.are.available.yet")
             }
             icon="search"
           />
@@ -218,11 +229,11 @@ export function SearchPage({
                       imageSrc={item.image_urls[0]}
                       imageAlt={item.title}
                       fallbackImageSrc={discoveryAssetUrls.defaultProductImage}
-                      fallbackImageAlt="Pokemon card back"
+                      fallbackImageAlt={t("discovery.features.search.ui.searchPage.pokemon.card.back")}
                       status={listingCount > 0 ? "available" : "marketOnly"}
                       price={formatPrice(item)}
                       meta={formatListingMeta(item)}
-                      actionLabel={listingCount > 0 ? "View listings" : "Watch market"}
+                      actionLabel={listingCount > 0 ? t("discovery.features.search.ui.searchPage.view.listings") : t("discovery.features.search.ui.searchPage.watch.market")}
                       categoryTags={uniqueDisplayValues(item.category_names)}
                       metadataTags={uniqueDisplayValues(item.tags).slice(0, 3)}
                     />

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
 import type { ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
@@ -66,11 +67,11 @@ export function ErrorBoundary() {
     ? error.statusText
     : error instanceof Error
       ? error.message
-      : "Unknown error";
+      : t("marketplace.app.root.unknown.error");
 
   return (
     <main>
-      <h1>Marketplace Error</h1>
+      <h1>{t("marketplace.app.root.marketplace.error")}</h1>
       <p>{message}</p>
     </main>
   );

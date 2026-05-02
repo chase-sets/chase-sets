@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -15,7 +16,7 @@ import {
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
-  "Inspect listing inventory, pricing, quantity caps, and publication status.";
+  t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
@@ -27,7 +28,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {
-      throw new Response("Listing not found.", { status: 404 });
+      throw new Response(t("marketplace.routes.accountListing.listing.not.found"), { status: 404 });
     }
 
     throw error;
@@ -88,7 +89,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Listing | Marketplace",
+    title: t("marketplace.routes.accountListing.listing.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 

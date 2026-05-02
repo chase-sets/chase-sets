@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { sessionRoutes } from "../../features/sessions/api/route";
 import { revokeSession, type AuthServices } from "../runtime-support/services";
 import {
@@ -13,7 +14,7 @@ export function registerSessionApiRoutes(
   app.get("/session", async (c) => {
     const actor = c.var.actor;
     if (!actor) {
-      return c.json({ error: "Authentication required." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.sessionRoutes.authentication.required") }, 401);
     }
 
     return c.json({ actor });
@@ -22,7 +23,7 @@ export function registerSessionApiRoutes(
   app.post("/sign-out", async (c) => {
     const actor = c.var.actor;
     if (!actor) {
-      return c.json({ error: "Authentication required." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.sessionRoutes.authentication.required.2") }, 401);
     }
 
     const result = await revokeSession(services, {

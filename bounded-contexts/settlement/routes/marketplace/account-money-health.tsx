@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -38,7 +39,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Money Health | Marketplace" });
+  buildOpenGraphMeta({ title: t("settlement.routes.marketplace.accountMoneyHealth.money.health.marketplace") });
 
 export default function MarketplaceAccountMoneyHealthRoute() {
   const data = useLoaderData<typeof loader>() as MoneyHealthData;

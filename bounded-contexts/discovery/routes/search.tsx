@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   redirect,
@@ -11,7 +12,7 @@ import { SearchPage } from "../features/search/ui/search-page";
 
 const PAGE_SIZE = 24;
 const MARKETPLACE_DESCRIPTION =
-  "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.";
+  t("discovery.routes.search.browse.the.chase.sets.marketplace.with");
 const EMPTY_SEARCH_RESULT = {
   search: "",
   category: "",
@@ -101,8 +102,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({
     title: data?.search
-      ? `Search "${data.search}" | Marketplace`
-      : "Marketplace Search",
+      ? t("discovery.routes.search.search.meta.title", { search: data.search })
+      : t("discovery.routes.search.marketplace.search"),
     description: MARKETPLACE_DESCRIPTION,
   }),
   ...(data?.canonicalUrl

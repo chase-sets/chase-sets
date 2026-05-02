@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -21,13 +22,26 @@ import {
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: "Publish", action: "publish", tone: "primary" }];
+      return [{ label: t("catalog.features.categories.ui.categoryDetailPage.publish"), action: "publish", tone: "primary" }];
     case "active":
-      return [{ label: "Deprecate", action: "deprecate", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.categories.ui.categoryDetailPage.deprecate"), action: "deprecate", confirm: true, tone: "danger" }];
     case "deprecated":
-      return [{ label: "Archive", action: "archive", confirm: true, tone: "danger" }];
+      return [{ label: t("catalog.features.categories.ui.categoryDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
     default:
       return [];
+  }
+}
+
+function lifecycleActionLabel(action: string) {
+  switch (action) {
+    case "publish":
+      return t("catalog.features.categories.ui.categoryDetailPage.published");
+    case "deprecate":
+      return t("catalog.features.categories.ui.categoryDetailPage.deprecated");
+    case "archive":
+      return t("catalog.features.categories.ui.categoryDetailPage.archived");
+    default:
+      return action;
   }
 }
 
@@ -48,7 +62,9 @@ export function CategoryDetailPage({ id, initialData }: { id: string; initialDat
       archive: () => archiveCategory(id),
     };
     await actions[action]?.();
-    addToast(`Category ${action}ed`, "success");
+    addToast(t("catalog.features.categories.ui.categoryDetailPage.lifecycle.completed", {
+      action: lifecycleActionLabel(action),
+    }), "success");
     refresh();
   }
 
@@ -71,7 +87,7 @@ export function CategoryDetailPage({ id, initialData }: { id: string; initialDat
       parentCategoryId: editParentId || null,
       displayOrder: Number(editDisplayOrder) || 0,
     });
-    addToast("Category revised", "success");
+    addToast(t("catalog.features.categories.ui.categoryDetailPage.category.revised"), "success");
     setEditing(false);
     refresh();
   }
@@ -79,9 +95,9 @@ export function CategoryDetailPage({ id, initialData }: { id: string; initialDat
   return (
     <>
       <EntityDetailPage
-        title={data?.name ?? "Category"}
+        title={data?.name ?? t("catalog.features.categories.ui.categoryDetailPage.category")}
         breadcrumbs={[
-          { label: "Categories", href: "/categories" },
+          { label: t("catalog.features.categories.ui.categoryDetailPage.categories"), href: "/categories" },
           { label: data?.name ?? id },
         ]}
         actions={
@@ -94,8 +110,7 @@ export function CategoryDetailPage({ id, initialData }: { id: string; initialDat
               />
               {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditing}>
-                  Edit
-                </Button>
+                  {t("catalog.features.categories.ui.categoryDetailPage.edit")}</Button>
               )}
             </Inline>
           ) : undefined
@@ -107,13 +122,13 @@ export function CategoryDetailPage({ id, initialData }: { id: string; initialDat
         {data && (
           <KeyValueList
             items={[
-              { key: "Key", value: data.key },
-              { key: "Name", value: data.name },
-              { key: "Description", value: data.description ?? "—" },
-              { key: "Parent Category", value: data.parent_category?.name ?? "None (root)" },
-              { key: "Display Order", value: String(data.display_order) },
-              { key: "Status", value: data.status },
-              { key: "Updated", value: data.updated_at },
+              { key: t("catalog.features.categories.ui.categoryDetailPage.key"), value: data.key },
+              { key: t("catalog.features.categories.ui.categoryDetailPage.name"), value: data.name },
+              { key: t("catalog.features.categories.ui.categoryDetailPage.description"), value: data.description ?? "—" },
+              { key: t("catalog.features.categories.ui.categoryDetailPage.parent.category"), value: data.parent_category?.name ?? t("catalog.features.categories.ui.categoryDetailPage.none.root") },
+              { key: t("catalog.features.categories.ui.categoryDetailPage.display.order"), value: String(data.display_order) },
+              { key: t("catalog.features.categories.ui.categoryDetailPage.status"), value: data.status },
+              { key: t("catalog.features.categories.ui.categoryDetailPage.updated"), value: data.updated_at },
             ]}
           />
         )}
@@ -122,21 +137,20 @@ export function CategoryDetailPage({ id, initialData }: { id: string; initialDat
       <Dialog
         open={editing}
         onOpenChange={setEditing}
-        title="Edit Category"
-        footer={<Button onClick={handleRevise}>Save</Button>}
+        title={t("catalog.features.categories.ui.categoryDetailPage.edit.category")}
+        footer={<Button onClick={handleRevise}>{t("catalog.features.categories.ui.categoryDetailPage.save")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Key" value={editKey} onChange={(e) => setEditKey(e.target.value)} />
-          <TextInput label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} />
-          <TextInput label="Description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
-          <TextInput label="Parent Category ID" value={editParentId} onChange={(e) => setEditParentId(e.target.value)} />
-          <TextInput label="Display Order" value={editDisplayOrder} onChange={(e) => setEditDisplayOrder(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryDetailPage.key")} value={editKey} onChange={(e) => setEditKey(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryDetailPage.name")} value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryDetailPage.description")} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryDetailPage.parent.category.id")} value={editParentId} onChange={(e) => setEditParentId(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryDetailPage.display.order")} value={editDisplayOrder} onChange={(e) => setEditDisplayOrder(e.target.value)} />
         </Stack>
       </Dialog>
     </>
   );
 }
-
 
 
 

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -46,13 +47,13 @@ function statusTone(status: string) {
 function statusLabel(status: string) {
   switch (status) {
     case "requested":
-      return "Requested";
+      return t("settlement.features.payouts.ui.payoutListPage.requested");
     case "in-transit":
-      return "On the way";
+      return t("settlement.features.payouts.ui.payoutListPage.on.the.way");
     case "completed":
-      return "Paid";
+      return t("settlement.features.payouts.ui.payoutListPage.paid");
     case "failed":
-      return "Needs attention";
+      return t("settlement.features.payouts.ui.payoutListPage.needs.attention");
     default:
       return status;
   }
@@ -60,15 +61,17 @@ function statusLabel(status: string) {
 
 function estimatedArrivalLabel(row: SettlementPayoutRow) {
   if (row.completed_at) {
-    return `Paid ${new Date(row.completed_at).toLocaleDateString()}`;
+    return t("settlement.features.payouts.ui.payoutListPage.paid.on.date", {
+      date: new Date(row.completed_at).toLocaleDateString(),
+    });
   }
   if (row.failed_at) {
-    return "Not sent";
+    return t("settlement.features.payouts.ui.payoutListPage.not.sent");
   }
   if (row.sent_at) {
-    return "Typically 1-3 business days";
+    return t("settlement.features.payouts.ui.payoutListPage.typically.1.3.business.days");
   }
-  return "After provider submission";
+  return t("settlement.features.payouts.ui.payoutListPage.after.provider.submission");
 }
 
 function payoutUnavailableReasons(
@@ -90,7 +93,9 @@ function payoutUnavailableReasons(
   }
   if (availableBalance <= 0) {
     reasons.push(
-      `${payoutUnavailableReasonLabel("no-available-wallet-balance")} Pending funds become available after settlement review.`,
+      t("settlement.features.payouts.ui.payoutListPage.no.available.balance.detail", {
+        reason: payoutUnavailableReasonLabel("no-available-wallet-balance"),
+      }),
     );
   }
   return reasons;
@@ -149,19 +154,17 @@ export function SettlementPayoutListPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Settlement"
-        title="Payouts"
-        description="Request payouts from your available wallet balance to your saved payout account."
+        eyebrow={t("settlement.features.payouts.ui.payoutListPage.settlement")}
+        title={t("settlement.features.payouts.ui.payoutListPage.payouts")}
+        description={t("settlement.features.payouts.ui.payoutListPage.request.payouts.from.your.available.wallet")}
         actions={
           <Stack direction="row" gap={2}>
             {showOperations ? (
               <LinkButton href="/account/payout-operations" tone="secondary">
-                Operations
-              </LinkButton>
+                {t("settlement.features.payouts.ui.payoutListPage.operations")}</LinkButton>
             ) : null}
             <LinkButton href="/account/settlement" tone="secondary">
-              View wallet
-            </LinkButton>
+              {t("settlement.features.payouts.ui.payoutListPage.view.wallet")}</LinkButton>
           </Stack>
         }
       />
@@ -174,13 +177,13 @@ export function SettlementPayoutListPage({
       {setupNotice ? (
         <Card>
           <Stack gap={1}>
-            <Badge tone="success">Setup checked</Badge>
+            <Badge tone="success">{t("settlement.features.payouts.ui.payoutListPage.setup.checked")}</Badge>
             <Text>{setupNotice}</Text>
           </Stack>
         </Card>
       ) : null}
 
-      <PageSection title="Request Payout">
+      <PageSection title={t("settlement.features.payouts.ui.payoutListPage.request.payout")}>
         <Card>
           <Stack gap={3}>
             {payoutReadiness ? (
@@ -191,15 +194,14 @@ export function SettlementPayoutListPage({
             ) : null}
             <Stack gap={1}>
               <Text size="sm" tone="secondary">
-                Available to request: {formatMoney(wallet.available_balance_amount, wallet.currency_code)}
+                {t("settlement.features.payouts.ui.payoutListPage.available.to.request")}{formatMoney(wallet.available_balance_amount, wallet.currency_code)}
               </Text>
               <Text size="sm" tone="secondary">
-                Payouts must be between {formatMoney(payoutAmountPolicy.minimumAmount, payoutAmountPolicy.currencyCode)} and {formatMoney(payoutAmountPolicy.maximumAmount, payoutAmountPolicy.currencyCode)}. Arrival is usually 1-3 business days after the provider accepts the payout.
-              </Text>
+                {t("settlement.features.payouts.ui.payoutListPage.payouts.must.be.between")}{formatMoney(payoutAmountPolicy.minimumAmount, payoutAmountPolicy.currencyCode)} {t("settlement.features.payouts.ui.payoutListPage.and")}{formatMoney(payoutAmountPolicy.maximumAmount, payoutAmountPolicy.currencyCode)}{t("settlement.features.payouts.ui.payoutListPage.arrival.is.usually.1.3.business")}</Text>
             </Stack>
             {unavailableReasons.length > 0 ? (
               <Stack gap={1}>
-                <Text size="sm" weight="semibold">Why payouts are unavailable</Text>
+                <Text size="sm" weight="semibold">{t("settlement.features.payouts.ui.payoutListPage.why.payouts.are.unavailable")}</Text>
                 {unavailableReasons.map((reason) => (
                   <Text key={reason} size="sm" tone="secondary">
                     {reason}
@@ -217,27 +219,23 @@ export function SettlementPayoutListPage({
                       <input type="hidden" name="note" value={payoutConfirmation.note} />
                     ) : null}
                     <Stack gap={1}>
-                      <Text weight="semibold">Confirm payout request</Text>
+                      <Text weight="semibold">{t("settlement.features.payouts.ui.payoutListPage.confirm.payout.request")}</Text>
                       <Text size="sm" tone="secondary">
-                        Amount: {formatMoney(payoutConfirmation.amount, wallet.currency_code)}
+                        {t("settlement.features.payouts.ui.payoutListPage.amount")}{formatMoney(payoutConfirmation.amount, wallet.currency_code)}
                       </Text>
                       <Text size="sm" tone="secondary">
-                        Available after request: {formatMoney(confirmationRemainingBalance ?? "0.00", wallet.currency_code)}
+                        {t("settlement.features.payouts.ui.payoutListPage.available.after.request")}{formatMoney(confirmationRemainingBalance ?? "0.00", wallet.currency_code)}
                       </Text>
                       <Text size="sm" tone="secondary">
-                        Payout account: Saved payout account
-                      </Text>
+                        {t("settlement.features.payouts.ui.payoutListPage.payout.account.saved.payout.account")}</Text>
                       <Text size="sm" tone="secondary">
-                        Estimated arrival: Usually 1-3 business days after provider acceptance
-                      </Text>
+                        {t("settlement.features.payouts.ui.payoutListPage.estimated.arrival.usually.1.3.business")}</Text>
                       <Text size="sm" tone="secondary">
-                        If the provider cannot complete the transfer or payout, the wallet is credited back automatically.
-                      </Text>
+                        {t("settlement.features.payouts.ui.payoutListPage.if.the.provider.cannot.complete.the")}</Text>
                       {payoutConfirmation.preview?.unavailable_reason_details.length ? (
                         <Stack gap={1}>
                           <Text size="sm" weight="semibold">
-                            Before this can be requested
-                          </Text>
+                            {t("settlement.features.payouts.ui.payoutListPage.before.this.can.be.requested")}</Text>
                           {payoutConfirmation.preview.unavailable_reason_details.map(
                             (reason) => (
                               <Text key={reason.code} size="sm" tone="secondary">
@@ -249,13 +247,12 @@ export function SettlementPayoutListPage({
                       ) : null}
                       {payoutConfirmation.note ? (
                         <Text size="sm" tone="secondary">
-                          Note: {payoutConfirmation.note}
+                          {t("settlement.features.payouts.ui.payoutListPage.note")}{payoutConfirmation.note}
                         </Text>
                       ) : null}
                     </Stack>
                     <Button type="submit" disabled={!confirmationCanRequest}>
-                      Confirm payout
-                    </Button>
+                      {t("settlement.features.payouts.ui.payoutListPage.confirm.payout")}</Button>
                   </Stack>
                 </form>
                 <form method="post">
@@ -265,8 +262,7 @@ export function SettlementPayoutListPage({
                     <input type="hidden" name="note" value={payoutConfirmation.note} />
                   ) : null}
                   <Button type="submit" tone="secondary">
-                    Back to edit
-                  </Button>
+                    {t("settlement.features.payouts.ui.payoutListPage.back.to.edit")}</Button>
                 </form>
               </Stack>
             ) : (
@@ -279,7 +275,7 @@ export function SettlementPayoutListPage({
                   value={wallet.available_balance_amount}
                 />
                 <CurrencyInput
-                  label="Amount"
+                  label={t("settlement.features.payouts.ui.payoutListPage.amount.2")}
                   name="amount"
                   placeholder="0.00"
                   inputMode="decimal"
@@ -298,7 +294,7 @@ export function SettlementPayoutListPage({
                     tone="secondary"
                     disabled={!canRequestPayout}
                   >
-                    Minimum {formatMoney(payoutAmountPolicy.minimumAmount, wallet.currency_code)}
+                    {t("settlement.features.payouts.ui.payoutListPage.minimum")}{formatMoney(payoutAmountPolicy.minimumAmount, wallet.currency_code)}
                   </Button>
                   <Button
                     type="submit"
@@ -307,22 +303,21 @@ export function SettlementPayoutListPage({
                     tone="secondary"
                     disabled={!canRequestPayout}
                   >
-                    Full available {formatMoney(
+                    {t("settlement.features.payouts.ui.payoutListPage.full.available")}{formatMoney(
                       capPayoutAmountToPolicy(wallet.available_balance_amount),
                       wallet.currency_code,
                     )}
                   </Button>
                 </Stack>
                 <TextInput
-                  label="Note"
+                  label={t("settlement.features.payouts.ui.payoutListPage.note.2")}
                   name="note"
-                  placeholder="Optional memo"
+                  placeholder={t("settlement.features.payouts.ui.payoutListPage.optional.memo")}
                   disabled={!canRequestPayout}
                   defaultValue={payoutDraft?.note ?? ""}
                 />
                 <Button type="submit" disabled={!canRequestPayout}>
-                  Preview payout
-                </Button>
+                  {t("settlement.features.payouts.ui.payoutListPage.preview.payout")}</Button>
               </Stack>
             </form>
             )}
@@ -330,50 +325,49 @@ export function SettlementPayoutListPage({
         </Card>
       </PageSection>
 
-      <PageSection title="Payout History">
+      <PageSection title={t("settlement.features.payouts.ui.payoutListPage.payout.history")}>
         <DataTable
           rows={[...payouts]}
           getRowId={(row) => row.payout_id}
           columns={[
             {
               key: "amount",
-              header: "Amount",
+              header: t("settlement.features.payouts.ui.payoutListPage.amount.3"),
               cell: (row) => formatMoney(row.amount, row.currency_code),
             },
             {
               key: "status",
-              header: "Status",
+              header: t("settlement.features.payouts.ui.payoutListPage.status"),
               cell: (row) => (
                 <Badge tone={statusTone(row.status)}>{statusLabel(row.status)}</Badge>
               ),
             },
             {
               key: "destination",
-              header: "Payout account",
-              cell: () => "Saved payout account",
+              header: t("settlement.features.payouts.ui.payoutListPage.payout.account"),
+              cell: () => t("settlement.features.payouts.ui.payoutListPage.saved.payout.account"),
             },
             {
               key: "estimated_arrival",
-              header: "Estimated arrival",
+              header: t("settlement.features.payouts.ui.payoutListPage.estimated.arrival"),
               cell: (row) => estimatedArrivalLabel(row),
             },
             {
               key: "requested_at",
-              header: "Requested",
+              header: t("settlement.features.payouts.ui.payoutListPage.requested.2"),
               cell: (row) => new Date(row.requested_at).toLocaleDateString(),
             },
             {
               key: "actions",
-              header: "Actions",
+              header: t("settlement.features.payouts.ui.payoutListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/account/payouts/${row.payout_id}`} tone="secondary" size="sm">
-                  Open
-                </LinkButton>
+                  {t("settlement.features.payouts.ui.payoutListPage.open")}</LinkButton>
               ),
             },
           ]}
-          emptyTitle="No payouts yet"
-          emptyDescription="Request a payout from your available balance to get started."
+          emptyTitle={t("settlement.features.payouts.ui.payoutListPage.no.payouts.yet")}
+          emptyDescription={t("settlement.features.payouts.ui.payoutListPage.request.a.payout.from.your.available")}
         />
       </PageSection>
     </Page>

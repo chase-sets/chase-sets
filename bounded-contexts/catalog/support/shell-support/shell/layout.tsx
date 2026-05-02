@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState, type ReactNode } from "react";
 import {
   AdminShell,
@@ -25,7 +26,7 @@ export function CatalogAdminLayout({
     <ChaseRoot colorMode={colorMode}>
       <CatalogAdminProviders>
         <AdminShell
-          brand={<SellerBadge name="Catalog Ops" verified />}
+          brand={<SellerBadge name={t("catalog.support.shellSupport.shell.layout.catalog.ops")} verified />}
           navItems={[...navItems]}
           activeKey={activeKey}
           actions={actions}

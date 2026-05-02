@@ -18,6 +18,7 @@
     "@chase-sets/http": "0.1.0",
     "@chase-sets/identity": "0.1.0",
     "@chase-sets/inventory": "0.1.0",
+    "@chase-sets/localization": "0.0.0",
     "@chase-sets/marketplace": "0.1.0",
     "@chase-sets/ordering": "0.1.0",
     "@chase-sets/payments": "0.1.0",

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { InventoryApiEnv } from "../../../api";
 import type { InventoryHoldServices } from "../../holds/api/runtime";
@@ -31,7 +32,7 @@ export function inventoryItemRoutes(
     const item = await items.getItem(c.req.param("id"), actor.accountId);
 
     if (!item) {
-      return c.json({ error: { code: "not_found", message: "Inventory item not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("inventory.features.inventoryItems.api.route.inventory.item.not.found") } }, 404);
     }
 
     return c.json(item);

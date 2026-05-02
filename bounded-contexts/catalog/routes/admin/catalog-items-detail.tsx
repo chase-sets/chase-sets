@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import {
@@ -19,7 +20,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
-  { title: data?.data ? `${data.data.title} | Catalog Admin` : "Catalog Item | Catalog Admin" },
+  { title: data?.data ? `${data.data.title} | Catalog Admin` : t("catalog.routes.admin.catalogItemsDetail.catalog.item.catalog.admin") },
 ];
 
 export default function CatalogItemDetailRoute() {

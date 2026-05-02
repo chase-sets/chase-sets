@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -219,7 +220,7 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const item = await services.getCatalogItemDetail(c.req.param("id"));
 
     if (!item) {
-      return c.json({ error: { code: "not_found", message: "Catalog item not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("catalog.features.catalogItems.api.route.catalog.item.not.found") } }, 404);
     }
 
     return c.json(item);

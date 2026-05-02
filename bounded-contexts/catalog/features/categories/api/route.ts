@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CategoryServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -99,7 +100,7 @@ export function categoryRoutes(services: CategoryServices) {
     const category = await services.getCategoryDetail(c.req.param("id"));
 
     if (!category) {
-      return c.json({ error: { code: "not_found", message: "Category not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("catalog.features.categories.api.route.category.not.found") } }, 404);
     }
 
     return c.json(category);

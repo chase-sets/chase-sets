@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { ScheduleListPage } from "../../features/schedules/ui/schedule-list-page";
@@ -36,7 +37,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-export const meta: MetaFunction = () => [{ title: "Fee Schedules | Commercial Terms" }];
+export const meta: MetaFunction = () => [{ title: t("commercialTerms.routes.admin.schedules.fee.schedules.commercial.terms") }];
 
 export default function CommercialTermsSchedulesRoute() {
   const data = useLoaderData<typeof loader>();

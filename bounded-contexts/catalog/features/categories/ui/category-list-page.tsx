@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import {
@@ -16,19 +17,19 @@ import type { CategoryListItem } from "./contracts";
 
 function buildColumns(): DataColumn<CategoryListItem>[] {
   return [
-    { key: "key", header: "Key", cell: (row) => row.key },
-    { key: "name", header: "Name", cell: (row) => row.name },
-    { key: "parent", header: "Parent", cell: (row) => row.parent_category?.name ?? "—" },
-    { key: "order", header: "Order", align: "right", cell: (row) => row.display_order },
-    { key: "status", header: "Status", cell: (row) => <StatusPill>{row.status}</StatusPill> },
+    { key: "key", header: t("catalog.features.categories.ui.categoryListPage.key"), cell: (row) => row.key },
+    { key: "name", header: t("catalog.features.categories.ui.categoryListPage.name"), cell: (row) => row.name },
+    { key: "parent", header: t("catalog.features.categories.ui.categoryListPage.parent"), cell: (row) => row.parent_category?.name ?? "—" },
+    { key: "order", header: t("catalog.features.categories.ui.categoryListPage.order"), align: "right", cell: (row) => row.display_order },
+    { key: "status", header: t("catalog.features.categories.ui.categoryListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
   ];
 }
 
 const statusOptions = [
-  { label: "Draft", value: "draft" },
-  { label: "Active", value: "active" },
-  { label: "Deprecated", value: "deprecated" },
-  { label: "Archived", value: "archived" },
+  { label: t("catalog.features.categories.ui.categoryListPage.draft"), value: "draft" },
+  { label: t("catalog.features.categories.ui.categoryListPage.active"), value: "active" },
+  { label: t("catalog.features.categories.ui.categoryListPage.deprecated"), value: "deprecated" },
+  { label: t("catalog.features.categories.ui.categoryListPage.archived"), value: "archived" },
 ];
 
 export function CategoryListPage({ initialData }: { initialData?: Parameters<typeof useCategoryList>[1] }) {
@@ -65,7 +66,7 @@ export function CategoryListPage({ initialData }: { initialData?: Parameters<typ
       parentCategoryId: parentId || undefined,
       displayOrder: Number(displayOrder) || 0,
     });
-    addToast("Category created", "success");
+    addToast(t("catalog.features.categories.ui.categoryListPage.category.created"), "success");
     setShowCreate(false);
     setKey("");
     setName("");
@@ -78,7 +79,7 @@ export function CategoryListPage({ initialData }: { initialData?: Parameters<typ
   return (
     <>
       <EntityListPage
-        title="Categories"
+        title={t("catalog.features.categories.ui.categoryListPage.categories")}
         entityName="category"
         items={data?.items ?? null}
         total={data?.total}
@@ -96,21 +97,21 @@ export function CategoryListPage({ initialData }: { initialData?: Parameters<typ
         pageSize={50}
         onPageChange={setPage}
         createButton={
-          <Button onClick={() => setShowCreate(true)}>New Category</Button>
+          <Button onClick={() => setShowCreate(true)}>{t("catalog.features.categories.ui.categoryListPage.new.category")}</Button>
         }
       />
       <Dialog
         open={showCreate}
         onOpenChange={setShowCreate}
-        title="Create Category"
-        footer={<Button onClick={handleCreate}>Create</Button>}
+        title={t("catalog.features.categories.ui.categoryListPage.create.category")}
+        footer={<Button onClick={handleCreate}>{t("catalog.features.categories.ui.categoryListPage.create")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label="Key" value={key} onChange={(e) => setKey(e.target.value)} />
-          <TextInput label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <TextInput label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
-          <TextInput label="Parent Category ID (optional)" value={parentId} onChange={(e) => setParentId(e.target.value)} />
-          <TextInput label="Display Order" value={displayOrder} onChange={(e) => setDisplayOrder(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryListPage.key.2")} value={key} onChange={(e) => setKey(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryListPage.name.2")} value={name} onChange={(e) => setName(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryListPage.description")} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryListPage.parent.category.id.optional")} value={parentId} onChange={(e) => setParentId(e.target.value)} />
+          <TextInput label={t("catalog.features.categories.ui.categoryListPage.display.order")} value={displayOrder} onChange={(e) => setDisplayOrder(e.target.value)} />
         </Stack>
       </Dialog>
     </>

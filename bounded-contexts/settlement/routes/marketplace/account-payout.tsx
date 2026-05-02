@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   LoaderFunctionArgs,
   MetaFunction,
@@ -28,7 +29,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof SettlementApiError && error.status === 404) {
-      throw new Response("Payout not found.", { status: 404 });
+      throw new Response(t("settlement.routes.marketplace.accountPayout.payout.not.found"), { status: 404 });
     }
 
     throw error;
@@ -36,7 +37,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Payout | Marketplace" });
+  buildOpenGraphMeta({ title: t("settlement.routes.marketplace.accountPayout.payout.marketplace") });
 
 export default function MarketplaceAccountPayoutRoute() {
   const data = useLoaderData<typeof loader>();

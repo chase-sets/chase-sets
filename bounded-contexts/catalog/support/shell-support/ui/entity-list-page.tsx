@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useMemo, type ReactNode } from "react";
 import {
   Button,
@@ -68,8 +69,7 @@ export function EntityListPage<T>({
       header: "",
       cell: (row) => (
         <LinkButton href={getHref(row)} size="sm" tone="secondary">
-          View
-        </LinkButton>
+          {t("catalog.support.shellSupport.ui.entityListPage.view")}</LinkButton>
       ),
     },
   ], [columns, getHref]);
@@ -85,29 +85,29 @@ export function EntityListPage<T>({
           <Inline gap={3} align="start">
             {onSearchChange && (
               <TextInput
-                label="Search"
+                label={t("catalog.support.shellSupport.ui.entityListPage.search")}
                 value={search ?? ""}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder={`Search ${title.toLowerCase()}...`}
+                placeholder={t("catalog.support.shellSupport.ui.entityListPage.search.placeholder", { title: title.toLowerCase() })}
               />
             )}
             {onStatusFilterChange && statusOptions && (
               <Select
-                label="Status"
+                label={t("catalog.support.shellSupport.ui.entityListPage.status")}
                 value={statusFilter || ALL_STATUSES}
                 onValueChange={(v) => onStatusFilterChange(v === ALL_STATUSES ? "" : v)}
-                items={[{ label: "All statuses", value: ALL_STATUSES }, ...statusOptions]}
+                items={[{ label: t("catalog.support.shellSupport.ui.entityListPage.all.statuses"), value: ALL_STATUSES }, ...statusOptions]}
               />
             )}
           </Inline>
         )}
-        {error && <Banner tone="danger" title="Error" description={error} />}
+        {error && <Banner tone="danger" title={t("catalog.support.shellSupport.ui.entityListPage.error")} description={error} />}
         {loading && !items ? (
-          <LoadingSpinner label={`Loading ${title.toLowerCase()}...`} />
+          <LoadingSpinner label={t("catalog.support.shellSupport.ui.entityListPage.loading", { title: title.toLowerCase() })} />
         ) : items && items.length === 0 ? (
           <EmptyState
-            title={`No ${title.toLowerCase()} found`}
-            description={search || statusFilter ? "Try adjusting your filters." : `Create your first ${entityName.toLowerCase()} to get started.`}
+            title={t("catalog.support.shellSupport.ui.entityListPage.none.found", { title: title.toLowerCase() })}
+            description={search || statusFilter ? t("catalog.support.shellSupport.ui.entityListPage.try.adjusting.your.filters") : t("catalog.support.shellSupport.ui.entityListPage.create.first", { entityName: entityName.toLowerCase() })}
             icon="package"
           />
         ) : items ? (
@@ -116,7 +116,7 @@ export function EntityListPage<T>({
               rows={items}
               columns={columnsWithView}
               getRowId={(row) => getRowId(row)}
-              emptyTitle={`No ${title.toLowerCase()}`}
+              emptyTitle={t("catalog.support.shellSupport.ui.entityListPage.no.title", { title: title.toLowerCase() })}
             />
             {showPagination && (
               <Inline gap={2} align="center">
@@ -126,17 +126,15 @@ export function EntityListPage<T>({
                   onClick={() => onPageChange?.(page - 1)}
                   disabled={page === 0}
                 >
-                  Previous
-                </Button>
-                <span>Page {page + 1} of {totalPages}</span>
+                  {t("catalog.support.shellSupport.ui.entityListPage.previous")}</Button>
+                <span>{t("catalog.support.shellSupport.ui.entityListPage.page")}{page + 1} {t("catalog.support.shellSupport.ui.entityListPage.of")}{totalPages}</span>
                 <Button
                   tone="secondary"
                   size="sm"
                   onClick={() => onPageChange?.(page + 1)}
                   disabled={page >= totalPages - 1}
                 >
-                  Next
-                </Button>
+                  {t("catalog.support.shellSupport.ui.entityListPage.next")}</Button>
               </Inline>
             )}
           </>
@@ -145,4 +143,3 @@ export function EntityListPage<T>({
     </Page>
   );
 }
-

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   EmptyState,
@@ -52,13 +53,13 @@ export function OrderingOrderListPage({
       <PageHeader
         eyebrow={eyebrow}
         title={title}
-        description="Review pending commercial commitments created by checkout or accepted offers."
+        description={t("ordering.features.orders.ui.orderListPage.review.pending.commercial.commitments.created.by")}
       />
 
       <StatGrid columns={{ base: 1, md: 3 }}>
         <Stat label={title} value={orders.length} />
-        <Stat label="Items" value={totalQuantity} />
-        <Stat label="Pending" value={pendingCount} />
+        <Stat label={t("ordering.features.orders.ui.orderListPage.items")} value={totalQuantity} />
+        <Stat label={t("ordering.features.orders.ui.orderListPage.pending")} value={pendingCount} />
       </StatGrid>
 
       <PageSection title={title}>
@@ -74,26 +75,25 @@ export function OrderingOrderListPage({
               <Surface key={order.order_id} elevated>
                 <Stack gap={3}>
                   <Stack gap={1}>
-                    <Text weight="semibold">Order {order.order_id}</Text>
+                    <Text weight="semibold">{t("ordering.features.orders.ui.orderListPage.order")}{order.order_id}</Text>
                     <Badge tone={statusTone(order.status)}>{order.status}</Badge>
                   </Stack>
                   <Grid columns={{ base: 1, sm: 3 }} gap={3}>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">Quantity</Text>
+                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderListPage.quantity")}</Text>
                       <Text weight="semibold">{order.total_quantity}</Text>
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">Total</Text>
+                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderListPage.total")}</Text>
                       <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">Seller net</Text>
+                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderListPage.seller.net")}</Text>
                       <Text>{formatMoney(order.seller_net_amount)}</Text>
                     </Stack>
                   </Grid>
                   <LinkButton href={`${orderDetailBasePath}/${order.order_id}`} tone="secondary">
-                    Open order
-                  </LinkButton>
+                    {t("ordering.features.orders.ui.orderListPage.open.order")}</LinkButton>
                 </Stack>
               </Surface>
             ))

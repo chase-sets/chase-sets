@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -14,7 +15,7 @@ import {
 import type { InventoryStorageLocation } from "./contracts";
 
 function formatDescription(location: InventoryStorageLocation) {
-  return location.description ?? "No description";
+  return location.description ?? t("inventory.features.storageLocations.ui.storageLocationPage.no.description");
 }
 
 export function StorageLocationPage({
@@ -27,13 +28,12 @@ export function StorageLocationPage({
   return (
     <Page>
       <PageHeader
-        eyebrow="Seller"
-        title="Storage Locations"
-        description="Map seller-defined storage areas to ship-from codes."
+        eyebrow={t("inventory.features.storageLocations.ui.storageLocationPage.seller")}
+        title={t("inventory.features.storageLocations.ui.storageLocationPage.storage.locations")}
+        description={t("inventory.features.storageLocations.ui.storageLocationPage.map.seller.defined.storage.areas.to")}
         actions={
           <LinkButton href="/account/inventory" tone="secondary">
-            Back to inventory
-          </LinkButton>
+            {t("inventory.features.storageLocations.ui.storageLocationPage.back.to.inventory")}</LinkButton>
         }
       />
 
@@ -43,21 +43,21 @@ export function StorageLocationPage({
         </Card>
       ) : null}
 
-      <PageSection title="Create Location">
+      <PageSection title={t("inventory.features.storageLocations.ui.storageLocationPage.create.location")}>
         <Card>
           <form method="post">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="create-location" />
-              <TextInput label="Name" name="name" required />
-              <Textarea label="Description" name="description" rows={3} />
-              <TextInput label="Ship-from code" name="shipFromCode" required />
-              <Button type="submit">Create location</Button>
+              <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.name")} name="name" required />
+              <Textarea label={t("inventory.features.storageLocations.ui.storageLocationPage.description")} name="description" rows={3} />
+              <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.code")} name="shipFromCode" required />
+              <Button type="submit">{t("inventory.features.storageLocations.ui.storageLocationPage.create.location.2")}</Button>
             </Stack>
           </form>
         </Card>
       </PageSection>
 
-      <PageSection title="Current Locations">
+      <PageSection title={t("inventory.features.storageLocations.ui.storageLocationPage.current.locations")}>
         <Stack gap={4}>
           {locations.map((location) => (
             <Card key={location.storage_location_id}>
@@ -66,7 +66,7 @@ export function StorageLocationPage({
                   <Text weight="semibold">{location.name}</Text>
                   <Text tone="secondary">{formatDescription(location)}</Text>
                   <Badge tone={location.is_archived ? "warning" : "accent"}>
-                    {location.is_archived ? "Archived" : "Active"}
+                    {location.is_archived ? t("inventory.features.storageLocations.ui.storageLocationPage.archived") : t("inventory.features.storageLocations.ui.storageLocationPage.active")}
                   </Badge>
                 </Stack>
                 <form method="post">
@@ -82,26 +82,25 @@ export function StorageLocationPage({
                       value={location.storage_location_id}
                     />
                     <TextInput
-                      label="Name"
+                      label={t("inventory.features.storageLocations.ui.storageLocationPage.name.2")}
                       name="name"
                       defaultValue={location.name}
                       required
                     />
                     <Textarea
-                      label="Description"
+                      label={t("inventory.features.storageLocations.ui.storageLocationPage.description.2")}
                       name="description"
                       rows={3}
                       defaultValue={location.description ?? ""}
                     />
                     <TextInput
-                      label="Ship-from code"
+                      label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.code.2")}
                       name="shipFromCode"
                       defaultValue={location.ship_from_code}
                       required
                     />
                     <Button type="submit" tone="secondary">
-                      Save location
-                    </Button>
+                      {t("inventory.features.storageLocations.ui.storageLocationPage.save.location")}</Button>
                   </Stack>
                 </form>
                 {!location.is_archived ? (
@@ -128,8 +127,7 @@ export function StorageLocationPage({
                       value={location.ship_from_code}
                     />
                     <Button type="submit" tone="danger">
-                      Archive location
-                    </Button>
+                      {t("inventory.features.storageLocations.ui.storageLocationPage.archive.location")}</Button>
                   </form>
                 ) : null}
               </Stack>

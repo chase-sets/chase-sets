@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
 import type { ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
@@ -75,21 +76,21 @@ export function ErrorBoundary() {
     ? error.statusText
     : error instanceof Error
       ? error.message
-      : "Unknown error";
+      : t("adminWeb.app.root.unknown.error");
 
   return (
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Admin Error</title>
+        <title>{t("adminWeb.app.root.admin.error")}</title>
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="alternate icon" href="/favicon.ico" sizes="any" />
         <Links />
       </head>
       <body>
         <main>
-          <h1>Admin Error</h1>
+          <h1>{t("adminWeb.app.root.admin.error.2")}</h1>
           <p>{message}</p>
         </main>
         <Scripts />

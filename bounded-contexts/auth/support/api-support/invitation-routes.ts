@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
@@ -19,7 +20,7 @@ export function registerInvitationRoutes(
       String(body.invitationId ?? ""),
     );
     if (!invitation || invitation.status !== "pending") {
-      return c.json({ error: "Invitation is unavailable." }, 404);
+      return c.json({ error: t("auth.support.apiSupport.invitationRoutes.invitation.is.unavailable") }, 404);
     }
 
     let user = await services.identity.getUserByEmail(invitation.email);

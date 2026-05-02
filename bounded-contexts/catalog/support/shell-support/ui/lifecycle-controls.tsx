@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   AlertDialog,
@@ -48,42 +49,41 @@ export function LifecycleControls({ status, transitions, onAction, loading }: Li
   return (
     <Inline gap={2}>
       <StatusPill tone={statusTone[status] ?? "neutral"}>{status}</StatusPill>
-      {transitions.map((t) =>
-        t.confirm ? (
+      {transitions.map((transition) =>
+        transition.confirm ? (
           <AlertDialog
-            key={t.action}
-            open={confirming?.action === t.action}
+            key={transition.action}
+            open={confirming?.action === transition.action}
             onOpenChange={(open) => !open && setConfirming(null)}
-            title={t.confirmTitle ?? `${t.label}?`}
-            description={t.confirmDescription ?? `Are you sure you want to ${t.label.toLowerCase()} this item?`}
-            confirmLabel={t.label}
-            cancelLabel="Cancel"
+            title={transition.confirmTitle ?? t("catalog.support.shellSupport.ui.lifecycleControls.confirm.action.title", { action: transition.label })}
+            description={transition.confirmDescription ?? t("catalog.support.shellSupport.ui.lifecycleControls.confirm.action.description", { action: transition.label.toLowerCase() })}
+            confirmLabel={transition.label}
+            cancelLabel={t("catalog.support.shellSupport.ui.lifecycleControls.cancel")}
             tone="danger"
-            onConfirm={() => handleAction(t.action)}
+            onConfirm={() => handleAction(transition.action)}
             trigger={
               <Button
-                tone={t.tone ?? "secondary"}
+                tone={transition.tone ?? "secondary"}
                 size="sm"
                 disabled={loading || actionLoading}
-                onClick={() => setConfirming(t)}
+                onClick={() => setConfirming(transition)}
               >
-                {t.label}
+                {transition.label}
               </Button>
             }
           />
         ) : (
           <Button
-            key={t.action}
-            tone={t.tone ?? "secondary"}
+            key={transition.action}
+            tone={transition.tone ?? "secondary"}
             size="sm"
             disabled={loading || actionLoading}
-            onClick={() => handleAction(t.action)}
+            onClick={() => handleAction(transition.action)}
           >
-            {t.label}
+            {transition.label}
           </Button>
         ),
       )}
     </Inline>
   );
 }
-

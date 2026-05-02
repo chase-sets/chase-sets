@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useState, type ReactNode } from "react";
 import {
   ChaseRoot,
@@ -25,7 +26,7 @@ export function DiscoveryShellLayout({
   return (
     <ChaseRoot colorMode={colorMode}>
       <MarketplaceShell
-        brand={<SellerBadge name="Chase Sets" />}
+        brand={<SellerBadge name={t("discovery.support.shellSupport.layout.chase.sets")} />}
         topNavItems={[...topNavItems]}
         bottomNavItems={[...bottomNavItems]}
         activeKey={activeKey}

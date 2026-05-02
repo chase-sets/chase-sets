@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -19,7 +20,7 @@ import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page
 import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-review-opportunity-callout";
 
 const MARKETPLACE_DESCRIPTION =
-  "Inspect a purchase, cancel it while still open, and review the counterparty after delivery.";
+  t("ordering.routes.accountPurchase.inspect.a.purchase.cancel.it.while");
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -52,7 +53,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof OrderingApiError && error.status === 404) {
-      throw new Response("Purchase not found.", { status: 404 });
+      throw new Response(t("ordering.routes.accountPurchase.purchase.not.found"), { status: 404 });
     }
 
     throw error;
@@ -74,14 +75,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return null;
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Request failed.",
+      error: error instanceof Error ? error.message : t("ordering.routes.accountPurchase.request.failed"),
     };
   }
 }
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Purchase | Marketplace",
+    title: t("ordering.routes.accountPurchase.purchase.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 
@@ -101,7 +102,7 @@ export default function OrderingAccountPurchaseRoute() {
       }
       order={data.purchase as PurchaseDetail}
       errorMessage={actionData?.error ?? null}
-      supplementarySectionTitle="Review"
+      supplementarySectionTitle={t("ordering.routes.accountPurchase.review")}
       supplementarySection={
         reviewOpportunity ? (
           <OrderReviewOpportunityCallout

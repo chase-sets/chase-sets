@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SettlementApiEnv } from "../../../api";
@@ -17,7 +18,7 @@ function requirePayoutAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: "Authentication required." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("settlement.features.payouts.api.route.authentication.required") } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       }),
@@ -27,7 +28,7 @@ function requirePayoutAccess(
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: "Forbidden." } }), {
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("settlement.features.payouts.api.route.forbidden") } }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       }),
@@ -38,7 +39,7 @@ function requirePayoutAccess(
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return error instanceof Error ? error.message : t("settlement.features.payouts.api.route.request.failed");
 }
 
 export function createPayoutRoutes(services: PayoutServices) {
@@ -176,7 +177,7 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("settlement.features.payouts.api.route.authentication.context.missing") } }, 401);
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -200,7 +201,7 @@ export function createPayoutRoutes(services: PayoutServices) {
       access.actor.accountId,
     );
     if (!payout) {
-      return c.json({ error: { code: "not_found", message: "Payout not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: t("settlement.features.payouts.api.route.payout.not.found") } }, 404);
     }
 
     return c.json(payout);
@@ -237,7 +238,7 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+      return c.json({ error: { code: "authentication_required", message: t("settlement.features.payouts.api.route.authentication.context.missing.2") } }, 401);
     }
 
     const body = await c.req.json();

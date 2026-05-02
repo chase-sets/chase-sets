@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type {
   ActionFunctionArgs,
@@ -118,7 +119,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof Error && "status" in error && error.status === 404) {
-      throw new Response("Purchase not found.", { status: 404 });
+      throw new Response(t("payments.routes.marketplace.accountPaymentNew.purchase.not.found"), { status: 404 });
     }
 
     throw error;
@@ -133,7 +134,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const orderIds = parseOrderIds(String(formData.get("orderIds") ?? ""));
   if (orderIds.length === 0) {
-    return { error: "Choose at least one order to pay." };
+    return { error: t("payments.routes.marketplace.accountPaymentNew.choose.at.least.one.order.to") };
   }
 
   const paymentsApi = createPaymentsRequestApiClient(request);
@@ -148,13 +149,13 @@ export async function action({ request }: ActionFunctionArgs) {
     return redirect(`/account/payments/${payment.payment_id}`);
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Payment could not be started.",
+      error: error instanceof Error ? error.message : t("payments.routes.marketplace.accountPaymentNew.payment.could.not.be.started"),
     };
   }
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: "Start Payment | Marketplace" });
+  buildOpenGraphMeta({ title: t("payments.routes.marketplace.accountPaymentNew.start.payment.marketplace") });
 
 export default function MarketplaceAccountPaymentNewRoute() {
   const data = useLoaderData<typeof loader>();
@@ -198,13 +199,12 @@ export default function MarketplaceAccountPaymentNewRoute() {
   return (
     <Page>
       <PageHeader
-        eyebrow="Secure Checkout"
-        title="Start payment"
-        description="Review the purchases created by checkout, then initialize the secure payment flow."
+        eyebrow={t("payments.routes.marketplace.accountPaymentNew.secure.checkout")}
+        title={t("payments.routes.marketplace.accountPaymentNew.start.payment")}
+        description={t("payments.routes.marketplace.accountPaymentNew.review.the.purchases.created.by.checkout")}
         actions={
           <LinkButton href="/account/purchases" tone="secondary">
-            Back to purchases
-          </LinkButton>
+            {t("payments.routes.marketplace.accountPaymentNew.back.to.purchases")}</LinkButton>
         }
       />
 
@@ -212,16 +212,16 @@ export default function MarketplaceAccountPaymentNewRoute() {
         summary={
           <Stack gap={3}>
             <OrderSummary
-              title="Checkout Summary"
+              title={t("payments.routes.marketplace.accountPaymentNew.checkout.summary")}
               lines={[
-                { label: "Purchases", value: data.orders.length },
-                { label: "Marketplace fees", value: formatMoney(marketplaceFeeAmount) },
-                { label: "Payment fees", value: formatMoney(paymentFeeAmount) },
-                { label: "Seller net", value: formatMoney(sellerNetAmount) },
+                { label: t("payments.routes.marketplace.accountPaymentNew.purchases"), value: data.orders.length },
+                { label: t("payments.routes.marketplace.accountPaymentNew.marketplace.fees"), value: formatMoney(marketplaceFeeAmount) },
+                { label: t("payments.routes.marketplace.accountPaymentNew.payment.fees"), value: formatMoney(paymentFeeAmount) },
+                { label: t("payments.routes.marketplace.accountPaymentNew.seller.net"), value: formatMoney(sellerNetAmount) },
                 ...(data.wallet
                   ? [
                       {
-                        label: "Available balance",
+                        label: t("payments.routes.marketplace.accountPaymentNew.available.balance"),
                         value: `${data.wallet.available_balance_amount} ${data.wallet.currency_code.toUpperCase()}`,
                       },
                     ]
@@ -233,18 +233,18 @@ export default function MarketplaceAccountPaymentNewRoute() {
               items={[
                 {
                   icon: "lock",
-                  title: "Secure Payment",
-                  description: "Payment details are collected by the secure processor so marketplace servers never handle card numbers.",
+                  title: t("payments.routes.marketplace.accountPaymentNew.secure.payment"),
+                  description: t("payments.routes.marketplace.accountPaymentNew.payment.details.are.collected.by.the"),
                 },
                 {
                   icon: "shield",
-                  title: "Buyer Protection",
-                  description: "The secure form can use wallets, dynamic payment methods, and extra verification when needed.",
+                  title: t("payments.routes.marketplace.accountPaymentNew.buyer.protection"),
+                  description: t("payments.routes.marketplace.accountPaymentNew.the.secure.form.can.use.wallets"),
                 },
                 {
                   icon: "creditCard",
-                  title: "Payment Setup",
-                  description: "The next step initializes a managed payment form tied to this checkout.",
+                  title: t("payments.routes.marketplace.accountPaymentNew.payment.setup"),
+                  description: t("payments.routes.marketplace.accountPaymentNew.the.next.step.initializes.a.managed"),
                 },
               ]}
             />
@@ -255,12 +255,17 @@ export default function MarketplaceAccountPaymentNewRoute() {
           <Surface elevated glow>
             <Stack gap={4}>
               <Stack gap={2}>
-                <Badge tone="accent">Payment setup</Badge>
-                <Text weight="semibold">Ready to initialize payment</Text>
+                <Badge tone="accent">{t("payments.routes.marketplace.accountPaymentNew.payment.setup.2")}</Badge>
+                <Text weight="semibold">{t("payments.routes.marketplace.accountPaymentNew.ready.to.initialize.payment")}</Text>
                 <Text size="sm" tone="secondary">
-                  Payment covers {data.orders.length} purchase
-                  {data.orders.length === 1 ? "" : "s"} created by checkout. The secure payment form appears on the next screen.
-                </Text>
+                  {t("payments.routes.marketplace.accountPaymentNew.payment.covers.purchases", {
+                    count: data.orders.length,
+                    purchaseLabel: t(
+                      data.orders.length === 1
+                        ? "payments.routes.marketplace.accountPaymentNew.purchase.singular"
+                        : "payments.routes.marketplace.accountPaymentNew.purchase.plural",
+                    ),
+                  })}</Text>
               </Stack>
               {actionData?.error ? (
                 <Surface tone="subtle">
@@ -277,66 +282,72 @@ export default function MarketplaceAccountPaymentNewRoute() {
                     value={data.wallet?.available_balance_amount ?? "0.00"}
                   />
                   <NativeSelect
-                    label="Wallet balance"
+                    label={t("payments.routes.marketplace.accountPaymentNew.wallet.balance")}
                     name="balanceCreditMode"
                     defaultValue={availableBalanceAmount > 0 ? "max" : "none"}
                     items={[
-                      { value: "none", label: "Do not use balance" },
+                      { value: "none", label: t("payments.routes.marketplace.accountPaymentNew.do.not.use.balance") },
                       {
                         value: "max",
-                        label: `Use up to ${formatMoney(maxBalanceCreditAmount)}`,
+                        label: t("payments.routes.marketplace.accountPaymentNew.use.up.to.amount", {
+                          amount: formatMoney(maxBalanceCreditAmount),
+                        }),
                         disabled: availableBalanceAmount <= 0,
                       },
-                      { value: "custom", label: "Use a custom amount" },
+                      { value: "custom", label: t("payments.routes.marketplace.accountPaymentNew.use.a.custom.amount") },
                     ]}
                     description={
                       data.wallet
-                        ? `Using the maximum leaves ${formatMoney(externalAfterMaxAmount)} for secure external payment.`
-                        : "No wallet balance is available for this checkout."
+                        ? t("payments.routes.marketplace.accountPaymentNew.maximum.leaves.external.payment", {
+                            amount: formatMoney(externalAfterMaxAmount),
+                          })
+                        : t("payments.routes.marketplace.accountPaymentNew.no.wallet.balance.is.available.for")
                     }
                   />
                   <TextInput
-                    label="Custom wallet amount"
+                    label={t("payments.routes.marketplace.accountPaymentNew.custom.wallet.amount")}
                     name="requestedBalanceCreditAmount"
                     placeholder="0.00"
                     inputMode="decimal"
                     description={
                       data.wallet
-                        ? `${data.wallet.available_balance_amount} ${data.wallet.currency_code.toUpperCase()} available; choose custom only when you want less than the maximum.`
-                        : "Apply available wallet balance to this payment."
+                        ? t("payments.routes.marketplace.accountPaymentNew.wallet.available.custom.description", {
+                            amount: data.wallet.available_balance_amount,
+                            currency: data.wallet.currency_code.toUpperCase(),
+                          })
+                        : t("payments.routes.marketplace.accountPaymentNew.apply.available.wallet.balance.to.this")
                     }
                   />
                   <Button type="submit" size="lg" leadingIcon="lock">
-                    {navigation.state === "submitting" ? "Starting payment..." : "Continue to payment"}
+                    {navigation.state === "submitting" ? t("payments.routes.marketplace.accountPaymentNew.starting.payment") : t("payments.routes.marketplace.accountPaymentNew.continue.to.payment")}
                   </Button>
                 </Stack>
               </Form>
             </Stack>
           </Surface>
 
-          <PageSection title="Purchases">
+          <PageSection title={t("payments.routes.marketplace.accountPaymentNew.purchases.2")}>
             <Stack gap={3}>
               {data.orders.map((order) => (
                 <Surface key={order.order_id} elevated>
                   <Stack gap={3}>
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>
                       <Stack gap={1}>
-                        <Text weight="semibold">Purchase {order.order_id}</Text>
+                        <Text weight="semibold">{t("payments.routes.marketplace.accountPaymentNew.purchase")}{order.order_id}</Text>
                         <Badge tone="accent">{order.status}</Badge>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">Total</Text>
+                        <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPaymentNew.total")}</Text>
                         <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">Seller net</Text>
+                        <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPaymentNew.seller.net.2")}</Text>
                         <Text>{formatMoney(order.seller_net_amount)}</Text>
                       </Stack>
                     </Grid>
                     <Divider />
                     <LinkButton href={`/account/purchases/${order.order_id}`} tone="secondary">
-                      Open purchase
-                    </LinkButton>
+                      {t("payments.routes.marketplace.accountPaymentNew.open.purchase")}</LinkButton>
                   </Stack>
                 </Surface>
               ))}

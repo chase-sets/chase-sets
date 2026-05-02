@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -11,7 +12,7 @@ import { MarketplaceSubmittedOfferListPage } from "../features/offers/ui/submitt
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
-  "Track offers you have submitted against marketplace inventory.";
+  t("marketplace.routes.accountOffersSubmitted.track.offers.you.have.submitted.against");
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "offers.view" });
@@ -24,7 +25,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Submitted Offers | Marketplace",
+    title: t("marketplace.routes.accountOffersSubmitted.submitted.offers.marketplace"),
     description: MARKETPLACE_DESCRIPTION,
   });
 

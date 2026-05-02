@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import {
   Button,
   Card,
@@ -26,7 +27,7 @@ export function MarketplaceOfferSubmissionSection({
   errorMessage?: string | null;
 }) {
   return (
-    <PageSection title="Make An Offer">
+    <PageSection title={t("marketplace.features.offers.ui.offerSubmissionSection.make.an.offer")}>
       <Card>
         <form method="post">
           <Stack gap={3}>
@@ -38,30 +39,29 @@ export function MarketplaceOfferSubmissionSection({
             <Stack gap={1}>
               <Text weight="semibold">{itemTitle}</Text>
               <Text size="sm" tone="secondary">
-                {productSummary ?? "Standard product"}
+                {productSummary ?? t("marketplace.features.offers.ui.offerSubmissionSection.standard.product")}
               </Text>
               <Text size="sm" tone="secondary">
-                Matching visible listings for this product: {visibleListingCount}
+                {t("marketplace.features.offers.ui.offerSubmissionSection.matching.visible.listings.for.this.product")}{visibleListingCount}
               </Text>
               <Text size="sm" tone="secondary">
-                Offers are marketplace-wide. They are not sent to a single seller.
-              </Text>
+                {t("marketplace.features.offers.ui.offerSubmissionSection.offers.are.marketplace.wide.they.are")}</Text>
             </Stack>
             {errorMessage ? <Text>{errorMessage}</Text> : null}
             <TextInput
-              label="Offer price"
+              label={t("marketplace.features.offers.ui.offerSubmissionSection.offer.price")}
               name="priceAmount"
               placeholder="24.99"
               inputMode="decimal"
               required
             />
             <NumberInput
-              label="Quantity requested"
+              label={t("marketplace.features.offers.ui.offerSubmissionSection.quantity.requested")}
               name="quantityRequested"
               min="1"
               required
             />
-            <Button type="submit">Submit offer</Button>
+            <Button type="submit">{t("marketplace.features.offers.ui.offerSubmissionSection.submit.offer")}</Button>
           </Stack>
         </form>
       </Card>

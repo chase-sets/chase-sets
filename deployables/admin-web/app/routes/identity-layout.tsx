@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLoaderData, useLocation } from "react-router";
 import { Button } from "@chase-sets/design-system";
@@ -27,8 +28,7 @@ export default function IdentityAdminLayoutRoute() {
       actions={
         <form action="/identity/sign-out" method="post">
           <Button type="submit" tone="secondary">
-            Sign Out
-          </Button>
+            {t("adminWeb.app.routes.identityLayout.sign.out")}</Button>
         </form>
       }
     >

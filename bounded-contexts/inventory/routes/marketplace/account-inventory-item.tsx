@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -26,7 +27,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof InventoryApiError && error.status === 404) {
-      throw new Response("Inventory item not found.", { status: 404 });
+      throw new Response(t("inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found"), { status: 404 });
     }
 
     throw error;
@@ -78,8 +79,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
-    title: "Inventory Item | Marketplace",
-    description: "Inspect a specific inventory item, its quantities, and any active holds.",
+    title: t("inventory.routes.marketplace.accountInventoryItem.inventory.item.marketplace"),
+    description: t("inventory.routes.marketplace.accountInventoryItem.inspect.a.specific.inventory.item.its"),
   });
 
 export default function MarketplaceInventoryItemRoute() {

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { hasPermission as hasActorPermission } from "@chase-sets/platform-runtime/auth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createIdentityAuthRequestClient } from "@chase-sets/identity/server";
@@ -20,7 +21,7 @@ export function getBootstrapContext(c: AuthApiContext) {
 export function getRequiredContext(c: AuthApiContext) {
   const context = c.var.context;
   if (!context) {
-    throw new Error("Missing auth request context.");
+    throw new Error(t("auth.support.apiSupport.support.missing.auth.request.context"));
   }
 
   return context;
@@ -29,7 +30,7 @@ export function getRequiredContext(c: AuthApiContext) {
 export function getRequiredActor(c: AuthApiContext) {
   const actor = c.var.actor;
   if (!actor) {
-    throw new Error("Missing auth actor.");
+    throw new Error(t("auth.support.apiSupport.support.missing.auth.actor"));
   }
 
   return actor;
@@ -45,11 +46,11 @@ export function createPermissionGuard(
   return async (c, next) => {
     const actor = c.var.actor;
     if (!actor) {
-      return c.json({ error: "Authentication required." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.support.authentication.required") }, 401);
     }
 
     if (!hasActorPermission(actor, permission)) {
-      return c.json({ error: "Forbidden." }, 403);
+      return c.json({ error: t("auth.support.apiSupport.support.forbidden") }, 403);
     }
 
     await next();
