@@ -30,7 +30,7 @@ import {
   DiscoveryApiError,
 } from "../support/request-support/api-client";
 import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
-import { discoveryRealtimeTopics } from "../support/realtime-support/topics";
+import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import type {
   DiscoveryMarketListing,
   DiscoverySellerInventoryItem,
@@ -863,10 +863,7 @@ export default function DiscoveryItemDetailRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: [
-        discoveryRealtimeTopics.publicMarket(),
-        discoveryRealtimeTopics.item(data.item.catalog_item_id),
-      ],
+      topics: discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id),
       onPatch: (patch) => {
         setRealtimeItem((current) => applyDiscoveryItemPatch(current, patch));
       },

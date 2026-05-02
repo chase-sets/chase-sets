@@ -226,6 +226,8 @@ describe("platform api config", () => {
     process.env.REALTIME_MAX_TOPICS_PER_STREAM = "8";
     process.env.REALTIME_MAX_ACTIVE_STREAMS = "200";
     process.env.REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY = "3";
+    process.env.REALTIME_CURSOR_SIGNING_SECRET = "current-secret";
+    process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS = "old-secret, older-secret ";
 
     expect(loadConfig().realtime).toEqual({
       batchSize: 25,
@@ -236,6 +238,8 @@ describe("platform api config", () => {
       maxTopicsPerStream: 8,
       maxActiveStreams: 200,
       maxActiveStreamsPerConnectionKey: 3,
+      cursorSigningSecret: "current-secret",
+      previousCursorSigningSecrets: ["old-secret", "older-secret"],
     });
   });
 });

@@ -1,9 +1,15 @@
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
-import { discoveryRealtimeManifest } from "@chase-sets/discovery/server";
+import {
+  discoveryRealtimeManifest,
+  discoveryRealtimeTopicPolicyManifest,
+} from "@chase-sets/discovery/server";
 import { module as identityModule } from "@chase-sets/identity";
-import { marketplaceRealtimeManifest } from "@chase-sets/marketplace/server";
+import {
+  marketplaceRealtimeManifest,
+  marketplaceRealtimeTopicPolicyManifest,
+} from "@chase-sets/marketplace/server";
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
@@ -28,6 +34,8 @@ import {
 import {
   createRealtimeStatusSnapshot,
   createRealtimeRoutes,
+  composeRealtimeTopicPolicyManifest,
+  type RealtimeCursorSigningKeySet,
   type RealtimeObserver,
   type RealtimeResourceLimits,
   type RealtimeRouteTuning,
@@ -56,6 +64,8 @@ export type BuildPlatformApiOptions = Readonly<{
   realtimeObserver?: RealtimeObserver;
   realtimeResourceLimits?: RealtimeResourceLimits;
   realtimeRouteTuning?: RealtimeRouteTuning;
+  realtimeCursorSigningSecret?: string;
+  realtimeCursorSigningKeys?: RealtimeCursorSigningKeySet;
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   realtimeActiveConnectionCount?: () => number;
   mcp?: CreateMcpRoutesOptions;
@@ -100,6 +110,10 @@ export function buildPlatformApiApp(
       contextName: entry.contextName,
       db: entry.pool,
     }));
+  const realtimeTopicPolicyManifest = composeRealtimeTopicPolicyManifest([
+    discoveryRealtimeTopicPolicyManifest,
+    marketplaceRealtimeTopicPolicyManifest,
+  ]);
   const identityServices = {
     auth: runtime.services.auth as ReturnType<typeof authModule.createServices>,
     identity: runtime.services.identity as ReturnType<typeof identityModule.createServices>,
@@ -139,6 +153,9 @@ export function buildPlatformApiApp(
       resolveActor: options.resolveActor ?? (async () => null),
       observer: options.realtimeObserver,
       wakeSignal: options.realtimeWakeSignal,
+      cursorSigningKeys:
+        options.realtimeCursorSigningKeys ?? options.realtimeCursorSigningSecret,
+      topicPolicyManifest: realtimeTopicPolicyManifest,
       ...options.realtimeRouteTuning,
       resourceLimits: options.realtimeResourceLimits ?? {
         maxTopicsPerStream: 16,

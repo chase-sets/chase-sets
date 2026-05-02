@@ -47,6 +47,7 @@ describe("realtime web subscriptions", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     Object.defineProperty(globalThis, "window", {
       value: originalWindow,
       configurable: true,
@@ -74,7 +75,7 @@ describe("realtime web subscriptions", () => {
 
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(FakeEventSource.instances[0].url).toBe(
-      "/api/realtime/events?topic=listing%3Alist_1&topic=public%3Amarket",
+      "/api/realtime/public/events?topic=listing%3Alist_1&topic=public%3Amarket",
     );
     expect(FakeEventSource.instances[0].init).toEqual({ withCredentials: true });
     expect(getRealtimeSubscriptionDiagnostics()).toMatchObject({
@@ -108,6 +109,22 @@ describe("realtime web subscriptions", () => {
     expect(FakeEventSource.instances[0].close).toHaveBeenCalledTimes(1);
   });
 
+  it("routes account-only topics to the account endpoint", () => {
+    const subscription = subscribeRealtimePatches({
+      topics: ["account:account_1:listings"],
+      onPatch: () => undefined,
+      onSyncRequired: () => undefined,
+      debounceMs: 0,
+    });
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(FakeEventSource.instances[0].url).toBe(
+      "/api/realtime/account/events?topic=account%3Aaccount_1%3Alistings",
+    );
+
+    subscription.close();
+  });
+
   it("ignores malformed streamed messages before invoking handlers", () => {
     const onPatch = vi.fn();
     const onSyncRequired = vi.fn();
@@ -133,6 +150,29 @@ describe("realtime web subscriptions", () => {
 
     expect(onPatch).not.toHaveBeenCalled();
     expect(onSyncRequired).not.toHaveBeenCalled();
+
+    subscription.close();
+  });
+
+  it("backs off and reopens a noisy EventSource", () => {
+    vi.useFakeTimers();
+    const subscription = subscribeRealtimePatches({
+      topics: ["public:market"],
+      onPatch: () => undefined,
+      onSyncRequired: () => undefined,
+      debounceMs: 0,
+      reconnectPolicy: {
+        backoffMs: 25,
+        maxErrorCountBeforeBackoff: 1,
+      },
+    });
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+    FakeEventSource.instances[0].emit("error", {});
+    expect(FakeEventSource.instances[0].close).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(25);
+    expect(FakeEventSource.instances).toHaveLength(2);
 
     subscription.close();
   });

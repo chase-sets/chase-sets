@@ -12,7 +12,7 @@ import {
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
 import { MarketplaceSubmittedOfferListPage } from "../features/offers/ui/submitted-offer-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
-import { marketplaceRealtimeTopics } from "../support/realtime-support/topics";
+import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION =
@@ -53,7 +53,7 @@ export default function MarketplaceAccountSubmittedOffersRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: [marketplaceRealtimeTopics.accountOffers(accountId)],
+      topics: marketplaceRealtimeRouteTopics.accountOffers(accountId),
       onPatch: (patch) => {
         setSubmittedOffers((current) =>
           applyMarketplaceListPatch(current, patch, {

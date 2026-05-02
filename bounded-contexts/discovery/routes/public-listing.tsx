@@ -21,7 +21,7 @@ import {
   DiscoveryApiError,
 } from "../support/request-support/api-client";
 import { applyDiscoveryPublicListingPatch } from "../support/client-support/realtime-market";
-import { discoveryRealtimeTopics } from "../support/realtime-support/topics";
+import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 function formatMoney(value: string): string {
   return `$${value}`;
@@ -97,10 +97,7 @@ export default function PublicListingRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: [
-        discoveryRealtimeTopics.publicMarket(),
-        discoveryRealtimeTopics.listing(data.listing.listing_id),
-      ],
+      topics: discoveryRealtimeRouteTopics.publicListing(data.listing.listing_id),
       onPatch: (patch) => {
         setListing((current) => applyDiscoveryPublicListingPatch(current, patch));
       },

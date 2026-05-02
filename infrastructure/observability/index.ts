@@ -94,6 +94,10 @@ const realtimePayloadBytes = meter.createHistogram("chase_sets_realtime_payload_
 });
 const realtimeSyncRequiredCounter = meter.createCounter("chase_sets_realtime_sync_required_total");
 const realtimeWakeCounter = meter.createCounter("chase_sets_realtime_wake_waits_total");
+const realtimeWakeNotificationCounter = meter.createCounter(
+  "chase_sets_realtime_wake_notifications_total",
+);
+const realtimeReadHubCounter = meter.createCounter("chase_sets_realtime_read_hub_total");
 const realtimeTopicLag = meter.createHistogram("chase_sets_realtime_topic_lag", {
   unit: "{message}",
 });
@@ -482,6 +486,24 @@ export function recordRealtimeWakeWaitEnded(event: Readonly<{
 }>): void {
   realtimeWakeCounter.add(1, {
     result: event.result,
+  });
+}
+
+export function recordRealtimeWakeNotificationReceived(event: Readonly<{
+  matchedWaiterCount: number;
+}>): void {
+  realtimeWakeNotificationCounter.add(1, {
+    matched: event.matchedWaiterCount > 0,
+  });
+}
+
+export function recordRealtimeReadHub(event: Readonly<{
+  action: "started" | "coalesced";
+  topics: readonly string[];
+}>): void {
+  realtimeReadHubCounter.add(1, {
+    action: event.action,
+    topic_count: event.topics.length,
   });
 }
 

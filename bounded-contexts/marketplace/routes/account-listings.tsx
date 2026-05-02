@@ -25,7 +25,7 @@ import {
   MarketplaceListingListPage,
 } from "../features/listings/ui/listing-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
-import { marketplaceRealtimeTopics } from "../support/realtime-support/topics";
+import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
@@ -153,7 +153,7 @@ export default function MarketplaceAccountListingsRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: [marketplaceRealtimeTopics.accountListings(accountId)],
+      topics: marketplaceRealtimeRouteTopics.accountListings(accountId),
       onPatch: (patch) => {
         setListings((current) =>
           applyMarketplaceListPatch(current, patch, {

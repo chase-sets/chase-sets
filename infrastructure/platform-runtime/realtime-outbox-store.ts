@@ -20,6 +20,8 @@ const REALTIME_TOPIC_HEAD_TABLE = "realtime_projection_topic_heads";
 const REALTIME_NOTIFY_CHANNEL = "realtime_projection_patch";
 const DEFAULT_BATCH_SIZE = 100;
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_MAX_PATCH_CHANGE_COUNT = 500;
+const DEFAULT_MAX_PATCH_PAYLOAD_BYTES = 64 * 1_024;
 const RETENTION_SWEEP_ADVISORY_LOCK_KEY = "8873012201";
 
 export const realtimeProjectionNotifyChannel = REALTIME_NOTIFY_CHANNEL;
@@ -32,6 +34,8 @@ export const realtimeOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${REALTIME_OU
   patch_key text NOT NULL,
   topics jsonb NOT NULL,
   payload jsonb NOT NULL,
+  payload_json text NOT NULL,
+  payload_bytes integer NOT NULL CHECK (payload_bytes >= 0),
   recorded_at timestamptz NOT NULL,
   expires_at timestamptz NOT NULL,
   CONSTRAINT ${REALTIME_OUTBOX_TABLE}_source_patch_uk UNIQUE (
@@ -40,6 +44,26 @@ export const realtimeOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${REALTIME_OU
     patch_key
   )
 );
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ADD COLUMN IF NOT EXISTS payload_json text;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ADD COLUMN IF NOT EXISTS payload_bytes integer CHECK (payload_bytes >= 0);
+
+UPDATE ${REALTIME_OUTBOX_TABLE}
+SET payload_json = payload::text
+WHERE payload_json IS NULL;
+
+UPDATE ${REALTIME_OUTBOX_TABLE}
+SET payload_bytes = octet_length(payload_json)
+WHERE payload_bytes IS NULL;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ALTER COLUMN payload_json SET NOT NULL;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ALTER COLUMN payload_bytes SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ${REALTIME_OUTBOX_TABLE}_expires_idx
   ON ${REALTIME_OUTBOX_TABLE} (expires_at);
@@ -61,6 +85,98 @@ CREATE TABLE IF NOT EXISTS ${REALTIME_TOPIC_HEAD_TABLE} (
   outbox_id bigint NOT NULL REFERENCES ${REALTIME_OUTBOX_TABLE} (outbox_id) ON DELETE CASCADE,
   updated_at timestamptz NOT NULL
 );`;
+
+export const realtimeOutboxPartitionMaintenanceSql = `CREATE TABLE IF NOT EXISTS realtime_projection_outbox_partitions (
+  partition_name text PRIMARY KEY,
+  starts_at timestamptz NOT NULL,
+  ends_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  dropped_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS realtime_projection_outbox_partitions_range_idx
+  ON realtime_projection_outbox_partitions (starts_at, ends_at);`;
+
+export function createRealtimeOutboxPartitionName(day: string): string {
+  if (!/^\d{4}_\d{2}_\d{2}$/.test(day)) {
+    throw new Error("Realtime outbox partition day must use YYYY_MM_DD.");
+  }
+
+  return `${REALTIME_OUTBOX_TABLE}_${day}`;
+}
+
+export type RealtimeOutboxPartitionMaintainer = Readonly<{
+  maintain: () => Promise<void>;
+  stop: () => void;
+}>;
+
+export function createRealtimeOutboxPartitionMaintainer(options: Readonly<{
+  db: PgQueryable;
+  aheadDays?: number;
+  retentionDays?: number;
+  intervalMs?: number;
+  now?: () => Date;
+  onError?: (error: unknown) => void;
+}>): RealtimeOutboxPartitionMaintainer {
+  const aheadDays = options.aheadDays ?? 2;
+  const retentionDays = options.retentionDays ?? 2;
+  const now = options.now ?? (() => new Date());
+  let running = false;
+
+  const maintain = async () => {
+    if (running) {
+      return;
+    }
+
+    running = true;
+    try {
+      await options.db.query(realtimeOutboxPartitionMaintenanceSql);
+      const start = startOfUtcDay(now());
+      for (let offset = 0; offset <= aheadDays; offset += 1) {
+        const startsAt = addUtcDays(start, offset);
+        const endsAt = addUtcDays(startsAt, 1);
+        await options.db.query(
+          `INSERT INTO realtime_projection_outbox_partitions (
+             partition_name,
+             starts_at,
+             ends_at
+           ) VALUES ($1, $2, $3)
+           ON CONFLICT (partition_name) DO NOTHING`,
+          [
+            createRealtimeOutboxPartitionName(formatUtcPartitionDay(startsAt)),
+            startsAt.toISOString(),
+            endsAt.toISOString(),
+          ],
+        );
+      }
+
+      await options.db.query(
+        `UPDATE realtime_projection_outbox_partitions
+         SET dropped_at = $1
+         WHERE ends_at < $2
+           AND dropped_at IS NULL`,
+        [
+          now().toISOString(),
+          addUtcDays(start, -retentionDays).toISOString(),
+        ],
+      );
+    } finally {
+      running = false;
+    }
+  };
+
+  const timer = setInterval(() => {
+    void maintain().catch((error: unknown) => {
+      options.onError?.(error);
+    });
+  }, options.intervalMs ?? 60 * 60 * 1_000);
+  timer.unref?.();
+
+  return {
+    maintain,
+    stop: () => clearInterval(timer),
+  };
+}
 
 export type RealtimeContextRegistration = Readonly<{
   contextName: string;
@@ -91,6 +207,8 @@ export type RecordRealtimeProjectionPatchInput = Readonly<{
   patch: RealtimeProjectionPatch;
   recordedAt?: string;
   retentionMs?: number;
+  maxChangeCount?: number;
+  maxPayloadBytes?: number;
 }>;
 
 export type RealtimeCursor = Readonly<Record<string, string>>;
@@ -104,6 +222,8 @@ export type ReadRealtimePatchesOptions = Readonly<{
 type RealtimeOutboxRow = Readonly<{
   outbox_id: string | number | bigint;
   payload: unknown;
+  payload_json?: string;
+  payload_bytes?: string | number;
 }>;
 
 export async function runRealtimeProjectionTransaction<T>(
@@ -134,6 +254,8 @@ export async function recordRealtimeProjectionPatch(
     ...input.patch,
     topics,
   } satisfies RealtimeProjectionPatch;
+  const payloadJson = JSON.stringify(patch);
+  assertRealtimePatchSizeLimits(input, payloadJson);
 
   await db.query(
     `WITH upserted AS (
@@ -143,13 +265,17 @@ export async function recordRealtimeProjectionPatch(
        patch_key,
        topics,
        payload,
+       payload_json,
+       payload_bytes,
        recorded_at,
        expires_at
-       ) VALUES ($1::bigint, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+       ) VALUES ($1::bigint, $2, $3, $4::jsonb, $5::jsonb, $11, $12, $6, $7)
        ON CONFLICT (projection_name, source_global_position, patch_key)
        DO UPDATE SET
          topics = EXCLUDED.topics,
          payload = EXCLUDED.payload,
+         payload_json = EXCLUDED.payload_json,
+         payload_bytes = EXCLUDED.payload_bytes,
          recorded_at = EXCLUDED.recorded_at,
          expires_at = EXCLUDED.expires_at
        RETURNING outbox_id
@@ -180,7 +306,8 @@ export async function recordRealtimeProjectionPatch(
          $9,
          json_build_object(
            'context', $10::text,
-           'projection', $2::text
+           'projection', $2::text,
+           'topics', $8::text[]
          )::text
        )
      )
@@ -194,12 +321,14 @@ export async function recordRealtimeProjectionPatch(
       input.projectionName,
       input.patchKey,
       JSON.stringify(topics),
-      JSON.stringify(patch),
+      payloadJson,
       recordedAt,
       expiresAt,
       topics,
       REALTIME_NOTIFY_CHANNEL,
       patch.context,
+      payloadJson,
+      byteLengthUtf8(payloadJson),
     ],
   );
 }
@@ -279,6 +408,8 @@ export async function readRealtimePatches(
     contextName: string;
     outboxId: string;
     payload: RealtimeProjectionPatch;
+    payloadJson: string;
+    payloadBytes: number;
   }>[];
 }>> {
   const normalizedTopics = normalizeRealtimeTopics(topics);
@@ -293,6 +424,8 @@ export async function readRealtimePatches(
     contextName: string;
     outboxId: string;
     payload: RealtimeProjectionPatch;
+    payloadJson: string;
+    payloadBytes: number;
   }> = [];
 
   for (const store of matchingStores) {
@@ -308,14 +441,14 @@ export async function readRealtimePatches(
     }
 
     const result = await store.db.query<RealtimeOutboxRow>(
-      `SELECT outbox_id, payload
+      `SELECT outbox_id, payload, payload_json, payload_bytes
        FROM ${REALTIME_OUTBOX_TABLE} AS outbox
        INNER JOIN ${REALTIME_OUTBOX_TOPIC_TABLE} AS topic
          ON topic.outbox_id = outbox.outbox_id
        WHERE outbox.outbox_id > $1::bigint
          AND outbox.expires_at > now()
          AND topic.topic = ANY($2::text[])
-       GROUP BY outbox.outbox_id, outbox.payload
+       GROUP BY outbox.outbox_id, outbox.payload, outbox.payload_json, outbox.payload_bytes
        ORDER BY outbox.outbox_id ASC
        LIMIT $3`,
       [afterOutboxId, normalizedTopics, batchSize],
@@ -325,10 +458,13 @@ export async function readRealtimePatches(
       const outboxId = String(row.outbox_id);
       nextCursor[store.contextName] = outboxId;
       if (isRealtimeProjectionPatch(row.payload)) {
+        const payloadJson = row.payload_json ?? JSON.stringify(row.payload);
         messages.push({
           contextName: store.contextName,
           outboxId,
           payload: row.payload,
+          payloadJson,
+          payloadBytes: Number(row.payload_bytes ?? byteLengthUtf8(payloadJson)),
         });
       }
     }
@@ -380,15 +516,25 @@ export function compactRealtimeReplayMessages<
       return remaining <= 1;
     });
 
-    return changes.length === 0
-      ? []
-      : [{
-          ...message,
-          payload: {
-            ...message.payload,
-            changes,
-          },
-        } as TMessage];
+    if (changes.length === 0) {
+      return [];
+    }
+
+    const payload = {
+      ...message.payload,
+      changes,
+    };
+    const payloadJson = JSON.stringify(payload);
+    return [{
+      ...message,
+      payload,
+      ...("payloadJson" in message
+        ? {
+            payloadJson,
+            payloadBytes: byteLengthUtf8(payloadJson),
+          }
+        : {}),
+    } as TMessage];
   });
 }
 
@@ -494,6 +640,22 @@ function assertValidRealtimeProjectionPatch(
   }
 }
 
+function assertRealtimePatchSizeLimits(
+  input: RecordRealtimeProjectionPatchInput,
+  payloadJson: string,
+): void {
+  const maxChangeCount = input.maxChangeCount ?? DEFAULT_MAX_PATCH_CHANGE_COUNT;
+  const maxPayloadBytes = input.maxPayloadBytes ?? DEFAULT_MAX_PATCH_PAYLOAD_BYTES;
+  if (input.patch.changes.length > maxChangeCount) {
+    throw new Error(`Realtime projection patches cannot include more than ${maxChangeCount} changes.`);
+  }
+
+  const payloadBytes = byteLengthUtf8(payloadJson);
+  if (payloadBytes > maxPayloadBytes) {
+    throw new Error(`Realtime projection patch payload cannot exceed ${maxPayloadBytes} bytes.`);
+  }
+}
+
 function compactRealtimePatchChanges(
   changes: readonly RealtimeProjectionPatchChange[],
 ): readonly RealtimeProjectionPatchChange[] {
@@ -581,4 +743,30 @@ function isPgTransactionalPool(db: PgQueryable | PgTransactionalPool): db is PgT
 
 function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function byteLengthUtf8(value: string): number {
+  return Buffer.byteLength(value, "utf8");
+}
+
+function startOfUtcDay(value: Date): Date {
+  return new Date(Date.UTC(
+    value.getUTCFullYear(),
+    value.getUTCMonth(),
+    value.getUTCDate(),
+  ));
+}
+
+function addUtcDays(value: Date, days: number): Date {
+  const next = new Date(value);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function formatUtcPartitionDay(value: Date): string {
+  return [
+    value.getUTCFullYear(),
+    String(value.getUTCMonth() + 1).padStart(2, "0"),
+    String(value.getUTCDate()).padStart(2, "0"),
+  ].join("_");
 }

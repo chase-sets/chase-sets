@@ -16,6 +16,7 @@ import type { SettlementServices } from "@chase-sets/settlement/server";
 import {
   createMergedRealtimeWakeSignal,
   createPostgresRealtimeWakeSignal,
+  createRealtimeOutboxPartitionMaintainer,
   createRealtimeRetentionSweeper,
   type RealtimeObserver,
   type RealtimeWakeSignal,
@@ -29,7 +30,9 @@ import {
   recordRealtimeConnectionClosed,
   recordRealtimeConnectionOpened,
   recordRealtimeMessageSent,
+  recordRealtimeReadHub,
   recordRealtimeSyncRequired,
+  recordRealtimeWakeNotificationReceived,
   recordRealtimeWakeWaitEnded,
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "./auth-request-context";
@@ -119,9 +122,6 @@ const realtimeStores = runtime.mountedContexts
     contextName: entry.contextName,
     db: entry.pool,
   }));
-const realtimeWakeSignal = await createPlatformRealtimeWakeSignal(
-  [...new Set(realtimeStores.map((store) => store.db))],
-);
 let realtimeActiveConnectionCount = 0;
 const realtimeObserver = {
   connectionOpened: (event) => {
@@ -180,6 +180,12 @@ const realtimeObserver = {
       maxTopicLag: Math.max(0, ...event.topicLags.map((lag) => lag.lag)),
     });
   },
+  readStarted: (event) => {
+    recordRealtimeReadHub({ action: "started", topics: event.topics });
+  },
+  readCoalesced: (event) => {
+    recordRealtimeReadHub({ action: "coalesced", topics: event.topics });
+  },
   messageSent: (event) => {
     recordRealtimeMessageSent(event);
   },
@@ -195,6 +201,18 @@ const realtimeObserver = {
   },
   wakeWaitEnded: (event) => {
     recordRealtimeWakeWaitEnded(event);
+  },
+  wakeNotificationReceived: (event) => {
+    recordRealtimeWakeNotificationReceived(event);
+    if (event.matchedWaiterCount > 0) {
+      return;
+    }
+
+    logger.debug("Realtime wake notification had no local matching waiters.", {
+      type: "realtime.wake_notification.unmatched",
+      waiterCount: event.waiterCount,
+      notificationTopicCount: event.notificationTopics.length,
+    });
   },
   retentionPruned: (event) => {
     if (event.deletedCount === 0) {
@@ -215,6 +233,10 @@ const realtimeObserver = {
     });
   },
 } satisfies RealtimeObserver;
+const realtimeWakeSignal = await createPlatformRealtimeWakeSignal(
+  [...new Set(realtimeStores.map((store) => store.db))],
+  realtimeObserver,
+);
 const app = buildPlatformApiApp(runtime, {
   drain: () =>
     observeWorker(
@@ -244,6 +266,12 @@ const app = buildPlatformApiApp(runtime, {
     retentionPruneIntervalMs: config.realtime.retentionPruneIntervalMs,
     maxConsecutiveFullBatches: config.realtime.maxConsecutiveFullBatches,
   },
+  realtimeCursorSigningKeys: config.realtime.cursorSigningSecret
+    ? {
+        current: config.realtime.cursorSigningSecret,
+        previous: config.realtime.previousCursorSigningSecrets,
+      }
+    : undefined,
   realtimeResourceLimits: {
     maxTopicsPerStream: config.realtime.maxTopicsPerStream,
     maxActiveStreams: config.realtime.maxActiveStreams,
@@ -262,6 +290,21 @@ const realtimeRetentionSweeper = createRealtimeRetentionSweeper({
   },
 });
 void realtimeRetentionSweeper.sweep();
+const realtimePartitionMaintainers = realtimeStores.map((store) =>
+  createRealtimeOutboxPartitionMaintainer({
+    db: store.db,
+    onError: (error) => {
+      logger.error("Realtime outbox partition maintenance failed.", {
+        type: "realtime.partition_maintenance.failed",
+        contextName: store.contextName,
+        error,
+      });
+    },
+  }),
+);
+for (const maintainer of realtimePartitionMaintainers) {
+  void maintainer.maintain();
+}
 
 const PROJECTION_INTERVAL_MS = 1_000;
 const SYSTEM_CONTEXT = {
@@ -387,6 +430,9 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
     realtimeRetentionSweeper.stop();
+    for (const maintainer of realtimePartitionMaintainers) {
+      maintainer.stop();
+    }
     void Promise.resolve(realtimeWakeSignal?.stop?.())
       .finally(() => closePlatformApiPools(pools))
       .finally(() => observability.shutdown())
@@ -396,6 +442,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
 async function createPlatformRealtimeWakeSignal(
   pools: readonly { connect?: () => Promise<unknown> }[],
+  observer: Pick<RealtimeObserver, "wakeNotificationReceived">,
 ): Promise<RealtimeWakeSignal | undefined> {
   const wakeSignals: RealtimeWakeSignal[] = [];
 
@@ -410,6 +457,7 @@ async function createPlatformRealtimeWakeSignal(
       wakeSignals.push(
         await createPostgresRealtimeWakeSignal(
           client as Parameters<typeof createPostgresRealtimeWakeSignal>[0],
+          observer,
         ),
       );
     } catch (error) {

@@ -3,5 +3,7 @@ export type { MarketplaceListingInventoryItemOption } from "./support/request-su
 export {
   marketplaceRealtimeManifest,
   marketplaceRealtimeRegistration,
+  marketplaceRealtimeRouteTopics,
+  marketplaceRealtimeTopicPolicyManifest,
   marketplaceRealtimeTopics,
 } from "./support/realtime-support/topics";

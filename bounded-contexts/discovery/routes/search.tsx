@@ -13,7 +13,7 @@ import { createDiscoveryRequestApiClient } from "../support/request-support/api-
 import type { DiscoverySearchResponse } from "../support/request-support/api-client";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
-import { discoveryRealtimeTopics } from "../support/realtime-support/topics";
+import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 const PAGE_SIZE = 24;
 const MARKETPLACE_DESCRIPTION =
@@ -128,7 +128,7 @@ export default function DiscoverySearchRoute() {
 
   useEffect(() => {
     const subscription = subscribeRealtimePatches({
-      topics: [discoveryRealtimeTopics.publicMarket()],
+      topics: discoveryRealtimeRouteTopics.search(),
       onPatch: (patch) => {
         setRealtimeData((current) => applyDiscoverySearchPatch(current, patch));
       },

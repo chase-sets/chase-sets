@@ -4,18 +4,24 @@ import {
   coalesceRealtimeProjectionPatchInputs,
   compactRealtimeReplayMessages,
   createPostgresRealtimeWakeSignal,
+  createRealtimeOutboxPartitionName,
+  createRealtimeOutboxPartitionMaintainer,
+  createRealtimeReadHub,
   createRealtimeRoutes,
   createRealtimeRetentionSweeper,
+  createRedisRealtimeStreamLimiter,
   createRealtimeStatusSnapshot,
   decodeRealtimeCursor,
   encodeRealtimeCursor,
   inspectRealtimeTopicNormalization,
+  matchesRealtimeTopicPattern,
   parseRealtimeTopics,
   pruneExpiredRealtimePatchesWithAdvisoryLock,
   readRealtimePatches,
   recordRealtimeProjectionPatch,
   recordRealtimeProjectionPatches,
   realtimeProjectionNotifyChannel,
+  realtimeOutboxPartitionMaintenanceSql,
   realtimeOutboxSchemaSql,
   resolveRealtimeRouteConfig,
   runRealtimeProjectionTransaction,
@@ -104,7 +110,7 @@ describe("realtime SSE routes", () => {
       },
     });
 
-    const response = await app.request("/events?topic=public%3Amarket");
+    const response = await app.request("/public/events?topic=public%3Amarket");
 
     expect(response.status).toBe(429);
     expect(rejected).toEqual([
@@ -121,7 +127,7 @@ describe("realtime SSE routes", () => {
     });
 
     const response = await app.request(
-      "/events?topic=public%3Amarket&topic=account%3Aaccount_1%3Aoffers",
+      "/public/events?topic=public%3Amarket&topic=account%3Aaccount_1%3Aoffers",
     );
 
     expect(response.status).toBe(403);
@@ -150,7 +156,7 @@ describe("realtime SSE routes", () => {
     });
 
     const response = await app.request(
-      "/events?topic=%20&topic=public%3Amarket&topic=public%3Amarket&topic=nope",
+      "/public/events?topic=%20&topic=public%3Amarket&topic=public%3Amarket&topic=nope",
     );
 
     expect(response.status).toBe(403);
@@ -226,7 +232,7 @@ describe("realtime SSE routes", () => {
     });
     const abort = new AbortController();
 
-    const response = await app.request("/events?topic=public%3Amarket", {
+    const response = await app.request("/public/events?topic=public%3Amarket", {
       headers: {
         "Last-Event-ID": encodeRealtimeCursor({ discovery: "1" }),
       },
@@ -285,7 +291,7 @@ describe("realtime SSE routes", () => {
     });
     const abort = new AbortController();
 
-    const response = await app.request("/events?topic=public%3Amarket", {
+    const response = await app.request("/public/events?topic=public%3Amarket", {
       headers: {
         "Last-Event-ID": "not-a-cursor",
       },
@@ -334,7 +340,7 @@ describe("realtime SSE routes", () => {
     });
     const abort = new AbortController();
 
-    const response = await app.request("/events?topic=public%3Amarket", {
+    const response = await app.request("/public/events?topic=public%3Amarket", {
       signal: abort.signal,
     });
     const reader = response.body?.getReader();
@@ -373,7 +379,7 @@ describe("realtime SSE routes", () => {
     });
     const abort = new AbortController();
 
-    const response = await app.request("/events?topic=public%3Amarket", {
+    const response = await app.request("/public/events?topic=public%3Amarket", {
       signal: abort.signal,
     });
     const reader = response.body?.getReader();
@@ -439,7 +445,7 @@ describe("realtime SSE routes", () => {
     });
     const abort = new AbortController();
 
-    const response = await app.request("/events?topic=public%3Amarket", {
+    const response = await app.request("/public/events?topic=public%3Amarket", {
       signal: abort.signal,
     });
     const reader = response.body?.getReader();
@@ -463,6 +469,33 @@ describe("realtime cursors", () => {
     const cursor = { discovery: "42", marketplace: "7" };
 
     expect(decodeRealtimeCursor(encodeRealtimeCursor(cursor))).toEqual(cursor);
+  });
+
+  it("supports signed cursor ids and rejects tampered unsigned cursors when signing is required", () => {
+    const cursor = { discovery: "42" };
+    const signed = encodeRealtimeCursor(cursor, "secret");
+
+    expect(decodeRealtimeCursor(signed, "secret")).toEqual(cursor);
+    expect(decodeRealtimeCursor(encodeRealtimeCursor(cursor), "secret")).toEqual({});
+    expect(decodeRealtimeCursor(signed, "other-secret")).toEqual({});
+  });
+
+  it("accepts previous cursor signing keys during key rotation", () => {
+    const cursor = { discovery: "42" };
+    const signedWithPreviousKey = encodeRealtimeCursor(cursor, "old-secret");
+
+    expect(
+      decodeRealtimeCursor(signedWithPreviousKey, {
+        current: "new-secret",
+        previous: ["old-secret"],
+      }),
+    ).toEqual(cursor);
+    expect(
+      decodeRealtimeCursor(signedWithPreviousKey, {
+        current: "new-secret",
+        previous: [],
+      }),
+    ).toEqual({});
   });
 
   it("ignores malformed cursors", () => {
@@ -493,6 +526,13 @@ describe("realtime topic parsing", () => {
       blankCount: 1,
       invalidCount: 0,
     });
+  });
+
+  it("matches internal exact and prefix topic patterns", () => {
+    expect(matchesRealtimeTopicPattern("item:item_1", "item:*")).toBe(true);
+    expect(matchesRealtimeTopicPattern("account:account_1:offers", "account:*")).toBe(true);
+    expect(matchesRealtimeTopicPattern("listing:list_1", "listing:list_1")).toBe(true);
+    expect(matchesRealtimeTopicPattern("seller:account_1", "item:*")).toBe(false);
   });
 });
 
@@ -531,6 +571,50 @@ describe("realtime outbox", () => {
     expect(realtimeOutboxSchemaSql).toContain("PRIMARY KEY (topic, outbox_id)");
     expect(realtimeOutboxSchemaSql).toContain("ON DELETE CASCADE");
     expect(realtimeOutboxSchemaSql).toContain("realtime_projection_topic_heads");
+    expect(realtimeOutboxSchemaSql).toContain("payload_json text NOT NULL");
+    expect(realtimeOutboxSchemaSql).toContain("payload_bytes integer NOT NULL");
+  });
+
+  it("exposes partition maintenance metadata for time-bucketed outbox retention", () => {
+    expect(realtimeOutboxPartitionMaintenanceSql).toContain(
+      "realtime_projection_outbox_partitions",
+    );
+    expect(createRealtimeOutboxPartitionName("2026_05_02"))
+      .toBe("realtime_projection_outbox_2026_05_02");
+    expect(() => createRealtimeOutboxPartitionName("2026-05-02")).toThrow("YYYY_MM_DD");
+  });
+
+  it("maintains outbox partition metadata windows", async () => {
+    const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+    const db = {
+      query: async (sql: string, params?: unknown[]) => {
+        calls.push({ sql, params });
+        return { rows: [] };
+      },
+    };
+    const maintainer = createRealtimeOutboxPartitionMaintainer({
+      db,
+      aheadDays: 1,
+      retentionDays: 1,
+      intervalMs: 60_000,
+      now: () => new Date("2026-05-02T12:00:00.000Z"),
+    });
+
+    await maintainer.maintain();
+    maintainer.stop();
+
+    expect(calls[0].sql).toContain("realtime_projection_outbox_partitions");
+    expect(calls[1].params).toEqual([
+      "realtime_projection_outbox_2026_05_02",
+      "2026-05-02T00:00:00.000Z",
+      "2026-05-03T00:00:00.000Z",
+    ]);
+    expect(calls[2].params).toEqual([
+      "realtime_projection_outbox_2026_05_03",
+      "2026-05-03T00:00:00.000Z",
+      "2026-05-04T00:00:00.000Z",
+    ]);
+    expect(calls[3].sql).toContain("SET dropped_at");
   });
 
   it("records idempotent projection patches with a retention cutoff", async () => {
@@ -590,6 +674,20 @@ describe("realtime outbox", () => {
       ["listing:list_1", "public:market"],
       realtimeProjectionNotifyChannel,
       "discovery",
+      JSON.stringify({
+        kind: "projection.patch",
+        context: "discovery",
+        projection: "discovery-market",
+        topics: ["listing:list_1", "public:market"],
+        changes: [
+          {
+            op: "remove",
+            entity: "discovery.listing",
+            id: "list_1",
+          },
+        ],
+      }),
+      expect.any(Number),
     ]);
   });
 
@@ -621,6 +719,47 @@ describe("realtime outbox", () => {
         },
       }),
     ).rejects.toThrow("projection must match");
+  });
+
+  it("rejects projection patches that exceed change-count or payload guardrails", async () => {
+    const db = {
+      query: async () => {
+        throw new Error("should not write oversized patch");
+      },
+    };
+    const input = {
+      sourceGlobalPosition: "12",
+      projectionName: "discovery-market",
+      patchKey: "listing:list_1",
+      topics: ["public:market"],
+      patch: {
+        kind: "projection.patch" as const,
+        context: "discovery",
+        projection: "discovery-market",
+        topics: ["public:market"],
+        changes: [
+          {
+            op: "summary" as const,
+            entity: "discovery.marketSummary",
+            id: "item_1",
+            value: { active_listing_count: 1 },
+          },
+        ],
+      },
+    };
+
+    await expect(
+      recordRealtimeProjectionPatch(db, {
+        ...input,
+        maxChangeCount: 0,
+      }),
+    ).rejects.toThrow("more than 0 changes");
+    await expect(
+      recordRealtimeProjectionPatch(db, {
+        ...input,
+        maxPayloadBytes: 1,
+      }),
+    ).rejects.toThrow("cannot exceed 1 bytes");
   });
 
   it("coalesces compatible outbox inputs before batch writing", () => {
@@ -892,6 +1031,40 @@ describe("realtime outbox", () => {
     ]);
   });
 
+  it("coalesces concurrent identical replay reads through the process-local read hub", async () => {
+    let outboxReadCount = 0;
+    const observed: string[] = [];
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("DELETE FROM realtime_projection_outbox")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("SELECT outbox_id, payload")) {
+          outboxReadCount += 1;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return { rows: [] };
+        }
+
+        return { rows: [] };
+      },
+    };
+    const hub = createRealtimeReadHub({
+      observer: {
+        readStarted: () => observed.push("started"),
+        readCoalesced: () => observed.push("coalesced"),
+      },
+    });
+
+    await Promise.all([
+      hub.read([{ contextName: "discovery", db }], ["public:market"], {}, 100),
+      hub.read([{ contextName: "discovery", db }], ["public:market"], {}, 100),
+    ]);
+
+    expect(outboxReadCount).toBe(1);
+    expect(observed).toEqual(["started", "coalesced"]);
+  });
+
   it("compacts superseded summary changes during replay", () => {
     const messages = compactRealtimeReplayMessages([
       {
@@ -976,6 +1149,23 @@ describe("realtime outbox", () => {
     });
   });
 
+  it("redacts cursor signing material from internal status snapshots", async () => {
+    const snapshot = await createRealtimeStatusSnapshot({
+      stores: [],
+      routeConfig: resolveRealtimeRouteConfig({
+        cursorSigningKeys: {
+          current: "current-secret",
+          previous: ["previous-secret"],
+        },
+      }),
+    });
+
+    expect(snapshot.routeConfig).toMatchObject({
+      cursorSigningConfigured: true,
+    });
+    expect(JSON.stringify(snapshot.routeConfig)).not.toContain("secret");
+  });
+
   it("validates formal realtime route config values", () => {
     expect(resolveRealtimeRouteConfig({ routeTuning: { batchSize: 25 } }))
       .toMatchObject({
@@ -987,6 +1177,95 @@ describe("realtime outbox", () => {
       });
     expect(() => resolveRealtimeRouteConfig({ routeTuning: { batchSize: 0 } }))
       .toThrow("batchSize");
+  });
+
+  it("acquires and releases distributed stream leases through Redis eval", async () => {
+    const evalCalls: Array<{ keys: readonly string[]; arguments: readonly string[] }> = [];
+    const limiter = createRedisRealtimeStreamLimiter({
+      namespace: "test:realtime",
+      leaseTtlSeconds: 30,
+      client: {
+        eval: async (_script, options) => {
+          evalCalls.push(options);
+          return evalCalls.length === 1 ? 2 : 1;
+        },
+      },
+    });
+
+    const lease = await limiter.acquire({
+      connectionKey: "account:account_1",
+      maxActiveStreams: 10,
+      maxActiveStreamsPerConnectionKey: 2,
+    });
+    await lease?.release();
+
+    expect(lease).toMatchObject({ activeConnectionCount: 2 });
+    expect(evalCalls[0].keys[0]).toBe("test:realtime:active");
+    expect(evalCalls[0].keys[1]).toBe("test:realtime:connection:account:account_1");
+    expect(evalCalls[0].arguments).toEqual(["10", "2", "30"]);
+    expect(evalCalls[1].arguments).toEqual([]);
+  });
+
+  it("rejects distributed stream leases when Redis reports capacity is exhausted", async () => {
+    const limiter = createRedisRealtimeStreamLimiter({
+      client: {
+        eval: async () => -1,
+      },
+    });
+
+    await expect(
+      limiter.acquire({
+        connectionKey: "anonymous:127.0.0.1",
+        maxActiveStreams: 0,
+        maxActiveStreamsPerConnectionKey: 0,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("exercises a synthetic multi-instance stream-limit load harness", async () => {
+    let active = 0;
+    const activeByConnectionKey = new Map<string, number>();
+    const client = {
+      eval: async (_script: string, options: { keys: readonly string[]; arguments: readonly string[] }) => {
+        const connectionKey = options.keys[1] ?? "";
+        if (options.arguments.length === 0) {
+          active = Math.max(0, active - 1);
+          activeByConnectionKey.set(
+            connectionKey,
+            Math.max(0, (activeByConnectionKey.get(connectionKey) ?? 1) - 1),
+          );
+          return 1;
+        }
+
+        const maxActive = Number(options.arguments[0]);
+        const maxPerConnection = Number(options.arguments[1]);
+        const activeForConnection = activeByConnectionKey.get(connectionKey) ?? 0;
+        if (active >= maxActive || activeForConnection >= maxPerConnection) {
+          return -1;
+        }
+
+        active += 1;
+        activeByConnectionKey.set(connectionKey, activeForConnection + 1);
+        return active;
+      },
+    };
+    const firstInstance = createRedisRealtimeStreamLimiter({ client, namespace: "load:test" });
+    const secondInstance = createRedisRealtimeStreamLimiter({ client, namespace: "load:test" });
+
+    const leases = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        (index % 2 === 0 ? firstInstance : secondInstance).acquire({
+          connectionKey: `account:account_${index % 4}`,
+          maxActiveStreams: 6,
+          maxActiveStreamsPerConnectionKey: 2,
+        }),
+      ),
+    );
+
+    expect(leases.filter(Boolean)).toHaveLength(6);
+    expect(leases.filter((lease) => !lease)).toHaveLength(2);
+    await Promise.all(leases.map((lease) => lease?.release()));
+    expect(active).toBe(0);
   });
 
   it("prunes expired patches behind an advisory lock", async () => {
@@ -1128,17 +1407,17 @@ describe("realtime outbox", () => {
   });
 
   it("exposes a Postgres notification wake signal for low-latency polling", async () => {
-    const listeners = new Set<(message: { channel: string }) => void>();
+    const listeners = new Set<(message: { channel: string; payload?: string }) => void>();
     const queries: string[] = [];
     const client = {
       query: async (sql: string) => {
         queries.push(sql);
         return { rows: [] };
       },
-      on: (_event: "notification", listener: (message: { channel: string }) => void) => {
+      on: (_event: "notification", listener: (message: { channel: string; payload?: string }) => void) => {
         listeners.add(listener);
       },
-      off: (_event: "notification", listener: (message: { channel: string }) => void) => {
+      off: (_event: "notification", listener: (message: { channel: string; payload?: string }) => void) => {
         listeners.delete(listener);
       },
     };
@@ -1154,6 +1433,41 @@ describe("realtime outbox", () => {
     expect(queries).toEqual([
       `LISTEN ${realtimeProjectionNotifyChannel}`,
       `UNLISTEN ${realtimeProjectionNotifyChannel}`,
+    ]);
+  });
+
+  it("only wakes topic-aware Postgres waiters for intersecting notification topics", async () => {
+    const listeners = new Set<(message: { channel: string; payload?: string }) => void>();
+    const observed: unknown[] = [];
+    const client = {
+      query: async () => ({ rows: [] }),
+      on: (_event: "notification", listener: (message: { channel: string; payload?: string }) => void) => {
+        listeners.add(listener);
+      },
+      off: () => undefined,
+    };
+    const wakeSignal = await createPostgresRealtimeWakeSignal(client, {
+      wakeNotificationReceived: (event) => observed.push(event),
+    });
+    const itemWake = wakeSignal.wait(60_000, ["item:item_1"]);
+    const sellerWake = wakeSignal.wait(5, ["seller:account_1"]);
+
+    for (const listener of listeners) {
+      listener({
+        channel: realtimeProjectionNotifyChannel,
+        payload: JSON.stringify({ topics: ["item:item_1"] }),
+      });
+    }
+
+    await expect(itemWake).resolves.toBe("notified");
+    await expect(sellerWake).resolves.toBe("timeout");
+    await wakeSignal.stop?.();
+    expect(observed).toEqual([
+      {
+        notificationTopics: ["item:item_1"],
+        waiterCount: 2,
+        matchedWaiterCount: 1,
+      },
     ]);
   });
 });

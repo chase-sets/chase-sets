@@ -62,6 +62,8 @@ export type PlatformApiRealtimeConfig = Readonly<{
   maxTopicsPerStream: number;
   maxActiveStreams: number;
   maxActiveStreamsPerConnectionKey: number;
+  cursorSigningSecret?: string;
+  previousCursorSigningSecrets: readonly string[];
 }>;
 
 export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readonly<{
@@ -120,6 +122,13 @@ function getPositiveNumberEnv(name: string, defaultValue: number) {
   return getOptionalPositiveNumberEnv(name, defaultValue) ?? defaultValue;
 }
 
+function getOptionalCsvEnv(name: string): readonly string[] {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 export function getContextDatabaseEnvName(contextName: PlatformApiContextName) {
   return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
 }
@@ -160,6 +169,10 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       maxActiveStreamsPerConnectionKey: getPositiveNumberEnv(
         "REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY",
         6,
+      ),
+      cursorSigningSecret: getOptionalEnv("REALTIME_CURSOR_SIGNING_SECRET") ?? undefined,
+      previousCursorSigningSecrets: getOptionalCsvEnv(
+        "REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS",
       ),
     },
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv(

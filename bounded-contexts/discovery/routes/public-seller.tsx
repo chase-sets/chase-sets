@@ -21,7 +21,7 @@ import {
 } from "../support/request-support/api-client";
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import { applyDiscoveryPublicSellerPatch } from "../support/client-support/realtime-market";
-import { discoveryRealtimeTopics } from "../support/realtime-support/topics";
+import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 function formatMoney(value: string): string {
   return `$${value}`;
@@ -88,10 +88,7 @@ export default function PublicSellerRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: [
-        discoveryRealtimeTopics.publicMarket(),
-        discoveryRealtimeTopics.seller(data.seller.account_id),
-      ],
+      topics: discoveryRealtimeRouteTopics.publicSeller(data.seller.account_id),
       onPatch: (patch) => {
         setSeller((current) => applyDiscoveryPublicSellerPatch(current, patch));
       },

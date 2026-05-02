@@ -7,16 +7,37 @@ import type {
 } from "@chase-sets/realtime";
 import type { ResolvedActor } from "./auth";
 import {
+  decodeRealtimeCursor,
+  encodeRealtimeCursor,
+  type RealtimeCursorSigningKeySet,
+} from "./realtime-cursor";
+import {
+  createRealtimeReadHub,
+  type RealtimeReadHub,
+} from "./realtime-read-hub";
+import {
+  createInMemoryRealtimeStreamLimiter,
+  createRedisRealtimeStreamLimiter,
+  type RedisRealtimeStreamLimiterClient,
+  type RealtimeStreamLimiter,
+} from "./realtime-stream-limiter";
+import {
   authorizeRealtimeTopics,
   DEFAULT_MAX_TOPICS_PER_STREAM,
   inspectRealtimeTopicNormalization,
+  matchesRealtimeTopicPattern,
   normalizeRealtimeTopics,
+  platformRealtimeTopicPolicyManifest,
   resolveRealtimeTopicFamily,
+  composeRealtimeTopicPolicyManifest,
+  type RealtimeTopicPolicyManifest,
   type RealtimeTopicNormalizationDiagnostic,
 } from "./realtime-topic-policy";
 import {
   compactRealtimeReplayMessages,
   coalesceRealtimeProjectionPatchInputs,
+  createRealtimeOutboxPartitionName,
+  createRealtimeOutboxPartitionMaintainer,
   defaultRealtimeRetentionMs,
   pruneExpiredRealtimePatches,
   pruneExpiredRealtimePatchesWithAdvisoryLock,
@@ -24,6 +45,7 @@ import {
   readRealtimeContextHeads,
   readRealtimePatches,
   realtimeOutboxSchemaSql,
+  realtimeOutboxPartitionMaintenanceSql,
   realtimeProjectionNotifyChannel,
   recordRealtimeProjectionPatch,
   recordRealtimeProjectionPatches,
@@ -44,18 +66,39 @@ export {
   authorizeRealtimeTopics,
   compactRealtimeReplayMessages,
   coalesceRealtimeProjectionPatchInputs,
+  createRealtimeOutboxPartitionName,
+  createRealtimeOutboxPartitionMaintainer,
   inspectRealtimeTopicNormalization,
+  matchesRealtimeTopicPattern,
   normalizeRealtimeTopics,
+  platformRealtimeTopicPolicyManifest,
+  composeRealtimeTopicPolicyManifest,
   pruneExpiredRealtimePatchesWithAdvisoryLock,
   readRealtimeContextHeads,
   readRealtimePatches,
   realtimeOutboxSchemaSql,
+  realtimeOutboxPartitionMaintenanceSql,
   realtimeProjectionNotifyChannel,
   recordRealtimeProjectionPatch,
   recordRealtimeProjectionPatches,
   runRealtimeProjectionTransaction,
   selectRealtimeStoresForTopics,
 };
+export {
+  decodeRealtimeCursor,
+  encodeRealtimeCursor,
+  type RealtimeCursorSigningKeySet,
+} from "./realtime-cursor";
+export {
+  createRealtimeReadHub,
+  type RealtimeReadHub,
+} from "./realtime-read-hub";
+export {
+  createInMemoryRealtimeStreamLimiter,
+  createRedisRealtimeStreamLimiter,
+  type RedisRealtimeStreamLimiterClient,
+  type RealtimeStreamLimiter,
+} from "./realtime-stream-limiter";
 
 export type {
   RealtimeContextRegistration,
@@ -65,6 +108,10 @@ export type {
   RealtimeTopicManifest,
   RecordRealtimeProjectionPatchInput,
 } from "./realtime-outbox-store";
+export type {
+  RealtimeTopicPolicy,
+  RealtimeTopicPolicyManifest,
+} from "./realtime-topic-policy";
 
 export type {
   RealtimeMessage,
@@ -79,8 +126,11 @@ export type RealtimeObserver = Readonly<{
   authorizationRejected?: (event: RealtimeAuthorizationRejectedEvent) => void;
   topicNormalizationAdjusted?: (event: RealtimeTopicNormalizationAdjustedEvent) => void;
   batchRead?: (event: RealtimeBatchReadEvent) => void;
+  readStarted?: (event: RealtimeReadHubObservedEvent) => void;
+  readCoalesced?: (event: RealtimeReadHubObservedEvent) => void;
   messageSent?: (event: RealtimeMessageSentEvent) => void;
   syncRequired?: (event: RealtimeSyncRequiredEvent) => void;
+  wakeNotificationReceived?: (event: RealtimeWakeNotificationReceivedEvent) => void;
   wakeWaitEnded?: (event: RealtimeWakeWaitEndedEvent) => void;
   retentionPruned?: (event: RealtimeRetentionPrunedEvent) => void;
   streamError?: (event: RealtimeStreamErrorEvent) => void;
@@ -121,6 +171,12 @@ export type RealtimeBatchReadEvent = Readonly<{
   topicLags: readonly RealtimeTopicLag[];
 }>;
 
+export type RealtimeReadHubObservedEvent = Readonly<{
+  storeNames: readonly string[];
+  topics: readonly string[];
+  batchSize: number;
+}>;
+
 export type RealtimeMessageSentEvent = Readonly<{
   contextName: string;
   eventKind: RealtimeProjectionPatch["kind"];
@@ -137,6 +193,12 @@ export type RealtimeSyncRequiredEvent = Readonly<{
 
 export type RealtimeWakeWaitEndedEvent = Readonly<{
   result: RealtimeWakeResult;
+}>;
+
+export type RealtimeWakeNotificationReceivedEvent = Readonly<{
+  notificationTopics: readonly string[];
+  waiterCount: number;
+  matchedWaiterCount: number;
 }>;
 
 export type RealtimeRetentionPrunedEvent = Readonly<{
@@ -172,10 +234,12 @@ export type RealtimeTopicFamilyBudget = Readonly<{
 export type RealtimeRouteConfig = Readonly<Required<RealtimeRouteTuning> & {
   resourceLimits: Required<RealtimeResourceLimits>;
   topicFamilyBudgets: readonly RealtimeTopicFamilyBudget[];
+  cursorSigningSecret?: string;
+  cursorSigningKeys?: RealtimeCursorSigningKeySet;
 }>;
 
 export type RealtimeWakeSignal = Readonly<{
-  wait: (timeoutMs: number) => Promise<RealtimeWakeResult>;
+  wait: (timeoutMs: number, topics?: readonly string[]) => Promise<RealtimeWakeResult>;
   stop?: () => void | Promise<void>;
 }>;
 
@@ -196,23 +260,30 @@ export type RealtimeStatusSnapshot = Readonly<{
     topicPrefixes: readonly string[];
     head: string;
   }>[];
-  routeConfig: RealtimeRouteConfig;
+  routeConfig: RealtimeStatusRouteConfig;
   routeTuning: Required<RealtimeRouteTuning>;
   resourceLimits: Required<RealtimeResourceLimits>;
+}>;
+
+export type RealtimeStatusRouteConfig = Omit<
+  RealtimeRouteConfig,
+  "cursorSigningSecret" | "cursorSigningKeys"
+> & Readonly<{
+  cursorSigningConfigured: boolean;
 }>;
 
 type PostgresRealtimeNotificationClient = PgQueryable & Readonly<{
   on: (
     event: "notification",
-    listener: (message: Readonly<{ channel: string }>) => void,
+    listener: (message: Readonly<{ channel: string; payload?: string }>) => void,
   ) => unknown;
   off?: (
     event: "notification",
-    listener: (message: Readonly<{ channel: string }>) => void,
+    listener: (message: Readonly<{ channel: string; payload?: string }>) => void,
   ) => unknown;
   removeListener?: (
     event: "notification",
-    listener: (message: Readonly<{ channel: string }>) => void,
+    listener: (message: Readonly<{ channel: string; payload?: string }>) => void,
   ) => unknown;
   release?: () => void;
 }>;
@@ -221,37 +292,55 @@ type RealtimeEndpointMode = "any" | "public" | "account";
 
 export async function createPostgresRealtimeWakeSignal(
   client: PostgresRealtimeNotificationClient,
+  observer?: Pick<RealtimeObserver, "wakeNotificationReceived">,
 ): Promise<RealtimeWakeSignal> {
-  const waiters = new Set<() => void>();
-  const notify = (message: Readonly<{ channel: string }>) => {
+  const waiters = new Set<Readonly<{
+    topics: readonly string[];
+    resolve: () => void;
+  }>>();
+  const notify = (message: Readonly<{ channel: string; payload?: string }>) => {
     if (message.channel !== realtimeProjectionNotifyChannel) {
       return;
     }
 
+    const notificationTopics = parseRealtimeNotificationTopics(message.payload);
     const pending = [...waiters];
-    waiters.clear();
-    for (const resolve of pending) {
-      resolve();
+    let matchedWaiterCount = 0;
+    for (const waiter of pending) {
+      if (realtimeTopicsIntersect(waiter.topics, notificationTopics)) {
+        matchedWaiterCount += 1;
+        waiters.delete(waiter);
+        waiter.resolve();
+      }
     }
+    observer?.wakeNotificationReceived?.({
+      notificationTopics,
+      waiterCount: pending.length,
+      matchedWaiterCount,
+    });
   };
 
   client.on("notification", notify);
   await client.query(`LISTEN ${realtimeProjectionNotifyChannel}`);
 
   return {
-    wait: (timeoutMs) =>
+    wait: (timeoutMs, topics = []) =>
       new Promise((resolve) => {
         const waiter = () => done("notified");
         const timer = setTimeout(() => done("timeout"), timeoutMs);
         timer.unref?.();
+        const entry = {
+          topics: normalizeRealtimeTopics(topics),
+          resolve: waiter,
+        };
 
         function done(result: RealtimeWakeResult) {
           clearTimeout(timer);
-          waiters.delete(waiter);
+          waiters.delete(entry);
           resolve(result);
         }
 
-        waiters.add(waiter);
+        waiters.add(entry);
       }),
     stop: async () => {
       waiters.clear();
@@ -279,38 +368,12 @@ export function createMergedRealtimeWakeSignal(
   }
 
   return {
-    wait: async (timeoutMs) =>
-      Promise.race(activeWakeSignals.map((signal) => signal.wait(timeoutMs))),
+    wait: async (timeoutMs, topics) =>
+      Promise.race(activeWakeSignals.map((signal) => signal.wait(timeoutMs, topics))),
     stop: async () => {
       await Promise.all(activeWakeSignals.map((signal) => signal.stop?.()));
     },
   };
-}
-
-export function encodeRealtimeCursor(cursor: RealtimeCursor): string {
-  const json = JSON.stringify(cursor);
-  return Buffer.from(json, "utf8").toString("base64url");
-}
-
-export function decodeRealtimeCursor(value: string | null | undefined): RealtimeCursor {
-  if (!value) {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-
-    return Object.fromEntries(
-      Object.entries(parsed)
-        .filter((entry): entry is [string, string] => typeof entry[1] === "string")
-        .filter(([, position]) => /^(0|[1-9]\d*)$/.test(position)),
-    );
-  } catch {
-    return {};
-  }
 }
 
 export function parseRealtimeTopics(searchParams: URLSearchParams): readonly string[] {
@@ -321,6 +384,8 @@ export function resolveRealtimeRouteConfig(input: Readonly<{
   routeTuning?: RealtimeRouteTuning;
   resourceLimits?: RealtimeResourceLimits;
   topicFamilyBudgets?: readonly RealtimeTopicFamilyBudget[];
+  cursorSigningSecret?: string;
+  cursorSigningKeys?: RealtimeCursorSigningKeySet;
 }> = {}): RealtimeRouteConfig {
   const routeTuning = input.routeTuning ?? {};
   const resourceLimits = input.resourceLimits ?? {};
@@ -342,6 +407,11 @@ export function resolveRealtimeRouteConfig(input: Readonly<{
         resourceLimits.maxActiveStreamsPerConnectionKey ?? 6,
     },
     topicFamilyBudgets,
+    ...(input.cursorSigningKeys
+      ? { cursorSigningKeys: input.cursorSigningKeys }
+      : input.cursorSigningSecret
+        ? { cursorSigningSecret: input.cursorSigningSecret }
+        : {}),
   } satisfies RealtimeRouteConfig;
 
   assertPositiveIntegerConfig("pollIntervalMs", config.pollIntervalMs);
@@ -398,7 +468,7 @@ export async function createRealtimeStatusSnapshot(options: Readonly<{
     activeConnectionCount: options.activeConnectionCount ?? 0,
     retentionMs: options.retentionMs ?? defaultRealtimeRetentionMs,
     wakeSignalConfigured: options.wakeSignalConfigured ?? false,
-    routeConfig,
+    routeConfig: redactRealtimeRouteConfig(routeConfig),
     routeTuning: {
       pollIntervalMs: routeConfig.pollIntervalMs,
       heartbeatIntervalMs: routeConfig.heartbeatIntervalMs,
@@ -418,13 +488,28 @@ export async function createRealtimeStatusSnapshot(options: Readonly<{
   };
 }
 
+function redactRealtimeRouteConfig(
+  routeConfig: RealtimeRouteConfig,
+): RealtimeStatusRouteConfig {
+  const { cursorSigningSecret, cursorSigningKeys, ...safeConfig } = routeConfig;
+  return {
+    ...safeConfig,
+    cursorSigningConfigured: Boolean(cursorSigningSecret || cursorSigningKeys),
+  };
+}
+
 export function createRealtimeRoutes(options: Readonly<{
   stores: readonly RealtimeContextStore[];
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
   observer?: RealtimeObserver;
   resourceLimits?: RealtimeResourceLimits;
   routeConfig?: RealtimeRouteConfig;
+  topicPolicyManifest?: RealtimeTopicPolicyManifest;
   topicFamilyBudgets?: readonly RealtimeTopicFamilyBudget[];
+  cursorSigningSecret?: string;
+  cursorSigningKeys?: RealtimeCursorSigningKeySet;
+  readHub?: RealtimeReadHub;
+  streamLimiter?: RealtimeStreamLimiter;
   wakeSignal?: RealtimeWakeSignal;
   pollIntervalMs?: number;
   heartbeatIntervalMs?: number;
@@ -444,10 +529,17 @@ export function createRealtimeRoutes(options: Readonly<{
       },
       resourceLimits: options.resourceLimits,
       topicFamilyBudgets: options.topicFamilyBudgets,
+      cursorSigningKeys: options.cursorSigningKeys ?? options.cursorSigningSecret,
     });
+  const readHub = options.readHub ?? createRealtimeReadHub({
+    observer: {
+      readStarted: (event) => options.observer?.readStarted?.(event),
+      readCoalesced: (event) => options.observer?.readCoalesced?.(event),
+    },
+  });
+  const streamLimiter = options.streamLimiter ?? createInMemoryRealtimeStreamLimiter();
+  const topicPolicyManifest = options.topicPolicyManifest ?? platformRealtimeTopicPolicyManifest;
   const nextPruneAtByContext = new Map<string, number>();
-  let activeStreamCount = 0;
-  const activeStreamsByConnectionKey = new Map<string, number>();
 
   const handleEvents = async (c: Context, mode: RealtimeEndpointMode) => {
     const url = new URL(c.req.url);
@@ -465,9 +557,9 @@ export function createRealtimeRoutes(options: Readonly<{
       });
     }
 
-    const authorizedTopics = authorizeRealtimeTopics(topics, actor);
+    const authorizedTopics = authorizeRealtimeTopics(topics, actor, topicPolicyManifest);
     const modeAllowed = authorizedTopics
-      ? areTopicsAllowedForEndpointMode(authorizedTopics, mode)
+      ? areTopicsAllowedForEndpointMode(authorizedTopics, mode, topicPolicyManifest)
       : false;
 
     if (
@@ -483,17 +575,19 @@ export function createRealtimeRoutes(options: Readonly<{
       return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
 
-    let cursor = decodeRealtimeCursor(c.req.header("last-event-id"));
+    let cursor = decodeRealtimeCursor(
+      c.req.header("last-event-id"),
+      routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
+    );
     const matchingStores = selectRealtimeStoresForTopics(options.stores, authorizedTopics);
     const connectionKey = resolveRealtimeConnectionKey(c.req.raw, actor);
-    const activeForConnectionKey = activeStreamsByConnectionKey.get(connectionKey) ?? 0;
-    if (
-      isRealtimeResourceLimitExceeded({
-        activeStreamCount,
-        activeForConnectionKey,
-        resourceLimits: routeConfig.resourceLimits,
-      })
-    ) {
+    const streamLease = await streamLimiter.acquire({
+      connectionKey,
+      maxActiveStreams: routeConfig.resourceLimits.maxActiveStreams,
+      maxActiveStreamsPerConnectionKey:
+        routeConfig.resourceLimits.maxActiveStreamsPerConnectionKey,
+    });
+    if (!streamLease) {
       options.observer?.authorizationRejected?.({
         topics: authorizedTopics,
         actorAccountId: actor?.accountId ?? null,
@@ -502,7 +596,11 @@ export function createRealtimeRoutes(options: Readonly<{
       return c.json({ error: { code: "too_many_realtime_streams", message: "Too many realtime streams." } }, 429);
     }
 
-    const topicBudget = resolveRealtimeTopicBudget(authorizedTopics, routeConfig);
+    const topicBudget = resolveRealtimeTopicBudget(
+      authorizedTopics,
+      routeConfig,
+      topicPolicyManifest,
+    );
     const batchSize = topicBudget.batchSize ?? routeConfig.batchSize;
     const maxConsecutiveFullBatches =
       topicBudget.maxConsecutiveFullBatches ?? routeConfig.maxConsecutiveFullBatches;
@@ -511,11 +609,9 @@ export function createRealtimeRoutes(options: Readonly<{
       const openedAt = performance.now();
       let nextHeartbeatAt = Date.now() + routeConfig.heartbeatIntervalMs;
       let consecutiveFullBatches = 0;
-      activeStreamCount += 1;
-      activeStreamsByConnectionKey.set(connectionKey, activeForConnectionKey + 1);
       options.observer?.connectionOpened?.({
         connectionKey,
-        activeConnectionCount: activeStreamCount,
+        activeConnectionCount: streamLease.activeConnectionCount,
         topics: authorizedTopics,
         storeNames: matchingStores.map((store) => store.contextName),
         actorAccountId: actor?.accountId ?? null,
@@ -529,7 +625,7 @@ export function createRealtimeRoutes(options: Readonly<{
             routeConfig.retentionPruneIntervalMs,
             options.observer,
           );
-          const batch = await readRealtimePatches(
+          const batch = await readHub.read(
             matchingStores,
             authorizedTopics,
             cursor,
@@ -537,7 +633,7 @@ export function createRealtimeRoutes(options: Readonly<{
             { pruneExpired: false, includeTopicLag: true },
           );
           cursor = batch.cursor;
-          const cursorId = encodeRealtimeCursor(cursor);
+          const cursorId = encodeRealtimeCursor(cursor, routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret);
           options.observer?.batchRead?.({
             topics: authorizedTopics,
             storeNames: matchingStores.map((store) => store.contextName),
@@ -561,12 +657,14 @@ export function createRealtimeRoutes(options: Readonly<{
               reason: "replay-backpressure",
               contexts: matchingStores.map((store) => store.contextName),
               topicCount: authorizedTopics.length,
+              cursorSigningKeys: routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
               observer: options.observer,
             });
             options.observer?.wakeWaitEnded?.({
               result: await sleepUntilRealtimeWake(
                 stream,
                 routeConfig.pollIntervalMs,
+                authorizedTopics,
                 options.wakeSignal,
               ),
             });
@@ -579,6 +677,7 @@ export function createRealtimeRoutes(options: Readonly<{
               reason: "cursor-expired",
               contexts: batch.expiredContexts,
               topicCount: authorizedTopics.length,
+              cursorSigningKeys: routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
               observer: options.observer,
             });
           }
@@ -588,17 +687,16 @@ export function createRealtimeRoutes(options: Readonly<{
               ...cursor,
               [message.contextName]: message.outboxId,
             };
-            const data = JSON.stringify(message.payload);
             await stream.writeSSE({
-              id: encodeRealtimeCursor(outboundCursor),
+              id: encodeRealtimeCursor(outboundCursor, routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret),
               event: message.payload.kind,
-              data,
+              data: message.payloadJson,
             });
             options.observer?.messageSent?.({
               contextName: message.contextName,
               eventKind: message.payload.kind,
               topicCount: message.payload.topics.length,
-              payloadBytes: byteLengthUtf8(data),
+              payloadBytes: message.payloadBytes,
             });
           }
 
@@ -619,6 +717,7 @@ export function createRealtimeRoutes(options: Readonly<{
             result: await sleepUntilRealtimeWake(
               stream,
               routeConfig.pollIntervalMs,
+              authorizedTopics,
               options.wakeSignal,
             ),
           });
@@ -627,26 +726,16 @@ export function createRealtimeRoutes(options: Readonly<{
         options.observer?.streamError?.({ connectionKey, error });
         throw error;
       } finally {
-        activeStreamCount = Math.max(0, activeStreamCount - 1);
-        const nextActiveForConnectionKey = Math.max(
-          0,
-          (activeStreamsByConnectionKey.get(connectionKey) ?? 1) - 1,
-        );
-        if (nextActiveForConnectionKey === 0) {
-          activeStreamsByConnectionKey.delete(connectionKey);
-        } else {
-          activeStreamsByConnectionKey.set(connectionKey, nextActiveForConnectionKey);
-        }
+        await streamLease.release();
         options.observer?.connectionClosed?.({
           connectionKey,
-          activeConnectionCount: activeStreamCount,
+          activeConnectionCount: streamLimiter.activeConnectionCount?.() ?? 0,
           durationMs: performance.now() - openedAt,
         });
       }
     });
   };
 
-  app.get("/events", (c) => handleEvents(c, "any"));
   app.get("/public/events", (c) => handleEvents(c, "public"));
   app.get("/account/events", (c) => handleEvents(c, "account"));
 
@@ -720,23 +809,31 @@ function isRealtimeTopicNormalizationAdjusted(
 function areTopicsAllowedForEndpointMode(
   topics: readonly string[],
   mode: RealtimeEndpointMode,
+  topicPolicyManifest: RealtimeTopicPolicyManifest,
 ): boolean {
   if (mode === "any") {
     return true;
   }
 
   if (mode === "public") {
-    return topics.every((topic) => resolveRealtimeTopicFamily(topic) !== "account");
+    return topics.every((topic) =>
+      resolveRealtimeTopicFamily(topic, topicPolicyManifest) !== "account"
+    );
   }
 
-  return topics.every((topic) => resolveRealtimeTopicFamily(topic) === "account");
+  return topics.every((topic) =>
+    resolveRealtimeTopicFamily(topic, topicPolicyManifest) === "account"
+  );
 }
 
 function resolveRealtimeTopicBudget(
   topics: readonly string[],
   routeConfig: RealtimeRouteConfig,
+  topicPolicyManifest: RealtimeTopicPolicyManifest,
 ): Partial<RealtimeTopicFamilyBudget> {
-  const families = new Set(topics.map(resolveRealtimeTopicFamily).filter(Boolean));
+  const families = new Set(
+    topics.map((topic) => resolveRealtimeTopicFamily(topic, topicPolicyManifest)).filter(Boolean),
+  );
   if (families.has("account")) {
     return routeConfig.topicFamilyBudgets.find((budget) => budget.family === "account") ?? {};
   }
@@ -759,6 +856,7 @@ async function writeRealtimeSyncRequired(
     reason: RealtimeSyncRequired["reason"];
     contexts: readonly string[];
     topicCount: number;
+    cursorSigningKeys?: RealtimeCursorSigningKeySet;
     observer?: RealtimeObserver;
   }>,
 ): Promise<void> {
@@ -769,7 +867,7 @@ async function writeRealtimeSyncRequired(
   } satisfies RealtimeSyncRequired;
   const data = JSON.stringify(message);
   await stream.writeSSE({
-    id: encodeRealtimeCursor(input.cursor),
+    id: encodeRealtimeCursor(input.cursor, input.cursorSigningKeys),
     event: "sync.required",
     data,
   });
@@ -784,6 +882,7 @@ async function writeRealtimeSyncRequired(
 async function sleepUntilRealtimeWake(
   stream: Readonly<{ sleep: (ms: number) => Promise<unknown> }>,
   timeoutMs: number,
+  topics: readonly string[],
   wakeSignal?: RealtimeWakeSignal,
 ): Promise<RealtimeWakeResult> {
   if (!wakeSignal) {
@@ -793,7 +892,7 @@ async function sleepUntilRealtimeWake(
 
   return Promise.race([
     stream.sleep(timeoutMs).then(() => "timeout" as const),
-    wakeSignal.wait(timeoutMs),
+    wakeSignal.wait(timeoutMs, topics),
   ]);
 }
 
@@ -827,14 +926,38 @@ function resolveRealtimeConnectionKey(request: Request, actor: ResolvedActor | n
   return `anonymous:${request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown"}`;
 }
 
-function isRealtimeResourceLimitExceeded(input: Readonly<{
-  activeStreamCount: number;
-  activeForConnectionKey: number;
-  resourceLimits: Required<RealtimeResourceLimits>;
-}>): boolean {
-  return (
-    input.activeStreamCount >= input.resourceLimits.maxActiveStreams ||
-    input.activeForConnectionKey >= input.resourceLimits.maxActiveStreamsPerConnectionKey
+function parseRealtimeNotificationTopics(payload: string | undefined): readonly string[] {
+  if (!payload) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    if (!parsed || typeof parsed !== "object" || !("topics" in parsed)) {
+      return [];
+    }
+
+    const topics = (parsed as { topics?: unknown }).topics;
+    return Array.isArray(topics)
+      ? normalizeRealtimeTopics(topics.filter((topic): topic is string => typeof topic === "string"))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function realtimeTopicsIntersect(
+  subscribedTopics: readonly string[],
+  notificationTopics: readonly string[],
+): boolean {
+  if (subscribedTopics.length === 0 || notificationTopics.length === 0) {
+    return true;
+  }
+
+  const subscribed = new Set(subscribedTopics);
+  return notificationTopics.some((topic) =>
+    subscribed.has(topic) ||
+    subscribedTopics.some((pattern) => matchesRealtimeTopicPattern(topic, pattern)),
   );
 }
 
