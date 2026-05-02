@@ -175,6 +175,12 @@ function toActionError(error: unknown): AuthActionError {
   throw error;
 }
 
+function addReturnPrompt(path: string, prompt: "add-passkey") {
+  const url = new URL(path, "https://chase-sets.local");
+  url.searchParams.set("authPrompt", prompt);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 function requireAccountSelectionTokenOrRedirect(
   request: Request,
   options: Readonly<{
@@ -378,7 +384,18 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
             };
           }
 
-          return completeAuthentication(request, result);
+          return completeAuthentication(
+            request,
+            result,
+            intent === "passkey-register"
+              ? undefined
+              : {
+                  defaultSuccessPath: addReturnPrompt(
+                    options.defaultSuccessPath,
+                    "add-passkey",
+                  ),
+                },
+          );
         } catch (error) {
           return toActionError(error);
         }

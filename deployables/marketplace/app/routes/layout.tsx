@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Outlet, useLocation, useRouteLoaderData } from "react-router";
-import { Button } from "@chase-sets/design-system";
+import { Banner, Button, LinkButton, Stack } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import { resolveMarketplaceNavItems } from "../host";
 
@@ -74,6 +74,8 @@ export default function MarketplaceLayoutRoute() {
   const actor = rootData?.actor ?? null;
   const topNavItems = resolveMarketplaceNavItems("top-nav", actor);
   const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor);
+  const prompt = new URLSearchParams(location.search).get("authPrompt");
+  const showAddPasskeyPrompt = Boolean(actor && prompt === "add-passkey");
 
   return (
     <DiscoveryShellLayout
@@ -89,7 +91,20 @@ export default function MarketplaceLayoutRoute() {
         ) : null
       }
     >
-      <Outlet />
+      <Stack gap={4}>
+        {showAddPasskeyPrompt ? (
+          <Banner
+            title={t("marketplace.app.routes.layout.add.passkey")}
+            description={t("marketplace.app.routes.layout.add.passkey.description")}
+            tone="accent"
+            actions={
+              <LinkButton href="/register" tone="secondary" size="sm" leadingIcon="shield">
+                {t("marketplace.app.routes.layout.add.passkey.action")}</LinkButton>
+            }
+          />
+        ) : null}
+        <Outlet />
+      </Stack>
     </DiscoveryShellLayout>
   );
 }

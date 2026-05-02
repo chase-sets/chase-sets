@@ -160,4 +160,19 @@ describe("marketplace route layout", () => {
     expect(html).not.toContain('href="/account/inventory"');
     expect(html).not.toContain("Verified");
   });
+
+  it("prompts signed-in users to add a passkey after fallback registration", () => {
+    mockUseLocation.mockReturnValue({
+      pathname: "/account",
+      search: "?authPrompt=add-passkey",
+    });
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["accounts.view"] },
+    });
+
+    const html = renderToString(<MarketplaceLayoutRoute />);
+
+    expect(html).toContain("Add a passkey to secure your account");
+    expect(html).toContain("Passkeys help protect your account");
+  });
 });

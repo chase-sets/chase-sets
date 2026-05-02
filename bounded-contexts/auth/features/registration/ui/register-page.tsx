@@ -1,16 +1,20 @@
 import { t } from "@chase-sets/localization";
 import {
   Banner,
+  Badge,
   Button,
   Card,
+  Divider,
+  Inline,
   PasswordInput,
   SegmentedControl,
   Stack,
   Text,
   TextInput,
+  type IconName,
 } from "@chase-sets/design-system";
-import type { FormEvent } from "react";
-import { useRef, useState } from "react";
+import type { FormEvent, ReactNode, Ref } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AuthActionNotice } from "../../../support/route-support/auth-host";
 import {
   createPasskeyCredential,
@@ -21,23 +25,228 @@ import {
   PasskeyHiddenFields,
 } from "../../../support/ui-support/auth-hidden-fields";
 
-type RegistrationMethod = "password" | "passkey";
+type RegistrationMethod = "passkey" | "magic-link" | "password";
+type RegistrationAnalyticsStage =
+  | "shown"
+  | "selected"
+  | "completed"
+  | "abandoned"
+  | "failed";
 
-export function RegisterPage(props: Readonly<{
+const DEFAULT_REGISTRATION_METHOD: RegistrationMethod = "passkey";
+const REGISTRATION_METHOD_OPTIONS: readonly {
+  value: RegistrationMethod;
+  labelKey: string;
+  icon: IconName;
+}[] = [
+  {
+    value: "passkey",
+    labelKey: "auth.features.registration.ui.registerPage.passkey",
+    icon: "shield",
+  },
+  {
+    value: "magic-link",
+    labelKey: "auth.features.registration.ui.registerPage.magic.link",
+    icon: "message",
+  },
+  {
+    value: "password",
+    labelKey: "auth.features.registration.ui.registerPage.password",
+    icon: "lock",
+  },
+];
+
+const registrationMethods = REGISTRATION_METHOD_OPTIONS.map(
+  (option) => option.value,
+);
+const registrationMethodsShown = registrationMethods.join(",");
+
+type RegistrationDetails = Readonly<{
+  displayName: string;
+  email: string;
+  password: string;
+}>;
+
+type RegistrationPageProps = Readonly<{
   action?: string;
   errorMessage?: string | null;
   hiddenFields?: readonly { name: string; value: string }[];
   notice?: AuthActionNotice | null;
+}>;
+
+type RegistrationFormCardProps = Readonly<{
+  action?: string;
+  children: ReactNode;
+  formRef?: Ref<HTMLFormElement>;
+  glow?: boolean;
+  hiddenFields?: RegistrationPageProps["hiddenFields"];
+  intent: string;
+  method: RegistrationMethod;
+  onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+}>;
+
+type IdentityFieldsProps = Readonly<{
+  details: RegistrationDetails;
+  onChange: (field: keyof RegistrationDetails, value: string) => void;
+}>;
+
+function registrationMethodPriority(method: RegistrationMethod) {
+  return registrationMethods.indexOf(method) + 1;
+}
+
+function trackRegistrationAnalytics(event: Readonly<{
+  method: RegistrationMethod;
+  stage: RegistrationAnalyticsStage;
+  reason?: string;
 }>) {
-  const [method, setMethod] = useState<RegistrationMethod>("password");
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const payload = {
+    flow: "registration",
+    priority: registrationMethodPriority(event.method),
+    presentedMethods: registrationMethods,
+    ...event,
+  };
+
+  window.dispatchEvent(
+    new CustomEvent("chase-sets:registration-method", {
+      detail: payload,
+    }),
+  );
+
+  const analyticsWindow = window as Window & {
+    dataLayer?: { push: (value: unknown) => void };
+  };
+  analyticsWindow.dataLayer?.push({
+    event: "registration_method",
+    ...payload,
+  });
+}
+
+function RegistrationFormCard({
+  action,
+  children,
+  formRef,
+  glow = false,
+  hiddenFields,
+  intent,
+  method,
+  onSubmit,
+}: RegistrationFormCardProps) {
+  return (
+    <Card glow={glow}>
+      <form
+        ref={formRef}
+        action={action}
+        method="post"
+        onSubmit={onSubmit}
+      >
+        <Stack gap={3}>
+          <HiddenFields fields={hiddenFields} />
+          <input type="hidden" name="registrationMethod" value={method} readOnly />
+          <input
+            type="hidden"
+            name="registrationMethodsShown"
+            value={registrationMethodsShown}
+            readOnly
+          />
+          <input type="hidden" name="intent" value={intent} readOnly />
+          {children}
+        </Stack>
+      </form>
+    </Card>
+  );
+}
+
+function IdentityFields({ details, onChange }: IdentityFieldsProps) {
+  return (
+    <>
+      <TextInput
+        label={t("auth.features.registration.ui.registerPage.display.name")}
+        name="displayName"
+        required
+        value={details.displayName}
+        onChange={(event) => onChange("displayName", event.currentTarget.value)}
+      />
+      <TextInput
+        label={t("auth.features.registration.ui.registerPage.email")}
+        name="email"
+        type="email"
+        required
+        value={details.email}
+        onChange={(event) => onChange("email", event.currentTarget.value)}
+      />
+    </>
+  );
+}
+
+export function RegisterPage(props: RegistrationPageProps) {
+  const [method, setMethod] = useState<RegistrationMethod>(
+    DEFAULT_REGISTRATION_METHOD,
+  );
+  const [details, setDetails] = useState<RegistrationDetails>({
+    displayName: "",
+    email: "",
+    password: "",
+  });
   const [passkeyPayload, setPasskeyPayload] =
     useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
+  const submittedRef = useRef(false);
+
+  useEffect(() => {
+    registrationMethods.forEach((shownMethod) => {
+      trackRegistrationAnalytics({
+        method: shownMethod,
+        stage: "shown",
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!props.errorMessage) {
+      return;
+    }
+
+    trackRegistrationAnalytics({
+      method,
+      stage: "failed",
+      reason: props.errorMessage,
+    });
+  }, [method, props.errorMessage]);
+
+  useEffect(() => {
+    function handleAbandoned() {
+      if (!submittedRef.current) {
+        trackRegistrationAnalytics({ method, stage: "abandoned" });
+      }
+    }
+
+    window.addEventListener("beforeunload", handleAbandoned);
+    return () => window.removeEventListener("beforeunload", handleAbandoned);
+  }, [method]);
+
+  function updateDetails(field: keyof RegistrationDetails, value: string) {
+    setDetails((current) => ({ ...current, [field]: value }));
+  }
+
+  function selectMethod(nextMethod: RegistrationMethod) {
+    setMethod(nextMethod);
+    trackRegistrationAnalytics({ method: nextMethod, stage: "selected" });
+  }
+
+  function handleCompleted(methodCompleted: RegistrationMethod) {
+    submittedRef.current = true;
+    trackRegistrationAnalytics({ method: methodCompleted, stage: "completed" });
+  }
 
   async function handlePasskeySubmit(event: FormEvent<HTMLFormElement>) {
     if (passkeyPayload) {
+      handleCompleted("passkey");
       return;
     }
 
@@ -53,13 +262,31 @@ export function RegisterPage(props: Readonly<{
       setPasskeyPayload(payload);
       window.setTimeout(() => passkeyFormRef.current?.requestSubmit(), 0);
     } catch (error) {
-      setPasskeyError(
-        error instanceof Error ? error.message : t("auth.features.registration.ui.registerPage.passkey.registration.failed"),
-      );
+      const message =
+        error instanceof Error
+          ? error.message
+          : t("auth.features.registration.ui.registerPage.passkey.registration.failed");
+      setPasskeyError(message);
+      trackRegistrationAnalytics({
+        method: "passkey",
+        stage: "failed",
+        reason: message,
+      });
     } finally {
       setPasskeyLoading(false);
     }
   }
+
+  const fallbackAction = (
+    <Button
+      type="button"
+      tone="secondary"
+      size="sm"
+      onClick={() => selectMethod("magic-link")}
+    >
+      {t("auth.features.registration.ui.registerPage.use.magic.link")}
+    </Button>
+  );
 
   return (
     <Stack gap={4}>
@@ -85,56 +312,85 @@ export function RegisterPage(props: Readonly<{
       <SegmentedControl
         fullWidth
         value={method}
-        onValueChange={(value) => setMethod(value as RegistrationMethod)}
-        items={[
-          { value: "password", label: t("auth.features.registration.ui.registerPage.password"), icon: "lock" },
-          { value: "passkey", label: t("auth.features.registration.ui.registerPage.passkey"), icon: "shield" },
-        ]}
+        onValueChange={(value) => selectMethod(value as RegistrationMethod)}
+        items={REGISTRATION_METHOD_OPTIONS.map((option) => ({
+          value: option.value,
+          label: t(option.labelKey),
+          icon: option.icon,
+        }))}
       />
 
-      {method === "password" ? (
-        <Card>
-          <form action={props.action} method="post">
-            <Stack gap={3}>
-              <HiddenFields fields={props.hiddenFields} />
-              <input type="hidden" name="intent" value="password" readOnly />
-              <TextInput label={t("auth.features.registration.ui.registerPage.display.name")} name="displayName" required />
-              <TextInput label={t("auth.features.registration.ui.registerPage.email")} name="email" type="email" required />
-              <PasswordInput label={t("auth.features.registration.ui.registerPage.password.2")} name="password" required />
-              <Button type="submit" leadingIcon="lock">
-                {t("auth.features.registration.ui.registerPage.create.account.2")}</Button>
-            </Stack>
-          </form>
-        </Card>
+      {method === "passkey" ? (
+        <RegistrationFormCard
+          action={props.action}
+          formRef={passkeyFormRef}
+          glow
+          hiddenFields={props.hiddenFields}
+          intent="passkey-register"
+          method="passkey"
+          onSubmit={handlePasskeySubmit}
+        >
+          <PasskeyHiddenFields payload={passkeyPayload} />
+          <Inline>
+            <Badge tone="accent">
+              {t("auth.features.registration.ui.registerPage.recommended")}
+            </Badge>
+            <Text size="sm" tone="secondary">
+              {t("auth.features.registration.ui.registerPage.passkey.recommended.copy")}</Text>
+          </Inline>
+          <IdentityFields details={details} onChange={updateDetails} />
+          {passkeyError ? (
+            <Banner
+              title={t("auth.features.registration.ui.registerPage.passkey.unavailable")}
+              description={passkeyError}
+              tone="warning"
+              role="alert"
+              actions={fallbackAction}
+            />
+          ) : null}
+          <Button type="submit" leadingIcon="shield" loading={passkeyLoading}>
+            {t("auth.features.registration.ui.registerPage.create.with.passkey")}</Button>
+        </RegistrationFormCard>
       ) : null}
 
-      {method === "passkey" ? (
-        <Card>
-          <form
-            ref={passkeyFormRef}
-            action={props.action}
-            method="post"
-            onSubmit={handlePasskeySubmit}
-          >
-            <Stack gap={3}>
-              <HiddenFields fields={props.hiddenFields} />
-              <input type="hidden" name="intent" value="passkey-register" readOnly />
-              <PasskeyHiddenFields payload={passkeyPayload} />
-              <TextInput label={t("auth.features.registration.ui.registerPage.display.name.2")} name="displayName" required />
-              <TextInput label={t("auth.features.registration.ui.registerPage.email.2")} name="email" type="email" required />
-              {passkeyError ? (
-                <Banner
-                  title={t("auth.features.registration.ui.registerPage.passkey.unavailable")}
-                  description={passkeyError}
-                  tone="warning"
-                  role="alert"
-                />
-              ) : null}
-              <Button type="submit" leadingIcon="shield" loading={passkeyLoading}>
-                {t("auth.features.registration.ui.registerPage.create.with.passkey")}</Button>
-            </Stack>
-          </form>
-        </Card>
+      {method === "magic-link" ? (
+        <RegistrationFormCard
+          action={props.action}
+          hiddenFields={props.hiddenFields}
+          intent="magic-link-register"
+          method="magic-link"
+          onSubmit={() => handleCompleted("magic-link")}
+        >
+          <Text size="sm" tone="secondary">
+            {t("auth.features.registration.ui.registerPage.magic.link.copy")}</Text>
+          <IdentityFields details={details} onChange={updateDetails} />
+          <Button type="submit" leadingIcon="message">
+            {t("auth.features.registration.ui.registerPage.email.me.magic.link")}</Button>
+        </RegistrationFormCard>
+      ) : null}
+
+      {method === "password" ? (
+        <RegistrationFormCard
+          action={props.action}
+          hiddenFields={props.hiddenFields}
+          intent="password"
+          method="password"
+          onSubmit={() => handleCompleted("password")}
+        >
+          <Text size="sm" tone="secondary">
+            {t("auth.features.registration.ui.registerPage.password.fallback.copy")}</Text>
+          <Divider />
+          <IdentityFields details={details} onChange={updateDetails} />
+          <PasswordInput
+            label={t("auth.features.registration.ui.registerPage.password.2")}
+            name="password"
+            required
+            value={details.password}
+            onChange={(event) => updateDetails("password", event.currentTarget.value)}
+          />
+          <Button type="submit" leadingIcon="lock" tone="secondary">
+            {t("auth.features.registration.ui.registerPage.create.account.with.password")}</Button>
+        </RegistrationFormCard>
       ) : null}
     </Stack>
   );
