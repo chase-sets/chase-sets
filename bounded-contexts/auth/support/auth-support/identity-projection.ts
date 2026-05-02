@@ -3,10 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   type AccountId,
-  type CommandId,
-  type CorrelationId,
   type UserId,
-  createId,
 } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_BOOTSTRAP_ACCOUNT_ID,
@@ -138,10 +135,7 @@ export function createAuthBootstrapContext(): EventStoreContext {
       performedByUserId: AUTH_BOOTSTRAP_USER_ID as UserId,
       forAccountId: AUTH_BOOTSTRAP_ACCOUNT_ID as AccountId,
     },
-    trace: {
-      correlationId: createId("cor") as CorrelationId,
-      commandId: createId("cmd") as CommandId,
-    },
+    trace: {},
   };
 }
 

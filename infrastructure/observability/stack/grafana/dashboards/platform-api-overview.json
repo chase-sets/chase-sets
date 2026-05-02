@@ -1,0 +1,61 @@
+{
+  "title": "Platform API Overview",
+  "uid": "chase-sets-platform-api",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["chase-sets", "platform-api", "observability"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request rate by route",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (route, method, status_class) (rate(chase_sets_http_server_requests_total[5m]))",
+          "legendFormat": "{{method}} {{route}} {{status_class}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Event store operations",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (operation, status) (rate(chase_sets_event_store_operations_total[5m]))",
+          "legendFormat": "{{operation}} {{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Projection and subscription runs",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (worker, status) (rate(chase_sets_projection_runs_total[5m]))",
+          "legendFormat": "{{worker}} {{status}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Correlated logs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "{service_name=\"platform-api\"} | json"
+        }
+      ]
+    }
+  ]
+}

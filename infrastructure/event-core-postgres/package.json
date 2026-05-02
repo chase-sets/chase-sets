@@ -13,6 +13,7 @@
   "types": "./index.ts",
   "dependencies": {
     "@chase-sets/event-core": "0.1.0",
+    "@chase-sets/observability": "0.1.0",
     "@chase-sets/primitives": "0.1.0",
     "pg": "^8.20.0"
   }

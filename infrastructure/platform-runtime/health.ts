@@ -21,14 +21,42 @@ export type HealthProjectionReplaySummary = Readonly<{
   }>[];
 }>;
 
+export type ReadinessCheck = Readonly<{
+  name: string;
+  check: () => Promise<void>;
+}>;
+
+export type ReadinessStatus = Readonly<{
+  status: "ok" | "degraded";
+  checks: readonly Readonly<{
+    name: string;
+    status: "ok" | "degraded";
+    message?: string;
+  }>[];
+  projectionReplay?: HealthProjectionReplaySummary;
+}>;
+
 export function createHealthRoutes(
   options: Readonly<{
     getProjectionReplay?: () =>
       | HealthProjectionReplaySummary
       | Promise<HealthProjectionReplaySummary>;
+    readinessChecks?: readonly ReadinessCheck[];
   }> = {},
 ): Hono {
   const app = new Hono();
+
+  app.get("/live", (c) =>
+    c.json({
+      status: "ok",
+    }),
+  );
+
+  app.get("/ready", async (c) => {
+    const readiness = await resolveReadiness(options);
+
+    return c.json(readiness, readiness.status === "ok" ? 200 : 503);
+  });
 
   app.get("/", async (c) => {
     const projectionReplay = await options.getProjectionReplay?.();
@@ -40,4 +68,43 @@ export function createHealthRoutes(
   });
 
   return app;
+}
+
+async function resolveReadiness(
+  options: Readonly<{
+    getProjectionReplay?: () =>
+      | HealthProjectionReplaySummary
+      | Promise<HealthProjectionReplaySummary>;
+    readinessChecks?: readonly ReadinessCheck[];
+  }>,
+): Promise<ReadinessStatus> {
+  const checks = await Promise.all(
+    (options.readinessChecks ?? []).map(async (check) => {
+      try {
+        await check.check();
+        return {
+          name: check.name,
+          status: "ok" as const,
+        };
+      } catch (error) {
+        return {
+          name: check.name,
+          status: "degraded" as const,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+  );
+  const projectionReplay = await options.getProjectionReplay?.();
+  const status =
+    checks.some((check) => check.status === "degraded") ||
+    projectionReplay?.status === "degraded"
+      ? "degraded"
+      : "ok";
+
+  return {
+    status,
+    checks,
+    projectionReplay,
+  };
 }

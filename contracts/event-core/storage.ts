@@ -3,11 +3,10 @@ import type { IsoUtcTimestamp } from "../primitives/iso-utc-timestamp";
 import type { JsonObject } from "../primitives/json";
 import type {
   AccountId,
-  CausationId,
-  CommandId,
-  CorrelationId,
   EventId,
+  SpanId,
   TenantId,
+  TraceId,
   UserId,
 } from "../primitives/typed-ids";
 
@@ -67,9 +66,10 @@ export type EventAuditContext = Readonly<{
 }>;
 
 export type EventTraceContext = Readonly<{
-  correlationId?: CorrelationId;
-  causationId?: CausationId;
-  commandId?: CommandId;
+  traceId?: TraceId;
+  spanId?: SpanId;
+  parentSpanId?: SpanId;
+  traceState?: string;
 }>;
 
 export type EventStoreContext = Readonly<{
@@ -102,9 +102,10 @@ export type StoredEvent<
   recordedAt: IsoUtcTimestamp;
   performedByUserId: UserId;
   forAccountId: AccountId;
-  correlationId?: CorrelationId;
-  causationId?: CausationId;
-  commandId?: CommandId;
+  traceId?: TraceId;
+  spanId?: SpanId;
+  parentSpanId?: SpanId;
+  traceState?: string;
 }>;
 
 export type AppendToStreamInput = Readonly<{

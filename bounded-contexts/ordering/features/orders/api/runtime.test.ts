@@ -34,9 +34,10 @@ function createInMemoryEventStore() {
           recordedAt: new Date().toISOString() as never,
           performedByUserId: input.context.audit.performedByUserId,
           forAccountId: input.context.audit.forAccountId,
-          correlationId: input.context.trace?.correlationId,
-          causationId: input.context.trace?.causationId,
-          commandId: input.context.trace?.commandId,
+          traceId: input.context.trace?.traceId,
+          spanId: input.context.trace?.spanId,
+          parentSpanId: input.context.trace?.parentSpanId,
+          traceState: input.context.trace?.traceState,
         } satisfies StoredEvent;
       });
 

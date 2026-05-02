@@ -1,3 +1,4 @@
+import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import {
   drainContextRuntime,
@@ -12,11 +13,18 @@ import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import type { PaymentServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
+import {
+  getObservabilityRuntime,
+  observeProjectors,
+  observeWorker,
+} from "@chase-sets/observability";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
 import { loadConfig } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
 
+const observability = getObservabilityRuntime();
+const logger = observability.logger;
 const config = loadConfig();
 const pools = createPlatformApiPools(config);
 
@@ -42,7 +50,10 @@ const moneyMovementGateway =
     : createFakeMoneyMovementGateway();
 const settlementOperationsRecorder = {
   record(event: Record<string, unknown>) {
-    console.info(JSON.stringify({ type: "settlement.operation", ...event }));
+    logger.info("Settlement operation recorded.", {
+      type: "settlement.operation",
+      ...event,
+    });
   },
 };
 const postageLabelProvider =
@@ -55,21 +66,27 @@ const postageLabelProvider =
     : createSandboxPostageLabelProvider();
 
 if (config.paymentProcessor.kind === "fake") {
-  console.warn(
-    "Platform API is using the fake payment processor because Stripe env vars are incomplete. Set STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET to enable Stripe locally.",
-  );
+  logger.warn("Platform API is using the fake payment processor.", {
+    type: "provider.fake",
+    provider: "stripe-payments",
+  });
 }
 if (config.moneyMovement.kind === "fake") {
-  console.warn(
-    "Platform API is using the fake money movement provider because Stripe Connect env vars are incomplete. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to enable Stripe Connect locally.",
-  );
+  logger.warn("Platform API is using the fake money movement provider.", {
+    type: "provider.fake",
+    provider: "stripe-connect",
+  });
 }
 if (config.postage.kind === "sandbox") {
-  console.warn(
-    "Platform API is using the sandbox USPS postage provider. Set EASYPOST_API_KEY to enable EasyPost label purchase locally.",
-  );
+  logger.warn("Platform API is using the sandbox USPS postage provider.", {
+    type: "provider.sandbox",
+    provider: "easypost",
+  });
 }
-console.info(JSON.stringify({ type: "stripe.go-live-checks", ...config.stripeGoLive }));
+logger.info("Stripe go-live checks resolved.", {
+  type: "stripe.go-live-checks",
+  ...config.stripeGoLive,
+});
 
 const runtime = createPlatformApiHost({
   pools,
@@ -81,8 +98,19 @@ const runtime = createPlatformApiHost({
   },
 });
 const app = buildPlatformApiApp(runtime, {
-  drain: () => drainContextRuntime(runtime),
+  drain: () =>
+    observeWorker(
+      "context_runtime_drain",
+      { worker: "context_runtime_drain" },
+      () => drainContextRuntime(runtime),
+    ),
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
+  readinessChecks: runtime.mountedContexts.map((entry) => ({
+    name: `${entry.contextName}.database`,
+    check: async () => {
+      await entry.pool.query("SELECT 1");
+    },
+  })),
   resolveActor: (request) =>
     resolveActorFromRequest(
       runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0],
@@ -99,12 +127,26 @@ const SYSTEM_CONTEXT = {
   },
 };
 
-startProjectorPolling(runtime.projectors, PROJECTION_INTERVAL_MS, (error) => {
-  console.error("Projection error:", error);
-});
-startProjectorPolling(runtime.subscriptionRunners, PROJECTION_INTERVAL_MS, (error) => {
-  console.error("Subscription error:", error);
-});
+startProjectorPolling(
+  observeProjectors(runtime.projectors, { worker: "projector" }),
+  PROJECTION_INTERVAL_MS,
+  (error) => {
+    logger.error("Projection error.", {
+      type: "projection.error",
+      error,
+    });
+  },
+);
+startProjectorPolling(
+  observeProjectors(runtime.subscriptionRunners, { worker: "subscription" }),
+  PROJECTION_INTERVAL_MS,
+  (error) => {
+    logger.error("Subscription error.", {
+      type: "subscription.error",
+      error,
+    });
+  },
+);
 
 let reconciliationRunning = false;
 let paymentReconciliationRunning = false;
@@ -119,14 +161,16 @@ if (config.paymentReconciliationIntervalMs) {
     void paymentServices
       .scanPaymentsNeedingReconciliation({ limit: 100 })
       .then((result) => {
-        console.info(JSON.stringify({
+        logger.info("Payment reconciliation scan completed.", {
           type: "payments.reconciliation-needed",
           count: result.attention,
-          paymentIds: result.payment_ids,
-        }));
+        });
       })
       .catch((error: unknown) => {
-        console.error("Payment reconciliation scan failed:", error);
+        logger.error("Payment reconciliation scan failed.", {
+          type: "payments.reconciliation.failed",
+          error,
+        });
       })
       .finally(() => {
         paymentReconciliationRunning = false;
@@ -144,10 +188,16 @@ if (config.sellerFundsReleaseIntervalMs) {
     void settlementServices.wallets
       .releaseMaturePendingSaleCredits({ limit: 500 }, SYSTEM_CONTEXT)
       .then((result: unknown) => {
-        console.info(JSON.stringify({ type: "settlement.funds-release", result }));
+        logger.info("Seller funds release completed.", {
+          type: "settlement.funds-release",
+          result,
+        });
       })
       .catch((error: unknown) => {
-        console.error("Seller funds release failed:", error);
+        logger.error("Seller funds release failed.", {
+          type: "settlement.funds-release.failed",
+          error,
+        });
       })
       .finally(() => {
         sellerFundsReleaseRunning = false;
@@ -165,10 +215,16 @@ if (config.payoutReconciliationIntervalMs) {
     void settlementServices.payouts
       .reconcilePayoutsNeedingAttention({ limit: 100 }, SYSTEM_CONTEXT)
       .then((result: unknown) => {
-        console.info(JSON.stringify({ type: "settlement.reconciliation", result }));
+        logger.info("Payout reconciliation completed.", {
+          type: "settlement.reconciliation",
+          result,
+        });
       })
       .catch((error: unknown) => {
-        console.error("Payout reconciliation failed:", error);
+        logger.error("Payout reconciliation failed.", {
+          type: "settlement.reconciliation.failed",
+          error,
+        });
       })
       .finally(() => {
         reconciliationRunning = false;
@@ -177,11 +233,16 @@ if (config.payoutReconciliationIntervalMs) {
 }
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
-  console.log(`Platform API listening on port ${info.port}`);
+  logger.info("Platform API listening.", {
+    type: "platform-api.started",
+    port: info.port,
+  });
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
-    void closePlatformApiPools(pools).finally(() => process.exit(0));
+    void closePlatformApiPools(pools)
+      .finally(() => observability.shutdown())
+      .finally(() => process.exit(0));
   });
 }

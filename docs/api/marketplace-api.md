@@ -17,9 +17,8 @@ Account-scoped endpoints resolve tenant, user, account, and permissions from the
 
 ## Headers
 
-- `x-correlation-id`: optional trace identifier forwarded into command metadata.
-- `x-causation-id`: optional parent action identifier.
-- `x-command-id`: optional idempotency/command identifier for write requests.
+- `traceparent`: optional W3C trace context propagated into request telemetry and stored event trace metadata.
+- `tracestate`: optional W3C vendor trace state.
 
 ## Responses
 

@@ -12,11 +12,9 @@ export type EventId = TypedUlid<"evt">;
 
 export type TenantId = TypedUlid<"tnt">;
 
-export type CorrelationId = TypedUlid<"cor">;
+export type TraceId = string;
 
-export type CausationId = TypedUlid<"cau">;
-
-export type CommandId = TypedUlid<"cmd">;
+export type SpanId = string;
 
 export type AccountId = TypedUlid<"acc">;
 

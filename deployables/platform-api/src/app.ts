@@ -8,9 +8,11 @@ import {
   attachWriteDrainMiddleware,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
+import { createHonoObservabilityMiddleware } from "@chase-sets/observability";
 import {
   createHealthRoutes,
   type HealthProjectionReplaySummary,
+  type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import {
   createApiHost,
@@ -40,6 +42,7 @@ export type BuildPlatformApiOptions = Readonly<{
   getProjectionReplay?: () =>
     | HealthProjectionReplaySummary
     | Promise<HealthProjectionReplaySummary>;
+  readinessChecks?: readonly ReadinessCheck[];
   resolveActor?: PlatformActorResolver;
   mcp?: CreateMcpRoutesOptions;
 }>;
@@ -78,10 +81,12 @@ export function buildPlatformApiApp(
   } satisfies PlatformIdentityServices;
 
   app.onError(errorHandler);
+  app.use("*", createHonoObservabilityMiddleware());
   app.route(
     "/health",
     createHealthRoutes({
       getProjectionReplay: options.getProjectionReplay,
+      readinessChecks: options.readinessChecks,
     }),
   );
 

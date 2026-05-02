@@ -2,9 +2,6 @@ import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   AccountId,
-  CausationId,
-  CommandId,
-  CorrelationId,
   TenantId,
   UserId,
 } from "@chase-sets/primitives/typed-ids";
@@ -18,13 +15,11 @@ import {
   resolveActorFromRequest,
 } from "../auth-request-context";
 import { authenticationRequiredResponse } from "@chase-sets/http/responses";
+import { attachActiveTraceContext } from "@chase-sets/observability";
 
 const TENANT_HEADER = "x-tenant-id";
 const USER_HEADER = "x-user-id";
 const ACCOUNT_HEADER = "x-account-id";
-const CORRELATION_HEADER = "x-correlation-id";
-const CAUSATION_HEADER = "x-causation-id";
-const COMMAND_HEADER = "x-command-id";
 
 export type TenantContextEnv = {
   Variables: {
@@ -79,11 +74,7 @@ function createContextFromHeaders(request: Request) {
       performedByUserId: userId as UserId,
       forAccountId: accountId as AccountId,
     },
-    trace: {
-      correlationId: (request.headers.get(CORRELATION_HEADER) as CorrelationId) || undefined,
-      causationId: (request.headers.get(CAUSATION_HEADER) as CausationId) || undefined,
-      commandId: (request.headers.get(COMMAND_HEADER) as CommandId) || undefined,
-    },
+    trace: {},
   } satisfies EventStoreContext;
 }
 
@@ -96,7 +87,7 @@ export function createIdentityAuthMiddleware(services: PlatformIdentityServices)
     const headerContext = createContextFromHeaders(c.req.raw);
 
     if (headerContext) {
-      c.set("context", headerContext);
+      c.set("context", attachActiveTraceContext(headerContext));
       c.set("actor", null);
       await next();
       return;
@@ -105,14 +96,14 @@ export function createIdentityAuthMiddleware(services: PlatformIdentityServices)
     const actor = await resolveActorFromRequest(services.auth, c.req.raw);
     if (actor) {
       c.set("actor", actor);
-      c.set("context", createActorEventStoreContext(actor));
+      c.set("context", attachActiveTraceContext(createActorEventStoreContext(actor)));
       await next();
       return;
     }
 
     if (isAnonymousAllowed(c.req.method, pathname)) {
       c.set("actor", null);
-      c.set("context", createAuthBootstrapContext(services.auth));
+      c.set("context", attachActiveTraceContext(createAuthBootstrapContext(services.auth)));
       await next();
       return;
     }
@@ -135,7 +126,10 @@ export function createPlatformActorMiddleware(
     const actor = await resolveActor(c.req.raw);
 
     c.set("actor", actor);
-    c.set("context", actor ? createActorEventStoreContext(actor) : null);
+    c.set(
+      "context",
+      actor ? attachActiveTraceContext(createActorEventStoreContext(actor)) : null,
+    );
 
     await next();
   };

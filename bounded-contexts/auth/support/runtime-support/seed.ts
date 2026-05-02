@@ -7,7 +7,6 @@ import { upsertPasswordCredential } from "../auth-support/store";
 import { createSessionRuntime } from "../../features/sessions/api/runtime";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { drainProjectors } from "@chase-sets/bounded-context-runtime";
-import { createId } from "@chase-sets/primitives/typed-ids";
 
 function createAuthSeedContext(): EventStoreContext {
   return {
@@ -16,10 +15,7 @@ function createAuthSeedContext(): EventStoreContext {
       performedByUserId: identitySeedIds.support.userId,
       forAccountId: identitySeedIds.support.accountId,
     },
-    trace: {
-      correlationId: createId("cor") as never,
-      commandId: createId("cmd") as never,
-    },
+    trace: {},
   };
 }
 

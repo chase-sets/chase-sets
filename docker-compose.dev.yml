@@ -11,5 +11,82 @@ services:
     volumes:
       - chase-sets-postgres-dev-data:/var/lib/postgresql/data
 
+  otel-collector:
+    profiles: ["observability"]
+    container_name: chase-sets-otel-collector-dev
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    command: ["--config=/etc/otelcol/config.yml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "9464:9464"
+    volumes:
+      - ./infrastructure/observability/stack/collector-config.yml:/etc/otelcol/config.yml:ro
+      - ./artifacts/observability:/var/log/chase-sets:ro
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  prometheus:
+    profiles: ["observability"]
+    container_name: chase-sets-prometheus-dev
+    image: prom/prometheus:v2.55.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=24h"
+      - "--storage.tsdb.retention.size=1GB"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/observability/stack/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - chase-sets-prometheus-dev-data:/prometheus
+
+  loki:
+    profiles: ["observability"]
+    container_name: chase-sets-loki-dev
+    image: grafana/loki:3.3.2
+    command: ["-config.file=/etc/loki/config.yml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infrastructure/observability/stack/loki-config.yml:/etc/loki/config.yml:ro
+      - chase-sets-loki-dev-data:/loki
+
+  tempo:
+    profiles: ["observability"]
+    container_name: chase-sets-tempo-dev
+    image: grafana/tempo:2.7.1
+    command: ["-config.file=/etc/tempo/config.yml"]
+    ports:
+      - "3200:3200"
+      - "14317:4317"
+    volumes:
+      - ./infrastructure/observability/stack/tempo-config.yml:/etc/tempo/config.yml:ro
+      - chase-sets-tempo-dev-data:/var/tempo
+
+  grafana:
+    profiles: ["observability"]
+    container_name: chase-sets-grafana-dev
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./infrastructure/observability/stack/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/observability/stack/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - chase-sets-grafana-dev-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
 volumes:
   chase-sets-postgres-dev-data:
+  chase-sets-prometheus-dev-data:
+  chase-sets-loki-dev-data:
+  chase-sets-tempo-dev-data:
+  chase-sets-grafana-dev-data:

@@ -28,7 +28,10 @@ describe("command handler", () => {
       performedByUserId: "usr_1" as never,
       forAccountId: "acc_1" as never,
     },
-    trace: { correlationId: "cor_1" as never, causationId: "cmd_1" as never },
+    trace: {
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      spanId: "00f067aa0ba902b7",
+    },
   };
 
   it("loads state, appends decided events, and returns evolved state", async () => {

@@ -2,11 +2,10 @@ import type { IsoUtcTimestamp } from "../primitives/iso-utc-timestamp";
 import type { JsonObject } from "../primitives/json";
 import type {
   AccountId,
-  CausationId,
-  CommandId,
-  CorrelationId,
   EventId,
+  SpanId,
   TenantId,
+  TraceId,
   UserId,
 } from "../primitives/typed-ids";
 import type {
@@ -30,9 +29,10 @@ export type TransportEvent = Readonly<{
     forAccountId: AccountId;
   }>;
   trace: Readonly<{
-    correlationId?: CorrelationId;
-    causationId?: CausationId;
-    commandId?: CommandId;
+    traceId?: TraceId;
+    spanId?: SpanId;
+    parentSpanId?: SpanId;
+    traceState?: string;
   }>;
   timing: Readonly<{
     occurredAt: IsoUtcTimestamp;
@@ -55,9 +55,10 @@ export function toTransportEvent(event: StoredEvent): TransportEvent {
       forAccountId: event.forAccountId,
     },
     trace: {
-      correlationId: event.correlationId,
-      causationId: event.causationId,
-      commandId: event.commandId,
+      traceId: event.traceId,
+      spanId: event.spanId,
+      parentSpanId: event.parentSpanId,
+      traceState: event.traceState,
     },
     timing: {
       occurredAt: event.occurredAt,

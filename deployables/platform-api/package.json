@@ -22,6 +22,7 @@
     "@chase-sets/fulfillment": "0.1.0",
     "@chase-sets/identity": "0.1.0",
     "@chase-sets/money-movement-testing": "0.1.0",
+    "@chase-sets/observability": "0.1.0",
     "@chase-sets/payment-processing-testing": "0.1.0",
     "@chase-sets/payments": "0.1.0",
     "@chase-sets/platform-runtime": "0.1.0",

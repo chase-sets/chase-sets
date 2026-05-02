@@ -17,9 +17,10 @@ CREATE TABLE IF NOT EXISTS event_store_events (
   recorded_at timestamptz NOT NULL,
   performed_by_user_id text NOT NULL,
   for_account_id text NOT NULL,
-  correlation_id text NULL,
-  causation_id text NULL,
-  command_id text NULL,
+  trace_id text NULL,
+  span_id text NULL,
+  parent_span_id text NULL,
+  trace_state text NULL,
   CONSTRAINT event_store_events_stream_version_uk UNIQUE (
     stream_id,
     stream_version
@@ -29,6 +30,15 @@ CREATE TABLE IF NOT EXISTS event_store_events (
     REFERENCES event_store_streams (stream_id)
     ON DELETE CASCADE
 );
+
+ALTER TABLE event_store_events
+  ADD COLUMN IF NOT EXISTS trace_id text NULL,
+  ADD COLUMN IF NOT EXISTS span_id text NULL,
+  ADD COLUMN IF NOT EXISTS parent_span_id text NULL,
+  ADD COLUMN IF NOT EXISTS trace_state text NULL,
+  DROP COLUMN IF EXISTS correlation_id,
+  DROP COLUMN IF EXISTS causation_id,
+  DROP COLUMN IF EXISTS command_id;
 
 CREATE INDEX IF NOT EXISTS event_store_events_stream_idx
   ON event_store_events (stream_id, stream_version ASC);

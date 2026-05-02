@@ -13,6 +13,7 @@ import {
   globalPositionFromBigInt,
   parseGlobalPosition,
 } from "@chase-sets/event-core/storage";
+import { observeEventStoreOperation } from "@chase-sets/observability";
 import type {
   AppendToStreamInput,
   EventRecordToStore,
@@ -38,9 +39,10 @@ type DbEventRow = Readonly<{
   recorded_at: Date | string;
   performed_by_user_id: string;
   for_account_id: string;
-  correlation_id: string | null;
-  causation_id: string | null;
-  command_id: string | null;
+  trace_id: string | null;
+  span_id: string | null;
+  parent_span_id: string | null;
+  trace_state: string | null;
 }>;
 
 type DbStreamVersionRow = Readonly<{
@@ -72,9 +74,10 @@ const EVENT_COLUMNS = [
   "recorded_at",
   "performed_by_user_id",
   "for_account_id",
-  "correlation_id",
-  "causation_id",
-  "command_id",
+  "trace_id",
+  "span_id",
+  "parent_span_id",
+  "trace_state",
 ].join(", ");
 
 export function createPostgresEventStore(
@@ -116,12 +119,13 @@ export function createPostgresEventStore(
       recorded_at,
       performed_by_user_id,
       for_account_id,
-      correlation_id,
-      causation_id,
-      command_id
+      trace_id,
+      span_id,
+      parent_span_id,
+      trace_state
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
     )
     RETURNING ${EVENT_COLUMNS}
   `;
@@ -164,25 +168,34 @@ export function createPostgresEventStore(
         return [];
       }
 
-      try {
-        return await withTransaction(pool, async (client) =>
-          appendEventsToStream({
-            client,
-            input,
-            now,
-            createEventId,
-            upsertStreamSql,
-            readCurrentVersionSql,
-            insertEventSql,
-            updateStreamVersionSql,
-          }),
-        );
-      } catch (error) {
-        throw normalizeEventStoreError(
-          error,
-          "Failed to append events to Postgres event store.",
-        );
-      }
+      return observeEventStoreOperation(
+        "append_to_stream",
+        {
+          event_count: input.events.length,
+          event_type: input.events.length === 1 ? input.events[0].eventType : "multiple",
+        },
+        async () => {
+          try {
+            return await withTransaction(pool, async (client) =>
+              appendEventsToStream({
+                client,
+                input,
+                now,
+                createEventId,
+                upsertStreamSql,
+                readCurrentVersionSql,
+                insertEventSql,
+                updateStreamVersionSql,
+              }),
+            );
+          } catch (error) {
+            throw normalizeEventStoreError(
+              error,
+              "Failed to append events to Postgres event store.",
+            );
+          }
+        },
+      );
     },
 
     readStream: async (input: ReadStreamInput) => {
@@ -192,20 +205,26 @@ export function createPostgresEventStore(
       );
       const limit = assertPositiveInteger(input.limit ?? 500, "limit");
 
-      try {
-        const result = await pool.query<DbEventRow>(readStreamSql, [
-          input.streamId,
-          fromVersion,
-          limit,
-        ]);
+      return observeEventStoreOperation(
+        "read_stream",
+        { limit },
+        async () => {
+          try {
+            const result = await pool.query<DbEventRow>(readStreamSql, [
+              input.streamId,
+              fromVersion,
+              limit,
+            ]);
 
-        return result.rows.map(mapDbEventRow);
-      } catch (error) {
-        throw normalizeEventStoreError(
-          error,
-          "Failed to read stream events from Postgres event store.",
-        );
-      }
+            return result.rows.map(mapDbEventRow);
+          } catch (error) {
+            throw normalizeEventStoreError(
+              error,
+              "Failed to read stream events from Postgres event store.",
+            );
+          }
+        },
+      );
     },
 
     readAll: async (input?: ReadAllInput) => {
@@ -213,29 +232,35 @@ export function createPostgresEventStore(
         input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION;
       const limit = assertPositiveInteger(input?.limit ?? 500, "limit");
 
-      try {
-        if (input?.tenantId) {
-          const result = await pool.query<DbEventRow>(readAllByTenantSql, [
-            input.tenantId,
-            afterGlobalPosition,
-            limit,
-          ]);
+      return observeEventStoreOperation(
+        "read_all",
+        { limit, tenant_scope: input?.tenantId ? "tenant" : "all" },
+        async () => {
+          try {
+            if (input?.tenantId) {
+              const result = await pool.query<DbEventRow>(readAllByTenantSql, [
+                input.tenantId,
+                afterGlobalPosition,
+                limit,
+              ]);
 
-          return result.rows.map(mapDbEventRow);
-        }
+              return result.rows.map(mapDbEventRow);
+            }
 
-        const result = await pool.query<DbEventRow>(readAllSql, [
-          afterGlobalPosition,
-          limit,
-        ]);
+            const result = await pool.query<DbEventRow>(readAllSql, [
+              afterGlobalPosition,
+              limit,
+            ]);
 
-        return result.rows.map(mapDbEventRow);
-      } catch (error) {
-        throw normalizeEventStoreError(
-          error,
-          "Failed to read global events from Postgres event store.",
-        );
-      }
+            return result.rows.map(mapDbEventRow);
+          } catch (error) {
+            throw normalizeEventStoreError(
+              error,
+              "Failed to read global events from Postgres event store.",
+            );
+          }
+        },
+      );
     },
   };
 }
@@ -336,9 +361,10 @@ async function insertSingleEvent(
     args.now,
     args.context.audit.performedByUserId,
     args.context.audit.forAccountId,
-    args.context.trace?.correlationId ?? null,
-    args.context.trace?.causationId ?? null,
-    args.context.trace?.commandId ?? null,
+    args.context.trace?.traceId ?? null,
+    args.context.trace?.spanId ?? null,
+    args.context.trace?.parentSpanId ?? null,
+    args.context.trace?.traceState ?? null,
   ]);
 
   if (result.rows.length !== 1) {
@@ -472,14 +498,17 @@ function mapDbEventRow(row: DbEventRow): StoredEvent {
       row.performed_by_user_id as StoredEvent["performedByUserId"],
     forAccountId:
       row.for_account_id as StoredEvent["forAccountId"],
-    correlationId: row.correlation_id
-      ? (row.correlation_id as StoredEvent["correlationId"])
+    traceId: row.trace_id
+      ? (row.trace_id as StoredEvent["traceId"])
       : undefined,
-    causationId: row.causation_id
-      ? (row.causation_id as StoredEvent["causationId"])
+    spanId: row.span_id
+      ? (row.span_id as StoredEvent["spanId"])
       : undefined,
-    commandId: row.command_id
-      ? (row.command_id as StoredEvent["commandId"])
+    parentSpanId: row.parent_span_id
+      ? (row.parent_span_id as StoredEvent["parentSpanId"])
+      : undefined,
+    traceState: row.trace_state
+      ? row.trace_state
       : undefined,
   };
 }
