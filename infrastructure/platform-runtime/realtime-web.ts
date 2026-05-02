@@ -15,13 +15,16 @@ type RealtimeSubscriptionHandlers = Readonly<{
   onError?: (error: Event) => void;
 }>;
 
-type SharedRealtimeSource = Readonly<{
-  source: EventSource;
+type SharedRealtimeSource = {
+  source: EventSource | null;
+  openTimer: ReturnType<typeof setTimeout> | null;
+  open: () => void;
   handlers: Set<RealtimeSubscriptionHandlers>;
   diagnostics: RealtimeSubscriptionDiagnosticEntry;
-}>;
+};
 
 const sharedSources = new Map<string, SharedRealtimeSource>();
+const DEFAULT_SUBSCRIPTION_DEBOUNCE_MS = 75;
 
 export type RealtimeSubscriptionDiagnosticEntry = {
   topics: readonly string[];
@@ -43,6 +46,7 @@ export function subscribeRealtimePatches(options: Readonly<{
   onPatch: (patch: RealtimeProjectionPatch) => void;
   onSyncRequired: (message: RealtimeSyncRequired) => void;
   onError?: (error: Event) => void;
+  debounceMs?: number;
 }>): RealtimeSubscription {
   if (typeof window === "undefined" || options.topics.length === 0) {
     return { close: () => undefined };
@@ -55,10 +59,21 @@ export function subscribeRealtimePatches(options: Readonly<{
     onSyncRequired: options.onSyncRequired,
     onError: options.onError,
   };
-  const sharedSource = getOrCreateSharedRealtimeSource(sourceKey, normalizedTopics);
+  const sharedSource = getOrCreateSharedRealtimeSource(
+    sourceKey,
+    normalizedTopics,
+  );
 
   sharedSource.handlers.add(handlers);
   sharedSource.diagnostics.subscriberCount = sharedSource.handlers.size;
+  if (!sharedSource.source && !sharedSource.openTimer) {
+    const debounceMs = options.debounceMs ?? DEFAULT_SUBSCRIPTION_DEBOUNCE_MS;
+    if (debounceMs <= 0) {
+      sharedSource.open();
+    } else {
+      sharedSource.openTimer = setTimeout(sharedSource.open, debounceMs);
+    }
+  }
 
   let closed = false;
   return {
@@ -71,7 +86,10 @@ export function subscribeRealtimePatches(options: Readonly<{
       sharedSource.handlers.delete(handlers);
       sharedSource.diagnostics.subscriberCount = sharedSource.handlers.size;
       if (sharedSource.handlers.size === 0) {
-        sharedSource.source.close();
+        if (sharedSource.openTimer) {
+          clearTimeout(sharedSource.openTimer);
+        }
+        sharedSource.source?.close();
         sharedSources.delete(sourceKey);
       }
     },
@@ -102,42 +120,57 @@ function getOrCreateSharedRealtimeSource(
     lastPatchAt: null,
     lastSyncReason: null,
   };
-  const source = new EventSource(`/api/realtime/events?${params.toString()}`, {
-    withCredentials: true,
-  });
-  const sharedSource = { source, handlers, diagnostics };
+  const openSource = () => {
+    if (!sharedSources.has(sourceKey) || sharedSource.handlers.size === 0) {
+      return;
+    }
 
-  source.addEventListener("projection.patch", (event) => {
-    const message = parseRealtimeMessage(event);
-    if (isRealtimeProjectionPatch(message)) {
-      diagnostics.lastEventId = readLastEventId(event);
-      diagnostics.lastPatchAt = new Date().toISOString();
-      for (const handler of handlers) {
-        handler.onPatch(message);
+    const source = new EventSource(`/api/realtime/events?${params.toString()}`, {
+      withCredentials: true,
+    });
+    sharedSource.source = source;
+    sharedSource.openTimer = null;
+
+    source.addEventListener("projection.patch", (event) => {
+      const message = parseRealtimeMessage(event);
+      if (isRealtimeProjectionPatch(message)) {
+        diagnostics.lastEventId = readLastEventId(event);
+        diagnostics.lastPatchAt = new Date().toISOString();
+        for (const handler of handlers) {
+          handler.onPatch(message);
+        }
       }
-    }
-  });
+    });
 
-  source.addEventListener("sync.required", (event) => {
-    const message = parseRealtimeMessage(event);
-    if (isRealtimeSyncRequired(message)) {
-      diagnostics.lastEventId = readLastEventId(event);
-      diagnostics.lastSyncReason = message.reason;
-      for (const handler of handlers) {
-        handler.onSyncRequired(message);
+    source.addEventListener("sync.required", (event) => {
+      const message = parseRealtimeMessage(event);
+      if (isRealtimeSyncRequired(message)) {
+        diagnostics.lastEventId = readLastEventId(event);
+        diagnostics.lastSyncReason = message.reason;
+        for (const handler of handlers) {
+          handler.onSyncRequired(message);
+        }
       }
-    }
-  });
+    });
 
-  source.addEventListener("error", (event) => {
-    diagnostics.errorCount += 1;
-    for (const handler of handlers) {
-      handler.onError?.(event);
-    }
-  });
-  source.addEventListener("open", () => {
-    diagnostics.reconnectCount += 1;
-  });
+    source.addEventListener("error", (event) => {
+      diagnostics.errorCount += 1;
+      for (const handler of handlers) {
+        handler.onError?.(event);
+      }
+    });
+    source.addEventListener("open", () => {
+      diagnostics.reconnectCount += 1;
+    });
+  };
+
+  const sharedSource: SharedRealtimeSource = {
+    source: null,
+    openTimer: null,
+    open: openSource,
+    handlers,
+    diagnostics,
+  };
 
   sharedSources.set(sourceKey, sharedSource);
   return sharedSource;

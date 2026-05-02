@@ -46,6 +46,44 @@ maybeDescribe("realtime outbox Postgres integration", () => {
     await closeMultiContextTestPools(pools);
   });
 
+  it("applies the outbox schema idempotently with required tables and indexes", async () => {
+    await pools.realtime.query(realtimeOutboxSchemaSql);
+
+    const tables = await pools.realtime.query<{ table_name: string }>(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_name IN (
+           'realtime_projection_outbox',
+           'realtime_projection_outbox_topics',
+           'realtime_projection_topic_heads'
+         )
+       ORDER BY table_name`,
+    );
+    expect(tables.rows.map((row) => row.table_name)).toEqual([
+      "realtime_projection_outbox",
+      "realtime_projection_outbox_topics",
+      "realtime_projection_topic_heads",
+    ]);
+
+    const indexes = await pools.realtime.query<{ indexname: string }>(
+      `SELECT indexname
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname IN (
+           'realtime_projection_outbox_expires_idx',
+           'realtime_projection_outbox_outbox_idx',
+           'realtime_projection_outbox_topics_outbox_idx'
+         )
+       ORDER BY indexname`,
+    );
+    expect(indexes.rows.map((row) => row.indexname)).toEqual([
+      "realtime_projection_outbox_expires_idx",
+      "realtime_projection_outbox_outbox_idx",
+      "realtime_projection_outbox_topics_outbox_idx",
+    ]);
+  });
+
   it("records idempotent patches, indexes topics, and replays in outbox order", async () => {
     await recordRealtimeProjectionPatch(pools.realtime, {
       sourceGlobalPosition: "1",

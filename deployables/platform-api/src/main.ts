@@ -153,6 +153,18 @@ const realtimeObserver = {
       actorAccountId: event.actorAccountId,
     });
   },
+  topicNormalizationAdjusted: (event) => {
+    logger.info("Realtime SSE topics normalized.", {
+      type: "realtime.topic.normalized",
+      requestedCount: event.diagnostic.requestedCount,
+      normalizedCount: event.diagnostic.normalizedCount,
+      duplicateCount: event.diagnostic.duplicateCount,
+      blankCount: event.diagnostic.blankCount,
+      invalidCount: event.diagnostic.invalidCount,
+      sorted: event.diagnostic.sorted,
+      actorAccountId: event.actorAccountId,
+    });
+  },
   batchRead: (event) => {
     recordRealtimeBatchRead(event);
     if (event.messageCount === 0 && event.expiredContextCount === 0) {
@@ -178,6 +190,7 @@ const realtimeObserver = {
       reason: event.reason,
       contexts: event.contexts,
       topicCount: event.topicCount,
+      payloadBytes: event.payloadBytes,
     });
   },
   wakeWaitEnded: (event) => {

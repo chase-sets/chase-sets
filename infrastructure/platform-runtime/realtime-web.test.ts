@@ -63,11 +63,13 @@ describe("realtime web subscriptions", () => {
       topics: ["listing:list_1", "public:market"],
       onPatch: (patch) => patches.push(["first", patch]),
       onSyncRequired: () => undefined,
+      debounceMs: 0,
     });
     const second = subscribeRealtimePatches({
       topics: ["public:market", "listing:list_1"],
       onPatch: (patch) => patches.push(["second", patch]),
       onSyncRequired: () => undefined,
+      debounceMs: 0,
     });
 
     expect(FakeEventSource.instances).toHaveLength(1);
@@ -113,6 +115,7 @@ describe("realtime web subscriptions", () => {
       topics: ["public:market"],
       onPatch,
       onSyncRequired,
+      debounceMs: 0,
     });
 
     FakeEventSource.instances[0].emit("projection.patch", {

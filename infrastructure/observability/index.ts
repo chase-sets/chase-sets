@@ -89,6 +89,9 @@ const realtimeBatchSize = meter.createHistogram("chase_sets_realtime_batch_messa
   unit: "{message}",
 });
 const realtimeMessageCounter = meter.createCounter("chase_sets_realtime_messages_total");
+const realtimePayloadBytes = meter.createHistogram("chase_sets_realtime_payload_bytes", {
+  unit: "By",
+});
 const realtimeSyncRequiredCounter = meter.createCounter("chase_sets_realtime_sync_required_total");
 const realtimeWakeCounter = meter.createCounter("chase_sets_realtime_wake_waits_total");
 const realtimeTopicLag = meter.createHistogram("chase_sets_realtime_topic_lag", {
@@ -441,22 +444,36 @@ export function recordRealtimeBatchRead(event: Readonly<{
 export function recordRealtimeMessageSent(event: Readonly<{
   contextName: string;
   eventKind: string;
+  payloadBytes?: number;
 }>): void {
   realtimeMessageCounter.add(1, {
     context: event.contextName,
     event_kind: event.eventKind,
   });
+  if (event.payloadBytes !== undefined) {
+    realtimePayloadBytes.record(event.payloadBytes, {
+      context: event.contextName,
+      event_kind: event.eventKind,
+    });
+  }
 }
 
 export function recordRealtimeSyncRequired(event: Readonly<{
   reason: string;
   contexts: readonly string[];
+  payloadBytes?: number;
 }>): void {
   for (const contextName of event.contexts) {
     realtimeSyncRequiredCounter.add(1, {
       context: contextName,
       reason: event.reason,
     });
+    if (event.payloadBytes !== undefined) {
+      realtimePayloadBytes.record(event.payloadBytes, {
+        context: contextName,
+        event_kind: "sync.required",
+      });
+    }
   }
 }
 

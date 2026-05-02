@@ -9,6 +9,7 @@ import {
   createRealtimeStatusSnapshot,
   decodeRealtimeCursor,
   encodeRealtimeCursor,
+  inspectRealtimeTopicNormalization,
   parseRealtimeTopics,
   pruneExpiredRealtimePatchesWithAdvisoryLock,
   readRealtimePatches,
@@ -16,6 +17,7 @@ import {
   recordRealtimeProjectionPatches,
   realtimeProjectionNotifyChannel,
   realtimeOutboxSchemaSql,
+  resolveRealtimeRouteConfig,
   runRealtimeProjectionTransaction,
   selectRealtimeStoresForTopics,
 } from "./realtime";
@@ -125,8 +127,50 @@ describe("realtime SSE routes", () => {
     expect(response.status).toBe(403);
   });
 
+  it("exposes public and account endpoint aliases with route-family guards", async () => {
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db: { query: async () => ({ rows: [] }) } }],
+      resolveActor: async () => actor,
+    });
+
+    await expect(app.request("/public/events?topic=account%3Aaccount_1%3Aoffers"))
+      .resolves.toHaveProperty("status", 403);
+    await expect(app.request("/account/events?topic=public%3Amarket"))
+      .resolves.toHaveProperty("status", 403);
+  });
+
+  it("reports topic normalization diagnostics before authorization", async () => {
+    const diagnostics: unknown[] = [];
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db: { query: async () => ({ rows: [] }) } }],
+      resolveActor: async () => null,
+      observer: {
+        topicNormalizationAdjusted: (event) => diagnostics.push(event),
+      },
+    });
+
+    const response = await app.request(
+      "/events?topic=%20&topic=public%3Amarket&topic=public%3Amarket&topic=nope",
+    );
+
+    expect(response.status).toBe(403);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        normalizedTopics: ["nope", "public:market"],
+        diagnostic: expect.objectContaining({
+          blankCount: 1,
+          duplicateCount: 1,
+          invalidCount: 1,
+          requestedCount: 4,
+          normalizedCount: 2,
+        }),
+      }),
+    ]);
+  });
+
   it("reconnects from Last-Event-ID and streams the next retained patch", async () => {
     const queryParams: unknown[][] = [];
+    const sentMessages: unknown[] = [];
     const db = {
       query: async (sql: string, params?: unknown[]) => {
         if (params) {
@@ -176,6 +220,9 @@ describe("realtime SSE routes", () => {
       stores: [{ contextName: "discovery", db }],
       resolveActor: async () => null,
       pollIntervalMs: 60_000,
+      observer: {
+        messageSent: (event) => sentMessages.push(event),
+      },
     });
     const abort = new AbortController();
 
@@ -191,6 +238,7 @@ describe("realtime SSE routes", () => {
     const chunk = await reader!.read();
     await reader!.cancel();
     abort.abort();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const text = new TextDecoder().decode(chunk.value);
     expect(response.status).toBe(200);
@@ -198,6 +246,12 @@ describe("realtime SSE routes", () => {
     expect(text).toContain(`id: ${encodeRealtimeCursor({ discovery: "2" })}`);
     expect(text).toContain("event: projection.patch");
     expect(text).toContain("\"entity\":\"discovery.marketSummary\"");
+    expect(sentMessages).toEqual([
+      expect.objectContaining({
+        contextName: "discovery",
+        payloadBytes: expect.any(Number),
+      }),
+    ]);
   });
 
   it("treats malformed Last-Event-ID as an empty cursor", async () => {
@@ -246,6 +300,51 @@ describe("realtime SSE routes", () => {
 
     expect(response.status).toBe(200);
     expect(queryParams).toContainEqual(["0", ["public:market"], 100]);
+  });
+
+  it("applies per-topic-family replay budgets", async () => {
+    const queryParams: unknown[][] = [];
+    const db = {
+      query: async (sql: string, params?: unknown[]) => {
+        if (params) {
+          queryParams.push(params);
+        }
+
+        if (sql.includes("DELETE FROM realtime_projection_outbox")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("SELECT outbox_id, payload")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("FROM unnest")) {
+          return { rows: [{ topic: "public:market", lag: "0" }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db }],
+      resolveActor: async () => null,
+      pollIntervalMs: 60_000,
+      heartbeatIntervalMs: 0,
+      topicFamilyBudgets: [{ family: "public", batchSize: 7 }],
+    });
+    const abort = new AbortController();
+
+    const response = await app.request("/events?topic=public%3Amarket", {
+      signal: abort.signal,
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    await reader!.read();
+    await reader!.cancel();
+    abort.abort();
+
+    expect(response.status).toBe(200);
+    expect(queryParams).toContainEqual(["0", ["public:market"], 7]);
   });
 
   it("keeps heartbeat cadence separate from poll cadence", async () => {
@@ -382,6 +481,18 @@ describe("realtime topic parsing", () => {
       "item:two",
       "public:market",
     ]);
+  });
+
+  it("inspects normalization changes without authorizing topics", () => {
+    expect(
+      inspectRealtimeTopicNormalization([" public:market ", "public:market", "", "item:item_1"]),
+    ).toMatchObject({
+      requestedCount: 4,
+      normalizedCount: 2,
+      duplicateCount: 1,
+      blankCount: 1,
+      invalidCount: 0,
+    });
   });
 });
 
@@ -564,6 +675,26 @@ describe("realtime outbox", () => {
         value: { active_listing_count: 2 },
       },
     ]);
+  });
+
+  it("drops no-op coalesced outbox inputs", () => {
+    expect(
+      coalesceRealtimeProjectionPatchInputs([
+        {
+          sourceGlobalPosition: "1",
+          projectionName: "discovery-market",
+          patchKey: "empty",
+          topics: ["public:market"],
+          patch: {
+            kind: "projection.patch",
+            context: "discovery",
+            projection: "discovery-market",
+            topics: ["public:market"],
+            changes: [],
+          },
+        },
+      ]),
+    ).toEqual([]);
   });
 
   it("replays retained patches in per-context outbox order for matching topics", async () => {
@@ -838,7 +969,24 @@ describe("realtime outbox", () => {
       stores: [{ contextName: "discovery", head: "42" }],
       routeTuning: { batchSize: 25 },
       resourceLimits: { maxActiveStreams: 200 },
+      routeConfig: {
+        batchSize: 25,
+        resourceLimits: { maxActiveStreams: 200 },
+      },
     });
+  });
+
+  it("validates formal realtime route config values", () => {
+    expect(resolveRealtimeRouteConfig({ routeTuning: { batchSize: 25 } }))
+      .toMatchObject({
+        batchSize: 25,
+        resourceLimits: {
+          maxTopicsPerStream: 16,
+          maxActiveStreams: 1_000,
+        },
+      });
+    expect(() => resolveRealtimeRouteConfig({ routeTuning: { batchSize: 0 } }))
+      .toThrow("batchSize");
   });
 
   it("prunes expired patches behind an advisory lock", async () => {

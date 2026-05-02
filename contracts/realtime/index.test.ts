@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isRealtimeProjectionPatch, isRealtimeSyncRequired } from "./index";
+import {
+  isRealtimeProjectionPatch,
+  isRealtimeSyncRequired,
+  realtimeProjectionPatchExamples,
+  realtimeSyncRequiredExamples,
+} from "./index";
 
 describe("realtime contracts", () => {
   it("guards projection patches", () => {
@@ -47,5 +52,15 @@ describe("realtime contracts", () => {
         contexts: ["discovery"],
       }),
     ).toBe(false);
+  });
+
+  it("keeps published contract examples guard-valid", () => {
+    for (const example of Object.values(realtimeProjectionPatchExamples)) {
+      expect(isRealtimeProjectionPatch(example)).toBe(true);
+    }
+
+    for (const example of Object.values(realtimeSyncRequiredExamples)) {
+      expect(isRealtimeSyncRequired(example)).toBe(true);
+    }
   });
 });
