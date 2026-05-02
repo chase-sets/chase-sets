@@ -26,9 +26,11 @@ import {
   type CreateMcpRoutesOptions,
 } from "@chase-sets/platform-runtime/mcp";
 import {
+  createRealtimeStatusSnapshot,
   createRealtimeRoutes,
   type RealtimeObserver,
   type RealtimeResourceLimits,
+  type RealtimeRouteTuning,
 } from "@chase-sets/platform-runtime/realtime";
 import {
   createIdentityAuthMiddleware,
@@ -53,7 +55,9 @@ export type BuildPlatformApiOptions = Readonly<{
   resolveActor?: PlatformActorResolver;
   realtimeObserver?: RealtimeObserver;
   realtimeResourceLimits?: RealtimeResourceLimits;
+  realtimeRouteTuning?: RealtimeRouteTuning;
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
+  realtimeActiveConnectionCount?: () => number;
   mcp?: CreateMcpRoutesOptions;
 }>;
 
@@ -85,6 +89,17 @@ export function buildPlatformApiApp(
 ) {
   const app = new Hono<TenantContextEnv>();
   const apiMounts = resolveApiHostMounts(runtime);
+  const realtimeStores = runtime.mountedContexts
+    .filter((entry) =>
+      entry.contextName === "discovery" || entry.contextName === "marketplace"
+    )
+    .map((entry) => ({
+      ...(entry.contextName === "discovery"
+        ? discoveryRealtimeManifest
+        : marketplaceRealtimeManifest),
+      contextName: entry.contextName,
+      db: entry.pool,
+    }));
   const identityServices = {
     auth: runtime.services.auth as ReturnType<typeof authModule.createServices>,
     identity: runtime.services.identity as ReturnType<typeof identityModule.createServices>,
@@ -99,6 +114,17 @@ export function buildPlatformApiApp(
       readinessChecks: options.readinessChecks,
     }),
   );
+  app.get("/internal/realtime/status", async (c) =>
+    c.json(
+      await createRealtimeStatusSnapshot({
+        stores: realtimeStores,
+        activeConnectionCount: options.realtimeActiveConnectionCount?.() ?? 0,
+        wakeSignalConfigured: Boolean(options.realtimeWakeSignal),
+        routeTuning: options.realtimeRouteTuning,
+        resourceLimits: options.realtimeResourceLimits,
+      }),
+    ),
+  );
 
   const platformActorMiddleware = createPlatformActorMiddleware(
     options.resolveActor ?? (async () => null),
@@ -109,20 +135,11 @@ export function buildPlatformApiApp(
   app.route(
     "/api/realtime",
     createRealtimeRoutes({
-      stores: runtime.mountedContexts
-        .filter((entry) =>
-          entry.contextName === "discovery" || entry.contextName === "marketplace"
-        )
-        .map((entry) => ({
-          ...(entry.contextName === "discovery"
-            ? discoveryRealtimeManifest
-            : marketplaceRealtimeManifest),
-          contextName: entry.contextName,
-          db: entry.pool,
-        })),
+      stores: realtimeStores,
       resolveActor: options.resolveActor ?? (async () => null),
       observer: options.realtimeObserver,
       wakeSignal: options.realtimeWakeSignal,
+      ...options.realtimeRouteTuning,
       resourceLimits: options.realtimeResourceLimits ?? {
         maxTopicsPerStream: 16,
         maxActiveStreams: 1_000,

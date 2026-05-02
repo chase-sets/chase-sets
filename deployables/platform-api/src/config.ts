@@ -47,12 +47,25 @@ export type PlatformApiBaseConfig = Readonly<{
   sharedDatabaseUrl: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<PlatformApiContextName, string>>>;
   port: number;
+  realtime?: PlatformApiRealtimeConfig;
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
   payoutReconciliationIntervalMs?: number | null;
 }>;
 
-export type PlatformApiConfig = PlatformApiBaseConfig & Readonly<{
+export type PlatformApiRealtimeConfig = Readonly<{
+  batchSize: number;
+  pollIntervalMs: number;
+  heartbeatIntervalMs: number;
+  retentionPruneIntervalMs: number;
+  maxConsecutiveFullBatches: number;
+  maxTopicsPerStream: number;
+  maxActiveStreams: number;
+  maxActiveStreamsPerConnectionKey: number;
+}>;
+
+export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readonly<{
+  realtime: PlatformApiRealtimeConfig;
   paymentProcessor: PlatformApiPaymentProcessorConfig;
   moneyMovement: PlatformApiMoneyMovementConfig;
   postage: PlatformApiPostageConfig;
@@ -103,6 +116,10 @@ function getOptionalPositiveNumberEnv(name: string, defaultValue: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function getPositiveNumberEnv(name: string, defaultValue: number) {
+  return getOptionalPositiveNumberEnv(name, defaultValue) ?? defaultValue;
+}
+
 export function getContextDatabaseEnvName(contextName: PlatformApiContextName) {
   return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
 }
@@ -132,6 +149,19 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     sharedDatabaseUrl,
     contextDatabaseUrls,
     port: Number(process.env.PORT ?? 6182),
+    realtime: {
+      batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
+      pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),
+      heartbeatIntervalMs: getPositiveNumberEnv("REALTIME_HEARTBEAT_INTERVAL_MS", 15_000),
+      retentionPruneIntervalMs: getPositiveNumberEnv("REALTIME_RETENTION_PRUNE_INTERVAL_MS", 60_000),
+      maxConsecutiveFullBatches: getPositiveNumberEnv("REALTIME_MAX_CONSECUTIVE_FULL_BATCHES", 3),
+      maxTopicsPerStream: getPositiveNumberEnv("REALTIME_MAX_TOPICS_PER_STREAM", 16),
+      maxActiveStreams: getPositiveNumberEnv("REALTIME_MAX_ACTIVE_STREAMS", 1_000),
+      maxActiveStreamsPerConnectionKey: getPositiveNumberEnv(
+        "REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY",
+        6,
+      ),
+    },
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv(
       "PAYMENT_RECONCILIATION_INTERVAL_MS",
       300_000,
@@ -152,7 +182,9 @@ export function loadBootstrapConfig(): PlatformApiBaseConfig {
 }
 
 export function loadConfig(): PlatformApiConfig {
-  const baseConfig = loadBaseConfig();
+  const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
+    realtime: PlatformApiRealtimeConfig;
+  };
   const stripeSecretKey = getOptionalEnv("STRIPE_SECRET_KEY");
   const stripePublishableKey = getOptionalEnv("STRIPE_PUBLISHABLE_KEY");
   const stripeWebhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");

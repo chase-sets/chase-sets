@@ -17,6 +17,7 @@ import type { ResolvedActor } from "./auth";
 
 const REALTIME_OUTBOX_TABLE = "realtime_projection_outbox";
 const REALTIME_OUTBOX_TOPIC_TABLE = "realtime_projection_outbox_topics";
+const REALTIME_TOPIC_HEAD_TABLE = "realtime_projection_topic_heads";
 const REALTIME_NOTIFY_CHANNEL = "realtime_projection_patch";
 const DEFAULT_BATCH_SIZE = 100;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
@@ -60,7 +61,13 @@ CREATE TABLE IF NOT EXISTS ${REALTIME_OUTBOX_TOPIC_TABLE} (
 );
 
 CREATE INDEX IF NOT EXISTS ${REALTIME_OUTBOX_TOPIC_TABLE}_outbox_idx
-  ON ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id);`;
+  ON ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id);
+
+CREATE TABLE IF NOT EXISTS ${REALTIME_TOPIC_HEAD_TABLE} (
+  topic text PRIMARY KEY,
+  outbox_id bigint NOT NULL REFERENCES ${REALTIME_OUTBOX_TABLE} (outbox_id) ON DELETE CASCADE,
+  updated_at timestamptz NOT NULL
+);`;
 
 export type {
   RealtimeMessage,
@@ -162,6 +169,14 @@ export type RealtimeResourceLimits = Readonly<{
   maxActiveStreamsPerConnectionKey?: number;
 }>;
 
+export type RealtimeRouteTuning = Readonly<{
+  pollIntervalMs?: number;
+  heartbeatIntervalMs?: number;
+  retentionPruneIntervalMs?: number;
+  batchSize?: number;
+  maxConsecutiveFullBatches?: number;
+}>;
+
 export type RealtimeWakeSignal = Readonly<{
   wait: (timeoutMs: number) => Promise<RealtimeWakeResult>;
   stop?: () => void | Promise<void>;
@@ -172,6 +187,20 @@ export type RealtimeWakeResult = "notified" | "timeout";
 export type RealtimeRetentionSweeper = Readonly<{
   sweep: () => Promise<void>;
   stop: () => void;
+}>;
+
+export type RealtimeStatusSnapshot = Readonly<{
+  activeConnectionCount: number;
+  retentionMs: number;
+  wakeSignalConfigured: boolean;
+  stores: readonly Readonly<{
+    contextName: string;
+    exactTopics: readonly string[];
+    topicPrefixes: readonly string[];
+    head: string;
+  }>[];
+  routeTuning: Required<RealtimeRouteTuning>;
+  resourceLimits: Required<RealtimeResourceLimits>;
 }>;
 
 export type RecordRealtimeProjectionPatchInput = Readonly<{
@@ -194,7 +223,74 @@ type RealtimeCursor = Readonly<Record<string, string>>;
 type ReadRealtimePatchesOptions = Readonly<{
   pruneExpired?: boolean;
   includeTopicLag?: boolean;
+  compactSummaries?: boolean;
 }>;
+
+type RealtimeTopicPolicy = Readonly<{
+  name: string;
+  match: (topic: string) => RealtimeTopicMatch | null;
+  authorize: (match: RealtimeTopicMatch, actor: ResolvedActor | null) => boolean;
+}>;
+
+type RealtimeTopicMatch = Readonly<{
+  family: string;
+  accountId?: string;
+  permission?: "listings.view" | "offers.view";
+}>;
+
+const realtimeTopicPolicies: readonly RealtimeTopicPolicy[] = [
+  {
+    name: "public-market",
+    match: (topic) => topic === "public:market" ? { family: "public" } : null,
+    authorize: () => true,
+  },
+  {
+    name: "public-entity",
+    match: (topic) => {
+      const segments = topic.split(":");
+      if (
+        segments.length === 2 &&
+        (segments[0] === "item" || segments[0] === "listing" || segments[0] === "seller") &&
+        TOPIC_ID_PATTERN.test(segments[1] ?? "")
+      ) {
+        return { family: segments[0] };
+      }
+
+      return null;
+    },
+    authorize: () => true,
+  },
+  {
+    name: "account-surface",
+    match: (topic) => {
+      const segments = topic.split(":");
+      if (
+        segments.length !== 3 ||
+        segments[0] !== "account" ||
+        !TOPIC_ID_PATTERN.test(segments[1] ?? "")
+      ) {
+        return null;
+      }
+
+      if (segments[2] === "listings") {
+        return { family: "account", accountId: segments[1], permission: "listings.view" };
+      }
+
+      if (segments[2] === "offers") {
+        return { family: "account", accountId: segments[1], permission: "offers.view" };
+      }
+
+      return null;
+    },
+    authorize: (match, actor) =>
+      Boolean(
+        actor &&
+        match.accountId === actor.accountId &&
+        match.permission &&
+        actor.permissions.includes(match.permission),
+      ),
+  },
+];
 
 type PostgresRealtimeNotificationClient = PgQueryable & Readonly<{
   on: (
@@ -344,6 +440,15 @@ export async function recordRealtimeProjectionPatch(
        ON CONFLICT DO NOTHING
        RETURNING 1
      ),
+     updated_topic_heads AS (
+       INSERT INTO ${REALTIME_TOPIC_HEAD_TABLE} (topic, outbox_id, updated_at)
+       SELECT requested.topic, outbox_id, $6
+       FROM upserted, unnest($8::text[]) AS requested(topic)
+       ON CONFLICT (topic) DO UPDATE SET
+         outbox_id = GREATEST(${REALTIME_TOPIC_HEAD_TABLE}.outbox_id, EXCLUDED.outbox_id),
+         updated_at = EXCLUDED.updated_at
+       RETURNING 1
+     ),
      notified AS (
        SELECT pg_notify(
          $9,
@@ -355,7 +460,8 @@ export async function recordRealtimeProjectionPatch(
      )
      SELECT
        (SELECT COUNT(*) FROM inserted_topics)::integer AS inserted_topic_count,
-       (SELECT COUNT(*) FROM removed_topics)::integer AS replaced_topic_count
+       (SELECT COUNT(*) FROM removed_topics)::integer AS replaced_topic_count,
+       (SELECT COUNT(*) FROM updated_topic_heads)::integer AS updated_topic_head_count
      FROM notified`,
     [
       input.sourceGlobalPosition,
@@ -376,15 +482,60 @@ export async function recordRealtimeProjectionPatches(
   db: PgQueryable | PgTransactionalPool,
   inputs: readonly RecordRealtimeProjectionPatchInput[],
 ): Promise<void> {
-  if (inputs.length === 0) {
+  const coalescedInputs = coalesceRealtimeProjectionPatchInputs(inputs);
+  if (coalescedInputs.length === 0) {
     return;
   }
 
   await runRealtimeProjectionTransaction(db, async (tx) => {
-    for (const input of inputs) {
+    for (const input of coalescedInputs) {
       await recordRealtimeProjectionPatch(tx, input);
     }
   });
+}
+
+export function coalesceRealtimeProjectionPatchInputs(
+  inputs: readonly RecordRealtimeProjectionPatchInput[],
+): readonly RecordRealtimeProjectionPatchInput[] {
+  const coalescedByKey = new Map<string, RecordRealtimeProjectionPatchInput>();
+
+  for (const input of inputs) {
+    const topics = normalizeRealtimeTopics(input.topics);
+    const key = [
+      input.projectionName,
+      String(input.sourceGlobalPosition),
+      input.patchKey,
+      topics.join("\u001f"),
+    ].join("\u001e");
+    const previous = coalescedByKey.get(key);
+    if (!previous) {
+      coalescedByKey.set(key, {
+        ...input,
+        topics,
+        patch: {
+          ...input.patch,
+          topics,
+          changes: compactRealtimePatchChanges(input.patch.changes),
+        },
+      });
+      continue;
+    }
+
+    coalescedByKey.set(key, {
+      ...previous,
+      recordedAt: input.recordedAt ?? previous.recordedAt,
+      retentionMs: input.retentionMs ?? previous.retentionMs,
+      patch: {
+        ...previous.patch,
+        changes: compactRealtimePatchChanges([
+          ...previous.patch.changes,
+          ...input.patch.changes,
+        ]),
+      },
+    });
+  }
+
+  return [...coalescedByKey.values()];
 }
 
 export function encodeRealtimeCursor(cursor: RealtimeCursor): string {
@@ -431,12 +582,15 @@ export function authorizeRealtimeTopics(
   if (
     normalizedTopics.length === 0 ||
     normalizedTopics.length > MAX_TOPIC_COUNT ||
-    !normalizedTopics.every(isRealtimeTopicShapeAllowed)
+    !normalizedTopics.every((topic) => resolveRealtimeTopicPolicy(topic))
   ) {
     return null;
   }
 
-  const allowed = normalizedTopics.every((topic) => isRealtimeTopicAllowed(topic, actor));
+  const allowed = normalizedTopics.every((topic) => {
+    const policyMatch = resolveRealtimeTopicPolicy(topic);
+    return policyMatch ? policyMatch.policy.authorize(policyMatch.match, actor) : false;
+  });
   return allowed ? normalizedTopics : null;
 }
 
@@ -449,60 +603,28 @@ function assertValidRealtimeTopics(topics: readonly string[]): void {
     throw new Error(`Realtime subscriptions cannot include more than ${MAX_TOPIC_COUNT} topics.`);
   }
 
-  const invalidTopic = topics.find((topic) => !isRealtimeTopicShapeAllowed(topic));
+  const invalidTopic = topics.find((topic) => !resolveRealtimeTopicPolicy(topic));
   if (invalidTopic) {
     throw new Error(`Invalid realtime topic "${invalidTopic}".`);
   }
 }
 
-function isRealtimeTopicShapeAllowed(topic: string): boolean {
+function resolveRealtimeTopicPolicy(topic: string): Readonly<{
+  policy: RealtimeTopicPolicy;
+  match: RealtimeTopicMatch;
+}> | null {
   if (topic.length > MAX_TOPIC_LENGTH) {
-    return false;
+    return null;
   }
 
-  if (topic === "public:market") {
-    return true;
+  for (const policy of realtimeTopicPolicies) {
+    const match = policy.match(topic);
+    if (match) {
+      return { policy, match };
+    }
   }
 
-  const segments = topic.split(":");
-  if (
-    segments.length === 2 &&
-    (segments[0] === "item" || segments[0] === "listing" || segments[0] === "seller")
-  ) {
-    return TOPIC_ID_PATTERN.test(segments[1] ?? "");
-  }
-
-  return (
-    segments.length === 3 &&
-    segments[0] === "account" &&
-    TOPIC_ID_PATTERN.test(segments[1] ?? "") &&
-    (segments[2] === "listings" || segments[2] === "offers")
-  );
-}
-
-function isRealtimeTopicAllowed(topic: string, actor: ResolvedActor | null): boolean {
-  if (
-    topic === "public:market" ||
-    topic.startsWith("item:") ||
-    topic.startsWith("listing:") ||
-    topic.startsWith("seller:")
-  ) {
-    return true;
-  }
-
-  if (!actor || !topic.startsWith(`account:${actor.accountId}:`)) {
-    return false;
-  }
-
-  if (topic.endsWith(":listings")) {
-    return actor.permissions.includes("listings.view");
-  }
-
-  if (topic.endsWith(":offers")) {
-    return actor.permissions.includes("offers.view");
-  }
-
-  return false;
+  return null;
 }
 
 export async function readRealtimePatches(
@@ -580,12 +702,73 @@ export async function readRealtimePatches(
     }
   }
 
+  const replayMessages =
+    options.compactSummaries === false
+      ? messages
+      : compactRealtimeReplayMessages(messages);
+
   return {
     cursor: nextCursor,
     expiredContexts,
     topicLags,
-    messages,
+    messages: replayMessages,
   };
+}
+
+export function compactRealtimeReplayMessages<
+  TMessage extends Readonly<{
+    payload: RealtimeProjectionPatch;
+  }>,
+>(messages: readonly TMessage[]): readonly TMessage[] {
+  const remainingSummaryCounts = new Map<string, number>();
+  for (const message of messages) {
+    for (const change of message.payload.changes) {
+      if (change.op === "summary") {
+        const key = `${change.entity}\u001f${change.id}`;
+        remainingSummaryCounts.set(key, (remainingSummaryCounts.get(key) ?? 0) + 1);
+      }
+    }
+  }
+
+  return messages.flatMap((message) => {
+    const changes = message.payload.changes.filter((change) => {
+      if (change.op !== "summary") {
+        return true;
+      }
+
+      const key = `${change.entity}\u001f${change.id}`;
+      const remaining = remainingSummaryCounts.get(key) ?? 0;
+      remainingSummaryCounts.set(key, Math.max(0, remaining - 1));
+      if (remaining > 1) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return changes.length === 0
+      ? []
+      : [{
+          ...message,
+          payload: {
+            ...message.payload,
+            changes,
+          },
+        } as TMessage];
+  });
+}
+
+function compactRealtimePatchChanges(
+  changes: readonly RealtimeProjectionPatchChange[],
+): readonly RealtimeProjectionPatchChange[] {
+  const latestIndexByEntity = new Map<string, number>();
+  changes.forEach((change, index) => {
+    latestIndexByEntity.set(`${change.entity}\u001f${change.id}`, index);
+  });
+
+  return changes.filter((change, index) =>
+    latestIndexByEntity.get(`${change.entity}\u001f${change.id}`) === index,
+  );
 }
 
 export async function readRealtimeContextHeads(
@@ -596,6 +779,44 @@ export async function readRealtimeContextHeads(
   );
 
   return Object.fromEntries(entries);
+}
+
+export async function createRealtimeStatusSnapshot(options: Readonly<{
+  stores: readonly RealtimeContextStore[];
+  activeConnectionCount?: number;
+  wakeSignalConfigured?: boolean;
+  routeTuning?: RealtimeRouteTuning;
+  resourceLimits?: RealtimeResourceLimits;
+  retentionMs?: number;
+}>): Promise<RealtimeStatusSnapshot> {
+  return {
+    activeConnectionCount: options.activeConnectionCount ?? 0,
+    retentionMs: options.retentionMs ?? DEFAULT_RETENTION_MS,
+    wakeSignalConfigured: options.wakeSignalConfigured ?? false,
+    routeTuning: {
+      pollIntervalMs: options.routeTuning?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
+      heartbeatIntervalMs: options.routeTuning?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+      retentionPruneIntervalMs:
+        options.routeTuning?.retentionPruneIntervalMs ?? DEFAULT_RETENTION_PRUNE_INTERVAL_MS,
+      batchSize: options.routeTuning?.batchSize ?? DEFAULT_BATCH_SIZE,
+      maxConsecutiveFullBatches:
+        options.routeTuning?.maxConsecutiveFullBatches ?? DEFAULT_MAX_CONSECUTIVE_FULL_BATCHES,
+    },
+    resourceLimits: {
+      maxTopicsPerStream: options.resourceLimits?.maxTopicsPerStream ?? MAX_TOPIC_COUNT,
+      maxActiveStreams: options.resourceLimits?.maxActiveStreams ?? 1_000,
+      maxActiveStreamsPerConnectionKey:
+        options.resourceLimits?.maxActiveStreamsPerConnectionKey ?? 6,
+    },
+    stores: await Promise.all(
+      options.stores.map(async (store) => ({
+        contextName: store.contextName,
+        exactTopics: store.exactTopics ?? [],
+        topicPrefixes: store.topicPrefixes ?? [],
+        head: await readContextHead(store.db),
+      })),
+    ),
+  };
 }
 
 export function selectRealtimeStoresForTopics(
@@ -718,14 +939,14 @@ async function readTopicLags(
     lag: string | number;
   }>(
     `SELECT requested.topic,
-            GREATEST(COALESCE(MAX(outbox.outbox_id), 0) - $1::bigint, 0)::text AS lag
+            GREATEST(COALESCE(head.outbox_id, 0) - $1::bigint, 0)::text AS lag
      FROM unnest($2::text[]) AS requested(topic)
-     LEFT JOIN ${REALTIME_OUTBOX_TOPIC_TABLE} AS topic
-       ON topic.topic = requested.topic
+     LEFT JOIN ${REALTIME_TOPIC_HEAD_TABLE} AS head
+       ON head.topic = requested.topic
      LEFT JOIN ${REALTIME_OUTBOX_TABLE} AS outbox
-       ON outbox.outbox_id = topic.outbox_id
+       ON outbox.outbox_id = head.outbox_id
       AND outbox.expires_at > now()
-     GROUP BY requested.topic
+     WHERE outbox.outbox_id IS NOT NULL OR head.outbox_id IS NULL
      ORDER BY requested.topic ASC`,
     [afterOutboxId, topics],
   );

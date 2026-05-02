@@ -122,8 +122,10 @@ const realtimeStores = runtime.mountedContexts
 const realtimeWakeSignal = await createPlatformRealtimeWakeSignal(
   [...new Set(realtimeStores.map((store) => store.db))],
 );
+let realtimeActiveConnectionCount = 0;
 const realtimeObserver = {
   connectionOpened: (event) => {
+    realtimeActiveConnectionCount = event.activeConnectionCount;
     recordRealtimeConnectionOpened(event);
     logger.info("Realtime SSE connection opened.", {
       type: "realtime.connection.opened",
@@ -134,6 +136,7 @@ const realtimeObserver = {
     });
   },
   connectionClosed: (event) => {
+    realtimeActiveConnectionCount = event.activeConnectionCount;
     recordRealtimeConnectionClosed(event);
     logger.info("Realtime SSE connection closed.", {
       type: "realtime.connection.closed",
@@ -220,9 +223,23 @@ const app = buildPlatformApiApp(runtime, {
     ),
   realtimeObserver,
   realtimeWakeSignal,
+  realtimeActiveConnectionCount: () => realtimeActiveConnectionCount,
+  realtimeRouteTuning: {
+    batchSize: config.realtime.batchSize,
+    pollIntervalMs: config.realtime.pollIntervalMs,
+    heartbeatIntervalMs: config.realtime.heartbeatIntervalMs,
+    retentionPruneIntervalMs: config.realtime.retentionPruneIntervalMs,
+    maxConsecutiveFullBatches: config.realtime.maxConsecutiveFullBatches,
+  },
+  realtimeResourceLimits: {
+    maxTopicsPerStream: config.realtime.maxTopicsPerStream,
+    maxActiveStreams: config.realtime.maxActiveStreams,
+    maxActiveStreamsPerConnectionKey: config.realtime.maxActiveStreamsPerConnectionKey,
+  },
 });
 const realtimeRetentionSweeper = createRealtimeRetentionSweeper({
   stores: realtimeStores,
+  intervalMs: config.realtime.retentionPruneIntervalMs,
   observer: realtimeObserver,
   onError: (error) => {
     logger.error("Realtime retention sweep failed.", {

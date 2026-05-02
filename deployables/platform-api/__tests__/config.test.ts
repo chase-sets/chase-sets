@@ -37,6 +37,14 @@ afterEach(() => {
   delete process.env.PAYMENT_RECONCILIATION_INTERVAL_MS;
   delete process.env.PAYOUT_RECONCILIATION_INTERVAL_MS;
   delete process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS;
+  delete process.env.REALTIME_BATCH_SIZE;
+  delete process.env.REALTIME_POLL_INTERVAL_MS;
+  delete process.env.REALTIME_HEARTBEAT_INTERVAL_MS;
+  delete process.env.REALTIME_RETENTION_PRUNE_INTERVAL_MS;
+  delete process.env.REALTIME_MAX_CONSECUTIVE_FULL_BATCHES;
+  delete process.env.REALTIME_MAX_TOPICS_PER_STREAM;
+  delete process.env.REALTIME_MAX_ACTIVE_STREAMS;
+  delete process.env.REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY;
   delete process.env.NODE_ENV;
 });
 
@@ -51,6 +59,15 @@ describe("platform api config", () => {
     expect(config.paymentReconciliationIntervalMs).toBe(300_000);
     expect(config.payoutReconciliationIntervalMs).toBe(300_000);
     expect(config.sellerFundsReleaseIntervalMs).toBe(300_000);
+    expect(config.realtime).toMatchObject({
+      batchSize: 100,
+      pollIntervalMs: 1_000,
+      heartbeatIntervalMs: 15_000,
+      maxConsecutiveFullBatches: 3,
+      maxTopicsPerStream: 16,
+      maxActiveStreams: 1_000,
+      maxActiveStreamsPerConnectionKey: 6,
+    });
   });
 
   it("loads per-context database urls without a shared fallback", () => {
@@ -197,5 +214,28 @@ describe("platform api config", () => {
     process.env.PAYOUT_RECONCILIATION_INTERVAL_MS = "0";
 
     expect(loadConfig().payoutReconciliationIntervalMs).toBeNull();
+  });
+
+  it("loads realtime tuning from environment variables", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.REALTIME_BATCH_SIZE = "25";
+    process.env.REALTIME_POLL_INTERVAL_MS = "250";
+    process.env.REALTIME_HEARTBEAT_INTERVAL_MS = "5000";
+    process.env.REALTIME_RETENTION_PRUNE_INTERVAL_MS = "120000";
+    process.env.REALTIME_MAX_CONSECUTIVE_FULL_BATCHES = "2";
+    process.env.REALTIME_MAX_TOPICS_PER_STREAM = "8";
+    process.env.REALTIME_MAX_ACTIVE_STREAMS = "200";
+    process.env.REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY = "3";
+
+    expect(loadConfig().realtime).toEqual({
+      batchSize: 25,
+      pollIntervalMs: 250,
+      heartbeatIntervalMs: 5_000,
+      retentionPruneIntervalMs: 120_000,
+      maxConsecutiveFullBatches: 2,
+      maxTopicsPerStream: 8,
+      maxActiveStreams: 200,
+      maxActiveStreamsPerConnectionKey: 3,
+    });
   });
 });

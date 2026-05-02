@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   authorizeRealtimeTopics,
+  coalesceRealtimeProjectionPatchInputs,
+  compactRealtimeReplayMessages,
   createPostgresRealtimeWakeSignal,
   createRealtimeRoutes,
   createRealtimeRetentionSweeper,
+  createRealtimeStatusSnapshot,
   decodeRealtimeCursor,
   encodeRealtimeCursor,
   parseRealtimeTopics,
@@ -109,6 +112,19 @@ describe("realtime SSE routes", () => {
     ]);
   });
 
+  it("rejects mixed public and forbidden account topics at the SSE boundary", async () => {
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db: { query: async () => ({ rows: [] }) } }],
+      resolveActor: async () => null,
+    });
+
+    const response = await app.request(
+      "/events?topic=public%3Amarket&topic=account%3Aaccount_1%3Aoffers",
+    );
+
+    expect(response.status).toBe(403);
+  });
+
   it("reconnects from Last-Event-ID and streams the next retained patch", async () => {
     const queryParams: unknown[][] = [];
     const db = {
@@ -182,6 +198,54 @@ describe("realtime SSE routes", () => {
     expect(text).toContain(`id: ${encodeRealtimeCursor({ discovery: "2" })}`);
     expect(text).toContain("event: projection.patch");
     expect(text).toContain("\"entity\":\"discovery.marketSummary\"");
+  });
+
+  it("treats malformed Last-Event-ID as an empty cursor", async () => {
+    const queryParams: unknown[][] = [];
+    const db = {
+      query: async (sql: string, params?: unknown[]) => {
+        if (params) {
+          queryParams.push(params);
+        }
+
+        if (sql.includes("DELETE FROM realtime_projection_outbox")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("SELECT outbox_id, payload")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("FROM unnest")) {
+          return { rows: [{ topic: "public:market", lag: "0" }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db }],
+      resolveActor: async () => null,
+      pollIntervalMs: 60_000,
+      heartbeatIntervalMs: 0,
+    });
+    const abort = new AbortController();
+
+    const response = await app.request("/events?topic=public%3Amarket", {
+      headers: {
+        "Last-Event-ID": "not-a-cursor",
+      },
+      signal: abort.signal,
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+
+    await reader!.read();
+    await reader!.cancel();
+    abort.abort();
+
+    expect(response.status).toBe(200);
+    expect(queryParams).toContainEqual(["0", ["public:market"], 100]);
   });
 
   it("keeps heartbeat cadence separate from poll cadence", async () => {
@@ -355,6 +419,7 @@ describe("realtime outbox", () => {
     expect(realtimeOutboxSchemaSql).toContain("realtime_projection_outbox_topics");
     expect(realtimeOutboxSchemaSql).toContain("PRIMARY KEY (topic, outbox_id)");
     expect(realtimeOutboxSchemaSql).toContain("ON DELETE CASCADE");
+    expect(realtimeOutboxSchemaSql).toContain("realtime_projection_topic_heads");
   });
 
   it("records idempotent projection patches with a retention cutoff", async () => {
@@ -390,6 +455,7 @@ describe("realtime outbox", () => {
 
     expect(calls[0].sql).toContain("ON CONFLICT");
     expect(calls[0].sql).toContain("realtime_projection_outbox_topics");
+    expect(calls[0].sql).toContain("realtime_projection_topic_heads");
     expect(calls[0].params).toEqual([
       "12",
       "discovery-market",
@@ -444,6 +510,60 @@ describe("realtime outbox", () => {
         },
       }),
     ).rejects.toThrow("projection must match");
+  });
+
+  it("coalesces compatible outbox inputs before batch writing", () => {
+    const [input] = coalesceRealtimeProjectionPatchInputs([
+      {
+        sourceGlobalPosition: "1",
+        projectionName: "discovery-market",
+        patchKey: "summary:item_1",
+        topics: ["public:market"],
+        patch: {
+          kind: "projection.patch",
+          context: "discovery",
+          projection: "discovery-market",
+          topics: ["public:market"],
+          changes: [
+            {
+              op: "summary",
+              entity: "discovery.marketSummary",
+              id: "item_1",
+              value: { active_listing_count: 1 },
+            },
+          ],
+        },
+      },
+      {
+        sourceGlobalPosition: "1",
+        projectionName: "discovery-market",
+        patchKey: "summary:item_1",
+        topics: ["public:market"],
+        patch: {
+          kind: "projection.patch",
+          context: "discovery",
+          projection: "discovery-market",
+          topics: ["public:market"],
+          changes: [
+            {
+              op: "summary",
+              entity: "discovery.marketSummary",
+              id: "item_1",
+              value: { active_listing_count: 2 },
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(input?.patch.changes).toEqual([
+      {
+        op: "summary",
+        entity: "discovery.marketSummary",
+        id: "item_1",
+        value: { active_listing_count: 2 },
+      },
+    ]);
   });
 
   it("replays retained patches in per-context outbox order for matching topics", async () => {
@@ -639,6 +759,86 @@ describe("realtime outbox", () => {
     expect(result.topicLags).toEqual([
       { contextName: "discovery", topic: "public:market", lag: 4_900 },
     ]);
+  });
+
+  it("compacts superseded summary changes during replay", () => {
+    const messages = compactRealtimeReplayMessages([
+      {
+        contextName: "discovery",
+        outboxId: "1",
+        payload: {
+          kind: "projection.patch",
+          context: "discovery",
+          projection: "discovery-market",
+          topics: ["public:market"],
+          changes: [
+            {
+              op: "summary",
+              entity: "discovery.marketSummary",
+              id: "item_1",
+              value: { active_listing_count: 1 },
+            },
+          ],
+        },
+      },
+      {
+        contextName: "discovery",
+        outboxId: "2",
+        payload: {
+          kind: "projection.patch",
+          context: "discovery",
+          projection: "discovery-market",
+          topics: ["public:market"],
+          changes: [
+            {
+              op: "summary",
+              entity: "discovery.marketSummary",
+              id: "item_1",
+              value: { active_listing_count: 2 },
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(messages.map((message) => message.outboxId)).toEqual(["2"]);
+  });
+
+  it("builds an internal status snapshot", async () => {
+    const snapshot = await createRealtimeStatusSnapshot({
+      activeConnectionCount: 2,
+      wakeSignalConfigured: true,
+      stores: [
+        {
+          contextName: "discovery",
+          exactTopics: ["public:market"],
+          topicPrefixes: ["item:"],
+          db: {
+            query: async (sql: string) => {
+              if (sql.includes("MAX(outbox_id)")) {
+                return { rows: [{ head: "42" }] };
+              }
+
+              throw new Error(`Unexpected query: ${sql}`);
+            },
+          },
+        },
+      ],
+      routeTuning: {
+        batchSize: 25,
+      },
+      resourceLimits: {
+        maxActiveStreams: 200,
+      },
+    });
+
+    expect(snapshot).toMatchObject({
+      activeConnectionCount: 2,
+      wakeSignalConfigured: true,
+      stores: [{ contextName: "discovery", head: "42" }],
+      routeTuning: { batchSize: 25 },
+      resourceLimits: { maxActiveStreams: 200 },
+    });
   });
 
   it("prunes expired patches behind an advisory lock", async () => {

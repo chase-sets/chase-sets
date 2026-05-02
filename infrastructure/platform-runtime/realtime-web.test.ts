@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { subscribeRealtimePatches } from "./realtime-web";
+import {
+  getRealtimeSubscriptionDiagnostics,
+  subscribeRealtimePatches,
+} from "./realtime-web";
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -20,9 +23,9 @@ class FakeEventSource {
     this.listeners.set(type, listeners);
   }
 
-  emit(type: string, data: unknown) {
+  emit(type: string, data: unknown, lastEventId = "") {
     for (const listener of this.listeners.get(type) ?? []) {
-      listener({ data: JSON.stringify(data) } as MessageEvent);
+      listener({ data: JSON.stringify(data), lastEventId } as MessageEvent);
     }
   }
 }
@@ -72,6 +75,15 @@ describe("realtime web subscriptions", () => {
       "/api/realtime/events?topic=listing%3Alist_1&topic=public%3Amarket",
     );
     expect(FakeEventSource.instances[0].init).toEqual({ withCredentials: true });
+    expect(getRealtimeSubscriptionDiagnostics()).toMatchObject({
+      activeSourceCount: 1,
+      sources: [
+        {
+          topics: ["listing:list_1", "public:market"],
+          subscriberCount: 2,
+        },
+      ],
+    });
 
     FakeEventSource.instances[0].emit("projection.patch", {
       kind: "projection.patch",
@@ -79,9 +91,13 @@ describe("realtime web subscriptions", () => {
       projection: "discovery-market-projection",
       topics: ["listing:list_1", "public:market"],
       changes: [{ op: "remove", entity: "discovery.marketListing", id: "list_1" }],
-    });
+    }, "cursor_1");
 
     expect(patches.map((entry) => (entry as unknown[])[0])).toEqual(["first", "second"]);
+    expect(getRealtimeSubscriptionDiagnostics().sources[0]).toMatchObject({
+      lastEventId: "cursor_1",
+      subscriberCount: 2,
+    });
 
     first.close();
     expect(FakeEventSource.instances[0].close).not.toHaveBeenCalled();

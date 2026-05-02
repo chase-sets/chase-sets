@@ -119,6 +119,15 @@ maybeDescribe("realtime outbox Postgres integration", () => {
       "listing:list_1",
       "listing:list_2",
     ]);
+    const heads = await pools.realtime.query<{ topic: string; outbox_id: string }>(
+      `SELECT topic, outbox_id::text
+       FROM realtime_projection_topic_heads
+       ORDER BY topic`,
+    );
+    expect(heads.rows).toEqual([
+      { topic: "listing:list_1", outbox_id: "1" },
+      { topic: "listing:list_2", outbox_id: "3" },
+    ]);
 
     const replay = await readRealtimePatches(
       [{ contextName: "discovery", db: pools.realtime }],
@@ -169,5 +178,10 @@ maybeDescribe("realtime outbox Postgres integration", () => {
        FROM realtime_projection_outbox_topics`,
     );
     expect(remaining.rows[0]?.count).toBe("0");
+    const remainingHeads = await pools.realtime.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM realtime_projection_topic_heads`,
+    );
+    expect(remainingHeads.rows[0]?.count).toBe("0");
   });
 });

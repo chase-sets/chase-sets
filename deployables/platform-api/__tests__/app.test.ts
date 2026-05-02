@@ -37,6 +37,60 @@ describe("platform api app", () => {
     expect(response.status).toBe(200);
   });
 
+  it("mounts the internal realtime status route", async () => {
+    const module = {
+      contextName: "discovery",
+      apiMounts: [],
+      buildApis: () => [],
+      projectors: () => [],
+    };
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [
+          {
+            contextName: "discovery",
+            module,
+            services: {},
+            pool: {
+              query: async (sql: string) => {
+                if (sql.includes("MAX(outbox_id)")) {
+                  return { rows: [{ head: "5" }] };
+                }
+
+                throw new Error(`Unexpected query: ${sql}`);
+              },
+            },
+            projectors: [],
+          },
+        ],
+        mountedModules: [{ module, services: {} }],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      } as never,
+      {
+        realtimeActiveConnectionCount: () => 3,
+        realtimeRouteTuning: {
+          batchSize: 25,
+        },
+      },
+    );
+
+    const response = await app.request("/internal/realtime/status");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      activeConnectionCount: 3,
+      routeTuning: { batchSize: 25 },
+      stores: [{ contextName: "discovery", head: "5" }],
+    });
+  });
+
+
   it("mounts the MCP JSON-RPC bridge with platform actor resolution", async () => {
     const app = buildPlatformApiApp(
       {
