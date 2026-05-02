@@ -1,20 +1,28 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type {
+  PgPoolClient,
+  PgQueryable,
+  PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "./auth";
 
 const REALTIME_OUTBOX_TABLE = "realtime_projection_outbox";
 const REALTIME_OUTBOX_TOPIC_TABLE = "realtime_projection_outbox_topics";
+const REALTIME_NOTIFY_CHANNEL = "realtime_projection_patch";
 const DEFAULT_BATCH_SIZE = 100;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_RETENTION_PRUNE_INTERVAL_MS = 60_000;
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_MAX_CONSECUTIVE_FULL_BATCHES = 3;
 const RETENTION_SWEEP_ADVISORY_LOCK_KEY = "8873012201";
 const MAX_TOPIC_COUNT = 16;
 const MAX_TOPIC_LENGTH = 160;
 const TOPIC_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+
+export const realtimeProjectionNotifyChannel = REALTIME_NOTIFY_CHANNEL;
 
 export const realtimeOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${REALTIME_OUTBOX_TABLE} (
   outbox_id bigserial PRIMARY KEY,
@@ -62,7 +70,7 @@ export type RealtimeProjectionPatch = Readonly<{
 
 export type RealtimeSyncRequired = Readonly<{
   kind: "sync.required";
-  reason: "cursor-expired";
+  reason: "cursor-expired" | "replay-backpressure";
   contexts: readonly string[];
 }>;
 
@@ -129,6 +137,11 @@ export type RealtimeResourceLimits = Readonly<{
   maxActiveStreamsPerConnectionKey?: number;
 }>;
 
+export type RealtimeWakeSignal = Readonly<{
+  wait: (timeoutMs: number) => Promise<void>;
+  stop?: () => void | Promise<void>;
+}>;
+
 export type RealtimeRetentionSweeper = Readonly<{
   sweep: () => Promise<void>;
   stop: () => void;
@@ -155,16 +168,87 @@ type ReadRealtimePatchesOptions = Readonly<{
   pruneExpired?: boolean;
 }>;
 
+type PostgresRealtimeNotificationClient = PgQueryable & Readonly<{
+  on: (
+    event: "notification",
+    listener: (message: Readonly<{ channel: string }>) => void,
+  ) => unknown;
+  off?: (
+    event: "notification",
+    listener: (message: Readonly<{ channel: string }>) => void,
+  ) => unknown;
+  removeListener?: (
+    event: "notification",
+    listener: (message: Readonly<{ channel: string }>) => void,
+  ) => unknown;
+  release?: () => void;
+}>;
+
+export async function runRealtimeProjectionTransaction<T>(
+  db: PgQueryable | PgTransactionalPool,
+  work: (db: PgQueryable) => Promise<T>,
+): Promise<T> {
+  if (!isPgTransactionalPool(db)) {
+    return work(db);
+  }
+
+  const client = await db.connect();
+  return withPgTransaction(client, work);
+}
+
+export async function createPostgresRealtimeWakeSignal(
+  client: PostgresRealtimeNotificationClient,
+): Promise<RealtimeWakeSignal> {
+  const waiters = new Set<() => void>();
+  const notify = (message: Readonly<{ channel: string }>) => {
+    if (message.channel !== REALTIME_NOTIFY_CHANNEL) {
+      return;
+    }
+
+    const pending = [...waiters];
+    waiters.clear();
+    for (const resolve of pending) {
+      resolve();
+    }
+  };
+
+  client.on("notification", notify);
+  await client.query(`LISTEN ${REALTIME_NOTIFY_CHANNEL}`);
+
+  return {
+    wait: (timeoutMs) =>
+      new Promise((resolve) => {
+        const timer = setTimeout(done, timeoutMs);
+        timer.unref?.();
+
+        function done() {
+          clearTimeout(timer);
+          waiters.delete(done);
+          resolve();
+        }
+
+        waiters.add(done);
+      }),
+    stop: async () => {
+      waiters.clear();
+      if (client.off) {
+        client.off("notification", notify);
+      } else {
+        client.removeListener?.("notification", notify);
+      }
+      await client.query(`UNLISTEN ${REALTIME_NOTIFY_CHANNEL}`);
+      client.release?.();
+    },
+  };
+}
+
 export async function recordRealtimeProjectionPatch(
   db: PgQueryable,
   input: RecordRealtimeProjectionPatchInput,
 ): Promise<void> {
   const topics = normalizeRealtimeTopics(input.topics);
   assertValidRealtimeTopics(topics);
-
-  if (topics.length === 0 || input.patch.changes.length === 0) {
-    return;
-  }
+  assertValidRealtimeProjectionPatch(input, topics);
 
   const recordedAt = input.recordedAt ?? new Date().toISOString();
   const expiresAt = new Date(
@@ -197,11 +281,28 @@ export async function recordRealtimeProjectionPatch(
      removed_topics AS (
        DELETE FROM ${REALTIME_OUTBOX_TOPIC_TABLE}
        WHERE outbox_id IN (SELECT outbox_id FROM upserted)
+       RETURNING 1
+     ),
+     inserted_topics AS (
+       INSERT INTO ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id, topic)
+       SELECT outbox_id, unnest($8::text[])
+       FROM upserted
+       ON CONFLICT DO NOTHING
+       RETURNING 1
+     ),
+     notified AS (
+       SELECT pg_notify(
+         $9,
+         json_build_object(
+           'context', $10::text,
+           'projection', $2::text
+         )::text
+       )
      )
-     INSERT INTO ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id, topic)
-     SELECT outbox_id, unnest($8::text[])
-     FROM upserted
-     ON CONFLICT DO NOTHING`,
+     SELECT
+       (SELECT COUNT(*) FROM inserted_topics)::integer AS inserted_topic_count,
+       (SELECT COUNT(*) FROM removed_topics)::integer AS replaced_topic_count
+     FROM notified`,
     [
       input.sourceGlobalPosition,
       input.projectionName,
@@ -211,6 +312,8 @@ export async function recordRealtimeProjectionPatch(
       recordedAt,
       expiresAt,
       topics,
+      REALTIME_NOTIFY_CHANNEL,
+      patch.context,
     ],
   );
 }
@@ -407,6 +510,16 @@ export async function readRealtimePatches(
   };
 }
 
+export async function readRealtimeContextHeads(
+  stores: readonly RealtimeContextStore[],
+): Promise<RealtimeCursor> {
+  const entries = await Promise.all(
+    stores.map(async (store) => [store.contextName, await readContextHead(store.db)] as const),
+  );
+
+  return Object.fromEntries(entries);
+}
+
 export function selectRealtimeStoresForTopics(
   stores: readonly RealtimeContextStore[],
   topics: readonly string[],
@@ -430,6 +543,46 @@ function isRealtimeProjectionPatch(value: unknown): value is RealtimeProjectionP
     (value as { kind?: unknown }).kind === "projection.patch" &&
     Array.isArray((value as { changes?: unknown }).changes)
   );
+}
+
+function assertValidRealtimeProjectionPatch(
+  input: RecordRealtimeProjectionPatchInput,
+  topics: readonly string[],
+): void {
+  const patch = input.patch;
+  if (patch.kind !== "projection.patch") {
+    throw new Error("Realtime projection patch kind must be projection.patch.");
+  }
+
+  if (!patch.context.trim()) {
+    throw new Error("Realtime projection patch context is required.");
+  }
+
+  if (patch.projection !== input.projectionName) {
+    throw new Error("Realtime projection patch projection must match the outbox projection name.");
+  }
+
+  if (!areStringArraysEqual(normalizeRealtimeTopics(patch.topics), topics)) {
+    throw new Error("Realtime projection patch topics must match the outbox topics.");
+  }
+
+  if (topics.length === 0) {
+    throw new Error("Realtime projection patches require at least one topic.");
+  }
+
+  if (patch.changes.length === 0) {
+    throw new Error("Realtime projection patches require at least one change.");
+  }
+
+  for (const change of patch.changes) {
+    if (!change.entity.trim() || !change.id.trim()) {
+      throw new Error("Realtime projection patch changes require entity and id.");
+    }
+
+    if ((change.op === "upsert" || change.op === "summary") && !("value" in change)) {
+      throw new Error("Realtime projection patch upsert and summary changes require value.");
+    }
+  }
 }
 
 export async function pruneExpiredRealtimePatches(db: PgQueryable): Promise<number> {
@@ -491,10 +644,12 @@ export function createRealtimeRoutes(options: Readonly<{
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
   observer?: RealtimeObserver;
   resourceLimits?: RealtimeResourceLimits;
+  wakeSignal?: RealtimeWakeSignal;
   pollIntervalMs?: number;
   heartbeatIntervalMs?: number;
   retentionPruneIntervalMs?: number;
   batchSize?: number;
+  maxConsecutiveFullBatches?: number;
 }>) {
   const app = new Hono();
   const nextPruneAtByContext = new Map<string, number>();
@@ -525,6 +680,8 @@ export function createRealtimeRoutes(options: Readonly<{
     const retentionPruneIntervalMs =
       options.retentionPruneIntervalMs ?? DEFAULT_RETENTION_PRUNE_INTERVAL_MS;
     const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+    const maxConsecutiveFullBatches =
+      options.maxConsecutiveFullBatches ?? DEFAULT_MAX_CONSECUTIVE_FULL_BATCHES;
     const matchingStores = selectRealtimeStoresForTopics(options.stores, authorizedTopics);
     const connectionKey = resolveRealtimeConnectionKey(c.req.raw, actor);
     const activeForConnectionKey = activeStreamsByConnectionKey.get(connectionKey) ?? 0;
@@ -545,6 +702,7 @@ export function createRealtimeRoutes(options: Readonly<{
 
     return streamSSE(c, async (stream) => {
       let nextHeartbeatAt = Date.now() + heartbeatIntervalMs;
+      let consecutiveFullBatches = 0;
       activeStreamCount += 1;
       activeStreamsByConnectionKey.set(connectionKey, activeForConnectionKey + 1);
       options.observer?.connectionOpened?.({
@@ -578,6 +736,29 @@ export function createRealtimeRoutes(options: Readonly<{
             messageCount: batch.messages.length,
             expiredContextCount: batch.expiredContexts.length,
           });
+
+          if (batch.messages.length >= batchSize) {
+            consecutiveFullBatches += 1;
+          } else {
+            consecutiveFullBatches = 0;
+          }
+
+          if (consecutiveFullBatches >= maxConsecutiveFullBatches) {
+            const headCursor = await readRealtimeContextHeads(matchingStores);
+            cursor = { ...cursor, ...headCursor };
+            consecutiveFullBatches = 0;
+            await stream.writeSSE({
+              id: encodeRealtimeCursor(cursor),
+              event: "sync.required",
+              data: JSON.stringify({
+                kind: "sync.required",
+                reason: "replay-backpressure",
+                contexts: matchingStores.map((store) => store.contextName),
+              } satisfies RealtimeSyncRequired),
+            });
+            await sleepUntilRealtimeWake(stream, pollIntervalMs, options.wakeSignal);
+            continue;
+          }
 
           if (batch.expiredContexts.length > 0) {
             await stream.writeSSE({
@@ -615,7 +796,7 @@ export function createRealtimeRoutes(options: Readonly<{
             nextHeartbeatAt = Date.now() + heartbeatIntervalMs;
           }
 
-          await stream.sleep(pollIntervalMs);
+          await sleepUntilRealtimeWake(stream, pollIntervalMs, options.wakeSignal);
         }
       } catch (error) {
         options.observer?.streamError?.({ connectionKey, error });
@@ -687,6 +868,22 @@ export function createRealtimeRetentionSweeper(options: Readonly<{
   };
 }
 
+async function sleepUntilRealtimeWake(
+  stream: Readonly<{ sleep: (ms: number) => Promise<unknown> }>,
+  timeoutMs: number,
+  wakeSignal?: RealtimeWakeSignal,
+): Promise<void> {
+  if (!wakeSignal) {
+    await stream.sleep(timeoutMs);
+    return;
+  }
+
+  await Promise.race([
+    stream.sleep(timeoutMs),
+    wakeSignal.wait(timeoutMs),
+  ]);
+}
+
 async function pruneRealtimeStoresIfDue(
   stores: readonly RealtimeContextStore[],
   nextPruneAtByContext: Map<string, number>,
@@ -736,4 +933,29 @@ function isRealtimeResourceLimitExceeded(input: Readonly<{
     typeof maxActiveStreamsPerConnectionKey === "number" &&
     input.activeForConnectionKey >= maxActiveStreamsPerConnectionKey
   );
+}
+
+async function withPgTransaction<T>(
+  client: PgPoolClient,
+  work: (client: PgPoolClient) => Promise<T>,
+): Promise<T> {
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function isPgTransactionalPool(db: PgQueryable | PgTransactionalPool): db is PgTransactionalPool {
+  return typeof (db as { connect?: unknown }).connect === "function";
+}
+
+function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

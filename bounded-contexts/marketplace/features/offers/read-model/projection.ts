@@ -1,6 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import {
+  createMarketplaceOfferMatchPatch,
+  createMarketplaceOfferPatch,
+} from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
 import { listOfferMatchesForSellers } from "./queries";
 
@@ -62,20 +66,7 @@ async function emitOfferPatch(
     patchKey: `offer:${offerId}`,
     topics: buyerTopics,
     recordedAt: event.timing.recordedAt,
-    patch: {
-      kind: "projection.patch",
-      context: "marketplace",
-      projection: "marketplace-offer-projection",
-      topics: buyerTopics,
-      changes: [
-        {
-          op: "upsert",
-          entity: "marketplace.offer",
-          id: offer.offer_id,
-          value: offer,
-        },
-      ],
-    },
+    patch: createMarketplaceOfferPatch(buyerTopics, offer),
   });
 
   const sellerAccountIds = new Set(await loadInterestedSellerAccountIds(db, offer.product_id));
@@ -97,26 +88,7 @@ async function emitOfferPatch(
       patchKey: `offer-match:${offerId}:${sellerAccountId}`,
       topics: [topic],
       recordedAt: event.timing.recordedAt,
-      patch: {
-        kind: "projection.patch",
-        context: "marketplace",
-        projection: "marketplace-offer-projection",
-        topics: [topic],
-        changes: [
-          offerMatch
-            ? {
-                op: "upsert",
-                entity: "marketplace.offerMatch",
-                id: offerMatch.offer_id,
-                value: offerMatch,
-              }
-            : {
-                op: "remove",
-                entity: "marketplace.offerMatch",
-                id: offerId,
-              },
-        ],
-      },
+      patch: createMarketplaceOfferMatchPatch([topic], offerId, offerMatch ?? null),
     });
   }
 }

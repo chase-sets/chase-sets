@@ -1,6 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import { createMarketplaceListingPatch } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
 
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
@@ -61,20 +62,7 @@ async function emitListingPatch(
     patchKey: `listing:${listingId}`,
     topics,
     recordedAt: event.timing.recordedAt,
-    patch: {
-      kind: "projection.patch",
-      context: "marketplace",
-      projection: "marketplace-listing-projection",
-      topics,
-      changes: [
-        {
-          op: "upsert",
-          entity: "marketplace.sellerListing",
-          id: listing.listing_id,
-          value: listing,
-        },
-      ],
-    },
+    patch: createMarketplaceListingPatch(topics, listing),
   });
 }
 

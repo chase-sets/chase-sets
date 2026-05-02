@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   authorizeRealtimeTopics,
+  createPostgresRealtimeWakeSignal,
   createRealtimeRoutes,
   createRealtimeRetentionSweeper,
   decodeRealtimeCursor,
@@ -9,7 +10,9 @@ import {
   pruneExpiredRealtimePatchesWithAdvisoryLock,
   readRealtimePatches,
   recordRealtimeProjectionPatch,
+  realtimeProjectionNotifyChannel,
   realtimeOutboxSchemaSql,
+  runRealtimeProjectionTransaction,
   selectRealtimeStoresForTopics,
 } from "./realtime";
 
@@ -212,6 +215,71 @@ describe("realtime SSE routes", () => {
     expect(response.status).toBe(200);
     expect(text).toContain("event: heartbeat");
   });
+
+  it("requires sync instead of replaying an unbounded backlog", async () => {
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("DELETE FROM realtime_projection_outbox")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("SELECT outbox_id, payload")) {
+          return {
+            rows: [
+              {
+                outbox_id: "7",
+                payload: {
+                  kind: "projection.patch",
+                  context: "discovery",
+                  projection: "discovery-market-projection",
+                  topics: ["public:market"],
+                  changes: [
+                    {
+                      op: "summary",
+                      entity: "discovery.marketSummary",
+                      id: "item_1",
+                      value: { active_listing_count: 1 },
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("MAX(outbox_id)")) {
+          return { rows: [{ head: "9" }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db }],
+      resolveActor: async () => null,
+      batchSize: 1,
+      maxConsecutiveFullBatches: 1,
+      pollIntervalMs: 60_000,
+    });
+    const abort = new AbortController();
+
+    const response = await app.request("/events?topic=public%3Amarket", {
+      signal: abort.signal,
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+
+    const chunk = await reader!.read();
+    await reader!.cancel();
+    abort.abort();
+
+    const text = new TextDecoder().decode(chunk.value);
+    expect(response.status).toBe(200);
+    expect(text).toContain("event: sync.required");
+    expect(text).toContain("\"reason\":\"replay-backpressure\"");
+    expect(text).toContain(`id: ${encodeRealtimeCursor({ discovery: "9" })}`);
+    expect(text).not.toContain("event: projection.patch");
+  });
 });
 
 describe("realtime cursors", () => {
@@ -330,7 +398,39 @@ describe("realtime outbox", () => {
       "2026-04-28T00:00:00.000Z",
       "2026-04-28T00:00:01.000Z",
       ["listing:list_1", "public:market"],
+      realtimeProjectionNotifyChannel,
+      "discovery",
     ]);
+  });
+
+  it("rejects projection patch contract drift before writing", async () => {
+    const db = {
+      query: async () => {
+        throw new Error("should not write invalid patch");
+      },
+    };
+
+    await expect(
+      recordRealtimeProjectionPatch(db, {
+        sourceGlobalPosition: "12",
+        projectionName: "discovery-market",
+        patchKey: "listing:list_1",
+        topics: ["public:market"],
+        patch: {
+          kind: "projection.patch",
+          context: "discovery",
+          projection: "other-projection",
+          topics: ["public:market"],
+          changes: [
+            {
+              op: "remove",
+              entity: "discovery.listing",
+              id: "list_1",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("projection must match");
   });
 
   it("replays retained patches in per-context outbox order for matching topics", async () => {
@@ -503,5 +603,68 @@ describe("realtime outbox", () => {
       contextName: "discovery",
       deletedCount: 2,
     });
+  });
+
+  it("can run projection updates and outbox writes in one transaction", async () => {
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [] };
+      },
+      release: () => {
+        statements.push("release");
+      },
+    };
+    const pool = {
+      query: async (sql: string) => {
+        statements.push(`pool:${sql}`);
+        return { rows: [] };
+      },
+      connect: async () => client,
+    };
+
+    await runRealtimeProjectionTransaction(pool, async (tx) => {
+      await tx.query("UPDATE read_model");
+      await tx.query("INSERT realtime_outbox");
+    });
+
+    expect(statements).toEqual([
+      "BEGIN",
+      "UPDATE read_model",
+      "INSERT realtime_outbox",
+      "COMMIT",
+      "release",
+    ]);
+  });
+
+  it("exposes a Postgres notification wake signal for low-latency polling", async () => {
+    const listeners = new Set<(message: { channel: string }) => void>();
+    const queries: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        queries.push(sql);
+        return { rows: [] };
+      },
+      on: (_event: "notification", listener: (message: { channel: string }) => void) => {
+        listeners.add(listener);
+      },
+      off: (_event: "notification", listener: (message: { channel: string }) => void) => {
+        listeners.delete(listener);
+      },
+    };
+    const wakeSignal = await createPostgresRealtimeWakeSignal(client);
+    const woke = wakeSignal.wait(60_000);
+
+    for (const listener of listeners) {
+      listener({ channel: realtimeProjectionNotifyChannel });
+    }
+    await expect(woke).resolves.toBeUndefined();
+    await wakeSignal.stop?.();
+
+    expect(queries).toEqual([
+      `LISTEN ${realtimeProjectionNotifyChannel}`,
+      `UNLISTEN ${realtimeProjectionNotifyChannel}`,
+    ]);
   });
 });

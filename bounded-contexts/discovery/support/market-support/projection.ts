@@ -2,8 +2,14 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   recordRealtimeProjectionPatch,
-  type RealtimeProjectionPatchChange,
+  type RealtimeProjectionPatch,
 } from "@chase-sets/platform-runtime/realtime";
+import {
+  createDiscoveryListingPatch,
+  createDiscoveryOfferPatch,
+  createDiscoverySellerRemovePatch,
+  createDiscoverySellerUpsertPatch,
+} from "../realtime-support/patches";
 import { discoveryRealtimeTopics } from "../realtime-support/topics";
 import {
   createMarketplaceSlug,
@@ -140,22 +146,15 @@ async function emitRealtimeChanges(
   db: PgQueryable,
   event: Parameters<ProjectorHandlerMap[string]>[0],
   patchKey: string,
-  topics: readonly string[],
-  changes: readonly RealtimeProjectionPatchChange[],
+  patch: RealtimeProjectionPatch,
 ) {
   await recordRealtimeProjectionPatch(db, {
     sourceGlobalPosition: event.globalPosition,
     projectionName: "discovery-market-projection",
     patchKey,
-    topics,
+    topics: patch.topics,
     recordedAt: event.timing.recordedAt,
-    patch: {
-      kind: "projection.patch",
-      context: "discovery",
-      projection: "discovery-market-projection",
-      topics,
-      changes,
-    },
+    patch,
   });
 }
 
@@ -175,32 +174,20 @@ async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHand
     db,
     listing.catalog_catalog_item_id,
   );
-  const change =
-    listing.status === "active"
-      ? {
-          op: "upsert",
-          entity: "discovery.marketListing",
-          id: listing.listing_id,
-          value: listing,
-        } satisfies RealtimeProjectionPatchChange
-      : {
-          op: "remove",
-          entity: "discovery.marketListing",
-          id: listing.listing_id,
-        } satisfies RealtimeProjectionPatchChange;
 
-  await emitRealtimeChanges(db, event, `listing:${listingId}`, topics, [
-    change,
-    {
-      op: "summary",
-      entity: "discovery.marketSummary",
-      id: listing.catalog_catalog_item_id,
-      value: summary,
-    },
-  ]);
+  await emitRealtimeChanges(
+    db,
+    event,
+    `listing:${listingId}`,
+    createDiscoveryListingPatch(topics, listing, summary),
+  );
 }
 
-async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
+async function emitOfferPatch(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  offerId: string,
+) {
   const offer = await loadRealtimeOffer(db, offerId);
   if (!offer) {
     return;
@@ -210,24 +197,13 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
     db,
     event,
     `offer:${offerId}`,
-    [
-      discoveryRealtimeTopics.publicMarket(),
-      discoveryRealtimeTopics.item(offer.catalog_catalog_item_id),
-    ],
-    [
-      offer.status === "submitted" || offer.status === "accepted"
-        ? {
-            op: "upsert",
-            entity: "discovery.buyerOffer",
-            id: offer.offer_id,
-            value: offer,
-          }
-        : {
-            op: "remove",
-            entity: "discovery.buyerOffer",
-            id: offer.offer_id,
-          },
-    ],
+    createDiscoveryOfferPatch(
+      [
+        discoveryRealtimeTopics.publicMarket(),
+        discoveryRealtimeTopics.item(offer.catalog_catalog_item_id),
+      ],
+      offer,
+    ),
   );
 }
 
@@ -261,24 +237,20 @@ export function buildDiscoveryMarketProjectionHandlers(
         db,
         event,
         `seller:${accountId}`,
-        [
-          discoveryRealtimeTopics.publicMarket(),
-          discoveryRealtimeTopics.seller(accountId),
-        ],
-        [
+        createDiscoverySellerUpsertPatch(
+          [
+            discoveryRealtimeTopics.publicMarket(),
+            discoveryRealtimeTopics.seller(accountId),
+          ],
           {
-            op: "upsert",
-            entity: "discovery.publicSeller",
-            id: accountId,
-            value: {
-              account_id: accountId,
-              seller_slug: sellerSlug,
-              seller_display_name: displayName,
-              status: "active",
-              updated_at: event.timing.recordedAt,
-            },
+            account_id: accountId,
+            seller_slug: sellerSlug,
+            seller_display_name: displayName,
+            status: "active",
+            updated_at: event.timing.recordedAt,
           },
-        ],
+          accountId,
+        ),
       );
     },
     "identity.account.profile-updated": async (event) => {
@@ -314,24 +286,20 @@ export function buildDiscoveryMarketProjectionHandlers(
         db,
         event,
         `seller:${accountId}`,
-        [
-          discoveryRealtimeTopics.publicMarket(),
-          discoveryRealtimeTopics.seller(accountId),
-        ],
-        [
+        createDiscoverySellerUpsertPatch(
+          [
+            discoveryRealtimeTopics.publicMarket(),
+            discoveryRealtimeTopics.seller(accountId),
+          ],
           {
-            op: "upsert",
-            entity: "discovery.publicSeller",
-            id: accountId,
-            value: {
-              account_id: accountId,
-              seller_slug: sellerSlug,
-              seller_display_name: displayName,
-              status: "active",
-              updated_at: event.timing.recordedAt,
-            },
+            account_id: accountId,
+            seller_slug: sellerSlug,
+            seller_display_name: displayName,
+            status: "active",
+            updated_at: event.timing.recordedAt,
           },
-        ],
+          accountId,
+        ),
       );
     },
     "identity.account.suspended": async (event) => {
@@ -343,12 +311,18 @@ export function buildDiscoveryMarketProjectionHandlers(
         [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
-      await emitRealtimeChanges(db, event, `seller:${accountId}`, [
-        discoveryRealtimeTopics.publicMarket(),
-        discoveryRealtimeTopics.seller(accountId),
-      ], [
-        { op: "remove", entity: "discovery.publicSeller", id: accountId },
-      ]);
+      await emitRealtimeChanges(
+        db,
+        event,
+        `seller:${accountId}`,
+        createDiscoverySellerRemovePatch(
+          [
+            discoveryRealtimeTopics.publicMarket(),
+            discoveryRealtimeTopics.seller(accountId),
+          ],
+          accountId,
+        ),
+      );
     },
     "identity.account.reactivated": async (event) => {
       await db.query(
@@ -359,17 +333,23 @@ export function buildDiscoveryMarketProjectionHandlers(
         [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
-      await emitRealtimeChanges(db, event, `seller:${accountId}`, [
-        discoveryRealtimeTopics.publicMarket(),
-        discoveryRealtimeTopics.seller(accountId),
-      ], [
-        {
-          op: "upsert",
-          entity: "discovery.publicSeller",
-          id: accountId,
-          value: { account_id: accountId, status: "active", updated_at: event.timing.recordedAt },
-        },
-      ]);
+      await emitRealtimeChanges(
+        db,
+        event,
+        `seller:${accountId}`,
+        createDiscoverySellerUpsertPatch(
+          [
+            discoveryRealtimeTopics.publicMarket(),
+            discoveryRealtimeTopics.seller(accountId),
+          ],
+          {
+            account_id: accountId,
+            status: "active",
+            updated_at: event.timing.recordedAt,
+          },
+          accountId,
+        ),
+      );
     },
     "identity.account.closed": async (event) => {
       await db.query(
@@ -380,12 +360,18 @@ export function buildDiscoveryMarketProjectionHandlers(
         [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
-      await emitRealtimeChanges(db, event, `seller:${accountId}`, [
-        discoveryRealtimeTopics.publicMarket(),
-        discoveryRealtimeTopics.seller(accountId),
-      ], [
-        { op: "remove", entity: "discovery.publicSeller", id: accountId },
-      ]);
+      await emitRealtimeChanges(
+        db,
+        event,
+        `seller:${accountId}`,
+        createDiscoverySellerRemovePatch(
+          [
+            discoveryRealtimeTopics.publicMarket(),
+            discoveryRealtimeTopics.seller(accountId),
+          ],
+          accountId,
+        ),
+      );
     },
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
