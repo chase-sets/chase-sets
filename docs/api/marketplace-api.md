@@ -57,7 +57,7 @@ Standard error codes are `authentication_required`, `authorization_forbidden`, `
 - Offers use `offers.view` or `offers.manage`; seller match acceptance also requires listing access.
 - Inventory intake and stock actions use `inventory.view` or `inventory.manage`.
 - Seller shipment operations use `orders.view` plus seller/listing permissions where enforced by the owning route.
-- Payout and wallet workflows use `payouts.view`, `payouts.request`, `payouts.reconcile`, or `payouts.manage`.
+- Payout and wallet workflows use `payouts.view`, `payouts.setup`, `payouts.request`, `payouts.reconcile`, or `payouts.manage`.
 - Account team, invitations, and API keys use the identity permissions projected into Auth, including `memberships.*` and `security.manage`.
 
 ## Critical Workflows

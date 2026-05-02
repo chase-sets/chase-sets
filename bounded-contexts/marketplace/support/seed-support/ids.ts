@@ -3,8 +3,11 @@ import type { ListingId, OfferId } from "@chase-sets/primitives/typed-ids";
 export const marketplaceReservedSeedIds = {
   listings: {
     charizardBaseSetNearMint: "lst_seed_charizard_base_set_nm" as ListingId,
+    charizardBaseSetPsa8: "lst_seed_charizard_base_set_psa_8" as ListingId,
     cardVaultCharizardNearMint:
       "lst_seed_card_vault_charizard_nm" as ListingId,
+    cardVaultCharizardPsa8:
+      "lst_seed_card_vault_charizard_psa_8" as ListingId,
     cardVaultCharizardMarketMaker:
       "lst_seed_card_vault_charizard_market_maker" as ListingId,
     pikachuJungleLightlyPlayed: "lst_seed_pikachu_jungle_lp" as ListingId,
@@ -14,11 +17,14 @@ export const marketplaceReservedSeedIds = {
     cardVaultPikachuLowMargin:
       "lst_seed_card_vault_pikachu_low_margin" as ListingId,
     lugiaNeoGenesisDraft: "lst_seed_lugia_neo_genesis_draft" as ListingId,
+    lugiaNeoGenesisBgs95: "lst_seed_lugia_neo_genesis_bgs_95" as ListingId,
     mewtwoBlackStarPromoActive: "lst_seed_mewtwo_black_star_promo_active" as ListingId,
     mewtwoBlackStarPromoPremium:
       "lst_seed_mewtwo_black_star_promo_premium" as ListingId,
     cardVaultMewtwoBudget: "lst_seed_card_vault_mewtwo_budget" as ListingId,
     prismaticEvolutionsPaused: "lst_seed_prismatic_evolutions_paused" as ListingId,
+    pikachuPrismaticEvolutionsPsa10:
+      "lst_seed_pikachu_prismatic_psa_10" as ListingId,
     surgingSparksWithdrawn: "lst_seed_surging_sparks_withdrawn" as ListingId,
     sealedStockroomSurgingSparksActive:
       "lst_seed_sealed_seller_surging_sparks_active" as ListingId,

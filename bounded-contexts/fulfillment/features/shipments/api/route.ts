@@ -36,6 +36,33 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
 
+function readAddress(body: Record<string, unknown>, prefix: string) {
+  return {
+    name: String(body[`${prefix}Name`] ?? ""),
+    company:
+      typeof body[`${prefix}Company`] === "string"
+        ? String(body[`${prefix}Company`])
+        : null,
+    street1: String(body[`${prefix}Street1`] ?? ""),
+    street2:
+      typeof body[`${prefix}Street2`] === "string"
+        ? String(body[`${prefix}Street2`])
+        : null,
+    city: String(body[`${prefix}City`] ?? ""),
+    state: String(body[`${prefix}State`] ?? ""),
+    postalCode: String(body[`${prefix}PostalCode`] ?? ""),
+    country: String(body[`${prefix}Country`] ?? "US"),
+    phone:
+      typeof body[`${prefix}Phone`] === "string"
+        ? String(body[`${prefix}Phone`])
+        : null,
+    email:
+      typeof body[`${prefix}Email`] === "string"
+        ? String(body[`${prefix}Email`])
+        : null,
+  };
+}
+
 export function createAccountShipmentRoutes(services: FulfillmentShipmentServices) {
   const app = new Hono<FulfillmentApiEnv>();
 
@@ -177,6 +204,72 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
       return c.json({ id: result.shipmentId, version: result.version, status: "label-attached" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/sales/shipments/:id/label/purchase", async (c) => {
+    const access = requireShipmentAccess(c, "fulfillment.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+    }
+
+    const body = await c.req.json() as Record<string, unknown>;
+
+    try {
+      const result = await services.purchaseUspsLabel(
+        {
+          shipmentId: c.req.param("id"),
+          sellerAccountId: access.actor.accountId,
+          serviceLevel: String(body.serviceLevel ?? "USPS_GROUND_ADVANTAGE"),
+          sender: readAddress(body, "sender"),
+          recipient: readAddress(body, "recipient"),
+          package: {
+            lengthInches: Number(body.packageLengthInches ?? 7),
+            widthInches: Number(body.packageWidthInches ?? 5),
+            heightInches: Number(body.packageHeightInches ?? 1),
+            weightOunces: Number(body.packageWeightOunces ?? 4),
+          },
+        },
+        context,
+      );
+      return c.json({
+        id: result.shipmentId,
+        version: result.version,
+        status: "label-attached",
+        trackingIdentifier: result.trackingIdentifier,
+      });
+    } catch (error) {
+      return c.json({ error: { code: "label_purchase_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/sales/shipments/:id/label/void", async (c) => {
+    const access = requireShipmentAccess(c, "fulfillment.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+    }
+
+    try {
+      const result = await services.voidLabel(
+        {
+          shipmentId: c.req.param("id"),
+          sellerAccountId: access.actor.accountId,
+        },
+        context,
+      );
+      return c.json({ id: result.shipmentId, version: result.version, status: "label-voided" });
+    } catch (error) {
+      return c.json({ error: { code: "label_void_failed", message: errorMessage(error) } }, 400);
     }
   });
 

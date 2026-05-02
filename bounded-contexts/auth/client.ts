@@ -79,6 +79,46 @@ export function createAuthApiClient({
         headers,
       );
     },
+    async requestMagicLink<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("magic-link/request"),
+        body,
+        headers,
+      );
+    },
+    async consumeMagicLink<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("magic-link/consume"),
+        body,
+        headers,
+      );
+    },
+    async createPasskeyChallenge<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("passkeys/challenge"),
+        body,
+        headers,
+      );
+    },
+    async registerPasskey<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("passkeys/register"),
+        body,
+        headers,
+      );
+    },
+    async signInWithPasskey<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("passkeys/sign-in"),
+        body,
+        headers,
+      );
+    },
     async resolveAccountSelection<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(
         configuredFetch,

@@ -12,6 +12,11 @@ export const action = identityAdminAuthHost.createSignInAction();
 
 export default function IdentityAdminSignInRoute() {
   const actionData = useActionData<typeof action>();
-  return <SignInPage errorMessage={actionData?.error ?? null} />;
+  return (
+    <SignInPage
+      errorMessage={actionData && "error" in actionData ? actionData.error : null}
+      notice={actionData && "status" in actionData ? actionData : null}
+    />
+  );
 }
 

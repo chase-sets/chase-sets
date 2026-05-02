@@ -33,9 +33,23 @@ type InventoryItemSeed = Readonly<{
   accountId?: AccountId;
   catalogItemId: SeedCatalogItemId;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  gradedCard?: GradedCardSeedDetails;
   storageLocationId: SeedStorageLocationId;
   totalQuantity: number;
   acquisitionCostAmount: string;
+}>;
+
+type GradedCardSeedDetails = Readonly<{
+  gradingCompany: string;
+  grade: string;
+  certificationNumber: string | null;
+  population: Readonly<{
+    populationAtGrade: number | null;
+    populationHigher: number | null;
+    source: string | null;
+    asOf: string | null;
+  }> | null;
+  conditionDescriptors: string[];
 }>;
 
 type InventoryHoldSeed = Readonly<{
@@ -46,6 +60,35 @@ type InventoryHoldSeed = Readonly<{
   notes?: string;
   releasedAt?: string;
 }>;
+
+const rawCardSelection = (conditionOptionId: string) => [
+  {
+    dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+    optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+  },
+  {
+    dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+    optionId: conditionOptionId,
+  },
+] as const;
+
+const gradedCardSelection = (
+  gradingCompanyOptionId: string,
+  gradeOptionId: string,
+) => [
+  {
+    dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+    optionId: catalogSeedIds.dimensions.form.optionIds.graded,
+  },
+  {
+    dimensionId: catalogSeedIds.dimensions.gradingCompany.dimensionId,
+    optionId: gradingCompanyOptionId,
+  },
+  {
+    dimensionId: catalogSeedIds.dimensions.grade.dimensionId,
+    optionId: gradeOptionId,
+  },
+] as const;
 
 const storageLocations: readonly StorageLocationSeed[] = [
   {
@@ -86,19 +129,39 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.charizardBaseSetNearMint,
     catalogItemId: catalogSeedIds.items.charizardBaseSet,
-    selectedOptions: [
-      {
-        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
-      },
-      {
-        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-        optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
-      },
-    ],
+    selectedOptions: rawCardSelection(
+      catalogSeedIds.dimensions.condition.optionIds.nearMint,
+    ),
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 3,
     acquisitionCostAmount: "275.00",
+  },
+  {
+    itemId: inventorySeedIds.items.charizardBaseSetPsa8,
+    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    selectedOptions: gradedCardSelection(
+      catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
+      catalogSeedIds.dimensions.grade.optionIds.nmMt8,
+    ),
+    gradedCard: {
+      gradingCompany: "PSA",
+      grade: "NM-MT 8",
+      certificationNumber: "81234567",
+      population: {
+        populationAtGrade: 1842,
+        populationHigher: 721,
+        source: "PSA population report",
+        asOf: "2026-04-01",
+      },
+      conditionDescriptors: [
+        "Encapsulated",
+        "Authentic label",
+        "Minor holo scratching visible under angled light",
+      ],
+    },
+    storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
+    totalQuantity: 1,
+    acquisitionCostAmount: "520.00",
   },
   {
     itemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
@@ -135,6 +198,28 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     acquisitionCostAmount: "180.00",
   },
   {
+    itemId: inventorySeedIds.items.lugiaNeoGenesisBgs95,
+    catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
+    selectedOptions: gradedCardSelection(
+      catalogSeedIds.dimensions.gradingCompany.optionIds.bgs,
+      catalogSeedIds.dimensions.grade.optionIds.mint95,
+    ),
+    gradedCard: {
+      gradingCompany: "BGS/Beckett",
+      grade: "Mint 9.5",
+      certificationNumber: "0012345678",
+      population: null,
+      conditionDescriptors: [
+        "Encapsulated",
+        "Strong centering",
+        "Subgrades available on label",
+      ],
+    },
+    storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
+    totalQuantity: 1,
+    acquisitionCostAmount: "475.00",
+  },
+  {
     itemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
     catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
     selectedOptions: [
@@ -167,6 +252,33 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 12,
     acquisitionCostAmount: "8.25",
+  },
+  {
+    itemId: inventorySeedIds.items.pikachuPrismaticEvolutionsPsa10,
+    catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
+    selectedOptions: gradedCardSelection(
+      catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
+      catalogSeedIds.dimensions.grade.optionIds.gemMint10,
+    ),
+    gradedCard: {
+      gradingCompany: "PSA",
+      grade: "Gem Mint 10",
+      certificationNumber: "91234567",
+      population: {
+        populationAtGrade: 336,
+        populationHigher: 0,
+        source: "PSA population report",
+        asOf: "2026-04-01",
+      },
+      conditionDescriptors: [
+        "Encapsulated",
+        "No visible whitening",
+        "Clean modern slab presentation",
+      ],
+    },
+    storageLocationId: inventorySeedIds.storageLocations.northShelf,
+    totalQuantity: 2,
+    acquisitionCostAmount: "44.00",
   },
   {
     itemId: inventorySeedIds.items.prismaticEvolutionsBoosterPack,
@@ -209,6 +321,34 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 4,
     acquisitionCostAmount: "292.00",
+  },
+  {
+    itemId: inventorySeedIds.items.cardVaultCharizardPsa8,
+    accountId: identitySeedIds.cardVault.accountId,
+    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    selectedOptions: gradedCardSelection(
+      catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
+      catalogSeedIds.dimensions.grade.optionIds.nmMt8,
+    ),
+    gradedCard: {
+      gradingCompany: "PSA",
+      grade: "NM-MT 8",
+      certificationNumber: "84561230",
+      population: {
+        populationAtGrade: 1842,
+        populationHigher: 721,
+        source: "PSA population report",
+        asOf: "2026-04-01",
+      },
+      conditionDescriptors: [
+        "Encapsulated",
+        "Eye appeal copy",
+        "Light edge whitening visible through slab",
+      ],
+    },
+    storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
+    totalQuantity: 1,
+    acquisitionCostAmount: "535.00",
   },
   {
     itemId: inventorySeedIds.items.cardVaultPikachuExcellent,
@@ -376,6 +516,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       catalogItemId: item.catalogItemId,
       productId: catalogVersion.productId,
       selectedOptions: catalogVersion.selection,
+      gradedCard: item.gradedCard ?? null,
       storageLocationId: item.storageLocationId,
       totalQuantity: item.totalQuantity,
       acquisitionCostAmount: item.acquisitionCostAmount,

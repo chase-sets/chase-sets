@@ -19,9 +19,25 @@ export type InventoryItemState = Readonly<{
   catalogItemId: string | null;
   productId: string | null;
   selectedOptions: readonly InventorySelectedOptionEntry[];
+  gradedCard: GradedCardDetails | null;
   storageLocationId: string | null;
   totalQuantity: number;
   acquisitionCostAmount: string | null;
+}>;
+
+export type GradedCardPopulation = Readonly<{
+  populationAtGrade: number | null;
+  populationHigher: number | null;
+  source: string | null;
+  asOf: string | null;
+}>;
+
+export type GradedCardDetails = Readonly<{
+  gradingCompany: string;
+  grade: string;
+  certificationNumber: string | null;
+  population: GradedCardPopulation | null;
+  conditionDescriptors: string[];
 }>;
 
 export const initialInventoryItemState: InventoryItemState = {
@@ -30,6 +46,7 @@ export const initialInventoryItemState: InventoryItemState = {
   catalogItemId: null,
   productId: null,
   selectedOptions: [],
+  gradedCard: null,
   storageLocationId: null,
   totalQuantity: 0,
   acquisitionCostAmount: null,
@@ -42,6 +59,7 @@ export type CreateInventoryItemCommand = Readonly<{
   catalogItemId: string;
   productId: string;
   selectedOptions?: readonly InventorySelectedOptionEntry[];
+  gradedCard?: GradedCardDetails | null;
   storageLocationId: string;
   totalQuantity: number;
   acquisitionCostAmount?: string | null;
@@ -65,6 +83,7 @@ export type InventoryItemCreatedEvent = DomainEvent<
     catalogItemId: string;
     productId: string;
     selectedOptions: InventorySelectedOptionEntry[];
+    gradedCard: GradedCardDetails | null;
     storageLocationId: string;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
@@ -108,6 +127,7 @@ export const decideInventoryItem: AggregateDecider<
               dimensionId: normalizeLabel(entry.dimensionId),
               optionId: normalizeLabel(entry.optionId),
             })),
+            gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
             storageLocationId: normalizeLabel(command.storageLocationId),
             totalQuantity: command.totalQuantity,
             acquisitionCostAmount: command.acquisitionCostAmount ?? null,
@@ -152,6 +172,7 @@ export const evolveInventoryItem: AggregateEvolver<
         catalogItemId: event.data.catalogItemId,
         productId: event.data.productId,
         selectedOptions: event.data.selectedOptions,
+        gradedCard: event.data.gradedCard,
         storageLocationId: event.data.storageLocationId,
         totalQuantity: event.data.totalQuantity,
         acquisitionCostAmount: event.data.acquisitionCostAmount,
@@ -168,4 +189,54 @@ export const evolveInventoryItem: AggregateEvolver<
 
 function requireCreatedInventoryItem(state: InventoryItemState) {
   assert(state.id !== null, "Inventory item must be created first.");
+}
+
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeGradedCardDetails(
+  details: GradedCardDetails | null,
+): GradedCardDetails | null {
+  if (!details) {
+    return null;
+  }
+
+  const gradingCompany = normalizeLabel(details.gradingCompany);
+  const grade = normalizeLabel(details.grade);
+  assert(gradingCompany.length > 0, "Graded cards require a grading company.");
+  assert(grade.length > 0, "Graded cards require a grade.");
+
+  const population = details.population
+    ? {
+        populationAtGrade: details.population.populationAtGrade,
+        populationHigher: details.population.populationHigher,
+        source: normalizeOptionalText(details.population.source),
+        asOf: normalizeOptionalText(details.population.asOf),
+      }
+    : null;
+
+  if (population) {
+    for (const value of [population.populationAtGrade, population.populationHigher]) {
+      assert(
+        value === null || (Number.isInteger(value) && value >= 0),
+        "Population metadata must use whole numbers greater than or equal to zero.",
+      );
+    }
+  }
+
+  return {
+    gradingCompany,
+    grade,
+    certificationNumber: normalizeOptionalText(details.certificationNumber),
+    population,
+    conditionDescriptors: [
+      ...new Set(
+        details.conditionDescriptors
+          .map((descriptor) => descriptor.trim())
+          .filter((descriptor) => descriptor.length > 0),
+      ),
+    ],
+  };
 }

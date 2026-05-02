@@ -1,5 +1,6 @@
 export const discoveryItemDetailSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_items (
   catalog_item_id text PRIMARY KEY,
+  slug text NOT NULL DEFAULT '',
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   description text NOT NULL DEFAULT '',
@@ -12,6 +13,10 @@ export const discoveryItemDetailSchemaSql = `CREATE TABLE IF NOT EXISTS discover
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE discovery_item_detail_catalog_items
+  ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_slug_idx ON discovery_item_detail_catalog_items (slug) WHERE slug <> '';
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_blueprint_idx ON discovery_item_detail_catalog_items (blueprint_id);
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_category_ids_idx ON discovery_item_detail_catalog_items USING gin (category_ids);
 
@@ -25,9 +30,15 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_blueprints (
 
 CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_categories (
   category_id text PRIMARY KEY,
+  slug text NOT NULL DEFAULT '',
   name text NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE discovery_item_detail_catalog_categories
+  ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_catalog_categories_slug_idx ON discovery_item_detail_catalog_categories (slug) WHERE slug <> '';
 
 CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_fields (
   field_id text PRIMARY KEY,
@@ -65,6 +76,7 @@ CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_dimension_options_dimen
 
 CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   catalog_item_id text PRIMARY KEY,
+  slug text NOT NULL DEFAULT '',
   title text NOT NULL DEFAULT '',
   subtitle text NULL,
   description text NOT NULL DEFAULT '',
@@ -77,4 +89,9 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_schema jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
-);`;
+);
+
+ALTER TABLE discovery_item_detail_pages
+  ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_pages_slug_idx ON discovery_item_detail_pages (slug) WHERE slug <> '';`;

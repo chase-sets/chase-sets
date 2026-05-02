@@ -16,5 +16,15 @@ export function discoveryCategoryRoutes(services: DiscoveryCategoryServices) {
     return c.json({ items: categories, total: categories.length, count: categories.length });
   });
 
+  app.get("/:slug", async (c) => {
+    const category = await services.getCategoryBySlug(c.req.param("slug"));
+
+    if (!category || category.item_count <= 0) {
+      return c.json({ error: { code: "not_found", message: "Category not found." } }, 404);
+    }
+
+    return c.json(category);
+  });
+
   return app;
 }

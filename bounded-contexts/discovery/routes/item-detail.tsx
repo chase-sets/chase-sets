@@ -53,6 +53,7 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   registerToSellHref: "/register",
   notFound: false,
   error: null,
+  canonicalUrl: null,
 } as const;
 
 function buildRegisterToSellHref(request: Request) {
@@ -577,11 +578,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       canUseSellerFeatures: false,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
+      canonicalUrl: null,
     };
   }
 
   try {
     const item = await api.getItemDetail(id);
+    const url = new URL(request.url);
+    if (item.slug && id !== item.slug) {
+      throw redirect(`/items/${item.slug}${url.search}`, { status: 301 });
+    }
+
     const actor = await resolveActorFromAuthApi({ request });
     const canReviewAccountOfferMatches = Boolean(
       actor?.permissions.includes("offers.view") &&
@@ -626,6 +633,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       canUseSellerFeatures: canReviewAccountOfferMatches || canSellOnItem,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: false,
+      canonicalUrl: new URL(`/items/${item.slug || item.catalog_item_id}`, new URL(request.url).origin).toString(),
     };
   } catch (error) {
     if (error instanceof DiscoveryApiError) {
@@ -638,6 +646,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         canUseSellerFeatures: false,
         registerToSellHref: buildRegisterToSellHref(request),
         notFound: true,
+        canonicalUrl: null,
         error: error.message,
       };
     }
@@ -651,6 +660,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       canUseSellerFeatures: false,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
+      canonicalUrl: null,
       error: error instanceof Error ? error.message : "Item not found.",
     };
   }
@@ -756,6 +766,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         request,
         permission: "listings.manage",
       });
+      const item = await discoveryApi.getItemDetail(params.id!);
 
       const listingId = String(formData.get("listingId") ?? "").trim();
       const priceAmount = String(formData.get("priceAmount") ?? "");
@@ -764,7 +775,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       if (listingId) {
         await marketplaceApi.updateListingPrice(listingId, { priceAmount });
         await marketplaceApi.updateListingQuantityCap(listingId, { quantityCap });
-        return redirect(`/items/${params.id}`);
+        return redirect(`/items/${item.slug || params.id}`);
       }
 
       const result = await marketplaceApi.createListing({
@@ -777,7 +788,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         await marketplaceApi.publishListing(result.id);
       }
 
-      return redirect(`/items/${params.id}`);
+      return redirect(`/items/${item.slug || params.id}`);
     }
 
     return null;
@@ -792,8 +803,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
   }
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) =>
-  buildOpenGraphMeta({
+export const meta: MetaFunction<typeof loader> = ({ data }) => [
+  ...buildOpenGraphMeta({
     title: data?.item
       ? `${data.item.title} | Marketplace`
       : "Item Not Found | Marketplace",
@@ -804,7 +815,11 @@ export const meta: MetaFunction<typeof loader> = ({ data }) =>
       ? data.item.image_urls[0] ?? discoveryAssetUrls.defaultProductImage
       : undefined,
     type: data?.item ? "product" : "website",
-  });
+  }),
+  ...(data?.canonicalUrl
+    ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }]
+    : []),
+];
 
 export default function DiscoveryItemDetailRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;

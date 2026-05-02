@@ -16,6 +16,7 @@ export function buildMarketplaceListingProjectionHandlers(
         itemSubtitle: string | null;
         selectedOptions: unknown;
         productSummary: string | null;
+        gradedCard: unknown;
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
@@ -39,6 +40,7 @@ export function buildMarketplaceListingProjectionHandlers(
           item_subtitle,
           selected_options,
           product_summary,
+          graded_card,
           storage_location_name,
           ship_from_code,
           price_amount,
@@ -53,7 +55,7 @@ export function buildMarketplaceListingProjectionHandlers(
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'draft', $20, $20
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'draft', $21, $21
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
@@ -64,6 +66,7 @@ export function buildMarketplaceListingProjectionHandlers(
           item_subtitle = EXCLUDED.item_subtitle,
           selected_options = EXCLUDED.selected_options,
           product_summary = EXCLUDED.product_summary,
+          graded_card = EXCLUDED.graded_card,
           storage_location_name = EXCLUDED.storage_location_name,
           ship_from_code = EXCLUDED.ship_from_code,
           price_amount = EXCLUDED.price_amount,
@@ -85,6 +88,9 @@ export function buildMarketplaceListingProjectionHandlers(
           data.itemSubtitle,
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
+          data.gradedCard === null || typeof data.gradedCard !== "object"
+            ? null
+            : JSON.stringify(data.gradedCard),
           data.storageLocationName,
           data.shipFromCode,
           data.priceAmount,

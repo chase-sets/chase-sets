@@ -11,6 +11,19 @@ export type InventoryHold = Readonly<{
   released_at: string | null;
 }>;
 
+export type InventoryGradedCardDetails = Readonly<{
+  gradingCompany: string;
+  grade: string;
+  certificationNumber: string | null;
+  population: Readonly<{
+    populationAtGrade: number | null;
+    populationHigher: number | null;
+    source: string | null;
+    asOf: string | null;
+  }> | null;
+  conditionDescriptors: string[];
+}>;
+
 export type InventoryItemListItem = Readonly<{
   item_id: string;
   account_id: string;
@@ -20,6 +33,7 @@ export type InventoryItemListItem = Readonly<{
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  graded_card: InventoryGradedCardDetails | null;
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;

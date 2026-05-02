@@ -48,6 +48,8 @@ Discovery terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 2. Discovery may reshape upstream facts for search and browse, but it does not take ownership of source transactions.
 3. Search, filters, and item detail stay in one vertical slice so browse behavior is evolved together.
 4. Discovery may preserve marketplace-branded public routes while still owning the implementation.
+5. Public marketplace slugs are generated from natural-language display fields plus a stable entity id suffix, so names stay readable while collisions stay deterministic.
+6. When a display name changes, the previous slug redirects to the current slug for that entity.
 
 ## Structure Notes
 

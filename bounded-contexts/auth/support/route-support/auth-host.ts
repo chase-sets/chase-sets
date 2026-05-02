@@ -42,6 +42,28 @@ export type AccountSelectionLoaderData = Readonly<{
 }>;
 
 type AuthActionError = Readonly<{ error: string }>;
+export type AuthActionNotice =
+  | Readonly<{
+      status: "magic-link-sent";
+      token: string;
+      expiresAt: string;
+    }>
+  | Readonly<{
+      status: "passkey-recovery";
+      message: string;
+    }>;
+type AuthActionResult = Response | AuthActionError | AuthActionNotice;
+
+type MagicLinkRequestResult = Readonly<{
+  token: string;
+  expiresAt: string;
+}>;
+
+type PasskeyRegistrationResult = Readonly<{
+  credentialId: string;
+  userId: string;
+  authResult: InteractiveAuthResult | null;
+}>;
 
 export type AuthHostConfig = Readonly<{
   signInPath: string;
@@ -74,12 +96,10 @@ export type AuthHost = Readonly<{
       returnTo?: string;
     }>,
   ) => Promise<Response>;
-  createSignInAction: () => (
-    args: ActionFunctionArgs,
-  ) => Promise<Response | AuthActionError>;
+  createSignInAction: () => (args: ActionFunctionArgs) => Promise<AuthActionResult>;
   createRegisterAction: () => (
     args: ActionFunctionArgs,
-  ) => Promise<Response | AuthActionError>;
+  ) => Promise<AuthActionResult>;
   createAccountSelectionLoader: () => (
     args: LoaderFunctionArgs,
   ) => Promise<AccountSelectionLoaderData>;
@@ -289,10 +309,36 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
         try {
           const formData = await request.formData();
           const api = createAuthRequestApiClientInternal(request);
-          const result = await api.signInWithPassword<InteractiveAuthResult>({
-            email: formData.get("email"),
-            password: formData.get("password"),
-          });
+          const intent = String(formData.get("intent") ?? "password");
+          if (intent === "magic-link-request") {
+            const result = await api.requestMagicLink<MagicLinkRequestResult>({
+              email: formData.get("email"),
+            });
+
+            return {
+              status: "magic-link-sent",
+              token: result.token,
+              expiresAt: result.expiresAt,
+            };
+          }
+
+          const result =
+            intent === "magic-link-consume"
+              ? await api.consumeMagicLink<InteractiveAuthResult>({
+                  token: formData.get("token"),
+                  accountId: formData.get("accountId"),
+                })
+              : intent === "passkey-sign-in"
+                ? await api.signInWithPasskey<InteractiveAuthResult>({
+                    challengeId: formData.get("challengeId"),
+                    challenge: formData.get("challenge"),
+                    externalCredentialId: formData.get("externalCredentialId"),
+                    accountId: formData.get("accountId"),
+                  })
+                : await api.signInWithPassword<InteractiveAuthResult>({
+                    email: formData.get("email"),
+                    password: formData.get("password"),
+                  });
 
           return completeAuthentication(request, result);
         } catch (error) {
@@ -305,11 +351,32 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
         try {
           const formData = await request.formData();
           const api = createAuthRequestApiClientInternal(request);
-          const result = await api.register<InteractiveAuthResult>({
-            displayName: formData.get("displayName"),
-            email: formData.get("email"),
-            password: formData.get("password"),
-          });
+          const intent = String(formData.get("intent") ?? "password");
+          const result =
+            intent === "passkey-register"
+              ? (
+                  await api.registerPasskey<PasskeyRegistrationResult>({
+                    displayName: formData.get("displayName"),
+                    email: formData.get("email"),
+                    challengeId: formData.get("challengeId"),
+                    challenge: formData.get("challenge"),
+                    externalCredentialId: formData.get("externalCredentialId"),
+                    label: formData.get("label"),
+                    publicKey: formData.get("publicKey"),
+                  })
+                ).authResult
+              : await api.register<InteractiveAuthResult>({
+                  displayName: formData.get("displayName"),
+                  email: formData.get("email"),
+                  password: formData.get("password"),
+                });
+
+          if (!result) {
+            return {
+              status: "passkey-recovery",
+              message: "The passkey was added. Sign in with it to continue.",
+            };
+          }
 
           return completeAuthentication(request, result);
         } catch (error) {

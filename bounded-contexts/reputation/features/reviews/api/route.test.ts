@@ -298,4 +298,70 @@ describe("reputation review routes", () => {
       },
     });
   });
+
+  it("updates and withdraws a written review through documented API actions", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_buyer",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["reputation.view", "reputation.manage"],
+      },
+      services,
+    });
+
+    const updateResponse = await app.fetch(
+      new Request("http://reputation.test/reviews/rev_1/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rating: 4,
+          feedback: "Strong transaction overall.",
+        }),
+      }),
+    );
+    const withdrawResponse = await app.fetch(
+      new Request("http://reputation.test/reviews/rev_1/withdraw", {
+        method: "POST",
+      }),
+    );
+
+    expect(updateResponse.status).toBe(200);
+    await expect(updateResponse.json()).resolves.toEqual({
+      id: "rev_1",
+      version: 2,
+      status: "updated",
+    });
+    expect(withdrawResponse.status).toBe(200);
+    await expect(withdrawResponse.json()).resolves.toEqual({
+      id: "rev_1",
+      version: 3,
+      status: "withdrawn",
+    });
+    expect(services.updateReview).toHaveBeenCalledWith(
+      {
+        reviewId: "rev_1",
+        authorAccountId: "acc_buyer",
+        rating: 4,
+        feedback: "Strong transaction overall.",
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_buyer",
+          performedByUserId: "usr_buyer",
+        }),
+      }),
+    );
+    expect(services.withdrawReview).toHaveBeenCalledWith(
+      {
+        reviewId: "rev_1",
+        authorAccountId: "acc_buyer",
+      },
+      expect.any(Object),
+    );
+  });
 });

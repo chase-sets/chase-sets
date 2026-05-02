@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS marketplace_supply_items (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  graded_card jsonb NULL,
   storage_location_id text NOT NULL,
   total_quantity integer NOT NULL,
   acquisition_cost_amount numeric(12,2) NULL,

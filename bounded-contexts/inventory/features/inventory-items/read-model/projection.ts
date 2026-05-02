@@ -12,6 +12,7 @@ export function buildInventoryItemProjectionHandlers(
         catalogItemId,
         productId,
         selectedOptions,
+        gradedCard,
         storageLocationId,
         totalQuantity,
         acquisitionCostAmount,
@@ -21,6 +22,7 @@ export function buildInventoryItemProjectionHandlers(
         catalogItemId: string;
         productId: string;
         selectedOptions: unknown;
+        gradedCard: unknown;
         storageLocationId: string;
         totalQuantity: number;
         acquisitionCostAmount: string | null;
@@ -33,6 +35,7 @@ export function buildInventoryItemProjectionHandlers(
            catalog_catalog_item_id,
            product_id,
            selected_options,
+           graded_card,
            storage_location_id,
            total_quantity,
            last_stream_version,
@@ -40,24 +43,28 @@ export function buildInventoryItemProjectionHandlers(
            created_at,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
          ON CONFLICT (item_id) DO UPDATE
          SET account_id = $2,
              catalog_catalog_item_id = $3,
              product_id = $4,
              selected_options = $5,
-             storage_location_id = $6,
-             total_quantity = $7,
-             last_stream_version = $8,
-             acquisition_cost_amount = $9,
-             updated_at = $10
-         WHERE inventory_items.last_stream_version < $8`,
+             graded_card = $6,
+             storage_location_id = $7,
+             total_quantity = $8,
+             last_stream_version = $9,
+             acquisition_cost_amount = $10,
+             updated_at = $11
+         WHERE inventory_items.last_stream_version < $9`,
         [
           itemId,
           accountId,
           catalogItemId,
           productId,
           JSON.stringify(Array.isArray(selectedOptions) ? selectedOptions : []),
+          gradedCard === null || typeof gradedCard !== "object"
+            ? null
+            : JSON.stringify(gradedCard),
           storageLocationId,
           totalQuantity,
           event.streamVersion,

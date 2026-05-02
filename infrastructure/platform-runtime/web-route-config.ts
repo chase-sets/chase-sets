@@ -12,6 +12,27 @@ export type HostRouteConfigRecord = Readonly<
   }
 >;
 
+type RouteConfigIndexOptions = Pick<RouteConfigEntry, "id">;
+type RouteConfigRouteOptions = Pick<RouteConfigEntry, "id" | "index" | "caseSensitive">;
+
+type RouteConfigRouteHelper = {
+  (routePath: string | null | undefined, file: string, children?: RouteConfigEntry[]): RouteConfigEntry;
+  (
+    routePath: string | null | undefined,
+    file: string,
+    options: RouteConfigRouteOptions,
+    children?: RouteConfigEntry[],
+  ): RouteConfigEntry;
+};
+
+function toRouteConfigId(route: WebHostRouteRecord) {
+  return [
+    route.contextName,
+    route.section,
+    route.routeId,
+  ].filter(Boolean).join("/");
+}
+
 function toRouteSourceFile(contextName: string, fileExport: string) {
   return `../../../bounded-contexts/${contextName}/${fileExport.replace(/^\.\//, "")}.tsx`;
 }
@@ -34,13 +55,15 @@ export function resolveWebHostRouteConfigRecords(
 export function toRouteConfigEntry(
   route: HostRouteConfigRecord,
   helpers: Readonly<{
-    index: (file: string) => RouteConfigEntry;
-    route: (routePath: string, file: string) => RouteConfigEntry;
+    index: (file: string, options?: RouteConfigIndexOptions) => RouteConfigEntry;
+    route: RouteConfigRouteHelper;
   }>,
 ): RouteConfigEntry {
+  const id = toRouteConfigId(route);
+
   if (route.routeType === "index") {
-    return helpers.index(route.file);
+    return helpers.index(route.file, { id });
   }
 
-  return helpers.route(route.routePath, route.file);
+  return helpers.route(route.routePath, route.file, { id });
 }

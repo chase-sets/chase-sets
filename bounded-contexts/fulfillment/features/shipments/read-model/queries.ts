@@ -28,7 +28,21 @@ export type FulfillmentShipmentListRow = Readonly<{
   shipping_method: string | null;
   carrier_name: string | null;
   label_reference: string | null;
+  label_document_url: string | null;
   tracking_identifier: string | null;
+  postage_provider_name: string | null;
+  postage_provider_mode: string | null;
+  postage_provider_shipment_id: string | null;
+  postage_provider_label_id: string | null;
+  postage_rate_id: string | null;
+  postage_service_level: string | null;
+  postage_amount_cents: number | null;
+  postage_currency: string | null;
+  label_status: string;
+  label_error_code: string | null;
+  label_error_message: string | null;
+  label_refund_status: string | null;
+  label_refund_reference: string | null;
   status: string;
   package_status: string;
   package_count: number | null;
@@ -38,6 +52,7 @@ export type FulfillmentShipmentListRow = Readonly<{
   updated_at: string;
   package_prepared_at: string | null;
   label_attached_at: string | null;
+  label_voided_at: string | null;
   dispatched_at: string | null;
   delivered_at: string | null;
   returned_at: string | null;
@@ -66,7 +81,21 @@ const baseShipmentSelect = `
     page.shipping_method,
     page.carrier_name,
     page.label_reference,
+    page.label_document_url,
     page.tracking_identifier,
+    page.postage_provider_name,
+    page.postage_provider_mode,
+    page.postage_provider_shipment_id,
+    page.postage_provider_label_id,
+    page.postage_rate_id,
+    page.postage_service_level,
+    page.postage_amount_cents,
+    page.postage_currency,
+    page.label_status,
+    page.label_error_code,
+    page.label_error_message,
+    page.label_refund_status,
+    page.label_refund_reference,
     page.status,
     page.package_status,
     page.package_count,
@@ -76,6 +105,7 @@ const baseShipmentSelect = `
     page.updated_at,
     page.package_prepared_at,
     page.label_attached_at,
+    page.label_voided_at,
     page.dispatched_at,
     page.delivered_at,
     page.returned_at,

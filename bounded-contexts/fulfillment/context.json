@@ -85,7 +85,13 @@
       "requiredDuringBootstrap": true
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "postageLabelProvider",
+      "providedBy": "platform-api",
+      "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."
+    }
+  ],
   "apiDeployables": [
     "platform-api"
   ],
@@ -114,6 +120,20 @@
           "fileExport": "./routes/marketplace/account-shipments",
           "routeType": "route",
           "sourceContext": "fulfillment"
+        },
+        {
+          "routeId": "account-sale-shipment",
+          "routePath": "account/sales/shipments/:shipmentId",
+          "fileExport": "./routes/marketplace/account-sale-shipment",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        },
+        {
+          "routeId": "account-sale-shipments",
+          "routePath": "account/sales/shipments",
+          "fileExport": "./routes/marketplace/account-sale-shipments",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
         }
       ]
     }
@@ -140,6 +160,32 @@
       "icon": "package",
       "href": "/account/shipments",
       "order": 150,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "fulfillment.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "sale-shipments",
+      "label": "Sale shipments",
+      "icon": "truck",
+      "href": "/account/sales/shipments",
+      "order": 155,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "fulfillment.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "sale-shipments",
+      "label": "Sale shipments",
+      "icon": "truck",
+      "href": "/account/sales/shipments",
+      "order": 155,
       "visibility": "signed-in",
       "requiredPermissions": [
         "fulfillment.view"

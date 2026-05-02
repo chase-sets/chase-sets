@@ -12,6 +12,11 @@ export const action = marketplaceAuthHost.createRegisterAction();
 
 export default function MarketplaceRegisterRoute() {
   const actionData = useActionData<typeof action>();
-  return <RegisterPage errorMessage={actionData?.error ?? null} />;
+  return (
+    <RegisterPage
+      errorMessage={actionData && "error" in actionData ? actionData.error : null}
+      notice={actionData && "status" in actionData ? actionData : null}
+    />
+  );
 }
 

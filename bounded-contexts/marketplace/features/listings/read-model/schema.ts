@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   item_subtitle text NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
+  graded_card jsonb NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount numeric(12,2) NOT NULL,

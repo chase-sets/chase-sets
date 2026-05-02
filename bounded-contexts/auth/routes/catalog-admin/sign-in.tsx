@@ -12,6 +12,11 @@ export const action = catalogAdminAuthHost.createSignInAction();
 
 export default function CatalogAdminSignInRoute() {
   const actionData = useActionData<typeof action>();
-  return <SignInPage errorMessage={actionData?.error ?? null} />;
+  return (
+    <SignInPage
+      errorMessage={actionData && "error" in actionData ? actionData.error : null}
+      notice={actionData && "status" in actionData ? actionData : null}
+    />
+  );
 }
 

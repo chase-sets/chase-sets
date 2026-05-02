@@ -3,6 +3,7 @@ import { uniqueStrings } from "../../../support/item-support/unique-strings";
 
 export type DiscoveryItemDetailRow = Readonly<{
   catalog_item_id: string;
+  slug: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -21,6 +22,8 @@ export type DiscoveryItemDetailRow = Readonly<{
   }> | null;
   market_listings: readonly Readonly<{
     listing_id: string;
+    listing_slug: string;
+    product_slug: string;
     account_id: string;
     inventory_item_id: string;
     catalog_catalog_item_id: string;
@@ -70,7 +73,7 @@ function asArray<T>(value: unknown): T[] {
 }
 
 function normalizeCategoryRefs(value: unknown) {
-  const categoryMap = new Map<string, { categoryId: string; name: string }>();
+  const categoryMap = new Map<string, { categoryId: string; slug: string; name: string }>();
 
   for (const entry of asArray<unknown>(value)) {
     if (!entry || typeof entry !== "object") {
@@ -85,6 +88,7 @@ function normalizeCategoryRefs(value: unknown) {
 
     categoryMap.set(categoryId, {
       categoryId,
+      slug: String((entry as { slug?: unknown }).slug ?? categoryId),
       name: String((entry as { name?: unknown }).name ?? categoryId),
     });
   }
@@ -100,11 +104,23 @@ function normalizeStringArray(value: unknown) {
 
 export async function getDiscoveryItemDetail(
   db: PgQueryable,
-  itemId: string,
+  itemIdOrSlug: string,
 ): Promise<DiscoveryItemDetailRow | null> {
   const result = await db.query<BaseDiscoveryItemDetailRow>(
-    `SELECT * FROM discovery_item_detail_pages WHERE catalog_item_id = $1`,
-    [itemId],
+    `SELECT page.*
+     FROM discovery_item_detail_pages AS page
+     LEFT JOIN discovery_slug_redirects AS redirect
+       ON redirect.entity_kind = 'item'
+      AND redirect.slug = $1
+     WHERE page.catalog_item_id = $1
+        OR page.slug = $1
+        OR page.catalog_item_id = redirect.entity_id
+        OR page.slug = redirect.target_slug
+     ORDER BY
+       (page.slug = $1) DESC,
+       (page.catalog_item_id = $1) DESC
+     LIMIT 1`,
+    [itemIdOrSlug],
   );
 
   const item = result.rows[0] ?? null;
@@ -124,7 +140,7 @@ export async function getDiscoveryItemDetail(
      FROM discovery_market_listings
      WHERE catalog_catalog_item_id = $1
        AND status = 'active'`,
-    [itemId],
+    [item.catalog_item_id],
   );
 
   const listingsResult = await db.query<
@@ -142,7 +158,7 @@ export async function getDiscoveryItemDetail(
      WHERE listing.catalog_catalog_item_id = $1
        AND listing.status = 'active'
      ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
-    [itemId],
+    [item.catalog_item_id],
   );
 
   const offersResult = await db.query<
@@ -164,7 +180,7 @@ export async function getDiscoveryItemDetail(
        offer.quantity_requested DESC,
        offer.created_at ASC,
        offer.offer_id ASC`,
-    [itemId],
+    [item.catalog_item_id],
   );
 
   const summaryRow = summaryResult.rows[0];

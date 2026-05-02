@@ -108,6 +108,7 @@ describe("marketplace SSR routes", () => {
           new Response(
             JSON.stringify({
               catalog_item_id: "item-1",
+              slug: "charizard-ex-item-1",
               title: "Charizard ex",
               subtitle: "Illustration Rare",
               description: "Server rendered detail page.",
@@ -133,8 +134,8 @@ describe("marketplace SSR routes", () => {
     );
 
     const result = await itemLoader({
-      request: new Request("http://localhost/items/item-1"),
-      params: { id: "item-1" },
+      request: new Request("http://localhost/items/charizard-ex-item-1"),
+      params: { id: "charizard-ex-item-1" },
       context: undefined,
     } as never);
 
@@ -253,7 +254,7 @@ describe("marketplace SSR routes", () => {
 
     expect(devtools.status).toBe(204);
     expect(devtools.headers.get("Cache-Control")).toBe("no-store");
-    const sitemap = sitemapLoader({
+    const sitemap = await sitemapLoader({
       request: new Request("https://marketplace.example/sitemap.xml"),
       params: {},
       context: undefined,

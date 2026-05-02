@@ -1,5 +1,9 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  createMarketplaceSlug,
+  rememberSlugRedirect,
+} from "../runtime-support/slugs";
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
 
@@ -20,36 +24,53 @@ export function buildDiscoveryMarketProjectionHandlers(
         accountId: string;
         displayName: string;
       };
+      const sellerSlug = createMarketplaceSlug([displayName], accountId);
 
       await db.query(
         `INSERT INTO discovery_market_accounts (
           account_id,
+          seller_slug,
           seller_display_name,
           status,
           updated_at
-        ) VALUES ($1, $2, 'active', $3)
+        ) VALUES ($1, $2, $3, 'active', $4)
         ON CONFLICT (account_id) DO UPDATE SET
+          seller_slug = EXCLUDED.seller_slug,
           seller_display_name = EXCLUDED.seller_display_name,
           status = EXCLUDED.status,
           updated_at = EXCLUDED.updated_at`,
-        [accountId, displayName, event.timing.recordedAt],
+        [accountId, sellerSlug, displayName, event.timing.recordedAt],
       );
     },
     "identity.account.profile-updated": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
       const { displayName } = event.data as { displayName: string };
+      const sellerSlug = createMarketplaceSlug([displayName], accountId);
+      const current = await db.query<{ seller_slug: string | null }>(
+        `SELECT seller_slug FROM discovery_market_accounts WHERE account_id = $1`,
+        [accountId],
+      );
 
       await db.query(
         `INSERT INTO discovery_market_accounts (
           account_id,
+          seller_slug,
           seller_display_name,
           updated_at
-        ) VALUES ($1, $2, $3)
+        ) VALUES ($1, $2, $3, $4)
         ON CONFLICT (account_id) DO UPDATE SET
+          seller_slug = EXCLUDED.seller_slug,
           seller_display_name = EXCLUDED.seller_display_name,
           updated_at = EXCLUDED.updated_at`,
-        [accountId, displayName, event.timing.recordedAt],
+        [accountId, sellerSlug, displayName, event.timing.recordedAt],
       );
+      await rememberSlugRedirect(db, {
+        entityKind: "seller",
+        entityId: accountId,
+        previousSlug: current.rows[0]?.seller_slug,
+        nextSlug: sellerSlug,
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "identity.account.suspended": async (event) => {
       await db.query(
@@ -94,10 +115,29 @@ export function buildDiscoveryMarketProjectionHandlers(
         priceAmount: string;
         quantityCap: number;
       };
+      const listingSlug = createMarketplaceSlug(
+        [data.itemTitle, data.itemSubtitle, data.productSummary],
+        data.listingId,
+      );
+      const productSlug = createMarketplaceSlug(
+        [data.itemTitle, data.itemSubtitle, data.productSummary],
+        data.productId,
+      );
+      const current = await db.query<{
+        listing_slug: string | null;
+        product_slug: string | null;
+      }>(
+        `SELECT listing_slug, product_slug
+         FROM discovery_market_listings
+         WHERE listing_id = $1`,
+        [data.listingId],
+      );
 
       await db.query(
         `INSERT INTO discovery_market_listings (
           listing_id,
+          listing_slug,
+          product_slug,
           account_id,
           inventory_item_id,
           catalog_catalog_item_id,
@@ -114,9 +154,11 @@ export function buildDiscoveryMarketProjectionHandlers(
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'draft', $14, $14
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'draft', $16, $16
         )
         ON CONFLICT (listing_id) DO UPDATE SET
+          listing_slug = EXCLUDED.listing_slug,
+          product_slug = EXCLUDED.product_slug,
           account_id = EXCLUDED.account_id,
           inventory_item_id = EXCLUDED.inventory_item_id,
           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
@@ -132,6 +174,8 @@ export function buildDiscoveryMarketProjectionHandlers(
           updated_at = EXCLUDED.updated_at`,
         [
           data.listingId,
+          listingSlug,
+          productSlug,
           data.accountId,
           data.inventoryItemId,
           data.catalogItemId,
@@ -147,6 +191,20 @@ export function buildDiscoveryMarketProjectionHandlers(
           event.timing.recordedAt,
         ],
       );
+      await rememberSlugRedirect(db, {
+        entityKind: "listing",
+        entityId: data.listingId,
+        previousSlug: current.rows[0]?.listing_slug,
+        nextSlug: listingSlug,
+        updatedAt: event.timing.recordedAt,
+      });
+      await rememberSlugRedirect(db, {
+        entityKind: "product",
+        entityId: data.productId,
+        previousSlug: current.rows[0]?.product_slug,
+        nextSlug: productSlug,
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "marketplace.listing.price-updated": async (event) => {
       await db.query(

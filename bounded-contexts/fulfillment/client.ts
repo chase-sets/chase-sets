@@ -119,6 +119,24 @@ export function createFulfillmentApiClient({
         }),
       );
     },
+    async purchaseUspsLabel(shipmentId: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.account.sales.shipments[":id"].label.purchase.$post({
+          param: { id: shipmentId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async voidLabel(shipmentId: string) {
+      return parseJsonResponse(
+        await client.account.sales.shipments[":id"].label.void.$post({
+          param: { id: shipmentId },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
     async dispatchShipment(shipmentId: string) {
       return parseJsonResponse(
         await client.account.sales.shipments[":id"].dispatch.$post({

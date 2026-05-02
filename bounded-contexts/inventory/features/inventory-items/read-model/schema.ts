@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  graded_card jsonb NULL,
   storage_location_id text NOT NULL REFERENCES inventory_storage_locations(storage_location_id),
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
   last_stream_version bigint NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0),

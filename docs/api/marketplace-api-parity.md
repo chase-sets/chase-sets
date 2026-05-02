@@ -84,9 +84,9 @@ This inventory covers `marketplace-web` buyer and seller actions. Deployables re
 | View wallet entries | `GET /api/settlement/wallet/entries` | Settlement | `payouts.view` |
 | View payout readiness | `GET /api/settlement/payout-readiness` | Settlement | `payouts.view` |
 | View payout setup progress | `GET /api/settlement/payout-setup/progress` | Settlement | `payouts.view` |
-| Start payout onboarding | `POST /api/settlement/payout-setup/onboarding-session` | Settlement | `payouts.manage` |
-| Start payout account management | `POST /api/settlement/payout-setup/account-management-session` | Settlement | `payouts.manage` |
-| Refresh payout setup | `POST /api/settlement/payout-setup/refresh` | Settlement | `payouts.manage` |
+| Start payout onboarding | `POST /api/settlement/payout-setup/onboarding-session` | Settlement | `payouts.setup` |
+| Start payout account management | `POST /api/settlement/payout-setup/account-management-session` | Settlement | `payouts.setup` |
+| Refresh payout setup | `POST /api/settlement/payout-setup/refresh` | Settlement | `payouts.setup` |
 | View payouts | `GET /api/settlement/payouts` | Settlement | `payouts.view` |
 | Preview payout | `POST /api/settlement/payouts/preview` | Settlement | `payouts.request` |
 | Request payout | `POST /api/settlement/payouts` | Settlement | `payouts.request` |

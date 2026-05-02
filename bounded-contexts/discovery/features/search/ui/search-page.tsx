@@ -103,7 +103,8 @@ export function SearchPage({
     (total, current) => total + current.item_count,
     0,
   );
-  const activeCategoryLabel = category || "All Categories";
+  const activeCategoryLabel =
+    categories.find((item) => item.slug === category)?.name ?? "All Categories";
   const hasFocusedResults =
     search.trim().length > 0 || Boolean(category) || sort !== "relevance" || page > 1;
 
@@ -112,7 +113,7 @@ export function SearchPage({
       filters={
         <MarketplaceFacetRail
           items={categories.map((item) => ({
-            id: item.name,
+            id: item.slug,
             label: item.name,
             count: item.item_count,
           }))}
@@ -147,10 +148,10 @@ export function SearchPage({
                   onSelect: () => onCategoryChange(""),
                 },
                 ...featuredCategories.map((item) => ({
-                  id: item.name,
+                  id: item.slug,
                   label: item.name,
-                  selected: category === item.name,
-                  onSelect: () => onCategoryChange(item.name),
+                  selected: category === item.slug,
+                  onSelect: () => onCategoryChange(item.slug),
                 })),
               ]}
               metrics={[
@@ -210,7 +211,7 @@ export function SearchPage({
                 return (
                   <Reveal key={item.catalog_item_id} preset="lift">
                     <MarketplaceProductCard
-                      href={`/items/${item.catalog_item_id}`}
+                      href={`/items/${item.slug}`}
                       title={item.title}
                       subtitle={item.subtitle ?? item.blueprint_name}
                       description={item.description}

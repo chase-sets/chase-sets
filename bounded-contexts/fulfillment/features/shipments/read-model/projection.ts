@@ -35,7 +35,21 @@ export function buildFulfillmentShipmentProjectionHandlers(
            shipping_method,
            carrier_name,
            label_reference,
+           label_document_url,
            tracking_identifier,
+           postage_provider_name,
+           postage_provider_mode,
+           postage_provider_shipment_id,
+           postage_provider_label_id,
+           postage_rate_id,
+           postage_service_level,
+           postage_amount_cents,
+           postage_currency,
+           label_status,
+           label_error_code,
+           label_error_message,
+           label_refund_status,
+           label_refund_reference,
            status,
            package_status,
            package_count,
@@ -45,12 +59,13 @@ export function buildFulfillmentShipmentProjectionHandlers(
            updated_at,
            package_prepared_at,
            label_attached_at,
+           label_voided_at,
            dispatched_at,
            delivered_at,
            returned_at,
            exception_raised_at
          ) VALUES (
-           $1, $2, $3, $4, $5, NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $6, $6, NULL, NULL, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $6, $6, NULL, NULL, NULL, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
@@ -128,7 +143,16 @@ export function buildFulfillmentShipmentProjectionHandlers(
         shippingMethod: string;
         carrierName: string;
         labelReference: string;
+        labelDocumentUrl: string | null;
         trackingIdentifier: string;
+        postageProviderName: string | null;
+        postageProviderMode: string | null;
+        postageProviderShipmentId: string | null;
+        postageProviderLabelId: string | null;
+        postageRateId: string | null;
+        postageServiceLevel: string | null;
+        postageAmountCents: number | null;
+        postageCurrency: string | null;
         attachedAt: string;
       };
 
@@ -138,17 +162,97 @@ export function buildFulfillmentShipmentProjectionHandlers(
              shipping_method = $2,
              carrier_name = $3,
              label_reference = $4,
-             tracking_identifier = $5,
-             label_attached_at = $6,
-             updated_at = $6
+             label_document_url = $5,
+             tracking_identifier = $6,
+             postage_provider_name = $7,
+             postage_provider_mode = $8,
+             postage_provider_shipment_id = $9,
+             postage_provider_label_id = $10,
+             postage_rate_id = $11,
+             postage_service_level = $12,
+             postage_amount_cents = $13,
+             postage_currency = $14,
+             label_status = 'purchased',
+             label_error_code = NULL,
+             label_error_message = NULL,
+             label_refund_status = NULL,
+             label_refund_reference = NULL,
+             label_attached_at = $15,
+             label_voided_at = NULL,
+             updated_at = $15
          WHERE shipment_id = $1`,
         [
           data.shipmentId,
           data.shippingMethod,
           data.carrierName,
           data.labelReference,
+          data.labelDocumentUrl,
           data.trackingIdentifier,
+          data.postageProviderName,
+          data.postageProviderMode,
+          data.postageProviderShipmentId,
+          data.postageProviderLabelId,
+          data.postageRateId,
+          data.postageServiceLevel,
+          data.postageAmountCents,
+          data.postageCurrency,
           data.attachedAt,
+        ],
+      );
+    },
+    "fulfillment.shipment.label-purchase-failed": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        postageProviderName: string;
+        postageProviderMode: string;
+        errorCode: string | null;
+        errorMessage: string;
+        failedAt: string;
+      };
+
+      await db.query(
+        `UPDATE fulfillment_shipment_pages
+         SET label_status = 'purchase-error',
+             postage_provider_name = $2,
+             postage_provider_mode = $3,
+             label_error_code = $4,
+             label_error_message = $5,
+             updated_at = $6
+         WHERE shipment_id = $1`,
+        [
+          data.shipmentId,
+          data.postageProviderName,
+          data.postageProviderMode,
+          data.errorCode,
+          data.errorMessage,
+          data.failedAt,
+        ],
+      );
+    },
+    "fulfillment.shipment.label-voided": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        refundStatus: string;
+        refundReference: string | null;
+        voidedAt: string;
+      };
+      const labelStatus = data.refundStatus === "refunded" ? "voided" : "void-requested";
+
+      await db.query(
+        `UPDATE fulfillment_shipment_pages
+         SET status = 'awaiting-label',
+             label_status = $2,
+             label_refund_status = $3,
+             label_refund_reference = $4,
+             label_voided_at = $5,
+             updated_at = $5
+         WHERE shipment_id = $1`,
+        [
+          data.shipmentId,
+          labelStatus,
+          data.refundStatus,
+          data.refundReference,
+          data.voidedAt,
         ],
       );
     },

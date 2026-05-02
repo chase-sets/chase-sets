@@ -12,6 +12,11 @@ export const action = marketplaceAuthHost.createSignInAction();
 
 export default function MarketplaceSignInRoute() {
   const actionData = useActionData<typeof action>();
-  return <SignInPage errorMessage={actionData?.error ?? null} />;
+  return (
+    <SignInPage
+      errorMessage={actionData && "error" in actionData ? actionData.error : null}
+      notice={actionData && "status" in actionData ? actionData : null}
+    />
+  );
 }
 

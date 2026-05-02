@@ -261,9 +261,30 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "category",
+          "routePath": "categories/:categorySlug",
+          "fileExport": "./routes/search",
+          "routeType": "route",
+          "sourceContext": "discovery"
+        },
+        {
           "routeId": "item-detail",
           "routePath": "items/:id",
           "fileExport": "./routes/item-detail",
+          "routeType": "route",
+          "sourceContext": "discovery"
+        },
+        {
+          "routeId": "public-listing",
+          "routePath": "listings/:listingSlug",
+          "fileExport": "./routes/public-listing",
+          "routeType": "route",
+          "sourceContext": "discovery"
+        },
+        {
+          "routeId": "public-seller",
+          "routePath": "sellers/:sellerSlug",
+          "fileExport": "./routes/public-seller",
           "routeType": "route",
           "sourceContext": "discovery"
         },

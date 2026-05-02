@@ -176,27 +176,27 @@ type RouteFiles = {
     page: "/";
   };
   "../../../bounded-contexts/auth/routes/catalog-admin/account-select.tsx": {
-    id: "../../../bounded-contexts/auth/routes/catalog-admin/account-select";
+    id: "auth/catalog/account-select";
     page: "/catalog/account-select";
   };
   "../../../bounded-contexts/auth/routes/catalog-admin/sign-in.tsx": {
-    id: "../../../bounded-contexts/auth/routes/catalog-admin/sign-in";
+    id: "auth/catalog/sign-in";
     page: "/catalog/sign-in";
   };
   "../../../bounded-contexts/auth/routes/catalog-admin/sign-out.tsx": {
-    id: "../../../bounded-contexts/auth/routes/catalog-admin/sign-out";
+    id: "auth/catalog/sign-out";
     page: "/catalog/sign-out";
   };
   "../../../bounded-contexts/auth/routes/identity-admin/account-select.tsx": {
-    id: "../../../bounded-contexts/auth/routes/identity-admin/account-select";
+    id: "auth/identity/account-select";
     page: "/identity/account-select";
   };
   "../../../bounded-contexts/auth/routes/identity-admin/sign-in.tsx": {
-    id: "../../../bounded-contexts/auth/routes/identity-admin/sign-in";
+    id: "auth/identity/sign-in";
     page: "/identity/sign-in";
   };
   "../../../bounded-contexts/auth/routes/identity-admin/sign-out.tsx": {
-    id: "../../../bounded-contexts/auth/routes/identity-admin/sign-out";
+    id: "auth/identity/sign-out";
     page: "/identity/sign-out";
   };
   "routes/catalog-layout.tsx": {
@@ -208,51 +208,51 @@ type RouteFiles = {
     page: "/catalog";
   };
   "../../../bounded-contexts/catalog/routes/admin/blueprints.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/blueprints";
+    id: "catalog/catalog/blueprints";
     page: "/catalog/blueprints";
   };
   "../../../bounded-contexts/catalog/routes/admin/blueprints-detail.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/blueprints-detail";
+    id: "catalog/catalog/blueprints-detail";
     page: "/catalog/blueprints/:id";
   };
   "../../../bounded-contexts/catalog/routes/admin/catalog-items.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/catalog-items";
+    id: "catalog/catalog/catalog-items";
     page: "/catalog/catalog-items";
   };
   "../../../bounded-contexts/catalog/routes/admin/catalog-items-detail.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/catalog-items-detail";
+    id: "catalog/catalog/catalog-items-detail";
     page: "/catalog/catalog-items/:id";
   };
   "../../../bounded-contexts/catalog/routes/admin/categories.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/categories";
+    id: "catalog/catalog/categories";
     page: "/catalog/categories";
   };
   "../../../bounded-contexts/catalog/routes/admin/categories-detail.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/categories-detail";
+    id: "catalog/catalog/categories-detail";
     page: "/catalog/categories/:id";
   };
   "../../../bounded-contexts/catalog/routes/admin/components.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/components";
+    id: "catalog/catalog/components";
     page: "/catalog/components";
   };
   "../../../bounded-contexts/catalog/routes/admin/components-detail.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/components-detail";
+    id: "catalog/catalog/components-detail";
     page: "/catalog/components/:id";
   };
   "../../../bounded-contexts/catalog/routes/admin/dimensions.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/dimensions";
+    id: "catalog/catalog/dimensions";
     page: "/catalog/dimensions";
   };
   "../../../bounded-contexts/catalog/routes/admin/dimensions-detail.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/dimensions-detail";
+    id: "catalog/catalog/dimensions-detail";
     page: "/catalog/dimensions/:id";
   };
   "../../../bounded-contexts/catalog/routes/admin/fields.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/fields";
+    id: "catalog/catalog/fields";
     page: "/catalog/fields";
   };
   "../../../bounded-contexts/catalog/routes/admin/fields-detail.tsx": {
-    id: "../../../bounded-contexts/catalog/routes/admin/fields-detail";
+    id: "catalog/catalog/fields-detail";
     page: "/catalog/fields/:id";
   };
   "routes/identity-layout.tsx": {
@@ -264,67 +264,67 @@ type RouteFiles = {
     page: "/identity";
   };
   "../../../bounded-contexts/auth/routes/identity-admin/sessions.tsx": {
-    id: "../../../bounded-contexts/auth/routes/identity-admin/sessions";
+    id: "auth/identity/sessions";
     page: "/identity/sessions";
   };
   "../../../bounded-contexts/auth/routes/identity-admin/sessions-detail.tsx": {
-    id: "../../../bounded-contexts/auth/routes/identity-admin/sessions-detail";
+    id: "auth/identity/sessions-detail";
     page: "/identity/sessions/:id";
   };
   "../../../bounded-contexts/commercial-terms/routes/admin/schedules.tsx": {
-    id: "../../../bounded-contexts/commercial-terms/routes/admin/schedules";
+    id: "commercial-terms/identity/commercial-terms-schedules";
     page: "/identity/commercial-terms/schedules";
   };
   "../../../bounded-contexts/commercial-terms/routes/admin/schedules-detail.tsx": {
-    id: "../../../bounded-contexts/commercial-terms/routes/admin/schedules-detail";
+    id: "commercial-terms/identity/commercial-terms-schedules-detail";
     page: "/identity/commercial-terms/schedules/:id";
   };
   "../../../bounded-contexts/commercial-terms/routes/admin/agreements.tsx": {
-    id: "../../../bounded-contexts/commercial-terms/routes/admin/agreements";
+    id: "commercial-terms/identity/commercial-terms-agreements";
     page: "/identity/commercial-terms/agreements";
   };
   "../../../bounded-contexts/commercial-terms/routes/admin/agreements-detail.tsx": {
-    id: "../../../bounded-contexts/commercial-terms/routes/admin/agreements-detail";
+    id: "commercial-terms/identity/commercial-terms-agreements-detail";
     page: "/identity/commercial-terms/agreements/:id";
   };
   "../../../bounded-contexts/identity/routes/admin/accounts.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/accounts";
+    id: "identity/identity/accounts";
     page: "/identity/accounts";
   };
   "../../../bounded-contexts/identity/routes/admin/accounts-detail.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/accounts-detail";
+    id: "identity/identity/accounts-detail";
     page: "/identity/accounts/:id";
   };
   "../../../bounded-contexts/identity/routes/admin/api-keys.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/api-keys";
+    id: "identity/identity/api-keys";
     page: "/identity/api-keys";
   };
   "../../../bounded-contexts/identity/routes/admin/api-keys-detail.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/api-keys-detail";
+    id: "identity/identity/api-keys-detail";
     page: "/identity/api-keys/:id";
   };
   "../../../bounded-contexts/identity/routes/admin/invitations.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/invitations";
+    id: "identity/identity/invitations";
     page: "/identity/invitations";
   };
   "../../../bounded-contexts/identity/routes/admin/invitations-detail.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/invitations-detail";
+    id: "identity/identity/invitations-detail";
     page: "/identity/invitations/:id";
   };
   "../../../bounded-contexts/identity/routes/admin/memberships.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/memberships";
+    id: "identity/identity/memberships";
     page: "/identity/memberships";
   };
   "../../../bounded-contexts/identity/routes/admin/memberships-detail.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/memberships-detail";
+    id: "identity/identity/memberships-detail";
     page: "/identity/memberships/:id";
   };
   "../../../bounded-contexts/identity/routes/admin/users.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/users";
+    id: "identity/identity/users";
     page: "/identity/users";
   };
   "../../../bounded-contexts/identity/routes/admin/users-detail.tsx": {
-    id: "../../../bounded-contexts/identity/routes/admin/users-detail";
+    id: "identity/identity/users-detail";
     page: "/identity/users/:id";
   };
 };
@@ -334,42 +334,42 @@ type RouteModules = {
   "routes/favicon-svg": typeof import("./app/routes/favicon-svg.ts");
   "routes/favicon": typeof import("./app/routes/favicon.ts");
   "routes/index": typeof import("./app/routes/index.tsx");
-  "../../../bounded-contexts/auth/routes/catalog-admin/account-select": unknown;
-  "../../../bounded-contexts/auth/routes/catalog-admin/sign-in": unknown;
-  "../../../bounded-contexts/auth/routes/catalog-admin/sign-out": unknown;
-  "../../../bounded-contexts/auth/routes/identity-admin/account-select": unknown;
-  "../../../bounded-contexts/auth/routes/identity-admin/sign-in": unknown;
-  "../../../bounded-contexts/auth/routes/identity-admin/sign-out": unknown;
+  "auth/catalog/account-select": unknown;
+  "auth/catalog/sign-in": unknown;
+  "auth/catalog/sign-out": unknown;
+  "auth/identity/account-select": unknown;
+  "auth/identity/sign-in": unknown;
+  "auth/identity/sign-out": unknown;
   "routes/catalog-layout": typeof import("./app/routes/catalog-layout.tsx");
   "routes/catalog-home": typeof import("./app/routes/catalog-home.tsx");
-  "../../../bounded-contexts/catalog/routes/admin/blueprints": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/blueprints-detail": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/catalog-items": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/catalog-items-detail": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/categories": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/categories-detail": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/components": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/components-detail": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/dimensions": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/dimensions-detail": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/fields": unknown;
-  "../../../bounded-contexts/catalog/routes/admin/fields-detail": unknown;
+  "catalog/catalog/blueprints": unknown;
+  "catalog/catalog/blueprints-detail": unknown;
+  "catalog/catalog/catalog-items": unknown;
+  "catalog/catalog/catalog-items-detail": unknown;
+  "catalog/catalog/categories": unknown;
+  "catalog/catalog/categories-detail": unknown;
+  "catalog/catalog/components": unknown;
+  "catalog/catalog/components-detail": unknown;
+  "catalog/catalog/dimensions": unknown;
+  "catalog/catalog/dimensions-detail": unknown;
+  "catalog/catalog/fields": unknown;
+  "catalog/catalog/fields-detail": unknown;
   "routes/identity-layout": typeof import("./app/routes/identity-layout.tsx");
   "routes/identity-home": typeof import("./app/routes/identity-home.tsx");
-  "../../../bounded-contexts/auth/routes/identity-admin/sessions": unknown;
-  "../../../bounded-contexts/auth/routes/identity-admin/sessions-detail": unknown;
-  "../../../bounded-contexts/commercial-terms/routes/admin/schedules": unknown;
-  "../../../bounded-contexts/commercial-terms/routes/admin/schedules-detail": unknown;
-  "../../../bounded-contexts/commercial-terms/routes/admin/agreements": unknown;
-  "../../../bounded-contexts/commercial-terms/routes/admin/agreements-detail": unknown;
-  "../../../bounded-contexts/identity/routes/admin/accounts": unknown;
-  "../../../bounded-contexts/identity/routes/admin/accounts-detail": unknown;
-  "../../../bounded-contexts/identity/routes/admin/api-keys": unknown;
-  "../../../bounded-contexts/identity/routes/admin/api-keys-detail": unknown;
-  "../../../bounded-contexts/identity/routes/admin/invitations": unknown;
-  "../../../bounded-contexts/identity/routes/admin/invitations-detail": unknown;
-  "../../../bounded-contexts/identity/routes/admin/memberships": unknown;
-  "../../../bounded-contexts/identity/routes/admin/memberships-detail": unknown;
-  "../../../bounded-contexts/identity/routes/admin/users": unknown;
-  "../../../bounded-contexts/identity/routes/admin/users-detail": unknown;
+  "auth/identity/sessions": unknown;
+  "auth/identity/sessions-detail": unknown;
+  "commercial-terms/identity/commercial-terms-schedules": unknown;
+  "commercial-terms/identity/commercial-terms-schedules-detail": unknown;
+  "commercial-terms/identity/commercial-terms-agreements": unknown;
+  "commercial-terms/identity/commercial-terms-agreements-detail": unknown;
+  "identity/identity/accounts": unknown;
+  "identity/identity/accounts-detail": unknown;
+  "identity/identity/api-keys": unknown;
+  "identity/identity/api-keys-detail": unknown;
+  "identity/identity/invitations": unknown;
+  "identity/identity/invitations-detail": unknown;
+  "identity/identity/memberships": unknown;
+  "identity/identity/memberships-detail": unknown;
+  "identity/identity/users": unknown;
+  "identity/identity/users-detail": unknown;
 };

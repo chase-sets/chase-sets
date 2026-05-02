@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildPlatformApiApp } from "../src/app";
+import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, "../../..");
@@ -14,6 +16,13 @@ type OpenApiDocument = Readonly<{
     schemas?: Record<string, unknown>;
   };
 }>;
+
+type HonoRoute = Readonly<{
+  method: string;
+  path: string;
+}>;
+
+type RouteInventoryRuntime = Parameters<typeof buildPlatformApiApp>[0];
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
@@ -38,6 +47,84 @@ function readOpenApiEndpointKeys(openApi: OpenApiDocument): readonly string[] {
       )
       .map((method) => `${method} ${path}`),
   );
+}
+
+function normalizeRoutePattern(path: string): string {
+  const normalized =
+    path
+      .replace(/\/:([^/]+)/g, "/{}")
+      .replace(/{[^/}]+}/g, "{}")
+      .replace(/\/+$/g, "") || "/";
+
+  return normalized;
+}
+
+function normalizeEndpointKey(endpointKey: string): string {
+  const [method, path] = endpointKey.split(" ");
+
+  return `${method} ${normalizeRoutePattern(path)}`;
+}
+
+function createServiceProxy(): unknown {
+  const target = () => createServiceProxy();
+
+  return new Proxy(target, {
+    get(_target, property) {
+      if (property === "then") {
+        return undefined;
+      }
+
+      return createServiceProxy();
+    },
+    has() {
+      return true;
+    },
+    apply() {
+      return createServiceProxy();
+    },
+  });
+}
+
+function createRouteInventoryRuntime(): RouteInventoryRuntime {
+  const mountedContexts = apiContextRegistry
+    .filter((entry) => entry.manifest.apiDeployables?.includes("platform-api"))
+    .map((entry) => ({
+      contextName: entry.contextName,
+      mountRole: "active" as const,
+      module: entry.module,
+      services: createServiceProxy(),
+      pool: createServiceProxy(),
+      projectors: [],
+    }));
+  const services = Object.fromEntries(
+    mountedContexts.map((entry) => [entry.contextName, entry.services]),
+  );
+
+  return {
+    mountedContexts,
+    mountedModules: mountedContexts.map((entry) => ({
+      module: entry.module,
+      services: entry.services,
+    })),
+    services,
+    projectors: [],
+    projectionGroups: [],
+    subscriptionRunners: [],
+  } as RouteInventoryRuntime;
+}
+
+function readMountedPlatformApiEndpointKeys(): readonly string[] {
+  const app = buildPlatformApiApp(createRouteInventoryRuntime());
+  const routes = (app as unknown as { routes?: readonly HonoRoute[] }).routes ?? [];
+  const supportedMethods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+
+  return routes
+    .filter((route) => supportedMethods.has(route.method.toUpperCase()))
+    .filter((route) => route.path.startsWith("/api/"))
+    .map(
+      (route) =>
+        `${route.method.toLowerCase()} ${normalizeRoutePattern(route.path)}`,
+    );
 }
 
 function readMarketplaceWebApiMounts(): readonly string[] {
@@ -93,6 +180,18 @@ describe("marketplace OpenAPI parity", () => {
     expect(parityEndpoints.length).toBeGreaterThan(70);
     expect(
       parityEndpoints.filter((endpoint) => !openApiEndpoints.has(endpoint)),
+    ).toEqual([]);
+  });
+
+  it("keeps documented marketplace endpoints mounted by platform-api", () => {
+    const openApi = readJson<OpenApiDocument>(openApiPath);
+    const mountedEndpoints = new Set(readMountedPlatformApiEndpointKeys());
+    const documentedEndpoints = readOpenApiEndpointKeys(openApi).map(
+      normalizeEndpointKey,
+    );
+
+    expect(
+      documentedEndpoints.filter((endpoint) => !mountedEndpoints.has(endpoint)),
     ).toEqual([]);
   });
 

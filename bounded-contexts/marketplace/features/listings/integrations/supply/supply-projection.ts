@@ -646,6 +646,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
         catalogItemId: string;
         productId: string;
         selectedOptions: unknown;
+        gradedCard: unknown;
         storageLocationId: string;
         totalQuantity: number;
         acquisitionCostAmount: string | null;
@@ -658,17 +659,19 @@ export function buildMarketplaceInventoryProjectionHandlers(
            catalog_catalog_item_id,
            product_id,
            selected_options,
+           graded_card,
            storage_location_id,
            total_quantity,
            acquisition_cost_amount,
            last_stream_version,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (item_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
            catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
            product_id = EXCLUDED.product_id,
            selected_options = EXCLUDED.selected_options,
+           graded_card = EXCLUDED.graded_card,
            storage_location_id = EXCLUDED.storage_location_id,
            total_quantity = EXCLUDED.total_quantity,
            acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
@@ -681,6 +684,9 @@ export function buildMarketplaceInventoryProjectionHandlers(
           data.catalogItemId,
           data.productId,
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+          data.gradedCard === null || typeof data.gradedCard !== "object"
+            ? null
+            : JSON.stringify(data.gradedCard),
           data.storageLocationId,
           data.totalQuantity,
           data.acquisitionCostAmount,

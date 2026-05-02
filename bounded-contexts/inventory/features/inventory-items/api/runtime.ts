@@ -12,6 +12,7 @@ import type { InventoryCatalogItemServices } from "../integrations/catalog/runti
 import {
   createInventoryProductDescriptor,
   parseSelectedOptionsInput,
+  summarizeSelectedOptions,
   type InventorySelectedOptionEntry,
 } from "../integrations/catalog/versioning";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
@@ -21,6 +22,7 @@ import {
   decideInventoryItem,
   evolveInventoryItem,
   initialInventoryItemState,
+  type GradedCardDetails,
   type InventoryItemCommand,
   type InventoryItemEvent,
   type InventoryItemState,
@@ -39,6 +41,7 @@ export type InventoryItemServices = Readonly<{
       accountId: AccountId;
       catalogItemId: string;
       selectedOptions: readonly InventorySelectedOptionEntry[];
+      gradedCard?: GradedCardDetails | null;
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
@@ -114,6 +117,23 @@ export function createInventoryItemRuntime(
         productSchema: catalogItem.product_schema,
         selection: parseSelectedOptionsInput(params.selectedOptions),
       });
+      const productSummary = summarizeSelectedOptions(
+        catalogItem.product_schema,
+        catalogVersion.selection,
+      );
+      const isGradedCard = productSummary.includes("Form: Graded");
+
+      if (isGradedCard && !params.gradedCard) {
+        throw new InventoryDomainError(
+          "Graded inventory items require graded card details.",
+        );
+      }
+
+      if (!isGradedCard && params.gradedCard) {
+        throw new InventoryDomainError(
+          "Graded card details are only allowed for graded inventory items.",
+        );
+      }
 
       const itemId = createId("inv") as InventoryItemId;
       const result = await commandHandler({
@@ -125,6 +145,7 @@ export function createInventoryItemRuntime(
           catalogItemId: params.catalogItemId,
           productId: catalogVersion.productId,
           selectedOptions: catalogVersion.selection,
+          gradedCard: params.gradedCard ?? null,
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,

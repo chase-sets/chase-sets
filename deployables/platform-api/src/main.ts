@@ -8,6 +8,8 @@ import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processin
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
+import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
+import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import type { PaymentServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import { resolveActorFromRequest } from "./auth-request-context";
@@ -43,6 +45,14 @@ const settlementOperationsRecorder = {
     console.info(JSON.stringify({ type: "settlement.operation", ...event }));
   },
 };
+const postageLabelProvider =
+  config.postage.kind === "easypost"
+    ? createEasyPostPostageLabelProvider({
+        apiKey: config.postage.apiKey,
+        apiBaseUrl: config.postage.apiBaseUrl,
+        mode: config.postage.mode,
+      })
+    : createSandboxPostageLabelProvider();
 
 if (config.paymentProcessor.kind === "fake") {
   console.warn(
@@ -54,6 +64,11 @@ if (config.moneyMovement.kind === "fake") {
     "Platform API is using the fake money movement provider because Stripe Connect env vars are incomplete. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to enable Stripe Connect locally.",
   );
 }
+if (config.postage.kind === "sandbox") {
+  console.warn(
+    "Platform API is using the sandbox USPS postage provider. Set EASYPOST_API_KEY to enable EasyPost label purchase locally.",
+  );
+}
 console.info(JSON.stringify({ type: "stripe.go-live-checks", ...config.stripeGoLive }));
 
 const runtime = createPlatformApiHost({
@@ -62,6 +77,7 @@ const runtime = createPlatformApiHost({
     processorGateway: paymentProcessorGateway,
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
+    postageLabelProvider,
   },
 });
 const app = buildPlatformApiApp(runtime, {

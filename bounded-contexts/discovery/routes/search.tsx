@@ -1,5 +1,6 @@
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
+  redirect,
   useLoaderData,
   useNavigation,
   useSearchParams,
@@ -44,18 +45,47 @@ function buildSearchQuery({
   return params.toString();
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
+function buildCategoryPath(categorySlug: string, current: URLSearchParams) {
+  const next = new URLSearchParams(current);
+  next.delete("category");
+  next.delete("page");
+  const query = next.toString();
+
+  return `${categorySlug ? `/categories/${categorySlug}` : "/search"}${query ? `?${query}` : ""}`;
+}
+
+export async function loader({ request, params }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const search = url.searchParams.get("search") ?? "";
-  const category = url.searchParams.get("category") ?? "";
+  const categoryParam = params.categorySlug ?? url.searchParams.get("category") ?? "";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
   const api = createDiscoveryRequestApiClient(request);
 
-  const [data, categories] = await Promise.all([
-    api.searchItems(buildSearchQuery({ search, category, sort, page })),
+  const [categoryBySlug, categories] = await Promise.all([
+    categoryParam ? api.getCategoryBySlug(categoryParam).catch(() => null) : Promise.resolve(null),
     api.listCategories(),
   ]);
+  const resolvedCategory = categoryBySlug ?? categories.items.find(
+    (item) =>
+      item.name === categoryParam ||
+      item.key === categoryParam ||
+      item.category_id === categoryParam,
+  ) ?? null;
+  const category = resolvedCategory?.slug ?? categoryParam;
+
+  if (params.categorySlug && resolvedCategory && params.categorySlug !== resolvedCategory.slug) {
+    throw redirect(buildCategoryPath(resolvedCategory.slug, url.searchParams), { status: 301 });
+  }
+
+  if (!params.categorySlug && url.searchParams.has("category") && resolvedCategory) {
+    throw redirect(buildCategoryPath(resolvedCategory.slug, url.searchParams), { status: 301 });
+  }
+
+  const data = await api.searchItems(buildSearchQuery({ search, category, sort, page }));
+  const canonicalPath = params.categorySlug && resolvedCategory
+    ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
+    : buildCategoryPath("", url.searchParams);
 
   return {
     search,
@@ -64,16 +94,21 @@ export async function loader({ request }: LoaderFunctionArgs) {
     page,
     data,
     categories: categories.items,
+    canonicalUrl: new URL(canonicalPath, url.origin).toString(),
   };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ data }) =>
-  buildOpenGraphMeta({
+export const meta: MetaFunction<typeof loader> = ({ data }) => [
+  ...buildOpenGraphMeta({
     title: data?.search
       ? `Search "${data.search}" | Marketplace`
       : "Marketplace Search",
     description: MARKETPLACE_DESCRIPTION,
-  });
+  }),
+  ...(data?.canonicalUrl
+    ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }]
+    : []),
+];
 
 export default function DiscoverySearchRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_SEARCH_RESULT;
@@ -86,6 +121,13 @@ export default function DiscoverySearchRoute() {
     sort?: string;
     page?: number;
   }) {
+    if (nextValues.category !== undefined) {
+      if (typeof window !== "undefined") {
+        window.location.assign(buildCategoryPath(nextValues.category, searchParams));
+      }
+      return;
+    }
+
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
 
@@ -94,15 +136,6 @@ export default function DiscoverySearchRoute() {
           next.set("search", nextValues.search);
         } else {
           next.delete("search");
-        }
-        next.delete("page");
-      }
-
-      if (nextValues.category !== undefined) {
-        if (nextValues.category) {
-          next.set("category", nextValues.category);
-        } else {
-          next.delete("category");
         }
         next.delete("page");
       }

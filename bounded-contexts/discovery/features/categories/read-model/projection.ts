@@ -1,5 +1,9 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  createMarketplaceSlug,
+  rememberSlugRedirect,
+} from "../../../support/runtime-support/slugs";
 
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const ITEM_STREAM_PREFIX = "catalog.item-";
@@ -7,6 +11,7 @@ const ITEM_STREAM_PREFIX = "catalog.item-";
 type CategorySourceRow = Readonly<{
   category_id: string;
   key: string;
+  slug: string;
   name: string;
   description: string;
   status: string;
@@ -57,6 +62,7 @@ async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Pr
     `INSERT INTO discovery_categories (
       category_id,
       key,
+      slug,
       name,
       description,
       status,
@@ -65,9 +71,10 @@ async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Pr
       display_order,
       item_count,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT (category_id) DO UPDATE SET
       key = EXCLUDED.key,
+      slug = EXCLUDED.slug,
       name = EXCLUDED.name,
       description = EXCLUDED.description,
       status = EXCLUDED.status,
@@ -79,6 +86,7 @@ async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Pr
     [
       category.category_id,
       category.key,
+      category.slug,
       category.name,
       category.description,
       category.status,
@@ -135,20 +143,23 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
         parentCategoryId?: string;
         displayOrder: number;
       };
+      const slug = createMarketplaceSlug([name], categoryId);
 
       await db.query(
         `INSERT INTO discovery_category_catalog_categories (
           category_id,
           key,
+          slug,
           name,
           description,
           status,
           parent_category_id,
           display_order,
           updated_at
-        ) VALUES ($1, $2, $3, $4, 'draft', $5, $6, $7)
+        ) VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8)
         ON CONFLICT (category_id) DO UPDATE SET
           key = EXCLUDED.key,
+          slug = EXCLUDED.slug,
           name = EXCLUDED.name,
           description = EXCLUDED.description,
           parent_category_id = EXCLUDED.parent_category_id,
@@ -157,6 +168,7 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
         [
           categoryId,
           key,
+          slug,
           name,
           description ?? "",
           parentCategoryId ?? null,
@@ -176,19 +188,26 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
         parentCategoryId?: string;
         displayOrder: number;
       };
+      const slug = createMarketplaceSlug([name], categoryId);
+      const current = await db.query<{ slug: string | null }>(
+        `SELECT slug FROM discovery_category_catalog_categories WHERE category_id = $1`,
+        [categoryId],
+      );
 
       await db.query(
         `UPDATE discovery_category_catalog_categories
          SET key = $2,
-             name = $3,
-             description = $4,
-             parent_category_id = $5,
-             display_order = $6,
-             updated_at = $7
+             slug = $3,
+             name = $4,
+             description = $5,
+             parent_category_id = $6,
+             display_order = $7,
+             updated_at = $8
          WHERE category_id = $1`,
         [
           categoryId,
           key,
+          slug,
           name,
           description ?? "",
           parentCategoryId ?? null,
@@ -196,6 +215,13 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
           event.timing.recordedAt,
         ],
       );
+      await rememberSlugRedirect(db, {
+        entityKind: "category",
+        entityId: categoryId,
+        previousSlug: current.rows[0]?.slug,
+        nextSlug: slug,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoveryCategory(db, categoryId);
       await refreshChildCategories(db, categoryId);
@@ -320,4 +346,3 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
     },
   };
 }
-

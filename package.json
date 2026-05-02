@@ -29,7 +29,7 @@
         "coverage:db": "node ./scripts/run-workspaces.mjs test --test-profile=db -- --coverage --coverage.reporter=text",
         "build": "node ./scripts/run-workspaces.mjs build",
         "test:structure": "vitest run scripts/check-structure/account-capability-language.test.mjs",
-        "verify": "npm run sync:workspace-metadata && npm run check:structure && npm run check:ui-migration && npm run check:money-rollout && npm run test:structure && npm run typecheck && npm run test:fast && npm run build",
+        "verify": "npm run sync:workspace-metadata && npm run check:postage-adapters && npm run check:structure && npm run check:ui-migration && npm run check:money-rollout && npm run test:structure && npm run typecheck && npm run test:fast && npm run build",
         "verify:db": "npm run test:db",
         "verify:design-system-contracts": "npm run verify:source --workspace @chase-sets/app-design-system-showcase",
         "dev:platform-api": "npm run dev --workspace @chase-sets/app-platform-api",
@@ -41,6 +41,7 @@
         "check:structure": "node ./scripts/check-structure.mjs",
         "check:structure:ci": "STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT=violation npm run check:structure",
         "check:structure:budget": "node ./scripts/structure-metrics-budget.mjs",
+        "check:postage-adapters": "node ./scripts/check-postage-adapter-boundaries.mjs",
         "check:money-rollout": "node ./scripts/check-money-schema-rollout.mjs",
         "check:ui-migration": "node ./scripts/check-design-system-migration.mjs"
     },

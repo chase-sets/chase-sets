@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   LinkButton,
+  NativeSelect,
   NumberInput,
   Page,
   PageHeader,
@@ -32,6 +33,13 @@ function statusTone(status: string) {
 function canRaiseException(status: string) {
   return status !== "delivered" && status !== "returned";
 }
+
+const uspsServiceLevels = [
+  { value: "USPS_GROUND_ADVANTAGE", label: "USPS Ground Advantage" },
+  { value: "PRIORITY", label: "USPS Priority Mail" },
+  { value: "PRIORITY_EXPRESS", label: "USPS Priority Mail Express" },
+  { value: "MEDIA_MAIL", label: "USPS Media Mail" },
+];
 
 export function FulfillmentShipmentDetailPage({
   role,
@@ -74,8 +82,31 @@ export function FulfillmentShipmentDetailPage({
             <Badge tone={statusTone(shipment.status)}>{shipment.status}</Badge>
             <Text>Shipping option: {shipment.shipping_option}</Text>
             <Text>Shipping method: {shipment.shipping_method ?? "Not selected yet"}</Text>
+            <Text>Service level: {shipment.postage_service_level ?? "Not selected yet"}</Text>
             <Text>Carrier: {shipment.carrier_name ?? "Not selected yet"}</Text>
             <Text>Tracking: {shipment.tracking_identifier ?? "Not attached yet"}</Text>
+            <Text>Label status: {shipment.label_status}</Text>
+            <Text>Postage provider: {shipment.postage_provider_name ?? "Not selected yet"}</Text>
+            {shipment.postage_amount_cents != null ? (
+              <Text>
+                Postage: {(shipment.postage_amount_cents / 100).toFixed(2)}{" "}
+                {shipment.postage_currency ?? "USD"}
+              </Text>
+            ) : null}
+            {shipment.label_document_url ? (
+              <LinkButton href={shipment.label_document_url} tone="secondary">
+                Open label PDF
+              </LinkButton>
+            ) : null}
+            {shipment.label_error_message ? (
+              <Text tone="accent">{shipment.label_error_message}</Text>
+            ) : null}
+            {shipment.label_refund_status ? (
+              <Text>
+                Refund: {shipment.label_refund_status}
+                {shipment.label_refund_reference ? ` (${shipment.label_refund_reference})` : ""}
+              </Text>
+            ) : null}
             <Text>Package state: {shipment.package_status}</Text>
             <Text>Package count: {shipment.package_count ?? "Not recorded yet"}</Text>
           </Stack>
@@ -151,32 +182,75 @@ export function FulfillmentShipmentDetailPage({
               <Card>
                 <form method="post">
                   <Stack gap={3}>
-                    <TextInput
-                      label="Shipping method"
-                      name="shippingMethod"
+                    <NativeSelect
+                      label="USPS service"
+                      name="serviceLevel"
                       required
-                      defaultValue={shipment.shipping_method ?? "standard"}
+                      defaultValue={shipment.postage_service_level ?? "USPS_GROUND_ADVANTAGE"}
+                      items={uspsServiceLevels}
                     />
+                    <TextInput label="Sender name" name="senderName" required />
+                    <TextInput label="Sender company" name="senderCompany" />
+                    <TextInput label="Sender street" name="senderStreet1" required />
+                    <TextInput label="Sender street 2" name="senderStreet2" />
+                    <TextInput label="Sender city" name="senderCity" required />
+                    <TextInput label="Sender state" name="senderState" required />
+                    <TextInput label="Sender ZIP" name="senderPostalCode" required />
+                    <TextInput label="Sender country" name="senderCountry" required defaultValue="US" />
+                    <TextInput label="Sender phone" name="senderPhone" />
+                    <TextInput label="Sender email" name="senderEmail" type="email" />
                     <TextInput
-                      label="Carrier"
-                      name="carrierName"
+                      label="Recipient name"
+                      name="recipientName"
                       required
-                      defaultValue={shipment.carrier_name ?? "USPS"}
                     />
+                    <TextInput label="Recipient company" name="recipientCompany" />
                     <TextInput
-                      label="Label reference"
-                      name="labelReference"
+                      label="Recipient street"
+                      name="recipientStreet1"
                       required
-                      defaultValue={shipment.label_reference ?? ""}
                     />
-                    <TextInput
-                      label="Tracking identifier"
-                      name="trackingIdentifier"
+                    <TextInput label="Recipient street 2" name="recipientStreet2" />
+                    <TextInput label="Recipient city" name="recipientCity" required />
+                    <TextInput label="Recipient state" name="recipientState" required />
+                    <TextInput label="Recipient ZIP" name="recipientPostalCode" required />
+                    <TextInput label="Recipient country" name="recipientCountry" required defaultValue="US" />
+                    <TextInput label="Recipient phone" name="recipientPhone" />
+                    <TextInput label="Recipient email" name="recipientEmail" type="email" />
+                    <NumberInput
+                      label="Length (in)"
+                      name="packageLengthInches"
+                      min="0.1"
+                      step="0.1"
                       required
-                      defaultValue={shipment.tracking_identifier ?? ""}
+                      defaultValue="7"
                     />
-                    <Button type="submit" name="intent" value="attach-label">
-                      Attach label
+                    <NumberInput
+                      label="Width (in)"
+                      name="packageWidthInches"
+                      min="0.1"
+                      step="0.1"
+                      required
+                      defaultValue="5"
+                    />
+                    <NumberInput
+                      label="Height (in)"
+                      name="packageHeightInches"
+                      min="0.1"
+                      step="0.1"
+                      required
+                      defaultValue="1"
+                    />
+                    <NumberInput
+                      label="Weight (oz)"
+                      name="packageWeightOunces"
+                      min="0.1"
+                      step="0.1"
+                      required
+                      defaultValue="4"
+                    />
+                    <Button type="submit" name="intent" value="purchase-label">
+                      Purchase USPS label
                     </Button>
                   </Stack>
                 </form>
@@ -186,9 +260,20 @@ export function FulfillmentShipmentDetailPage({
             {shipment.status === "label-attached" ? (
               <Card>
                 <form method="post">
-                  <Button type="submit" name="intent" value="dispatch-shipment">
-                    Mark dispatched
-                  </Button>
+                  <Stack gap={3}>
+                    <Button type="submit" name="intent" value="dispatch-shipment">
+                      Mark dispatched
+                    </Button>
+                    <TextInput
+                      label="Tracking identifier"
+                      name="trackingIdentifier"
+                      readOnly
+                      defaultValue={shipment.tracking_identifier ?? ""}
+                    />
+                    <Button type="submit" name="intent" value="void-label" tone="secondary">
+                      Void label
+                    </Button>
+                  </Stack>
                 </form>
               </Card>
             ) : null}

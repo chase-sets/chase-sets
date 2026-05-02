@@ -11,6 +11,10 @@ import {
   resolveWebHostRouteRecords,
   type WebContextRegistry,
 } from "./web";
+import {
+  resolveWebHostRouteConfigRecords,
+  toRouteConfigEntry,
+} from "./web-route-config";
 
 function createModule(contextName: string) {
   return {
@@ -96,6 +100,27 @@ const webRegistry = [
     packageName: "@test/marketplace",
     manifest: {
       contextName: "marketplace",
+      deployableContributions: [
+        {
+          deployable: "marketplace-web",
+          routes: [
+            {
+              routeId: "category",
+              routePath: "categories/:categorySlug",
+              fileExport: "./routes/search",
+              routeType: "route",
+              sourceContext: "marketplace",
+            },
+            {
+              routeId: "search",
+              routePath: "search",
+              fileExport: "./routes/search",
+              routeType: "route",
+              sourceContext: "marketplace",
+            },
+          ],
+        },
+      ],
       shellContributions: [
         {
           deployable: "marketplace-web",
@@ -199,5 +224,28 @@ describe("platform host web registry", () => {
         permissions: [],
       }),
     ).toEqual([]);
+  });
+
+  it("keeps route config ids unique when routes share a module file", () => {
+    const routeConfig = resolveWebHostRouteConfigRecords(webRegistry, "marketplace-web")
+      .map((routeRecord) =>
+        toRouteConfigEntry(routeRecord, {
+          index: (file, options) => ({ file, index: true, ...options }),
+          route: (path, file, options) => ({ path, file, ...options }),
+        }),
+      );
+
+    expect(routeConfig).toEqual([
+      expect.objectContaining({
+        id: "marketplace/category",
+        path: "categories/:categorySlug",
+        file: "../../../bounded-contexts/marketplace/routes/search.tsx",
+      }),
+      expect.objectContaining({
+        id: "marketplace/search",
+        path: "search",
+        file: "../../../bounded-contexts/marketplace/routes/search.tsx",
+      }),
+    ]);
   });
 });

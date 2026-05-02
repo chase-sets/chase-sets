@@ -28,6 +28,7 @@ const sellingWorkflowKeys = new Set([
   "listings",
   "offer-matches",
   "sales",
+  "sale-shipments",
   "reviews",
   "payouts",
 ]);
@@ -37,7 +38,15 @@ const sellingInfrastructureKeys = new Set([
 ]);
 
 const accountTopNavOrder = ["search", "cart", "purchases", "account"];
-const sellingNavOrder = ["inventory", "listings", "offer-matches", "sales", "reviews", "payouts"];
+const sellingNavOrder = [
+  "inventory",
+  "listings",
+  "offer-matches",
+  "sales",
+  "sale-shipments",
+  "reviews",
+  "payouts",
+];
 
 const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   account: {
@@ -70,6 +79,10 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   sales: {
     label: "Sales",
     icon: "dollar",
+  },
+  "sale-shipments": {
+    label: "Shipping",
+    icon: "truck",
   },
 };
 

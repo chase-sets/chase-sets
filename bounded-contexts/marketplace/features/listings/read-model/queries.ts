@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { MarketplaceGradedCardDetails } from "../domain/domain";
 
 export type MarketplaceListingListRow = Readonly<{
   listing_id: string;
@@ -10,6 +11,7 @@ export type MarketplaceListingListRow = Readonly<{
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -47,6 +49,7 @@ type MarketplaceListingPageRow = Readonly<{
   item_subtitle: string | null;
   selected_options: unknown;
   product_summary: string | null;
+  graded_card: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -71,6 +74,7 @@ export type MarketplaceInventoryItemSupply = Readonly<{
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string;
   ship_from_code: string;
   available_quantity: number;
@@ -82,6 +86,10 @@ function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRo
     selected_options: Array.isArray(row.selected_options)
       ? (row.selected_options as MarketplaceListingListRow["selected_options"])
       : [],
+    graded_card:
+      typeof row.graded_card === "object" && row.graded_card !== null
+        ? (row.graded_card as MarketplaceGradedCardDetails)
+        : null,
   };
 }
 
@@ -105,6 +113,7 @@ export async function getInventoryItemSupply(
     item_subtitle: string | null;
     selected_options: unknown;
     product_summary: string | null;
+    graded_card: unknown;
     storage_location_name: string;
     ship_from_code: string;
     available_quantity: number;
@@ -117,6 +126,7 @@ export async function getInventoryItemSupply(
        catalog_item.title AS item_title,
        catalog_item.subtitle AS item_subtitle,
        item.selected_options,
+       item.graded_card,
        (
          CASE
            WHEN catalog_item.product_schema IS NULL THEN NULL
@@ -176,6 +186,10 @@ export async function getInventoryItemSupply(
     selected_options: Array.isArray(row.selected_options)
       ? (row.selected_options as MarketplaceInventoryItemSupply["selected_options"])
       : [],
+    graded_card:
+      typeof row.graded_card === "object" && row.graded_card !== null
+        ? (row.graded_card as MarketplaceGradedCardDetails)
+        : null,
   };
 }
 
@@ -204,6 +218,7 @@ export async function listSellerInventoryItemSupply(
       catalog_item.title AS item_title,
       catalog_item.subtitle AS item_subtitle,
       item.selected_options,
+      item.graded_card,
       (
         CASE
           WHEN catalog_item.product_schema IS NULL THEN NULL
@@ -277,6 +292,7 @@ export async function listSellerInventoryItemSupply(
       item_subtitle: string | null;
       selected_options: unknown;
       product_summary: string | null;
+      graded_card: unknown;
       storage_location_name: string;
       ship_from_code: string;
       available_quantity: number;
@@ -294,6 +310,10 @@ export async function listSellerInventoryItemSupply(
       selected_options: Array.isArray(row.selected_options)
         ? (row.selected_options as MarketplaceInventoryItemSupply["selected_options"])
         : [],
+      graded_card:
+        typeof row.graded_card === "object" && row.graded_card !== null
+          ? (row.graded_card as MarketplaceGradedCardDetails)
+          : null,
     })),
     total: Number(countResult.rows[0]?.count ?? 0),
   };

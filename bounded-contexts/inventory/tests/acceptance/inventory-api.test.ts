@@ -437,10 +437,13 @@ describeWithDatabase("inventory api", () => {
     });
     const demoAccountInventoryItemIds = [
       inventorySeedIds.items.charizardBaseSetNearMint,
+      inventorySeedIds.items.charizardBaseSetPsa8,
       inventorySeedIds.items.pikachuJungleLightlyPlayed,
       inventorySeedIds.items.lugiaNeoGenesisNearMint,
+      inventorySeedIds.items.lugiaNeoGenesisBgs95,
       inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
       inventorySeedIds.items.pikachuPrismaticEvolutionsNearMint,
+      inventorySeedIds.items.pikachuPrismaticEvolutionsPsa10,
       inventorySeedIds.items.prismaticEvolutionsBoosterPack,
       inventorySeedIds.items.surgingSparksBoosterBox,
       inventorySeedIds.items.twilightMasqueradeEliteTrainerBox,
@@ -487,6 +490,28 @@ describeWithDatabase("inventory api", () => {
         }),
       ]),
     );
+
+    const gradedCharizardItem = await seededServices.items.getItem(
+      inventorySeedIds.items.charizardBaseSetPsa8,
+      demoIdentitySeedIds.accountId,
+    );
+    expect(gradedCharizardItem).toMatchObject({
+      item_id: inventorySeedIds.items.charizardBaseSetPsa8,
+      catalog_catalog_item_id: catalogSeedIds.items.charizardBaseSet,
+      product_summary: "Form: Graded | Grading Company: PSA | Grade: NM-MT 8",
+      graded_card: {
+        gradingCompany: "PSA",
+        grade: "NM-MT 8",
+        certificationNumber: "81234567",
+        population: {
+          populationAtGrade: 1842,
+          populationHigher: 721,
+          source: "PSA population report",
+          asOf: "2026-04-01",
+        },
+      },
+      available_quantity: 1,
+    });
 
     const pikachuItem = await seededServices.items.getItem(
       inventorySeedIds.items.pikachuJungleLightlyPlayed,

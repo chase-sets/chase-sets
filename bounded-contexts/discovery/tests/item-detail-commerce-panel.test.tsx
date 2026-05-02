@@ -21,6 +21,8 @@ afterEach(() => cleanup());
 
 const baseListing: DiscoveryMarketListing = {
   listing_id: "listing_charizard",
+  listing_slug: "charizard-base-set-listingcharizard",
+  product_slug: "charizard-base-set-cat_charizard",
   account_id: "seller_1",
   inventory_item_id: "inventory_1",
   catalog_catalog_item_id: "cat_charizard",
@@ -137,6 +139,7 @@ function createItem(
 ): DiscoveryItemDetail {
   return {
     catalog_item_id: "cat_charizard",
+    slug: "charizard-base-set-cat_charizard",
     title: "Charizard",
     subtitle: "Base Set 4/102 Holo Rare",
     description: "The iconic Base Set Charizard.",

@@ -12,6 +12,9 @@ export type {
   DiscoveryApiClientOptions,
   DiscoveryCategoryItem,
   DiscoveryItemDetail,
+  DiscoveryPublicListing,
+  DiscoveryPublicSeller,
+  DiscoverySitemapUrl,
   DiscoverySearchResponse,
 } from "../../client";
 import { createDiscoveryApiClient } from "../../client";

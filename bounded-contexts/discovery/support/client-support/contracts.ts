@@ -1,5 +1,6 @@
 export interface DiscoverySearchItem {
   catalog_item_id: string;
+  slug: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -7,6 +8,7 @@ export interface DiscoverySearchItem {
   blueprint_name: string | null;
   status: string;
   category_names: string[];
+  category_slugs: string[];
   tags: string[];
   image_urls: string[];
   market_summary: DiscoveryMarketSummary | null;
@@ -52,11 +54,13 @@ export interface FieldValue {
 
 export interface CategoryRef {
   categoryId: string;
+  slug: string;
   name: string;
 }
 
 export interface DiscoveryItemDetail {
   catalog_item_id: string;
+  slug: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -82,9 +86,12 @@ export interface DiscoveryMarketSummary {
 
 export interface DiscoveryMarketListing {
   listing_id: string;
+  listing_slug: string;
+  product_slug: string;
   account_id: string;
   inventory_item_id: string;
   catalog_catalog_item_id: string;
+  catalog_item_slug?: string | null;
   product_id: string;
   item_title: string | null;
   item_subtitle: string | null;
@@ -98,6 +105,26 @@ export interface DiscoveryMarketListing {
   seller_display_name: string | null;
   visible_quantity: number;
   created_at: string;
+  updated_at: string;
+}
+
+export interface DiscoveryPublicListing extends DiscoveryMarketListing {
+  seller_slug: string | null;
+  seller_display_name: string | null;
+}
+
+export interface DiscoveryPublicSeller {
+  account_id: string;
+  seller_slug: string;
+  seller_display_name: string | null;
+  status: string;
+  active_listing_count: number;
+  updated_at: string;
+  listings: DiscoveryPublicListing[];
+}
+
+export interface DiscoverySitemapUrl {
+  path: string;
   updated_at: string;
 }
 

@@ -2,6 +2,10 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeSimpleSearchText } from "../domain/normalization";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
+import {
+  createMarketplaceSlug,
+  rememberSlugRedirect,
+} from "../../../support/runtime-support/slugs";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -11,6 +15,7 @@ type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 
 type SearchCatalogItemRow = Readonly<{
   catalog_item_id: string;
+  slug: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -58,6 +63,29 @@ async function loadNameMap(
   return new Map(result.rows.map((row) => [row.id, row.name]));
 }
 
+async function loadCategoryMap(
+  db: PgQueryable,
+  ids: readonly string[],
+): Promise<Map<string, { name: string; slug: string }>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<{ category_id: string; name: string; slug: string }>(
+    `SELECT category_id, name, slug
+     FROM discovery_search_catalog_categories
+     WHERE category_id = ANY($1)`,
+    [ids],
+  );
+
+  return new Map(
+    result.rows.map((row) => [
+      row.category_id,
+      { name: row.name, slug: row.slug },
+    ]),
+  );
+}
+
 async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<SearchCatalogItemRow>(
     `SELECT * FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
@@ -86,7 +114,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
     );
   }
 
-  const [blueprintNames, categoryNames] = await Promise.all([
+  const [blueprintNames, categoryRefs] = await Promise.all([
     item.blueprint_id
       ? loadNameMap(
           db,
@@ -96,17 +124,12 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
           [item.blueprint_id],
         )
       : Promise.resolve(new Map<string, string>()),
-    loadNameMap(
-      db,
-      "discovery_search_catalog_categories",
-      "category_id",
-      "name",
-      categoryIds,
-    ),
+    loadCategoryMap(db, categoryIds),
   ]);
 
   const blueprintName = item.blueprint_id ? blueprintNames.get(item.blueprint_id) ?? null : null;
-  const categoryNameList = categoryIds.map((id) => categoryNames.get(id) ?? id);
+  const categoryNameList = categoryIds.map((id) => categoryRefs.get(id)?.name ?? id);
+  const categorySlugList = categoryIds.map((id) => categoryRefs.get(id)?.slug ?? id);
 
   const fieldValuesText = fieldValues
     .map((fieldValue) =>
@@ -129,6 +152,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
   await db.query(
     `INSERT INTO discovery_search_items (
       catalog_item_id,
+      slug,
       title,
       subtitle,
       description,
@@ -136,14 +160,16 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       blueprint_name,
       status,
       category_names,
+      category_slugs,
       tags,
       field_values_text,
       image_urls,
       search_text,
       search_text_simple,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_tsvector('english', $12), to_tsvector('simple', $13), $14)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, to_tsvector('english', $14), to_tsvector('simple', $15), $16)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
+      slug = EXCLUDED.slug,
       title = EXCLUDED.title,
       subtitle = EXCLUDED.subtitle,
       description = EXCLUDED.description,
@@ -151,6 +177,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       blueprint_name = EXCLUDED.blueprint_name,
       status = EXCLUDED.status,
       category_names = EXCLUDED.category_names,
+      category_slugs = EXCLUDED.category_slugs,
       tags = EXCLUDED.tags,
       field_values_text = EXCLUDED.field_values_text,
       image_urls = EXCLUDED.image_urls,
@@ -159,6 +186,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       updated_at = EXCLUDED.updated_at`,
     [
       item.catalog_item_id,
+      item.slug,
       item.title,
       item.subtitle,
       item.description,
@@ -166,6 +194,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       blueprintName,
       item.status,
       JSON.stringify(categoryNameList),
+      JSON.stringify(categorySlugList),
       JSON.stringify(tags),
       fieldValuesText,
       JSON.stringify(imageUrls),
@@ -215,22 +244,25 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         subtitle: string | null;
         description: string;
       };
+      const slug = createMarketplaceSlug([title, subtitle], itemId);
 
       await db.query(
         `INSERT INTO discovery_search_catalog_items (
           catalog_item_id,
+          slug,
           title,
           subtitle,
           description,
           status,
           updated_at
-        ) VALUES ($1, $2, $3, $4, 'draft', $5)
+        ) VALUES ($1, $2, $3, $4, $5, 'draft', $6)
         ON CONFLICT (catalog_item_id) DO UPDATE SET
+          slug = EXCLUDED.slug,
           title = EXCLUDED.title,
           subtitle = EXCLUDED.subtitle,
           description = EXCLUDED.description,
           updated_at = EXCLUDED.updated_at`,
-        [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
+        [itemId, slug, title, subtitle, description ?? "", event.timing.recordedAt],
       );
 
       await refreshDiscoverySearchItem(db, itemId);
@@ -338,16 +370,29 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         subtitle: string | null;
         description: string;
       };
+      const slug = createMarketplaceSlug([title, subtitle], itemId);
+      const current = await db.query<{ slug: string | null }>(
+        `SELECT slug FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
+        [itemId],
+      );
 
       await db.query(
         `UPDATE discovery_search_catalog_items
-         SET title = $2,
-             subtitle = $3,
-             description = $4,
-             updated_at = $5
+         SET slug = $2,
+             title = $3,
+             subtitle = $4,
+             description = $5,
+             updated_at = $6
          WHERE catalog_item_id = $1`,
-        [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
+        [itemId, slug, title, subtitle, description ?? "", event.timing.recordedAt],
       );
+      await rememberSlugRedirect(db, {
+        entityKind: "item",
+        entityId: itemId,
+        previousSlug: current.rows[0]?.slug,
+        nextSlug: slug,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -434,31 +479,45 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
 
     "catalog.category.created": async (event) => {
       const { categoryId, name } = event.data as { categoryId: string; name: string };
+      const slug = createMarketplaceSlug([name], categoryId);
 
       await db.query(
-        `INSERT INTO discovery_search_catalog_categories (category_id, name, updated_at)
-         VALUES ($1, $2, $3)
+        `INSERT INTO discovery_search_catalog_categories (category_id, slug, name, updated_at)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (category_id) DO UPDATE SET
+           slug = EXCLUDED.slug,
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [categoryId, name, event.timing.recordedAt],
+        [categoryId, slug, name, event.timing.recordedAt],
       );
     },
     "catalog.category.revised": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
       const { name } = event.data as { name: string };
+      const slug = createMarketplaceSlug([name], categoryId);
+      const current = await db.query<{ slug: string | null }>(
+        `SELECT slug FROM discovery_search_catalog_categories WHERE category_id = $1`,
+        [categoryId],
+      );
 
       await db.query(
-        `INSERT INTO discovery_search_catalog_categories (category_id, name, updated_at)
-         VALUES ($1, $2, $3)
+        `INSERT INTO discovery_search_catalog_categories (category_id, slug, name, updated_at)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (category_id) DO UPDATE SET
+           slug = EXCLUDED.slug,
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [categoryId, name, event.timing.recordedAt],
+        [categoryId, slug, name, event.timing.recordedAt],
       );
+      await rememberSlugRedirect(db, {
+        entityKind: "category",
+        entityId: categoryId,
+        previousSlug: current.rows[0]?.slug,
+        nextSlug: slug,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByCategory(db, categoryId);
     },
   };
 }
-

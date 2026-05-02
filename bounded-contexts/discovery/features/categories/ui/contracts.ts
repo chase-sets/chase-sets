@@ -1,6 +1,7 @@
 export interface DiscoveryCategoryItem {
   category_id: string;
   key: string;
+  slug: string;
   name: string;
   description: string;
   status: string;
@@ -15,4 +16,3 @@ export interface CategoryListResponse {
   total: number;
   count: number;
 }
-

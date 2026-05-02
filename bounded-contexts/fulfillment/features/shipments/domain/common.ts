@@ -20,6 +20,13 @@ export type ShipmentExceptionType =
 
 export type ShippingMethod = "standard" | "expedited" | "priority" | "insured";
 
+export type PostageLabelStatus =
+  | "not-purchased"
+  | "purchased"
+  | "void-requested"
+  | "voided"
+  | "purchase-error";
+
 export type ShipmentLineId = TypedUlid<"spl">;
 
 export class FulfillmentDomainError extends Error {
@@ -58,6 +65,11 @@ export function ensureIsoTimestamp(value: string, message: string) {
 
 export function ensurePositiveInteger(value: number, message: string) {
   assert(Number.isInteger(value) && value > 0, message);
+  return value;
+}
+
+export function ensureNonNegativeInteger(value: number, message: string) {
+  assert(Number.isInteger(value) && value >= 0, message);
   return value;
 }
 

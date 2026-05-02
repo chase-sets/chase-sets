@@ -9,6 +9,11 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type {
+  PostageAddress,
+  PostageLabelProvider,
+  PostagePackage,
+} from "@chase-sets/postage-labels";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type {
   AccountId,
@@ -36,6 +41,7 @@ type ShipmentRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
+  postageLabelProvider?: PostageLabelProvider;
 }>;
 
 type ReadyOrderLineSnapshot = Readonly<{
@@ -79,6 +85,21 @@ export type FulfillmentShipmentServices = Readonly<{
       labelReference: string;
       trackingIdentifier: string;
     }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number }>;
+  purchaseUspsLabel: (
+    params: Readonly<{
+      shipmentId: string;
+      sellerAccountId: string;
+      serviceLevel: string;
+      sender: PostageAddress;
+      recipient: PostageAddress;
+      package: PostagePackage;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number; trackingIdentifier: string }>;
+  voidLabel: (
+    params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   dispatchShipment: (
@@ -198,6 +219,8 @@ async function loadReadyOrderSnapshot(
 export function createFulfillmentShipmentRuntime(
   deps: ShipmentRuntimeDeps,
 ): FulfillmentShipmentServices {
+  const postageLabelProvider =
+    deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -296,6 +319,105 @@ export function createFulfillmentShipmentRuntime(
 
       return { shipmentId: params.shipmentId, version: result.version };
     },
+    purchaseUspsLabel: async (params, context) => {
+      const shipment = await requireSellerShipment(
+        params.shipmentId,
+        params.sellerAccountId,
+      );
+      if (shipment.status !== "awaiting-label" || shipment.package_status !== "packed") {
+        throw new FulfillmentDomainError(
+          "Shipment must be packed and awaiting a label before postage can be purchased.",
+        );
+      }
+
+      let purchasedLabel;
+      try {
+        purchasedLabel = await postageLabelProvider.purchaseUspsLabel({
+          shipmentId: params.shipmentId,
+          orderId: shipment.order_id,
+          serviceLevel: params.serviceLevel,
+          sender: params.sender,
+          recipient: params.recipient,
+          package: params.package,
+        });
+      } catch (error) {
+        await commandHandler({
+          streamId: `fulfillment.shipment-${params.shipmentId}`,
+          command: {
+            type: "RecordShipmentLabelPurchaseFailed",
+            postageProviderName: postageLabelProvider.providerName,
+            postageProviderMode: postageLabelProvider.providerMode,
+            errorCode: error instanceof Error ? error.name : "postage_error",
+            errorMessage: error instanceof Error ? error.message : "Label purchase failed.",
+            failedAt: new Date().toISOString(),
+          },
+          context,
+        });
+        throw new FulfillmentDomainError(
+          error instanceof Error ? error.message : "Label purchase failed.",
+        );
+      }
+
+      const result = await commandHandler({
+        streamId: `fulfillment.shipment-${params.shipmentId}`,
+        command: {
+          type: "AttachShipmentLabel",
+          shippingMethod: "standard",
+          carrierName: purchasedLabel.carrierName,
+          labelReference: purchasedLabel.labelReference,
+          labelDocumentUrl: purchasedLabel.labelDocumentUrl,
+          trackingIdentifier: purchasedLabel.trackingIdentifier,
+          postageProviderName: purchasedLabel.providerName,
+          postageProviderMode: purchasedLabel.providerMode,
+          postageProviderShipmentId: purchasedLabel.providerShipmentId,
+          postageProviderLabelId: purchasedLabel.providerLabelId,
+          postageRateId: purchasedLabel.providerRateId,
+          postageServiceLevel: purchasedLabel.serviceLevel,
+          postageAmountCents: purchasedLabel.postageAmountCents,
+          postageCurrency: purchasedLabel.postageCurrency,
+          attachedAt: purchasedLabel.purchasedAt,
+        },
+        context,
+      });
+
+      return {
+        shipmentId: params.shipmentId,
+        version: result.version,
+        trackingIdentifier: purchasedLabel.trackingIdentifier,
+      };
+    },
+    voidLabel: async (params, context) => {
+      const shipment = await requireSellerShipment(
+        params.shipmentId,
+        params.sellerAccountId,
+      );
+      if (
+        !shipment.postage_provider_shipment_id ||
+        !shipment.postage_provider_label_id ||
+        !shipment.tracking_identifier
+      ) {
+        throw new FulfillmentDomainError("Shipment does not have a purchased label.");
+      }
+
+      const voidedLabel = await postageLabelProvider.voidLabel({
+        providerShipmentId: shipment.postage_provider_shipment_id,
+        providerLabelId: shipment.postage_provider_label_id,
+        trackingIdentifier: shipment.tracking_identifier,
+      });
+
+      const result = await commandHandler({
+        streamId: `fulfillment.shipment-${params.shipmentId}`,
+        command: {
+          type: "VoidShipmentLabel",
+          refundStatus: voidedLabel.refundStatus,
+          refundReference: voidedLabel.refundReference,
+          voidedAt: voidedLabel.voidedAt,
+        },
+        context,
+      });
+
+      return { shipmentId: params.shipmentId, version: result.version };
+    },
     dispatchShipment: async (params, context) => {
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
@@ -369,5 +491,18 @@ export function createFulfillmentShipmentRuntime(
         handlers: buildFulfillmentShipmentProjectionHandlers(deps.db),
       }),
     ],
+  };
+}
+
+function createUnconfiguredPostageLabelProvider(): PostageLabelProvider {
+  const fail = async (): Promise<never> => {
+    throw new Error("Postage label provider adapter is not configured.");
+  };
+
+  return {
+    providerName: "unconfigured",
+    providerMode: "test",
+    purchaseUspsLabel: fail,
+    voidLabel: fail,
   };
 }

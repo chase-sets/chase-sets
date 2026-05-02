@@ -126,6 +126,9 @@
       "@chase-sets/discovery/web": [
         "./bounded-contexts/discovery/web.ts"
       ],
+      "@chase-sets/easypost-postage": [
+        "./infrastructure/easypost-postage/index.ts"
+      ],
       "@chase-sets/event-core": [
         "./contracts/event-core/index.ts"
       ],
@@ -275,6 +278,12 @@
       ],
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
+      ],
+      "@chase-sets/postage-labels": [
+        "./contracts/postage-labels/index.ts"
+      ],
+      "@chase-sets/postage-labels-testing": [
+        "./infrastructure/postage-labels-testing/index.ts"
       ],
       "@chase-sets/pricing": [
         "./bounded-contexts/pricing/index.ts"

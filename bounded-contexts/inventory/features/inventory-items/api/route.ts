@@ -45,6 +45,10 @@ export function inventoryItemRoutes(
         accountId: actor.accountId as never,
         catalogItemId: String(body.catalogItemId ?? ""),
         selectedOptions: body.selectedOptions,
+        gradedCard:
+          typeof body.gradedCard === "object" && body.gradedCard !== null
+            ? body.gradedCard
+            : null,
         storageLocationId: String(body.storageLocationId ?? ""),
         totalQuantity: Number(body.totalQuantity ?? 0),
         acquisitionCostAmount:

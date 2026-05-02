@@ -3,6 +3,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 export type DiscoveryCategoryRow = Readonly<{
   category_id: string;
   key: string;
+  slug: string;
   name: string;
   description: string;
   status: string;
@@ -42,4 +43,26 @@ export async function listDiscoveryCategories(
   return result.rows;
 }
 
+export async function getDiscoveryCategoryBySlug(
+  db: PgQueryable,
+  slug: string,
+): Promise<DiscoveryCategoryRow | null> {
+  const result = await db.query<DiscoveryCategoryRow>(
+    `SELECT category.*
+     FROM discovery_categories AS category
+     LEFT JOIN discovery_slug_redirects AS redirect
+       ON redirect.entity_kind = 'category'
+      AND redirect.slug = $1
+     WHERE category.slug = $1
+        OR category.category_id = $1
+        OR category.category_id = redirect.entity_id
+        OR category.slug = redirect.target_slug
+     ORDER BY
+       (category.slug = $1) DESC,
+       (category.category_id = $1) DESC
+     LIMIT 1`,
+    [slug],
+  );
 
+  return result.rows[0] ?? null;
+}

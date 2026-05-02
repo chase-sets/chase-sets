@@ -75,6 +75,7 @@ describe("marketplace route layout", () => {
       "Listings",
       "Offer Matches",
       "Sales",
+      "Shipping",
       "Reviews",
       "Payouts",
     ]);

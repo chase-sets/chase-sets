@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { GradedCardDetails } from "../domain/domain";
 import type { InventoryHoldRow } from "../../holds/read-model/queries";
 import {
   summarizeSelectedOptions,
@@ -15,6 +16,7 @@ export type InventoryItemListRow = Readonly<{
   item_subtitle: string | null;
   selected_options: readonly InventorySelectedOptionEntry[];
   product_summary: string | null;
+  graded_card: GradedCardDetails | null;
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
@@ -37,6 +39,7 @@ type BaseInventoryItemRow = Readonly<{
   catalog_catalog_item_id: string;
   product_id: string;
   selected_options: unknown;
+  graded_card: unknown;
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
@@ -103,6 +106,10 @@ function enrichInventoryItemRows(
       selected_options: selectedOptions,
       product_summary:
         summarizeSelectedOptions(productSchema, selectedOptions) || null,
+      graded_card:
+        typeof row.graded_card === "object" && row.graded_card !== null
+          ? (row.graded_card as GradedCardDetails)
+          : null,
     };
   });
 }
@@ -132,6 +139,7 @@ export async function listInventoryItems(
          item.catalog_catalog_item_id,
          item.product_id,
          item.selected_options,
+         item.graded_card,
          item.storage_location_id,
          location.name AS storage_location_name,
          location.ship_from_code,
@@ -183,6 +191,7 @@ export async function getInventoryItem(
        item.catalog_catalog_item_id,
        item.product_id,
        item.selected_options,
+       item.graded_card,
        item.storage_location_id,
        location.name AS storage_location_name,
        location.ship_from_code,

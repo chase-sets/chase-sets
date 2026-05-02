@@ -7,6 +7,9 @@ import type {
 
 export type {
   DiscoveryItemDetail,
+  DiscoveryPublicListing,
+  DiscoveryPublicSeller,
+  DiscoverySitemapUrl,
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
 export type {
@@ -16,6 +19,9 @@ export type {
 
 import type {
   DiscoveryItemDetail,
+  DiscoveryPublicListing,
+  DiscoveryPublicSeller,
+  DiscoverySitemapUrl,
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
 
@@ -92,6 +98,35 @@ export function createDiscoveryApiClient({
     async listCategories(): Promise<CategoryListResponse> {
       return parseJsonResponse(
         await client.categories.$get({ header: headers }),
+      );
+    },
+    async getCategoryBySlug(slug: string): Promise<DiscoveryCategoryItem> {
+      return parseJsonResponse(
+        await client.categories[":slug"].$get({
+          param: { slug },
+          header: headers,
+        }),
+      );
+    },
+    async getPublicListingBySlug(slug: string): Promise<DiscoveryPublicListing> {
+      return parseJsonResponse(
+        await client.listings[":slug"].$get({
+          param: { slug },
+          header: headers,
+        }),
+      );
+    },
+    async getPublicSellerBySlug(slug: string): Promise<DiscoveryPublicSeller> {
+      return parseJsonResponse(
+        await client.sellers[":slug"].$get({
+          param: { slug },
+          header: headers,
+        }),
+      );
+    },
+    async listSitemapUrls(): Promise<{ items: DiscoverySitemapUrl[]; total: number; count: number }> {
+      return parseJsonResponse(
+        await client["sitemap-urls"].$get({ header: headers }),
       );
     },
   };

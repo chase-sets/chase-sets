@@ -38,6 +38,19 @@ function normalizeMoneyAmount(
 
 export type ListingStatus = "draft" | "active" | "paused" | "withdrawn";
 
+export type MarketplaceGradedCardDetails = Readonly<{
+  gradingCompany: string;
+  grade: string;
+  certificationNumber: string | null;
+  population: Readonly<{
+    populationAtGrade: number | null;
+    populationHigher: number | null;
+    source: string | null;
+    asOf: string | null;
+  }> | null;
+  conditionDescriptors: string[];
+}>;
+
 export type MarketplaceListingState = Readonly<{
   listingId: ListingId | null;
   accountId: AccountId | null;
@@ -48,6 +61,7 @@ export type MarketplaceListingState = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
+  gradedCard: MarketplaceGradedCardDetails | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string | null;
@@ -71,6 +85,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   itemSubtitle: null,
   selectedOptions: [],
   productSummary: null,
+  gradedCard: null,
   storageLocationName: null,
   shipFromCode: null,
   priceAmount: null,
@@ -95,6 +110,7 @@ export type CreateListingCommand = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
+  gradedCard?: MarketplaceGradedCardDetails | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
@@ -147,6 +163,7 @@ export type ListingCreatedEvent = DomainEvent<
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
     productSummary: string | null;
+    gradedCard: MarketplaceGradedCardDetails | null;
     storageLocationName: string | null;
     shipFromCode: string | null;
     priceAmount: string;
@@ -220,6 +237,7 @@ export const decideMarketplaceListing: AggregateDecider<
               optionId: selection.optionId.trim(),
             })),
             productSummary: command.productSummary?.trim() ?? null,
+            gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
             priceAmount: normalizeMoneyAmount(command.priceAmount),
@@ -340,6 +358,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         itemSubtitle: event.data.itemSubtitle,
         selectedOptions: event.data.selectedOptions,
         productSummary: event.data.productSummary,
+        gradedCard: event.data.gradedCard,
         storageLocationName: event.data.storageLocationName,
         shipFromCode: event.data.shipFromCode,
         priceAmount: event.data.priceAmount,
@@ -375,3 +394,53 @@ export const evolveMarketplaceListing: AggregateEvolver<
       return assertNever(event);
   }
 };
+
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeGradedCardDetails(
+  details: MarketplaceGradedCardDetails | null,
+): MarketplaceGradedCardDetails | null {
+  if (!details) {
+    return null;
+  }
+
+  const gradingCompany = details.gradingCompany.trim();
+  const grade = details.grade.trim();
+  assert(gradingCompany.length > 0, "Graded cards require a grading company.");
+  assert(grade.length > 0, "Graded cards require a grade.");
+
+  const population = details.population
+    ? {
+        populationAtGrade: details.population.populationAtGrade,
+        populationHigher: details.population.populationHigher,
+        source: normalizeOptionalText(details.population.source),
+        asOf: normalizeOptionalText(details.population.asOf),
+      }
+    : null;
+
+  if (population) {
+    for (const value of [population.populationAtGrade, population.populationHigher]) {
+      assert(
+        value === null || (Number.isInteger(value) && value >= 0),
+        "Population metadata must use whole numbers greater than or equal to zero.",
+      );
+    }
+  }
+
+  return {
+    gradingCompany,
+    grade,
+    certificationNumber: normalizeOptionalText(details.certificationNumber),
+    population,
+    conditionDescriptors: [
+      ...new Set(
+        details.conditionDescriptors
+          .map((descriptor) => descriptor.trim())
+          .filter((descriptor) => descriptor.length > 0),
+      ),
+    ],
+  };
+}

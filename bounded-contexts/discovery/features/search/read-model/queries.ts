@@ -16,6 +16,7 @@ export type ListResult<T> = { items: T[]; total: number };
 
 export type DiscoverySearchItemRow = Readonly<{
   catalog_item_id: string;
+  slug: string;
   title: string;
   subtitle: string | null;
   description: string;
@@ -23,6 +24,7 @@ export type DiscoverySearchItemRow = Readonly<{
   blueprint_name: string | null;
   status: string;
   category_names: unknown;
+  category_slugs: unknown;
   tags: unknown;
   image_urls: unknown;
   market_summary: Readonly<{
@@ -104,7 +106,7 @@ export async function searchDiscoveryItems(
   }
 
   if (params.category) {
-    conditions.push(`category_names @> $${paramIndex}::jsonb`);
+    conditions.push(`(category_names @> $${paramIndex}::jsonb OR category_slugs @> $${paramIndex}::jsonb)`);
     values.push(JSON.stringify([params.category]));
     paramIndex++;
   }
@@ -150,7 +152,7 @@ export async function searchDiscoveryItems(
   const offset = params.offset ?? 0;
 
   const countSql = `SELECT COUNT(*) AS count FROM discovery_search_items ${where}`;
-  const listSql = `SELECT catalog_item_id, title, subtitle, description, blueprint_id, blueprint_name, status, category_names, tags, image_urls, updated_at
+  const listSql = `SELECT catalog_item_id, slug, title, subtitle, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, updated_at
     FROM discovery_search_items ${where}
     ORDER BY ${orderBy}
     LIMIT ${limit} OFFSET ${offset}`;
@@ -173,6 +175,5 @@ export async function searchDiscoveryItems(
     total: Number.parseInt(countResult.rows[0].count, 10),
   };
 }
-
 
 

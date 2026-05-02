@@ -30,6 +30,17 @@ export type PlatformApiMoneyMovementConfig =
       onboardingRefreshUrl?: string;
     }>;
 
+export type PlatformApiPostageConfig =
+  | Readonly<{
+      kind: "sandbox";
+    }>
+  | Readonly<{
+      kind: "easypost";
+      apiKey: string;
+      apiBaseUrl?: string;
+      mode: "test" | "production";
+    }>;
+
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
 
 export type PlatformApiBaseConfig = Readonly<{
@@ -44,6 +55,7 @@ export type PlatformApiBaseConfig = Readonly<{
 export type PlatformApiConfig = PlatformApiBaseConfig & Readonly<{
   paymentProcessor: PlatformApiPaymentProcessorConfig;
   moneyMovement: PlatformApiMoneyMovementConfig;
+  postage: PlatformApiPostageConfig;
   stripeGoLive: StripeGoLiveCheckReport;
 }>;
 
@@ -150,6 +162,10 @@ export function loadConfig(): PlatformApiConfig {
     getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
   const stripeConnectRefreshUrl =
     getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
+  const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
+  const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
+  const easyPostMode =
+    getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
   const productionLike = process.env.NODE_ENV === "production";
 
   if (
@@ -158,6 +174,11 @@ export function loadConfig(): PlatformApiConfig {
   ) {
     throw new Error(
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
+    );
+  }
+  if (productionLike && !easyPostApiKey) {
+    throw new Error(
+      "EASYPOST_API_KEY is required for USPS postage label purchasing in production.",
     );
   }
   if (
@@ -186,6 +207,14 @@ export function loadConfig(): PlatformApiConfig {
     return {
       ...baseConfig,
       moneyMovement,
+      postage: easyPostApiKey
+        ? {
+            kind: "easypost",
+            apiKey: easyPostApiKey,
+            apiBaseUrl: easyPostApiBaseUrl,
+            mode: easyPostMode,
+          }
+        : { kind: "sandbox" },
       stripeGoLive: {
         apiVersion: STRIPE_PLATFORM_API_VERSION,
         requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
@@ -210,6 +239,14 @@ export function loadConfig(): PlatformApiConfig {
   return {
     ...baseConfig,
     moneyMovement,
+    postage: easyPostApiKey
+      ? {
+          kind: "easypost",
+          apiKey: easyPostApiKey,
+          apiBaseUrl: easyPostApiBaseUrl,
+          mode: easyPostMode,
+        }
+      : { kind: "sandbox" },
     stripeGoLive: {
       apiVersion: STRIPE_PLATFORM_API_VERSION,
       requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,

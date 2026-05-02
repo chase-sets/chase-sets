@@ -40,7 +40,16 @@ describe("fulfillment shipment domain", () => {
       shippingMethod: "priority",
       carrierName: "USPS",
       labelReference: "lbl_123",
+      labelDocumentUrl: "https://labels.test/lbl_123.pdf",
       trackingIdentifier: "trk_123",
+      postageProviderName: "sandbox-usps",
+      postageProviderMode: "test",
+      postageProviderShipmentId: "pshp_123",
+      postageProviderLabelId: "plbl_123",
+      postageRateId: "rate_123",
+      postageServiceLevel: "USPS_GROUND_ADVANTAGE",
+      postageAmountCents: 499,
+      postageCurrency: "USD",
       attachedAt: "2026-04-02T00:10:00.000Z",
     }).reduce(evolveFulfillmentShipment, packedState);
 
@@ -58,7 +67,53 @@ describe("fulfillment shipment domain", () => {
     expect(deliveredState.packageStatus).toBe("packed");
     expect(deliveredState.shippingMethod).toBe("priority");
     expect(deliveredState.trackingIdentifier).toBe("trk_123");
+    expect(deliveredState.labelDocumentUrl).toBe("https://labels.test/lbl_123.pdf");
+    expect(deliveredState.labelStatus).toBe("purchased");
     expect(deliveredState.deliveredAt).toBe("2026-04-03T12:00:00.000Z");
+  });
+
+  it("records label purchase failures without leaving the awaiting-label workflow", () => {
+    const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+      type: "CreateShipment",
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    const packedState = decideFulfillmentShipment(createdState, {
+      type: "PrepareShipmentPackage",
+      packageCount: 1,
+      preparedAt: "2026-04-02T00:05:00.000Z",
+    }).reduce(evolveFulfillmentShipment, createdState);
+
+    const failedState = decideFulfillmentShipment(packedState, {
+      type: "RecordShipmentLabelPurchaseFailed",
+      postageProviderName: "sandbox-usps",
+      postageProviderMode: "test",
+      errorCode: "rate_unavailable",
+      errorMessage: "No USPS rates were returned for this shipment.",
+      failedAt: "2026-04-02T00:06:00.000Z",
+    }).reduce(evolveFulfillmentShipment, packedState);
+
+    expect(failedState.status).toBe("awaiting-label");
+    expect(failedState.labelStatus).toBe("purchase-error");
+    expect(failedState.labelErrorMessage).toBe(
+      "No USPS rates were returned for this shipment.",
+    );
   });
 
   it("rejects attaching a label before the package is prepared", () => {

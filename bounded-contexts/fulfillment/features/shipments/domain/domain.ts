@@ -12,12 +12,14 @@ import {
   assert,
   assertNever,
   ensureIsoTimestamp,
+  ensureNonNegativeInteger,
   ensurePositiveInteger,
   normalizeOptionalText,
   normalizeRequiredText,
   normalizeShipmentExceptionType,
   normalizeShippingMethod,
   type PackageStatus,
+  type PostageLabelStatus,
   type ShipmentExceptionType,
   type ShipmentLineId,
   type ShipmentStatus,
@@ -50,7 +52,21 @@ export type FulfillmentShipmentState = Readonly<{
   shippingMethod: ShippingMethod | null;
   carrierName: string | null;
   labelReference: string | null;
+  labelDocumentUrl: string | null;
   trackingIdentifier: string | null;
+  postageProviderName: string | null;
+  postageProviderMode: string | null;
+  postageProviderShipmentId: string | null;
+  postageProviderLabelId: string | null;
+  postageRateId: string | null;
+  postageServiceLevel: string | null;
+  postageAmountCents: number | null;
+  postageCurrency: string | null;
+  labelStatus: PostageLabelStatus;
+  labelErrorCode: string | null;
+  labelErrorMessage: string | null;
+  labelRefundStatus: string | null;
+  labelRefundReference: string | null;
   status: ShipmentStatus | null;
   packageStatus: PackageStatus | null;
   packageCount: number | null;
@@ -59,6 +75,7 @@ export type FulfillmentShipmentState = Readonly<{
   createdAt: string | null;
   packagePreparedAt: string | null;
   labelAttachedAt: string | null;
+  labelVoidedAt: string | null;
   dispatchedAt: string | null;
   deliveredAt: string | null;
   returnedAt: string | null;
@@ -76,7 +93,21 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   shippingMethod: null,
   carrierName: null,
   labelReference: null,
+  labelDocumentUrl: null,
   trackingIdentifier: null,
+  postageProviderName: null,
+  postageProviderMode: null,
+  postageProviderShipmentId: null,
+  postageProviderLabelId: null,
+  postageRateId: null,
+  postageServiceLevel: null,
+  postageAmountCents: null,
+  postageCurrency: null,
+  labelStatus: "not-purchased",
+  labelErrorCode: null,
+  labelErrorMessage: null,
+  labelRefundStatus: null,
+  labelRefundReference: null,
   status: null,
   packageStatus: null,
   packageCount: null,
@@ -85,6 +116,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   createdAt: null,
   packagePreparedAt: null,
   labelAttachedAt: null,
+  labelVoidedAt: null,
   dispatchedAt: null,
   deliveredAt: null,
   returnedAt: null,
@@ -115,8 +147,33 @@ export type AttachShipmentLabelCommand = Readonly<{
   shippingMethod: ShippingMethod;
   carrierName: string;
   labelReference: string;
+  labelDocumentUrl?: string | null;
   trackingIdentifier: string;
+  postageProviderName?: string | null;
+  postageProviderMode?: string | null;
+  postageProviderShipmentId?: string | null;
+  postageProviderLabelId?: string | null;
+  postageRateId?: string | null;
+  postageServiceLevel?: string | null;
+  postageAmountCents?: number | null;
+  postageCurrency?: string | null;
   attachedAt: string;
+}>;
+
+export type RecordShipmentLabelPurchaseFailedCommand = Readonly<{
+  type: "RecordShipmentLabelPurchaseFailed";
+  postageProviderName: string;
+  postageProviderMode: string;
+  errorCode?: string | null;
+  errorMessage: string;
+  failedAt: string;
+}>;
+
+export type VoidShipmentLabelCommand = Readonly<{
+  type: "VoidShipmentLabel";
+  refundStatus: string;
+  refundReference?: string | null;
+  voidedAt: string;
 }>;
 
 export type DispatchShipmentCommand = Readonly<{
@@ -146,6 +203,8 @@ export type FulfillmentShipmentCommand =
   | CreateShipmentCommand
   | PrepareShipmentPackageCommand
   | AttachShipmentLabelCommand
+  | RecordShipmentLabelPurchaseFailedCommand
+  | VoidShipmentLabelCommand
   | DispatchShipmentCommand
   | RecordShipmentDeliveryCommand
   | ReturnShipmentCommand
@@ -180,8 +239,39 @@ export type ShipmentLabelAttachedEvent = DomainEvent<
     shippingMethod: ShippingMethod;
     carrierName: string;
     labelReference: string;
+    labelDocumentUrl: string | null;
     trackingIdentifier: string;
+    postageProviderName: string | null;
+    postageProviderMode: string | null;
+    postageProviderShipmentId: string | null;
+    postageProviderLabelId: string | null;
+    postageRateId: string | null;
+    postageServiceLevel: string | null;
+    postageAmountCents: number | null;
+    postageCurrency: string | null;
     attachedAt: string;
+  }>
+>;
+
+export type ShipmentLabelPurchaseFailedEvent = DomainEvent<
+  "fulfillment.shipment.label-purchase-failed",
+  Readonly<{
+    shipmentId: ShipmentId;
+    postageProviderName: string;
+    postageProviderMode: string;
+    errorCode: string | null;
+    errorMessage: string;
+    failedAt: string;
+  }>
+>;
+
+export type ShipmentLabelVoidedEvent = DomainEvent<
+  "fulfillment.shipment.label-voided",
+  Readonly<{
+    shipmentId: ShipmentId;
+    refundStatus: string;
+    refundReference: string | null;
+    voidedAt: string;
   }>
 >;
 
@@ -224,6 +314,8 @@ export type FulfillmentShipmentEvent =
   | ShipmentCreatedEvent
   | ShipmentPackagePreparedEvent
   | ShipmentLabelAttachedEvent
+  | ShipmentLabelPurchaseFailedEvent
+  | ShipmentLabelVoidedEvent
   | ShipmentDispatchedEvent
   | ShipmentDeliveredEvent
   | ShipmentReturnedEvent
@@ -335,13 +427,92 @@ export const decideFulfillmentShipment: AggregateDecider<
               command.labelReference,
               "Label reference is required.",
             ),
+            labelDocumentUrl: normalizeOptionalText(command.labelDocumentUrl),
             trackingIdentifier: normalizeRequiredText(
               command.trackingIdentifier,
               "Tracking identifier is required.",
             ),
+            postageProviderName: normalizeOptionalText(command.postageProviderName),
+            postageProviderMode: normalizeOptionalText(command.postageProviderMode),
+            postageProviderShipmentId: normalizeOptionalText(
+              command.postageProviderShipmentId,
+            ),
+            postageProviderLabelId: normalizeOptionalText(command.postageProviderLabelId),
+            postageRateId: normalizeOptionalText(command.postageRateId),
+            postageServiceLevel: normalizeOptionalText(command.postageServiceLevel),
+            postageAmountCents:
+              command.postageAmountCents == null
+                ? null
+                : ensureNonNegativeInteger(
+                    command.postageAmountCents,
+                    "Postage amount must be a non-negative whole number of cents.",
+                  ),
+            postageCurrency: normalizeOptionalText(command.postageCurrency),
             attachedAt: ensureIsoTimestamp(
               command.attachedAt,
               "Label attachment must record a timestamp.",
+            ),
+          },
+        },
+      ];
+    case "RecordShipmentLabelPurchaseFailed":
+      assert(state.shipmentId !== null, "Shipment must be created first.");
+      assert(
+        state.packageStatus === "packed",
+        "Shipments must be packed before a label can be purchased.",
+      );
+      assert(
+        state.status === "awaiting-label",
+        "Only shipments awaiting a label can record label purchase errors.",
+      );
+      return [
+        {
+          type: "fulfillment.shipment.label-purchase-failed",
+          data: {
+            shipmentId: state.shipmentId,
+            postageProviderName: normalizeRequiredText(
+              command.postageProviderName,
+              "Postage provider name is required.",
+            ),
+            postageProviderMode: normalizeRequiredText(
+              command.postageProviderMode,
+              "Postage provider mode is required.",
+            ),
+            errorCode: normalizeOptionalText(command.errorCode),
+            errorMessage: normalizeRequiredText(
+              command.errorMessage,
+              "Label error message is required.",
+            ),
+            failedAt: ensureIsoTimestamp(
+              command.failedAt,
+              "Label error must record a timestamp.",
+            ),
+          },
+        },
+      ];
+    case "VoidShipmentLabel":
+      assert(state.shipmentId !== null, "Shipment must be created first.");
+      assert(
+        state.status === "label-attached",
+        "Only attached labels can be voided before dispatch.",
+      );
+      assert(
+        state.labelStatus === "purchased",
+        "Only purchased labels can be voided.",
+      );
+      return [
+        {
+          type: "fulfillment.shipment.label-voided",
+          data: {
+            shipmentId: state.shipmentId,
+            refundStatus: normalizeRequiredText(
+              command.refundStatus,
+              "Label refund status is required.",
+            ),
+            refundReference: normalizeOptionalText(command.refundReference),
+            voidedAt: ensureIsoTimestamp(
+              command.voidedAt,
+              "Label void must record a timestamp.",
             ),
           },
         },
@@ -450,7 +621,21 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         shippingMethod: null,
         carrierName: null,
         labelReference: null,
+        labelDocumentUrl: null,
         trackingIdentifier: null,
+        postageProviderName: null,
+        postageProviderMode: null,
+        postageProviderShipmentId: null,
+        postageProviderLabelId: null,
+        postageRateId: null,
+        postageServiceLevel: null,
+        postageAmountCents: null,
+        postageCurrency: null,
+        labelStatus: "not-purchased",
+        labelErrorCode: null,
+        labelErrorMessage: null,
+        labelRefundStatus: null,
+        labelRefundReference: null,
         status: "awaiting-package",
         packageStatus: "awaiting-package",
         packageCount: null,
@@ -459,6 +644,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         createdAt: event.data.createdAt,
         packagePreparedAt: null,
         labelAttachedAt: null,
+        labelVoidedAt: null,
         dispatchedAt: null,
         deliveredAt: null,
         returnedAt: null,
@@ -481,8 +667,42 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         shippingMethod: event.data.shippingMethod,
         carrierName: event.data.carrierName,
         labelReference: event.data.labelReference,
+        labelDocumentUrl: event.data.labelDocumentUrl,
         trackingIdentifier: event.data.trackingIdentifier,
+        postageProviderName: event.data.postageProviderName,
+        postageProviderMode: event.data.postageProviderMode,
+        postageProviderShipmentId: event.data.postageProviderShipmentId,
+        postageProviderLabelId: event.data.postageProviderLabelId,
+        postageRateId: event.data.postageRateId,
+        postageServiceLevel: event.data.postageServiceLevel,
+        postageAmountCents: event.data.postageAmountCents,
+        postageCurrency: event.data.postageCurrency,
+        labelStatus: "purchased",
+        labelErrorCode: null,
+        labelErrorMessage: null,
+        labelRefundStatus: null,
+        labelRefundReference: null,
         labelAttachedAt: event.data.attachedAt,
+        labelVoidedAt: null,
+      };
+    case "fulfillment.shipment.label-purchase-failed":
+      return {
+        ...state,
+        labelStatus: "purchase-error",
+        postageProviderName: event.data.postageProviderName,
+        postageProviderMode: event.data.postageProviderMode,
+        labelErrorCode: event.data.errorCode,
+        labelErrorMessage: event.data.errorMessage,
+      };
+    case "fulfillment.shipment.label-voided":
+      return {
+        ...state,
+        status: "awaiting-label",
+        labelStatus:
+          event.data.refundStatus === "refunded" ? "voided" : "void-requested",
+        labelRefundStatus: event.data.refundStatus,
+        labelRefundReference: event.data.refundReference,
+        labelVoidedAt: event.data.voidedAt,
       };
     case "fulfillment.shipment.dispatched":
       return {
