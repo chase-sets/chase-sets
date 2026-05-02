@@ -4,9 +4,11 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
+import { useEffect, useState } from "react";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import type { ListResponse } from "@chase-sets/http/responses";
 import {
   createMarketplaceRequestApiClient,
@@ -22,6 +24,8 @@ import {
 import {
   MarketplaceListingListPage,
 } from "../features/listings/ui/listing-list-page";
+import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
+import { marketplaceRealtimeTopics } from "../support/realtime-support/topics";
 
 const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
@@ -133,14 +137,50 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountListingsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const rootData = useRouteLoaderData("root") as
+    | { actor?: { accountId?: string } | null }
+    | undefined;
+  const [listings, setListings] = useState(data.listings as ListResponse<MarketplaceListingListItem>);
+
+  useEffect(() => {
+    setListings(data.listings as ListResponse<MarketplaceListingListItem>);
+  }, [data.listings]);
+
+  useEffect(() => {
+    const accountId = rootData?.actor?.accountId;
+    if (!accountId) {
+      return;
+    }
+
+    const subscription = subscribeRealtimePatches({
+      topics: [marketplaceRealtimeTopics.accountListings(accountId)],
+      onPatch: (patch) => {
+        setListings((current) =>
+          applyMarketplaceListPatch(current, patch, {
+            entity: "marketplace.sellerListing",
+            idField: "listing_id",
+          }),
+        );
+      },
+      onSyncRequired: reloadForRealtimeSync,
+    });
+
+    return () => subscription.close();
+  }, [rootData?.actor?.accountId]);
 
   return (
     <MarketplaceListingListPage
-      data={data.listings as ListResponse<MarketplaceListingListItem>}
+      data={listings}
       inventoryItems={data.inventoryItems}
       createForm={actionData?.createForm ?? data.createForm ?? undefined}
       createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
     />
   );
+}
+
+function reloadForRealtimeSync() {
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
 }

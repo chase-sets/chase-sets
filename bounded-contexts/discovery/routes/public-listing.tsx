@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { useEffect, useState } from "react";
 import {
   Badge,
   Card,
@@ -14,10 +15,13 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
 } from "../support/request-support/api-client";
+import { applyDiscoveryPublicListingPatch } from "../support/client-support/realtime-market";
+import { discoveryRealtimeTopics } from "../support/realtime-support/topics";
 
 function formatMoney(value: string): string {
   return `$${value}`;
@@ -81,7 +85,30 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 
 export default function PublicListingRoute() {
   const data = useLoaderData<typeof loader>();
-  const listing = data.listing;
+  const [listing, setListing] = useState(data.listing);
+
+  useEffect(() => {
+    setListing(data.listing);
+  }, [data.listing]);
+
+  useEffect(() => {
+    if (!data.listing) {
+      return;
+    }
+
+    const subscription = subscribeRealtimePatches({
+      topics: [
+        discoveryRealtimeTopics.publicMarket(),
+        discoveryRealtimeTopics.listing(data.listing.listing_id),
+      ],
+      onPatch: (patch) => {
+        setListing((current) => applyDiscoveryPublicListingPatch(current, patch));
+      },
+      onSyncRequired: reloadForRealtimeSync,
+    });
+
+    return () => subscription.close();
+  }, [data.listing?.listing_id]);
 
   if (!listing) {
     return (
@@ -141,4 +168,10 @@ export default function PublicListingRoute() {
       </Stack>
     </Container>
   );
+}
+
+function reloadForRealtimeSync() {
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
 }

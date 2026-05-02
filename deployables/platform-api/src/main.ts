@@ -14,6 +14,10 @@ import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-te
 import type { PaymentServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import {
+  createRealtimeRetentionSweeper,
+  type RealtimeObserver,
+} from "@chase-sets/platform-runtime/realtime";
+import {
   getObservabilityRuntime,
   observeProjectors,
   observeWorker,
@@ -97,6 +101,70 @@ const runtime = createPlatformApiHost({
     postageLabelProvider,
   },
 });
+const realtimeStores = runtime.mountedContexts
+  .filter((entry) =>
+    entry.contextName === "discovery" || entry.contextName === "marketplace"
+  )
+  .map((entry) => ({
+    contextName: entry.contextName,
+    db: entry.pool,
+  }));
+const realtimeObserver = {
+  connectionOpened: (event) => {
+    logger.info("Realtime SSE connection opened.", {
+      type: "realtime.connection.opened",
+      activeConnectionCount: event.activeConnectionCount,
+      topicCount: event.topics.length,
+      storeNames: event.storeNames,
+      actorAccountId: event.actorAccountId,
+    });
+  },
+  connectionClosed: (event) => {
+    logger.info("Realtime SSE connection closed.", {
+      type: "realtime.connection.closed",
+      activeConnectionCount: event.activeConnectionCount,
+    });
+  },
+  authorizationRejected: (event) => {
+    logger.warn("Realtime SSE subscription rejected.", {
+      type: "realtime.authorization.rejected",
+      reason: event.reason,
+      topicCount: event.topics.length,
+      actorAccountId: event.actorAccountId,
+    });
+  },
+  batchRead: (event) => {
+    if (event.messageCount === 0 && event.expiredContextCount === 0) {
+      return;
+    }
+
+    logger.info("Realtime SSE batch read.", {
+      type: "realtime.batch",
+      topicCount: event.topics.length,
+      storeNames: event.storeNames,
+      messageCount: event.messageCount,
+      expiredContextCount: event.expiredContextCount,
+    });
+  },
+  retentionPruned: (event) => {
+    if (event.deletedCount === 0) {
+      return;
+    }
+
+    logger.info("Realtime retention pruned.", {
+      type: "realtime.retention.pruned",
+      contextName: event.contextName,
+      deletedCount: event.deletedCount,
+    });
+  },
+  streamError: (event) => {
+    logger.error("Realtime SSE stream failed.", {
+      type: "realtime.stream.error",
+      connectionKey: event.connectionKey,
+      error: event.error,
+    });
+  },
+} satisfies RealtimeObserver;
 const app = buildPlatformApiApp(runtime, {
   drain: () =>
     observeWorker(
@@ -116,7 +184,19 @@ const app = buildPlatformApiApp(runtime, {
       runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0],
       request,
     ),
+  realtimeObserver,
 });
+const realtimeRetentionSweeper = createRealtimeRetentionSweeper({
+  stores: realtimeStores,
+  observer: realtimeObserver,
+  onError: (error) => {
+    logger.error("Realtime retention sweep failed.", {
+      type: "realtime.retention.failed",
+      error,
+    });
+  },
+});
+void realtimeRetentionSweeper.sweep();
 
 const PROJECTION_INTERVAL_MS = 1_000;
 const SYSTEM_CONTEXT = {
@@ -241,6 +321,7 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
+    realtimeRetentionSweeper.stop();
     void closePlatformApiPools(pools)
       .finally(() => observability.shutdown())
       .finally(() => process.exit(0));

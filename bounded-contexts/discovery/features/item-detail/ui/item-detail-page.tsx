@@ -384,7 +384,7 @@ export function ItemDetailPage({
     setSelections(getInitialSelections(data));
     setSelectedListingId(null);
     setSelectedOfferId(null);
-  }, [data]);
+  }, [data?.catalog_item_id]);
 
   if (error) {
     return <Banner tone="danger" title={t("discovery.features.itemDetail.ui.itemDetailPage.error")} description={error} />;

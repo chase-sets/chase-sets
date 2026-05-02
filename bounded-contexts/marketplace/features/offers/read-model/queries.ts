@@ -71,7 +71,8 @@ const sellerVisibilitySql = `
   )
 )`;
 
-const sellerOfferSelectSql = `
+function sellerOfferSelectSql(sellerAccountSql: string) {
+  return `
   offer.*,
   buyer.display_name AS buyer_display_name,
   COALESCE((
@@ -94,16 +95,17 @@ const sellerOfferSelectSql = `
       GROUP BY item_id
     ) AS active_holds
       ON active_holds.item_id = item.item_id
-    WHERE listing.account_id = $1
+    WHERE listing.account_id = ${sellerAccountSql}
       AND listing.status = 'active'
       AND listing.product_id = offer.product_id
   ), 0)::integer AS seller_available_quantity,
   EXISTS (
     SELECT 1
     FROM marketplace_buyer_offer_match_sell_list_pages AS cart
-    WHERE cart.seller_account_id = $1
+    WHERE cart.seller_account_id = ${sellerAccountSql}
       AND cart.offer_id = offer.offer_id
   ) AS in_sell_list`;
+}
 
 function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
   return `
@@ -118,6 +120,10 @@ type OfferMatchPageRow = MarketplaceOfferPageRow & {
   buyer_display_name: string | null;
   seller_available_quantity: number;
   in_sell_list: boolean;
+};
+
+type OfferMatchForSellerPageRow = OfferMatchPageRow & {
+  seller_account_id: string;
 };
 
 function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
@@ -200,7 +206,7 @@ export async function listOfferMatches(
       `SELECT *
        FROM (
          SELECT
-           ${sellerOfferSelectSql}
+           ${sellerOfferSelectSql("$1")}
          FROM marketplace_offer_pages AS offer
          LEFT JOIN marketplace_account_pages AS buyer
            ON buyer.account_id = offer.buyer_account_id
@@ -229,7 +235,7 @@ export async function getOfferMatch(
 ): Promise<OfferMatchRow | null> {
   const result = await db.query<OfferMatchPageRow>(
     `SELECT
-       ${sellerOfferSelectSql}
+       ${sellerOfferSelectSql("$1")}
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
@@ -274,7 +280,7 @@ export async function listOfferMatchSellList(
     `SELECT *
      FROM (
        SELECT
-         ${sellerOfferSelectSql},
+         ${sellerOfferSelectSql("$1")},
          cart.updated_at AS cart_updated_at
        FROM marketplace_buyer_offer_match_sell_list_pages AS cart
        INNER JOIN marketplace_offer_pages AS offer
@@ -289,6 +295,47 @@ export async function listOfferMatchSellList(
   );
 
   return result.rows.map(mapOfferMatchRow);
+}
+
+export async function listOfferMatchesForSellers(
+  db: PgQueryable,
+  offerId: string,
+  sellerAccountIds: readonly string[],
+): Promise<ReadonlyMap<string, OfferMatchRow>> {
+  const uniqueSellerAccountIds = [...new Set(sellerAccountIds)];
+  if (uniqueSellerAccountIds.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<OfferMatchForSellerPageRow>(
+    `WITH seller_accounts AS (
+       SELECT DISTINCT unnest($2::text[]) AS seller_account_id
+     )
+     SELECT
+       seller_account.seller_account_id,
+       ${sellerOfferSelectSql("seller_account.seller_account_id")}
+     FROM seller_accounts AS seller_account
+     INNER JOIN marketplace_offer_pages AS offer
+       ON offer.offer_id = $1
+     LEFT JOIN marketplace_account_pages AS buyer
+       ON buyer.account_id = offer.buyer_account_id
+     WHERE offer.status = 'submitted'
+       AND EXISTS (
+         SELECT 1
+         FROM marketplace_listing_pages AS listing
+         WHERE listing.account_id = seller_account.seller_account_id
+           AND listing.status = 'active'
+           AND listing.product_id = offer.product_id
+       )`,
+    [offerId, uniqueSellerAccountIds],
+  );
+
+  return new Map(
+    result.rows.map((row) => [
+      row.seller_account_id,
+      mapOfferMatchRow(row),
+    ]),
+  );
 }
 
 export async function removeOfferMatchSellListItems(

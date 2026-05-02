@@ -1,5 +1,82 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
+
+async function loadRealtimeListing(db: PgQueryable, listingId: string) {
+  const result = await db.query<{
+    listing_id: string;
+    account_id: string;
+    inventory_item_id: string;
+    catalog_catalog_item_id: string;
+    product_id: string;
+    item_title: string | null;
+    item_subtitle: string | null;
+    selected_options: unknown;
+    product_summary: string | null;
+    graded_card: unknown;
+    storage_location_name: string | null;
+    ship_from_code: string | null;
+    price_amount: string;
+    marketplace_fee_amount: string | null;
+    payment_fee_amount: string | null;
+    seller_net_amount: string | null;
+    terms_schedule_id: string | null;
+    terms_agreement_id: string | null;
+    terms_resolved_at: string | null;
+    quantity_cap: number;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  }>("SELECT * FROM marketplace_listing_pages WHERE listing_id = $1", [listingId]);
+  const row = result.rows[0];
+
+  return row
+    ? {
+        ...row,
+        selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
+        graded_card:
+          typeof row.graded_card === "object" && row.graded_card !== null
+            ? row.graded_card
+            : null,
+      }
+    : null;
+}
+
+async function emitListingPatch(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  listingId: string,
+) {
+  const listing = await loadRealtimeListing(db, listingId);
+  if (!listing) {
+    return;
+  }
+
+  const topics = [marketplaceRealtimeTopics.accountListings(listing.account_id)];
+
+  await recordRealtimeProjectionPatch(db, {
+    sourceGlobalPosition: event.globalPosition,
+    projectionName: "marketplace-listing-projection",
+    patchKey: `listing:${listingId}`,
+    topics,
+    recordedAt: event.timing.recordedAt,
+    patch: {
+      kind: "projection.patch",
+      context: "marketplace",
+      projection: "marketplace-listing-projection",
+      topics,
+      changes: [
+        {
+          op: "upsert",
+          entity: "marketplace.sellerListing",
+          id: listing.listing_id,
+          value: listing,
+        },
+      ],
+    },
+  });
+}
 
 export function buildMarketplaceListingProjectionHandlers(
   db: PgQueryable,
@@ -104,6 +181,7 @@ export function buildMarketplaceListingProjectionHandlers(
           event.timing.recordedAt,
         ],
       );
+      await emitListingPatch(db, event, data.listingId);
     },
     "marketplace.listing.price-updated": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
@@ -148,6 +226,7 @@ export function buildMarketplaceListingProjectionHandlers(
           event.timing.recordedAt,
         ],
       );
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
@@ -160,6 +239,7 @@ export function buildMarketplaceListingProjectionHandlers(
          WHERE listing_id = $1`,
         [listingId, quantityCap, event.timing.recordedAt],
       );
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.published": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
@@ -171,6 +251,7 @@ export function buildMarketplaceListingProjectionHandlers(
          WHERE listing_id = $1`,
         [listingId, event.timing.recordedAt],
       );
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.paused": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
@@ -182,6 +263,7 @@ export function buildMarketplaceListingProjectionHandlers(
          WHERE listing_id = $1`,
         [listingId, event.timing.recordedAt],
       );
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
@@ -193,6 +275,7 @@ export function buildMarketplaceListingProjectionHandlers(
          WHERE listing_id = $1`,
         [listingId, event.timing.recordedAt],
       );
+      await emitListingPatch(db, event, listingId);
     },
   };
 }

@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import { discoveryRealtimeRegistration } from "@chase-sets/discovery/server";
 import { module as identityModule } from "@chase-sets/identity";
+import { marketplaceRealtimeRegistration } from "@chase-sets/marketplace/server";
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
@@ -24,6 +26,11 @@ import {
   type CreateMcpRoutesOptions,
 } from "@chase-sets/platform-runtime/mcp";
 import {
+  createRealtimeRoutes,
+  type RealtimeObserver,
+  type RealtimeResourceLimits,
+} from "@chase-sets/platform-runtime/realtime";
+import {
   createIdentityAuthMiddleware,
   createPlatformActorMiddleware,
   type PlatformActorResolver,
@@ -44,6 +51,8 @@ export type BuildPlatformApiOptions = Readonly<{
     | Promise<HealthProjectionReplaySummary>;
   readinessChecks?: readonly ReadinessCheck[];
   resolveActor?: PlatformActorResolver;
+  realtimeObserver?: RealtimeObserver;
+  realtimeResourceLimits?: RealtimeResourceLimits;
   mcp?: CreateMcpRoutesOptions;
 }>;
 
@@ -96,6 +105,29 @@ export function buildPlatformApiApp(
   app.use("/mcp", platformActorMiddleware);
   app.use("/mcp/*", platformActorMiddleware);
   app.route("/mcp", createMcpRoutes(options.mcp));
+  app.route(
+    "/api/realtime",
+    createRealtimeRoutes({
+      stores: runtime.mountedContexts
+        .filter((entry) =>
+          entry.contextName === "discovery" || entry.contextName === "marketplace"
+        )
+        .map((entry) => ({
+          ...(entry.contextName === "discovery"
+            ? discoveryRealtimeRegistration
+            : marketplaceRealtimeRegistration),
+          contextName: entry.contextName,
+          db: entry.pool,
+        })),
+      resolveActor: options.resolveActor ?? (async () => null),
+      observer: options.realtimeObserver,
+      resourceLimits: options.realtimeResourceLimits ?? {
+        maxTopicsPerStream: 16,
+        maxActiveStreams: 1_000,
+        maxActiveStreamsPerConnectionKey: 6,
+      },
+    }),
+  );
 
   attachApiMountMiddleware(
     app,

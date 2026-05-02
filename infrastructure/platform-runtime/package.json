@@ -11,6 +11,8 @@
     "./http": "./http.ts",
     "./mcp": "./mcp.ts",
     "./meta": "./meta.ts",
+    "./realtime": "./realtime.ts",
+    "./realtime-web": "./realtime-web.ts",
     "./web": "./web.ts",
     "./web-route-config": "./web-route-config.ts"
   },

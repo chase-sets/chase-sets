@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { useEffect, useState } from "react";
 import {
   Container,
   EmptyState,
@@ -13,11 +14,14 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
 } from "../support/request-support/api-client";
 import { discoveryAssetUrls } from "../support/client-support/assets";
+import { applyDiscoveryPublicSellerPatch } from "../support/client-support/realtime-market";
+import { discoveryRealtimeTopics } from "../support/realtime-support/topics";
 
 function formatMoney(value: string): string {
   return `$${value}`;
@@ -72,7 +76,30 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 
 export default function PublicSellerRoute() {
   const data = useLoaderData<typeof loader>();
-  const seller = data.seller;
+  const [seller, setSeller] = useState(data.seller);
+
+  useEffect(() => {
+    setSeller(data.seller);
+  }, [data.seller]);
+
+  useEffect(() => {
+    if (!data.seller) {
+      return;
+    }
+
+    const subscription = subscribeRealtimePatches({
+      topics: [
+        discoveryRealtimeTopics.publicMarket(),
+        discoveryRealtimeTopics.seller(data.seller.account_id),
+      ],
+      onPatch: (patch) => {
+        setSeller((current) => applyDiscoveryPublicSellerPatch(current, patch));
+      },
+      onSyncRequired: reloadForRealtimeSync,
+    });
+
+    return () => subscription.close();
+  }, [data.seller?.account_id]);
 
   if (!seller) {
     return (
@@ -134,4 +161,10 @@ export default function PublicSellerRoute() {
       </Stack>
     </Container>
   );
+}
+
+function reloadForRealtimeSync() {
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
 }

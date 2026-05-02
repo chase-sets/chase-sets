@@ -288,6 +288,12 @@
       "@chase-sets/platform-runtime/meta": [
         "./infrastructure/platform-runtime/meta.ts"
       ],
+      "@chase-sets/platform-runtime/realtime": [
+        "./infrastructure/platform-runtime/realtime.ts"
+      ],
+      "@chase-sets/platform-runtime/realtime-web": [
+        "./infrastructure/platform-runtime/realtime-web.ts"
+      ],
       "@chase-sets/platform-runtime/web": [
         "./infrastructure/platform-runtime/web.ts"
       ],

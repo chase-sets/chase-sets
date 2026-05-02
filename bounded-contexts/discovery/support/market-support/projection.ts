@@ -1,11 +1,17 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  recordRealtimeProjectionPatch,
+  type RealtimeProjectionPatchChange,
+} from "@chase-sets/platform-runtime/realtime";
+import { discoveryRealtimeTopics } from "../realtime-support/topics";
+import {
   createMarketplaceSlug,
   rememberSlugRedirect,
 } from "../runtime-support/slugs";
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
+const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
 
 function extractIdFromStreamId(streamId: string, prefix: string): string {
   if (!streamId.startsWith(prefix)) {
@@ -13,6 +19,216 @@ function extractIdFromStreamId(streamId: string, prefix: string): string {
   }
 
   return streamId.slice(prefix.length);
+}
+
+async function loadRealtimeListing(db: PgQueryable, listingId: string) {
+  const result = await db.query<{
+    listing_id: string;
+    listing_slug: string;
+    product_slug: string;
+    account_id: string;
+    seller_slug: string | null;
+    seller_display_name: string | null;
+    inventory_item_id: string;
+    catalog_catalog_item_id: string;
+    catalog_item_slug: string | null;
+    product_id: string;
+    item_title: string | null;
+    item_subtitle: string | null;
+    selected_options: unknown;
+    product_summary: string | null;
+    storage_location_name: string | null;
+    ship_from_code: string | null;
+    price_amount: string;
+    quantity_cap: number;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  }>(
+    `SELECT
+       listing.*,
+       item.slug AS catalog_item_slug,
+       account.seller_slug,
+       account.seller_display_name
+     FROM discovery_market_listings AS listing
+     LEFT JOIN discovery_market_accounts AS account
+       ON account.account_id = listing.account_id
+     LEFT JOIN discovery_item_detail_pages AS item
+       ON item.catalog_item_id = listing.catalog_catalog_item_id
+     WHERE listing.listing_id = $1`,
+    [listingId],
+  );
+  const row = result.rows[0];
+
+  return row
+    ? {
+        ...row,
+        selected_options: Array.isArray(row.selected_options)
+          ? row.selected_options
+          : [],
+      }
+    : null;
+}
+
+async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
+  const result = await db.query<{
+    offer_id: string;
+    buyer_account_id: string;
+    buyer_display_name: string | null;
+    catalog_catalog_item_id: string;
+    product_id: string;
+    item_title: string;
+    item_subtitle: string | null;
+    selected_options: unknown;
+    product_summary: string | null;
+    price_amount: string;
+    quantity_requested: number;
+    status: string;
+    accepted_seller_account_id: string | null;
+    accepted_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>(
+    `SELECT
+       offer.*,
+       account.seller_display_name AS buyer_display_name
+     FROM discovery_buyer_offer_matches AS offer
+     LEFT JOIN discovery_market_accounts AS account
+       ON account.account_id = offer.buyer_account_id
+     WHERE offer.offer_id = $1`,
+    [offerId],
+  );
+  const row = result.rows[0];
+
+  return row
+    ? {
+        ...row,
+        selected_options: Array.isArray(row.selected_options)
+          ? row.selected_options
+          : [],
+      }
+    : null;
+}
+
+async function loadRealtimeMarketSummary(db: PgQueryable, catalogItemId: string) {
+  const result = await db.query<{
+    lowest_price_amount: string | null;
+    active_listing_count: number;
+    total_visible_quantity: number;
+  }>(
+    `SELECT
+       MIN(price_amount)::text AS lowest_price_amount,
+       COUNT(*)::integer AS active_listing_count,
+       COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
+     FROM discovery_market_listings
+     WHERE catalog_catalog_item_id = $1
+       AND status = 'active'`,
+    [catalogItemId],
+  );
+  const row = result.rows[0];
+
+  return row && row.active_listing_count > 0
+    ? row
+    : {
+        lowest_price_amount: null,
+        active_listing_count: 0,
+        total_visible_quantity: 0,
+      };
+}
+
+async function emitRealtimeChanges(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  patchKey: string,
+  topics: readonly string[],
+  changes: readonly RealtimeProjectionPatchChange[],
+) {
+  await recordRealtimeProjectionPatch(db, {
+    sourceGlobalPosition: event.globalPosition,
+    projectionName: "discovery-market-projection",
+    patchKey,
+    topics,
+    recordedAt: event.timing.recordedAt,
+    patch: {
+      kind: "projection.patch",
+      context: "discovery",
+      projection: "discovery-market-projection",
+      topics,
+      changes,
+    },
+  });
+}
+
+async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], listingId: string) {
+  const listing = await loadRealtimeListing(db, listingId);
+  if (!listing) {
+    return;
+  }
+
+  const topics = [
+    discoveryRealtimeTopics.publicMarket(),
+    discoveryRealtimeTopics.item(listing.catalog_catalog_item_id),
+    discoveryRealtimeTopics.listing(listing.listing_id),
+    discoveryRealtimeTopics.seller(listing.account_id),
+  ];
+  const summary = await loadRealtimeMarketSummary(
+    db,
+    listing.catalog_catalog_item_id,
+  );
+  const change =
+    listing.status === "active"
+      ? {
+          op: "upsert",
+          entity: "discovery.marketListing",
+          id: listing.listing_id,
+          value: listing,
+        } satisfies RealtimeProjectionPatchChange
+      : {
+          op: "remove",
+          entity: "discovery.marketListing",
+          id: listing.listing_id,
+        } satisfies RealtimeProjectionPatchChange;
+
+  await emitRealtimeChanges(db, event, `listing:${listingId}`, topics, [
+    change,
+    {
+      op: "summary",
+      entity: "discovery.marketSummary",
+      id: listing.catalog_catalog_item_id,
+      value: summary,
+    },
+  ]);
+}
+
+async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
+  const offer = await loadRealtimeOffer(db, offerId);
+  if (!offer) {
+    return;
+  }
+
+  await emitRealtimeChanges(
+    db,
+    event,
+    `offer:${offerId}`,
+    [
+      discoveryRealtimeTopics.publicMarket(),
+      discoveryRealtimeTopics.item(offer.catalog_catalog_item_id),
+    ],
+    [
+      offer.status === "submitted" || offer.status === "accepted"
+        ? {
+            op: "upsert",
+            entity: "discovery.buyerOffer",
+            id: offer.offer_id,
+            value: offer,
+          }
+        : {
+            op: "remove",
+            entity: "discovery.buyerOffer",
+            id: offer.offer_id,
+          },
+    ],
+  );
 }
 
 export function buildDiscoveryMarketProjectionHandlers(
@@ -40,6 +256,29 @@ export function buildDiscoveryMarketProjectionHandlers(
           status = EXCLUDED.status,
           updated_at = EXCLUDED.updated_at`,
         [accountId, sellerSlug, displayName, event.timing.recordedAt],
+      );
+      await emitRealtimeChanges(
+        db,
+        event,
+        `seller:${accountId}`,
+        [
+          discoveryRealtimeTopics.publicMarket(),
+          discoveryRealtimeTopics.seller(accountId),
+        ],
+        [
+          {
+            op: "upsert",
+            entity: "discovery.publicSeller",
+            id: accountId,
+            value: {
+              account_id: accountId,
+              seller_slug: sellerSlug,
+              seller_display_name: displayName,
+              status: "active",
+              updated_at: event.timing.recordedAt,
+            },
+          },
+        ],
       );
     },
     "identity.account.profile-updated": async (event) => {
@@ -71,6 +310,29 @@ export function buildDiscoveryMarketProjectionHandlers(
         nextSlug: sellerSlug,
         updatedAt: event.timing.recordedAt,
       });
+      await emitRealtimeChanges(
+        db,
+        event,
+        `seller:${accountId}`,
+        [
+          discoveryRealtimeTopics.publicMarket(),
+          discoveryRealtimeTopics.seller(accountId),
+        ],
+        [
+          {
+            op: "upsert",
+            entity: "discovery.publicSeller",
+            id: accountId,
+            value: {
+              account_id: accountId,
+              seller_slug: sellerSlug,
+              seller_display_name: displayName,
+              status: "active",
+              updated_at: event.timing.recordedAt,
+            },
+          },
+        ],
+      );
     },
     "identity.account.suspended": async (event) => {
       await db.query(
@@ -80,6 +342,13 @@ export function buildDiscoveryMarketProjectionHandlers(
          WHERE account_id = $1`,
         [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
+      const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+      await emitRealtimeChanges(db, event, `seller:${accountId}`, [
+        discoveryRealtimeTopics.publicMarket(),
+        discoveryRealtimeTopics.seller(accountId),
+      ], [
+        { op: "remove", entity: "discovery.publicSeller", id: accountId },
+      ]);
     },
     "identity.account.reactivated": async (event) => {
       await db.query(
@@ -89,6 +358,18 @@ export function buildDiscoveryMarketProjectionHandlers(
          WHERE account_id = $1`,
         [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
+      const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+      await emitRealtimeChanges(db, event, `seller:${accountId}`, [
+        discoveryRealtimeTopics.publicMarket(),
+        discoveryRealtimeTopics.seller(accountId),
+      ], [
+        {
+          op: "upsert",
+          entity: "discovery.publicSeller",
+          id: accountId,
+          value: { account_id: accountId, status: "active", updated_at: event.timing.recordedAt },
+        },
+      ]);
     },
     "identity.account.closed": async (event) => {
       await db.query(
@@ -98,6 +379,13 @@ export function buildDiscoveryMarketProjectionHandlers(
          WHERE account_id = $1`,
         [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
+      const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+      await emitRealtimeChanges(db, event, `seller:${accountId}`, [
+        discoveryRealtimeTopics.publicMarket(),
+        discoveryRealtimeTopics.seller(accountId),
+      ], [
+        { op: "remove", entity: "discovery.publicSeller", id: accountId },
+      ]);
     },
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
@@ -205,6 +493,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         nextSlug: productSlug,
         updatedAt: event.timing.recordedAt,
       });
+      await emitListingPatch(db, event, data.listingId);
     },
     "marketplace.listing.price-updated": async (event) => {
       await db.query(
@@ -218,6 +507,7 @@ export function buildDiscoveryMarketProjectionHandlers(
           event.timing.recordedAt,
         ],
       );
+      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
       await db.query(
@@ -231,6 +521,7 @@ export function buildDiscoveryMarketProjectionHandlers(
           event.timing.recordedAt,
         ],
       );
+      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
     },
     "marketplace.listing.published": async (event) => {
       await db.query(
@@ -240,6 +531,7 @@ export function buildDiscoveryMarketProjectionHandlers(
          WHERE listing_id = $1`,
         [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
       );
+      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
     },
     "marketplace.listing.paused": async (event) => {
       await db.query(
@@ -249,6 +541,7 @@ export function buildDiscoveryMarketProjectionHandlers(
          WHERE listing_id = $1`,
         [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
       );
+      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
     },
     "marketplace.listing.withdrawn": async (event) => {
       await db.query(
@@ -258,6 +551,7 @@ export function buildDiscoveryMarketProjectionHandlers(
          WHERE listing_id = $1`,
         [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
       );
+      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
     },
     "marketplace.offer.submitted": async (event) => {
       const data = event.data as {
@@ -321,6 +615,7 @@ export function buildDiscoveryMarketProjectionHandlers(
           event.timing.recordedAt,
         ],
       );
+      await emitOfferPatch(db, event, data.offerId);
     },
     "marketplace.offer.accepted": async (event) => {
       const data = event.data as {
@@ -338,6 +633,7 @@ export function buildDiscoveryMarketProjectionHandlers(
          WHERE offer_id = $1`,
         [data.offerId, data.sellerAccountId, data.acceptedAt],
       );
+      await emitOfferPatch(db, event, data.offerId);
     },
   };
 }

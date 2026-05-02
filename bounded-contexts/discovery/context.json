@@ -17,6 +17,7 @@
     "client-support",
     "item-support",
     "market-support",
+    "realtime-support",
     "request-support",
     "runtime-support",
     "shell-support"
@@ -395,6 +396,18 @@
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
+    },
+    "realtime-support": {
+      "classification": "support",
+      "purpose": "Provide discovery-owned realtime topic contracts and registration metadata.",
+      "allowedWhen": "Allowed for SSE topic contracts shared by discovery projectors, routes, and platform composition.",
+      "expectedConsumers": [
+        "Multiple discovery slices",
+        "Deployable composition for discovery"
+      ],
+      "justification": "realtime-support keeps discovery topic ownership in the discovery bounded context instead of deployables.",
+      "createdFor": "SSE projection patch routing and topic construction for discovery marketplace surfaces.",
+      "sunsetWhen": "Remove when discovery no longer publishes or consumes realtime projection patches."
     },
     "runtime-support": {
       "classification": "support",

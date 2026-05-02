@@ -61,6 +61,10 @@ export default defineConfig({
         target: "http://localhost:6182",
         changeOrigin: true,
       },
+      "/api/realtime": {
+        target: "http://localhost:6182",
+        changeOrigin: true,
+      },
       "/api/settlement": {
         target: "http://localhost:6182",
         changeOrigin: true,

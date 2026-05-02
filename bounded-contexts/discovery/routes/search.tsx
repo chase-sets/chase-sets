@@ -6,9 +6,14 @@ import {
   useNavigation,
   useSearchParams,
 } from "react-router";
+import { useEffect, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
+import type { DiscoverySearchResponse } from "../support/request-support/api-client";
+import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
+import { discoveryRealtimeTopics } from "../support/realtime-support/topics";
 
 const PAGE_SIZE = 24;
 const MARKETPLACE_DESCRIPTION =
@@ -115,6 +120,23 @@ export default function DiscoverySearchRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_SEARCH_RESULT;
   const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [realtimeData, setRealtimeData] = useState<DiscoverySearchResponse | null>(data.data);
+
+  useEffect(() => {
+    setRealtimeData(data.data);
+  }, [data.data]);
+
+  useEffect(() => {
+    const subscription = subscribeRealtimePatches({
+      topics: [discoveryRealtimeTopics.publicMarket()],
+      onPatch: (patch) => {
+        setRealtimeData((current) => applyDiscoverySearchPatch(current, patch));
+      },
+      onSyncRequired: reloadForRealtimeSync,
+    });
+
+    return () => subscription.close();
+  }, []);
 
   function updateSearchParams(nextValues: {
     search?: string;
@@ -168,7 +190,7 @@ export default function DiscoverySearchRoute() {
       category={data.category}
       sort={data.sort}
       page={data.page}
-      data={data.data}
+      data={realtimeData}
       categories={data.categories}
       loading={navigation.state !== "idle"}
       onSearchChange={(value) => updateSearchParams({ search: value })}
@@ -177,4 +199,10 @@ export default function DiscoverySearchRoute() {
       onPageChange={(value) => updateSearchParams({ page: value })}
     />
   );
+}
+
+function reloadForRealtimeSync() {
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
 }

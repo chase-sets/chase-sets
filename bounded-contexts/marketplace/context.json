@@ -13,6 +13,7 @@
   ],
   "allowedSupportDirectories": [
     "request-support",
+    "realtime-support",
     "runtime-support",
     "seed-support"
   ],
@@ -277,12 +278,25 @@
       "purpose": "Provide reusable request-support assets shared by marketplace-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "listings"
+        "listings",
+        "offers"
       ],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "marketplace workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
+    },
+    "realtime-support": {
+      "classification": "support",
+      "purpose": "Provide marketplace-owned client realtime patch helpers shared by route modules.",
+      "allowedWhen": "Allowed only for route-level realtime composition that cannot live inside one feature route.",
+      "expectedConsumers": [
+        "listings",
+        "offers"
+      ],
+      "justification": "realtime-support centralizes small patch helpers shared by listings and offers routes.",
+      "createdFor": "SSE projection patch handling on marketplace account pages.",
+      "sunsetWhen": "Remove when route modules no longer share realtime client behavior."
     },
     "runtime-support": {
       "classification": "support",

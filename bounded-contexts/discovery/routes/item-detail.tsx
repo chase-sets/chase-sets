@@ -4,7 +4,7 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   Badge,
@@ -24,10 +24,13 @@ import {
   resolveActorFromAuthApi,
 } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
 } from "../support/request-support/api-client";
+import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
+import { discoveryRealtimeTopics } from "../support/realtime-support/topics";
 import type {
   DiscoveryMarketListing,
   DiscoverySellerInventoryItem,
@@ -848,10 +851,34 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 export default function DiscoveryItemDetailRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;
   const actionData = useActionData<typeof action>();
+  const [realtimeItem, setRealtimeItem] = useState(data.item);
+
+  useEffect(() => {
+    setRealtimeItem(data.item);
+  }, [data.item]);
+
+  useEffect(() => {
+    if (!data.item) {
+      return;
+    }
+
+    const subscription = subscribeRealtimePatches({
+      topics: [
+        discoveryRealtimeTopics.publicMarket(),
+        discoveryRealtimeTopics.item(data.item.catalog_item_id),
+      ],
+      onPatch: (patch) => {
+        setRealtimeItem((current) => applyDiscoveryItemPatch(current, patch));
+      },
+      onSyncRequired: reloadForRealtimeSync,
+    });
+
+    return () => subscription.close();
+  }, [data.item?.catalog_item_id]);
 
   return (
     <ItemDetailPage
-      data={data.item}
+      data={realtimeItem}
       accountOfferMatches={data.accountOfferMatches}
       notFound={data.notFound}
       error={data.error}
@@ -1076,4 +1103,10 @@ export default function DiscoveryItemDetailRoute() {
       }
     />
   );
+}
+
+function reloadForRealtimeSync() {
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
 }
