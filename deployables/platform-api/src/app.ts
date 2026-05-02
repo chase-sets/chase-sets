@@ -18,6 +18,10 @@ import {
   type ApiHostRuntime,
 } from "@chase-sets/platform-runtime/api";
 import {
+  createMcpRoutes,
+  type CreateMcpRoutesOptions,
+} from "@chase-sets/platform-runtime/mcp";
+import {
   createIdentityAuthMiddleware,
   createPlatformActorMiddleware,
   type PlatformActorResolver,
@@ -37,6 +41,7 @@ export type BuildPlatformApiOptions = Readonly<{
     | HealthProjectionReplaySummary
     | Promise<HealthProjectionReplaySummary>;
   resolveActor?: PlatformActorResolver;
+  mcp?: CreateMcpRoutesOptions;
 }>;
 
 export function createPlatformApiHost(
@@ -80,6 +85,13 @@ export function buildPlatformApiApp(
     }),
   );
 
+  const platformActorMiddleware = createPlatformActorMiddleware(
+    options.resolveActor ?? (async () => null),
+  );
+  app.use("/mcp", platformActorMiddleware);
+  app.use("/mcp/*", platformActorMiddleware);
+  app.route("/mcp", createMcpRoutes(options.mcp));
+
   attachApiMountMiddleware(
     app,
     apiMounts
@@ -98,7 +110,7 @@ export function buildPlatformApiApp(
           mount.contextName !== "identity",
       )
       .map((mount) => mount.mountPath),
-    createPlatformActorMiddleware(options.resolveActor ?? (async () => null)),
+    platformActorMiddleware,
   );
 
   attachWriteDrainMiddleware(

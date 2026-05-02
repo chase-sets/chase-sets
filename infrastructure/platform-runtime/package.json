@@ -9,6 +9,7 @@
     "./auth": "./auth.ts",
     "./health": "./health.ts",
     "./http": "./http.ts",
+    "./mcp": "./mcp.ts",
     "./meta": "./meta.ts",
     "./web": "./web.ts",
     "./web-route-config": "./web-route-config.ts"
@@ -24,6 +25,7 @@
     "@chase-sets/design-system": "0.1.0",
     "@chase-sets/event-core": "0.1.0",
     "@chase-sets/event-core-postgres": "0.1.0",
+    "@chase-sets/mcp": "0.1.0",
     "@react-router/dev": "^7.14.0",
     "hono": "^4.12.12"
   },

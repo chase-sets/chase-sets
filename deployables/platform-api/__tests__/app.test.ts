@@ -37,6 +37,73 @@ describe("platform api app", () => {
     expect(response.status).toBe(200);
   });
 
+  it("mounts the MCP JSON-RPC bridge with platform actor resolution", async () => {
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      },
+      {
+        resolveActor: vi.fn(async () => ({
+          sessionId: "sess_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          accountId: "account_1",
+          membershipId: "member_1",
+          roleKey: "manager",
+          permissions: ["inventory.view"],
+        })),
+        mcp: {
+          toolHandlers: {
+            "inventory.list-items": vi.fn(async ({ actor }) => ({
+              accountId: actor?.accountId,
+              items: [],
+            })),
+          },
+        },
+      },
+    );
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "request_1",
+        method: "tools/call",
+        params: {
+          name: "inventory.list-items",
+          arguments: {
+            accountId: "account_1",
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      result: {
+        content: [
+          {
+            type: "json",
+            json: {
+              accountId: "account_1",
+              items: [],
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it("keeps provider webhook mounts unauthenticated and preserves raw request bodies", async () => {
     const resolveActor = vi.fn(async () => {
       throw new Error("Provider webhooks must not require marketplace auth.");

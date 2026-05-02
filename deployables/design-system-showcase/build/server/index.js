@@ -4,16 +4,23 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration, ServerRouter, UNSAFE_w
 import { isbot } from "isbot";
 import { renderToPipeableStream } from "react-dom/server";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
-import { createContext, forwardRef, useContext, useId, useMemo, useState, useSyncExternalStore } from "react";
+import { createContext, forwardRef, useContext, useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { BadgeCheck, BarChart3, Bell, BookOpen, Bot, BriefcaseBusiness, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle, CircleHelp, Clock, Copy, CreditCard, DollarSign, ExternalLink, Eye, EyeOff, Flame, Grid2X2, Heart, Home, ImageIcon, Info, LayoutDashboard, LockKeyhole, Menu, MessageSquare, Minus, MoreVertical, Package, Pencil, Plus, Rocket, Search, Settings, Share2, ShieldCheck, Shirt, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Star, StarHalf, Store, Tags, Trash2, TriangleAlert, Truck, User, Users, WalletCards, X } from "lucide-react";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
-import * as SeparatorPrimitive from "@radix-ui/react-separator";
-import "react-dom";
-import * as SelectPrimitive from "@radix-ui/react-select";
-import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
-import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
-import * as SwitchPrimitive from "@radix-ui/react-switch";
+import { Tabs } from "@base-ui/react/tabs";
+import { Toggle } from "@base-ui/react/toggle";
+import { ToggleGroup } from "@base-ui/react/toggle-group";
+import { Toolbar } from "@base-ui/react/toolbar";
+import { NavigationMenu } from "@base-ui/react/navigation-menu";
+import { Separator } from "@base-ui/react/separator";
+import { Toast } from "@base-ui/react/toast";
+import { Field } from "@base-ui/react/field";
+import { Select } from "@base-ui/react/select";
+import { Autocomplete } from "@base-ui/react/autocomplete";
+import { NumberField } from "@base-ui/react/number-field";
+import { Radio } from "@base-ui/react/radio";
+import { RadioGroup } from "@base-ui/react/radio-group";
+import { Switch } from "@base-ui/react/switch";
 //#region \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
 var __exportAll = (all, no_symbols) => {
@@ -98,6 +105,48 @@ function Layout({ children }) {
 var root_default = UNSAFE_withComponentProps(function App() {
 	return /* @__PURE__ */ jsx(Outlet, {});
 });
+//#endregion
+//#region ../../packages/design-system/src/brand/chase-sets-logo.tsx
+function ChaseSetsLogo({ decorative = false, size = 24, title = "Chase Sets", ...rest }) {
+	const gradientId = `chase-sets-logo-${useId().replaceAll(":", "")}`;
+	const accessibleTitle = decorative ? void 0 : title;
+	return /* @__PURE__ */ jsxs("svg", {
+		...rest,
+		xmlns: "http://www.w3.org/2000/svg",
+		width: size,
+		height: size,
+		viewBox: "0 0 1254 1254",
+		role: decorative ? void 0 : "img",
+		"aria-hidden": decorative ? true : void 0,
+		"aria-label": accessibleTitle,
+		focusable: "false",
+		children: [/* @__PURE__ */ jsx("defs", { children: /* @__PURE__ */ jsxs("linearGradient", {
+			id: gradientId,
+			gradientUnits: "userSpaceOnUse",
+			x1: "248",
+			y1: "420",
+			x2: "1012",
+			y2: "842",
+			children: [
+				/* @__PURE__ */ jsx("stop", {
+					offset: "0",
+					stopColor: "#05c2ef"
+				}),
+				/* @__PURE__ */ jsx("stop", {
+					offset: "0.48",
+					stopColor: "#1d64ff"
+				}),
+				/* @__PURE__ */ jsx("stop", {
+					offset: "1",
+					stopColor: "#702cff"
+				})
+			]
+		}) }), /* @__PURE__ */ jsxs("g", {
+			fill: `url(#${gradientId})`,
+			children: [/* @__PURE__ */ jsx("path", { d: "M638 66 L988 310 L867 395 L640 246 L423 393 L423 488 L735 706 L628 788 L272 538 L272 323 Z" }), /* @__PURE__ */ jsx("path", { d: "M647 385 L994 621 L994 852 L645 1108 L286 842 L399 759 L630 928 L832 778 L832 666 L540 461 Z" })]
+		})]
+	});
+}
 //#endregion
 //#region ../../packages/design-system/src/utils/cx.ts
 function cx(...values) {
@@ -204,15 +253,15 @@ function Icon({ name, size = "md", tone = "primary", label, ...rest }) {
 //#region ../../packages/design-system/src/theme/tokens.ts
 var chaseTheme = {
 	colors: {
-		background: "#f6f8ff",
+		background: "#f4f7ff",
 		surface: "#ffffff",
-		surface2: "#edf3ff",
-		surface3: "#e4ecfb",
-		elevatedSurface: "#f9fbff",
-		border: "#c7d3ea",
-		mutedBorder: "#dce5f5",
+		surface2: "#eef5ff",
+		surface3: "#e2ebfb",
+		elevatedSurface: "#ffffff",
+		border: "#b9c9e6",
+		mutedBorder: "#d8e3f5",
 		textPrimary: "#07111f",
-		textSecondary: "#46546b",
+		textSecondary: "#3f4e64",
 		textTertiary: "#65738a",
 		textDisabled: "#9aa7b8",
 		textInverse: "#f8fbff",
@@ -244,10 +293,10 @@ var chaseTheme = {
 		xl: "1.5rem"
 	},
 	shadows: {
-		sm: "0 10px 28px -18px rgba(15, 23, 42, 0.22)",
-		md: "0 18px 46px -24px rgba(30, 64, 175, 0.28)",
-		lg: "0 26px 70px -30px rgba(37, 99, 235, 0.36)",
-		overlay: "0 36px 100px -30px rgba(30, 64, 175, 0.42)"
+		sm: "0 10px 30px -20px rgba(15, 23, 42, 0.24)",
+		md: "0 18px 50px -26px rgba(30, 64, 175, 0.3)",
+		lg: "0 28px 74px -34px rgba(37, 99, 235, 0.38)",
+		overlay: "0 36px 104px -32px rgba(30, 64, 175, 0.44)"
 	},
 	zIndex: {
 		sticky: "20",
@@ -579,7 +628,7 @@ function ChaseRoot({ children, density = "comfortable", reducedMotion = "user", 
 						"data-color-mode": colorMode,
 						"data-density": density,
 						"data-reduced-motion": resolvedReducedMotion ? "true" : "false",
-						className: cx("chase-root relative isolate min-h-screen bg-background font-body text-foreground"),
+						className: cx("chase-root relative isolate min-h-screen w-full min-w-0 max-w-full overflow-x-clip bg-background font-body text-foreground"),
 						style: resolveThemeOverrideStyle(theme),
 						children: [
 							children,
@@ -608,9 +657,14 @@ function usePortalRoots() {
 	return useContext(PortalContext);
 }
 //#endregion
+//#region ../../packages/design-system/src/utils/motion-props.ts
+function toMotionDomProps(props) {
+	return props;
+}
+//#endregion
 //#region ../../packages/design-system/src/components/actions/shared.tsx
 var buttonToneClasses = {
-	primary: "border-transparent brand-gradient text-accent-contrast shadow-[0_0_28px_-10px_var(--glow-accent)] hover:shadow-[0_0_38px_-8px_var(--glow-accent)]",
+	primary: "border-transparent bg-accent text-accent-contrast shadow-[0_0_22px_-12px_var(--glow-accent)] hover:bg-accent-hover hover:shadow-[0_0_30px_-12px_var(--glow-accent)]",
 	secondary: "border-border bg-surface-2 text-foreground hover:border-accent hover:text-accent",
 	ghost: "border-transparent bg-transparent text-secondary hover:border-border hover:bg-surface-2 hover:text-foreground",
 	danger: "border-transparent bg-danger text-inverse hover:bg-danger-hover"
@@ -672,7 +726,7 @@ var Button = forwardRef(function Button({ children, tone = "primary", size = "md
 	const motionSettings = useChaseMotion();
 	const sizeClasses = useDensity() === "compact" ? buttonCompactSizeClasses : buttonSizeClasses;
 	const interactiveMotion = resolveInteractiveMotion(motionSettings.reducedMotion, motionSettings.interactiveScale, motionSettings.interactiveLift);
-	const nativeProps = rest;
+	const nativeProps = toMotionDomProps(rest);
 	const isDisabled = disabled || loading;
 	return /* @__PURE__ */ jsxs(motion.button, {
 		...nativeProps,
@@ -700,7 +754,7 @@ var IconButton = forwardRef(function IconButton({ label, icon, tone = "ghost", s
 	const motionSettings = useChaseMotion();
 	const sizeClasses = useDensity() === "compact" ? buttonCompactSizeClasses : buttonSizeClasses;
 	const interactiveMotion = resolveInteractiveMotion(motionSettings.reducedMotion, motionSettings.interactiveScale, motionSettings.interactiveLift);
-	const nativeProps = rest;
+	const nativeProps = toMotionDomProps(rest);
 	return /* @__PURE__ */ jsx(motion.button, {
 		...nativeProps,
 		ref,
@@ -718,7 +772,7 @@ var IconButton = forwardRef(function IconButton({ label, icon, tone = "ghost", s
 var LinkButton = forwardRef(function LinkButton({ children, tone = "secondary", size = "md", leadingIcon, trailingIcon, block = false, ...rest }, ref) {
 	const motionSettings = useChaseMotion();
 	const interactiveMotion = resolveInteractiveMotion(motionSettings.reducedMotion, motionSettings.interactiveScale, motionSettings.interactiveLift);
-	const nativeProps = rest;
+	const nativeProps = toMotionDomProps(rest);
 	return /* @__PURE__ */ jsxs(motion.a, {
 		...nativeProps,
 		ref,
@@ -745,7 +799,7 @@ function ButtonGroup({ children, ...rest }) {
 }
 //#endregion
 //#region ../../packages/design-system/src/components/actions/tabs.tsx
-function Tabs({ items, defaultValue, value, onValueChange, orientation = "horizontal", dir, activationMode = "automatic" }) {
+function Tabs$1({ items, defaultValue, value, onValueChange, orientation = "horizontal", dir, activationMode = "automatic" }) {
 	const resolvedValue = defaultValue ?? items[0]?.value;
 	const [internalValue, setInternalValue] = useState(resolvedValue);
 	const currentValue = value ?? internalValue ?? resolvedValue;
@@ -754,27 +808,25 @@ function Tabs({ items, defaultValue, value, onValueChange, orientation = "horizo
 		if (value === void 0) setInternalValue(nextValue);
 		onValueChange?.(nextValue);
 	}
-	return /* @__PURE__ */ jsxs(TabsPrimitive.Root, {
+	return /* @__PURE__ */ jsxs(Tabs.Root, {
 		defaultValue: resolvedValue,
 		value: currentValue,
 		onValueChange: handleValueChange,
 		orientation,
-		dir,
-		activationMode,
 		className: "space-y-4",
 		children: [/* @__PURE__ */ jsx(LayoutGroup, {
 			id: groupId,
-			children: /* @__PURE__ */ jsx(TabsPrimitive.List, {
-				className: "inline-flex w-full flex-wrap gap-2 rounded-tokenLg border border-muted bg-background p-2",
+			children: /* @__PURE__ */ jsx(Tabs.List, {
+				className: "grid w-full min-w-0 max-w-full grid-cols-2 gap-2 rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap",
 				children: items.map((item) => {
 					const active = item.value === currentValue;
-					return /* @__PURE__ */ jsxs(TabsPrimitive.Trigger, {
+					return /* @__PURE__ */ jsxs(Tabs.Tab, {
 						value: item.value,
-						className: "focus-ring relative inline-flex touch-target flex-1 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-4 py-2 text-sm font-semibold text-secondary transition data-[state=active]:text-accent",
+						className: (state) => cx("focus-ring relative inline-flex touch-target min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-center text-sm font-semibold text-secondary transition md:flex-1 md:basis-0 md:px-4", state.active && "text-accent"),
 						children: [
 							active ? renderActivePill(groupId, "accent") : null,
 							/* @__PURE__ */ jsx("span", {
-								className: "relative z-10",
+								className: "relative z-10 min-w-0 break-words",
 								children: item.label
 							}),
 							item.badge ? /* @__PURE__ */ jsx("span", {
@@ -802,9 +854,9 @@ function Tabs({ items, defaultValue, value, onValueChange, orientation = "horizo
 					y: -6
 				},
 				transition: { duration: .18 },
-				children: /* @__PURE__ */ jsx(TabsPrimitive.Content, {
+				children: /* @__PURE__ */ jsx(Tabs.Panel, {
 					value: currentValue,
-					forceMount: true,
+					keepMounted: true,
 					className: "focus-visible:outline-none",
 					children: items.find((item) => item.value === currentValue)?.content
 				})
@@ -814,7 +866,7 @@ function Tabs({ items, defaultValue, value, onValueChange, orientation = "horizo
 }
 //#endregion
 //#region ../../packages/design-system/src/components/actions/segmented-control.tsx
-function SegmentedControl({ items, value, onValueChange, ...rest }) {
+function SegmentedControl({ items, value, fullWidth = false, onValueChange, ...rest }) {
 	const groupId = useId();
 	function handleKeyDown(event, index) {
 		let next = -1;
@@ -833,7 +885,7 @@ function SegmentedControl({ items, value, onValueChange, ...rest }) {
 		children: /* @__PURE__ */ jsx("div", {
 			...rest,
 			role: "tablist",
-			className: "inline-flex flex-wrap rounded-tokenLg border border-muted bg-background p-1",
+			className: cx("rounded-tokenLg border border-muted bg-background p-1", fullWidth ? "grid w-full grid-flow-col auto-cols-fr" : "inline-flex flex-wrap"),
 			children: items.map((item, index) => {
 				const active = item.value === value;
 				return /* @__PURE__ */ jsxs("button", {
@@ -841,7 +893,7 @@ function SegmentedControl({ items, value, onValueChange, ...rest }) {
 					role: "tab",
 					"aria-selected": active,
 					tabIndex: active ? 0 : -1,
-					className: cx("focus-ring relative inline-flex min-h-10 items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-semibold transition", active ? "text-accent" : "text-secondary hover:text-foreground"),
+					className: cx("focus-ring relative inline-flex min-h-10 items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-semibold transition", fullWidth && "justify-center", active ? "text-accent" : "text-secondary hover:text-foreground"),
 					onClick: () => onValueChange?.(item.value),
 					onKeyDown: (event) => handleKeyDown(event, index),
 					children: [
@@ -858,6 +910,155 @@ function SegmentedControl({ items, value, onValueChange, ...rest }) {
 				}, item.value);
 			})
 		})
+	});
+}
+//#endregion
+//#region ../../packages/design-system/src/components/actions/toggle.tsx
+function Toggle$1({ children, value, pressed, defaultPressed, onPressedChange, disabled = false, size = "md", icon, "aria-label": ariaLabel }) {
+	return /* @__PURE__ */ jsxs(Toggle, {
+		type: "button",
+		value,
+		pressed,
+		defaultPressed,
+		onPressedChange: (nextPressed) => onPressedChange?.(nextPressed),
+		disabled,
+		"aria-label": ariaLabel,
+		className: (state) => cx(buttonBaseClass, buttonSizeClasses[size], state.pressed ? "border-accent bg-accent text-accent-contrast" : "border-border bg-surface-2 text-secondary hover:border-accent hover:text-accent", state.disabled && "cursor-not-allowed opacity-50 shadow-none"),
+		children: [icon ? /* @__PURE__ */ jsx(Icon, {
+			name: icon,
+			size: "sm",
+			tone: pressed ? "inverse" : "secondary"
+		}) : null, children ? /* @__PURE__ */ jsx("span", { children }) : null]
+	});
+}
+function ToggleGroup$1({ items, value, defaultValue, onValueChange, multiple = false, orientation = "horizontal", disabled = false, label, size = "sm" }) {
+	return /* @__PURE__ */ jsx(ToggleGroup, {
+		value,
+		defaultValue,
+		onValueChange: (nextValue) => onValueChange?.(nextValue),
+		multiple,
+		orientation,
+		disabled,
+		"aria-label": label,
+		className: cx("inline-flex gap-2 rounded-tokenLg bg-surface-2 p-1", orientation === "vertical" && "flex-col"),
+		children: items.map((item) => /* @__PURE__ */ jsxs(Toggle, {
+			type: "button",
+			value: item.value,
+			disabled: item.disabled,
+			className: (state) => cx(buttonBaseClass, buttonCompactSizeClasses[size], state.pressed ? "border-accent bg-elevated text-accent shadow-tokenSm" : "border-transparent bg-transparent text-secondary shadow-none hover:bg-elevated hover:text-foreground", state.disabled && "cursor-not-allowed opacity-50"),
+			children: [item.icon ? /* @__PURE__ */ jsx(Icon, {
+				name: item.icon,
+				size: "sm",
+				tone: item.disabled ? "secondary" : "accent"
+			}) : null, /* @__PURE__ */ jsx("span", { children: item.label })]
+		}, item.value))
+	});
+}
+//#endregion
+//#region ../../packages/design-system/src/components/actions/toolbar.tsx
+function Toolbar$1({ children, label, orientation = "horizontal" }) {
+	return /* @__PURE__ */ jsx(Toolbar.Root, {
+		"aria-label": label,
+		orientation,
+		className: cx("inline-flex items-center gap-1 rounded-tokenLg border border-muted bg-surface-2 p-1", orientation === "vertical" && "flex-col items-stretch"),
+		children
+	});
+}
+function ToolbarButton({ children, icon, type = "button", ...rest }) {
+	return /* @__PURE__ */ jsxs(Toolbar.Button, {
+		...rest,
+		type,
+		className: "focus-ring inline-flex min-h-8 items-center justify-center gap-2 rounded-tokenMd px-2.5 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+		children: [icon ? /* @__PURE__ */ jsx(Icon, {
+			name: icon,
+			size: "sm",
+			tone: "secondary"
+		}) : null, children ? /* @__PURE__ */ jsx("span", { children }) : null]
+	});
+}
+function ToolbarInput(props) {
+	return /* @__PURE__ */ jsx(Toolbar.Input, {
+		...props,
+		className: "focus-ring min-h-8 w-44 rounded-tokenMd border border-muted bg-elevated px-3 text-sm text-foreground placeholder:text-secondary"
+	});
+}
+function ToolbarSeparator() {
+	return /* @__PURE__ */ jsx(Toolbar.Separator, { className: "mx-1 h-5 w-px bg-muted" });
+}
+//#endregion
+//#region ../../packages/design-system/src/components/actions/navigation-menu.tsx
+function NavigationMenu$1({ items, value, defaultValue, onValueChange, orientation = "horizontal", label = "Primary navigation" }) {
+	const { overlayNode } = usePortalRoots();
+	return /* @__PURE__ */ jsxs(NavigationMenu.Root, {
+		value,
+		defaultValue,
+		onValueChange: (nextValue) => onValueChange?.(nextValue),
+		orientation,
+		"aria-label": label,
+		className: "relative",
+		children: [/* @__PURE__ */ jsx(NavigationMenu.List, {
+			className: cx("flex gap-1 rounded-tokenLg border border-muted bg-surface-2 p-1", orientation === "vertical" && "flex-col"),
+			children: items.map((item) => /* @__PURE__ */ jsx(NavigationMenu.Item, {
+				value: item.value,
+				children: item.content ? /* @__PURE__ */ jsxs(Fragment, { children: [/* @__PURE__ */ jsxs(NavigationMenu.Trigger, {
+					className: (state) => cx("focus-ring inline-flex min-h-9 items-center gap-2 rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground", state.open && "bg-elevated text-accent"),
+					children: [/* @__PURE__ */ jsx("span", { children: item.label }), /* @__PURE__ */ jsx(NavigationMenu.Icon, { children: /* @__PURE__ */ jsx(Icon, {
+						name: "chevronDown",
+						size: "sm",
+						tone: "secondary"
+					}) })]
+				}), /* @__PURE__ */ jsx(NavigationMenu.Content, {
+					className: "p-4",
+					children: item.content
+				})] }) : /* @__PURE__ */ jsx(NavigationMenu.Link, {
+					href: item.href,
+					active: item.active,
+					closeOnClick: true,
+					className: (state) => cx("focus-ring inline-flex min-h-9 items-center rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground", state.active && "bg-elevated text-accent"),
+					children: item.label
+				})
+			}, item.value))
+		}), /* @__PURE__ */ jsx(NavigationMenu.Portal, {
+			container: overlayNode ?? void 0,
+			children: /* @__PURE__ */ jsx(NavigationMenu.Positioner, {
+				sideOffset: 8,
+				className: "z-popover",
+				children: /* @__PURE__ */ jsx(NavigationMenu.Popup, {
+					className: "modern-surface min-w-72 overflow-hidden rounded-tokenLg border border-muted shadow-overlay",
+					children: /* @__PURE__ */ jsx(NavigationMenu.Viewport, {})
+				})
+			})
+		})]
+	});
+}
+//#endregion
+//#region ../../packages/design-system/src/components/actions/page-stepper.tsx
+function PageStepper({ items, ...rest }) {
+	return /* @__PURE__ */ jsx("ol", {
+		...rest,
+		className: "grid gap-3 md:grid-cols-3",
+		children: items.map((item, index) => /* @__PURE__ */ jsx("li", {
+			className: cx("rounded-tokenLg border p-4 shadow-tokenSm", item.status === "complete" && "border-success bg-elevated", item.status === "current" && "border-accent bg-elevated", item.status === "upcoming" && "border-muted bg-background"),
+			children: /* @__PURE__ */ jsxs("div", {
+				className: "flex items-start gap-3",
+				children: [/* @__PURE__ */ jsx("span", {
+					className: cx("inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold", item.status === "complete" && "bg-success text-inverse", item.status === "current" && "bg-accent text-accent-contrast", item.status === "upcoming" && "bg-muted text-secondary"),
+					children: item.status === "complete" ? /* @__PURE__ */ jsx(Icon, {
+						name: "check",
+						size: "sm"
+					}) : index + 1
+				}), /* @__PURE__ */ jsxs("div", {
+					className: "space-y-1",
+					children: [/* @__PURE__ */ jsx("div", {
+						className: "text-sm font-semibold text-foreground",
+						children: item.label
+					}), item.description ? /* @__PURE__ */ jsx("div", {
+						className: "text-xs text-secondary",
+						children: item.description
+					}) : null]
+				})]
+			})
+		}, `${item.label}-${index}`))
 	});
 }
 //#endregion
@@ -1011,9 +1212,116 @@ var columnsClasses = {
 		"2xl": "2xl:grid-cols-5"
 	}
 };
+var spaceClasses = {
+	p: {
+		0: "p-0",
+		1: "p-1",
+		2: "p-2",
+		3: "p-3",
+		4: "p-4",
+		5: "p-5",
+		6: "p-6",
+		7: "p-7",
+		8: "p-8",
+		9: "p-9",
+		10: "p-10",
+		11: "p-11",
+		12: "p-12"
+	},
+	px: {
+		0: "px-0",
+		1: "px-1",
+		2: "px-2",
+		3: "px-3",
+		4: "px-4",
+		5: "px-5",
+		6: "px-6",
+		7: "px-7",
+		8: "px-8",
+		9: "px-9",
+		10: "px-10",
+		11: "px-11",
+		12: "px-12"
+	},
+	py: {
+		0: "py-0",
+		1: "py-1",
+		2: "py-2",
+		3: "py-3",
+		4: "py-4",
+		5: "py-5",
+		6: "py-6",
+		7: "py-7",
+		8: "py-8",
+		9: "py-9",
+		10: "py-10",
+		11: "py-11",
+		12: "py-12"
+	},
+	m: {
+		0: "m-0",
+		1: "m-1",
+		2: "m-2",
+		3: "m-3",
+		4: "m-4",
+		5: "m-5",
+		6: "m-6",
+		7: "m-7",
+		8: "m-8",
+		9: "m-9",
+		10: "m-10",
+		11: "m-11",
+		12: "m-12"
+	},
+	mx: {
+		0: "mx-0",
+		1: "mx-1",
+		2: "mx-2",
+		3: "mx-3",
+		4: "mx-4",
+		5: "mx-5",
+		6: "mx-6",
+		7: "mx-7",
+		8: "mx-8",
+		9: "mx-9",
+		10: "mx-10",
+		11: "mx-11",
+		12: "mx-12"
+	},
+	my: {
+		0: "my-0",
+		1: "my-1",
+		2: "my-2",
+		3: "my-3",
+		4: "my-4",
+		5: "my-5",
+		6: "my-6",
+		7: "my-7",
+		8: "my-8",
+		9: "my-9",
+		10: "my-10",
+		11: "my-11",
+		12: "my-12"
+	},
+	gap: {
+		0: "gap-0",
+		1: "gap-1",
+		2: "gap-2",
+		3: "gap-3",
+		4: "gap-4",
+		5: "gap-5",
+		6: "gap-6",
+		7: "gap-7",
+		8: "gap-8",
+		9: "gap-9",
+		10: "gap-10",
+		11: "gap-11",
+		12: "gap-12"
+	}
+};
 function resolveSpaceClass(prefix, value) {
 	if (value === void 0) return "";
-	return `${prefix}-${value}`;
+	return spaceClasses[prefix][value];
 }
 function resolveTextAlignClass(value) {
 	return value ? textAlignClasses[value] : "";
@@ -1049,6 +1357,7 @@ var layoutWidthClasses = {
 	narrow: "max-w-3xl",
 	content: "max-w-5xl",
 	wide: "max-w-7xl",
+	expanded: "max-w-screen-2xl",
 	full: "max-w-none"
 };
 function Stack({ children, element = "div", direction = "column", align, justify, gap = 4, ...rest }) {
@@ -1085,7 +1394,7 @@ var surfaceToneClasses = {
 function Surface({ children, element = "div", tone = "default", elevated = false, glow = false, padding = 4, paddingX, paddingY, gap, textAlign, ...rest }) {
 	return /* @__PURE__ */ jsx(element, {
 		...rest,
-		className: cx("surface-border rounded-tokenLg", surfaceToneClasses[tone], resolveSystemProps({
+		className: cx("surface-border min-w-0 max-w-full rounded-tokenLg", surfaceToneClasses[tone], resolveSystemProps({
 			padding,
 			paddingX,
 			paddingY,
@@ -1096,9 +1405,9 @@ function Surface({ children, element = "div", tone = "default", elevated = false
 	});
 }
 function Divider({ orientation = "horizontal", decorative = true, ...rest }) {
-	return /* @__PURE__ */ jsx(SeparatorPrimitive.Root, {
+	return /* @__PURE__ */ jsx(Separator, {
 		...rest,
-		decorative,
+		"aria-hidden": decorative || void 0,
 		orientation,
 		className: cx("shrink-0 bg-border", orientation === "horizontal" ? "h-px w-full" : "h-full w-px")
 	});
@@ -1112,7 +1421,7 @@ function SkipLink({ targetId = "main-content", label = "Skip to main content" })
 }
 //#endregion
 //#region ../../packages/design-system/src/components/actions/navigation.tsx
-function renderNavigationItem(item, active, orientation, groupId, onSelect) {
+function renderNavigationItem(item, active, orientation, groupId, onSelect, activeKey) {
 	const content = /* @__PURE__ */ jsxs(Fragment, { children: [
 		item.avatar ? item.avatar : item.icon ? /* @__PURE__ */ jsx(Icon, {
 			name: item.icon,
@@ -1129,6 +1438,30 @@ function renderNavigationItem(item, active, orientation, groupId, onSelect) {
 		}) : null
 	] });
 	const className = cx("focus-ring relative inline-flex items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-medium transition", orientation === "vertical" && "w-full justify-between", orientation === "rail" && "w-full flex-col justify-center py-3", active ? "bg-surface-2 text-accent shadow-tokenSm" : "text-secondary hover:bg-surface-2 hover:text-foreground");
+	if (orientation === "horizontal" && item.children?.length) {
+		const childIsActive = active;
+		return /* @__PURE__ */ jsxs("details", {
+			className: "group relative",
+			children: [/* @__PURE__ */ jsxs("summary", {
+				className: cx(className, "list-none [&::-webkit-details-marker]:hidden", childIsActive && "bg-surface-2 text-accent shadow-tokenSm"),
+				children: [
+					childIsActive && groupId ? renderActivePill(groupId) : null,
+					/* @__PURE__ */ jsx("span", {
+						className: "relative z-10 inline-flex items-center gap-2",
+						children: content
+					}),
+					/* @__PURE__ */ jsx(Icon, {
+						name: "chevronDown",
+						size: "sm",
+						tone: childIsActive ? "accent" : "secondary"
+					})
+				]
+			}), /* @__PURE__ */ jsx("div", {
+				className: "modern-surface absolute left-0 top-[calc(100%+0.5rem)] z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay",
+				children: item.children.map((child) => renderNavigationItem(child, child.key === activeKey, "vertical", void 0, onSelect, activeKey))
+			})]
+		}, item.key);
+	}
 	if (item.href) return /* @__PURE__ */ jsxs("a", {
 		href: item.href,
 		className,
@@ -1189,6 +1522,9 @@ function renderBottomNavigationItem(item, active, groupId, onSelect) {
 		})]
 	}, item.key);
 }
+function isNavigationItemActive(item, activeKey) {
+	return item.key === activeKey || Boolean(item.children?.some((child) => child.key === activeKey));
+}
 function TopNav({ items, activeKey, onSelect, brand, actions, width = "full", ...rest }) {
 	const groupId = useId();
 	return /* @__PURE__ */ jsx("nav", {
@@ -1202,7 +1538,7 @@ function TopNav({ items, activeKey, onSelect, brand, actions, width = "full", ..
 					id: groupId,
 					children: /* @__PURE__ */ jsx("div", {
 						className: "hidden items-center gap-1 md:flex",
-						children: items.map((item) => renderNavigationItem(item, item.key === activeKey, "horizontal", groupId, onSelect))
+						children: items.map((item) => renderNavigationItem(item, isNavigationItemActive(item, activeKey), "horizontal", groupId, onSelect, activeKey))
 					})
 				})]
 			}), /* @__PURE__ */ jsx("div", {
@@ -1219,7 +1555,7 @@ function SideNav({ items, activeKey, onSelect, ...rest }) {
 		className: "glass-surface flex h-full flex-col gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm",
 		children: /* @__PURE__ */ jsx(LayoutGroup, {
 			id: groupId,
-			children: items.map((item) => renderNavigationItem(item, item.key === activeKey, "vertical", groupId, onSelect))
+			children: items.map((item) => renderNavigationItem(item, item.key === activeKey, "vertical", groupId, onSelect, activeKey))
 		})
 	});
 }
@@ -1232,7 +1568,7 @@ function BottomNav({ items, activeKey, onSelect, width = "full", ...rest }) {
 			id: groupId,
 			children: /* @__PURE__ */ jsx("div", {
 				className: cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width]),
-				children: items.slice(0, 4).map((item) => renderBottomNavigationItem(item, item.key === activeKey, groupId, onSelect))
+				children: items.slice(0, 4).map((item) => renderBottomNavigationItem(item, isNavigationItemActive(item, activeKey), groupId, onSelect))
 			})
 		})
 	});
@@ -1256,6 +1592,7 @@ function Badge({ children, tone = "neutral", ...rest }) {
 		children
 	});
 }
+Toast.createToastManager();
 //#endregion
 //#region ../../packages/design-system/src/components/feedback/empty-state.tsx
 function EmptyState({ title, description, actions, icon = "spark", ...rest }) {
@@ -1291,14 +1628,48 @@ function EmptyState({ title, description, actions, icon = "spark", ...rest }) {
 		})
 	});
 }
-forwardRef(function AnimatedAccordionContent({ children, ...rest }, ref) {
+//#endregion
+//#region ../../packages/design-system/src/components/feedback/rating.tsx
+function Rating({ value, max = 5, size = "md", interactive = false, onValueChange, label = "Rating", ...rest }) {
+	const stars = Array.from({ length: max }, (_, i) => {
+		const position = i + 1;
+		const filled = value >= position;
+		const half = !filled && value >= position - .5;
+		const iconName = filled ? "star" : half ? "starHalf" : "starEmpty";
+		if (interactive) return /* @__PURE__ */ jsx("button", {
+			type: "button",
+			role: "radio",
+			"aria-checked": value === position,
+			"aria-label": `${position} of ${max}`,
+			className: "focus-ring rounded-sm text-warning",
+			onClick: () => onValueChange?.(position),
+			children: /* @__PURE__ */ jsx(Icon, {
+				name: iconName,
+				size,
+				tone: "warning"
+			})
+		}, position);
+		return /* @__PURE__ */ jsx(Icon, {
+			name: iconName,
+			size,
+			tone: "warning"
+		}, position);
+	});
+	return /* @__PURE__ */ jsx("div", {
+		...rest,
+		role: interactive ? "radiogroup" : void 0,
+		"aria-label": label,
+		className: "inline-flex items-center gap-0.5",
+		children: stars
+	});
+}
+forwardRef(function AnimatedAccordionContent({ children, open, ...rest }, ref) {
 	const motionSettings = useChaseMotion();
-	const isOpen = rest["data-state"] === "open";
 	return /* @__PURE__ */ jsx(motion.div, {
 		...rest,
 		ref,
 		initial: false,
-		animate: motionSettings.reducedMotion ? void 0 : isOpen ? {
+		animate: motionSettings.reducedMotion ? void 0 : open ? {
 			height: "auto",
 			opacity: 1
 		} : {
@@ -1463,17 +1834,17 @@ function DataTable({ rows, columns, mobileMode = "stack", getRowId, emptyTitle =
 }
 //#endregion
 //#region ../../packages/design-system/src/components/data-display/key-value-list.tsx
-function KeyValueList({ items, ...rest }) {
+function KeyValueList({ items, density = "default", variant = "surface", ...rest }) {
 	return /* @__PURE__ */ jsx("dl", {
 		...rest,
-		className: "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm",
+		className: variant === "surface" ? "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm" : "grid gap-0",
 		children: items.map((item, index) => /* @__PURE__ */ jsxs("div", {
-			className: "flex items-start justify-between gap-4 border-b border-muted pb-3 last:border-b-0 last:pb-0",
+			className: density === "compact" ? "flex items-start justify-between gap-4 border-b border-muted py-2 first:pt-0 last:border-b-0 last:pb-0" : "flex items-start justify-between gap-4 border-b border-muted pb-3 last:border-b-0 last:pb-0",
 			children: [/* @__PURE__ */ jsx("dt", {
-				className: "text-xs font-semibold uppercase tracking-wide text-secondary",
+				className: "text-xs font-semibold uppercase text-secondary",
 				children: item.key
 			}), /* @__PURE__ */ jsx("dd", {
-				className: "text-sm text-foreground",
+				className: "min-w-0 text-right text-sm text-foreground",
 				children: item.value
 			})]
 		}, index))
@@ -1566,7 +1937,7 @@ function Card({ children, media, interactive = false, variant = "default", glow 
 			ease: motionSettings.easing
 		}
 	} : void 0;
-	const nativeProps = rest;
+	const nativeProps = toMotionDomProps(rest);
 	return /* @__PURE__ */ jsx(motion.div, {
 		...nativeProps,
 		...interactiveMotion,
@@ -1603,11 +1974,12 @@ function fieldHintId(inputId) {
 }
 function FieldChrome({ label, description, error, required = false, hideLabel = false, htmlFor, children, ...rest }) {
 	const hintId = fieldHintId(htmlFor);
-	return /* @__PURE__ */ jsxs("div", {
+	return /* @__PURE__ */ jsxs(Field.Root, {
 		...rest,
+		invalid: !!error,
 		className: "space-y-2",
 		children: [
-			label ? /* @__PURE__ */ jsxs("label", {
+			label ? /* @__PURE__ */ jsxs(Field.Label, {
 				htmlFor,
 				className: cx("block text-sm font-medium text-foreground", hideLabel && "sr-only"),
 				children: [label, required ? /* @__PURE__ */ jsx("span", {
@@ -1616,12 +1988,12 @@ function FieldChrome({ label, description, error, required = false, hideLabel = 
 				}) : null]
 			}) : null,
 			children,
-			error ? /* @__PURE__ */ jsx("div", {
+			error ? /* @__PURE__ */ jsx(Field.Error, {
 				id: hintId,
-				role: "alert",
+				match: true,
 				className: "text-xs font-medium text-danger",
 				children: error
-			}) : description ? /* @__PURE__ */ jsx("div", {
+			}) : description ? /* @__PURE__ */ jsx(Field.Description, {
 				id: hintId,
 				className: "text-xs text-secondary",
 				children: description
@@ -1685,9 +2057,38 @@ function SearchInput({ id, label = "Search", description, error, required, hideL
 }
 //#endregion
 //#region ../../packages/design-system/src/components/forms/select.tsx
-function Select({ label, description, error, required, hideLabel, items, value, defaultValue, onValueChange, placeholder = "Choose an option", disabled = false }) {
+function NativeSelect({ id, label, description, error, required, hideLabel, items, placeholder, ...rest }) {
+	const fallbackId = useId();
+	const inputId = id ?? fallbackId;
+	return /* @__PURE__ */ jsx(FieldChrome, {
+		label,
+		description,
+		error,
+		required,
+		hideLabel,
+		htmlFor: inputId,
+		children: /* @__PURE__ */ jsxs("select", {
+			...rest,
+			id: inputId,
+			required,
+			"aria-describedby": error || description ? fieldHintId(inputId) : void 0,
+			"aria-invalid": !!error || void 0,
+			className: cx(controlClass, !!error && "border-danger focus-visible:ring-danger/30"),
+			children: [placeholder ? /* @__PURE__ */ jsx("option", {
+				value: "",
+				children: placeholder
+			}) : null, items.map((item) => /* @__PURE__ */ jsx("option", {
+				value: item.value,
+				disabled: item.disabled,
+				children: item.label
+			}, item.value))]
+		})
+	});
+}
+function Select$1({ label, description, error, required, hideLabel, items, value, defaultValue, onValueChange, placeholder = "Choose an option", disabled = false }) {
 	const fallbackId = useId();
 	const { overlayNode } = usePortalRoots();
+	const itemLabels = useMemo(() => Object.fromEntries(items.map((item) => [item.value, item.label])), [items]);
 	return /* @__PURE__ */ jsx(FieldChrome, {
 		label,
 		description,
@@ -1695,40 +2096,53 @@ function Select({ label, description, error, required, hideLabel, items, value, 
 		required,
 		hideLabel,
 		htmlFor: fallbackId,
-		children: /* @__PURE__ */ jsxs(SelectPrimitive.Root, {
+		children: /* @__PURE__ */ jsxs(Select.Root, {
+			items: itemLabels,
 			value,
 			defaultValue,
-			onValueChange,
+			onValueChange: (nextValue) => {
+				if (nextValue !== null) onValueChange?.(nextValue);
+			},
 			disabled,
-			children: [/* @__PURE__ */ jsxs(SelectPrimitive.Trigger, {
+			children: [/* @__PURE__ */ jsxs(Select.Trigger, {
 				id: fallbackId,
 				"aria-describedby": error || description ? fieldHintId(fallbackId) : void 0,
 				"aria-invalid": !!error || void 0,
 				className: cx(controlClass, !!error && "border-danger focus-visible:ring-danger/30", "inline-flex items-center justify-between gap-2 text-left"),
-				children: [/* @__PURE__ */ jsx(SelectPrimitive.Value, { placeholder }), /* @__PURE__ */ jsx(SelectPrimitive.Icon, { children: /* @__PURE__ */ jsx(Icon, {
+				children: [/* @__PURE__ */ jsx(Select.Value, { placeholder }), /* @__PURE__ */ jsx(Select.Icon, { children: /* @__PURE__ */ jsx(Icon, {
 					name: "chevronDown",
 					size: "sm",
 					tone: "secondary"
 				}) })]
-			}), /* @__PURE__ */ jsx(SelectPrimitive.Portal, {
+			}), /* @__PURE__ */ jsx(Select.Portal, {
 				container: overlayNode ?? void 0,
-				children: /* @__PURE__ */ jsx(SelectPrimitive.Content, {
-					position: "popper",
-					className: "modern-surface z-popover min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-tokenLg border border-muted shadow-overlay",
-					children: /* @__PURE__ */ jsx(SelectPrimitive.Viewport, {
-						className: "p-2",
-						children: items.map((item) => /* @__PURE__ */ jsx(SelectPrimitive.Item, {
-							value: item.value,
-							disabled: item.disabled,
-							className: "focus-ring relative flex cursor-pointer select-none items-center rounded-tokenMd px-3 py-2 text-sm text-foreground outline-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-background",
-							children: /* @__PURE__ */ jsx(SelectPrimitive.ItemText, { children: /* @__PURE__ */ jsxs("div", {
-								className: "space-y-0.5",
-								children: [/* @__PURE__ */ jsx("div", { children: item.label }), item.description ? /* @__PURE__ */ jsx("div", {
-									className: "text-xs text-secondary",
-									children: item.description
-								}) : null]
-							}) })
-						}, item.value))
+				children: /* @__PURE__ */ jsx(Select.Positioner, {
+					sideOffset: 8,
+					className: "z-popover min-w-[var(--anchor-width)]",
+					children: /* @__PURE__ */ jsx(Select.Popup, {
+						className: "modern-surface overflow-hidden rounded-tokenLg border border-muted shadow-overlay",
+						children: /* @__PURE__ */ jsx(Select.List, {
+							className: "p-2",
+							children: items.map((item) => /* @__PURE__ */ jsxs(Select.Item, {
+								value: item.value,
+								disabled: item.disabled,
+								className: (state) => cx("focus-ring relative flex cursor-pointer select-none items-center rounded-tokenMd px-3 py-2 text-sm text-foreground outline-none", state.disabled && "cursor-not-allowed opacity-50", state.highlighted && "bg-background"),
+								children: [/* @__PURE__ */ jsx(Select.ItemText, { children: /* @__PURE__ */ jsxs("div", {
+									className: "space-y-0.5",
+									children: [/* @__PURE__ */ jsx("div", { children: item.label }), item.description ? /* @__PURE__ */ jsx("div", {
+										className: "text-xs text-secondary",
+										children: item.description
+									}) : null]
+								}) }), /* @__PURE__ */ jsx(Select.ItemIndicator, {
+									className: "ml-auto",
+									children: /* @__PURE__ */ jsx(Icon, {
+										name: "check",
+										size: "sm",
+										tone: "accent"
+									})
+								})]
+							}, item.value))
+						})
 					})
 				})
 			})]
@@ -1736,66 +2150,150 @@ function Select({ label, description, error, required, hideLabel, items, value, 
 	});
 }
 //#endregion
-//#region ../../packages/design-system/src/components/forms/checkbox.tsx
-function Checkbox({ label, description, error, required, hideLabel, checked, defaultChecked, onCheckedChange, disabled = false }) {
+//#region ../../packages/design-system/src/components/forms/autocomplete.tsx
+function Autocomplete$1({ label, description, error, required, hideLabel, items, value, defaultValue, onValueChange, placeholder = "Search", noMatchesLabel = "No matches" }) {
 	const inputId = useId();
-	return /* @__PURE__ */ jsx(FieldChrome, {
-		label: void 0,
-		description: error ? void 0 : description,
-		error,
-		required,
-		hideLabel,
-		children: /* @__PURE__ */ jsxs("label", {
-			htmlFor: inputId,
-			className: "modern-surface flex cursor-pointer items-start gap-3 rounded-tokenMd border border-muted p-3",
-			children: [/* @__PURE__ */ jsx(CheckboxPrimitive.Root, {
-				id: inputId,
-				checked,
-				defaultChecked,
-				onCheckedChange,
-				disabled,
-				className: "focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-elevated data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[disabled]:opacity-60",
-				children: /* @__PURE__ */ jsx(CheckboxPrimitive.Indicator, { children: /* @__PURE__ */ jsx(Icon, {
-					name: "check",
-					size: "sm",
-					tone: "inverse"
-				}) })
-			}), /* @__PURE__ */ jsxs("div", {
-				className: "space-y-1",
-				children: [label ? /* @__PURE__ */ jsxs("div", {
-					className: "text-sm font-medium text-foreground",
-					children: [label, required ? /* @__PURE__ */ jsx("span", {
-						className: "ml-1 text-accent",
-						children: "*"
-					}) : null]
-				}) : null, description ? /* @__PURE__ */ jsx("div", {
-					className: "text-xs text-secondary",
-					children: description
-				}) : null]
-			})]
-		})
-	});
-}
-//#endregion
-//#region ../../packages/design-system/src/components/forms/radio-group.tsx
-function RadioGroup({ label, description, error, required, hideLabel, items, value, defaultValue, onValueChange }) {
+	const listboxId = useId();
+	const { overlayNode } = usePortalRoots();
+	const values = items.map((item) => item.value);
 	return /* @__PURE__ */ jsx(FieldChrome, {
 		label,
 		description,
 		error,
 		required,
 		hideLabel,
-		children: /* @__PURE__ */ jsx(RadioGroupPrimitive.Root, {
+		htmlFor: inputId,
+		children: /* @__PURE__ */ jsxs(Autocomplete.Root, {
+			items: values,
 			value,
 			defaultValue,
-			onValueChange,
+			onValueChange: (nextValue) => {
+				if (nextValue !== null) onValueChange?.(nextValue);
+			},
+			itemToStringValue: (itemValue) => items.find((item) => item.value === itemValue)?.label ?? String(itemValue),
+			openOnInputClick: true,
+			children: [/* @__PURE__ */ jsxs(Autocomplete.InputGroup, {
+				className: cx(controlClass, !!error && "border-danger focus-visible:ring-danger/30", "inline-flex items-center justify-between gap-2 p-0"),
+				children: [/* @__PURE__ */ jsx(Autocomplete.Input, {
+					id: inputId,
+					placeholder,
+					"aria-controls": listboxId,
+					"aria-describedby": error || description ? fieldHintId(inputId) : void 0,
+					"aria-invalid": !!error || void 0,
+					className: "min-w-0 flex-1 bg-transparent px-4 py-2.5 outline-none"
+				}), /* @__PURE__ */ jsx(Autocomplete.Trigger, {
+					className: "focus-ring mr-2 inline-flex h-8 w-8 items-center justify-center rounded-tokenSm",
+					children: /* @__PURE__ */ jsx(Icon, {
+						name: "search",
+						size: "sm",
+						tone: "secondary"
+					})
+				})]
+			}), /* @__PURE__ */ jsx(Autocomplete.Portal, {
+				container: overlayNode ?? void 0,
+				children: /* @__PURE__ */ jsx(Autocomplete.Positioner, {
+					sideOffset: 8,
+					className: "z-popover w-[var(--anchor-width)]",
+					children: /* @__PURE__ */ jsx(Autocomplete.Popup, {
+						className: "modern-surface rounded-tokenLg border border-muted p-3 shadow-overlay",
+						children: /* @__PURE__ */ jsxs(Autocomplete.List, {
+							id: listboxId,
+							className: "motion-safe-scroll-area max-h-60 space-y-1",
+							children: [/* @__PURE__ */ jsx(Autocomplete.Empty, {
+								className: "rounded-tokenMd bg-background px-3 py-2 text-sm text-secondary",
+								children: noMatchesLabel
+							}), items.map((item) => /* @__PURE__ */ jsx(Autocomplete.Item, {
+								value: item.value,
+								disabled: item.disabled,
+								className: (state) => cx("focus-ring cursor-pointer rounded-tokenMd px-3 py-2 text-left text-sm text-foreground", state.highlighted && "bg-background", state.disabled && "cursor-not-allowed opacity-50"),
+								children: /* @__PURE__ */ jsxs("div", {
+									className: "space-y-0.5",
+									children: [/* @__PURE__ */ jsx("div", { children: item.label }), item.description ? /* @__PURE__ */ jsx("div", {
+										className: "text-xs text-secondary",
+										children: item.description
+									}) : null]
+								})
+							}, item.value))]
+						})
+					})
+				})
+			})]
+		})
+	});
+}
+//#endregion
+//#region ../../packages/design-system/src/components/forms/number-field.tsx
+function NumberField$1({ id, label, description, error, required, hideLabel, value, defaultValue, onValueChange, min, max, step = 1, disabled = false, readOnly = false, placeholder, decrementLabel = "Decrease value", incrementLabel = "Increase value" }) {
+	const fallbackId = useId();
+	const inputId = id ?? fallbackId;
+	return /* @__PURE__ */ jsx(FieldChrome, {
+		label,
+		description,
+		error,
+		required,
+		hideLabel,
+		htmlFor: inputId,
+		children: /* @__PURE__ */ jsx(NumberField.Root, {
+			id: inputId,
+			value,
+			defaultValue,
+			onValueChange: (nextValue) => onValueChange?.(nextValue),
+			min,
+			max,
+			step,
+			required,
+			disabled,
+			readOnly,
+			children: /* @__PURE__ */ jsxs(NumberField.Group, {
+				className: cx(controlClass, !!error && "border-danger focus-visible:ring-danger/30", "grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-1 p-1"),
+				children: [
+					/* @__PURE__ */ jsx(NumberField.Decrement, {
+						"aria-label": decrementLabel,
+						className: "focus-ring inline-flex h-8 w-8 items-center justify-center rounded-tokenSm text-secondary hover:bg-background",
+						children: /* @__PURE__ */ jsx(Icon, {
+							name: "minus",
+							size: "sm"
+						})
+					}),
+					/* @__PURE__ */ jsx(NumberField.Input, {
+						placeholder,
+						"aria-describedby": error || description ? fieldHintId(inputId) : void 0,
+						"aria-invalid": !!error || void 0,
+						className: "min-w-0 bg-transparent px-2 py-1.5 text-center outline-none"
+					}),
+					/* @__PURE__ */ jsx(NumberField.Increment, {
+						"aria-label": incrementLabel,
+						className: "focus-ring inline-flex h-8 w-8 items-center justify-center rounded-tokenSm text-secondary hover:bg-background",
+						children: /* @__PURE__ */ jsx(Icon, {
+							name: "plus",
+							size: "sm"
+						})
+					})
+				]
+			})
+		})
+	});
+}
+//#endregion
+//#region ../../packages/design-system/src/components/forms/radio-group.tsx
+function RadioGroup$1({ label, description, error, required, hideLabel, items, value, defaultValue, onValueChange }) {
+	return /* @__PURE__ */ jsx(FieldChrome, {
+		label,
+		description,
+		error,
+		required,
+		hideLabel,
+		children: /* @__PURE__ */ jsx(RadioGroup, {
+			value,
+			defaultValue,
+			onValueChange: (nextValue) => onValueChange?.(nextValue),
 			className: "space-y-2",
 			children: items.map((item) => /* @__PURE__ */ jsxs("label", {
 				className: "modern-surface flex cursor-pointer items-start gap-3 rounded-tokenMd border border-muted p-3",
-				children: [/* @__PURE__ */ jsx(RadioGroupPrimitive.Item, {
+				children: [/* @__PURE__ */ jsx(Radio.Root, {
 					value: item.value,
 					className: "focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-background",
-					children: /* @__PURE__ */ jsx(RadioGroupPrimitive.Indicator, { className: "h-2.5 w-2.5 rounded-full bg-accent" })
+					children: /* @__PURE__ */ jsx(Radio.Indicator, { className: "h-2.5 w-2.5 rounded-full bg-accent" })
 				}), /* @__PURE__ */ jsxs("div", {
 					className: "space-y-1",
 					children: [/* @__PURE__ */ jsx("div", {
@@ -1812,7 +2310,7 @@ function RadioGroup({ label, description, error, required, hideLabel, items, val
 }
 //#endregion
 //#region ../../packages/design-system/src/components/forms/switch.tsx
-function Switch({ label, description, error, required, hideLabel, checked, defaultChecked, onCheckedChange, disabled = false }) {
+function Switch$1({ label, description, error, required, hideLabel, checked, defaultChecked, onCheckedChange, disabled = false }) {
 	const inputId = useId();
 	return /* @__PURE__ */ jsx(FieldChrome, {
 		label: void 0,
@@ -1835,14 +2333,14 @@ function Switch({ label, description, error, required, hideLabel, checked, defau
 					className: "text-xs text-secondary",
 					children: description
 				}) : null]
-			}), /* @__PURE__ */ jsx(SwitchPrimitive.Root, {
+			}), /* @__PURE__ */ jsx(Switch.Root, {
 				id: inputId,
 				checked,
 				defaultChecked,
-				onCheckedChange,
+				onCheckedChange: (nextChecked) => onCheckedChange?.(nextChecked),
 				disabled,
-				className: "focus-ring relative inline-flex h-7 w-12 items-center rounded-full bg-muted transition data-[state=checked]:bg-accent data-[disabled]:opacity-60",
-				children: /* @__PURE__ */ jsx(SwitchPrimitive.Thumb, { className: "block h-5 w-5 translate-x-1 rounded-full bg-elevated shadow-tokenSm transition data-[state=checked]:translate-x-6" })
+				className: (state) => cx("focus-ring relative inline-flex h-7 w-12 items-center rounded-full bg-muted transition", state.checked && "bg-accent", state.disabled && "opacity-60"),
+				children: /* @__PURE__ */ jsx(Switch.Thumb, { className: (state) => cx("block h-5 w-5 translate-x-1 rounded-full bg-elevated shadow-tokenSm transition", state.checked && "translate-x-6") })
 			})]
 		})
 	});
@@ -1852,16 +2350,16 @@ function Switch({ label, description, error, required, hideLabel, checked, defau
 function Page({ children, width = "full", ...rest }) {
 	return /* @__PURE__ */ jsx("div", {
 		...rest,
-		className: cx("mx-auto flex w-full flex-col gap-6 px-4 py-6 pb-24 md:px-6 md:pb-8", layoutWidthClasses[width]),
+		className: cx("mx-auto flex w-full min-w-0 max-w-full flex-col gap-6 overflow-x-clip px-4 py-6 pb-24 md:px-6 md:pb-8", layoutWidthClasses[width]),
 		children
 	});
 }
 function PageHeader({ eyebrow, title, description, actions, ...rest }) {
 	return /* @__PURE__ */ jsxs("div", {
 		...rest,
-		className: "flex flex-col gap-4 md:flex-row md:items-end md:justify-between",
+		className: "flex min-w-0 max-w-full flex-col gap-4 md:flex-row md:items-end md:justify-between",
 		children: [/* @__PURE__ */ jsxs("div", {
-			className: "space-y-2",
+			className: "min-w-0 space-y-2",
 			children: [
 				eyebrow ? /* @__PURE__ */ jsx("div", {
 					className: "text-xs font-semibold uppercase text-accent",
@@ -1872,7 +2370,7 @@ function PageHeader({ eyebrow, title, description, actions, ...rest }) {
 					children: title
 				}),
 				description ? /* @__PURE__ */ jsx("div", {
-					className: "max-w-3xl text-base text-secondary",
+					className: "max-w-full text-base text-secondary md:max-w-3xl",
 					children: description
 				}) : null
 			]
@@ -1886,7 +2384,7 @@ function PageSection({ title, description, children, ...rest }) {
 		children: [title ? /* @__PURE__ */ jsxs("div", {
 			className: "space-y-1",
 			children: [/* @__PURE__ */ jsx("h2", {
-				className: "font-heading text-2xl font-semibold text-foreground",
+				className: "font-heading text-xl font-semibold text-foreground",
 				children: title
 			}), description ? /* @__PURE__ */ jsx("div", {
 				className: "text-sm text-secondary",
@@ -1988,65 +2486,162 @@ function PriceDisplay({ amount, currency = "USD", emphasis = false, locale, ...r
 		}).format(amount)
 	});
 }
-function SellerBadge({ name, verified = false, ...rest }) {
+function SellerBadge({ logo, name, verified = false, ...rest }) {
+	const resolvedLogo = logo === false ? null : logo ?? /* @__PURE__ */ jsx(ChaseSetsLogo, {
+		decorative: true,
+		size: 20
+	});
 	return /* @__PURE__ */ jsxs("div", {
 		...rest,
 		className: "inline-flex items-center gap-2 rounded-full border border-muted bg-elevated px-3 py-1.5 text-sm font-medium text-foreground shadow-tokenSm",
-		children: [/* @__PURE__ */ jsx("span", { children: name }), verified ? /* @__PURE__ */ jsx(Badge, {
+		children: [/* @__PURE__ */ jsxs("span", {
+			className: "inline-flex min-w-0 items-center gap-0",
+			children: [resolvedLogo ? /* @__PURE__ */ jsx("span", {
+				className: "inline-flex h-5 w-5 shrink-0 items-center justify-center",
+				children: resolvedLogo
+			}) : null, /* @__PURE__ */ jsx("span", { children: name })]
+		}), verified ? /* @__PURE__ */ jsx(Badge, {
 			tone: "success",
 			children: "Verified"
 		}) : null]
 	});
 }
-function ProductCard({ title, subtitle, price, imageSrc, imageAlt, imageFit = "cover", status, meta, actions, children, ...rest }) {
+var tokenSwatchClasses = {
+	brandPrimary: "bg-accent",
+	brandSecondary: "bg-accent-2",
+	cyan: "bg-info",
+	indigo: "bg-indigo",
+	background: "bg-background",
+	surface: "bg-surface",
+	surface2: "bg-surface-2",
+	surface3: "bg-surface-3",
+	border: "bg-border",
+	textPrimary: "bg-foreground",
+	textSecondary: "bg-secondary",
+	success: "bg-success",
+	warning: "bg-warning",
+	danger: "bg-danger"
+};
+function TokenSwatch({ label, value, color }) {
+	return /* @__PURE__ */ jsx(Card, {
+		variant: "feature",
+		children: /* @__PURE__ */ jsxs("div", {
+			className: "space-y-3",
+			children: [/* @__PURE__ */ jsx("div", {
+				"aria-hidden": "true",
+				className: cx("h-10 rounded-tokenMd border border-muted shadow-tokenSm", tokenSwatchClasses[color])
+			}), /* @__PURE__ */ jsxs("div", { children: [/* @__PURE__ */ jsx("div", {
+				className: "text-sm font-semibold text-foreground",
+				children: label
+			}), /* @__PURE__ */ jsx("div", {
+				className: "font-mono text-xs text-secondary",
+				children: value
+			})] })]
+		})
+	});
+}
+function ProductCard({ title, subtitle, price, imageSrc, imageAlt, imageFit = "cover", fallbackImageSrc, fallbackImageAlt, fallbackImageFit = "contain", href, target, rel, onSelect, selectLabel, status, meta, actions, actionLabel, children, ...rest }) {
+	const motionSettings = useChaseMotion();
+	const [resolvedImageSrc, setResolvedImageSrc] = useState(() => imageSrc ?? fallbackImageSrc);
+	useEffect(() => {
+		setResolvedImageSrc(imageSrc ?? fallbackImageSrc);
+	}, [imageSrc, fallbackImageSrc]);
+	const showingFallbackImage = Boolean(fallbackImageSrc) && resolvedImageSrc === fallbackImageSrc;
+	const resolvedImageFit = showingFallbackImage ? fallbackImageFit : imageFit;
+	const resolvedImageAlt = showingFallbackImage ? fallbackImageAlt ?? imageAlt ?? "" : imageAlt ?? "";
+	const interactiveMotion = motionSettings.reducedMotion ? {} : {
+		whileHover: {
+			y: -2,
+			scale: 1.01
+		},
+		whileTap: {
+			y: 0,
+			scale: .99
+		},
+		transition: {
+			duration: motionSettings.durations.base,
+			ease: motionSettings.easing
+		}
+	};
+	const content = /* @__PURE__ */ jsxs("div", {
+		className: "space-y-3",
+		children: [
+			/* @__PURE__ */ jsxs("div", {
+				className: "relative overflow-hidden rounded-tokenMd border border-muted bg-surface-2",
+				children: [status ? /* @__PURE__ */ jsx("div", {
+					className: "absolute left-2 top-2 z-10",
+					children: status
+				}) : null, /* @__PURE__ */ jsx("div", {
+					className: "flex aspect-[4/3] items-center justify-center",
+					children: resolvedImageSrc ? /* @__PURE__ */ jsx("img", {
+						src: resolvedImageSrc,
+						alt: resolvedImageAlt,
+						onError: () => {
+							setResolvedImageSrc((current) => fallbackImageSrc && current !== fallbackImageSrc ? fallbackImageSrc : void 0);
+						},
+						className: cx("h-full w-full", resolvedImageFit === "contain" ? "object-contain p-3" : "object-cover")
+					}) : /* @__PURE__ */ jsx(Icon, {
+						name: "image",
+						size: "lg",
+						tone: "secondary"
+					})
+				})]
+			}),
+			/* @__PURE__ */ jsxs("div", {
+				className: "space-y-1",
+				children: [/* @__PURE__ */ jsx("div", {
+					className: "text-sm font-semibold leading-snug text-foreground",
+					children: title
+				}), subtitle ? /* @__PURE__ */ jsx("div", {
+					className: "text-xs text-secondary",
+					children: subtitle
+				}) : null]
+			}),
+			/* @__PURE__ */ jsxs("div", {
+				className: "flex items-end justify-between gap-3",
+				children: [/* @__PURE__ */ jsxs("div", { children: [price ? /* @__PURE__ */ jsx("div", {
+					className: "font-heading text-xl font-semibold text-foreground",
+					children: price
+				}) : null, meta ? /* @__PURE__ */ jsx("div", {
+					className: "mt-1 text-xs text-secondary",
+					children: meta
+				}) : null] }), actions]
+			}),
+			children ? /* @__PURE__ */ jsx("div", { children }) : null,
+			actionLabel ? /* @__PURE__ */ jsxs("div", {
+				className: "inline-flex items-center gap-2 text-sm font-semibold text-accent",
+				children: [/* @__PURE__ */ jsx("span", { children: actionLabel }), /* @__PURE__ */ jsx(Icon, {
+					name: "chevronRight",
+					size: "sm",
+					tone: "accent"
+				})]
+			}) : null
+		]
+	});
+	const interactiveClassName = cx("focus-ring glass-surface block w-full overflow-hidden rounded-tokenLg border border-muted bg-surface p-4 text-left shadow-tokenSm transition hover:border-accent hover:shadow-tokenMd");
+	if (href) return /* @__PURE__ */ jsx(motion.a, {
+		...toMotionDomProps(rest),
+		href,
+		target,
+		rel: rel ?? (target === "_blank" ? "noreferrer" : void 0),
+		className: interactiveClassName,
+		...interactiveMotion,
+		children: content
+	});
+	if (onSelect) return /* @__PURE__ */ jsx(motion.button, {
+		...toMotionDomProps(rest),
+		type: "button",
+		"aria-label": selectLabel,
+		className: interactiveClassName,
+		onClick: onSelect,
+		...interactiveMotion,
+		children: content
+	});
 	return /* @__PURE__ */ jsx(Card, {
 		...rest,
 		variant: "product",
 		interactive: true,
-		children: /* @__PURE__ */ jsxs("div", {
-			className: "space-y-3",
-			children: [
-				/* @__PURE__ */ jsxs("div", {
-					className: "relative overflow-hidden rounded-tokenMd border border-muted bg-surface-2",
-					children: [status ? /* @__PURE__ */ jsx("div", {
-						className: "absolute left-2 top-2 z-10",
-						children: status
-					}) : null, /* @__PURE__ */ jsx("div", {
-						className: "flex aspect-[4/3] items-center justify-center",
-						children: imageSrc ? /* @__PURE__ */ jsx("img", {
-							src: imageSrc,
-							alt: imageAlt ?? "",
-							className: cx("h-full w-full", imageFit === "contain" ? "object-contain p-3" : "object-cover")
-						}) : /* @__PURE__ */ jsx(Icon, {
-							name: "image",
-							size: "lg",
-							tone: "secondary"
-						})
-					})]
-				}),
-				/* @__PURE__ */ jsxs("div", {
-					className: "space-y-1",
-					children: [/* @__PURE__ */ jsx("div", {
-						className: "text-sm font-semibold leading-snug text-foreground",
-						children: title
-					}), subtitle ? /* @__PURE__ */ jsx("div", {
-						className: "text-xs text-secondary",
-						children: subtitle
-					}) : null]
-				}),
-				/* @__PURE__ */ jsxs("div", {
-					className: "flex items-end justify-between gap-3",
-					children: [/* @__PURE__ */ jsxs("div", { children: [price ? /* @__PURE__ */ jsx("div", {
-						className: "font-heading text-xl font-semibold text-foreground",
-						children: price
-					}) : null, meta ? /* @__PURE__ */ jsx("div", {
-						className: "mt-1 text-xs text-secondary",
-						children: meta
-					}) : null] }), actions]
-				}),
-				children ? /* @__PURE__ */ jsx("div", { children }) : null
-			]
-		})
+		children: content
 	});
 }
 function CategoryTile({ icon, label, detail, ...rest }) {
@@ -2232,6 +2827,20 @@ function Heading({ children, level = 2, align, ...rest }) {
 		children
 	});
 }
+function Caption(props) {
+	return /* @__PURE__ */ jsx(Text, {
+		...props,
+		size: props.size ?? "xs",
+		tone: props.tone ?? "secondary"
+	});
+}
+function CodeText({ children, ...rest }) {
+	return /* @__PURE__ */ jsx("code", {
+		...rest,
+		className: "rounded-tokenSm bg-background px-1.5 py-1 font-mono text-xs text-accent",
+		children
+	});
+}
 function LinkText({ children, tone = "accent", trailingIcon, ...rest }) {
 	return /* @__PURE__ */ jsxs("a", {
 		...rest,
@@ -2326,7 +2935,7 @@ function ShowcaseThemeControl({ colorMode, onColorModeChange, reducedMotion, onR
 var layout_exports = /* @__PURE__ */ __exportAll({ default: () => layout_default });
 function resolveMode(pathname) {
 	const segment = pathname.split("/").filter(Boolean)[0];
-	return segment === "admin" || segment === "components" ? segment : "marketplace";
+	return segment === "admin" || segment === "checkout" || segment === "components" ? segment : "marketplace";
 }
 var layout_default = UNSAFE_withComponentProps(function ShowcaseLayoutRoute() {
 	const location = useLocation();
@@ -2349,7 +2958,7 @@ var layout_default = UNSAFE_withComponentProps(function ShowcaseLayoutRoute() {
 				reducedMotion,
 				onReducedMotionChange: setReducedMotion
 			})]
-		}), /* @__PURE__ */ jsx(Tabs, {
+		}), /* @__PURE__ */ jsx(Tabs$1, {
 			value: showcaseMode,
 			onValueChange: (value) => navigate(value === "marketplace" ? "/" : `/${value}`),
 			items: [
@@ -2361,6 +2970,11 @@ var layout_default = UNSAFE_withComponentProps(function ShowcaseLayoutRoute() {
 				{
 					value: "admin",
 					label: "Seller Dashboard",
+					content: null
+				},
+				{
+					value: "checkout",
+					label: "Checkout",
 					content: null
 				},
 				{
@@ -2551,6 +3165,7 @@ var demoProducts = [
 //#endregion
 //#region src/views/marketplace-view.tsx
 function MarketplaceView() {
+	const heroProduct = demoProducts[0];
 	return /* @__PURE__ */ jsxs(MarketplaceShell, {
 		brand: /* @__PURE__ */ jsx(SellerBadge, {
 			name: "Chase Sets",
@@ -2583,13 +3198,26 @@ function MarketplaceView() {
 					children: [
 						/* @__PURE__ */ jsxs(Stack, {
 							gap: 3,
-							children: [/* @__PURE__ */ jsx(Heading, {
-								level: 1,
-								children: "Buy, sell, and discover the collectibles worth chasing."
-							}), /* @__PURE__ */ jsx(Text, {
-								tone: "secondary",
-								children: "The trusted marketplace for trading cards, comics, figures, sneakers, and more. Authentic. Secure. Built for collectors."
-							})]
+							children: [
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 2,
+									children: [/* @__PURE__ */ jsx(Badge, {
+										tone: "accent",
+										children: "Verified marketplace"
+									}), /* @__PURE__ */ jsx(Badge, {
+										tone: "info",
+										children: "Collector owned"
+									})]
+								}),
+								/* @__PURE__ */ jsx(Heading, {
+									level: 1,
+									children: "Buy, sell, and discover the collectibles worth chasing."
+								}),
+								/* @__PURE__ */ jsx(Text, {
+									tone: "secondary",
+									children: "The trusted marketplace for trading cards, comics, figures, sneakers, and more. Authentic. Secure. Built for collectors."
+								})
+							]
 						}),
 						/* @__PURE__ */ jsxs(Inline, {
 							gap: 3,
@@ -2602,41 +3230,92 @@ function MarketplaceView() {
 								children: "Start Selling"
 							})]
 						}),
-						/* @__PURE__ */ jsxs(Inline, {
-							gap: 3,
-							children: [/* @__PURE__ */ jsx(Badge, {
-								tone: "accent",
-								children: "100K+ collectors"
-							}), /* @__PURE__ */ jsx(Badge, {
-								tone: "success",
-								children: "Verified sellers"
-							})]
+						/* @__PURE__ */ jsxs(StatGrid, {
+							columns: {
+								base: 1,
+								sm: 3
+							},
+							children: [
+								/* @__PURE__ */ jsx(Stat, {
+									label: "Active Listings",
+									value: "100K+"
+								}),
+								/* @__PURE__ */ jsx(Stat, {
+									label: "Collectors",
+									value: "75K+"
+								}),
+								/* @__PURE__ */ jsx(Stat, {
+									label: "Avg Rating",
+									value: "4.9",
+									trend: /* @__PURE__ */ jsx(Rating, {
+										value: 5,
+										size: "sm"
+									})
+								})
+							]
 						})
 					]
-				}), /* @__PURE__ */ jsx(Grid, {
-					columns: { base: 2 },
-					gap: 3,
-					children: demoProducts.slice(0, 4).map((product) => /* @__PURE__ */ jsx(ProductCard, {
-						title: product.title,
-						subtitle: product.subtitle,
-						price: product.price,
-						imageSrc: product.imageSrc,
-						imageAlt: product.title,
+				}), /* @__PURE__ */ jsxs(Stack, {
+					gap: 4,
+					children: [/* @__PURE__ */ jsx(ProductCard, {
+						title: heroProduct.title,
+						subtitle: heroProduct.subtitle,
+						price: heroProduct.price,
+						imageSrc: heroProduct.imageSrc,
+						imageAlt: heroProduct.title,
+						imageFit: "contain",
 						status: /* @__PURE__ */ jsx(Badge, {
-							tone: product.status === "Hot" ? "warning" : "info",
-							children: product.status
+							tone: "info",
+							children: "Featured"
 						}),
-						actions: /* @__PURE__ */ jsx(IconButton, {
-							label: "Save item",
-							icon: "heart",
-							size: "sm"
+						meta: "Champion's Path #074"
+					}), /* @__PURE__ */ jsx(Surface, {
+						tone: "subtle",
+						padding: 4,
+						children: /* @__PURE__ */ jsxs(Stack, {
+							gap: 3,
+							children: [
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 2,
+									children: [/* @__PURE__ */ jsx(Icon, {
+										name: "shield",
+										tone: "accent"
+									}), /* @__PURE__ */ jsx(Text, {
+										weight: "semibold",
+										children: "Buyer protection on every order"
+									})]
+								}),
+								/* @__PURE__ */ jsx(Divider, {}),
+								/* @__PURE__ */ jsxs(Grid, {
+									columns: {
+										base: 1,
+										sm: 3
+									},
+									gap: 3,
+									children: [
+										/* @__PURE__ */ jsx(Stat, {
+											label: "Verified Sellers",
+											value: "2K+"
+										}),
+										/* @__PURE__ */ jsx(Stat, {
+											label: "Protected Orders",
+											value: "98%"
+										}),
+										/* @__PURE__ */ jsx(Stat, {
+											label: "Avg Ship",
+											value: "1.2d"
+										})
+									]
+								})
+							]
 						})
-					}, product.title))
+					})]
 				})]
 			})
 		}),
 		children: [
 			/* @__PURE__ */ jsx(Surface, {
+				elevated: true,
 				padding: 4,
 				children: /* @__PURE__ */ jsxs(Stack, {
 					gap: 3,
@@ -2677,6 +3356,7 @@ function MarketplaceView() {
 			}),
 			/* @__PURE__ */ jsx(PageSection, {
 				title: "Featured Collectibles",
+				description: "High-signal marketplace cards for comparing product, price, status, and action states.",
 				children: /* @__PURE__ */ jsx(Grid, {
 					columns: {
 						base: 1,
@@ -2700,6 +3380,48 @@ function MarketplaceView() {
 							size: "sm"
 						})
 					}, product.title))
+				})
+			}),
+			/* @__PURE__ */ jsx(PageSection, {
+				title: "Trending Categories",
+				children: /* @__PURE__ */ jsxs(Grid, {
+					columns: {
+						base: 2,
+						md: 5
+					},
+					gap: 3,
+					children: [
+						/* @__PURE__ */ jsx(CategoryTile, {
+							icon: "cards",
+							label: "Trading Cards",
+							detail: "120K+ items"
+						}),
+						/* @__PURE__ */ jsx(CategoryTile, {
+							icon: "book",
+							label: "Comics",
+							detail: "38K+ items"
+						}),
+						/* @__PURE__ */ jsx(CategoryTile, {
+							icon: "figure",
+							label: "Figures",
+							detail: "22K+ items"
+						}),
+						/* @__PURE__ */ jsx(CategoryTile, {
+							icon: "sneaker",
+							label: "Sneakers",
+							detail: "14K+ items"
+						}),
+						/* @__PURE__ */ jsx(CategoryTile, {
+							icon: "shirt",
+							label: "Memorabilia",
+							detail: "9K+ items"
+						}),
+						/* @__PURE__ */ jsx(CategoryTile, {
+							icon: "grid",
+							label: "All Categories",
+							detail: "Browse all"
+						})
+					]
 				})
 			}),
 			/* @__PURE__ */ jsx(PageSection, {
@@ -2749,7 +3471,40 @@ function MarketplaceView() {
 					}),
 					/* @__PURE__ */ jsx(Stat, {
 						label: "Average Rating",
-						value: "4.9/5"
+						value: "4.9/5",
+						trend: /* @__PURE__ */ jsx(Rating, {
+							value: 5,
+							size: "sm"
+						})
+					})
+				]
+			}),
+			/* @__PURE__ */ jsxs(Grid, {
+				columns: {
+					base: 1,
+					md: 4
+				},
+				gap: 4,
+				children: [
+					/* @__PURE__ */ jsx(FeatureCard, {
+						icon: "shield",
+						title: "Authenticity First",
+						description: "Collectibles are verified by trusted marketplace partners."
+					}),
+					/* @__PURE__ */ jsx(FeatureCard, {
+						icon: "lock",
+						title: "Buyer Protection",
+						description: "Secure payments and hassle-free returns on eligible orders."
+					}),
+					/* @__PURE__ */ jsx(FeatureCard, {
+						icon: "chart",
+						title: "Transparent Pricing",
+						description: "Real market data helps buyers and sellers move with confidence."
+					}),
+					/* @__PURE__ */ jsx(FeatureCard, {
+						icon: "users",
+						title: "Community Driven",
+						description: "Collectors, sellers, and enthusiasts all in one marketplace."
 					})
 				]
 			}),
@@ -2777,9 +3532,9 @@ function MarketplaceView() {
 //#region app/routes/marketplace.tsx
 var marketplace_exports = /* @__PURE__ */ __exportAll({
 	default: () => marketplace_default,
-	meta: () => meta$2
+	meta: () => meta$3
 });
-var meta$2 = () => [{ title: "Marketplace Showcase" }];
+var meta$3 = () => [{ title: "Marketplace Showcase" }];
 var marketplace_default = UNSAFE_withComponentProps(function MarketplaceShowcaseRoute() {
 	return /* @__PURE__ */ jsx(MarketplaceView, {});
 });
@@ -2873,6 +3628,11 @@ function AdminView() {
 					label: "Conversion Rate",
 					value: "4.36%",
 					trend: "+0.8pp vs prior period"
+				},
+				{
+					label: "Pending Payouts",
+					value: "$2,340.50",
+					trend: "Available to transfer"
 				}
 			] }),
 			/* @__PURE__ */ jsxs(Grid, {
@@ -2896,13 +3656,24 @@ function AdminView() {
 									children: "Sales Performance"
 								})]
 							}),
-							/* @__PURE__ */ jsx(Stat, {
-								label: "Revenue",
-								value: "$12,846.75",
-								trend: "+18.7%"
+							/* @__PURE__ */ jsxs(Grid, {
+								columns: {
+									base: 1,
+									md: 2
+								},
+								gap: 3,
+								children: [/* @__PURE__ */ jsx(Stat, {
+									label: "Revenue",
+									value: "$12,846.75",
+									trend: "+18.7%"
+								}), /* @__PURE__ */ jsx(Stat, {
+									label: "Average Order",
+									value: "$305.87",
+									trend: "+11.4%"
+								})]
 							}),
 							/* @__PURE__ */ jsxs(Grid, {
-								columns: { base: 4 },
+								columns: { base: 5 },
 								gap: 2,
 								children: [
 									/* @__PURE__ */ jsx(Surface, {
@@ -2920,6 +3691,10 @@ function AdminView() {
 									/* @__PURE__ */ jsx(Surface, {
 										tone: "accent",
 										padding: 6
+									}),
+									/* @__PURE__ */ jsx(Surface, {
+										tone: "accent",
+										padding: 5
 									})
 								]
 							})
@@ -2982,6 +3757,14 @@ function AdminView() {
 								cell: (row) => row.item
 							},
 							{
+								key: "condition",
+								header: "Condition",
+								cell: (row) => /* @__PURE__ */ jsx(Badge, {
+									tone: "neutral",
+									children: row.condition
+								})
+							},
+							{
 								key: "status",
 								header: "Status",
 								cell: (row) => /* @__PURE__ */ jsx(Badge, {
@@ -3038,21 +3821,43 @@ function AdminView() {
 										children: "Verified Seller"
 									})]
 								}),
+								/* @__PURE__ */ jsx(Divider, {}),
 								/* @__PURE__ */ jsxs(Inline, {
 									gap: 3,
 									children: [/* @__PURE__ */ jsx(Text, {
 										size: "lg",
 										weight: "bold",
 										children: "4.9"
-									}), /* @__PURE__ */ jsx(Badge, {
-										tone: "warning",
-										children: "5 stars"
+									}), /* @__PURE__ */ jsx(Rating, {
+										value: 5,
+										size: "sm"
 									})]
 								}),
 								/* @__PURE__ */ jsx(Text, {
 									size: "sm",
 									tone: "secondary",
 									children: "Based on 248 reviews with excellent response and shipping speed."
+								}),
+								/* @__PURE__ */ jsxs(Grid, {
+									columns: { base: 3 },
+									gap: 3,
+									children: [
+										/* @__PURE__ */ jsx(Stat, {
+											label: "Response",
+											value: "98%",
+											trend: "Excellent"
+										}),
+										/* @__PURE__ */ jsx(Stat, {
+											label: "Shipping",
+											value: "1.2d",
+											trend: "Excellent"
+										}),
+										/* @__PURE__ */ jsx(Stat, {
+											label: "Defects",
+											value: "0.6%",
+											trend: "Excellent"
+										})
+									]
 								})
 							]
 						})
@@ -3121,110 +3926,540 @@ function AdminView() {
 //#region app/routes/admin.tsx
 var admin_exports = /* @__PURE__ */ __exportAll({
 	default: () => admin_default,
-	meta: () => meta$1
+	meta: () => meta$2
 });
-var meta$1 = () => [{ title: "Admin Showcase" }];
+var meta$2 = () => [{ title: "Admin Showcase" }];
 var admin_default = UNSAFE_withComponentProps(function AdminShowcaseRoute() {
 	return /* @__PURE__ */ jsx(AdminView, {});
 });
 //#endregion
+//#region src/views/checkout-view.tsx
+function CheckoutView() {
+	const product = demoProducts[0];
+	return /* @__PURE__ */ jsxs(Page, { children: [
+		/* @__PURE__ */ jsx(PageHeader, {
+			eyebrow: "Secure Checkout",
+			title: "Checkout",
+			description: "Shipping, delivery, payment, and buyer protection patterns for order completion."
+		}),
+		/* @__PURE__ */ jsx(PageStepper, { items: [
+			{
+				label: "Cart",
+				status: "complete"
+			},
+			{
+				label: "Checkout",
+				status: "current"
+			},
+			{
+				label: "Confirmation",
+				status: "upcoming"
+			}
+		] }),
+		/* @__PURE__ */ jsx(CheckoutLayout, {
+			summary: /* @__PURE__ */ jsxs(Stack, {
+				gap: 4,
+				children: [
+					/* @__PURE__ */ jsx(ProductCard, {
+						title: product.title,
+						subtitle: product.subtitle,
+						price: "$1,250.00",
+						imageSrc: product.imageSrc,
+						imageAlt: product.title,
+						imageFit: "contain",
+						status: /* @__PURE__ */ jsx(Badge, {
+							tone: "info",
+							children: "1"
+						})
+					}),
+					/* @__PURE__ */ jsx(OrderSummary, {
+						title: "Order Summary",
+						lines: [
+							{
+								label: "Item Price",
+								value: "$1,250.00"
+							},
+							{
+								label: "Shipping",
+								value: "FREE"
+							},
+							{
+								label: "Marketplace Fee",
+								value: "$62.50"
+							},
+							{
+								label: "Sales Tax",
+								value: "$108.28"
+							}
+						],
+						total: "$1,420.78"
+					}),
+					/* @__PURE__ */ jsx(CheckoutTrustPanel, { items: [
+						{
+							icon: "lock",
+							title: "Secure Payment Hold",
+							description: "Payment is held until the item is authenticated."
+						},
+						{
+							icon: "badgeCheck",
+							title: "Authenticity Verification",
+							description: "Experts inspect every item before shipping."
+						},
+						{
+							icon: "truck",
+							title: "Insured Shipping",
+							description: "Orders are tracked from vault to doorstep."
+						}
+					] })
+				]
+			}),
+			children: /* @__PURE__ */ jsxs(Stack, {
+				gap: 4,
+				children: [
+					/* @__PURE__ */ jsx(Surface, {
+						elevated: true,
+						children: /* @__PURE__ */ jsxs(Stack, {
+							gap: 3,
+							children: [
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 3,
+									children: [/* @__PURE__ */ jsx(Badge, {
+										tone: "accent",
+										children: "1"
+									}), /* @__PURE__ */ jsx(Heading, {
+										level: 3,
+										children: "Shipping"
+									})]
+								}),
+								/* @__PURE__ */ jsx(Text, {
+									tone: "secondary",
+									children: "Where should we ship your order?"
+								}),
+								/* @__PURE__ */ jsxs(Grid, {
+									columns: {
+										base: 1,
+										md: 2
+									},
+									gap: 3,
+									children: [/* @__PURE__ */ jsx(TextInput, {
+										label: "Contact Email",
+										defaultValue: "alex@example.test"
+									}), /* @__PURE__ */ jsx(TextInput, {
+										label: "Full Name",
+										defaultValue: "Alex Example"
+									})]
+								}),
+								/* @__PURE__ */ jsx(TextInput, {
+									label: "Address",
+									defaultValue: "123 Example Way"
+								}),
+								/* @__PURE__ */ jsxs(Grid, {
+									columns: {
+										base: 1,
+										md: 3
+									},
+									gap: 3,
+									children: [
+										/* @__PURE__ */ jsx(TextInput, {
+											label: "City",
+											defaultValue: "Austin"
+										}),
+										/* @__PURE__ */ jsx(NativeSelect, {
+											label: "State",
+											defaultValue: "TX",
+											items: [{
+												value: "TX",
+												label: "Texas"
+											}]
+										}),
+										/* @__PURE__ */ jsx(TextInput, {
+											label: "ZIP Code",
+											defaultValue: "78701"
+										})
+									]
+								})
+							]
+						})
+					}),
+					/* @__PURE__ */ jsx(Surface, {
+						elevated: true,
+						children: /* @__PURE__ */ jsxs(Stack, {
+							gap: 3,
+							children: [/* @__PURE__ */ jsxs(Inline, {
+								gap: 3,
+								children: [/* @__PURE__ */ jsx(Badge, {
+									tone: "accent",
+									children: "2"
+								}), /* @__PURE__ */ jsx(Heading, {
+									level: 3,
+									children: "Delivery"
+								})]
+							}), /* @__PURE__ */ jsx(RadioGroup$1, {
+								label: "Shipping method",
+								defaultValue: "standard",
+								items: [{
+									value: "standard",
+									label: "Standard Insured",
+									description: "Fully insured shipping with tracking."
+								}, {
+									value: "express",
+									label: "Express Signature",
+									description: "Expedited shipping with signature required."
+								}]
+							})]
+						})
+					}),
+					/* @__PURE__ */ jsx(Surface, {
+						elevated: true,
+						children: /* @__PURE__ */ jsxs(Stack, {
+							gap: 3,
+							children: [
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 3,
+									children: [/* @__PURE__ */ jsx(Badge, {
+										tone: "accent",
+										children: "3"
+									}), /* @__PURE__ */ jsx(Heading, {
+										level: 3,
+										children: "Payment"
+									})]
+								}),
+								/* @__PURE__ */ jsx(Text, {
+									tone: "secondary",
+									children: "All transactions are secure and encrypted."
+								}),
+								/* @__PURE__ */ jsx(TextInput, {
+									label: "Card Number",
+									defaultValue: "4242 4242 4242 4242"
+								}),
+								/* @__PURE__ */ jsxs(Grid, {
+									columns: {
+										base: 1,
+										md: 3
+									},
+									gap: 3,
+									children: [
+										/* @__PURE__ */ jsx(TextInput, {
+											label: "Expiry Date",
+											defaultValue: "MM / YY"
+										}),
+										/* @__PURE__ */ jsx(TextInput, {
+											label: "CVC",
+											defaultValue: "123"
+										}),
+										/* @__PURE__ */ jsx(TextInput, {
+											label: "Name on Card",
+											defaultValue: "Alex Example"
+										})
+									]
+								})
+							]
+						})
+					}),
+					/* @__PURE__ */ jsx(Surface, {
+						elevated: true,
+						children: /* @__PURE__ */ jsxs(Grid, {
+							columns: {
+								base: 1,
+								md: 3
+							},
+							gap: 4,
+							children: [
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 3,
+									children: [/* @__PURE__ */ jsx(Icon, {
+										name: "shield",
+										tone: "accent"
+									}), /* @__PURE__ */ jsxs(Stack, {
+										gap: 1,
+										children: [/* @__PURE__ */ jsx(Text, {
+											weight: "semibold",
+											children: "Buyer Protection"
+										}), /* @__PURE__ */ jsx(Text, {
+											size: "sm",
+											tone: "secondary",
+											children: "Eligible refunds on every order."
+										})]
+									})]
+								}),
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 3,
+									children: [/* @__PURE__ */ jsx(Icon, {
+										name: "lock",
+										tone: "accent"
+									}), /* @__PURE__ */ jsxs(Stack, {
+										gap: 1,
+										children: [/* @__PURE__ */ jsx(Text, {
+											weight: "semibold",
+											children: "Secure Checkout"
+										}), /* @__PURE__ */ jsx(Text, {
+											size: "sm",
+											tone: "secondary",
+											children: "Encrypted payment handling."
+										})]
+									})]
+								}),
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 3,
+									children: [/* @__PURE__ */ jsx(Icon, {
+										name: "badgeCheck",
+										tone: "success"
+									}), /* @__PURE__ */ jsxs(Stack, {
+										gap: 1,
+										children: [/* @__PURE__ */ jsx(Text, {
+											weight: "semibold",
+											children: "Authenticity Guarantee"
+										}), /* @__PURE__ */ jsx(Text, {
+											size: "sm",
+											tone: "secondary",
+											children: "Expert verification before delivery."
+										})]
+									})]
+								})
+							]
+						})
+					}),
+					/* @__PURE__ */ jsx(Button, {
+						size: "lg",
+						leadingIcon: "lock",
+						children: "Complete Purchase"
+					}),
+					/* @__PURE__ */ jsx(Divider, {}),
+					/* @__PURE__ */ jsx(Text, {
+						size: "sm",
+						tone: "secondary",
+						align: "center",
+						children: "Demo data is fictional and for visual validation only."
+					})
+				]
+			})
+		})
+	] });
+}
+//#endregion
+//#region app/routes/checkout.tsx
+var checkout_exports = /* @__PURE__ */ __exportAll({
+	default: () => checkout_default,
+	meta: () => meta$1
+});
+var meta$1 = () => [{ title: "Checkout Showcase" }];
+var checkout_default = UNSAFE_withComponentProps(function CheckoutShowcaseRoute() {
+	return /* @__PURE__ */ jsx(CheckoutView, {});
+});
+//#endregion
 //#region src/views/components-view.tsx
+var brandTokens = [
+	{
+		label: "Primary Blue",
+		value: "#3882F6",
+		color: "brandPrimary"
+	},
+	{
+		label: "Accent Purple",
+		value: "#8B5CF6",
+		color: "brandSecondary"
+	},
+	{
+		label: "Cyan",
+		value: "#06B6D4",
+		color: "cyan"
+	},
+	{
+		label: "Indigo",
+		value: "#6366F1",
+		color: "indigo"
+	}
+];
+var surfaceTokens = [
+	{
+		label: "Background",
+		value: "var(--color-background)",
+		color: "background"
+	},
+	{
+		label: "Surface 1",
+		value: "var(--color-surface)",
+		color: "surface"
+	},
+	{
+		label: "Surface 2",
+		value: "var(--color-surface-2)",
+		color: "surface2"
+	},
+	{
+		label: "Surface 3",
+		value: "var(--color-surface-3)",
+		color: "surface3"
+	},
+	{
+		label: "Border",
+		value: "var(--color-border)",
+		color: "border"
+	},
+	{
+		label: "Text Primary",
+		value: "var(--color-text-primary)",
+		color: "textPrimary"
+	},
+	{
+		label: "Text Secondary",
+		value: "var(--color-text-secondary)",
+		color: "textSecondary"
+	},
+	{
+		label: "Success",
+		value: "var(--color-success)",
+		color: "success"
+	},
+	{
+		label: "Warning",
+		value: "var(--color-warning)",
+		color: "warning"
+	},
+	{
+		label: "Danger",
+		value: "var(--color-danger)",
+		color: "danger"
+	}
+];
+var typeRows = [
+	{
+		style: "H1",
+		example: "Build your collection",
+		size: "48 / 56",
+		weight: "700"
+	},
+	{
+		style: "H2",
+		example: "Discover rare finds",
+		size: "36 / 44",
+		weight: "600"
+	},
+	{
+		style: "H3",
+		example: "Featured collectibles",
+		size: "28 / 36",
+		weight: "600"
+	},
+	{
+		style: "H4",
+		example: "Top Categories",
+		size: "22 / 28",
+		weight: "600"
+	},
+	{
+		style: "Body",
+		example: "Buy, sell, and discover collectibles.",
+		size: "16 / 24",
+		weight: "400"
+	},
+	{
+		style: "Small",
+		example: "Shipping protection included.",
+		size: "14 / 20",
+		weight: "400"
+	},
+	{
+		style: "Caption",
+		example: "Joined 100,000+ collectors",
+		size: "12 / 16",
+		weight: "400"
+	}
+];
+var spacingRows = [
+	{
+		label: "0",
+		value: "0px"
+	},
+	{
+		label: "1",
+		value: "4px"
+	},
+	{
+		label: "2",
+		value: "8px"
+	},
+	{
+		label: "3",
+		value: "12px"
+	},
+	{
+		label: "4",
+		value: "16px"
+	},
+	{
+		label: "6",
+		value: "24px"
+	},
+	{
+		label: "8",
+		value: "32px"
+	},
+	{
+		label: "12",
+		value: "48px"
+	}
+];
+function SectionCard({ title, children }) {
+	return /* @__PURE__ */ jsx(Surface, {
+		elevated: true,
+		children: /* @__PURE__ */ jsxs(Stack, {
+			gap: 4,
+			children: [/* @__PURE__ */ jsx(Heading, {
+				level: 3,
+				children: title
+			}), children]
+		})
+	});
+}
 function ComponentsView() {
 	return /* @__PURE__ */ jsxs(Page, { children: [
 		/* @__PURE__ */ jsx(PageHeader, {
 			eyebrow: "Chase Sets Design System",
 			title: "Clean, modern collectibles marketplace.",
-			description: "Built for collectors. Designed for trust, discovery, and action."
+			description: "The canonical UI layer for marketplace, trading, checkout, and admin surfaces."
 		}),
 		/* @__PURE__ */ jsxs(Grid, {
 			columns: {
 				base: 1,
-				lg: 2
+				xl: 2
 			},
 			gap: 4,
-			children: [/* @__PURE__ */ jsx(Surface, {
-				elevated: true,
-				children: /* @__PURE__ */ jsxs(Stack, {
-					gap: 4,
+			align: "start",
+			children: [/* @__PURE__ */ jsxs(SectionCard, {
+				title: "Brand Colors",
+				children: [
+					/* @__PURE__ */ jsx(Grid, {
+						columns: {
+							base: 2,
+							md: 4
+						},
+						gap: 3,
+						children: brandTokens.map((token) => /* @__PURE__ */ jsx(TokenSwatch, {
+							label: token.label,
+							value: token.value,
+							color: token.color
+						}, token.label))
+					}),
+					/* @__PURE__ */ jsx(Divider, {}),
+					/* @__PURE__ */ jsx(Grid, {
+						columns: {
+							base: 2,
+							md: 5
+						},
+						gap: 3,
+						children: surfaceTokens.map((token) => /* @__PURE__ */ jsx(TokenSwatch, {
+							label: token.label,
+							value: token.value,
+							color: token.color
+						}, token.label))
+					})
+				]
+			}), /* @__PURE__ */ jsxs(SectionCard, {
+				title: "Typography",
+				children: [/* @__PURE__ */ jsxs(Stack, {
+					gap: 2,
 					children: [
-						/* @__PURE__ */ jsx(Heading, {
-							level: 3,
-							children: "Color System"
-						}),
-						/* @__PURE__ */ jsxs(Grid, {
-							columns: {
-								base: 2,
-								md: 4
-							},
-							gap: 3,
-							children: [
-								/* @__PURE__ */ jsx(Surface, {
-									tone: "accent",
-									children: "Primary Blue"
-								}),
-								/* @__PURE__ */ jsx(Surface, {
-									tone: "accent",
-									children: "Accent Purple"
-								}),
-								/* @__PURE__ */ jsx(Surface, {
-									tone: "muted",
-									children: "Surface"
-								}),
-								/* @__PURE__ */ jsx(Surface, {
-									tone: "subtle",
-									children: "Border"
-								})
-							]
-						}),
-						/* @__PURE__ */ jsx(Divider, {}),
-						/* @__PURE__ */ jsx(Heading, {
-							level: 3,
-							children: "Buttons"
-						}),
-						/* @__PURE__ */ jsxs(ButtonGroup, { children: [
-							/* @__PURE__ */ jsx(Button, { children: "Get Started" }),
-							/* @__PURE__ */ jsx(Button, {
-								tone: "secondary",
-								children: "Explore Marketplace"
-							}),
-							/* @__PURE__ */ jsx(Button, {
-								tone: "ghost",
-								children: "Start Selling"
-							}),
-							/* @__PURE__ */ jsx(IconButton, {
-								label: "Favorite",
-								icon: "heart"
-							})
-						] }),
-						/* @__PURE__ */ jsxs(Inline, {
-							gap: 2,
-							children: [
-								/* @__PURE__ */ jsx(Badge, {
-									tone: "info",
-									children: "Verified"
-								}),
-								/* @__PURE__ */ jsx(Badge, {
-									tone: "warning",
-									children: "Hot"
-								}),
-								/* @__PURE__ */ jsx(Badge, {
-									tone: "success",
-									children: "New"
-								}),
-								/* @__PURE__ */ jsx(Badge, { children: "Outlined" })
-							]
-						})
-					]
-				})
-			}), /* @__PURE__ */ jsx(Surface, {
-				elevated: true,
-				children: /* @__PURE__ */ jsxs(Stack, {
-					gap: 4,
-					children: [
-						/* @__PURE__ */ jsx(Heading, {
-							level: 3,
-							children: "Typography"
-						}),
 						/* @__PURE__ */ jsx(Heading, {
 							level: 1,
 							children: "Build your collection"
@@ -3238,14 +4473,221 @@ function ComponentsView() {
 							children: "Featured collectibles"
 						}),
 						/* @__PURE__ */ jsx(Text, { children: "Buy, sell, and discover collectibles with confidence." }),
-						/* @__PURE__ */ jsx(Text, {
-							size: "sm",
-							tone: "secondary",
-							children: "Shipping protection and secure payments included."
+						/* @__PURE__ */ jsx(Caption, { children: "Joined 100,000+ collectors" })
+					]
+				}), /* @__PURE__ */ jsx(DataTable, {
+					density: "compact",
+					rows: typeRows,
+					columns: [
+						{
+							key: "style",
+							header: "Style",
+							cell: (row) => row.style
+						},
+						{
+							key: "example",
+							header: "Example",
+							cell: (row) => row.example
+						},
+						{
+							key: "size",
+							header: "Size / Line",
+							cell: (row) => row.size
+						},
+						{
+							key: "weight",
+							header: "Weight",
+							cell: (row) => row.weight
+						}
+					]
+				})]
+			})]
+		}),
+		/* @__PURE__ */ jsx(PageSection, {
+			title: "Actions / States",
+			children: /* @__PURE__ */ jsx(Surface, {
+				elevated: true,
+				children: /* @__PURE__ */ jsxs(Grid, {
+					columns: {
+						base: 1,
+						lg: 3
+					},
+					gap: 4,
+					align: "start",
+					children: [
+						/* @__PURE__ */ jsxs(Stack, {
+							gap: 3,
+							children: [
+								/* @__PURE__ */ jsx(Heading, {
+									level: 4,
+									children: "Buttons"
+								}),
+								/* @__PURE__ */ jsxs(ButtonGroup, { children: [
+									/* @__PURE__ */ jsx(Button, { children: "Get Started" }),
+									/* @__PURE__ */ jsx(Button, {
+										tone: "secondary",
+										children: "Explore Marketplace"
+									}),
+									/* @__PURE__ */ jsx(Button, {
+										tone: "ghost",
+										children: "Start Selling"
+									}),
+									/* @__PURE__ */ jsx(Button, {
+										disabled: true,
+										children: "Disabled"
+									})
+								] }),
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 2,
+									children: [
+										/* @__PURE__ */ jsx(IconButton, {
+											label: "Search",
+											icon: "search"
+										}),
+										/* @__PURE__ */ jsx(IconButton, {
+											label: "Save",
+											icon: "heart",
+											tone: "secondary"
+										}),
+										/* @__PURE__ */ jsx(IconButton, {
+											label: "Settings",
+											icon: "settings",
+											tone: "ghost"
+										})
+									]
+								})
+							]
+						}),
+						/* @__PURE__ */ jsxs(Stack, {
+							gap: 3,
+							children: [/* @__PURE__ */ jsx(Heading, {
+								level: 4,
+								children: "Badges"
+							}), /* @__PURE__ */ jsxs(Inline, {
+								gap: 2,
+								children: [
+									/* @__PURE__ */ jsx(Badge, {
+										tone: "info",
+										children: "Verified"
+									}),
+									/* @__PURE__ */ jsx(Badge, {
+										tone: "warning",
+										children: "Hot"
+									}),
+									/* @__PURE__ */ jsx(Badge, {
+										tone: "success",
+										children: "New"
+									}),
+									/* @__PURE__ */ jsx(Badge, {
+										tone: "danger",
+										children: "Alert"
+									}),
+									/* @__PURE__ */ jsx(Badge, { children: "Outlined" })
+								]
+							})]
+						}),
+						/* @__PURE__ */ jsxs(Stack, {
+							gap: 3,
+							children: [
+								/* @__PURE__ */ jsx(Heading, {
+									level: 4,
+									children: "Navigation"
+								}),
+								/* @__PURE__ */ jsx(NavigationMenu$1, { items: [{
+									value: "market",
+									label: "Market",
+									href: "#market",
+									active: true
+								}, {
+									value: "seller",
+									label: "Seller",
+									content: /* @__PURE__ */ jsxs(Stack, {
+										gap: 2,
+										children: [/* @__PURE__ */ jsx(Text, {
+											size: "sm",
+											children: "Inventory, orders, payouts, and offer workflows."
+										}), /* @__PURE__ */ jsx(Button, {
+											tone: "secondary",
+											size: "sm",
+											children: "Open dashboard"
+										})]
+									})
+								}] }),
+								/* @__PURE__ */ jsx(SegmentedControl, {
+									value: "all",
+									items: [
+										{
+											value: "all",
+											label: "All"
+										},
+										{
+											value: "cards",
+											label: "Cards"
+										},
+										{
+											value: "comics",
+											label: "Comics"
+										},
+										{
+											value: "figures",
+											label: "Figures"
+										}
+									]
+								}),
+								/* @__PURE__ */ jsx(Text, {
+									size: "sm",
+									tone: "secondary",
+									children: "Focus, hover, active, and disabled states are token-driven."
+								})
+							]
+						}),
+						/* @__PURE__ */ jsxs(Stack, {
+							gap: 3,
+							children: [
+								/* @__PURE__ */ jsx(Heading, {
+									level: 4,
+									children: "Toolbar"
+								}),
+								/* @__PURE__ */ jsxs(Toolbar$1, {
+									label: "Listing tools",
+									children: [
+										/* @__PURE__ */ jsx(ToolbarButton, {
+											icon: "search",
+											children: "Find"
+										}),
+										/* @__PURE__ */ jsx(ToolbarButton, {
+											icon: "settings",
+											children: "Tune"
+										}),
+										/* @__PURE__ */ jsx(ToolbarSeparator, {}),
+										/* @__PURE__ */ jsx(ToolbarInput, {
+											"aria-label": "Filter tools",
+											placeholder: "Filter"
+										})
+									]
+								}),
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 2,
+									children: [/* @__PURE__ */ jsx(Toggle$1, {
+										icon: "heart",
+										"aria-label": "Watch listing"
+									}), /* @__PURE__ */ jsx(ToggleGroup$1, {
+										label: "View density",
+										defaultValue: ["comfortable"],
+										items: [{
+											value: "compact",
+											label: "Compact"
+										}, {
+											value: "comfortable",
+											label: "Comfort"
+										}]
+									})]
+								})
+							]
 						})
 					]
 				})
-			})]
+			})
 		}),
 		/* @__PURE__ */ jsx(PageSection, {
 			title: "Inputs / Forms",
@@ -3254,7 +4696,7 @@ function ComponentsView() {
 				children: /* @__PURE__ */ jsxs(Grid, {
 					columns: {
 						base: 1,
-						md: 2
+						lg: 2
 					},
 					gap: 4,
 					children: [
@@ -3266,8 +4708,8 @@ function ComponentsView() {
 							label: "Text Field",
 							placeholder: "Enter item title"
 						}),
-						/* @__PURE__ */ jsx(Select, {
-							label: "Dropdown",
+						/* @__PURE__ */ jsx(Select$1, {
+							label: "Base UI Select",
 							items: [{
 								value: "all",
 								label: "All Categories"
@@ -3276,8 +4718,33 @@ function ComponentsView() {
 								label: "Trading Cards"
 							}]
 						}),
-						/* @__PURE__ */ jsx(Select, {
-							label: "Select",
+						/* @__PURE__ */ jsx(Autocomplete$1, {
+							label: "Autocomplete",
+							items: [
+								{
+									value: "charizard",
+									label: "Charizard"
+								},
+								{
+									value: "pikachu",
+									label: "Pikachu"
+								},
+								{
+									value: "mewtwo",
+									label: "Mewtwo"
+								}
+							],
+							placeholder: "Find a character"
+						}),
+						/* @__PURE__ */ jsx(NumberField$1, {
+							label: "Quantity",
+							defaultValue: 1,
+							min: 1,
+							max: 99
+						}),
+						/* @__PURE__ */ jsx(NativeSelect, {
+							label: "Native Select",
+							placeholder: "Condition",
 							items: [{
 								value: "mint",
 								label: "Mint"
@@ -3286,35 +4753,18 @@ function ComponentsView() {
 								label: "Near Mint"
 							}]
 						}),
-						/* @__PURE__ */ jsx(SegmentedControl, {
-							value: "all",
-							items: [
-								{
-									value: "all",
-									label: "All"
-								},
-								{
-									value: "cards",
-									label: "Cards"
-								},
-								{
-									value: "comics",
-									label: "Comics"
-								},
-								{
-									value: "figures",
-									label: "Figures"
-								}
-							]
-						}),
 						/* @__PURE__ */ jsxs(Inline, {
 							gap: 4,
-							children: [/* @__PURE__ */ jsx(Checkbox, {
-								label: "Accept terms and conditions",
-								defaultChecked: true
-							}), /* @__PURE__ */ jsx(Switch, {
+							children: [/* @__PURE__ */ jsx(Switch$1, {
 								label: "Toggle",
 								defaultChecked: true
+							}), /* @__PURE__ */ jsx(RadioGroup$1, {
+								label: "Auction mode",
+								defaultValue: "auction",
+								items: [{
+									value: "auction",
+									label: "Auction"
+								}]
 							})]
 						})
 					]
@@ -3332,6 +4782,7 @@ function ComponentsView() {
 				align: "start",
 				children: [
 					/* @__PURE__ */ jsx(ProductCard, {
+						href: "#product-card",
 						title: demoProducts[0].title,
 						subtitle: demoProducts[0].subtitle,
 						price: demoProducts[0].price,
@@ -3341,11 +4792,6 @@ function ComponentsView() {
 						status: /* @__PURE__ */ jsx(Badge, {
 							tone: "info",
 							children: "Verified"
-						}),
-						actions: /* @__PURE__ */ jsx(IconButton, {
-							label: "Save",
-							icon: "heart",
-							size: "sm"
 						})
 					}),
 					/* @__PURE__ */ jsx(CategoryTile, {
@@ -3362,36 +4808,84 @@ function ComponentsView() {
 						elevated: true,
 						children: /* @__PURE__ */ jsxs(Stack, {
 							gap: 3,
-							children: [/* @__PURE__ */ jsxs(Inline, {
-								gap: 2,
-								children: [
-									/* @__PURE__ */ jsx(Icon, {
-										name: "star",
-										tone: "warning"
-									}),
-									/* @__PURE__ */ jsx(Icon, {
-										name: "star",
-										tone: "warning"
-									}),
-									/* @__PURE__ */ jsx(Icon, {
-										name: "star",
-										tone: "warning"
-									}),
-									/* @__PURE__ */ jsx(Icon, {
-										name: "star",
-										tone: "warning"
-									}),
-									/* @__PURE__ */ jsx(Icon, {
-										name: "star",
-										tone: "warning"
-									})
-								]
-							}), /* @__PURE__ */ jsx(Text, {
-								size: "sm",
-								tone: "secondary",
-								children: "Chase Sets is the best marketplace I have used."
-							})]
+							children: [
+								/* @__PURE__ */ jsxs(Inline, {
+									gap: 2,
+									children: [
+										/* @__PURE__ */ jsx(Icon, {
+											name: "star",
+											tone: "warning"
+										}),
+										/* @__PURE__ */ jsx(Icon, {
+											name: "star",
+											tone: "warning"
+										}),
+										/* @__PURE__ */ jsx(Icon, {
+											name: "star",
+											tone: "warning"
+										}),
+										/* @__PURE__ */ jsx(Icon, {
+											name: "star",
+											tone: "warning"
+										}),
+										/* @__PURE__ */ jsx(Icon, {
+											name: "star",
+											tone: "warning"
+										})
+									]
+								}),
+								/* @__PURE__ */ jsx(Text, {
+									size: "sm",
+									tone: "secondary",
+									children: "Chase Sets is the best marketplace I have used."
+								}),
+								/* @__PURE__ */ jsx(CodeText, { children: "ProductCard href/onSelect" })
+							]
 						})
+					})
+				]
+			})
+		}),
+		/* @__PURE__ */ jsx(PageSection, {
+			title: "Spacing / Layout",
+			children: /* @__PURE__ */ jsxs(Surface, {
+				elevated: true,
+				children: [
+					/* @__PURE__ */ jsx(Grid, {
+						columns: {
+							base: 2,
+							md: 4
+						},
+						gap: 3,
+						children: spacingRows.map((row) => /* @__PURE__ */ jsx(Stat, {
+							label: `Space ${row.label}`,
+							value: row.value
+						}, row.label))
+					}),
+					/* @__PURE__ */ jsx(Divider, {}),
+					/* @__PURE__ */ jsxs(StatGrid, {
+						columns: {
+							base: 1,
+							md: 4
+						},
+						children: [
+							/* @__PURE__ */ jsx(Stat, {
+								label: "Control Radius",
+								value: "12px"
+							}),
+							/* @__PURE__ */ jsx(Stat, {
+								label: "Card Radius",
+								value: "16px"
+							}),
+							/* @__PURE__ */ jsx(Stat, {
+								label: "Grid Max",
+								value: "12 Col"
+							}),
+							/* @__PURE__ */ jsx(Stat, {
+								label: "Density",
+								value: "Compact"
+							})
+						]
 					})
 				]
 			})
@@ -3436,12 +4930,12 @@ function ComponentsView() {
 						{
 							icon: "lock",
 							title: "Secure Payment Hold",
-							description: "Your payment is held securely until the item is authenticated."
+							description: "Payment is held until the item is authenticated."
 						},
 						{
 							icon: "badgeCheck",
 							title: "Authenticity Verification",
-							description: "Experts inspect every item before it ships."
+							description: "Experts inspect every item before shipping."
 						},
 						{
 							icon: "truck",
@@ -3490,7 +4984,7 @@ function ComponentsView() {
 								children: [/* @__PURE__ */ jsx(Heading, {
 									level: 3,
 									children: "Delivery"
-								}), /* @__PURE__ */ jsx(RadioGroup, {
+								}), /* @__PURE__ */ jsx(RadioGroup$1, {
 									label: "Shipping method",
 									defaultValue: "standard",
 									items: [{
@@ -3513,30 +5007,6 @@ function ComponentsView() {
 					]
 				})
 			})
-		}),
-		/* @__PURE__ */ jsxs(StatGrid, {
-			columns: {
-				base: 1,
-				md: 4
-			},
-			children: [
-				/* @__PURE__ */ jsx(Stat, {
-					label: "Spacing Base",
-					value: "8px"
-				}),
-				/* @__PURE__ */ jsx(Stat, {
-					label: "Radius",
-					value: "12px"
-				}),
-				/* @__PURE__ */ jsx(Stat, {
-					label: "Elevation",
-					value: "Glow"
-				}),
-				/* @__PURE__ */ jsx(Stat, {
-					label: "Grid",
-					value: "12 Col"
-				})
-			]
 		})
 	] });
 }
@@ -3554,8 +5024,8 @@ var components_default = UNSAFE_withComponentProps(function ComponentsShowcaseRo
 //#region \0virtual:react-router/server-manifest
 var server_manifest_default = {
 	"entry": {
-		"module": "/assets/entry.client-BIqEK2eA.js",
-		"imports": ["/assets/jsx-runtime-tyc0aEiz.js", "/assets/react-dom-Cpcj4XpI.js"],
+		"module": "/assets/entry.client-D1cQde2i.js",
+		"imports": ["/assets/jsx-runtime-D_HevnJU.js", "/assets/react-dom-Cnp9xt7r.js"],
 		"css": []
 	},
 	"routes": {
@@ -3572,9 +5042,9 @@ var server_manifest_default = {
 			"hasClientMiddleware": false,
 			"hasDefaultExport": true,
 			"hasErrorBoundary": false,
-			"module": "/assets/root-BHN3A5qQ.js",
-			"imports": ["/assets/jsx-runtime-tyc0aEiz.js", "/assets/react-dom-Cpcj4XpI.js"],
-			"css": ["/assets/root-Bra1UaUS.css"],
+			"module": "/assets/root-BJbAd5V6.js",
+			"imports": ["/assets/jsx-runtime-D_HevnJU.js", "/assets/react-dom-Cnp9xt7r.js"],
+			"css": ["/assets/root-B8q6f3-R.css"],
 			"clientActionModule": void 0,
 			"clientLoaderModule": void 0,
 			"clientMiddlewareModule": void 0,
@@ -3593,11 +5063,11 @@ var server_manifest_default = {
 			"hasClientMiddleware": false,
 			"hasDefaultExport": true,
 			"hasErrorBoundary": false,
-			"module": "/assets/layout-D7RuZ9UA.js",
+			"module": "/assets/layout-DsYzj9GU.js",
 			"imports": [
-				"/assets/jsx-runtime-tyc0aEiz.js",
-				"/assets/src-sF9Q0zos.js",
-				"/assets/react-dom-Cpcj4XpI.js"
+				"/assets/jsx-runtime-D_HevnJU.js",
+				"/assets/src-OkLPE6qb.js",
+				"/assets/react-dom-Cnp9xt7r.js"
 			],
 			"css": [],
 			"clientActionModule": void 0,
@@ -3618,12 +5088,12 @@ var server_manifest_default = {
 			"hasClientMiddleware": false,
 			"hasDefaultExport": true,
 			"hasErrorBoundary": false,
-			"module": "/assets/marketplace-DVHkbgKO.js",
+			"module": "/assets/marketplace-B9VP1kkX.js",
 			"imports": [
-				"/assets/jsx-runtime-tyc0aEiz.js",
-				"/assets/fixtures-DbzU3K1K.js",
-				"/assets/src-sF9Q0zos.js",
-				"/assets/react-dom-Cpcj4XpI.js"
+				"/assets/jsx-runtime-D_HevnJU.js",
+				"/assets/fixtures-C22cT_Wa.js",
+				"/assets/src-OkLPE6qb.js",
+				"/assets/react-dom-Cnp9xt7r.js"
 			],
 			"css": [],
 			"clientActionModule": void 0,
@@ -3644,12 +5114,38 @@ var server_manifest_default = {
 			"hasClientMiddleware": false,
 			"hasDefaultExport": true,
 			"hasErrorBoundary": false,
-			"module": "/assets/admin-_BM36M_3.js",
+			"module": "/assets/admin-BhAbe7Rz.js",
 			"imports": [
-				"/assets/jsx-runtime-tyc0aEiz.js",
-				"/assets/fixtures-DbzU3K1K.js",
-				"/assets/src-sF9Q0zos.js",
-				"/assets/react-dom-Cpcj4XpI.js"
+				"/assets/jsx-runtime-D_HevnJU.js",
+				"/assets/fixtures-C22cT_Wa.js",
+				"/assets/src-OkLPE6qb.js",
+				"/assets/react-dom-Cnp9xt7r.js"
+			],
+			"css": [],
+			"clientActionModule": void 0,
+			"clientLoaderModule": void 0,
+			"clientMiddlewareModule": void 0,
+			"hydrateFallbackModule": void 0
+		},
+		"routes/checkout": {
+			"id": "routes/checkout",
+			"parentId": "routes/layout",
+			"path": "checkout",
+			"index": void 0,
+			"caseSensitive": void 0,
+			"hasAction": false,
+			"hasLoader": false,
+			"hasClientAction": false,
+			"hasClientLoader": false,
+			"hasClientMiddleware": false,
+			"hasDefaultExport": true,
+			"hasErrorBoundary": false,
+			"module": "/assets/checkout-DGJM1PkF.js",
+			"imports": [
+				"/assets/jsx-runtime-D_HevnJU.js",
+				"/assets/fixtures-C22cT_Wa.js",
+				"/assets/src-OkLPE6qb.js",
+				"/assets/react-dom-Cnp9xt7r.js"
 			],
 			"css": [],
 			"clientActionModule": void 0,
@@ -3670,12 +5166,12 @@ var server_manifest_default = {
 			"hasClientMiddleware": false,
 			"hasDefaultExport": true,
 			"hasErrorBoundary": false,
-			"module": "/assets/components-DH1_E3e6.js",
+			"module": "/assets/components-DFSK4ZON.js",
 			"imports": [
-				"/assets/jsx-runtime-tyc0aEiz.js",
-				"/assets/fixtures-DbzU3K1K.js",
-				"/assets/src-sF9Q0zos.js",
-				"/assets/react-dom-Cpcj4XpI.js"
+				"/assets/jsx-runtime-D_HevnJU.js",
+				"/assets/fixtures-C22cT_Wa.js",
+				"/assets/src-OkLPE6qb.js",
+				"/assets/react-dom-Cnp9xt7r.js"
 			],
 			"css": [],
 			"clientActionModule": void 0,
@@ -3684,8 +5180,8 @@ var server_manifest_default = {
 			"hydrateFallbackModule": void 0
 		}
 	},
-	"url": "/assets/manifest-f6d590c4.js",
-	"version": "f6d590c4",
+	"url": "/assets/manifest-a5e85016.js",
+	"version": "a5e85016",
 	"sri": void 0
 };
 //#endregion
@@ -3743,6 +5239,14 @@ var routes = {
 		index: void 0,
 		caseSensitive: void 0,
 		module: admin_exports
+	},
+	"routes/checkout": {
+		id: "routes/checkout",
+		parentId: "routes/layout",
+		path: "checkout",
+		index: void 0,
+		caseSensitive: void 0,
+		module: checkout_exports
 	},
 	"routes/components": {
 		id: "routes/components",

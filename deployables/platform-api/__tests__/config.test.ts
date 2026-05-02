@@ -31,6 +31,9 @@ afterEach(() => {
   delete process.env.STRIPE_CHECKOUT_UI_MODE;
   delete process.env.STRIPE_CONNECT_RETURN_URL;
   delete process.env.STRIPE_CONNECT_REFRESH_URL;
+  delete process.env.EASYPOST_API_KEY;
+  delete process.env.EASYPOST_API_BASE_URL;
+  delete process.env.EASYPOST_MODE;
   delete process.env.PAYMENT_RECONCILIATION_INTERVAL_MS;
   delete process.env.PAYOUT_RECONCILIATION_INTERVAL_MS;
   delete process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS;
@@ -118,6 +121,7 @@ describe("platform api config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.EASYPOST_API_KEY = "EZAK_live";
 
     expect(() => loadConfig()).toThrow(
       "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for hosted payout setup in production.",
@@ -160,6 +164,7 @@ describe("platform api config", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
     process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
+    process.env.EASYPOST_API_KEY = "EZAK_live";
 
     const config = loadConfig();
 

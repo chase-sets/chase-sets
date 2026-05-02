@@ -362,8 +362,8 @@
       "purpose": "Provide reusable request-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "Multiple auth slices",
-        "Deployable composition for auth"
+        "registration",
+        "sign-in"
       ],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
@@ -375,8 +375,8 @@
       "purpose": "Provide reusable route-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "Multiple auth slices",
-        "Deployable composition for auth"
+        "registration",
+        "sign-in"
       ],
       "justification": "route-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",

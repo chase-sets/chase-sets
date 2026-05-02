@@ -77,6 +77,62 @@ read current state through resources or read tools, and then invoke a sensitive
 or destructive tool only after collecting confirmation text. Tool calls should
 include the actor, account scope, idempotency key for writes, and audit metadata.
 
+## Runtime Bridge
+
+The platform API mounts the MCP bridge at `/mcp`. It supports MCP-style JSON-RPC
+requests:
+
+- `initialize`
+- `tools/list`
+- `resources/list`
+- `tools/call`
+- `resources/read`
+
+HTTP convenience endpoints are also available:
+
+- `GET /mcp/services`
+- `GET /mcp/tools`
+- `GET /mcp/resources`
+
+`tools/call` and `resources/read` use the actor resolved by the platform API.
+The bridge blocks calls when the actor is missing, lacks the required
+permission, lacks an account scope for account-scoped tools, omits confirmation
+for sensitive/destructive tools, or omits an idempotency key for write tools.
+
+Tool and resource handlers are registered by runtime composition. If a descriptor
+is exposed but no runtime handler is registered, the bridge returns an auditable
+safe-boundary error instead of guessing at domain behavior. Bounded contexts and
+provider adapters should register handlers that call their owned services and
+emit their normal domain events or provider inbox records.
+
+Example tool call:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "request_1",
+  "method": "tools/call",
+  "params": {
+    "name": "settlement.request-payout",
+    "arguments": {
+      "accountId": "acc_123",
+      "amount": "25.00",
+      "reason": "Seller requested payout.",
+      "idempotencyKey": "agent-request-123",
+      "confirmationText": "Request payout."
+    },
+    "confirmation": {
+      "confirmed": true,
+      "text": "Request payout."
+    }
+  }
+}
+```
+
 The contract tests in `contracts/mcp/index.test.ts` verify service coverage,
 schema presence, permission boundaries, confirmation requirements, idempotency
-requirements, and successful/failure authorization paths.
+requirements, and successful/failure authorization paths. The runtime tests in
+`infrastructure/platform-runtime/mcp.test.ts` verify JSON-RPC listing, successful
+registered handler calls, permission failure, confirmation failure, idempotency
+failure, audit records, and safe unregistered-handler refusal. The platform API
+tests verify the `/mcp` bridge is mounted with actor resolution.
