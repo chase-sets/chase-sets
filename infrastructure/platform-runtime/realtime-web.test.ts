@@ -89,4 +89,32 @@ describe("realtime web subscriptions", () => {
     second.close();
     expect(FakeEventSource.instances[0].close).toHaveBeenCalledTimes(1);
   });
+
+  it("ignores malformed streamed messages before invoking handlers", () => {
+    const onPatch = vi.fn();
+    const onSyncRequired = vi.fn();
+    const subscription = subscribeRealtimePatches({
+      topics: ["public:market"],
+      onPatch,
+      onSyncRequired,
+    });
+
+    FakeEventSource.instances[0].emit("projection.patch", {
+      kind: "projection.patch",
+      context: "discovery",
+      projection: "discovery-market-projection",
+      topics: ["public:market"],
+      changes: [],
+    });
+    FakeEventSource.instances[0].emit("sync.required", {
+      kind: "sync.required",
+      reason: "unknown",
+      contexts: ["discovery"],
+    });
+
+    expect(onPatch).not.toHaveBeenCalled();
+    expect(onSyncRequired).not.toHaveBeenCalled();
+
+    subscription.close();
+  });
 });

@@ -10,6 +10,7 @@ import {
   pruneExpiredRealtimePatchesWithAdvisoryLock,
   readRealtimePatches,
   recordRealtimeProjectionPatch,
+  recordRealtimeProjectionPatches,
   realtimeProjectionNotifyChannel,
   realtimeOutboxSchemaSql,
   runRealtimeProjectionTransaction,
@@ -148,6 +149,10 @@ describe("realtime SSE routes", () => {
           };
         }
 
+        if (sql.includes("FROM unnest")) {
+          return { rows: [{ topic: "public:market", lag: "0" }] };
+        }
+
         throw new Error(`Unexpected query: ${sql}`);
       },
     };
@@ -188,6 +193,10 @@ describe("realtime SSE routes", () => {
 
         if (sql.includes("SELECT outbox_id, payload")) {
           return { rows: [] };
+        }
+
+        if (sql.includes("FROM unnest")) {
+          return { rows: [{ topic: "public:market", lag: "0" }] };
         }
 
         throw new Error(`Unexpected query: ${sql}`);
@@ -249,6 +258,10 @@ describe("realtime SSE routes", () => {
 
         if (sql.includes("MAX(outbox_id)")) {
           return { rows: [{ head: "9" }] };
+        }
+
+        if (sql.includes("FROM unnest")) {
+          return { rows: [{ topic: "public:market", lag: "2" }] };
         }
 
         throw new Error(`Unexpected query: ${sql}`);
@@ -563,8 +576,69 @@ describe("realtime outbox", () => {
     expect(result).toEqual({
       cursor: { marketplace: "14" },
       expiredContexts: ["marketplace"],
+      topicLags: [],
       messages: [],
     });
+  });
+
+  it("limits large replay batches and reports remaining per-topic lag", async () => {
+    const outboxRows = Array.from({ length: 5_000 }, (_, index) => ({
+      outbox_id: String(index + 1),
+      payload: {
+        kind: "projection.patch",
+        context: "discovery",
+        projection: "discovery-market",
+        topics: ["public:market"],
+        changes: [
+          {
+            op: "summary",
+            entity: "discovery.marketSummary",
+            id: `item_${index + 1}`,
+            value: { active_listing_count: index + 1 },
+          },
+        ],
+      },
+    }));
+    const db = {
+      query: async (sql: string, params?: unknown[]) => {
+        if (sql.includes("DELETE FROM realtime_projection_outbox")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("SELECT outbox_id, payload")) {
+          const after = Number(params?.[0] ?? 0);
+          const limit = Number(params?.[2] ?? 100);
+          return {
+            rows: outboxRows
+              .filter((row) => Number(row.outbox_id) > after)
+              .slice(0, limit),
+          };
+        }
+
+        if (sql.includes("FROM unnest")) {
+          const after = Number(params?.[0] ?? 0);
+          return {
+            rows: [{ topic: "public:market", lag: String(5_000 - after) }],
+          };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
+
+    const result = await readRealtimePatches(
+      [{ contextName: "discovery", db }],
+      ["public:market"],
+      {},
+      100,
+      { includeTopicLag: true },
+    );
+
+    expect(result.messages).toHaveLength(100);
+    expect(result.cursor).toEqual({ discovery: "100" });
+    expect(result.topicLags).toEqual([
+      { contextName: "discovery", topic: "public:market", lag: 4_900 },
+    ]);
   });
 
   it("prunes expired patches behind an advisory lock", async () => {
@@ -638,6 +712,73 @@ describe("realtime outbox", () => {
     ]);
   });
 
+  it("records a batch of projection patches through one transaction boundary", async () => {
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [] };
+      },
+      release: () => {
+        statements.push("release");
+      },
+    };
+    const pool = {
+      query: async (sql: string) => {
+        statements.push(`pool:${sql}`);
+        return { rows: [] };
+      },
+      connect: async () => client,
+    };
+
+    await recordRealtimeProjectionPatches(pool, [
+      {
+        sourceGlobalPosition: "1",
+        projectionName: "marketplace-offer-projection",
+        patchKey: "offer-match:one",
+        topics: ["account:account_1:offers"],
+        patch: {
+          kind: "projection.patch",
+          context: "marketplace",
+          projection: "marketplace-offer-projection",
+          topics: ["account:account_1:offers"],
+          changes: [
+            {
+              op: "remove",
+              entity: "marketplace.offerMatch",
+              id: "offer_1",
+            },
+          ],
+        },
+      },
+      {
+        sourceGlobalPosition: "1",
+        projectionName: "marketplace-offer-projection",
+        patchKey: "offer-match:two",
+        topics: ["account:account_2:offers"],
+        patch: {
+          kind: "projection.patch",
+          context: "marketplace",
+          projection: "marketplace-offer-projection",
+          topics: ["account:account_2:offers"],
+          changes: [
+            {
+              op: "remove",
+              entity: "marketplace.offerMatch",
+              id: "offer_1",
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(statements[0]).toBe("BEGIN");
+    expect(statements.filter((sql) => sql.includes("INSERT INTO realtime_projection_outbox")))
+      .toHaveLength(2);
+    expect(statements.at(-2)).toBe("COMMIT");
+    expect(statements.at(-1)).toBe("release");
+  });
+
   it("exposes a Postgres notification wake signal for low-latency polling", async () => {
     const listeners = new Set<(message: { channel: string }) => void>();
     const queries: string[] = [];
@@ -659,7 +800,7 @@ describe("realtime outbox", () => {
     for (const listener of listeners) {
       listener({ channel: realtimeProjectionNotifyChannel });
     }
-    await expect(woke).resolves.toBeUndefined();
+    await expect(woke).resolves.toBe("notified");
     await wakeSignal.stop?.();
 
     expect(queries).toEqual([

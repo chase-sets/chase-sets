@@ -34,16 +34,20 @@ current route data and continue live patching.
 `realtime_projection_patch` after the durable outbox write. A deployment can attach
 a dedicated Postgres client with `createPostgresRealtimeWakeSignal` and pass it to
 `createRealtimeRoutes` as `wakeSignal` to wake idle SSE loops without waiting for
-the next polling interval.
+the next polling interval. Platform API wires one listener per unique realtime
+context pool and merges them into a single route wake signal.
 
 ## Operational Checks
 
 - Watch active stream counts and rejected stream counts from `RealtimeObserver`.
 - Watch `sync.required` rates by reason; repeated backpressure means the route is
   under-provisioned or clients are reconnecting from stale cursors.
+- Watch per-topic lag histograms; hot topic families with sustained lag need
+  smaller route topic sets, more API capacity, or narrower projections.
 - Run the retention sweeper in each platform API process; advisory locks make
   duplicate sweepers safe.
-- Keep patch factories in the bounded context that owns the read model.
+- Keep topic manifests and patch factories in the bounded context that owns the
+  read model.
 
 ## Verification
 

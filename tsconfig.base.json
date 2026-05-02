@@ -321,6 +321,9 @@
       "@chase-sets/provider-webhook-inbox": [
         "./infrastructure/provider-webhook-inbox/index.ts"
       ],
+      "@chase-sets/realtime": [
+        "./contracts/realtime/index.ts"
+      ],
       "@chase-sets/reputation": [
         "./bounded-contexts/reputation/index.ts"
       ],

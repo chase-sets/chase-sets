@@ -14,13 +14,23 @@ import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-te
 import type { PaymentServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import {
+  createMergedRealtimeWakeSignal,
+  createPostgresRealtimeWakeSignal,
   createRealtimeRetentionSweeper,
   type RealtimeObserver,
+  type RealtimeWakeSignal,
 } from "@chase-sets/platform-runtime/realtime";
 import {
   getObservabilityRuntime,
   observeProjectors,
   observeWorker,
+  recordRealtimeAuthorizationRejected,
+  recordRealtimeBatchRead,
+  recordRealtimeConnectionClosed,
+  recordRealtimeConnectionOpened,
+  recordRealtimeMessageSent,
+  recordRealtimeSyncRequired,
+  recordRealtimeWakeWaitEnded,
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
@@ -109,8 +119,12 @@ const realtimeStores = runtime.mountedContexts
     contextName: entry.contextName,
     db: entry.pool,
   }));
+const realtimeWakeSignal = await createPlatformRealtimeWakeSignal(
+  [...new Set(realtimeStores.map((store) => store.db))],
+);
 const realtimeObserver = {
   connectionOpened: (event) => {
+    recordRealtimeConnectionOpened(event);
     logger.info("Realtime SSE connection opened.", {
       type: "realtime.connection.opened",
       activeConnectionCount: event.activeConnectionCount,
@@ -120,12 +134,15 @@ const realtimeObserver = {
     });
   },
   connectionClosed: (event) => {
+    recordRealtimeConnectionClosed(event);
     logger.info("Realtime SSE connection closed.", {
       type: "realtime.connection.closed",
       activeConnectionCount: event.activeConnectionCount,
+      durationMs: Math.round(event.durationMs),
     });
   },
   authorizationRejected: (event) => {
+    recordRealtimeAuthorizationRejected(event);
     logger.warn("Realtime SSE subscription rejected.", {
       type: "realtime.authorization.rejected",
       reason: event.reason,
@@ -134,6 +151,7 @@ const realtimeObserver = {
     });
   },
   batchRead: (event) => {
+    recordRealtimeBatchRead(event);
     if (event.messageCount === 0 && event.expiredContextCount === 0) {
       return;
     }
@@ -144,7 +162,23 @@ const realtimeObserver = {
       storeNames: event.storeNames,
       messageCount: event.messageCount,
       expiredContextCount: event.expiredContextCount,
+      maxTopicLag: Math.max(0, ...event.topicLags.map((lag) => lag.lag)),
     });
+  },
+  messageSent: (event) => {
+    recordRealtimeMessageSent(event);
+  },
+  syncRequired: (event) => {
+    recordRealtimeSyncRequired(event);
+    logger.warn("Realtime SSE sync required.", {
+      type: "realtime.sync.required",
+      reason: event.reason,
+      contexts: event.contexts,
+      topicCount: event.topicCount,
+    });
+  },
+  wakeWaitEnded: (event) => {
+    recordRealtimeWakeWaitEnded(event);
   },
   retentionPruned: (event) => {
     if (event.deletedCount === 0) {
@@ -185,6 +219,7 @@ const app = buildPlatformApiApp(runtime, {
       request,
     ),
   realtimeObserver,
+  realtimeWakeSignal,
 });
 const realtimeRetentionSweeper = createRealtimeRetentionSweeper({
   stores: realtimeStores,
@@ -322,8 +357,39 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
     realtimeRetentionSweeper.stop();
-    void closePlatformApiPools(pools)
+    void Promise.resolve(realtimeWakeSignal?.stop?.())
+      .finally(() => closePlatformApiPools(pools))
       .finally(() => observability.shutdown())
       .finally(() => process.exit(0));
   });
+}
+
+async function createPlatformRealtimeWakeSignal(
+  pools: readonly { connect?: () => Promise<unknown> }[],
+): Promise<RealtimeWakeSignal | undefined> {
+  const wakeSignals: RealtimeWakeSignal[] = [];
+
+  for (const pool of pools) {
+    if (typeof pool.connect !== "function") {
+      continue;
+    }
+
+    let client: unknown;
+    try {
+      client = await pool.connect();
+      wakeSignals.push(
+        await createPostgresRealtimeWakeSignal(
+          client as Parameters<typeof createPostgresRealtimeWakeSignal>[0],
+        ),
+      );
+    } catch (error) {
+      (client as { release?: () => void } | undefined)?.release?.();
+      logger.warn("Realtime Postgres wake signal unavailable for a context pool.", {
+        type: "realtime.wake_signal.unavailable",
+        error,
+      });
+    }
+  }
+
+  return createMergedRealtimeWakeSignal(wakeSignals);
 }

@@ -1,4 +1,4 @@
-import type { RealtimeContextRegistration } from "@chase-sets/platform-runtime/realtime";
+import type { RealtimeTopicManifest } from "@chase-sets/platform-runtime/realtime";
 
 export const discoveryRealtimeTopics = {
   publicMarket: () => "public:market",
@@ -7,8 +7,11 @@ export const discoveryRealtimeTopics = {
   seller: (accountId: string) => `seller:${accountId}`,
 } as const;
 
-export const discoveryRealtimeRegistration = {
+export const discoveryRealtimeManifest = {
   contextName: "discovery",
+  topics: discoveryRealtimeTopics,
   exactTopics: [discoveryRealtimeTopics.publicMarket()],
   topicPrefixes: ["item:", "listing:", "seller:"],
-} satisfies RealtimeContextRegistration;
+} satisfies RealtimeTopicManifest<typeof discoveryRealtimeTopics>;
+
+export const discoveryRealtimeRegistration = discoveryRealtimeManifest;

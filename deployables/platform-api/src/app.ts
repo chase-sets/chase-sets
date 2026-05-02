@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
-import { discoveryRealtimeRegistration } from "@chase-sets/discovery/server";
+import { discoveryRealtimeManifest } from "@chase-sets/discovery/server";
 import { module as identityModule } from "@chase-sets/identity";
-import { marketplaceRealtimeRegistration } from "@chase-sets/marketplace/server";
+import { marketplaceRealtimeManifest } from "@chase-sets/marketplace/server";
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
@@ -53,6 +53,7 @@ export type BuildPlatformApiOptions = Readonly<{
   resolveActor?: PlatformActorResolver;
   realtimeObserver?: RealtimeObserver;
   realtimeResourceLimits?: RealtimeResourceLimits;
+  realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   mcp?: CreateMcpRoutesOptions;
 }>;
 
@@ -114,13 +115,14 @@ export function buildPlatformApiApp(
         )
         .map((entry) => ({
           ...(entry.contextName === "discovery"
-            ? discoveryRealtimeRegistration
-            : marketplaceRealtimeRegistration),
+            ? discoveryRealtimeManifest
+            : marketplaceRealtimeManifest),
           contextName: entry.contextName,
           db: entry.pool,
         })),
       resolveActor: options.resolveActor ?? (async () => null),
       observer: options.realtimeObserver,
+      wakeSignal: options.realtimeWakeSignal,
       resourceLimits: options.realtimeResourceLimits ?? {
         maxTopicsPerStream: 16,
         maxActiveStreams: 1_000,

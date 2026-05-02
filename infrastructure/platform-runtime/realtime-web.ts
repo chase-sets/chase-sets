@@ -1,7 +1,9 @@
-import type {
-  RealtimeProjectionPatch,
-  RealtimeSyncRequired,
-} from "./realtime";
+import {
+  isRealtimeProjectionPatch,
+  isRealtimeSyncRequired,
+  type RealtimeProjectionPatch,
+  type RealtimeSyncRequired,
+} from "@chase-sets/realtime";
 
 export type RealtimeSubscription = Readonly<{
   close: () => void;
@@ -79,8 +81,8 @@ function getOrCreateSharedRealtimeSource(
   const sharedSource = { source, handlers };
 
   source.addEventListener("projection.patch", (event) => {
-    const message = parseRealtimeMessage<RealtimeProjectionPatch>(event);
-    if (message?.kind === "projection.patch") {
+    const message = parseRealtimeMessage(event);
+    if (isRealtimeProjectionPatch(message)) {
       for (const handler of handlers) {
         handler.onPatch(message);
       }
@@ -88,8 +90,8 @@ function getOrCreateSharedRealtimeSource(
   });
 
   source.addEventListener("sync.required", (event) => {
-    const message = parseRealtimeMessage<RealtimeSyncRequired>(event);
-    if (message?.kind === "sync.required") {
+    const message = parseRealtimeMessage(event);
+    if (isRealtimeSyncRequired(message)) {
       for (const handler of handlers) {
         handler.onSyncRequired(message);
       }
@@ -106,13 +108,13 @@ function getOrCreateSharedRealtimeSource(
   return sharedSource;
 }
 
-function parseRealtimeMessage<T>(event: Event): T | null {
+function parseRealtimeMessage(event: Event): unknown {
   if (!("data" in event) || typeof event.data !== "string") {
     return null;
   }
 
   try {
-    return JSON.parse(event.data) as T;
+    return JSON.parse(event.data) as unknown;
   } catch {
     return null;
   }

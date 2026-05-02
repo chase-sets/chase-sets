@@ -77,6 +77,23 @@ const workerCounter = meter.createCounter("chase_sets_worker_runs_total");
 const workerDuration = meter.createHistogram("chase_sets_worker_run_duration_ms", {
   unit: "ms",
 });
+const realtimeConnectionCounter = meter.createCounter("chase_sets_realtime_connections_total");
+const realtimeActiveConnections = meter.createUpDownCounter("chase_sets_realtime_active_connections");
+const realtimeStreamDuration = meter.createHistogram("chase_sets_realtime_stream_duration_ms", {
+  unit: "ms",
+});
+const realtimeAuthorizationRejectedCounter = meter.createCounter(
+  "chase_sets_realtime_authorization_rejected_total",
+);
+const realtimeBatchSize = meter.createHistogram("chase_sets_realtime_batch_messages", {
+  unit: "{message}",
+});
+const realtimeMessageCounter = meter.createCounter("chase_sets_realtime_messages_total");
+const realtimeSyncRequiredCounter = meter.createCounter("chase_sets_realtime_sync_required_total");
+const realtimeWakeCounter = meter.createCounter("chase_sets_realtime_wake_waits_total");
+const realtimeTopicLag = meter.createHistogram("chase_sets_realtime_topic_lag", {
+  unit: "{message}",
+});
 
 let runtime: ObservabilityRuntime | null = null;
 
@@ -367,6 +384,87 @@ export function observeWorker<T>(
     counter: workerCounter,
     duration: workerDuration,
     work,
+  });
+}
+
+export function recordRealtimeConnectionOpened(event: Readonly<{
+  storeNames: readonly string[];
+  topics: readonly string[];
+}>): void {
+  realtimeConnectionCounter.add(1, {
+    store_count: event.storeNames.length,
+    topic_count: event.topics.length,
+  });
+  realtimeActiveConnections.add(1);
+}
+
+export function recordRealtimeConnectionClosed(event: Readonly<{
+  durationMs: number;
+}>): void {
+  realtimeActiveConnections.add(-1);
+  realtimeStreamDuration.record(event.durationMs);
+}
+
+export function recordRealtimeAuthorizationRejected(event: Readonly<{
+  reason: string;
+  topics: readonly string[];
+}>): void {
+  realtimeAuthorizationRejectedCounter.add(1, {
+    reason: event.reason,
+    topic_count: event.topics.length,
+  });
+}
+
+export function recordRealtimeBatchRead(event: Readonly<{
+  messageCount: number;
+  expiredContextCount: number;
+  storeNames: readonly string[];
+  topicLags?: readonly Readonly<{
+    contextName: string;
+    topic: string;
+    lag: number;
+  }>[];
+}>): void {
+  realtimeBatchSize.record(event.messageCount, {
+    store_count: event.storeNames.length,
+    expired_context_count: event.expiredContextCount,
+  });
+
+  for (const lag of event.topicLags ?? []) {
+    realtimeTopicLag.record(lag.lag, {
+      context: lag.contextName,
+      topic_family: lag.topic.split(":")[0] ?? "unknown",
+    });
+  }
+}
+
+export function recordRealtimeMessageSent(event: Readonly<{
+  contextName: string;
+  eventKind: string;
+}>): void {
+  realtimeMessageCounter.add(1, {
+    context: event.contextName,
+    event_kind: event.eventKind,
+  });
+}
+
+export function recordRealtimeSyncRequired(event: Readonly<{
+  reason: string;
+  contexts: readonly string[];
+}>): void {
+  for (const contextName of event.contexts) {
+    realtimeSyncRequiredCounter.add(1, {
+      context: contextName,
+      reason: event.reason,
+    });
+  }
+}
+
+export function recordRealtimeWakeWaitEnded(event: Readonly<{
+  result: string;
+}>): void {
+  realtimeWakeCounter.add(1, {
+    result: event.result,
   });
 }
 

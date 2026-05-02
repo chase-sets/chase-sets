@@ -6,6 +6,13 @@ import type {
   PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { GlobalPosition } from "@chase-sets/event-core/storage";
+import {
+  isRealtimeProjectionPatch,
+  type RealtimeMessage,
+  type RealtimeProjectionPatch,
+  type RealtimeProjectionPatchChange,
+  type RealtimeSyncRequired,
+} from "@chase-sets/realtime";
 import type { ResolvedActor } from "./auth";
 
 const REALTIME_OUTBOX_TABLE = "realtime_projection_outbox";
@@ -55,32 +62,23 @@ CREATE TABLE IF NOT EXISTS ${REALTIME_OUTBOX_TOPIC_TABLE} (
 CREATE INDEX IF NOT EXISTS ${REALTIME_OUTBOX_TOPIC_TABLE}_outbox_idx
   ON ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id);`;
 
-export type RealtimeProjectionPatchChange =
-  | Readonly<{ op: "upsert"; entity: string; id: string; value: unknown }>
-  | Readonly<{ op: "remove"; entity: string; id: string }>
-  | Readonly<{ op: "summary"; entity: string; id: string; value: unknown }>;
-
-export type RealtimeProjectionPatch = Readonly<{
-  kind: "projection.patch";
-  context: string;
-  projection: string;
-  topics: readonly string[];
-  changes: readonly RealtimeProjectionPatchChange[];
-}>;
-
-export type RealtimeSyncRequired = Readonly<{
-  kind: "sync.required";
-  reason: "cursor-expired" | "replay-backpressure";
-  contexts: readonly string[];
-}>;
-
-export type RealtimeMessage = RealtimeProjectionPatch | RealtimeSyncRequired;
+export type {
+  RealtimeMessage,
+  RealtimeProjectionPatch,
+  RealtimeProjectionPatchChange,
+  RealtimeSyncRequired,
+} from "@chase-sets/realtime";
 
 export type RealtimeContextRegistration = Readonly<{
   contextName: string;
   exactTopics?: readonly string[];
   topicPrefixes?: readonly string[];
 }>;
+
+export type RealtimeTopicManifest<TTopics extends Record<string, (...args: any[]) => string>> =
+  RealtimeContextRegistration & Readonly<{
+    topics: TTopics;
+  }>;
 
 export type RealtimeContextStore = RealtimeContextRegistration & Readonly<{
   db: PgQueryable;
@@ -91,6 +89,9 @@ export type RealtimeObserver = Readonly<{
   connectionClosed?: (event: RealtimeConnectionClosedEvent) => void;
   authorizationRejected?: (event: RealtimeAuthorizationRejectedEvent) => void;
   batchRead?: (event: RealtimeBatchReadEvent) => void;
+  messageSent?: (event: RealtimeMessageSentEvent) => void;
+  syncRequired?: (event: RealtimeSyncRequiredEvent) => void;
+  wakeWaitEnded?: (event: RealtimeWakeWaitEndedEvent) => void;
   retentionPruned?: (event: RealtimeRetentionPrunedEvent) => void;
   streamError?: (event: RealtimeStreamErrorEvent) => void;
 }>;
@@ -106,6 +107,7 @@ export type RealtimeConnectionOpenedEvent = Readonly<{
 export type RealtimeConnectionClosedEvent = Readonly<{
   connectionKey: string;
   activeConnectionCount: number;
+  durationMs: number;
 }>;
 
 export type RealtimeAuthorizationRejectedEvent = Readonly<{
@@ -119,6 +121,29 @@ export type RealtimeBatchReadEvent = Readonly<{
   storeNames: readonly string[];
   messageCount: number;
   expiredContextCount: number;
+  topicLags: readonly RealtimeTopicLag[];
+}>;
+
+export type RealtimeTopicLag = Readonly<{
+  contextName: string;
+  topic: string;
+  lag: number;
+}>;
+
+export type RealtimeMessageSentEvent = Readonly<{
+  contextName: string;
+  eventKind: RealtimeProjectionPatch["kind"];
+  topicCount: number;
+}>;
+
+export type RealtimeSyncRequiredEvent = Readonly<{
+  reason: RealtimeSyncRequired["reason"];
+  contexts: readonly string[];
+  topicCount: number;
+}>;
+
+export type RealtimeWakeWaitEndedEvent = Readonly<{
+  result: RealtimeWakeResult;
 }>;
 
 export type RealtimeRetentionPrunedEvent = Readonly<{
@@ -138,9 +163,11 @@ export type RealtimeResourceLimits = Readonly<{
 }>;
 
 export type RealtimeWakeSignal = Readonly<{
-  wait: (timeoutMs: number) => Promise<void>;
+  wait: (timeoutMs: number) => Promise<RealtimeWakeResult>;
   stop?: () => void | Promise<void>;
 }>;
+
+export type RealtimeWakeResult = "notified" | "timeout";
 
 export type RealtimeRetentionSweeper = Readonly<{
   sweep: () => Promise<void>;
@@ -166,6 +193,7 @@ type RealtimeCursor = Readonly<Record<string, string>>;
 
 type ReadRealtimePatchesOptions = Readonly<{
   pruneExpired?: boolean;
+  includeTopicLag?: boolean;
 }>;
 
 type PostgresRealtimeNotificationClient = PgQueryable & Readonly<{
@@ -218,16 +246,17 @@ export async function createPostgresRealtimeWakeSignal(
   return {
     wait: (timeoutMs) =>
       new Promise((resolve) => {
-        const timer = setTimeout(done, timeoutMs);
+        const waiter = () => done("notified");
+        const timer = setTimeout(() => done("timeout"), timeoutMs);
         timer.unref?.();
 
-        function done() {
+        function done(result: RealtimeWakeResult) {
           clearTimeout(timer);
-          waiters.delete(done);
-          resolve();
+          waiters.delete(waiter);
+          resolve(result);
         }
 
-        waiters.add(done);
+        waiters.add(waiter);
       }),
     stop: async () => {
       waiters.clear();
@@ -238,6 +267,31 @@ export async function createPostgresRealtimeWakeSignal(
       }
       await client.query(`UNLISTEN ${REALTIME_NOTIFY_CHANNEL}`);
       client.release?.();
+    },
+  };
+}
+
+export function createMergedRealtimeWakeSignal(
+  wakeSignals: readonly RealtimeWakeSignal[],
+): RealtimeWakeSignal | undefined {
+  const activeWakeSignals = wakeSignals.filter(Boolean);
+  if (activeWakeSignals.length === 0) {
+    return undefined;
+  }
+
+  if (activeWakeSignals.length === 1) {
+    return activeWakeSignals[0];
+  }
+
+  return {
+    wait: async (timeoutMs) => {
+      const result = await Promise.race(
+        activeWakeSignals.map((signal) => signal.wait(timeoutMs)),
+      );
+      return result;
+    },
+    stop: async () => {
+      await Promise.all(activeWakeSignals.map((signal) => signal.stop?.()));
     },
   };
 }
@@ -316,6 +370,21 @@ export async function recordRealtimeProjectionPatch(
       patch.context,
     ],
   );
+}
+
+export async function recordRealtimeProjectionPatches(
+  db: PgQueryable | PgTransactionalPool,
+  inputs: readonly RecordRealtimeProjectionPatchInput[],
+): Promise<void> {
+  if (inputs.length === 0) {
+    return;
+  }
+
+  await runRealtimeProjectionTransaction(db, async (tx) => {
+    for (const input of inputs) {
+      await recordRealtimeProjectionPatch(tx, input);
+    }
+  });
 }
 
 export function encodeRealtimeCursor(cursor: RealtimeCursor): string {
@@ -445,6 +514,7 @@ export async function readRealtimePatches(
 ): Promise<Readonly<{
   cursor: RealtimeCursor;
   expiredContexts: readonly string[];
+  topicLags: readonly RealtimeTopicLag[];
   messages: readonly Readonly<{
     contextName: string;
     outboxId: string;
@@ -458,6 +528,7 @@ export async function readRealtimePatches(
     Object.entries(cursor).filter(([contextName]) => storeNames.has(contextName)),
   );
   const expiredContexts: string[] = [];
+  const topicLags: RealtimeTopicLag[] = [];
   const messages: Array<{
     contextName: string;
     outboxId: string;
@@ -501,11 +572,18 @@ export async function readRealtimePatches(
         });
       }
     }
+
+    if (options.includeTopicLag) {
+      topicLags.push(
+        ...(await readTopicLags(store, normalizedTopics, nextCursor[store.contextName] ?? afterOutboxId)),
+      );
+    }
   }
 
   return {
     cursor: nextCursor,
     expiredContexts,
+    topicLags,
     messages,
   };
 }
@@ -534,15 +612,6 @@ export function selectRealtimeStoresForTopics(
       store.topicPrefixes?.some((prefix) => topic.startsWith(prefix)),
     );
   });
-}
-
-function isRealtimeProjectionPatch(value: unknown): value is RealtimeProjectionPatch {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { kind?: unknown }).kind === "projection.patch" &&
-    Array.isArray((value as { changes?: unknown }).changes)
-  );
 }
 
 function assertValidRealtimeProjectionPatch(
@@ -639,6 +708,35 @@ async function readContextHead(db: PgQueryable): Promise<string> {
   return result.rows[0]?.head ?? "0";
 }
 
+async function readTopicLags(
+  store: RealtimeContextStore,
+  topics: readonly string[],
+  afterOutboxId: string,
+): Promise<RealtimeTopicLag[]> {
+  const result = await store.db.query<{
+    topic: string;
+    lag: string | number;
+  }>(
+    `SELECT requested.topic,
+            GREATEST(COALESCE(MAX(outbox.outbox_id), 0) - $1::bigint, 0)::text AS lag
+     FROM unnest($2::text[]) AS requested(topic)
+     LEFT JOIN ${REALTIME_OUTBOX_TOPIC_TABLE} AS topic
+       ON topic.topic = requested.topic
+     LEFT JOIN ${REALTIME_OUTBOX_TABLE} AS outbox
+       ON outbox.outbox_id = topic.outbox_id
+      AND outbox.expires_at > now()
+     GROUP BY requested.topic
+     ORDER BY requested.topic ASC`,
+    [afterOutboxId, topics],
+  );
+
+  return result.rows.map((row) => ({
+    contextName: store.contextName,
+    topic: row.topic,
+    lag: Number(row.lag),
+  }));
+}
+
 export function createRealtimeRoutes(options: Readonly<{
   stores: readonly RealtimeContextStore[];
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
@@ -701,6 +799,7 @@ export function createRealtimeRoutes(options: Readonly<{
     }
 
     return streamSSE(c, async (stream) => {
+      const openedAt = performance.now();
       let nextHeartbeatAt = Date.now() + heartbeatIntervalMs;
       let consecutiveFullBatches = 0;
       activeStreamCount += 1;
@@ -726,7 +825,7 @@ export function createRealtimeRoutes(options: Readonly<{
             authorizedTopics,
             cursor,
             batchSize,
-            { pruneExpired: false },
+            { pruneExpired: false, includeTopicLag: true },
           );
           cursor = batch.cursor;
           const cursorId = encodeRealtimeCursor(cursor);
@@ -735,6 +834,7 @@ export function createRealtimeRoutes(options: Readonly<{
             storeNames: matchingStores.map((store) => store.contextName),
             messageCount: batch.messages.length,
             expiredContextCount: batch.expiredContexts.length,
+            topicLags: batch.topicLags,
           });
 
           if (batch.messages.length >= batchSize) {
@@ -756,7 +856,14 @@ export function createRealtimeRoutes(options: Readonly<{
                 contexts: matchingStores.map((store) => store.contextName),
               } satisfies RealtimeSyncRequired),
             });
-            await sleepUntilRealtimeWake(stream, pollIntervalMs, options.wakeSignal);
+            options.observer?.syncRequired?.({
+              reason: "replay-backpressure",
+              contexts: matchingStores.map((store) => store.contextName),
+              topicCount: authorizedTopics.length,
+            });
+            options.observer?.wakeWaitEnded?.({
+              result: await sleepUntilRealtimeWake(stream, pollIntervalMs, options.wakeSignal),
+            });
             continue;
           }
 
@@ -770,6 +877,11 @@ export function createRealtimeRoutes(options: Readonly<{
                 contexts: batch.expiredContexts,
               } satisfies RealtimeSyncRequired),
             });
+            options.observer?.syncRequired?.({
+              reason: "cursor-expired",
+              contexts: batch.expiredContexts,
+              topicCount: authorizedTopics.length,
+            });
           }
 
           for (const message of batch.messages) {
@@ -780,6 +892,11 @@ export function createRealtimeRoutes(options: Readonly<{
               }),
               event: message.payload.kind,
               data: JSON.stringify(message.payload),
+            });
+            options.observer?.messageSent?.({
+              contextName: message.contextName,
+              eventKind: message.payload.kind,
+              topicCount: message.payload.topics.length,
             });
           }
 
@@ -796,7 +913,9 @@ export function createRealtimeRoutes(options: Readonly<{
             nextHeartbeatAt = Date.now() + heartbeatIntervalMs;
           }
 
-          await sleepUntilRealtimeWake(stream, pollIntervalMs, options.wakeSignal);
+          options.observer?.wakeWaitEnded?.({
+            result: await sleepUntilRealtimeWake(stream, pollIntervalMs, options.wakeSignal),
+          });
         }
       } catch (error) {
         options.observer?.streamError?.({ connectionKey, error });
@@ -815,6 +934,7 @@ export function createRealtimeRoutes(options: Readonly<{
         options.observer?.connectionClosed?.({
           connectionKey,
           activeConnectionCount: activeStreamCount,
+          durationMs: performance.now() - openedAt,
         });
       }
     });
@@ -872,14 +992,14 @@ async function sleepUntilRealtimeWake(
   stream: Readonly<{ sleep: (ms: number) => Promise<unknown> }>,
   timeoutMs: number,
   wakeSignal?: RealtimeWakeSignal,
-): Promise<void> {
+): Promise<RealtimeWakeResult> {
   if (!wakeSignal) {
     await stream.sleep(timeoutMs);
-    return;
+    return "timeout";
   }
 
-  await Promise.race([
-    stream.sleep(timeoutMs),
+  return Promise.race([
+    stream.sleep(timeoutMs).then(() => "timeout" as const),
     wakeSignal.wait(timeoutMs),
   ]);
 }

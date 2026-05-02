@@ -1,6 +1,9 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import {
+  recordRealtimeProjectionPatch,
+  recordRealtimeProjectionPatches,
+} from "@chase-sets/platform-runtime/realtime";
 import {
   createMarketplaceOfferMatchPatch,
   createMarketplaceOfferPatch,
@@ -79,18 +82,21 @@ async function emitOfferPatch(
     [...sellerAccountIds],
   );
 
-  for (const sellerAccountId of sellerAccountIds) {
-    const topic = marketplaceRealtimeTopics.accountOffers(sellerAccountId);
-    const offerMatch = offerMatchesBySellerAccountId.get(sellerAccountId);
-    await recordRealtimeProjectionPatch(db, {
-      sourceGlobalPosition: event.globalPosition,
-      projectionName: "marketplace-offer-projection",
-      patchKey: `offer-match:${offerId}:${sellerAccountId}`,
-      topics: [topic],
-      recordedAt: event.timing.recordedAt,
-      patch: createMarketplaceOfferMatchPatch([topic], offerId, offerMatch ?? null),
-    });
-  }
+  await recordRealtimeProjectionPatches(
+    db,
+    [...sellerAccountIds].map((sellerAccountId) => {
+      const topic = marketplaceRealtimeTopics.accountOffers(sellerAccountId);
+      const offerMatch = offerMatchesBySellerAccountId.get(sellerAccountId);
+      return {
+        sourceGlobalPosition: event.globalPosition,
+        projectionName: "marketplace-offer-projection",
+        patchKey: `offer-match:${offerId}:${sellerAccountId}`,
+        topics: [topic],
+        recordedAt: event.timing.recordedAt,
+        patch: createMarketplaceOfferMatchPatch([topic], offerId, offerMatch ?? null),
+      };
+    }),
+  );
 }
 
 export function buildMarketplaceOfferProjectionHandlers(
