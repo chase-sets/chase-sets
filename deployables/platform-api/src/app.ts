@@ -66,6 +66,7 @@ export type BuildPlatformApiOptions = Readonly<{
   realtimeRouteTuning?: RealtimeRouteTuning;
   realtimeCursorSigningSecret?: string;
   realtimeCursorSigningKeys?: RealtimeCursorSigningKeySet;
+  realtimeStreamLimiter?: Parameters<typeof createRealtimeRoutes>[0]["streamLimiter"];
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   realtimeActiveConnectionCount?: () => number;
   mcp?: CreateMcpRoutesOptions;
@@ -153,6 +154,7 @@ export function buildPlatformApiApp(
       resolveActor: options.resolveActor ?? (async () => null),
       observer: options.realtimeObserver,
       wakeSignal: options.realtimeWakeSignal,
+      streamLimiter: options.realtimeStreamLimiter,
       cursorSigningKeys:
         options.realtimeCursorSigningKeys ?? options.realtimeCursorSigningSecret,
       topicPolicyManifest: realtimeTopicPolicyManifest,

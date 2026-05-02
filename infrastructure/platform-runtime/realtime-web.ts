@@ -4,10 +4,13 @@ import {
   type RealtimeProjectionPatch,
   type RealtimeSyncRequired,
 } from "@chase-sets/realtime";
+import type { RealtimeRouteSubscriptionPreset } from "./realtime-route-subscriptions";
 
 export type RealtimeSubscription = Readonly<{
   close: () => void;
 }>;
+
+export type { RealtimeRouteSubscriptionPreset } from "./realtime-route-subscriptions";
 
 type RealtimeSubscriptionHandlers = Readonly<{
   onPatch: (patch: RealtimeProjectionPatch) => void;
@@ -57,18 +60,20 @@ export type RealtimeSubscriptionDiagnostics = Readonly<{
 }>;
 
 export function subscribeRealtimePatches(options: Readonly<{
-  topics: readonly string[];
+  topics?: readonly string[];
+  preset?: RealtimeRouteSubscriptionPreset;
   onPatch: (patch: RealtimeProjectionPatch) => void;
   onSyncRequired: (message: RealtimeSyncRequired) => void;
   onError?: (error: Event) => void;
   debounceMs?: number;
   reconnectPolicy?: RealtimeReconnectPolicy;
 }>): RealtimeSubscription {
-  if (typeof window === "undefined" || options.topics.length === 0) {
+  const requestedTopics = options.preset?.topics ?? options.topics ?? [];
+  if (typeof window === "undefined" || requestedTopics.length === 0) {
     return { close: () => undefined };
   }
 
-  const normalizedTopics = [...new Set(options.topics)].sort();
+  const normalizedTopics = [...new Set(requestedTopics)].sort();
   const sourceKey = normalizedTopics.join("\n");
   const handlers: RealtimeSubscriptionHandlers = {
     onPatch: options.onPatch,
@@ -151,6 +156,11 @@ function getOrCreateSharedRealtimeSource(
     }
 
     const endpoint = resolveRealtimeEndpointPath(topics);
+    if (diagnostics.lastEventId) {
+      params.set("cursor", diagnostics.lastEventId);
+    } else {
+      params.delete("cursor");
+    }
     const source = new EventSource(`${endpoint}?${params.toString()}`, {
       withCredentials: true,
     });

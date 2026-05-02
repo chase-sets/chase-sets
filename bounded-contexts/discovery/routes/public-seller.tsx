@@ -88,7 +88,7 @@ export default function PublicSellerRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: discoveryRealtimeRouteTopics.publicSeller(data.seller.account_id),
+      preset: discoveryRealtimeRouteTopics.publicSeller(data.seller.account_id),
       onPatch: (patch) => {
         setSeller((current) => applyDiscoveryPublicSellerPatch(current, patch));
       },

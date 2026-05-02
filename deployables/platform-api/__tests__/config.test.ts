@@ -45,6 +45,12 @@ afterEach(() => {
   delete process.env.REALTIME_MAX_TOPICS_PER_STREAM;
   delete process.env.REALTIME_MAX_ACTIVE_STREAMS;
   delete process.env.REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY;
+  delete process.env.REALTIME_STREAM_LIMITER;
+  delete process.env.REALTIME_REDIS_URL;
+  delete process.env.REALTIME_REDIS_NAMESPACE;
+  delete process.env.REALTIME_REDIS_LEASE_TTL_SECONDS;
+  delete process.env.REALTIME_CURSOR_SIGNING_SECRET;
+  delete process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS;
   delete process.env.NODE_ENV;
 });
 
@@ -126,6 +132,8 @@ describe("platform api config", () => {
   it("fails production config when Stripe payment or Connect secrets are missing", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
+    process.env.REALTIME_STREAM_LIMITER = "redis";
+    process.env.REALTIME_REDIS_URL = "redis://localhost:6379";
 
     expect(() => loadConfig()).toThrow(
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
@@ -135,6 +143,8 @@ describe("platform api config", () => {
   it("fails production config when hosted payout setup URLs are missing", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
+    process.env.REALTIME_STREAM_LIMITER = "redis";
+    process.env.REALTIME_REDIS_URL = "redis://localhost:6379";
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
@@ -176,6 +186,8 @@ describe("platform api config", () => {
   it("forces Stripe adapters and disables fake fallback in production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
+    process.env.REALTIME_STREAM_LIMITER = "redis";
+    process.env.REALTIME_REDIS_URL = "redis://localhost:6379";
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
@@ -228,6 +240,10 @@ describe("platform api config", () => {
     process.env.REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY = "3";
     process.env.REALTIME_CURSOR_SIGNING_SECRET = "current-secret";
     process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS = "old-secret, older-secret ";
+    process.env.REALTIME_STREAM_LIMITER = "redis";
+    process.env.REALTIME_REDIS_URL = "redis://localhost:6379";
+    process.env.REALTIME_REDIS_NAMESPACE = "test:realtime";
+    process.env.REALTIME_REDIS_LEASE_TTL_SECONDS = "30";
 
     expect(loadConfig().realtime).toEqual({
       batchSize: 25,
@@ -240,6 +256,21 @@ describe("platform api config", () => {
       maxActiveStreamsPerConnectionKey: 3,
       cursorSigningSecret: "current-secret",
       previousCursorSigningSecrets: ["old-secret", "older-secret"],
+      streamLimiter: {
+        kind: "redis",
+        url: "redis://localhost:6379",
+        namespace: "test:realtime",
+        leaseTtlSeconds: 30,
+      },
     });
+  });
+
+  it("requires the Redis stream limiter in production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NODE_ENV = "production";
+
+    expect(() => loadConfig()).toThrow(
+      "REALTIME_STREAM_LIMITER=redis and REALTIME_REDIS_URL are required for horizontally scalable SSE in production.",
+    );
   });
 });

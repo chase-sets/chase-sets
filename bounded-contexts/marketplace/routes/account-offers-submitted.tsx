@@ -53,7 +53,7 @@ export default function MarketplaceAccountSubmittedOffersRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: marketplaceRealtimeRouteTopics.accountOffers(accountId),
+      preset: marketplaceRealtimeRouteTopics.accountOffers(accountId),
       onPatch: (patch) => {
         setSubmittedOffers((current) =>
           applyMarketplaceListPatch(current, patch, {

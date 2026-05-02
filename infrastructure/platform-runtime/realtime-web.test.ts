@@ -176,4 +176,35 @@ describe("realtime web subscriptions", () => {
 
     subscription.close();
   });
+
+  it("reopens manual backoff streams with the last seen cursor query", () => {
+    vi.useFakeTimers();
+    const subscription = subscribeRealtimePatches({
+      topics: ["public:market"],
+      onPatch: () => undefined,
+      onSyncRequired: () => undefined,
+      debounceMs: 0,
+      reconnectPolicy: {
+        backoffMs: 25,
+        maxErrorCountBeforeBackoff: 1,
+      },
+    });
+
+    FakeEventSource.instances[0].emit("projection.patch", {
+      kind: "projection.patch",
+      context: "discovery",
+      projection: "discovery-market-projection",
+      topics: ["public:market"],
+      changes: [{ op: "remove", entity: "discovery.marketListing", id: "list_1" }],
+    }, "cursor_1");
+    FakeEventSource.instances[0].emit("error", {});
+
+    vi.advanceTimersByTime(25);
+
+    expect(FakeEventSource.instances[1].url).toBe(
+      "/api/realtime/public/events?topic=public%3Amarket&cursor=cursor_1",
+    );
+
+    subscription.close();
+  });
 });

@@ -1,5 +1,6 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
+import { createClient } from "redis";
 import {
   drainContextRuntime,
   refreshProjectionReplaySummary,
@@ -18,7 +19,9 @@ import {
   createPostgresRealtimeWakeSignal,
   createRealtimeOutboxPartitionMaintainer,
   createRealtimeRetentionSweeper,
+  createRedisRealtimeStreamLimiter,
   type RealtimeObserver,
+  type RealtimeStreamLimiter,
   type RealtimeWakeSignal,
 } from "@chase-sets/platform-runtime/realtime";
 import {
@@ -237,6 +240,7 @@ const realtimeWakeSignal = await createPlatformRealtimeWakeSignal(
   [...new Set(realtimeStores.map((store) => store.db))],
   realtimeObserver,
 );
+const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 const app = buildPlatformApiApp(runtime, {
   drain: () =>
     observeWorker(
@@ -258,6 +262,7 @@ const app = buildPlatformApiApp(runtime, {
     ),
   realtimeObserver,
   realtimeWakeSignal,
+  realtimeStreamLimiter: realtimeStreamLimiter.limiter,
   realtimeActiveConnectionCount: () => realtimeActiveConnectionCount,
   realtimeRouteTuning: {
     batchSize: config.realtime.batchSize,
@@ -434,10 +439,50 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
       maintainer.stop();
     }
     void Promise.resolve(realtimeWakeSignal?.stop?.())
+      .finally(() => realtimeStreamLimiter.stop?.())
       .finally(() => closePlatformApiPools(pools))
       .finally(() => observability.shutdown())
       .finally(() => process.exit(0));
   });
+}
+
+async function createPlatformRealtimeStreamLimiter(): Promise<Readonly<{
+  limiter?: RealtimeStreamLimiter;
+  stop?: () => Promise<void>;
+}>> {
+  if (config.realtime.streamLimiter.kind !== "redis") {
+    return {};
+  }
+
+  const client = createClient({ url: config.realtime.streamLimiter.url });
+  client.on("error", (error) => {
+    logger.error("Realtime Redis stream limiter failed.", {
+      type: "realtime.stream_limiter.redis.error",
+      error,
+    });
+  });
+  await client.connect();
+
+  return {
+    limiter: createRedisRealtimeStreamLimiter({
+      client: {
+        eval: async (script, options) => {
+          const result = await client.eval(script, {
+            keys: [...options.keys],
+            arguments: [...options.arguments],
+          });
+          return typeof result === "number" || typeof result === "string"
+            ? result
+            : Number(result ?? 0);
+        },
+      },
+      namespace: config.realtime.streamLimiter.namespace,
+      leaseTtlSeconds: config.realtime.streamLimiter.leaseTtlSeconds,
+    }),
+    stop: async () => {
+      await client.quit();
+    },
+  };
 }
 
 async function createPlatformRealtimeWakeSignal(

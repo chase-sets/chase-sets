@@ -863,7 +863,7 @@ export default function DiscoveryItemDetailRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id),
+      preset: discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id),
       onPatch: (patch) => {
         setRealtimeItem((current) => applyDiscoveryItemPatch(current, patch));
       },

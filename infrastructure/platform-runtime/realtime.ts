@@ -45,6 +45,7 @@ import {
   readRealtimeContextHeads,
   readRealtimePatches,
   realtimeOutboxSchemaSql,
+  realtimeOutboxPartitionMetadataSql,
   realtimeOutboxPartitionMaintenanceSql,
   realtimeProjectionNotifyChannel,
   recordRealtimeProjectionPatch,
@@ -77,6 +78,7 @@ export {
   readRealtimeContextHeads,
   readRealtimePatches,
   realtimeOutboxSchemaSql,
+  realtimeOutboxPartitionMetadataSql,
   realtimeOutboxPartitionMaintenanceSql,
   realtimeProjectionNotifyChannel,
   recordRealtimeProjectionPatch,
@@ -99,6 +101,10 @@ export {
   type RedisRealtimeStreamLimiterClient,
   type RealtimeStreamLimiter,
 } from "./realtime-stream-limiter";
+export {
+  createRealtimeRouteSubscriptionPreset,
+  type RealtimeRouteSubscriptionPreset,
+} from "./realtime-route-subscriptions";
 
 export type {
   RealtimeContextRegistration,
@@ -539,7 +545,6 @@ export function createRealtimeRoutes(options: Readonly<{
   });
   const streamLimiter = options.streamLimiter ?? createInMemoryRealtimeStreamLimiter();
   const topicPolicyManifest = options.topicPolicyManifest ?? platformRealtimeTopicPolicyManifest;
-  const nextPruneAtByContext = new Map<string, number>();
 
   const handleEvents = async (c: Context, mode: RealtimeEndpointMode) => {
     const url = new URL(c.req.url);
@@ -576,7 +581,7 @@ export function createRealtimeRoutes(options: Readonly<{
     }
 
     let cursor = decodeRealtimeCursor(
-      c.req.header("last-event-id"),
+      c.req.header("last-event-id") ?? url.searchParams.get("cursor"),
       routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
     );
     const matchingStores = selectRealtimeStoresForTopics(options.stores, authorizedTopics);
@@ -619,18 +624,16 @@ export function createRealtimeRoutes(options: Readonly<{
 
       try {
         while (!stream.aborted && !stream.closed) {
-          await pruneRealtimeStoresIfDue(
-            matchingStores,
-            nextPruneAtByContext,
-            routeConfig.retentionPruneIntervalMs,
-            options.observer,
-          );
           const batch = await readHub.read(
             matchingStores,
             authorizedTopics,
             cursor,
             batchSize,
-            { pruneExpired: false, includeTopicLag: true },
+            {
+              pruneExpired: false,
+              includeTopicLag: true,
+              abortSignal: c.req.raw.signal,
+            },
           );
           cursor = batch.cursor;
           const cursorId = encodeRealtimeCursor(cursor, routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret);
@@ -894,28 +897,6 @@ async function sleepUntilRealtimeWake(
     stream.sleep(timeoutMs).then(() => "timeout" as const),
     wakeSignal.wait(timeoutMs, topics),
   ]);
-}
-
-async function pruneRealtimeStoresIfDue(
-  stores: readonly RealtimeContextStore[],
-  nextPruneAtByContext: Map<string, number>,
-  intervalMs: number,
-  observer?: RealtimeObserver,
-): Promise<void> {
-  const now = Date.now();
-  for (const store of stores) {
-    const nextPruneAt = nextPruneAtByContext.get(store.contextName) ?? 0;
-    if (now < nextPruneAt) {
-      continue;
-    }
-
-    nextPruneAtByContext.set(store.contextName, now + intervalMs);
-    const deletedCount = await pruneExpiredRealtimePatches(store.db);
-    observer?.retentionPruned?.({
-      contextName: store.contextName,
-      deletedCount,
-    });
-  }
 }
 
 function resolveRealtimeConnectionKey(request: Request, actor: ResolvedActor | null): string {

@@ -128,7 +128,7 @@ export default function DiscoverySearchRoute() {
 
   useEffect(() => {
     const subscription = subscribeRealtimePatches({
-      topics: discoveryRealtimeRouteTopics.search(),
+      preset: discoveryRealtimeRouteTopics.search(),
       onPatch: (patch) => {
         setRealtimeData((current) => applyDiscoverySearchPatch(current, patch));
       },

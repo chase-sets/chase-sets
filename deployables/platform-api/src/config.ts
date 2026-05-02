@@ -64,7 +64,19 @@ export type PlatformApiRealtimeConfig = Readonly<{
   maxActiveStreamsPerConnectionKey: number;
   cursorSigningSecret?: string;
   previousCursorSigningSecrets: readonly string[];
+  streamLimiter: PlatformApiRealtimeStreamLimiterConfig;
 }>;
+
+export type PlatformApiRealtimeStreamLimiterConfig =
+  | Readonly<{
+      kind: "local";
+    }>
+  | Readonly<{
+      kind: "redis";
+      url: string;
+      namespace?: string;
+      leaseTtlSeconds?: number;
+    }>;
 
 export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readonly<{
   realtime: PlatformApiRealtimeConfig;
@@ -174,6 +186,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       previousCursorSigningSecrets: getOptionalCsvEnv(
         "REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS",
       ),
+      streamLimiter: loadRealtimeStreamLimiterConfig(),
     },
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv(
       "PAYMENT_RECONCILIATION_INTERVAL_MS",
@@ -212,6 +225,15 @@ export function loadConfig(): PlatformApiConfig {
   const easyPostMode =
     getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
   const productionLike = process.env.NODE_ENV === "production";
+
+  if (
+    productionLike &&
+    baseConfig.realtime.streamLimiter.kind !== "redis"
+  ) {
+    throw new Error(
+      "REALTIME_STREAM_LIMITER=redis and REALTIME_REDIS_URL are required for horizontally scalable SSE in production.",
+    );
+  }
 
   if (
     productionLike &&
@@ -304,5 +326,28 @@ export function loadConfig(): PlatformApiConfig {
     paymentProcessor: {
       kind: "fake",
     },
+  };
+}
+
+function loadRealtimeStreamLimiterConfig(): PlatformApiRealtimeStreamLimiterConfig {
+  const kind = getOptionalEnv("REALTIME_STREAM_LIMITER") ?? "local";
+  if (kind === "local") {
+    return { kind: "local" };
+  }
+
+  if (kind !== "redis") {
+    throw new Error("REALTIME_STREAM_LIMITER must be local or redis.");
+  }
+
+  const redisUrl = getOptionalEnv("REALTIME_REDIS_URL") ?? getOptionalEnv("REDIS_URL");
+  if (!redisUrl) {
+    throw new Error("REALTIME_REDIS_URL or REDIS_URL is required when REALTIME_STREAM_LIMITER=redis.");
+  }
+
+  return {
+    kind: "redis",
+    url: redisUrl,
+    namespace: getOptionalEnv("REALTIME_REDIS_NAMESPACE") ?? undefined,
+    leaseTtlSeconds: getOptionalPositiveNumberEnv("REALTIME_REDIS_LEASE_TTL_SECONDS", 60) ?? undefined,
   };
 }

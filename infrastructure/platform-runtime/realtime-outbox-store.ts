@@ -33,8 +33,10 @@ export const realtimeOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${REALTIME_OU
   projection_name text NOT NULL,
   patch_key text NOT NULL,
   topics jsonb NOT NULL,
-  payload jsonb NOT NULL,
   payload_json text NOT NULL,
+  payload_kind text NOT NULL,
+  payload_context text NOT NULL,
+  payload_projection text NOT NULL,
   payload_bytes integer NOT NULL CHECK (payload_bytes >= 0),
   recorded_at timestamptz NOT NULL,
   expires_at timestamptz NOT NULL,
@@ -48,12 +50,45 @@ export const realtimeOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${REALTIME_OU
 ALTER TABLE ${REALTIME_OUTBOX_TABLE}
   ADD COLUMN IF NOT EXISTS payload_json text;
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = '${REALTIME_OUTBOX_TABLE}'
+      AND column_name = 'payload'
+  ) THEN
+    EXECUTE 'UPDATE ${REALTIME_OUTBOX_TABLE} SET payload_json = payload::text WHERE payload_json IS NULL';
+  END IF;
+END $$;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ADD COLUMN IF NOT EXISTS payload_kind text;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ADD COLUMN IF NOT EXISTS payload_context text;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ADD COLUMN IF NOT EXISTS payload_projection text;
+
 ALTER TABLE ${REALTIME_OUTBOX_TABLE}
   ADD COLUMN IF NOT EXISTS payload_bytes integer CHECK (payload_bytes >= 0);
 
 UPDATE ${REALTIME_OUTBOX_TABLE}
-SET payload_json = payload::text
+SET payload_json = '{}'::jsonb::text
 WHERE payload_json IS NULL;
+
+UPDATE ${REALTIME_OUTBOX_TABLE}
+SET payload_kind = COALESCE(payload_json::jsonb ->> 'kind', 'projection.patch')
+WHERE payload_kind IS NULL;
+
+UPDATE ${REALTIME_OUTBOX_TABLE}
+SET payload_context = COALESCE(payload_json::jsonb ->> 'context', '')
+WHERE payload_context IS NULL;
+
+UPDATE ${REALTIME_OUTBOX_TABLE}
+SET payload_projection = COALESCE(payload_json::jsonb ->> 'projection', projection_name)
+WHERE payload_projection IS NULL;
 
 UPDATE ${REALTIME_OUTBOX_TABLE}
 SET payload_bytes = octet_length(payload_json)
@@ -63,13 +98,28 @@ ALTER TABLE ${REALTIME_OUTBOX_TABLE}
   ALTER COLUMN payload_json SET NOT NULL;
 
 ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ALTER COLUMN payload_kind SET NOT NULL;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ALTER COLUMN payload_context SET NOT NULL;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  ALTER COLUMN payload_projection SET NOT NULL;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
   ALTER COLUMN payload_bytes SET NOT NULL;
+
+ALTER TABLE ${REALTIME_OUTBOX_TABLE}
+  DROP COLUMN IF EXISTS payload;
 
 CREATE INDEX IF NOT EXISTS ${REALTIME_OUTBOX_TABLE}_expires_idx
   ON ${REALTIME_OUTBOX_TABLE} (expires_at);
 
 CREATE INDEX IF NOT EXISTS ${REALTIME_OUTBOX_TABLE}_outbox_idx
   ON ${REALTIME_OUTBOX_TABLE} (outbox_id ASC);
+
+CREATE INDEX IF NOT EXISTS ${REALTIME_OUTBOX_TABLE}_payload_contract_idx
+  ON ${REALTIME_OUTBOX_TABLE} (payload_context, payload_projection, payload_kind);
 
 CREATE TABLE IF NOT EXISTS ${REALTIME_OUTBOX_TOPIC_TABLE} (
   topic text NOT NULL,
@@ -86,7 +136,7 @@ CREATE TABLE IF NOT EXISTS ${REALTIME_TOPIC_HEAD_TABLE} (
   updated_at timestamptz NOT NULL
 );`;
 
-export const realtimeOutboxPartitionMaintenanceSql = `CREATE TABLE IF NOT EXISTS realtime_projection_outbox_partitions (
+export const realtimeOutboxPartitionMetadataSql = `CREATE TABLE IF NOT EXISTS realtime_projection_outbox_partitions (
   partition_name text PRIMARY KEY,
   starts_at timestamptz NOT NULL,
   ends_at timestamptz NOT NULL,
@@ -96,6 +146,7 @@ export const realtimeOutboxPartitionMaintenanceSql = `CREATE TABLE IF NOT EXISTS
 
 CREATE INDEX IF NOT EXISTS realtime_projection_outbox_partitions_range_idx
   ON realtime_projection_outbox_partitions (starts_at, ends_at);`;
+export const realtimeOutboxPartitionMaintenanceSql = realtimeOutboxPartitionMetadataSql;
 
 export function createRealtimeOutboxPartitionName(day: string): string {
   if (!/^\d{4}_\d{2}_\d{2}$/.test(day)) {
@@ -130,7 +181,7 @@ export function createRealtimeOutboxPartitionMaintainer(options: Readonly<{
 
     running = true;
     try {
-      await options.db.query(realtimeOutboxPartitionMaintenanceSql);
+      await options.db.query(realtimeOutboxPartitionMetadataSql);
       const start = startOfUtcDay(now());
       for (let offset = 0; offset <= aheadDays; offset += 1) {
         const startsAt = addUtcDays(start, offset);
@@ -217,13 +268,19 @@ export type ReadRealtimePatchesOptions = Readonly<{
   pruneExpired?: boolean;
   includeTopicLag?: boolean;
   compactSummaries?: boolean;
+  abortSignal?: AbortSignal;
 }>;
 
 type RealtimeOutboxRow = Readonly<{
   outbox_id: string | number | bigint;
-  payload: unknown;
+  payload?: unknown;
   payload_json?: string;
   payload_bytes?: string | number;
+}>;
+
+type RealtimeTopicHeadRow = Readonly<{
+  topic: string;
+  outbox_id: string | number | bigint;
 }>;
 
 export async function runRealtimeProjectionTransaction<T>(
@@ -264,17 +321,21 @@ export async function recordRealtimeProjectionPatch(
        projection_name,
        patch_key,
        topics,
-       payload,
        payload_json,
+       payload_kind,
+       payload_context,
+       payload_projection,
        payload_bytes,
        recorded_at,
        expires_at
-       ) VALUES ($1::bigint, $2, $3, $4::jsonb, $5::jsonb, $11, $12, $6, $7)
+       ) VALUES ($1::bigint, $2, $3, $4::jsonb, $5, $10, $11, $2, $12, $6, $7)
        ON CONFLICT (projection_name, source_global_position, patch_key)
        DO UPDATE SET
          topics = EXCLUDED.topics,
-         payload = EXCLUDED.payload,
          payload_json = EXCLUDED.payload_json,
+         payload_kind = EXCLUDED.payload_kind,
+         payload_context = EXCLUDED.payload_context,
+         payload_projection = EXCLUDED.payload_projection,
          payload_bytes = EXCLUDED.payload_bytes,
          recorded_at = EXCLUDED.recorded_at,
          expires_at = EXCLUDED.expires_at
@@ -429,40 +490,61 @@ export async function readRealtimePatches(
   }> = [];
 
   for (const store of matchingStores) {
+    throwIfRealtimeReadAborted(options.abortSignal);
     if (options.pruneExpired !== false) {
       await pruneExpiredRealtimePatches(store.db);
     }
 
     const afterOutboxId = cursor[store.contextName] ?? "0";
+    const topicHeads = await readTopicHeads(store, normalizedTopics);
+    const maxTopicHead = maxRealtimeOutboxId(
+      (topicHeads ?? []).map((head) => String(head.outbox_id)),
+    );
+    if (topicHeads && topicHeads.length > 0 && BigInt(maxTopicHead) <= BigInt(afterOutboxId)) {
+      if (options.includeTopicLag) {
+        topicLags.push(
+          ...topicHeads.map((head) => ({
+            contextName: store.contextName,
+            topic: head.topic,
+            lag: 0,
+          })),
+        );
+      }
+      continue;
+    }
+
     if (await isCursorExpired(store.db, afterOutboxId)) {
       expiredContexts.push(store.contextName);
       nextCursor[store.contextName] = await readContextHead(store.db);
       continue;
     }
+    throwIfRealtimeReadAborted(options.abortSignal);
 
     const result = await store.db.query<RealtimeOutboxRow>(
-      `SELECT outbox_id, payload, payload_json, payload_bytes
+      `SELECT outbox_id, payload_json, payload_bytes
        FROM ${REALTIME_OUTBOX_TABLE} AS outbox
        INNER JOIN ${REALTIME_OUTBOX_TOPIC_TABLE} AS topic
          ON topic.outbox_id = outbox.outbox_id
        WHERE outbox.outbox_id > $1::bigint
          AND outbox.expires_at > now()
          AND topic.topic = ANY($2::text[])
-       GROUP BY outbox.outbox_id, outbox.payload, outbox.payload_json, outbox.payload_bytes
+       GROUP BY outbox.outbox_id, outbox.payload_json, outbox.payload_bytes
        ORDER BY outbox.outbox_id ASC
        LIMIT $3`,
       [afterOutboxId, normalizedTopics, batchSize],
     );
+    throwIfRealtimeReadAborted(options.abortSignal);
 
     for (const row of result.rows) {
       const outboxId = String(row.outbox_id);
       nextCursor[store.contextName] = outboxId;
-      if (isRealtimeProjectionPatch(row.payload)) {
-        const payloadJson = row.payload_json ?? JSON.stringify(row.payload);
+      const payloadJson = row.payload_json ?? JSON.stringify(row.payload);
+      const payload = parseRealtimeProjectionPatchJson(payloadJson);
+      if (payload) {
         messages.push({
           contextName: store.contextName,
           outboxId,
-          payload: row.payload,
+          payload,
           payloadJson,
           payloadBytes: Number(row.payload_bytes ?? byteLengthUtf8(payloadJson)),
         });
@@ -718,6 +800,46 @@ async function readTopicLags(
     topic: row.topic,
     lag: Number(row.lag),
   }));
+}
+
+async function readTopicHeads(
+  store: RealtimeContextStore,
+  topics: readonly string[],
+): Promise<RealtimeTopicHeadRow[] | null> {
+  let result: { rows: RealtimeTopicHeadRow[] };
+  try {
+    result = await store.db.query<RealtimeTopicHeadRow>(
+      `SELECT topic, outbox_id::text AS outbox_id
+       FROM ${REALTIME_TOPIC_HEAD_TABLE}
+       WHERE topic = ANY($1::text[])
+       ORDER BY topic ASC`,
+      [topics],
+    );
+  } catch {
+    return null;
+  }
+
+  return result.rows;
+}
+
+function maxRealtimeOutboxId(outboxIds: readonly string[]): string {
+  return outboxIds.reduce((max, outboxId) =>
+    BigInt(outboxId) > BigInt(max) ? outboxId : max, "0");
+}
+
+function parseRealtimeProjectionPatchJson(payloadJson: string): RealtimeProjectionPatch | null {
+  try {
+    const parsed = JSON.parse(payloadJson) as unknown;
+    return isRealtimeProjectionPatch(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function throwIfRealtimeReadAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("Realtime replay read aborted.");
+  }
 }
 
 async function withPgTransaction<T>(

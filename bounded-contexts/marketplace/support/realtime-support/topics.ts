@@ -2,6 +2,7 @@ import type {
   RealtimeTopicManifest,
   RealtimeTopicPolicyManifest,
 } from "@chase-sets/platform-runtime/realtime";
+import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runtime/realtime";
 
 export const marketplaceRealtimeTopics = {
   accountListings: (accountId: string) => `account:${accountId}:listings`,
@@ -9,12 +10,12 @@ export const marketplaceRealtimeTopics = {
 } as const;
 
 export const marketplaceRealtimeRouteTopics = {
-  accountListings: (accountId: string) => [
+  accountListings: (accountId: string) => createRealtimeRouteSubscriptionPreset("marketplace.accountListings", [
     marketplaceRealtimeTopics.accountListings(accountId),
-  ],
-  accountOffers: (accountId: string) => [
+  ]),
+  accountOffers: (accountId: string) => createRealtimeRouteSubscriptionPreset("marketplace.accountOffers", [
     marketplaceRealtimeTopics.accountOffers(accountId),
-  ],
+  ]),
 } as const;
 
 export const marketplaceRealtimeManifest = {

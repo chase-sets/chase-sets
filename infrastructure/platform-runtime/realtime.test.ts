@@ -572,6 +572,10 @@ describe("realtime outbox", () => {
     expect(realtimeOutboxSchemaSql).toContain("ON DELETE CASCADE");
     expect(realtimeOutboxSchemaSql).toContain("realtime_projection_topic_heads");
     expect(realtimeOutboxSchemaSql).toContain("payload_json text NOT NULL");
+    expect(realtimeOutboxSchemaSql).not.toContain("payload jsonb NOT NULL");
+    expect(realtimeOutboxSchemaSql).toContain("payload_context text NOT NULL");
+    expect(realtimeOutboxSchemaSql).toContain("payload_projection text NOT NULL");
+    expect(realtimeOutboxSchemaSql).toContain("payload_kind text NOT NULL");
     expect(realtimeOutboxSchemaSql).toContain("payload_bytes integer NOT NULL");
   });
 
@@ -903,6 +907,42 @@ describe("realtime outbox", () => {
     expect(result.messages.map((message) => message.outboxId)).toEqual(["5", "6"]);
   });
 
+  it("skips outbox replay reads when subscribed topic heads are already caught up", async () => {
+    let outboxReadCount = 0;
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("DELETE FROM realtime_projection_outbox")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("FROM realtime_projection_topic_heads")) {
+          return { rows: [{ topic: "public:market", outbox_id: "4" }] };
+        }
+
+        if (sql.includes("SELECT outbox_id")) {
+          outboxReadCount += 1;
+          return { rows: [] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
+
+    const result = await readRealtimePatches(
+      [{ contextName: "discovery", db }],
+      ["public:market"],
+      { discovery: "4" },
+      100,
+      { includeTopicLag: true },
+    );
+
+    expect(result.messages).toEqual([]);
+    expect(result.topicLags).toEqual([
+      { contextName: "discovery", topic: "public:market", lag: 0 },
+    ]);
+    expect(outboxReadCount).toBe(0);
+  });
+
   it("drops cursor entries for stores outside the requested topic family", async () => {
     const db = {
       query: async (sql: string) => {
@@ -1204,6 +1244,33 @@ describe("realtime outbox", () => {
     expect(evalCalls[0].keys[1]).toBe("test:realtime:connection:account:account_1");
     expect(evalCalls[0].arguments).toEqual(["10", "2", "30"]);
     expect(evalCalls[1].arguments).toEqual([]);
+  });
+
+  it("renews distributed stream leases before release", async () => {
+    const evalCalls: Array<{ keys: readonly string[]; arguments: readonly string[] }> = [];
+    const limiter = createRedisRealtimeStreamLimiter({
+      namespace: "test:realtime",
+      leaseTtlSeconds: 30,
+      renewIntervalMs: 60_000,
+      client: {
+        eval: async (_script, options) => {
+          evalCalls.push(options);
+          return evalCalls.length === 1 ? 1 : 1;
+        },
+      },
+    });
+
+    const lease = await limiter.acquire({
+      connectionKey: "account:account_1",
+      maxActiveStreams: 10,
+      maxActiveStreamsPerConnectionKey: 2,
+    });
+
+    await expect(lease?.renew?.()).resolves.toBe(true);
+    await lease?.release();
+
+    expect(evalCalls[1].arguments).toEqual(["30"]);
+    expect(evalCalls[2].arguments).toEqual([]);
   });
 
   it("rejects distributed stream leases when Redis reports capacity is exhausted", async () => {

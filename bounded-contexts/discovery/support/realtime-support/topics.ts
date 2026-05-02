@@ -2,6 +2,7 @@ import type {
   RealtimeTopicManifest,
   RealtimeTopicPolicyManifest,
 } from "@chase-sets/platform-runtime/realtime";
+import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runtime/realtime";
 
 export const discoveryRealtimeTopics = {
   publicMarket: () => "public:market",
@@ -11,19 +12,21 @@ export const discoveryRealtimeTopics = {
 } as const;
 
 export const discoveryRealtimeRouteTopics = {
-  search: () => [discoveryRealtimeTopics.publicMarket()],
-  itemDetail: (catalogItemId: string) => [
+  search: () => createRealtimeRouteSubscriptionPreset("discovery.search", [
+    discoveryRealtimeTopics.publicMarket(),
+  ]),
+  itemDetail: (catalogItemId: string) => createRealtimeRouteSubscriptionPreset("discovery.itemDetail", [
     discoveryRealtimeTopics.publicMarket(),
     discoveryRealtimeTopics.item(catalogItemId),
-  ],
-  publicListing: (listingId: string) => [
+  ]),
+  publicListing: (listingId: string) => createRealtimeRouteSubscriptionPreset("discovery.publicListing", [
     discoveryRealtimeTopics.publicMarket(),
     discoveryRealtimeTopics.listing(listingId),
-  ],
-  publicSeller: (accountId: string) => [
+  ]),
+  publicSeller: (accountId: string) => createRealtimeRouteSubscriptionPreset("discovery.publicSeller", [
     discoveryRealtimeTopics.publicMarket(),
     discoveryRealtimeTopics.seller(accountId),
-  ],
+  ]),
 } as const;
 
 export const discoveryRealtimeManifest = {

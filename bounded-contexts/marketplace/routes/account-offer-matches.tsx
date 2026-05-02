@@ -89,7 +89,7 @@ export default function MarketplaceAccountOfferMatchesRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: marketplaceRealtimeRouteTopics.accountOffers(accountId),
+      preset: marketplaceRealtimeRouteTopics.accountOffers(accountId),
       onPatch: (patch) => {
         setOfferMatches((current) =>
           applyMarketplaceListPatch(current, patch, {

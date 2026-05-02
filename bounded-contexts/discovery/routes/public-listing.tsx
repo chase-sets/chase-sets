@@ -97,7 +97,7 @@ export default function PublicListingRoute() {
     }
 
     const subscription = subscribeRealtimePatches({
-      topics: discoveryRealtimeRouteTopics.publicListing(data.listing.listing_id),
+      preset: discoveryRealtimeRouteTopics.publicListing(data.listing.listing_id),
       onPatch: (patch) => {
         setListing((current) => applyDiscoveryPublicListingPatch(current, patch));
       },

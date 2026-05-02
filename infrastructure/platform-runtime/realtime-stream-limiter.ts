@@ -1,5 +1,6 @@
 export type RealtimeStreamLease = Readonly<{
   activeConnectionCount: number;
+  renew?: () => Promise<boolean>;
   release: () => void | Promise<void>;
 }>;
 
@@ -71,9 +72,11 @@ export function createRedisRealtimeStreamLimiter(options: Readonly<{
   client: RedisRealtimeStreamLimiterClient;
   namespace?: string;
   leaseTtlSeconds?: number;
+  renewIntervalMs?: number;
 }>): RealtimeStreamLimiter {
   const namespace = options.namespace ?? "chase_sets:realtime:streams";
   const leaseTtlSeconds = options.leaseTtlSeconds ?? 60;
+  const renewIntervalMs = options.renewIntervalMs ?? Math.max(1_000, Math.floor(leaseTtlSeconds * 500));
 
   return {
     acquire: async (request) => {
@@ -94,14 +97,31 @@ export function createRedisRealtimeStreamLimiter(options: Readonly<{
       }
 
       let released = false;
+      const renew = async () => {
+        if (released) {
+          return false;
+        }
+
+        const renewed = Number(await options.client.eval(RENEW_STREAM_LEASE_SCRIPT, {
+          keys: [globalKey, connectionKey, leaseKey],
+          arguments: [String(leaseTtlSeconds)],
+        }));
+        return renewed > 0;
+      };
+      const renewalTimer = setInterval(() => {
+        void renew();
+      }, renewIntervalMs);
+      renewalTimer.unref?.();
       return {
         activeConnectionCount: result,
+        renew,
         release: async () => {
           if (released) {
             return;
           }
 
           released = true;
+          clearInterval(renewalTimer);
           await options.client.eval(RELEASE_STREAM_LEASE_SCRIPT, {
             keys: [globalKey, connectionKey, leaseKey],
             arguments: [],
@@ -127,6 +147,17 @@ redis.call("INCR", KEYS[2])
 redis.call("EXPIRE", KEYS[2], ttl)
 redis.call("SET", KEYS[3], "1", "EX", ttl)
 return global
+`;
+
+const RENEW_STREAM_LEASE_SCRIPT = `
+if redis.call("GET", KEYS[3]) then
+  local ttl = tonumber(ARGV[1])
+  redis.call("EXPIRE", KEYS[1], ttl)
+  redis.call("EXPIRE", KEYS[2], ttl)
+  redis.call("EXPIRE", KEYS[3], ttl)
+  return 1
+end
+return 0
 `;
 
 const RELEASE_STREAM_LEASE_SCRIPT = `
