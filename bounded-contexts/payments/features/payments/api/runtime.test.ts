@@ -85,8 +85,8 @@ function existingPaymentRow() {
     amount: "24.99",
     balance_credit_amount: "0.00",
     processor_amount: "24.99",
-    marketplace_fee_amount: "1.00",
-    payment_fee_amount: "0.50",
+    marketplace_sales_fee_amount: "1.00",
+    marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "23.49",
     currency_code: "usd",
     processor_name: "stripe",
@@ -143,8 +143,8 @@ function createOrderInputDb() {
               order_id: "ord_1",
               buyer_account_id: "acc_buyer",
               total_amount: "24.99",
-              marketplace_fee_amount: "1.00",
-              payment_fee_amount: "0.50",
+              marketplace_sales_fee_amount: "1.00",
+              marketplace_checkout_fee_amount: "0.50",
               seller_net_amount: "23.49",
               terms_schedule_id: null,
               terms_agreement_id: null,
@@ -243,11 +243,20 @@ describe("payment runtime", () => {
       balanceCreditResolver,
     });
 
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      requestedBalanceCreditAmount: "10.00",
+      paymentMethodCategory: "card",
+    });
     const result = await services.createAccountPayment(
       {
         accountId: "acc_buyer" as never,
         orderIds: ["ord_1" as never],
         requestedBalanceCreditAmount: "10.00",
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint:
+          status.marketplace_checkout_fee.quote_fingerprint,
         sourceContext: "checkout",
         sourceReferenceId: "chk_1",
       },
@@ -261,12 +270,16 @@ describe("payment runtime", () => {
       orderTotalAmount: "24.99",
     });
     expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: "14.99" }),
+      expect.objectContaining({
+        amount: "15.75",
+        paymentMethodCategory: "card",
+      }),
     );
     expect(result).toMatchObject({
-      amount: "24.99",
+      amount: "25.75",
       balance_credit_amount: "10.00",
-      processor_amount: "14.99",
+      processor_amount: "15.75",
+      marketplace_checkout_fee_amount: "0.76",
       status: "pending-confirmation",
     });
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
@@ -291,11 +304,20 @@ describe("payment runtime", () => {
       },
     });
 
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      requestedBalanceCreditAmount: "24.99",
+      paymentMethodCategory: "platform-credit",
+    });
     const result = await services.createAccountPayment(
       {
         accountId: "acc_buyer" as never,
         orderIds: ["ord_1" as never],
         requestedBalanceCreditAmount: "24.99",
+        paymentMethodCategory: "platform-credit",
+        marketplaceCheckoutFeeQuoteFingerprint:
+          status.marketplace_checkout_fee.quote_fingerprint,
       },
       context,
     );

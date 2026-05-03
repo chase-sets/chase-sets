@@ -3,14 +3,14 @@ import type { MarketplaceListingTermsPreview } from "../../features/listings/ui/
 
 export function createFeeQuoteFingerprint(quote: Readonly<{
   basis_amount: string;
-  marketplace_fee_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   schedule_id: string | null;
   agreement_id: string | null;
 }>) {
   return [
     quote.basis_amount,
-    quote.marketplace_fee_unit_amount,
+    quote.marketplace_sales_fee_unit_amount,
     quote.seller_net_unit_amount,
     quote.schedule_id ?? "",
     quote.agreement_id ?? "",
@@ -28,7 +28,7 @@ export async function quoteMarketplaceTerms(
   const quote = {
     account_type: terms.accountType,
     basis_amount: terms.basisAmount,
-    marketplace_fee_unit_amount: terms.marketplaceFeeUnitAmount,
+    marketplace_sales_fee_unit_amount: terms.marketplaceSalesFeeUnitAmount,
     seller_net_unit_amount: terms.sellerNetUnitAmount,
     schedule_id: terms.scheduleId,
     agreement_id: terms.agreementId,

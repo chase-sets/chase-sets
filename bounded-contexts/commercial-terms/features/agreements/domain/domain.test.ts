@@ -12,8 +12,8 @@ describe("commercial terms agreements", () => {
       agreementId: " agreement-1 ",
       accountId: " acc_1 ",
       label: " Preferred Seller ",
-      marketplaceFeePercentageBps: 125,
-      marketplaceFeeFixedAmount: "0",
+      marketplaceSalesFeePercentageBps: 125,
+      marketplaceSalesFeeFixedAmount: "0",
       status: "active",
       effectiveFrom: "2026-04-30T00:00:00.000Z",
       effectiveUntil: "2027-04-30T00:00:00.000Z",
@@ -23,7 +23,7 @@ describe("commercial terms agreements", () => {
       agreementId: "agreement-1",
       accountId: "acc_1",
       label: "Preferred Seller",
-      marketplaceFeeFixedAmount: "0.00",
+      marketplaceSalesFeeFixedAmount: "0.00",
       effectiveUntil: "2027-04-30T00:00:00.000Z",
     });
   });

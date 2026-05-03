@@ -12,6 +12,7 @@ import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import { quoteMarketplaceTerms } from "../../../support/runtime-support/fee-quotes";
 import type {
+  MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingTermsPreview,
 } from "../ui/contracts";
@@ -31,6 +32,7 @@ import {
   getSellerListing,
   listActiveListingsForInventoryItem,
   listItemListings,
+  listSellerListingFeeLockReport,
   listSellerInventoryItemSupply,
   listSellerListings,
 } from "../read-model/queries";
@@ -54,10 +56,10 @@ function assert(condition: unknown, message: string): asserts condition {
   }
 }
 
-export class MarketplaceFeeQuoteStaleError extends Error {
+export class MarketplaceSalesFeeQuoteStaleError extends Error {
   public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
     super("Fee quote is stale. Refresh the fee preview before continuing.");
-    this.name = "MarketplaceFeeQuoteStaleError";
+    this.name = "MarketplaceSalesFeeQuoteStaleError";
   }
 }
 
@@ -123,6 +125,9 @@ export type MarketplaceListingServices = Readonly<{
   listSellerListingFeeHistory: (
     params: Readonly<{ listingId: string; accountId: string }>,
   ) => Promise<readonly MarketplaceListingFeeHistoryEntry[]>;
+  listSellerListingFeeLockReport: (
+    params: Parameters<typeof listSellerListingFeeLockReport>[1],
+  ) => Promise<{ items: MarketplaceListingFeeLockReportEntry[]; total: number }>;
   getMarketSummaryForItem: (
     itemId: string,
   ) => ReturnType<typeof getMarketSummaryForItem>;
@@ -226,7 +231,7 @@ export function createMarketplaceListingRuntime(
     currentQuote: MarketplaceListingTermsPreview,
   ) {
     if (providedFingerprint !== currentQuote.fee_quote_fingerprint) {
-      throw new MarketplaceFeeQuoteStaleError(currentQuote);
+      throw new MarketplaceSalesFeeQuoteStaleError(currentQuote);
     }
   }
 
@@ -264,7 +269,7 @@ export function createMarketplaceListingRuntime(
       stream_version: event.streamVersion,
       price_amount: stringField(data, "priceAmount"),
       quantity_cap: numberField(data, "quantityCap"),
-      marketplace_fee_unit_amount: stringField(data, "marketplaceFeeUnitAmount"),
+      marketplace_sales_fee_unit_amount: stringField(data, "marketplaceSalesFeeUnitAmount"),
       seller_net_unit_amount: stringField(data, "sellerNetUnitAmount"),
       terms_schedule_id: stringField(data, "termsScheduleId"),
       terms_agreement_id: stringField(data, "termsAgreementId"),
@@ -304,7 +309,7 @@ export function createMarketplaceListingRuntime(
           storageLocationName: supply.storage_location_name,
           shipFromCode: supply.ship_from_code,
           priceAmount: params.priceAmount,
-          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
           sellerNetUnitAmount: quote.seller_net_unit_amount,
           termsScheduleId: quote.schedule_id,
           termsAgreementId: quote.agreement_id,
@@ -330,7 +335,7 @@ export function createMarketplaceListingRuntime(
         command: {
           type: "UpdateListingPrice",
           priceAmount: params.priceAmount,
-          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
           sellerNetUnitAmount: quote.seller_net_unit_amount,
           termsScheduleId: quote.schedule_id,
           termsAgreementId: quote.agreement_id,
@@ -362,7 +367,7 @@ export function createMarketplaceListingRuntime(
         command: {
           type: "UpdateListingQuantityCap",
           quantityCap: params.quantityCap,
-          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
           sellerNetUnitAmount: quote.seller_net_unit_amount,
           termsScheduleId: quote.schedule_id,
           termsAgreementId: quote.agreement_id,
@@ -391,7 +396,7 @@ export function createMarketplaceListingRuntime(
         streamId: `marketplace.listing-${params.listingId}`,
         command: {
           type: "PublishListing",
-          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
           sellerNetUnitAmount: quote.seller_net_unit_amount,
           termsScheduleId: quote.schedule_id,
           termsAgreementId: quote.agreement_id,
@@ -441,6 +446,8 @@ export function createMarketplaceListingRuntime(
         .filter((entry): entry is MarketplaceListingFeeHistoryEntry => Boolean(entry))
         .sort((left, right) => right.stream_version - left.stream_version);
     },
+    listSellerListingFeeLockReport: (params) =>
+      listSellerListingFeeLockReport(deps.db, params),
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
     getInventoryItemSupply: (itemId, accountId) =>

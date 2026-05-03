@@ -1,6 +1,7 @@
 export type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
+  MarketplaceListingFeeLockReportEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
   MarketplaceListingFeeHistoryEntry,

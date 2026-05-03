@@ -14,8 +14,8 @@ export type OrderingOrderLineRow = Readonly<{
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
-  marketplace_fee_unit_amount: string;
-  marketplace_fee_total_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;
   seller_net_total_amount: string;
 }>;
@@ -43,8 +43,16 @@ export type OrderingOrderListRow = Readonly<{
   shipping_base_amount: string;
   shipping_discount_amount: string;
   shipping_charge_amount: string;
+  sales_tax_amount: string;
+  taxable_amount: string;
+  tax_jurisdiction_country: string;
+  tax_jurisdiction_state: string | null;
+  tax_rate_bps: number;
+  tax_provider_name: string;
+  tax_provider_quote_reference: string | null;
+  tax_quoted_at: string;
   total_amount: string;
-  marketplace_fee_amount: string;
+  marketplace_sales_fee_amount: string;
   seller_net_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -78,8 +86,16 @@ type BaseOrderPageRow = Readonly<{
   shipping_base_amount: string;
   shipping_discount_amount: string;
   shipping_charge_amount: string;
+  sales_tax_amount: string;
+  taxable_amount: string;
+  tax_jurisdiction_country: string;
+  tax_jurisdiction_state: string | null;
+  tax_rate_bps: number;
+  tax_provider_name: string;
+  tax_provider_quote_reference: string | null;
+  tax_quoted_at: string;
   total_amount: string;
-  marketplace_fee_amount: string;
+  marketplace_sales_fee_amount: string;
   seller_net_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -107,8 +123,8 @@ type OrderLinePageRow = Readonly<{
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
-  marketplace_fee_unit_amount: string;
-  marketplace_fee_total_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;
   seller_net_total_amount: string;
 }>;
@@ -127,8 +143,16 @@ const baseOrderSelect = `
     page.shipping_base_amount::text AS shipping_base_amount,
     page.shipping_discount_amount::text AS shipping_discount_amount,
     page.shipping_charge_amount::text AS shipping_charge_amount,
+    page.sales_tax_amount::text AS sales_tax_amount,
+    page.taxable_amount::text AS taxable_amount,
+    page.tax_jurisdiction_country,
+    page.tax_jurisdiction_state,
+    page.tax_rate_bps,
+    page.tax_provider_name,
+    page.tax_provider_quote_reference,
+    page.tax_quoted_at,
     page.total_amount::text AS total_amount,
-    page.marketplace_fee_amount::text AS marketplace_fee_amount,
+    page.marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
     page.seller_net_amount::text AS seller_net_amount,
     page.terms_schedule_id,
     page.terms_agreement_id,
@@ -226,8 +250,8 @@ export async function getPurchase(
          unit_price_amount::text AS unit_price_amount,
          quantity,
          line_total_amount::text AS line_total_amount,
-         marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
-         marketplace_fee_total_amount::text AS marketplace_fee_total_amount,
+         marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
+         marketplace_sales_fee_total_amount::text AS marketplace_sales_fee_total_amount,
          seller_net_unit_amount::text AS seller_net_unit_amount,
          seller_net_total_amount::text AS seller_net_total_amount
        FROM ordering_order_line_pages
@@ -318,8 +342,8 @@ export async function getSale(
          unit_price_amount::text AS unit_price_amount,
          quantity,
          line_total_amount::text AS line_total_amount,
-         marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
-         marketplace_fee_total_amount::text AS marketplace_fee_total_amount,
+         marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
+         marketplace_sales_fee_total_amount::text AS marketplace_sales_fee_total_amount,
          seller_net_unit_amount::text AS seller_net_unit_amount,
          seller_net_total_amount::text AS seller_net_total_amount
        FROM ordering_order_line_pages

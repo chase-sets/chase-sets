@@ -13,7 +13,7 @@ type AcceptedOfferParams = Readonly<{
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
   priceAmount: string;
-  marketplaceFeeUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
@@ -43,7 +43,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
-        marketplaceFeeUnitAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
@@ -65,7 +65,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            storage_location_name,
            ship_from_code,
            price_amount,
-           marketplace_fee_unit_amount,
+           marketplace_sales_fee_unit_amount,
            seller_net_unit_amount,
            terms_schedule_id,
            terms_agreement_id,
@@ -88,7 +88,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              storage_location_name = EXCLUDED.storage_location_name,
              ship_from_code = EXCLUDED.ship_from_code,
              price_amount = EXCLUDED.price_amount,
-             marketplace_fee_unit_amount = EXCLUDED.marketplace_fee_unit_amount,
+             marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
              seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
@@ -109,7 +109,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.storageLocationName,
           data.shipFromCode,
           data.priceAmount,
-          data.marketplaceFeeUnitAmount,
+          data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.termsScheduleId,
           data.termsAgreementId,
@@ -122,7 +122,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
     "marketplace.listing.price-updated": async (event) => {
       const data = event.data as {
         priceAmount: string;
-        marketplaceFeeUnitAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
@@ -132,7 +132,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
       await db.query(
         `UPDATE ordering_market_listing_inputs
          SET price_amount = $2,
-             marketplace_fee_unit_amount = $3,
+             marketplace_sales_fee_unit_amount = $3,
              seller_net_unit_amount = $4,
              terms_schedule_id = $5,
              terms_agreement_id = $6,
@@ -142,7 +142,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         [
           event.streamId.replace("marketplace.listing-", ""),
           data.priceAmount,
-          data.marketplaceFeeUnitAmount,
+          data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.termsScheduleId,
           data.termsAgreementId,
@@ -154,7 +154,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
     "marketplace.listing.quantity-cap-updated": async (event) => {
       const data = event.data as {
         quantityCap: number;
-        marketplaceFeeUnitAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
@@ -164,7 +164,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
       await db.query(
         `UPDATE ordering_market_listing_inputs
          SET quantity_cap = $2,
-             marketplace_fee_unit_amount = $3,
+             marketplace_sales_fee_unit_amount = $3,
              seller_net_unit_amount = $4,
              terms_schedule_id = $5,
              terms_agreement_id = $6,
@@ -174,7 +174,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         [
           event.streamId.replace("marketplace.listing-", ""),
           data.quantityCap,
-          data.marketplaceFeeUnitAmount,
+          data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.termsScheduleId,
           data.termsAgreementId,
@@ -185,7 +185,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
     },
     "marketplace.listing.published": async (event) => {
       const data = event.data as {
-        marketplaceFeeUnitAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
@@ -194,7 +194,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
       await db.query(
         `UPDATE ordering_market_listing_inputs
          SET status = 'active',
-             marketplace_fee_unit_amount = $2,
+             marketplace_sales_fee_unit_amount = $2,
              seller_net_unit_amount = $3,
              terms_schedule_id = $4,
              terms_agreement_id = $5,
@@ -203,7 +203,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
-          data.marketplaceFeeUnitAmount,
+          data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.termsScheduleId,
           data.termsAgreementId,
@@ -247,7 +247,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            selected_options,
            product_summary,
            price_amount,
-           marketplace_fee_unit_amount,
+           marketplace_sales_fee_unit_amount,
            seller_net_unit_amount,
            terms_schedule_id,
            terms_agreement_id,
@@ -268,7 +268,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              selected_options = EXCLUDED.selected_options,
              product_summary = EXCLUDED.product_summary,
              price_amount = EXCLUDED.price_amount,
-             marketplace_fee_unit_amount = EXCLUDED.marketplace_fee_unit_amount,
+             marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
              seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
@@ -287,7 +287,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
           data.priceAmount,
-          data.marketplaceFeeUnitAmount,
+          data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.termsScheduleId,
           data.termsAgreementId,

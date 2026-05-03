@@ -10,8 +10,16 @@ CREATE TABLE IF NOT EXISTS ordering_order_pages (
   shipping_base_amount numeric(12,2) NOT NULL,
   shipping_discount_amount numeric(12,2) NOT NULL,
   shipping_charge_amount numeric(12,2) NOT NULL,
+  sales_tax_amount numeric(12,2) NOT NULL DEFAULT 0,
+  taxable_amount numeric(12,2) NOT NULL DEFAULT 0,
+  tax_jurisdiction_country text NOT NULL DEFAULT 'US',
+  tax_jurisdiction_state text NULL,
+  tax_rate_bps integer NOT NULL DEFAULT 0,
+  tax_provider_name text NOT NULL DEFAULT 'local-stub',
+  tax_provider_quote_reference text NULL,
+  tax_quoted_at timestamptz NOT NULL DEFAULT now(),
   total_amount numeric(12,2) NOT NULL,
-  marketplace_fee_amount numeric(12,2) NOT NULL,
+  marketplace_sales_fee_amount numeric(12,2) NOT NULL,
   seller_net_amount numeric(12,2) NOT NULL,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
@@ -30,6 +38,23 @@ CREATE INDEX IF NOT EXISTS ordering_order_pages_buyer_idx
 CREATE INDEX IF NOT EXISTS ordering_order_pages_seller_idx
   ON ordering_order_pages (seller_account_id, updated_at DESC, order_id DESC);
 
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS sales_tax_amount numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS taxable_amount numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS tax_jurisdiction_country text NOT NULL DEFAULT 'US';
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS tax_jurisdiction_state text NULL;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS tax_rate_bps integer NOT NULL DEFAULT 0;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS tax_provider_name text NOT NULL DEFAULT 'local-stub';
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS tax_provider_quote_reference text NULL;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS tax_quoted_at timestamptz NOT NULL DEFAULT now();
+
 CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   order_id text NOT NULL,
   line_id text NOT NULL,
@@ -45,8 +70,8 @@ CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   unit_price_amount numeric(12,2) NOT NULL,
   quantity integer NOT NULL CHECK (quantity > 0),
   line_total_amount numeric(12,2) NOT NULL,
-  marketplace_fee_unit_amount numeric(12,2) NOT NULL,
-  marketplace_fee_total_amount numeric(12,2) NOT NULL,
+  marketplace_sales_fee_unit_amount numeric(12,2) NOT NULL,
+  marketplace_sales_fee_total_amount numeric(12,2) NOT NULL,
   seller_net_unit_amount numeric(12,2) NOT NULL,
   seller_net_total_amount numeric(12,2) NOT NULL,
   PRIMARY KEY (order_id, line_id)

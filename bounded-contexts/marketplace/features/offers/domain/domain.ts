@@ -94,7 +94,7 @@ export type MarketplaceOfferState = Readonly<{
   status: OfferStatus;
   acceptedSellerAccountId: AccountId | null;
   acceptedAt: string | null;
-  marketplaceFeeUnitAmount: string | null;
+  marketplaceSalesFeeUnitAmount: string | null;
   sellerNetUnitAmount: string | null;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
@@ -116,7 +116,7 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   status: "draft",
   acceptedSellerAccountId: null,
   acceptedAt: null,
-  marketplaceFeeUnitAmount: null,
+  marketplaceSalesFeeUnitAmount: null,
   sellerNetUnitAmount: null,
   termsScheduleId: null,
   termsAgreementId: null,
@@ -142,7 +142,7 @@ export type AcceptOfferCommand = Readonly<{
   type: "AcceptOffer";
   sellerAccountId: AccountId;
   acceptedAt: string;
-  marketplaceFeeUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
@@ -183,7 +183,7 @@ export type OfferAcceptedEvent = DomainEvent<
     priceAmount: string;
     quantityRequested: number;
     acceptedAt: string;
-    marketplaceFeeUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
@@ -252,9 +252,9 @@ export const decideMarketplaceOffer: AggregateDecider<
               command.acceptedAt,
               "Offer acceptance must record a timestamp.",
             ),
-            marketplaceFeeUnitAmount: normalizeNonNegativeMoneyAmount(
-              command.marketplaceFeeUnitAmount,
-              "Marketplace fee unit amount",
+            marketplaceSalesFeeUnitAmount: normalizeNonNegativeMoneyAmount(
+              command.marketplaceSalesFeeUnitAmount,
+              "Marketplace sales fee unit amount",
             ),
             sellerNetUnitAmount: normalizeNonNegativeMoneyAmount(
               command.sellerNetUnitAmount,
@@ -297,7 +297,7 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       status: "submitted",
       acceptedSellerAccountId: null,
       acceptedAt: null,
-      marketplaceFeeUnitAmount: null,
+      marketplaceSalesFeeUnitAmount: null,
       sellerNetUnitAmount: null,
       termsScheduleId: null,
       termsAgreementId: null,
@@ -312,7 +312,7 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       status: "accepted",
       acceptedSellerAccountId: event.data.sellerAccountId,
       acceptedAt: event.data.acceptedAt,
-      marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+      marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
       sellerNetUnitAmount: event.data.sellerNetUnitAmount,
       termsScheduleId: event.data.termsScheduleId,
       termsAgreementId: event.data.termsAgreementId,

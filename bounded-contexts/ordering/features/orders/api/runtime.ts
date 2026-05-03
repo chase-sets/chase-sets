@@ -47,11 +47,66 @@ import {
   type OrderingOrderState,
 } from "../domain/domain";
 
+export type TaxDestinationAddress = Readonly<{
+  name: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+}>;
+
+export type TaxQuote = Readonly<{
+  taxableAmount: string;
+  taxAmount: string;
+  jurisdictionCountry: string;
+  jurisdictionState: string | null;
+  rateBps: number;
+  itemTaxable: boolean;
+  shippingTaxable: boolean;
+  marketplaceCheckoutFeeTaxable: boolean;
+  providerName: string;
+  providerQuoteReference: string | null;
+  quotedAt: string;
+}>;
+
+export type TaxQuoteResolver = Readonly<{
+  quoteTax(input: Readonly<{
+    buyerAccountId: string;
+    sellerAccountId: string;
+    currencyCode: "usd";
+    destinationAddress: TaxDestinationAddress;
+    itemSubtotalAmount: string;
+    shippingAmount: string;
+    marketplaceCheckoutFeeAmount?: string | null;
+  }>): Promise<TaxQuote>;
+}>;
+
+const zeroTaxQuoteResolver: TaxQuoteResolver = {
+  async quoteTax(input) {
+    return {
+      taxableAmount: "0.00",
+      taxAmount: "0.00",
+      jurisdictionCountry: input.destinationAddress.country.trim().toUpperCase(),
+      jurisdictionState: input.destinationAddress.state.trim().toUpperCase() || null,
+      rateBps: 0,
+      itemTaxable: false,
+      shippingTaxable: false,
+      marketplaceCheckoutFeeTaxable: false,
+      providerName: "ordering-zero-tax",
+      providerQuoteReference: null,
+      quotedAt: new Date().toISOString(),
+    };
+  },
+};
+
 type OrderRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   shippingQuotePolicy: ShippingQuotePolicy;
+  taxQuoteResolver?: TaxQuoteResolver;
 }>;
 
 export type CheckoutOrderLineSnapshot = Readonly<{
@@ -65,6 +120,8 @@ export type CheckoutOrderLineSnapshot = Readonly<{
   productSummary: string | null;
   quantity: number;
 }>;
+
+export type CheckoutShippingAddressSnapshot = TaxDestinationAddress;
 
 type DemandAllocation = Readonly<{
   candidate: MarketplaceSupplyCandidate;
@@ -85,7 +142,9 @@ type SellerOrderDraft = Readonly<{
   shippingBaseAmount: string;
   shippingDiscountAmount: string;
   shippingChargeAmount: string;
+  salesTaxAmount: string;
   totalAmount: string;
+  taxQuote: TaxQuote;
   lines: ReadonlyArray<{
     lineId: OrderLineId;
     listingId: string;
@@ -99,8 +158,8 @@ type SellerOrderDraft = Readonly<{
     unitPriceAmount: string;
     quantity: number;
     lineTotalAmount: string;
-    marketplaceFeeUnitAmount: string;
-    marketplaceFeeTotalAmount: string;
+    marketplaceSalesFeeUnitAmount: string;
+    marketplaceSalesFeeTotalAmount: string;
     sellerNetUnitAmount: string;
     sellerNetTotalAmount: string;
     termsScheduleId: string | null;
@@ -133,6 +192,7 @@ export type OrderingOrderServices = Readonly<{
       checkoutSessionId: string;
       sourceType: "cart-checkout" | "buy-now";
       shippingOption: ShippingOption;
+      shippingAddress: CheckoutShippingAddressSnapshot;
       lines: readonly CheckoutOrderLineSnapshot[];
       orderIdsOverride?: readonly OrderId[];
     }>,
@@ -150,7 +210,7 @@ export type OrderingOrderServices = Readonly<{
       selectedOptions: { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       priceAmount: string;
-      marketplaceFeeUnitAmount: string;
+      marketplaceSalesFeeUnitAmount: string;
       sellerNetUnitAmount: string;
       termsScheduleId: string | null;
       termsAgreementId: string | null;
@@ -262,7 +322,7 @@ function quotePlan(
   shippingQuotePolicy: ShippingQuotePolicy,
   priceOverrideAmount?: string,
   feeOverride?: Readonly<{
-    marketplaceFeeUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
@@ -297,12 +357,12 @@ function quotePlan(
       const lineTotalAmount = numberToMoneyAmount(
         moneyToNumber(unitPriceAmount) * allocation.quantity,
       );
-      const marketplaceFeeUnitAmount =
-        feeOverride?.marketplaceFeeUnitAmount ?? allocation.candidate.marketplaceFeeUnitAmount;
+      const marketplaceSalesFeeUnitAmount =
+        feeOverride?.marketplaceSalesFeeUnitAmount ?? allocation.candidate.marketplaceSalesFeeUnitAmount;
       const sellerNetUnitAmount =
         feeOverride?.sellerNetUnitAmount ?? allocation.candidate.sellerNetUnitAmount;
-      const marketplaceFeeTotalAmount = numberToMoneyAmount(
-        moneyToNumber(marketplaceFeeUnitAmount) * allocation.quantity,
+      const marketplaceSalesFeeTotalAmount = numberToMoneyAmount(
+        moneyToNumber(marketplaceSalesFeeUnitAmount) * allocation.quantity,
       );
       const sellerNetTotalAmount = numberToMoneyAmount(
         moneyToNumber(sellerNetUnitAmount) * allocation.quantity,
@@ -320,8 +380,8 @@ function quotePlan(
         unitPriceAmount,
         quantity: allocation.quantity,
         lineTotalAmount,
-        marketplaceFeeUnitAmount,
-        marketplaceFeeTotalAmount,
+        marketplaceSalesFeeUnitAmount,
+        marketplaceSalesFeeTotalAmount,
         sellerNetUnitAmount,
         sellerNetTotalAmount,
         termsScheduleId: feeOverride?.termsScheduleId ?? allocation.candidate.termsScheduleId,
@@ -365,7 +425,21 @@ function quotePlan(
       shippingBaseAmount: quote.baseAmount,
       shippingDiscountAmount: quote.discountAmount,
       shippingChargeAmount: quote.chargeAmount,
+      salesTaxAmount: "0.00",
       totalAmount: numberToMoneyAmount(orderTotal),
+      taxQuote: {
+        taxableAmount: "0.00",
+        taxAmount: "0.00",
+        jurisdictionCountry: "US",
+        jurisdictionState: null,
+        rateBps: 0,
+        itemTaxable: false,
+        shippingTaxable: false,
+        marketplaceCheckoutFeeTaxable: false,
+        providerName: "not-quoted",
+        providerQuoteReference: null,
+        quotedAt: new Date().toISOString(),
+      },
       lines: draft.lines,
       reservations: draft.reservations,
     });
@@ -381,13 +455,56 @@ function quotePlan(
   };
 }
 
+async function applyTaxToPlan(
+  plan: CheckoutPlan,
+  buyerAccountId: AccountId,
+  shippingAddress: CheckoutShippingAddressSnapshot,
+  taxQuoteResolver: TaxQuoteResolver,
+): Promise<CheckoutPlan> {
+  const orderDrafts: SellerOrderDraft[] = [];
+  let totalAmount = 0;
+
+  for (const draft of plan.orderDrafts) {
+    const taxQuote = await taxQuoteResolver.quoteTax({
+      buyerAccountId,
+      sellerAccountId: draft.sellerAccountId,
+      currencyCode: "usd",
+      destinationAddress: shippingAddress,
+      itemSubtotalAmount: draft.itemSubtotalAmount,
+      shippingAmount: draft.shippingChargeAmount,
+    });
+    const salesTaxAmount = normalizeMoneyAmount(taxQuote.taxAmount, {
+      fieldName: "Sales tax amount",
+      allowZero: true,
+    });
+    const orderTotal = numberToMoneyAmount(
+      moneyToNumber(draft.itemSubtotalAmount) +
+        moneyToNumber(draft.shippingChargeAmount) +
+        moneyToNumber(salesTaxAmount),
+    );
+    totalAmount += moneyToNumber(orderTotal);
+    orderDrafts.push({
+      ...draft,
+      salesTaxAmount,
+      totalAmount: orderTotal,
+      taxQuote,
+    });
+  }
+
+  return {
+    ...plan,
+    totalAmount,
+    orderDrafts,
+  };
+}
+
 function chooseBestPlan(
   demandOptions: readonly DemandPlan[][],
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
   priceOverrideAmount?: string,
   feeOverride?: Readonly<{
-    marketplaceFeeUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
@@ -465,6 +582,7 @@ async function buildDemandOptions(
 export function createOrderingOrderRuntime(
   deps: OrderRuntimeDeps,
 ): OrderingOrderServices {
+  const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -494,8 +612,8 @@ export function createOrderingOrderRuntime(
     const orderIds: OrderId[] = [];
 
     for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
-      const marketplaceFeeAmount = numberToMoneyAmount(
-        draft.lines.reduce((sum, line) => sum + moneyToNumber(line.marketplaceFeeTotalAmount), 0),
+      const marketplaceSalesFeeAmount = numberToMoneyAmount(
+        draft.lines.reduce((sum, line) => sum + moneyToNumber(line.marketplaceSalesFeeTotalAmount), 0),
       );
       const sellerNetAmount = numberToMoneyAmount(
         draft.lines.reduce((sum, line) => sum + moneyToNumber(line.sellerNetTotalAmount), 0),
@@ -526,9 +644,20 @@ export function createOrderingOrderRuntime(
           shippingBaseAmount: draft.shippingBaseAmount,
           shippingDiscountAmount: draft.shippingDiscountAmount,
           shippingChargeAmount: draft.shippingChargeAmount,
+          salesTaxAmount: draft.salesTaxAmount,
           totalAmount: draft.totalAmount,
+          taxSnapshot: {
+            taxableAmount: draft.taxQuote.taxableAmount,
+            salesTaxAmount: draft.salesTaxAmount,
+            jurisdictionCountry: draft.taxQuote.jurisdictionCountry,
+            jurisdictionState: draft.taxQuote.jurisdictionState,
+            rateBps: draft.taxQuote.rateBps,
+            providerName: draft.taxQuote.providerName,
+            providerQuoteReference: draft.taxQuote.providerQuoteReference,
+            quotedAt: draft.taxQuote.quotedAt,
+          },
           commercialTermsSnapshot: {
-            marketplaceFeeAmount,
+            marketplaceSalesFeeAmount,
             sellerNetAmount,
             termsScheduleId,
             termsAgreementId,
@@ -563,7 +692,7 @@ export function createOrderingOrderRuntime(
       selectedOptions: { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       priceAmount: string;
-      marketplaceFeeUnitAmount: string;
+      marketplaceSalesFeeUnitAmount: string;
       sellerNetUnitAmount: string;
       termsScheduleId: string | null;
       termsAgreementId: string | null;
@@ -598,8 +727,8 @@ export function createOrderingOrderRuntime(
       deps.shippingQuotePolicy,
       acceptedOfferPriceAmount,
       {
-        marketplaceFeeUnitAmount: normalizeMoneyAmount(params.marketplaceFeeUnitAmount, {
-          fieldName: "Accepted offer marketplace fee",
+        marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(params.marketplaceSalesFeeUnitAmount, {
+          fieldName: "Accepted offer marketplace sales fee",
           allowZero: true,
         }),
         sellerNetUnitAmount: normalizeMoneyAmount(params.sellerNetUnitAmount, {
@@ -613,9 +742,23 @@ export function createOrderingOrderRuntime(
       "offer-acceptance",
       params.offerId,
     );
+    const taxAdjustedPlan = await applyTaxToPlan(
+      plan,
+      params.buyerAccountId,
+      {
+        name: null,
+        line1: "Accepted offer destination pending",
+        line2: null,
+        city: "Unknown",
+        state: "ZZ",
+        postalCode: "00000",
+        country: "US",
+      },
+      taxQuoteResolver,
+    );
     const orderIds = await createOrdersFromPlan(
       params.buyerAccountId,
-      plan,
+      taxAdjustedPlan,
       context,
       params.orderIdsOverride,
     );
@@ -685,9 +828,15 @@ export function createOrderingOrderRuntime(
           "buy-now",
           params.checkoutSessionId,
         );
+        const taxAdjustedPlan = await applyTaxToPlan(
+          plan,
+          params.buyerAccountId,
+          params.shippingAddress,
+          taxQuoteResolver,
+        );
         const orderIds = await createOrdersFromPlan(
           params.buyerAccountId,
-          plan,
+          taxAdjustedPlan,
           context,
           params.orderIdsOverride,
         );
@@ -706,9 +855,15 @@ export function createOrderingOrderRuntime(
         "cart-checkout",
         params.checkoutSessionId,
       );
+      const taxAdjustedPlan = await applyTaxToPlan(
+        plan,
+        params.buyerAccountId,
+        params.shippingAddress,
+        taxQuoteResolver,
+      );
       const orderIds = await createOrdersFromPlan(
         params.buyerAccountId,
-        plan,
+        taxAdjustedPlan,
         context,
         params.orderIdsOverride,
       );

@@ -14,8 +14,8 @@ type OrderRow = Readonly<{
   order_id: string;
   buyer_account_id: string;
   total_amount: string;
-  marketplace_fee_amount: string;
-  payment_fee_amount: string;
+  marketplace_sales_fee_amount: string;
+  marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
 }>;
 
@@ -61,8 +61,8 @@ async function getSeedOrder(
        order_id,
        buyer_account_id,
        total_amount::text AS total_amount,
-       marketplace_fee_amount::text AS marketplace_fee_amount,
-       payment_fee_amount::text AS payment_fee_amount,
+       marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
+       marketplace_checkout_fee_amount::text AS marketplace_checkout_fee_amount,
        seller_net_amount::text AS seller_net_amount,
        status
      FROM payments_order_inputs
@@ -86,8 +86,8 @@ async function getSeedOrder(
     order_id: order.order_id,
     buyer_account_id: order.buyer_account_id,
     total_amount: order.total_amount,
-    marketplace_fee_amount: order.marketplace_fee_amount,
-    payment_fee_amount: order.payment_fee_amount,
+    marketplace_sales_fee_amount: order.marketplace_sales_fee_amount,
+    marketplace_checkout_fee_amount: order.marketplace_checkout_fee_amount,
     seller_net_amount: order.seller_net_amount,
   };
 }
@@ -162,6 +162,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       orderIds: [order.order_id as never],
       amount: normalizeMoneyAmount(order.total_amount, { allowZero: true }),
       currencyCode: normalizeCurrencyCode("usd"),
+      paymentMethodCategory: "card",
       description: `Seed payment ${paymentId}`,
     });
 
@@ -173,12 +174,15 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         buyerAccountId: order.buyer_account_id as never,
         orderIds: [order.order_id as never],
         amount: normalizeMoneyAmount(order.total_amount, { allowZero: true }),
-        marketplaceFeeAmount: normalizeMoneyAmount(order.marketplace_fee_amount, {
+        marketplaceSalesFeeAmount: normalizeMoneyAmount(order.marketplace_sales_fee_amount, {
           allowZero: true,
         }),
-        paymentFeeAmount: normalizeMoneyAmount(order.payment_fee_amount, {
+        marketplaceCheckoutFeeAmount: normalizeMoneyAmount(order.marketplace_checkout_fee_amount, {
           allowZero: true,
         }),
+        marketplaceCheckoutFeePolicyVersion: "seed",
+        marketplaceCheckoutFeeQuoteFingerprint: "seed",
+        paymentMethodCategory: "card",
         sellerNetAmount: normalizeMoneyAmount(order.seller_net_amount, {
           allowZero: true,
         }),

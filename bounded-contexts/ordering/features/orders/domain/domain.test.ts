@@ -6,7 +6,7 @@ import {
 } from "./domain";
 
 const commercialTermsSnapshot = {
-  marketplaceFeeAmount: "1.00",
+  marketplaceSalesFeeAmount: "1.00",
   sellerNetAmount: "19.00",
   termsScheduleId: "cts_default",
   termsAgreementId: null,
@@ -14,10 +14,26 @@ const commercialTermsSnapshot = {
 } as const;
 
 const orderLineFees = {
-  marketplaceFeeUnitAmount: "1.00",
-  marketplaceFeeTotalAmount: "1.00",
+  marketplaceSalesFeeUnitAmount: "1.00",
+  marketplaceSalesFeeTotalAmount: "1.00",
   sellerNetUnitAmount: "19.00",
   sellerNetTotalAmount: "19.00",
+} as const;
+
+const taxSnapshot = {
+  taxableAmount: "24.99",
+  salesTaxAmount: "0.00",
+  jurisdictionCountry: "US",
+  jurisdictionState: "IL",
+  rateBps: 0,
+  providerName: "local-tax-stub",
+  providerQuoteReference: null,
+  quotedAt: "2026-03-31T00:00:00.000Z",
+} as const;
+
+const orderTaxFields = {
+  salesTaxAmount: "0.00",
+  taxSnapshot,
 } as const;
 
 describe("ordering order domain", () => {
@@ -34,6 +50,7 @@ describe("ordering order domain", () => {
       shippingBaseAmount: "4.99",
       shippingDiscountAmount: "0.00",
       shippingChargeAmount: "4.99",
+      ...orderTaxFields,
       totalAmount: "24.99",
       commercialTermsSnapshot,
       lines: [
@@ -86,6 +103,7 @@ describe("ordering order domain", () => {
       shippingBaseAmount: "4.99",
       shippingDiscountAmount: "0.00",
       shippingChargeAmount: "4.99",
+      ...orderTaxFields,
       totalAmount: "24.99",
       commercialTermsSnapshot,
       lines: [
@@ -145,6 +163,7 @@ describe("ordering order domain", () => {
         shippingBaseAmount: "4.99",
         shippingDiscountAmount: "0.00",
         shippingChargeAmount: "4.99",
+        ...orderTaxFields,
         totalAmount: "4.99",
         commercialTermsSnapshot,
         lines: [],

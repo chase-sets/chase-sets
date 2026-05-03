@@ -74,6 +74,14 @@ describe("checkout web routes", () => {
     const form = new URLSearchParams();
     form.set("intent", "confirm-checkout");
     form.set("shippingOption", "priority");
+    form.set("paymentMethodCategory", "bank-account");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingLine2", "");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
       request: new Request("http://localhost/checkout/chk_1", {
@@ -90,6 +98,16 @@ describe("checkout web routes", () => {
     });
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", {
       requestedBalanceCreditAmount: null,
+      paymentMethodCategory: "bank-account",
+      shippingAddress: {
+        name: "Jane Smith",
+        line1: "100 Market Street",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/payments/pay_1");

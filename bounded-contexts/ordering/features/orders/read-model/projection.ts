@@ -18,8 +18,19 @@ export function buildOrderingOrderProjectionHandlers(
         shippingDiscountAmount: string;
         shippingChargeAmount: string;
         totalAmount: string;
+        salesTaxAmount: string;
+        taxSnapshot: {
+          taxableAmount: string;
+          salesTaxAmount: string;
+          jurisdictionCountry: string;
+          jurisdictionState: string | null;
+          rateBps: number;
+          providerName: string;
+          providerQuoteReference: string | null;
+          quotedAt: string;
+        };
         commercialTermsSnapshot: {
-          marketplaceFeeAmount: string;
+          marketplaceSalesFeeAmount: string;
           sellerNetAmount: string;
           termsScheduleId: string | null;
           termsAgreementId: string | null;
@@ -38,8 +49,8 @@ export function buildOrderingOrderProjectionHandlers(
           unitPriceAmount: string;
           quantity: number;
           lineTotalAmount: string;
-          marketplaceFeeUnitAmount: string;
-          marketplaceFeeTotalAmount: string;
+          marketplaceSalesFeeUnitAmount: string;
+          marketplaceSalesFeeTotalAmount: string;
           sellerNetUnitAmount: string;
           sellerNetTotalAmount: string;
         }>;
@@ -63,8 +74,16 @@ export function buildOrderingOrderProjectionHandlers(
            shipping_base_amount,
            shipping_discount_amount,
            shipping_charge_amount,
+           sales_tax_amount,
+           taxable_amount,
+           tax_jurisdiction_country,
+           tax_jurisdiction_state,
+           tax_rate_bps,
+           tax_provider_name,
+           tax_provider_quote_reference,
+           tax_quoted_at,
            total_amount,
-           marketplace_fee_amount,
+           marketplace_sales_fee_amount,
            seller_net_amount,
            terms_schedule_id,
            terms_agreement_id,
@@ -76,7 +95,7 @@ export function buildOrderingOrderProjectionHandlers(
            cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending-reservation', $17, $17, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-reservation', $25, $25, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
@@ -88,8 +107,16 @@ export function buildOrderingOrderProjectionHandlers(
              shipping_base_amount = EXCLUDED.shipping_base_amount,
              shipping_discount_amount = EXCLUDED.shipping_discount_amount,
              shipping_charge_amount = EXCLUDED.shipping_charge_amount,
+             sales_tax_amount = EXCLUDED.sales_tax_amount,
+             taxable_amount = EXCLUDED.taxable_amount,
+             tax_jurisdiction_country = EXCLUDED.tax_jurisdiction_country,
+             tax_jurisdiction_state = EXCLUDED.tax_jurisdiction_state,
+             tax_rate_bps = EXCLUDED.tax_rate_bps,
+             tax_provider_name = EXCLUDED.tax_provider_name,
+             tax_provider_quote_reference = EXCLUDED.tax_provider_quote_reference,
+             tax_quoted_at = EXCLUDED.tax_quoted_at,
              total_amount = EXCLUDED.total_amount,
-             marketplace_fee_amount = EXCLUDED.marketplace_fee_amount,
+             marketplace_sales_fee_amount = EXCLUDED.marketplace_sales_fee_amount,
              seller_net_amount = EXCLUDED.seller_net_amount,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
@@ -109,8 +136,16 @@ export function buildOrderingOrderProjectionHandlers(
           data.shippingBaseAmount,
           data.shippingDiscountAmount,
           data.shippingChargeAmount,
+          data.salesTaxAmount,
+          data.taxSnapshot.taxableAmount,
+          data.taxSnapshot.jurisdictionCountry,
+          data.taxSnapshot.jurisdictionState,
+          data.taxSnapshot.rateBps,
+          data.taxSnapshot.providerName,
+          data.taxSnapshot.providerQuoteReference,
+          data.taxSnapshot.quotedAt,
           data.totalAmount,
-          data.commercialTermsSnapshot.marketplaceFeeAmount,
+          data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
           data.commercialTermsSnapshot.sellerNetAmount,
           data.commercialTermsSnapshot.termsScheduleId,
           data.commercialTermsSnapshot.termsAgreementId,
@@ -139,8 +174,8 @@ export function buildOrderingOrderProjectionHandlers(
              unit_price_amount,
              quantity,
              line_total_amount,
-             marketplace_fee_unit_amount,
-             marketplace_fee_total_amount,
+             marketplace_sales_fee_unit_amount,
+             marketplace_sales_fee_total_amount,
              seller_net_unit_amount,
              seller_net_total_amount
            ) VALUES (
@@ -159,8 +194,8 @@ export function buildOrderingOrderProjectionHandlers(
                unit_price_amount = EXCLUDED.unit_price_amount,
                quantity = EXCLUDED.quantity,
                line_total_amount = EXCLUDED.line_total_amount,
-               marketplace_fee_unit_amount = EXCLUDED.marketplace_fee_unit_amount,
-               marketplace_fee_total_amount = EXCLUDED.marketplace_fee_total_amount,
+               marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
+               marketplace_sales_fee_total_amount = EXCLUDED.marketplace_sales_fee_total_amount,
                seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
                seller_net_total_amount = EXCLUDED.seller_net_total_amount`,
           [
@@ -178,8 +213,8 @@ export function buildOrderingOrderProjectionHandlers(
             line.unitPriceAmount,
             line.quantity,
             line.lineTotalAmount,
-            line.marketplaceFeeUnitAmount,
-            line.marketplaceFeeTotalAmount,
+            line.marketplaceSalesFeeUnitAmount,
+            line.marketplaceSalesFeeTotalAmount,
             line.sellerNetUnitAmount,
             line.sellerNetTotalAmount,
           ],

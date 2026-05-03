@@ -11,7 +11,7 @@ export function buildPaymentsOrderInputProjectionHandlers(
         buyerAccountId: string;
         totalAmount: string;
         commercialTermsSnapshot: {
-          marketplaceFeeAmount: string;
+          marketplaceSalesFeeAmount: string;
           sellerNetAmount: string;
           termsScheduleId: string | null;
           termsAgreementId: string | null;
@@ -24,8 +24,8 @@ export function buildPaymentsOrderInputProjectionHandlers(
            order_id,
            buyer_account_id,
            total_amount,
-           marketplace_fee_amount,
-           payment_fee_amount,
+           marketplace_sales_fee_amount,
+           marketplace_checkout_fee_amount,
            seller_net_amount,
            terms_schedule_id,
            terms_agreement_id,
@@ -39,8 +39,8 @@ export function buildPaymentsOrderInputProjectionHandlers(
          ON CONFLICT (order_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              total_amount = EXCLUDED.total_amount,
-             marketplace_fee_amount = EXCLUDED.marketplace_fee_amount,
-             payment_fee_amount = EXCLUDED.payment_fee_amount,
+             marketplace_sales_fee_amount = EXCLUDED.marketplace_sales_fee_amount,
+             marketplace_checkout_fee_amount = EXCLUDED.marketplace_checkout_fee_amount,
              seller_net_amount = EXCLUDED.seller_net_amount,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
@@ -53,8 +53,8 @@ export function buildPaymentsOrderInputProjectionHandlers(
           data.orderId,
           data.buyerAccountId,
           data.totalAmount,
-          data.commercialTermsSnapshot.marketplaceFeeAmount,
-          // Buyer payment fee policy is deferred; keep the Payments schema explicit.
+          data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
+          // Marketplace Checkout Fee is payment-level; order inputs stay explicit at zero.
           "0.00",
           data.commercialTermsSnapshot.sellerNetAmount,
           data.commercialTermsSnapshot.termsScheduleId,

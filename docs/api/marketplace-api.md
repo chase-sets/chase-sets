@@ -48,7 +48,7 @@ Errors use one envelope:
 
 Standard error codes are `authentication_required`, `authorization_forbidden`, `validation_failed`, `not_found`, `conflict`, `provider_failed`, and `internal_error`.
 
-Fee-confirmed listing and offer actions may also return `fee_quote_stale` with a `currentQuote` object. Clients should show the returned quote and retry with its `feeQuoteFingerprint`.
+Fee-confirmed listing and offer actions may also return `fee_quote_stale` with a `currentQuote` object. Clients should show the returned quote and retry with its `feeQuoteFingerprint`. Payment creation may return `fee_quote_stale` with `marketplace_checkout_fee` when the confirmed Marketplace Checkout Fee fingerprint is stale.
 
 ## Permissions
 
@@ -75,8 +75,9 @@ Cart to checkout:
 1. `GET /api/marketplace/account/cart`
 2. `POST /api/marketplace/account/checkout-sessions`
 3. `POST /api/marketplace/account/checkout-sessions/{sessionId}/shipping-option`
-4. `POST /api/marketplace/account/checkout-sessions/{sessionId}/confirm`
-5. `GET /api/marketplace/account/payments/{id}`
+4. `GET /api/marketplace/account/checkout/status`
+5. `POST /api/marketplace/account/checkout-sessions/{sessionId}/confirm`
+6. `GET /api/marketplace/account/payments/{id}`
 
 Seller listing:
 
@@ -85,7 +86,8 @@ Seller listing:
 3. `POST /api/marketplace/account/listings/preview`
 4. `POST /api/marketplace/account/listings`
 5. `POST /api/marketplace/account/listings/{id}/publish`
-6. `GET /api/marketplace/account/listings/{id}/fee-history`
+6. `GET /api/marketplace/account/listings/fee-lock-report`
+7. `GET /api/marketplace/account/listings/{id}/fee-history`
 
 Offer acceptance:
 
@@ -94,16 +96,16 @@ Offer acceptance:
 3. `GET /api/marketplace/account/offers/matches/{id}/terms-preview`
 4. `POST /api/marketplace/account/offers/matches/{id}/accept`
 
-## Permanent Listing Fee Confirmation
+## Marketplace Sales Fee Confirmation
 
-Seller-side marketplace fees are confirmed before publication or acceptance and then carried as per-unit snapshots. Ordering consumes those snapshots for listing purchases and accepted offers.
+Seller-side marketplace sales fees are confirmed before publication or acceptance and then carried as per-unit snapshots. Ordering consumes those snapshots for listing purchases and accepted offers.
 
 Listing preview returns:
 
 ```json
 {
   "basis_amount": "20.00",
-  "marketplace_fee_unit_amount": "1.00",
+  "marketplace_sales_fee_unit_amount": "1.00",
   "seller_net_unit_amount": "19.00",
   "schedule_id": "cts_default",
   "agreement_id": null,
@@ -121,7 +123,7 @@ Publish, active price edits, active quantity-cap edits, and offer acceptance mus
     "message": "Fee quote is stale. Refresh the fee preview before continuing.",
     "currentQuote": {
       "basis_amount": "20.00",
-      "marketplace_fee_unit_amount": "2.00",
+      "marketplace_sales_fee_unit_amount": "2.00",
       "seller_net_unit_amount": "18.00",
       "schedule_id": "cts_default",
       "agreement_id": null,
@@ -133,6 +135,16 @@ Publish, active price edits, active quantity-cap edits, and offer acceptance mus
 ```
 
 `GET /api/marketplace/account/listings/{id}/fee-history` returns the seller-visible lock history for listing creation, publication, active price edits, and active quantity-cap edits.
+
+`GET /api/marketplace/account/listings/fee-lock-report` returns the seller-visible management report of current per-unit marketplace sales fee locks across the account's listings, including source schedule/agreement ids, resolved time, fee quote fingerprint, locked fee, and seller net.
+
+## Marketplace Checkout Fee Confirmation
+
+Payments quotes the buyer-side Marketplace Checkout Fee at payment level after wallet or platform credit and after order totals include shipping and sales tax. `GET /api/marketplace/account/checkout/status` returns the selected `marketplace_checkout_fee`, payment method quotes, and wallet credit amounts before payment.
+
+Payment creation must submit the confirmed `marketplaceCheckoutFeeQuoteFingerprint`. Stale payment quotes return `409 fee_quote_stale` with the current `marketplace_checkout_fee`; clients should show the returned quote and retry with the new fingerprint.
+
+`GET /api/marketplace/account/marketplace-checkout-fee-policy` exposes the active policy version, base rate, method adjustments, enabled jurisdictions, and quote audit fields for payment operations. The seeded V1 policy charges card payments at `2.9% + $0.30`, reduces bank payments to `0.5%`, and charges `0.00` when platform credit covers the payment.
 
 Seller payout setup:
 

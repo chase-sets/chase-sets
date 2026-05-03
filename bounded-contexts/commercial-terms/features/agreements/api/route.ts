@@ -86,8 +86,8 @@ export function createAgreementRoutes(services: AgreementServices) {
         {
           accountId: String(body.accountId ?? ""),
           label: String(body.label ?? ""),
-          marketplaceFeePercentageBps: Number(body.marketplaceFeePercentageBps ?? 0),
-          marketplaceFeeFixedAmount: String(body.marketplaceFeeFixedAmount ?? ""),
+          marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
+          marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
           status: String(body.status ?? "active") as never,
           effectiveFrom:
             typeof body.effectiveFrom === "string"

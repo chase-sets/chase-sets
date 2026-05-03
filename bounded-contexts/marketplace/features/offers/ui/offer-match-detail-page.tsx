@@ -69,7 +69,7 @@ export function MarketplaceOfferMatchDetailPage({
             <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price")}{formatMoney(offer.price_amount)}</Text>
             {acceptanceTerms ? (
               <>
-                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee")}{formatMoney(acceptanceTerms.marketplace_fee_unit_amount)}</Text>
+                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee")}{formatMoney(acceptanceTerms.marketplace_sales_fee_unit_amount)}</Text>
                 <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.seller.net")}{formatMoney(acceptanceTerms.seller_net_unit_amount)}</Text>
                 <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.terms.source")}{acceptanceTerms.agreement_id ?? acceptanceTerms.schedule_id ?? t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms")}</Text>
                 <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quote.time")}{new Date(acceptanceTerms.resolved_at).toLocaleString()}</Text>

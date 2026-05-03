@@ -38,6 +38,28 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("ordering.features.orders.api.route.request.failed");
 }
 
+function parseShippingAddress(value: unknown) {
+  const source =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    name:
+      source.name === null || source.name === undefined
+        ? null
+        : String(source.name),
+    line1: String(source.line1 ?? ""),
+    line2:
+      source.line2 === null || source.line2 === undefined
+        ? null
+        : String(source.line2),
+    city: String(source.city ?? ""),
+    state: String(source.state ?? ""),
+    postalCode: String(source.postalCode ?? ""),
+    country: String(source.country ?? "US"),
+  };
+}
+
 export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices) {
   const app = new Hono<OrderingApiEnv>();
 
@@ -61,6 +83,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
           checkoutSessionId: String(body.checkoutSessionId ?? ""),
           sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
           shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
+          shippingAddress: parseShippingAddress(body.shippingAddress),
           lines: Array.isArray(body.lines)
             ? body.lines.map((line: Record<string, unknown>) => ({
                 listingId:

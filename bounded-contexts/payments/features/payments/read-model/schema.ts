@@ -6,8 +6,11 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   amount numeric(12, 2) NOT NULL,
   balance_credit_amount numeric(12, 2) NOT NULL DEFAULT 0,
   processor_amount numeric(12, 2) NOT NULL DEFAULT 0,
-  marketplace_fee_amount numeric(12, 2) NOT NULL,
-  payment_fee_amount numeric(12, 2) NOT NULL,
+  marketplace_sales_fee_amount numeric(12, 2) NOT NULL,
+  marketplace_checkout_fee_amount numeric(12, 2) NOT NULL,
+  marketplace_checkout_fee_policy_version text NULL,
+  marketplace_checkout_fee_quote_fingerprint text NULL,
+  payment_method_category text NULL,
   seller_net_amount numeric(12, 2) NOT NULL,
   currency_code text NOT NULL,
   processor_name text NOT NULL,
@@ -50,6 +53,15 @@ ALTER TABLE payments_payment_pages
 
 ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS processor_redirect_url text NULL;
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_policy_version text NULL;
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_quote_fingerprint text NULL;
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS payment_method_category text NULL;
 
 CREATE TABLE IF NOT EXISTS payments_provider_idempotency_keys (
   operation_key text PRIMARY KEY,

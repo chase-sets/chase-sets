@@ -13,8 +13,11 @@ export function buildPaymentProjectionHandlers(
         amount: string;
         balanceCreditAmount: string;
         processorAmount: string;
-        marketplaceFeeAmount: string;
-        paymentFeeAmount: string;
+        marketplaceSalesFeeAmount: string;
+        marketplaceCheckoutFeeAmount: string;
+        marketplaceCheckoutFeePolicyVersion?: string | null;
+        marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+        paymentMethodCategory?: string | null;
         sellerNetAmount: string;
         currencyCode: string;
         processorName: string;
@@ -36,8 +39,11 @@ export function buildPaymentProjectionHandlers(
            amount,
            balance_credit_amount,
            processor_amount,
-           marketplace_fee_amount,
-           payment_fee_amount,
+           marketplace_sales_fee_amount,
+           marketplace_checkout_fee_amount,
+           marketplace_checkout_fee_policy_version,
+           marketplace_checkout_fee_quote_fingerprint,
+           payment_method_category,
            seller_net_amount,
            currency_code,
            processor_name,
@@ -58,7 +64,7 @@ export function buildPaymentProjectionHandlers(
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'pending-confirmation', NULL, NULL, $19, $19, NULL, NULL, NULL, $20
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'pending-confirmation', NULL, NULL, $22, $22, NULL, NULL, NULL, $23
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -66,8 +72,11 @@ export function buildPaymentProjectionHandlers(
              amount = EXCLUDED.amount,
              balance_credit_amount = EXCLUDED.balance_credit_amount,
              processor_amount = EXCLUDED.processor_amount,
-             marketplace_fee_amount = EXCLUDED.marketplace_fee_amount,
-             payment_fee_amount = EXCLUDED.payment_fee_amount,
+             marketplace_sales_fee_amount = EXCLUDED.marketplace_sales_fee_amount,
+             marketplace_checkout_fee_amount = EXCLUDED.marketplace_checkout_fee_amount,
+             marketplace_checkout_fee_policy_version = EXCLUDED.marketplace_checkout_fee_policy_version,
+             marketplace_checkout_fee_quote_fingerprint = EXCLUDED.marketplace_checkout_fee_quote_fingerprint,
+             payment_method_category = EXCLUDED.payment_method_category,
              seller_net_amount = EXCLUDED.seller_net_amount,
              currency_code = EXCLUDED.currency_code,
              processor_name = EXCLUDED.processor_name,
@@ -89,8 +98,11 @@ export function buildPaymentProjectionHandlers(
           data.amount,
           data.balanceCreditAmount,
           data.processorAmount,
-          data.marketplaceFeeAmount,
-          data.paymentFeeAmount,
+          data.marketplaceSalesFeeAmount,
+          data.marketplaceCheckoutFeeAmount,
+          data.marketplaceCheckoutFeePolicyVersion ?? null,
+          data.marketplaceCheckoutFeeQuoteFingerprint ?? null,
+          data.paymentMethodCategory ?? null,
           data.sellerNetAmount,
           data.currencyCode,
           data.processorName,

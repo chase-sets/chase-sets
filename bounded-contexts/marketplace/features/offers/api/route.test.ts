@@ -46,7 +46,7 @@ function createServices(): MarketplaceOfferServices {
   const previewOfferAcceptanceTerms = vi.fn(async () => ({
     account_type: "personal" as const,
     basis_amount: "350.00",
-    marketplace_fee_unit_amount: "17.50",
+    marketplace_sales_fee_unit_amount: "17.50",
     seller_net_unit_amount: "332.50",
     schedule_id: "sch_standard",
     agreement_id: null,
@@ -252,7 +252,7 @@ describe("marketplace offer routes", () => {
       new MarketplaceOfferFeeQuoteStaleError({
         account_type: "personal",
         basis_amount: "350.00",
-        marketplace_fee_unit_amount: "17.50",
+        marketplace_sales_fee_unit_amount: "17.50",
         seller_net_unit_amount: "332.50",
         schedule_id: "sch_standard",
         agreement_id: null,

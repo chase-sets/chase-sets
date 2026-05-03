@@ -6,8 +6,8 @@ export type CommercialAgreementRow = Readonly<{
   account_display_name: string | null;
   account_type: string | null;
   label: string;
-  marketplace_fee_percentage_bps: number;
-  marketplace_fee_fixed_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
   status: string;
   effective_from: string;
   effective_until: string | null;
@@ -22,8 +22,8 @@ const agreementSelect = `
     account.display_name AS account_display_name,
     account.account_type,
     agreement.label,
-    agreement.marketplace_fee_percentage_bps,
-    agreement.marketplace_fee_fixed_amount::text,
+    agreement.marketplace_sales_fee_percentage_bps,
+    agreement.marketplace_sales_fee_fixed_amount::text,
     agreement.status,
     agreement.effective_from,
     agreement.effective_until,

@@ -33,6 +33,23 @@ async function loadWalletBalance(request: Request) {
   }>;
 }
 
+function normalizeText(value: FormDataEntryValue | null) {
+  const text = String(value ?? "").trim();
+  return text.length > 0 ? text : null;
+}
+
+function shippingAddressFromForm(formData: FormData) {
+  return {
+    name: normalizeText(formData.get("shippingName")),
+    line1: String(formData.get("shippingLine1") ?? "").trim(),
+    line2: normalizeText(formData.get("shippingLine2")),
+    city: String(formData.get("shippingCity") ?? "").trim(),
+    state: String(formData.get("shippingState") ?? "").trim().toUpperCase(),
+    postalCode: String(formData.get("shippingPostalCode") ?? "").trim(),
+    country: String(formData.get("shippingCountry") ?? "US").trim().toUpperCase(),
+  };
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "orders.view" });
   if (!params.sessionId) {
@@ -70,6 +87,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
         requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
           formData.get("requestedBalanceCreditAmount"),
         ),
+        paymentMethodCategory: String(formData.get("paymentMethodCategory") ?? "card"),
+        shippingAddress: shippingAddressFromForm(formData),
       });
       return redirect(`/account/payments/${result.payment_id}`);
     }

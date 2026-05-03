@@ -115,11 +115,11 @@ Notes:
 
 - Commercial Terms owns the policy and resolution.
 - Marketplace uses the resolution to create seller-confirmed listing and offer fee snapshots.
-- Ordering consumes Marketplace fee snapshots and does not resolve Commercial Terms for normal listing purchases.
+- Ordering consumes Marketplace sales fee snapshots and does not resolve Commercial Terms for normal listing purchases.
 
-## Marketplace Fee Snapshot
+## Marketplace Sales Fee Snapshot
 
-A **Marketplace Fee Snapshot** is the seller-confirmed per-unit marketplace fee, seller net, source schedule or agreement, and quote timestamp locked by Marketplace for a listing or accepted offer.
+A **Marketplace Sales Fee Snapshot** is the seller-confirmed per-unit marketplace sales fee, seller net, source schedule or agreement, and quote timestamp locked by Marketplace for a listing or accepted offer.
 
 Notes:
 

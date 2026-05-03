@@ -65,7 +65,7 @@ export type MarketplaceListingState = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string | null;
-  marketplaceFeeUnitAmount: string | null;
+  marketplaceSalesFeeUnitAmount: string | null;
   sellerNetUnitAmount: string | null;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
@@ -89,7 +89,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   storageLocationName: null,
   shipFromCode: null,
   priceAmount: null,
-  marketplaceFeeUnitAmount: null,
+  marketplaceSalesFeeUnitAmount: null,
   sellerNetUnitAmount: null,
   termsScheduleId: null,
   termsAgreementId: null,
@@ -114,7 +114,7 @@ export type CreateListingCommand = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
-  marketplaceFeeUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
@@ -126,7 +126,7 @@ export type CreateListingCommand = Readonly<{
 export type UpdateListingPriceCommand = Readonly<{
   type: "UpdateListingPrice";
   priceAmount: string;
-  marketplaceFeeUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
@@ -137,7 +137,7 @@ export type UpdateListingPriceCommand = Readonly<{
 export type UpdateListingQuantityCapCommand = Readonly<{
   type: "UpdateListingQuantityCap";
   quantityCap: number;
-  marketplaceFeeUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
@@ -147,7 +147,7 @@ export type UpdateListingQuantityCapCommand = Readonly<{
 
 export type PublishListingCommand = Readonly<{
   type: "PublishListing";
-  marketplaceFeeUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
@@ -181,7 +181,7 @@ export type ListingCreatedEvent = DomainEvent<
     storageLocationName: string | null;
     shipFromCode: string | null;
     priceAmount: string;
-    marketplaceFeeUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
@@ -194,7 +194,7 @@ export type ListingPriceUpdatedEvent = DomainEvent<
   "marketplace.listing.price-updated",
   Readonly<{
     priceAmount: string;
-    marketplaceFeeUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
@@ -206,7 +206,7 @@ export type ListingQuantityCapUpdatedEvent = DomainEvent<
   "marketplace.listing.quantity-cap-updated",
   Readonly<{
     quantityCap: number;
-    marketplaceFeeUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
@@ -217,7 +217,7 @@ export type ListingQuantityCapUpdatedEvent = DomainEvent<
 export type ListingPublishedEvent = DomainEvent<
   "marketplace.listing.published",
   Readonly<{
-    marketplaceFeeUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
@@ -270,8 +270,8 @@ export const decideMarketplaceListing: AggregateDecider<
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
             priceAmount: normalizeMoneyAmount(command.priceAmount),
-            marketplaceFeeUnitAmount: normalizeMoneyAmount(command.marketplaceFeeUnitAmount, {
-              fieldName: "Marketplace fee unit amount",
+            marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
+              fieldName: "Marketplace sales fee unit amount",
               allowZero: true,
             }),
             sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
@@ -300,8 +300,8 @@ export const decideMarketplaceListing: AggregateDecider<
           type: "marketplace.listing.price-updated",
           data: {
             priceAmount: normalizeMoneyAmount(command.priceAmount),
-            marketplaceFeeUnitAmount: normalizeMoneyAmount(command.marketplaceFeeUnitAmount, {
-              fieldName: "Marketplace fee unit amount",
+            marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
+              fieldName: "Marketplace sales fee unit amount",
               allowZero: true,
             }),
             sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
@@ -329,8 +329,8 @@ export const decideMarketplaceListing: AggregateDecider<
               command.quantityCap,
               "Listing quantity cap must be a positive whole number.",
             ),
-            marketplaceFeeUnitAmount: normalizeMoneyAmount(command.marketplaceFeeUnitAmount, {
-              fieldName: "Marketplace fee unit amount",
+            marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
+              fieldName: "Marketplace sales fee unit amount",
               allowZero: true,
             }),
             sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
@@ -355,8 +355,8 @@ export const decideMarketplaceListing: AggregateDecider<
         {
           type: "marketplace.listing.published",
           data: {
-            marketplaceFeeUnitAmount: normalizeMoneyAmount(command.marketplaceFeeUnitAmount, {
-              fieldName: "Marketplace fee unit amount",
+            marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
+              fieldName: "Marketplace sales fee unit amount",
               allowZero: true,
             }),
             sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
@@ -409,7 +409,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         storageLocationName: event.data.storageLocationName,
         shipFromCode: event.data.shipFromCode,
         priceAmount: event.data.priceAmount,
-        marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+        marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
@@ -422,7 +422,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
       return {
         ...state,
         priceAmount: event.data.priceAmount,
-        marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+        marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
@@ -433,7 +433,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
       return {
         ...state,
         quantityCap: event.data.quantityCap,
-        marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+        marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
@@ -443,7 +443,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
     case "marketplace.listing.published":
       return {
         ...state,
-        marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+        marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,

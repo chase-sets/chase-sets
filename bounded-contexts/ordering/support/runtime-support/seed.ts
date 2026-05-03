@@ -57,6 +57,16 @@ const acceptedOfferSeed = {
   quantityRequested: 1,
 } as const;
 
+const seedShippingAddress = {
+  name: "Chase Sets Demo Buyer",
+  line1: "100 Market Street",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+} as const;
+
 function createSeedContextFor(accountId: AccountId, userId: string) {
   return {
     tenantId: "tnt_identity" as never,
@@ -131,7 +141,7 @@ async function getAcceptedOfferInput(
 ) {
   const result = await services.db.query<{
     product_id: string;
-    marketplace_fee_unit_amount: string;
+    marketplace_sales_fee_unit_amount: string;
     seller_net_unit_amount: string;
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
@@ -139,7 +149,7 @@ async function getAcceptedOfferInput(
   }>(
     `SELECT
        product_id,
-       marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
+       marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        seller_net_unit_amount::text AS seller_net_unit_amount,
        terms_schedule_id,
        terms_agreement_id,
@@ -198,6 +208,7 @@ export async function seedOrderingDatabase(
         checkoutSessionId: "chk_seed_checkout_pending",
         sourceType: "cart-checkout",
         shippingOption: "standard",
+        shippingAddress: seedShippingAddress,
         lines: [await buildCheckoutLine(ordering, checkoutCartLines[0]!)],
         orderIdsOverride: [orderingReservedSeedIds.orders.checkoutPending],
       },
@@ -214,6 +225,7 @@ export async function seedOrderingDatabase(
         checkoutSessionId: "chk_seed_cancelled",
         sourceType: "cart-checkout",
         shippingOption: "expedited",
+        shippingAddress: seedShippingAddress,
         lines: [await buildCheckoutLine(ordering, cancelledCartLines[0]!)],
         orderIdsOverride: [orderingReservedSeedIds.orders.cancelled],
       },
@@ -255,8 +267,8 @@ export async function seedOrderingDatabase(
         selectedOptions: [...acceptedOfferSeed.selectedOptions],
         productSummary: acceptedOfferSeed.productSummary,
         priceAmount: acceptedOfferSeed.priceAmount,
-        marketplaceFeeUnitAmount:
-          acceptedOfferInput?.marketplace_fee_unit_amount ?? "0.00",
+        marketplaceSalesFeeUnitAmount:
+          acceptedOfferInput?.marketplace_sales_fee_unit_amount ?? "0.00",
         sellerNetUnitAmount: acceptedOfferInput?.seller_net_unit_amount ?? "44.00",
         termsScheduleId: acceptedOfferInput?.terms_schedule_id ?? null,
         termsAgreementId: acceptedOfferInput?.terms_agreement_id ?? null,

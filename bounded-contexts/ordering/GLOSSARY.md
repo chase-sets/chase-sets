@@ -36,7 +36,7 @@ An **Order Economics Snapshot** is the immutable capture of price, shipping, Mar
 
 Notes:
 
-- Listing purchases consume the locked Marketplace fee snapshot already carried by listing supply.
+- Listing purchases consume the locked Marketplace sales fee snapshot already carried by listing supply.
 - Accepted offers consume the seller-confirmed fee snapshot emitted by Marketplace at offer acceptance time.
 - Ordering does not resolve Commercial Terms for normal listing purchases.
 

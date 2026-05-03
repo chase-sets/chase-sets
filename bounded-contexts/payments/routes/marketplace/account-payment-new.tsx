@@ -63,6 +63,16 @@ function decimalMoney(value: number) {
   return Math.max(0, value).toFixed(2);
 }
 
+function paymentMethodLabel(method: string) {
+  if (method === "bank-account") {
+    return t("payments.routes.marketplace.accountPaymentNew.bank.account");
+  }
+  if (method === "platform-credit") {
+    return t("payments.routes.marketplace.accountPaymentNew.platform.credit");
+  }
+  return t("payments.routes.marketplace.accountPaymentNew.card");
+}
+
 function requestedBalanceCreditFromForm(formData: FormData) {
   const mode = String(formData.get("balanceCreditMode") ?? "none");
   if (mode === "none") {
@@ -107,15 +117,31 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   const orderingApi = createOrderingRequestApiClient(request);
+  const paymentsApi = createPaymentsRequestApiClient(request);
 
   try {
     const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getPurchase(orderId)));
     const wallet = await loadWalletBalance(request);
+    const totalAmount = orders
+      .reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0)
+      .toFixed(2);
+    const requestedBalanceCreditAmount = decimalMoney(
+      Math.min(
+        Number.parseFloat(totalAmount),
+        Number.parseFloat(wallet?.available_balance_amount ?? "0.00"),
+      ),
+    );
+    const checkoutStatus = await paymentsApi.getCheckoutStatus({
+      orderIds,
+      requestedBalanceCreditAmount,
+      paymentMethodCategory: "card",
+    });
     return {
       orderIds,
       orders,
       autostart: url.searchParams.get("autostart") === "1",
       wallet,
+      checkoutStatus,
     };
   } catch (error) {
     if (error instanceof Error && "status" in error && error.status === 404) {
@@ -140,11 +166,21 @@ export async function action({ request }: ActionFunctionArgs) {
   const paymentsApi = createPaymentsRequestApiClient(request);
 
   try {
+    const requestedBalanceCreditAmount = normalizeRequestedBalanceCreditAmount(
+      requestedBalanceCreditFromForm(formData),
+    );
+    const paymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
+    const checkoutStatus = await paymentsApi.getCheckoutStatus({
+      orderIds,
+      requestedBalanceCreditAmount,
+      paymentMethodCategory,
+    });
     const payment = await paymentsApi.createAccountPayment({
       orderIds,
-      requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
-        requestedBalanceCreditFromForm(formData),
-      ),
+      requestedBalanceCreditAmount,
+      paymentMethodCategory,
+      marketplaceCheckoutFeeQuoteFingerprint:
+        checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
     });
     return redirect(`/account/payments/${payment.payment_id}`);
   } catch (error) {
@@ -183,12 +219,16 @@ export default function MarketplaceAccountPaymentNewRoute() {
   const totalAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0)
     .toFixed(2);
-  const marketplaceFeeAmount = data.orders
-    .reduce((sum, order) => sum + Number.parseFloat(order.marketplace_fee_amount), 0)
+  const marketplaceSalesFeeAmount = data.orders
+    .reduce((sum, order) => sum + Number.parseFloat(order.marketplace_sales_fee_amount), 0)
     .toFixed(2);
   const sellerNetAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.seller_net_amount), 0)
     .toFixed(2);
+  const salesTaxAmount = data.orders
+    .reduce((sum, order) => sum + Number.parseFloat(order.sales_tax_amount ?? "0.00"), 0)
+    .toFixed(2);
+  const selectedCheckoutFee = data.checkoutStatus.marketplace_checkout_fee;
   const availableBalanceAmount = Number.parseFloat(data.wallet?.available_balance_amount ?? "0.00");
   const maxBalanceCreditAmount = decimalMoney(Math.min(Number.parseFloat(totalAmount), availableBalanceAmount));
   const externalAfterMaxAmount = decimalMoney(Number.parseFloat(totalAmount) - Number.parseFloat(maxBalanceCreditAmount));
@@ -212,8 +252,13 @@ export default function MarketplaceAccountPaymentNewRoute() {
               title={t("payments.routes.marketplace.accountPaymentNew.checkout.summary")}
               lines={[
                 { label: t("payments.routes.marketplace.accountPaymentNew.purchases"), value: data.orders.length },
-                { label: t("payments.routes.marketplace.accountPaymentNew.marketplace.fees"), value: formatMoney(marketplaceFeeAmount) },
+                { label: t("payments.routes.marketplace.accountPaymentNew.marketplace.sales.fee"), value: formatMoney(marketplaceSalesFeeAmount) },
                 { label: t("payments.routes.marketplace.accountPaymentNew.seller.net"), value: formatMoney(sellerNetAmount) },
+                { label: t("payments.routes.marketplace.accountPaymentNew.sales.tax"), value: formatMoney(salesTaxAmount) },
+                {
+                  label: t("payments.routes.marketplace.accountPaymentNew.marketplace.checkout.fee"),
+                  value: formatMoney(selectedCheckoutFee.marketplace_checkout_fee_amount),
+                },
                 ...(data.wallet
                   ? [
                       {
@@ -222,8 +267,14 @@ export default function MarketplaceAccountPaymentNewRoute() {
                       },
                     ]
                   : []),
+                {
+                  label: t("payments.routes.marketplace.accountPaymentNew.payment.method.charge", {
+                    method: paymentMethodLabel(selectedCheckoutFee.payment_method_category),
+                  }),
+                  value: formatMoney(selectedCheckoutFee.processor_amount),
+                },
               ]}
-              total={formatMoney(totalAmount)}
+              total={formatMoney(selectedCheckoutFee.total_amount)}
             />
             <CheckoutTrustPanel
               items={[
@@ -278,6 +329,21 @@ export default function MarketplaceAccountPaymentNewRoute() {
                     value={data.wallet?.available_balance_amount ?? "0.00"}
                   />
                   <NativeSelect
+                    label={t("payments.routes.marketplace.accountPaymentNew.payment.method")}
+                    name="paymentMethodCategory"
+                    defaultValue="card"
+                    items={[
+                      { value: "card", label: t("payments.routes.marketplace.accountPaymentNew.card") },
+                      { value: "bank-account", label: t("payments.routes.marketplace.accountPaymentNew.bank.account") },
+                      {
+                        value: "platform-credit",
+                        label: t("payments.routes.marketplace.accountPaymentNew.platform.credit.only"),
+                        disabled: Number.parseFloat(externalAfterMaxAmount) > 0,
+                      },
+                    ]}
+                    description={t("payments.routes.marketplace.accountPaymentNew.marketplace.checkout.fee.description")}
+                  />
+                  <NativeSelect
                     label={t("payments.routes.marketplace.accountPaymentNew.wallet.balance")}
                     name="balanceCreditMode"
                     defaultValue={availableBalanceAmount > 0 ? "max" : "none"}
@@ -321,6 +387,37 @@ export default function MarketplaceAccountPaymentNewRoute() {
               </Form>
             </Stack>
           </Surface>
+
+          <PageSection title={t("payments.routes.marketplace.accountPaymentNew.payment.method.fee.preview")}>
+            <Grid columns={{ base: 1, md: 3 }} gap={3}>
+              {data.checkoutStatus.payment_method_quotes.map((quote) => (
+                <Surface key={quote.payment_method_category} elevated>
+                  <Stack gap={2}>
+                    <Badge tone={quote.payment_method_category === "card" ? "accent" : "success"}>
+                      {paymentMethodLabel(quote.payment_method_category)}
+                    </Badge>
+                    <Text weight="semibold">
+                      {t("payments.routes.marketplace.accountPaymentNew.marketplace.checkout.fee.amount", {
+                        amount: formatMoney(quote.marketplace_checkout_fee_amount),
+                      })}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {Number.parseFloat(quote.marketplace_checkout_fee_reduction_amount) > 0
+                        ? t("payments.routes.marketplace.accountPaymentNew.reduction.from.card", {
+                            amount: formatMoney(quote.marketplace_checkout_fee_reduction_amount),
+                          })
+                        : t("payments.routes.marketplace.accountPaymentNew.base.card.checkout.fee")}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {t("payments.routes.marketplace.accountPaymentNew.final.payment", {
+                        amount: formatMoney(quote.total_amount),
+                      })}
+                    </Text>
+                  </Stack>
+                </Surface>
+              ))}
+            </Grid>
+          </PageSection>
 
           <PageSection title={t("payments.routes.marketplace.accountPaymentNew.purchases.2")}>
             <Stack gap={3}>

@@ -33,8 +33,8 @@ export type OrderingOrderLine = Readonly<{
   unitPriceAmount: string;
   quantity: number;
   lineTotalAmount: string;
-  marketplaceFeeUnitAmount: string;
-  marketplaceFeeTotalAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
+  marketplaceSalesFeeTotalAmount: string;
   sellerNetUnitAmount: string;
   sellerNetTotalAmount: string;
 }>;
@@ -51,11 +51,22 @@ export type OrderingReservationRequest = Readonly<{
 }>;
 
 export type OrderingCommercialTermsSnapshot = Readonly<{
-  marketplaceFeeAmount: string;
+  marketplaceSalesFeeAmount: string;
   sellerNetAmount: string;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
+}>;
+
+export type OrderingTaxSnapshot = Readonly<{
+  taxableAmount: string;
+  salesTaxAmount: string;
+  jurisdictionCountry: string;
+  jurisdictionState: string | null;
+  rateBps: number;
+  providerName: string;
+  providerQuoteReference: string | null;
+  quotedAt: string;
 }>;
 
 export type OrderingOrderState = Readonly<{
@@ -69,7 +80,9 @@ export type OrderingOrderState = Readonly<{
   shippingBaseAmount: string | null;
   shippingDiscountAmount: string | null;
   shippingChargeAmount: string | null;
+  salesTaxAmount: string | null;
   totalAmount: string | null;
+  taxSnapshot: OrderingTaxSnapshot | null;
   commercialTermsSnapshot: OrderingCommercialTermsSnapshot | null;
   lines: OrderingOrderLine[];
   reservationRequests: OrderingReservationRequest[];
@@ -90,7 +103,9 @@ export const initialOrderingOrderState: OrderingOrderState = {
   shippingBaseAmount: null,
   shippingDiscountAmount: null,
   shippingChargeAmount: null,
+  salesTaxAmount: null,
   totalAmount: null,
+  taxSnapshot: null,
   commercialTermsSnapshot: null,
   lines: [],
   reservationRequests: [],
@@ -112,7 +127,9 @@ export type CreateOrderCommand = Readonly<{
   shippingBaseAmount: string;
   shippingDiscountAmount: string;
   shippingChargeAmount: string;
+  salesTaxAmount: string;
   totalAmount: string;
+  taxSnapshot: OrderingTaxSnapshot;
   commercialTermsSnapshot: OrderingCommercialTermsSnapshot;
   lines: OrderingOrderLine[];
   reservationRequests: Array<
@@ -178,7 +195,9 @@ export type OrderCreatedEvent = DomainEvent<
     shippingBaseAmount: string;
     shippingDiscountAmount: string;
     shippingChargeAmount: string;
+    salesTaxAmount: string;
     totalAmount: string;
+    taxSnapshot: OrderingTaxSnapshot;
     commercialTermsSnapshot: OrderingCommercialTermsSnapshot;
     lines: OrderingOrderLine[];
     reservationRequests: Array<
@@ -294,12 +313,12 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
     lineTotalAmount: normalizeMoneyAmount(line.lineTotalAmount, {
       fieldName: "Line total",
     }),
-    marketplaceFeeUnitAmount: normalizeMoneyAmount(line.marketplaceFeeUnitAmount, {
-      fieldName: "Line marketplace fee unit amount",
+    marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(line.marketplaceSalesFeeUnitAmount, {
+      fieldName: "Line marketplace sales fee unit amount",
       allowZero: true,
     }),
-    marketplaceFeeTotalAmount: normalizeMoneyAmount(line.marketplaceFeeTotalAmount, {
-      fieldName: "Line marketplace fee total amount",
+    marketplaceSalesFeeTotalAmount: normalizeMoneyAmount(line.marketplaceSalesFeeTotalAmount, {
+      fieldName: "Line marketplace sales fee total amount",
       allowZero: true,
     }),
     sellerNetUnitAmount: normalizeMoneyAmount(line.sellerNetUnitAmount, {
@@ -351,8 +370,8 @@ function normalizeReservationRequests(
 
 function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnapshot) {
   return {
-    marketplaceFeeAmount: normalizeMoneyAmount(snapshot.marketplaceFeeAmount, {
-      fieldName: "Marketplace fee amount",
+    marketplaceSalesFeeAmount: normalizeMoneyAmount(snapshot.marketplaceSalesFeeAmount, {
+      fieldName: "Marketplace sales fee amount",
       allowZero: true,
     }),
     sellerNetAmount: normalizeMoneyAmount(snapshot.sellerNetAmount, {
@@ -364,6 +383,34 @@ function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnaps
     termsResolvedAt: normalizeRequiredText(
       snapshot.termsResolvedAt,
       "Order economics snapshot must include a resolution timestamp.",
+    ),
+  };
+}
+
+function normalizeTaxSnapshot(snapshot: OrderingTaxSnapshot) {
+  return {
+    taxableAmount: normalizeMoneyAmount(snapshot.taxableAmount, {
+      fieldName: "Taxable amount",
+      allowZero: true,
+    }),
+    salesTaxAmount: normalizeMoneyAmount(snapshot.salesTaxAmount, {
+      fieldName: "Sales tax amount",
+      allowZero: true,
+    }),
+    jurisdictionCountry: normalizeRequiredText(
+      snapshot.jurisdictionCountry,
+      "Tax snapshot must include a jurisdiction country.",
+    ),
+    jurisdictionState: normalizeOptionalText(snapshot.jurisdictionState),
+    rateBps: Math.max(0, Math.trunc(Number(snapshot.rateBps))),
+    providerName: normalizeRequiredText(
+      snapshot.providerName,
+      "Tax snapshot must include a provider name.",
+    ),
+    providerQuoteReference: normalizeOptionalText(snapshot.providerQuoteReference),
+    quotedAt: normalizeRequiredText(
+      snapshot.quotedAt,
+      "Tax snapshot must include a quote timestamp.",
     ),
   };
 }
@@ -431,10 +478,15 @@ export const decideOrderingOrder: AggregateDecider<
               fieldName: "Shipping charge amount",
               allowZero: true,
             }),
+            salesTaxAmount: normalizeMoneyAmount(command.salesTaxAmount, {
+              fieldName: "Sales tax amount",
+              allowZero: true,
+            }),
             totalAmount: normalizeMoneyAmount(command.totalAmount, {
               fieldName: "Order total",
               allowZero: true,
             }),
+            taxSnapshot: normalizeTaxSnapshot(command.taxSnapshot),
             commercialTermsSnapshot: normalizeCommercialTermsSnapshot(
               command.commercialTermsSnapshot,
             ),
@@ -725,7 +777,9 @@ export const evolveOrderingOrder: AggregateEvolver<
         shippingBaseAmount: event.data.shippingBaseAmount,
         shippingDiscountAmount: event.data.shippingDiscountAmount,
         shippingChargeAmount: event.data.shippingChargeAmount,
+        salesTaxAmount: event.data.salesTaxAmount,
         totalAmount: event.data.totalAmount,
+        taxSnapshot: event.data.taxSnapshot,
         commercialTermsSnapshot: event.data.commercialTermsSnapshot,
         lines: event.data.lines,
         reservationRequests: event.data.reservationRequests.map((request) => ({

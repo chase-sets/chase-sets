@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
-  MarketplaceFeeQuoteStaleError,
+  MarketplaceSalesFeeQuoteStaleError,
   type MarketplaceListingServices,
 } from "./runtime";
 
@@ -44,7 +44,7 @@ function errorMessage(error: unknown) {
 }
 
 function validationError(error: unknown) {
-  if (error instanceof MarketplaceFeeQuoteStaleError) {
+  if (error instanceof MarketplaceSalesFeeQuoteStaleError) {
     return new Response(
       JSON.stringify({
         error: {
@@ -128,6 +128,27 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
+  });
+
+  app.get("/listings/fee-lock-report", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const limit = Number(c.req.query("limit") ?? 100);
+    const offset = Number(c.req.query("offset") ?? 0);
+    const result = await services.listSellerListingFeeLockReport({
+      accountId: access.actor.accountId,
+      limit,
+      offset,
+    });
+
+    return c.json({
+      items: result.items,
+      total: result.total,
+      count: result.items.length,
+    });
   });
 
   app.get("/listings/:id", async (c) => {

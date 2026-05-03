@@ -40,6 +40,7 @@ describe("Stripe payment processor gateway", () => {
       orderIds: ["ord_123" as never],
       amount: "12.34",
       currencyCode: "usd",
+      paymentMethodCategory: "card",
       description: "Test payment",
       returnUrl: "https://marketplace.test/account/payments/pay_123",
     });
@@ -107,6 +108,7 @@ describe("Stripe payment processor gateway", () => {
       orderIds: ["ord_123" as never],
       amount: "12.34",
       currencyCode: "usd",
+      paymentMethodCategory: "card",
       description: "Test payment",
       returnUrl: "https://marketplace.test/account/payments/pay_hosted",
     });

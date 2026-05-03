@@ -7,6 +7,7 @@ import {
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
+import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
 import {
   defaultShippingQuotePolicy,
   type ShippingQuotePolicy,
@@ -14,6 +15,7 @@ import {
 
 export type OrderingServiceOptions = Readonly<{
   shippingQuotePolicy?: ShippingQuotePolicy;
+  taxQuoteResolver?: TaxQuoteResolver;
 }>;
 
 export type OrderingServices = Readonly<{
@@ -37,6 +39,7 @@ export function createOrderingServices(
     db,
     shippingQuotePolicy:
       options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
+    taxQuoteResolver: options.taxQuoteResolver,
   });
 
   return {

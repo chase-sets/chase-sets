@@ -394,8 +394,9 @@ export default function MarketplaceAccountPaymentRoute() {
                 { label: t("payments.routes.marketplace.accountPayment.status"), value: <Badge tone={statusTone(data.payment.status)}>{statusCopy.label}</Badge> },
                 { label: t("payments.routes.marketplace.accountPayment.wallet.balance.used"), value: formatMoney(data.payment.balance_credit_amount) },
                 { label: t("payments.routes.marketplace.accountPayment.external.payment"), value: formatMoney(data.payment.processor_amount) },
-                { label: t("payments.routes.marketplace.accountPayment.marketplace.fees"), value: formatMoney(data.payment.marketplace_fee_amount) },
-                { label: t("payments.routes.marketplace.accountPayment.buyer.processing.fee.placeholder"), value: formatMoney(data.payment.payment_fee_amount) },
+                { label: t("payments.routes.marketplace.accountPayment.marketplace.sales.fee"), value: formatMoney(data.payment.marketplace_sales_fee_amount) },
+                { label: t("payments.routes.marketplace.accountPayment.marketplace.checkout.fee"), value: formatMoney(data.payment.marketplace_checkout_fee_amount) },
+                { label: t("payments.routes.marketplace.accountPayment.payment.method"), value: data.payment.payment_method_category ?? "card" },
                 { label: t("payments.routes.marketplace.accountPayment.seller.net"), value: formatMoney(data.payment.seller_net_amount) },
                 { label: t("payments.routes.marketplace.accountPayment.processor"), value: data.payment.processor_name },
               ]}

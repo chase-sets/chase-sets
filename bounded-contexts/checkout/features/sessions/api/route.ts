@@ -61,6 +61,28 @@ function parseSelectedOptions(value: unknown) {
     : [];
 }
 
+function parseShippingAddress(value: unknown) {
+  const source =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    name:
+      source.name === null || source.name === undefined
+        ? null
+        : String(source.name),
+    line1: String(source.line1 ?? ""),
+    line2:
+      source.line2 === null || source.line2 === undefined
+        ? null
+        : String(source.line2),
+    city: String(source.city ?? ""),
+    state: String(source.state ?? ""),
+    postalCode: String(source.postalCode ?? ""),
+    country: String(source.country ?? "US"),
+  };
+}
+
 export function createAccountCheckoutSessionRoutes(
   services: CheckoutSessionServices,
 ) {
@@ -185,6 +207,11 @@ export function createAccountCheckoutSessionRoutes(
       const requestedBalanceCreditAmount = normalizeRequestedBalanceCreditAmount(
         body.requestedBalanceCreditAmount,
       );
+      const paymentMethodCategory = String(body.paymentMethodCategory ?? "card");
+      const marketplaceCheckoutFeeQuoteFingerprint =
+        typeof body.marketplaceCheckoutFeeQuoteFingerprint === "string"
+          ? body.marketplaceCheckoutFeeQuoteFingerprint
+          : null;
 
     try {
       let session = await services.getSession(sessionId, access.actor.accountId);
@@ -198,6 +225,19 @@ export function createAccountCheckoutSessionRoutes(
           order_ids: session.order_ids,
           status: "confirmed",
         });
+      }
+
+      await services.setShippingAddress(
+        {
+          sessionId,
+          accountId: access.actor.accountId as never,
+          shippingAddress: parseShippingAddress(body.shippingAddress),
+        },
+        context,
+      );
+      session = await services.getSession(sessionId, access.actor.accountId);
+      if (!session) {
+        return c.json({ error: { code: "not_found", message: t("checkout.features.sessions.api.route.checkout.session.not.found.2") } }, 404);
       }
 
       let orderIds = [...session.order_ids];
@@ -221,6 +261,8 @@ export function createAccountCheckoutSessionRoutes(
         sessionId,
         orderIds,
         requestedBalanceCreditAmount,
+        paymentMethodCategory,
+        marketplaceCheckoutFeeQuoteFingerprint,
       );
       await services.recordPaymentStarted(
         {

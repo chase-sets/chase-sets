@@ -12,8 +12,8 @@ describe("commercial terms schedules", () => {
       scheduleId: " default-personal ",
       label: " Default Personal ",
       accountType: "personal",
-      marketplaceFeePercentageBps: 250,
-      marketplaceFeeFixedAmount: "0",
+      marketplaceSalesFeePercentageBps: 250,
+      marketplaceSalesFeeFixedAmount: "0",
       status: "active",
       effectiveFrom: "2026-04-30T00:00:00.000Z",
       effectiveUntil: null,
@@ -23,7 +23,7 @@ describe("commercial terms schedules", () => {
     expect(state).toMatchObject({
       scheduleId: "default-personal",
       label: "Default Personal",
-      marketplaceFeeFixedAmount: "0.00",
+      marketplaceSalesFeeFixedAmount: "0.00",
     });
     expect(() =>
       decideCommercialTermsSchedule(state, {
@@ -31,8 +31,8 @@ describe("commercial terms schedules", () => {
         scheduleId: "default-personal",
         label: "Default Personal",
         accountType: "personal",
-        marketplaceFeePercentageBps: 250,
-        marketplaceFeeFixedAmount: "0",
+        marketplaceSalesFeePercentageBps: 250,
+        marketplaceSalesFeeFixedAmount: "0",
         status: "active",
         effectiveFrom: "2026-04-30T00:00:00.000Z",
         effectiveUntil: null,

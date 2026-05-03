@@ -18,8 +18,8 @@ export type CommercialAgreementState = Readonly<{
   agreementId: string | null;
   accountId: string | null;
   label: string | null;
-  marketplaceFeePercentageBps: number | null;
-  marketplaceFeeFixedAmount: string | null;
+  marketplaceSalesFeePercentageBps: number | null;
+  marketplaceSalesFeeFixedAmount: string | null;
   status: CommercialTermsStatus | null;
   effectiveFrom: string | null;
   effectiveUntil: string | null;
@@ -29,8 +29,8 @@ export const initialCommercialAgreementState: CommercialAgreementState = {
   agreementId: null,
   accountId: null,
   label: null,
-  marketplaceFeePercentageBps: null,
-  marketplaceFeeFixedAmount: null,
+  marketplaceSalesFeePercentageBps: null,
+  marketplaceSalesFeeFixedAmount: null,
   status: null,
   effectiveFrom: null,
   effectiveUntil: null,
@@ -41,8 +41,8 @@ export type CreateAgreementCommand = Readonly<{
   agreementId: string;
   accountId: string;
   label: string;
-  marketplaceFeePercentageBps: number;
-  marketplaceFeeFixedAmount: string;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
@@ -56,8 +56,8 @@ export type AgreementCreatedEvent = DomainEvent<
     agreementId: string;
     accountId: string;
     label: string;
-    marketplaceFeePercentageBps: number;
-    marketplaceFeeFixedAmount: string;
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
@@ -81,14 +81,14 @@ export const decideCommercialAgreement: AggregateDecider<
             agreementId: normalizeLabel(command.agreementId, "Agreement id"),
             accountId: normalizeLabel(command.accountId, "Account id"),
             label: normalizeLabel(command.label, "Agreement label"),
-            marketplaceFeePercentageBps: normalizePercentageBps(
-              command.marketplaceFeePercentageBps,
-              "Marketplace fee percentage",
+            marketplaceSalesFeePercentageBps: normalizePercentageBps(
+              command.marketplaceSalesFeePercentageBps,
+              "Marketplace sales fee percentage",
             ),
-            marketplaceFeeFixedAmount: normalizeMoneyAmount(
-              command.marketplaceFeeFixedAmount,
+            marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(
+              command.marketplaceSalesFeeFixedAmount,
               {
-                fieldName: "Marketplace fee fixed amount",
+                fieldName: "Marketplace sales fee fixed amount",
                 allowZero: true,
               },
             ),
@@ -122,8 +122,8 @@ export const evolveCommercialAgreement: AggregateEvolver<
         agreementId: event.data.agreementId,
         accountId: event.data.accountId,
         label: event.data.label,
-        marketplaceFeePercentageBps: event.data.marketplaceFeePercentageBps,
-        marketplaceFeeFixedAmount: event.data.marketplaceFeeFixedAmount,
+        marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
+        marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,
         status: event.data.status,
         effectiveFrom: event.data.effectiveFrom,
         effectiveUntil: event.data.effectiveUntil,

@@ -26,8 +26,11 @@ export type PaymentState = Readonly<{
   amount: string | null;
   balanceCreditAmount: string;
   processorAmount: string | null;
-  marketplaceFeeAmount: string | null;
-  paymentFeeAmount: string | null;
+  marketplaceSalesFeeAmount: string | null;
+  marketplaceCheckoutFeeAmount: string | null;
+  marketplaceCheckoutFeePolicyVersion: string | null;
+  marketplaceCheckoutFeeQuoteFingerprint: string | null;
+  paymentMethodCategory: string | null;
   sellerNetAmount: string | null;
   currencyCode: CurrencyCode | null;
   processorName: PaymentProcessorName | null;
@@ -54,8 +57,11 @@ export const initialPaymentState: PaymentState = {
   amount: null,
   balanceCreditAmount: "0.00",
   processorAmount: null,
-  marketplaceFeeAmount: null,
-  paymentFeeAmount: null,
+  marketplaceSalesFeeAmount: null,
+  marketplaceCheckoutFeeAmount: null,
+  marketplaceCheckoutFeePolicyVersion: null,
+  marketplaceCheckoutFeeQuoteFingerprint: null,
+  paymentMethodCategory: null,
   sellerNetAmount: null,
   currencyCode: null,
   processorName: null,
@@ -83,8 +89,11 @@ export type CreatePaymentCommand = Readonly<{
   amount: string;
   balanceCreditAmount?: string;
   processorAmount?: string;
-  marketplaceFeeAmount: string;
-  paymentFeeAmount: string;
+  marketplaceSalesFeeAmount: string;
+  marketplaceCheckoutFeeAmount: string;
+  marketplaceCheckoutFeePolicyVersion?: string | null;
+  marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+  paymentMethodCategory?: string | null;
   sellerNetAmount: string;
   currencyCode: CurrencyCode;
   processorName: PaymentProcessorName;
@@ -139,8 +148,11 @@ export type PaymentCreatedEvent = DomainEvent<
     amount: string;
     balanceCreditAmount: string;
     processorAmount: string;
-    marketplaceFeeAmount: string;
-    paymentFeeAmount: string;
+    marketplaceSalesFeeAmount: string;
+    marketplaceCheckoutFeeAmount: string;
+    marketplaceCheckoutFeePolicyVersion: string | null;
+    marketplaceCheckoutFeeQuoteFingerprint: string | null;
+    paymentMethodCategory: string | null;
     sellerNetAmount: string;
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
@@ -173,8 +185,11 @@ export type PaymentCapturedEvent = DomainEvent<
     amount: string;
     balanceCreditAmount: string;
     processorAmount: string;
-    marketplaceFeeAmount: string;
-    paymentFeeAmount: string;
+    marketplaceSalesFeeAmount: string;
+    marketplaceCheckoutFeeAmount: string;
+    marketplaceCheckoutFeePolicyVersion: string | null;
+    marketplaceCheckoutFeeQuoteFingerprint: string | null;
+    paymentMethodCategory: string | null;
     sellerNetAmount: string;
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
@@ -193,8 +208,11 @@ export type PaymentFailedEvent = DomainEvent<
     amount: string;
     balanceCreditAmount: string;
     processorAmount: string;
-    marketplaceFeeAmount: string;
-    paymentFeeAmount: string;
+    marketplaceSalesFeeAmount: string;
+    marketplaceCheckoutFeeAmount: string;
+    marketplaceCheckoutFeePolicyVersion: string | null;
+    marketplaceCheckoutFeeQuoteFingerprint: string | null;
+    paymentMethodCategory: string | null;
     sellerNetAmount: string;
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
@@ -250,14 +268,23 @@ export const decidePayment: AggregateDecider<
               fieldName: "External payment amount",
               allowZero: true,
             }),
-            marketplaceFeeAmount: normalizeMoneyAmount(command.marketplaceFeeAmount, {
-              fieldName: "Marketplace fee amount",
+            marketplaceSalesFeeAmount: normalizeMoneyAmount(command.marketplaceSalesFeeAmount, {
+              fieldName: "Marketplace sales fee amount",
               allowZero: true,
             }),
-            paymentFeeAmount: normalizeMoneyAmount(command.paymentFeeAmount, {
-              fieldName: "Payment fee amount",
+            marketplaceCheckoutFeeAmount: normalizeMoneyAmount(command.marketplaceCheckoutFeeAmount, {
+              fieldName: "Marketplace checkout fee amount",
               allowZero: true,
             }),
+            marketplaceCheckoutFeePolicyVersion: normalizeOptionalText(
+              command.marketplaceCheckoutFeePolicyVersion,
+            ),
+            marketplaceCheckoutFeeQuoteFingerprint: normalizeOptionalText(
+              command.marketplaceCheckoutFeeQuoteFingerprint,
+            ),
+            paymentMethodCategory: normalizeOptionalText(
+              command.paymentMethodCategory,
+            ),
             sellerNetAmount: normalizeMoneyAmount(command.sellerNetAmount, {
               fieldName: "Seller net amount",
               allowZero: true,
@@ -322,8 +349,13 @@ export const decidePayment: AggregateDecider<
             amount: state.amount!,
             balanceCreditAmount: state.balanceCreditAmount,
             processorAmount: state.processorAmount!,
-            marketplaceFeeAmount: state.marketplaceFeeAmount!,
-            paymentFeeAmount: state.paymentFeeAmount!,
+            marketplaceSalesFeeAmount: state.marketplaceSalesFeeAmount!,
+            marketplaceCheckoutFeeAmount: state.marketplaceCheckoutFeeAmount!,
+            marketplaceCheckoutFeePolicyVersion:
+              state.marketplaceCheckoutFeePolicyVersion,
+            marketplaceCheckoutFeeQuoteFingerprint:
+              state.marketplaceCheckoutFeeQuoteFingerprint,
+            paymentMethodCategory: state.paymentMethodCategory,
             sellerNetAmount: state.sellerNetAmount!,
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
@@ -356,8 +388,13 @@ export const decidePayment: AggregateDecider<
             amount: state.amount!,
             balanceCreditAmount: state.balanceCreditAmount,
             processorAmount: state.processorAmount!,
-            marketplaceFeeAmount: state.marketplaceFeeAmount!,
-            paymentFeeAmount: state.paymentFeeAmount!,
+            marketplaceSalesFeeAmount: state.marketplaceSalesFeeAmount!,
+            marketplaceCheckoutFeeAmount: state.marketplaceCheckoutFeeAmount!,
+            marketplaceCheckoutFeePolicyVersion:
+              state.marketplaceCheckoutFeePolicyVersion,
+            marketplaceCheckoutFeeQuoteFingerprint:
+              state.marketplaceCheckoutFeeQuoteFingerprint,
+            paymentMethodCategory: state.paymentMethodCategory,
             sellerNetAmount: state.sellerNetAmount!,
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
@@ -411,8 +448,13 @@ export const evolvePayment: AggregateEvolver<
         amount: event.data.amount,
         balanceCreditAmount: event.data.balanceCreditAmount,
         processorAmount: event.data.processorAmount,
-        marketplaceFeeAmount: event.data.marketplaceFeeAmount,
-        paymentFeeAmount: event.data.paymentFeeAmount,
+        marketplaceSalesFeeAmount: event.data.marketplaceSalesFeeAmount,
+        marketplaceCheckoutFeeAmount: event.data.marketplaceCheckoutFeeAmount,
+        marketplaceCheckoutFeePolicyVersion:
+          event.data.marketplaceCheckoutFeePolicyVersion ?? null,
+        marketplaceCheckoutFeeQuoteFingerprint:
+          event.data.marketplaceCheckoutFeeQuoteFingerprint ?? null,
+        paymentMethodCategory: event.data.paymentMethodCategory ?? null,
         sellerNetAmount: event.data.sellerNetAmount,
         currencyCode: event.data.currencyCode,
         processorName: event.data.processorName,

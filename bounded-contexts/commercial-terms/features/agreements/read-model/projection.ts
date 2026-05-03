@@ -8,8 +8,8 @@ export function buildAgreementProjectionHandlers(db: PgQueryable): ProjectorHand
         agreementId: string;
         accountId: string;
         label: string;
-        marketplaceFeePercentageBps: number;
-        marketplaceFeeFixedAmount: string;
+        marketplaceSalesFeePercentageBps: number;
+        marketplaceSalesFeeFixedAmount: string;
         status: string;
         effectiveFrom: string;
         effectiveUntil: string | null;
@@ -20,8 +20,8 @@ export function buildAgreementProjectionHandlers(db: PgQueryable): ProjectorHand
            agreement_id,
            account_id,
            label,
-           marketplace_fee_percentage_bps,
-           marketplace_fee_fixed_amount,
+           marketplace_sales_fee_percentage_bps,
+           marketplace_sales_fee_fixed_amount,
            status,
            effective_from,
            effective_until,
@@ -33,8 +33,8 @@ export function buildAgreementProjectionHandlers(db: PgQueryable): ProjectorHand
          ON CONFLICT (agreement_id) DO UPDATE
          SET account_id = EXCLUDED.account_id,
              label = EXCLUDED.label,
-             marketplace_fee_percentage_bps = EXCLUDED.marketplace_fee_percentage_bps,
-             marketplace_fee_fixed_amount = EXCLUDED.marketplace_fee_fixed_amount,
+             marketplace_sales_fee_percentage_bps = EXCLUDED.marketplace_sales_fee_percentage_bps,
+             marketplace_sales_fee_fixed_amount = EXCLUDED.marketplace_sales_fee_fixed_amount,
              status = EXCLUDED.status,
              effective_from = EXCLUDED.effective_from,
              effective_until = EXCLUDED.effective_until,
@@ -43,8 +43,8 @@ export function buildAgreementProjectionHandlers(db: PgQueryable): ProjectorHand
           data.agreementId,
           data.accountId,
           data.label,
-          data.marketplaceFeePercentageBps,
-          data.marketplaceFeeFixedAmount,
+          data.marketplaceSalesFeePercentageBps,
+          data.marketplaceSalesFeeFixedAmount,
           data.status,
           data.effectiveFrom,
           data.effectiveUntil,

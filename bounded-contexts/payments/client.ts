@@ -4,6 +4,7 @@ import type { buildPaymentsApi } from "./api";
 import type {
   PaymentsCheckoutStatus,
   PaymentsCheckoutRecoveryOptions,
+  PaymentsMarketplaceCheckoutFeePolicy,
   PaymentsPaymentDetail,
   PaymentsProviderEvent,
 } from "./features/payments/api/contracts";
@@ -17,6 +18,8 @@ export type CreateAccountPaymentRequest = Readonly<{
   sourceContext?: string | null;
   sourceReferenceId?: string | null;
   requestedBalanceCreditAmount?: string | null;
+  paymentMethodCategory?: string | null;
+  marketplaceCheckoutFeeQuoteFingerprint?: string | null;
 }>;
 
 export class PaymentsApiError extends Error {
@@ -99,11 +102,13 @@ export function createPaymentsApiClient({
       orderIds: readonly string[];
       currencyCode?: string;
       requestedBalanceCreditAmount?: string | null;
+      paymentMethodCategory?: string | null;
     }>): Promise<PaymentsCheckoutStatus> {
       const query = {
         orderIds: params.orderIds.join(","),
         currencyCode: params.currencyCode ?? "usd",
         requestedBalanceCreditAmount: params.requestedBalanceCreditAmount ?? undefined,
+        paymentMethodCategory: params.paymentMethodCategory ?? undefined,
       };
       return parseJsonResponse(
         await client.account.checkout.status.$get({
@@ -126,6 +131,7 @@ export function createPaymentsApiClient({
       orderIds: readonly string[];
       currencyCode?: string;
       requestedBalanceCreditAmount?: string | null;
+      paymentMethodCategory?: string | null;
     }>): Promise<PaymentsCheckoutRecoveryOptions> {
       return parseJsonResponse(
         await client.account.checkout.recovery.$get({
@@ -134,6 +140,7 @@ export function createPaymentsApiClient({
             currencyCode: params.currencyCode ?? "usd",
             requestedBalanceCreditAmount:
               params.requestedBalanceCreditAmount ?? undefined,
+            paymentMethodCategory: params.paymentMethodCategory ?? undefined,
           },
           header: headers,
         }),
@@ -156,6 +163,13 @@ export function createPaymentsApiClient({
         await client.account["provider-health"].$get({ header: headers }),
       );
     },
+    async getMarketplaceCheckoutFeePolicy(): Promise<PaymentsMarketplaceCheckoutFeePolicy> {
+      return parseJsonResponse(
+        await client.account["marketplace-checkout-fee-policy"].$get({
+          header: headers,
+        }),
+      );
+    },
     async getProviderEvent(providerEventId: string): Promise<PaymentsProviderEvent> {
       return parseJsonResponse(
         await client.account["provider-events"][":providerEventId"].$get({
@@ -170,6 +184,7 @@ export function createPaymentsApiClient({
 export type {
   PaymentsCheckoutStatus,
   PaymentsCheckoutRecoveryOptions,
+  PaymentsMarketplaceCheckoutFeePolicy,
   PaymentsPaymentDetail,
   PaymentsProviderEvent,
 } from "./features/payments/api/contracts";

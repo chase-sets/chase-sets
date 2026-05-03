@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   buyer_account_id text NOT NULL,
   source_type text NOT NULL,
   shipping_option text NOT NULL,
+  shipping_address jsonb NULL,
   lines jsonb NOT NULL DEFAULT '[]'::jsonb,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   payment_id text NULL,
@@ -13,4 +14,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
 
 CREATE INDEX IF NOT EXISTS checkout_session_pages_buyer_idx
   ON checkout_session_pages (buyer_account_id, updated_at DESC, session_id DESC);
+
+ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS shipping_address jsonb NULL;
 `;

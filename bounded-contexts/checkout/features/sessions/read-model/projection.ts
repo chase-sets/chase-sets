@@ -21,16 +21,18 @@ export function buildCheckoutSessionProjectionHandlers(
            buyer_account_id,
            source_type,
            shipping_option,
+           shipping_address,
            lines,
            order_ids,
            payment_id,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, NULL, $6, $6)
+         ) VALUES ($1, $2, $3, $4, NULL, $5, '[]'::jsonb, NULL, $6, $6)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
              shipping_option = EXCLUDED.shipping_option,
+             shipping_address = EXCLUDED.shipping_address,
              lines = EXCLUDED.lines,
              updated_at = EXCLUDED.updated_at`,
         [
@@ -56,6 +58,21 @@ export function buildCheckoutSessionProjectionHandlers(
              updated_at = $3
          WHERE session_id = $1`,
         [data.sessionId, data.shippingOption, data.selectedAt],
+      );
+    },
+    "checkout.session.shipping-address-set": async (event) => {
+      const data = event.data as {
+        sessionId: string;
+        shippingAddress: unknown;
+        selectedAt: string;
+      };
+
+      await db.query(
+        `UPDATE checkout_session_pages
+         SET shipping_address = $2,
+             updated_at = $3
+         WHERE session_id = $1`,
+        [data.sessionId, JSON.stringify(data.shippingAddress), data.selectedAt],
       );
     },
     "checkout.session.orders-created": async (event) => {

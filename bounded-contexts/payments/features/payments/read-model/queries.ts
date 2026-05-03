@@ -7,8 +7,11 @@ export type PaymentDetailRow = Readonly<{
   amount: string;
   balance_credit_amount: string;
   processor_amount: string;
-  marketplace_fee_amount: string;
-  payment_fee_amount: string;
+  marketplace_sales_fee_amount: string;
+  marketplace_checkout_fee_amount: string;
+  marketplace_checkout_fee_policy_version: string | null;
+  marketplace_checkout_fee_quote_fingerprint: string | null;
+  payment_method_category: string | null;
   seller_net_amount: string;
   currency_code: string;
   processor_name: string;
@@ -80,8 +83,11 @@ const paymentSelect = `
     amount::text AS amount,
     balance_credit_amount::text AS balance_credit_amount,
     processor_amount::text AS processor_amount,
-    marketplace_fee_amount::text AS marketplace_fee_amount,
-    payment_fee_amount::text AS payment_fee_amount,
+    marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
+    marketplace_checkout_fee_amount::text AS marketplace_checkout_fee_amount,
+    marketplace_checkout_fee_policy_version,
+    marketplace_checkout_fee_quote_fingerprint,
+    payment_method_category,
     seller_net_amount::text AS seller_net_amount,
     currency_code,
     processor_name,

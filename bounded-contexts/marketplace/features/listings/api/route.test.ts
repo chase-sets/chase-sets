@@ -41,7 +41,7 @@ function createServices(): MarketplaceListingServices {
         stream_version: 2,
         price_amount: null,
         quantity_cap: null,
-        marketplace_fee_unit_amount: "1.00",
+        marketplace_sales_fee_unit_amount: "1.00",
         seller_net_unit_amount: "19.00",
         terms_schedule_id: "cts_default",
         terms_agreement_id: null,
@@ -52,6 +52,28 @@ function createServices(): MarketplaceListingServices {
       },
     ]),
     listSellerListings: vi.fn(async () => ({ items: [], total: 0 })),
+    listSellerListingFeeLockReport: vi.fn(async () => ({
+      items: [
+        {
+          listing_id: "lst_1",
+          inventory_item_id: "inv_1",
+          item_title: "Charizard",
+          product_summary: "Condition: Near Mint",
+          status: "active",
+          price_amount: "20.00",
+          quantity_cap: 1,
+          marketplace_sales_fee_unit_amount: "1.00",
+          seller_net_unit_amount: "19.00",
+          terms_schedule_id: "cts_default",
+          terms_agreement_id: null,
+          terms_resolved_at: "2026-04-17T00:00:00.000Z",
+          fee_quote_fingerprint: "20.00|1.00|19.00|cts_default|",
+          created_at: "2026-04-17T00:00:00.000Z",
+          updated_at: "2026-04-17T00:00:00.000Z",
+        },
+      ],
+      total: 1,
+    })),
     listSellerInventoryItemSupply: vi.fn(async () => ({ items: [], total: 0 })),
     projectors: [],
   } as unknown as MarketplaceListingServices;
@@ -126,7 +148,7 @@ describe("marketplace listing routes", () => {
       items: [
         {
           event_type: "marketplace.listing.published",
-          marketplace_fee_unit_amount: "1.00",
+          marketplace_sales_fee_unit_amount: "1.00",
           seller_net_unit_amount: "19.00",
           performed_by_user_id: "usr_seller",
         },
@@ -135,6 +157,45 @@ describe("marketplace listing routes", () => {
     expect(services.listSellerListingFeeHistory).toHaveBeenCalledWith({
       listingId: "lst_1",
       accountId: "acc_seller",
+    });
+  });
+
+  it("returns seller fee lock report rows", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings/fee-lock-report"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      total: 1,
+      count: 1,
+      items: [
+        {
+          listing_id: "lst_1",
+          marketplace_sales_fee_unit_amount: "1.00",
+          seller_net_unit_amount: "19.00",
+          fee_quote_fingerprint: "20.00|1.00|19.00|cts_default|",
+        },
+      ],
+    });
+    expect(services.listSellerListingFeeLockReport).toHaveBeenCalledWith({
+      accountId: "acc_seller",
+      limit: 100,
+      offset: 0,
     });
   });
 });

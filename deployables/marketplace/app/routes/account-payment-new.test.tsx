@@ -18,9 +18,10 @@ type PurchaseDetail = Readonly<{
   shipping_base_amount: string;
   shipping_discount_amount: string;
   shipping_charge_amount: string;
+  sales_tax_amount: string;
   total_amount: string;
-  marketplace_fee_amount: string;
-  payment_fee_amount: string;
+  marketplace_sales_fee_amount: string;
+  marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
   status: string;
   created_at: string;
@@ -88,11 +89,12 @@ function buildPurchase(purchaseId: string): PurchaseDetail {
     shipping_option: "standard",
     item_subtotal_amount: "10.00",
     shipping_base_amount: "1.00",
-    shipping_discount_amount: "0.00",
-    shipping_charge_amount: "1.00",
-    total_amount: "11.00",
-    marketplace_fee_amount: "1.00",
-    payment_fee_amount: "0.50",
+  shipping_discount_amount: "0.00",
+  shipping_charge_amount: "1.00",
+  sales_tax_amount: "0.00",
+  total_amount: "11.00",
+    marketplace_sales_fee_amount: "1.00",
+    marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "9.50",
     status: "pending-payment",
     created_at: "2026-04-01T00:00:00.000Z",
@@ -105,6 +107,55 @@ function buildPurchase(purchaseId: string): PurchaseDetail {
     inventory_holds: [],
   };
 }
+
+const checkoutStatus = {
+  order_ids: ["ord_1", "ord_2"],
+  currency_code: "usd",
+  amount: "22.00",
+  marketplace_checkout_fee: {
+    payment_method_category: "card" as const,
+    external_basis_amount: "9.50",
+    marketplace_checkout_fee_amount: "0.60",
+    marketplace_checkout_fee_reduction_amount: "0.00",
+    total_amount: "22.60",
+    processor_amount: "10.10",
+    policy_version: "marketplace-checkout-fee-v1",
+    quote_fingerprint: "quote_card",
+    quoted_at: "2026-04-01T00:00:00.000Z",
+  },
+  payment_method_quotes: [
+    {
+      payment_method_category: "card" as const,
+      external_basis_amount: "9.50",
+      marketplace_checkout_fee_amount: "0.60",
+      marketplace_checkout_fee_reduction_amount: "0.00",
+      total_amount: "22.60",
+      processor_amount: "10.10",
+      policy_version: "marketplace-checkout-fee-v1",
+      quote_fingerprint: "quote_card",
+      quoted_at: "2026-04-01T00:00:00.000Z",
+    },
+    {
+      payment_method_category: "bank-account" as const,
+      external_basis_amount: "9.50",
+      marketplace_checkout_fee_amount: "0.05",
+      marketplace_checkout_fee_reduction_amount: "0.55",
+      total_amount: "22.05",
+      processor_amount: "9.55",
+      policy_version: "marketplace-checkout-fee-v1",
+      quote_fingerprint: "quote_bank",
+      quoted_at: "2026-04-01T00:00:00.000Z",
+    },
+  ],
+  wallet_credit: {
+    requested_amount: "12.50",
+    applied_amount: "12.50",
+    external_amount: "9.50",
+  },
+  can_start_payment: true,
+  unavailable_reasons: [],
+  unavailable_reason_details: [],
+};
 
 describe("marketplace account payment start route", () => {
   beforeEach(() => {
@@ -132,6 +183,7 @@ describe("marketplace account payment start route", () => {
         available_balance_amount: "0.00",
         currency_code: "usd",
       },
+      checkoutStatus,
     });
     mockUseSubmit.mockReturnValue(submit);
 
@@ -142,7 +194,7 @@ describe("marketplace account payment start route", () => {
     );
 
     expect(screen.getByText("Start payment")).toBeTruthy();
-    expect(screen.getByText("$22.00")).toBeTruthy();
+    expect(screen.getByText("$22.60")).toBeTruthy();
     expect(screen.getByText("Ready to initialize payment")).toBeTruthy();
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
@@ -171,6 +223,10 @@ describe("marketplace account payment start route", () => {
           }));
         }
 
+        if (url.includes("/api/marketplace/account/checkout/status")) {
+          return Promise.resolve(jsonResponse(checkoutStatus));
+        }
+
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
       }),
     );
@@ -197,6 +253,10 @@ describe("marketplace account payment start route", () => {
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = requestUrl(input);
+
+        if (url.includes("/api/marketplace/account/checkout/status")) {
+          return Promise.resolve(jsonResponse(checkoutStatus));
+        }
 
         if (
           url.includes("/api/marketplace/account/payments") &&

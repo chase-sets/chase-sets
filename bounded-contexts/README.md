@@ -14,7 +14,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
-| [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace fee policy and account-specific commercial agreements. |
+| [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace sales fee policy and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
 | [Ordering](./ordering/README.md) | Own per-seller orders and commercial commitment. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
@@ -231,7 +231,7 @@ Each context may define rich internal domain events, but only a small, stable in
 These scenarios should map cleanly to one owner per decision:
 
 1. Inventory owns bulk stock ingestion and account-held stock for a resolved product.
-2. Commercial Terms owns seller-side marketplace fee schedules, negotiated overrides, and deterministic fee resolutions.
+2. Commercial Terms owns seller-side marketplace sales fee schedules, negotiated overrides, and deterministic fee resolutions.
 3. Marketplace owns listing publication and offer negotiation for products.
 4. Checkout owns cart intent and checkout sessions; Ordering owns order creation for committed products.
 5. Fulfillment owns shipment state and tracking.

@@ -20,8 +20,8 @@ export async function action({ request }: ActionFunctionArgs) {
     await api.createSchedule({
       label: formData.get("label"),
       accountType: formData.get("accountType"),
-      marketplaceFeePercentageBps: Number(formData.get("marketplaceFeePercentageBps") ?? 0),
-      marketplaceFeeFixedAmount: formData.get("marketplaceFeeFixedAmount"),
+      marketplaceSalesFeePercentageBps: Number(formData.get("marketplaceSalesFeePercentageBps") ?? 0),
+      marketplaceSalesFeeFixedAmount: formData.get("marketplaceSalesFeeFixedAmount"),
       status: formData.get("status"),
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),

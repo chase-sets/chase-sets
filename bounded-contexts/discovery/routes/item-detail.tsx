@@ -386,7 +386,7 @@ function MarketplaceOfferMatchSection({
                   <>
                     <Text size="sm" tone="secondary">
                       {t("discovery.routes.itemDetail.offer.marketplace.fee", {
-                        amount: selectedOffer.acceptance_terms.marketplace_fee_unit_amount,
+                        amount: selectedOffer.acceptance_terms.marketplace_sales_fee_unit_amount,
                       })}
                     </Text>
                     <Text size="sm" tone="secondary">

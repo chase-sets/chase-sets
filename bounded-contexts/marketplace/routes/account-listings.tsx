@@ -14,6 +14,7 @@ import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type MarketplaceListingInventoryItemOption,
+  type MarketplaceListingFeeLockReportEntry,
   type MarketplaceListingListItem,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
@@ -56,8 +57,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const inventoryApi = createInventoryRequestApiClient(request);
   const selectedInventoryItemId = new URL(request.url).searchParams.get("inventoryItemId");
 
-  const [listings, items] = await Promise.all([
+  const [listings, feeLockReport, items] = await Promise.all([
     marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
+    marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
     inventoryApi.listItems(DEFAULT_ITEM_QUERY),
   ]);
   const inventoryItems = (items.items as InventoryItemListItem[])
@@ -69,6 +71,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     listings,
+    feeLockReport,
     inventoryItems,
     createForm: selectedInventoryItem
       ? {
@@ -143,10 +146,14 @@ export default function MarketplaceAccountListingsRoute() {
     | { actor?: { accountId?: string } | null }
     | undefined;
   const [listings, setListings] = useState(data.listings as ListResponse<MarketplaceListingListItem>);
+  const [feeLockReport, setFeeLockReport] = useState(
+    data.feeLockReport as ListResponse<MarketplaceListingFeeLockReportEntry>,
+  );
 
   useEffect(() => {
     setListings(data.listings as ListResponse<MarketplaceListingListItem>);
-  }, [data.listings]);
+    setFeeLockReport(data.feeLockReport as ListResponse<MarketplaceListingFeeLockReportEntry>);
+  }, [data.feeLockReport, data.listings]);
 
   useEffect(() => {
     const accountId = rootData?.actor?.accountId;
@@ -163,6 +170,12 @@ export default function MarketplaceAccountListingsRoute() {
             idField: "listing_id",
           }),
         );
+        setFeeLockReport((current) =>
+          applyMarketplaceListPatch(current, patch, {
+            entity: "marketplace.sellerListing",
+            idField: "listing_id",
+          }),
+        );
       },
       onSyncRequired: reloadForRealtimeSync,
     });
@@ -173,6 +186,7 @@ export default function MarketplaceAccountListingsRoute() {
   return (
     <MarketplaceListingListPage
       data={listings}
+      feeLockReport={feeLockReport}
       inventoryItems={data.inventoryItems}
       createForm={actionData?.createForm ?? data.createForm ?? undefined}
       createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}

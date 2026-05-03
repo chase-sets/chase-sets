@@ -1,11 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CheckoutSessionLine } from "../domain/domain";
+import type { CheckoutSessionLine, CheckoutShippingAddress } from "../domain/domain";
 
 export type CheckoutSessionRow = Readonly<{
   session_id: string;
   buyer_account_id: string;
   source_type: "cart" | "buy-now";
   shipping_option: "standard" | "expedited" | "priority";
+  shipping_address: CheckoutShippingAddress | null;
   lines: readonly CheckoutSessionLine[];
   order_ids: readonly string[];
   payment_id: string | null;
@@ -20,6 +21,7 @@ type CheckoutSessionPageRow = Omit<
   Readonly<{
     source_type: string;
     shipping_option: string;
+    shipping_address: unknown;
     lines: unknown;
     order_ids: unknown;
   }>;
@@ -32,6 +34,10 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
       row.shipping_option === "expedited" || row.shipping_option === "priority"
         ? row.shipping_option
         : "standard",
+    shipping_address:
+      typeof row.shipping_address === "object" && row.shipping_address !== null
+        ? (row.shipping_address as CheckoutShippingAddress)
+        : null,
     lines: Array.isArray(row.lines)
       ? (row.lines as CheckoutSessionLine[])
       : [],
@@ -52,6 +58,7 @@ export async function getCheckoutSession(
        buyer_account_id,
        source_type,
        shipping_option,
+       shipping_address,
        lines,
        order_ids,
        payment_id,

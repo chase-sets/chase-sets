@@ -19,7 +19,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
-    marketplace_fee_unit_amount: string;
+    marketplace_sales_fee_unit_amount: string;
     seller_net_unit_amount: string;
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
@@ -85,7 +85,7 @@ export function buildMarketplaceListingProjectionHandlers(
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
-        marketplaceFeeUnitAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
@@ -109,7 +109,7 @@ export function buildMarketplaceListingProjectionHandlers(
           storage_location_name,
           ship_from_code,
           price_amount,
-          marketplace_fee_unit_amount,
+          marketplace_sales_fee_unit_amount,
           seller_net_unit_amount,
           terms_schedule_id,
           terms_agreement_id,
@@ -135,7 +135,7 @@ export function buildMarketplaceListingProjectionHandlers(
           storage_location_name = EXCLUDED.storage_location_name,
           ship_from_code = EXCLUDED.ship_from_code,
           price_amount = EXCLUDED.price_amount,
-          marketplace_fee_unit_amount = EXCLUDED.marketplace_fee_unit_amount,
+          marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
           seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
           terms_schedule_id = EXCLUDED.terms_schedule_id,
           terms_agreement_id = EXCLUDED.terms_agreement_id,
@@ -159,7 +159,7 @@ export function buildMarketplaceListingProjectionHandlers(
           data.storageLocationName,
           data.shipFromCode,
           data.priceAmount,
-          data.marketplaceFeeUnitAmount,
+          data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.termsScheduleId,
           data.termsAgreementId,
@@ -175,7 +175,7 @@ export function buildMarketplaceListingProjectionHandlers(
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const {
         priceAmount,
-        marketplaceFeeUnitAmount,
+        marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount,
         termsScheduleId,
         termsAgreementId,
@@ -183,7 +183,7 @@ export function buildMarketplaceListingProjectionHandlers(
         feeQuoteFingerprint,
       } = event.data as {
         priceAmount: string;
-        marketplaceFeeUnitAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
@@ -194,7 +194,7 @@ export function buildMarketplaceListingProjectionHandlers(
       await db.query(
         `UPDATE marketplace_listing_pages
          SET price_amount = $2,
-             marketplace_fee_unit_amount = $3,
+             marketplace_sales_fee_unit_amount = $3,
              seller_net_unit_amount = $4,
              terms_schedule_id = $5,
              terms_agreement_id = $6,
@@ -205,7 +205,7 @@ export function buildMarketplaceListingProjectionHandlers(
         [
           listingId,
           priceAmount,
-          marketplaceFeeUnitAmount,
+          marketplaceSalesFeeUnitAmount,
           sellerNetUnitAmount,
           termsScheduleId,
           termsAgreementId,
@@ -220,7 +220,7 @@ export function buildMarketplaceListingProjectionHandlers(
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const {
         quantityCap,
-        marketplaceFeeUnitAmount,
+        marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount,
         termsScheduleId,
         termsAgreementId,
@@ -228,7 +228,7 @@ export function buildMarketplaceListingProjectionHandlers(
         feeQuoteFingerprint,
       } = event.data as {
         quantityCap: number;
-        marketplaceFeeUnitAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
@@ -239,7 +239,7 @@ export function buildMarketplaceListingProjectionHandlers(
       await db.query(
         `UPDATE marketplace_listing_pages
          SET quantity_cap = $2,
-             marketplace_fee_unit_amount = $3,
+             marketplace_sales_fee_unit_amount = $3,
              seller_net_unit_amount = $4,
              terms_schedule_id = $5,
              terms_agreement_id = $6,
@@ -250,7 +250,7 @@ export function buildMarketplaceListingProjectionHandlers(
         [
           listingId,
           quantityCap,
-          marketplaceFeeUnitAmount,
+          marketplaceSalesFeeUnitAmount,
           sellerNetUnitAmount,
           termsScheduleId,
           termsAgreementId,
@@ -264,14 +264,14 @@ export function buildMarketplaceListingProjectionHandlers(
     "marketplace.listing.published": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const {
-        marketplaceFeeUnitAmount,
+        marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount,
         termsScheduleId,
         termsAgreementId,
         termsResolvedAt,
         feeQuoteFingerprint,
       } = event.data as {
-        marketplaceFeeUnitAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
@@ -282,7 +282,7 @@ export function buildMarketplaceListingProjectionHandlers(
       await db.query(
         `UPDATE marketplace_listing_pages
          SET status = 'active',
-             marketplace_fee_unit_amount = $2,
+             marketplace_sales_fee_unit_amount = $2,
              seller_net_unit_amount = $3,
              terms_schedule_id = $4,
              terms_agreement_id = $5,
@@ -292,7 +292,7 @@ export function buildMarketplaceListingProjectionHandlers(
          WHERE listing_id = $1`,
         [
           listingId,
-          marketplaceFeeUnitAmount,
+          marketplaceSalesFeeUnitAmount,
           sellerNetUnitAmount,
           termsScheduleId,
           termsAgreementId,

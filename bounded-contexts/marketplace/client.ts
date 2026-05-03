@@ -6,6 +6,7 @@ import type { buildMarketplaceApi } from "./api";
 export type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
+  MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
@@ -23,6 +24,7 @@ export type {
 import type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
+  MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
@@ -147,6 +149,16 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"]["fee-history"].$get({
           param: { id },
+          header: headers,
+        }),
+      );
+    },
+    async listSellerListingFeeLockReport(
+      query = "",
+    ): Promise<ListResponse<MarketplaceListingFeeLockReportEntry>> {
+      return parseJsonResponse(
+        await client.account.listings["fee-lock-report"].$get({
+          query: queryFromString(query),
           header: headers,
         }),
       );

@@ -35,11 +35,22 @@ export type CheckoutSessionLine = Readonly<{
   quantity: number;
 }>;
 
+export type CheckoutShippingAddress = Readonly<{
+  name: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+}>;
+
 export type CheckoutSessionState = Readonly<{
   sessionId: CheckoutSessionId | null;
   buyerAccountId: AccountId | null;
   sourceType: CheckoutSourceType | null;
   shippingOption: ShippingOption;
+  shippingAddress: CheckoutShippingAddress | null;
   lines: CheckoutSessionLine[];
   orderIds: readonly OrderId[];
   paymentId: PaymentId | null;
@@ -52,6 +63,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   buyerAccountId: null,
   sourceType: null,
   shippingOption: "standard",
+  shippingAddress: null,
   lines: [],
   orderIds: [],
   paymentId: null,
@@ -75,6 +87,12 @@ export type SelectShippingOptionCommand = Readonly<{
   selectedAt: string;
 }>;
 
+export type SetShippingAddressCommand = Readonly<{
+  type: "SetShippingAddress";
+  shippingAddress: CheckoutShippingAddress;
+  selectedAt: string;
+}>;
+
 export type RecordOrdersCreatedCommand = Readonly<{
   type: "RecordOrdersCreated";
   orderIds: readonly OrderId[];
@@ -90,6 +108,7 @@ export type RecordPaymentStartedCommand = Readonly<{
 export type CheckoutSessionCommand =
   | StartCheckoutSessionCommand
   | SelectShippingOptionCommand
+  | SetShippingAddressCommand
   | RecordOrdersCreatedCommand
   | RecordPaymentStartedCommand;
 
@@ -110,6 +129,15 @@ export type CheckoutShippingOptionSelectedEvent = DomainEvent<
   Readonly<{
     sessionId: CheckoutSessionId;
     shippingOption: ShippingOption;
+    selectedAt: string;
+  }>
+>;
+
+export type CheckoutShippingAddressSetEvent = DomainEvent<
+  "checkout.session.shipping-address-set",
+  Readonly<{
+    sessionId: CheckoutSessionId;
+    shippingAddress: CheckoutShippingAddress;
     selectedAt: string;
   }>
 >;
@@ -135,6 +163,7 @@ export type CheckoutPaymentStartedEvent = DomainEvent<
 export type CheckoutSessionEvent =
   | CheckoutSessionStartedEvent
   | CheckoutShippingOptionSelectedEvent
+  | CheckoutShippingAddressSetEvent
   | CheckoutOrdersCreatedEvent
   | CheckoutPaymentStartedEvent;
 
@@ -161,6 +190,26 @@ function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
       line.quantity,
       "Checkout quantity must be a positive whole number.",
     ),
+  };
+}
+
+function normalizeShippingAddress(
+  address: CheckoutShippingAddress,
+): CheckoutShippingAddress {
+  return {
+    name: normalizeOptionalText(address.name),
+    line1: normalizeRequiredText(address.line1, "Shipping address line 1 is required."),
+    line2: normalizeOptionalText(address.line2),
+    city: normalizeRequiredText(address.city, "Shipping city is required."),
+    state: normalizeRequiredText(address.state, "Shipping state is required.").toUpperCase(),
+    postalCode: normalizeRequiredText(
+      address.postalCode,
+      "Shipping postal code is required.",
+    ),
+    country: normalizeRequiredText(
+      address.country,
+      "Shipping country is required.",
+    ).toUpperCase(),
   };
 }
 
@@ -215,8 +264,28 @@ export const decideCheckoutSession: AggregateDecider<
           },
         },
       ];
+    case "SetShippingAddress":
+      assert(state.sessionId !== null, "Checkout session must be started first.");
+      assert(
+        state.orderIds.length === 0,
+        "Shipping address cannot change after orders are created.",
+      );
+      return [
+        {
+          type: "checkout.session.shipping-address-set",
+          data: {
+            sessionId: state.sessionId,
+            shippingAddress: normalizeShippingAddress(command.shippingAddress),
+            selectedAt: normalizeRequiredText(
+              command.selectedAt,
+              "Shipping address selection must record a timestamp.",
+            ),
+          },
+        },
+      ];
     case "RecordOrdersCreated":
       assert(state.sessionId !== null, "Checkout session must be started first.");
+      assert(state.shippingAddress !== null, "Checkout requires a shipping address before orders are created.");
       if (state.orderIds.length > 0) {
         return [];
       }
@@ -268,6 +337,7 @@ export const evolveCheckoutSession: AggregateEvolver<
         buyerAccountId: event.data.buyerAccountId,
         sourceType: event.data.sourceType,
         shippingOption: event.data.shippingOption,
+        shippingAddress: null,
         lines: event.data.lines,
         orderIds: [],
         paymentId: null,
@@ -278,6 +348,12 @@ export const evolveCheckoutSession: AggregateEvolver<
       return {
         ...state,
         shippingOption: event.data.shippingOption,
+        updatedAt: event.data.selectedAt,
+      };
+    case "checkout.session.shipping-address-set":
+      return {
+        ...state,
+        shippingAddress: event.data.shippingAddress,
         updatedAt: event.data.selectedAt,
       };
     case "checkout.session.orders-created":

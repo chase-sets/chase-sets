@@ -97,8 +97,8 @@ describeWithDatabase("platform api bootstrap", () => {
     const seededListingsWithTerms = await pools.marketplace.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
        FROM marketplace_listing_pages
-       WHERE marketplace_fee_amount IS NOT NULL
-         AND payment_fee_amount IS NOT NULL
+       WHERE marketplace_sales_fee_amount IS NOT NULL
+         AND marketplace_checkout_fee_amount IS NOT NULL
          AND seller_net_amount IS NOT NULL
          AND terms_schedule_id IS NOT NULL
          AND terms_resolved_at IS NOT NULL`,
@@ -106,8 +106,8 @@ describeWithDatabase("platform api bootstrap", () => {
     const seededOrdersWithTerms = await pools.ordering.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
        FROM ordering_order_pages
-       WHERE marketplace_fee_amount IS NOT NULL
-         AND payment_fee_amount IS NOT NULL
+       WHERE marketplace_sales_fee_amount IS NOT NULL
+         AND marketplace_checkout_fee_amount IS NOT NULL
          AND seller_net_amount IS NOT NULL
          AND terms_schedule_id IS NOT NULL
          AND terms_resolved_at IS NOT NULL`,

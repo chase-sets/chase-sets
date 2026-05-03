@@ -79,6 +79,27 @@ const context = {
   },
 };
 
+const shippingAddress = {
+  name: "Jane Smith",
+  line1: "100 Market Street",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+} as const;
+
+const taxSnapshot = {
+  taxableAmount: "24.99",
+  salesTaxAmount: "0.00",
+  jurisdictionCountry: "US",
+  jurisdictionState: "IL",
+  rateBps: 0,
+  providerName: "local-tax-stub",
+  providerQuoteReference: null,
+  quotedAt: "2026-03-31T00:00:00.000Z",
+} as const;
+
 type SupplyCandidate = Readonly<{
   listingId: string;
   sellerAccountId: string;
@@ -92,7 +113,7 @@ type SupplyCandidate = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
-  marketplaceFeeUnitAmount?: string;
+  marketplaceSalesFeeUnitAmount?: string;
   sellerNetUnitAmount?: string;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
@@ -124,7 +145,7 @@ function createSupplyDb(
         storage_location_name: candidate.storageLocationName,
         ship_from_code: candidate.shipFromCode,
         price_amount: candidate.priceAmount,
-        marketplace_fee_unit_amount: candidate.marketplaceFeeUnitAmount ?? "1.00",
+        marketplace_sales_fee_unit_amount: candidate.marketplaceSalesFeeUnitAmount ?? "1.00",
         seller_net_unit_amount: candidate.sellerNetUnitAmount ?? "19.00",
         terms_schedule_id: candidate.termsScheduleId ?? "cts_default",
         terms_agreement_id: candidate.termsAgreementId ?? null,
@@ -199,6 +220,7 @@ describe("ordering order runtime", () => {
           checkoutSessionId: "chk_insufficient",
           sourceType: "cart-checkout",
           shippingOption: "standard",
+          shippingAddress,
           lines: [
             {
               listingId: null,
@@ -349,6 +371,7 @@ describe("ordering order runtime", () => {
         checkoutSessionId: "chk_best_cost",
         sourceType: "cart-checkout",
         shippingOption: "standard",
+        shippingAddress,
         lines: [
           {
             listingId: null,
@@ -452,7 +475,7 @@ describe("ordering order runtime", () => {
         selectedOptions: [],
         productSummary: null,
         priceAmount: "10.00",
-        marketplaceFeeUnitAmount: "0.50",
+        marketplaceSalesFeeUnitAmount: "0.50",
         sellerNetUnitAmount: "9.50",
         termsScheduleId: "cts_offer",
         termsAgreementId: null,
@@ -469,14 +492,14 @@ describe("ordering order runtime", () => {
       sourceReferenceId: "off_1",
       sellerAccountId: "acc_seller",
       commercialTermsSnapshot: {
-        marketplaceFeeAmount: "0.50",
+        marketplaceSalesFeeAmount: "0.50",
         sellerNetAmount: "9.50",
         termsScheduleId: "cts_offer",
       },
       lines: [
         expect.objectContaining({
-          marketplaceFeeUnitAmount: "0.50",
-          marketplaceFeeTotalAmount: "0.50",
+          marketplaceSalesFeeUnitAmount: "0.50",
+          marketplaceSalesFeeTotalAmount: "0.50",
           sellerNetUnitAmount: "9.50",
           sellerNetTotalAmount: "9.50",
         }),
@@ -532,6 +555,7 @@ describe("ordering order runtime", () => {
         checkoutSessionId: "chk_buy_now",
         sourceType: "buy-now",
         shippingOption: "standard",
+        shippingAddress,
         lines: [
           {
             listingId: "lst_buy_now",
@@ -599,6 +623,7 @@ describe("ordering order runtime", () => {
         checkoutSessionId: "chk_existing",
         sourceType: "cart-checkout",
         shippingOption: "standard",
+        shippingAddress,
         lines: [
           {
             listingId: null,
@@ -642,9 +667,17 @@ describe("ordering order runtime", () => {
                 shipping_base_amount: "4.99",
                 shipping_discount_amount: "0.00",
                 shipping_charge_amount: "4.99",
+                sales_tax_amount: "0.00",
                 total_amount: "24.99",
-                marketplace_fee_amount: "1.00",
+                marketplace_sales_fee_amount: "1.00",
                 seller_net_amount: "19.00",
+                taxable_amount: "24.99",
+                tax_jurisdiction_country: "US",
+                tax_jurisdiction_state: "IL",
+                tax_rate_bps: 0,
+                tax_provider_name: "local-tax-stub",
+                tax_provider_quote_reference: null,
+                tax_quoted_at: "2026-03-31T00:00:00.000Z",
                 terms_schedule_id: "cts_default",
                 terms_agreement_id: null,
                 terms_resolved_at: "2026-03-31T00:00:00.000Z",
@@ -719,9 +752,11 @@ describe("ordering order runtime", () => {
         shippingBaseAmount: "4.99",
         shippingDiscountAmount: "0.00",
         shippingChargeAmount: "4.99",
+        salesTaxAmount: "0.00",
+        taxSnapshot,
         totalAmount: "24.99",
         commercialTermsSnapshot: {
-          marketplaceFeeAmount: "1.00",
+          marketplaceSalesFeeAmount: "1.00",
           sellerNetAmount: "19.00",
           termsScheduleId: "cts_default",
           termsAgreementId: null,
@@ -741,8 +776,8 @@ describe("ordering order runtime", () => {
             unitPriceAmount: "20.00",
             quantity: 1,
             lineTotalAmount: "20.00",
-            marketplaceFeeUnitAmount: "1.00",
-            marketplaceFeeTotalAmount: "1.00",
+            marketplaceSalesFeeUnitAmount: "1.00",
+            marketplaceSalesFeeTotalAmount: "1.00",
             sellerNetUnitAmount: "19.00",
             sellerNetTotalAmount: "19.00",
           },

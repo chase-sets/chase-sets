@@ -41,6 +41,21 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("payments.features.payments.api.route.request.failed");
 }
 
+function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (!message.startsWith("fee_quote_stale:")) {
+    return null;
+  }
+  const quote = JSON.parse(message.slice("fee_quote_stale:".length));
+  return c.json({
+    error: {
+      code: "fee_quote_stale",
+      message: t("payments.features.payments.api.route.marketplace.checkout.fee.quote.stale"),
+    },
+    marketplace_checkout_fee: quote,
+  }, 409);
+}
+
 function resolvePublicOrigin(requestUrl: string, headers: Headers) {
   const parsed = new URL(requestUrl);
   const host =
@@ -90,6 +105,15 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
             body.requestedBalanceCreditAmount,
           ),
+          paymentMethodCategory:
+            body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
+              ? null
+              : String(body.paymentMethodCategory),
+          marketplaceCheckoutFeeQuoteFingerprint:
+            body.marketplaceCheckoutFeeQuoteFingerprint === null ||
+            body.marketplaceCheckoutFeeQuoteFingerprint === undefined
+              ? null
+              : String(body.marketplaceCheckoutFeeQuoteFingerprint),
           returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
           clientRiskContext: {
             ipAddress:
@@ -107,6 +131,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(payment, 201);
     } catch (error) {
+      const stale = staleFeeQuoteResponse(c, error);
+      if (stale) {
+        return stale;
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
@@ -128,12 +156,22 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
         currencyCode: c.req.query("currencyCode") ?? "usd",
         requestedBalanceCreditAmount:
           c.req.query("requestedBalanceCreditAmount") ?? null,
+        paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
       });
 
       return c.json(status);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
+  });
+
+  app.get("/marketplace-checkout-fee-policy", async (c) => {
+    const access = requirePaymentAccess(c, "orders.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getMarketplaceCheckoutFeePolicy());
   });
 
   app.post("/checkout/recover", async (c) => {
@@ -159,6 +197,15 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
             body.requestedBalanceCreditAmount,
           ),
+          paymentMethodCategory:
+            body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
+              ? null
+              : String(body.paymentMethodCategory),
+          marketplaceCheckoutFeeQuoteFingerprint:
+            body.marketplaceCheckoutFeeQuoteFingerprint === null ||
+            body.marketplaceCheckoutFeeQuoteFingerprint === undefined
+              ? null
+              : String(body.marketplaceCheckoutFeeQuoteFingerprint),
           returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
           clientRiskContext: {
             ipAddress:
@@ -173,6 +220,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(payment, 201);
     } catch (error) {
+      const stale = staleFeeQuoteResponse(c, error);
+      if (stale) {
+        return stale;
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
@@ -194,6 +245,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
         currencyCode: c.req.query("currencyCode") ?? "usd",
         requestedBalanceCreditAmount:
           c.req.query("requestedBalanceCreditAmount") ?? null,
+        paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
       });
 
       return c.json(recovery);

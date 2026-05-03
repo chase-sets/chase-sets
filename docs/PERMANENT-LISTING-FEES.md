@@ -4,24 +4,24 @@ Marketplace listing fees are seller-confirmed, per-unit snapshots. A listing kee
 
 ## Fee Ownership
 
-Commercial Terms owns seller-side marketplace fee policy only. Buyer payment fees are deferred to Payments work and are represented as a zero-value buyer processing fee placeholder until that policy exists.
+Commercial Terms owns seller-side marketplace sales fee policy only. Buyer marketplace checkout fees are deferred to Payments work and are represented as a zero-value marketplace checkout fee until that policy exists.
 
 Marketplace owns seller confirmation. Ordering consumes Marketplace snapshots and does not call Commercial Terms for normal listing purchases.
 
-Buyer payment fee policy is tracked as separate future work in [Buyer Payment Fee Policy Future Work](./BUYER-PAYMENT-FEE-POLICY-FUTURE-WORK.md).
+Buyer marketplace checkout fee policy is tracked as separate future work in [Buyer Marketplace Checkout Fee Policy Future Work](./BUYER-PAYMENT-FEE-POLICY-FUTURE-WORK.md).
 
 ## Listing Flow
 
-1. Draft creation stores the latest non-binding marketplace fee quote.
+1. Draft creation stores the latest non-binding marketplace sales fee quote.
 2. Publish requires the seller to submit the current `feeQuoteFingerprint`.
 3. If the fingerprint is missing or stale, Marketplace returns `409 fee_quote_stale` with `currentQuote`.
-4. First publish locks the quote as the listing's per-unit marketplace fee snapshot.
+4. First publish locks the quote as the listing's per-unit marketplace sales fee snapshot.
 5. Active price edits and quantity-cap edits require the same confirmed quote flow and replace the locked snapshot.
 6. Partial sales and availability changes do not refresh the snapshot.
 
 ## Offer Flow
 
-Accepted offers use current Commercial Terms at offer acceptance time, but Marketplace still owns the seller confirmation. The accepted-offer event carries the confirmed per-unit marketplace fee and seller net for Ordering.
+Accepted offers use current Commercial Terms at offer acceptance time, but Marketplace still owns the seller confirmation. The accepted-offer event carries the confirmed per-unit marketplace sales fee and seller net for Ordering.
 
 ## API Examples
 
@@ -56,7 +56,7 @@ Stale quote response:
     "message": "Fee quote is stale. Refresh the fee preview before continuing.",
     "currentQuote": {
       "basis_amount": "10.00",
-      "marketplace_fee_unit_amount": "0.50",
+      "marketplace_sales_fee_unit_amount": "0.50",
       "seller_net_unit_amount": "9.50",
       "schedule_id": "sch_standard",
       "agreement_id": null,
@@ -90,4 +90,4 @@ Review listing fee history:
 GET /api/marketplace/account/listings/lst_123/fee-history
 ```
 
-Each history entry includes the event type, stream version, price, quantity cap when applicable, per-unit marketplace fee, per-unit seller net, schedule/agreement source, terms timestamp, quote fingerprint, recorded time, and actor id.
+Each history entry includes the event type, stream version, price, quantity cap when applicable, per-unit marketplace sales fee, per-unit seller net, schedule/agreement source, terms timestamp, quote fingerprint, recorded time, and actor id.

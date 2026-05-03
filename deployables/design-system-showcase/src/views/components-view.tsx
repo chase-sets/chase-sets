@@ -357,7 +357,7 @@ export function ComponentsView() {
                 lines={[
                   { label: "Item Price", value: "$1,250.00" },
                   { label: "Shipping", value: "FREE" },
-                  { label: "Marketplace Fee", value: "$62.50" },
+                  { label: "Marketplace Sales Fee", value: "$62.50" },
                   { label: "Sales Tax", value: "$108.28" }
                 ]}
                 total="$1,420.78"

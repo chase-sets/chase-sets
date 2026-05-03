@@ -1,21 +1,25 @@
-# Buyer Payment Fee Policy Future Work
+# Marketplace Checkout Fee Policy
 
-Buyer payment fees are intentionally deferred from the permanent listing marketplace fee update.
+Payments owns the buyer-side Marketplace Checkout Fee. The fee is quoted before payment, confirmed with a fingerprint, calculated at payment level after platform credit, and stored as a payment snapshot.
 
 ## Current State
 
-- Commercial Terms owns seller-side marketplace fee policy only.
+- Commercial Terms owns seller-side marketplace sales fee policy only.
 - Marketplace owns seller confirmation for listing and accepted-offer fee snapshots.
 - Ordering consumes Marketplace snapshots and does not call Commercial Terms for normal listing purchases.
-- Payments carries a zero-value buyer processing fee placeholder so payment read models remain explicit.
+- Ordering stores item subtotal, shipping, sales tax, Marketplace Sales Fee economics, and seller net totals.
+- Payments quotes Marketplace Checkout Fee options for card, bank account, and platform-credit-only payments.
+- Payments requires a fresh Marketplace Checkout Fee quote fingerprint before payment creation.
+- Payments stores Marketplace Checkout Fee amount, policy version, quote fingerprint, and payment method category on the payment snapshot.
 
-## Future Scope
+## Policy
 
-When buyer payment fee policy is introduced, Payments should own:
+- Card: 2.9% plus $0.30, grossed up against the external payment amount.
+- Bank account: 0.5% plus $0.00 after the bank adjustment.
+- Platform-credit-only: $0.00.
+- Unsupported or unknown methods normalize to the card quote in the current US-only V1 policy.
+- Positive fractional cents round up; exact zero remains zero.
 
-- payment processor fee policy and funding-source adjustments
-- buyer-visible processing fee previews
-- buyer confirmation semantics for processing fees
-- payment-level fee snapshots used for capture, refund, reconciliation, and support views
+## Follow-Up
 
-That work must not reintroduce seller-side payment fee fields into Commercial Terms or order-time seller fee resolution into Ordering.
+Before launch, counsel/provider review should approve final buyer-facing copy and any state-specific disclosure requirements.

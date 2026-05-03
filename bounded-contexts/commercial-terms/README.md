@@ -2,21 +2,21 @@
 
 ## Purpose
 
-Commercial Terms owns the marketplace fee policy that determines seller-side marketplace economics.
+Commercial Terms owns the marketplace sales fee policy that determines seller-side marketplace economics.
 
 ## Owns
 
 - Default Commercial Terms schedules by account type
 - Account-specific commercial agreements
 - Commercial Terms resolution for seller-confirmed listing and offer fee previews
-- Seller-side marketplace fee amounts
+- Seller-side marketplace sales fee amounts
 - Seller net calculations
 
 ## Does Not Own
 
 - Listing lifecycle
 - Checkout orchestration
-- Buyer payment fees and payment processor state
+- Buyer marketplace checkout fees and payment processor state
 - Ledger postings
 
 ## Ubiquitous Language

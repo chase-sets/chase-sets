@@ -16,6 +16,7 @@ import {
   NativeSelect,
 } from "@chase-sets/design-system";
 import type {
+  MarketplaceListingFeeLockReportEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
   MarketplaceListingTermsPreview,
@@ -57,13 +58,13 @@ function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
 }
 
 function renderFeeSummary(listing: MarketplaceListingListItem) {
-  if (!listing.marketplace_fee_unit_amount && !listing.seller_net_unit_amount) {
+  if (!listing.marketplace_sales_fee_unit_amount && !listing.seller_net_unit_amount) {
     return t("marketplace.features.listings.ui.listingListPage.fee.quote.unavailable");
   }
 
   const segments = [
     t("marketplace.features.listings.ui.listingListPage.marketplace.fee.summary", {
-      amount: formatMoney(listing.marketplace_fee_unit_amount),
+      amount: formatMoney(listing.marketplace_sales_fee_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingListPage.net.summary", {
       amount: formatMoney(listing.seller_net_unit_amount),
@@ -76,12 +77,30 @@ function renderFeeSummary(listing: MarketplaceListingListItem) {
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
     t("marketplace.features.listings.ui.listingListPage.marketplace.fee.summary", {
-      amount: formatMoney(preview.marketplace_fee_unit_amount),
+      amount: formatMoney(preview.marketplace_sales_fee_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingListPage.net.summary", {
       amount: formatMoney(preview.seller_net_unit_amount),
     }),
   ].join(" | ");
+}
+
+function termsSource(row: MarketplaceListingFeeLockReportEntry) {
+  if (row.terms_agreement_id) {
+    return t("marketplace.features.listings.ui.listingListPage.agreement.source", {
+      source: row.terms_agreement_id,
+    });
+  }
+
+  return row.terms_schedule_id
+    ? t("marketplace.features.listings.ui.listingListPage.schedule.source", {
+        source: row.terms_schedule_id,
+      })
+    : t("marketplace.features.listings.ui.listingListPage.source.unavailable");
+}
+
+function formatTimestamp(value: string | null) {
+  return value ? new Date(value).toLocaleString() : t("marketplace.features.listings.ui.listingListPage.not.set");
 }
 
 function selectedInventorySummary(
@@ -97,12 +116,14 @@ function selectedInventorySummary(
 
 export function MarketplaceListingListPage({
   data,
+  feeLockReport,
   inventoryItems,
   createForm,
   createPreview,
   errorMessage,
 }: {
   data: { items: readonly MarketplaceListingListItem[] };
+  feeLockReport?: { items: readonly MarketplaceListingFeeLockReportEntry[] };
   inventoryItems: readonly MarketplaceListingInventoryItemOption[];
   createForm?: {
     inventoryItemId?: string | null;
@@ -319,6 +340,73 @@ export function MarketplaceListingListPage({
           ]}
           emptyTitle={t("marketplace.features.listings.ui.listingListPage.no.listings.yet")}
           emptyDescription={t("marketplace.features.listings.ui.listingListPage.create.a.listing.from.available.inventory")}
+        />
+      </PageSection>
+
+      <PageSection title={t("marketplace.features.listings.ui.listingListPage.fee.lock.report")}>
+        <DataTable
+          rows={[...(feeLockReport?.items ?? [])]}
+          getRowId={(row) => row.listing_id}
+          columns={[
+            {
+              key: "listing",
+              header: t("marketplace.features.listings.ui.listingListPage.listing"),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text weight="semibold">{row.item_title ?? row.inventory_item_id}</Text>
+                  {row.product_summary ? (
+                    <Text tone="secondary" size="sm">
+                      {row.product_summary}
+                    </Text>
+                  ) : null}
+                </Stack>
+              ),
+            },
+            {
+              key: "fee",
+              header: t("marketplace.features.listings.ui.listingListPage.locked.fee"),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text>{formatMoney(row.marketplace_sales_fee_unit_amount)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingListPage.seller.net.report", {
+                      amount: formatMoney(row.seller_net_unit_amount),
+                    })}
+                  </Text>
+                </Stack>
+              ),
+            },
+            {
+              key: "source",
+              header: t("marketplace.features.listings.ui.listingListPage.terms.source"),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text>{termsSource(row)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {formatTimestamp(row.terms_resolved_at)}
+                  </Text>
+                </Stack>
+              ),
+            },
+            {
+              key: "status",
+              header: t("marketplace.features.listings.ui.listingListPage.status"),
+              cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
+            },
+            {
+              key: "quantityCap",
+              header: t("marketplace.features.listings.ui.listingListPage.cap"),
+              align: "right",
+              cell: (row) => row.quantity_cap,
+            },
+            {
+              key: "updated",
+              header: t("marketplace.features.listings.ui.listingListPage.updated"),
+              cell: (row) => formatTimestamp(row.updated_at),
+            },
+          ]}
+          emptyTitle={t("marketplace.features.listings.ui.listingListPage.no.fee.locks")}
+          emptyDescription={t("marketplace.features.listings.ui.listingListPage.fee.lock.report.empty")}
         />
       </PageSection>
     </Page>

@@ -11,6 +11,7 @@ describe("fake payment processor gateway", () => {
       orderIds: ["ord_123" as never],
       amount: "12.34",
       currencyCode: "usd",
+      paymentMethodCategory: "card",
       description: "Test payment",
     });
 

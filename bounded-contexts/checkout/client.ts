@@ -54,6 +54,16 @@ export type SelectCheckoutShippingOptionRequest = Readonly<{
   shippingOption: string;
 }>;
 
+export type CheckoutShippingAddressInput = Readonly<{
+  name?: string | null;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+}>;
+
 export class CheckoutApiError extends Error {
   public constructor(
     public readonly status: number,
@@ -167,7 +177,12 @@ export function createCheckoutApiClient({
     },
     async confirmCheckoutSession(
       sessionId: string,
-      body: Readonly<{ requestedBalanceCreditAmount?: string | null }> = {},
+      body: Readonly<{
+        requestedBalanceCreditAmount?: string | null;
+        paymentMethodCategory?: string;
+        marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+        shippingAddress?: CheckoutShippingAddressInput | null;
+      }> = {},
     ): Promise<{ payment_id: string; order_ids: readonly string[] }> {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"].confirm.$post({

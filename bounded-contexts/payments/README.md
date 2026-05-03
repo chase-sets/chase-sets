@@ -10,11 +10,11 @@ Payments owns money movement with external payment rails and buyer-facing charge
 - Capture
 - Refund
 - Payment processor references
-- Buyer processing fee placeholder values until buyer payment fee policy is introduced
-- Marketplace fee snapshots supplied by Ordering
+- Marketplace checkout fee values until buyer marketplace checkout fee policy is introduced
+- Marketplace sales fee snapshots supplied by Ordering
 - Shipping rebate calculation inputs at checkout and refund time
 
-Buyer payment fee policy is tracked separately in [Buyer Payment Fee Policy Future Work](../../docs/BUYER-PAYMENT-FEE-POLICY-FUTURE-WORK.md).
+Buyer marketplace checkout fee policy is tracked separately in [Buyer Marketplace Checkout Fee Policy Future Work](../../docs/BUYER-PAYMENT-FEE-POLICY-FUTURE-WORK.md).
 
 ## Does Not Own
 
@@ -68,7 +68,7 @@ When the dev stack includes `platform-api`, `npm run dev` starts the Dockerized 
 1. Payments owns PSP-facing state and references.
 2. External money movement and internal balance accounting are separate models.
 3. Payments determines whether a buyer was charged or refunded successfully.
-4. Payments may carry buyer processing fee placeholders and rebate inputs, but Settlement owns ledger postings.
+4. Payments may carry marketplace checkout fees and rebate inputs, but Settlement owns ledger postings.
 
 ## Open Extraction Candidates
 

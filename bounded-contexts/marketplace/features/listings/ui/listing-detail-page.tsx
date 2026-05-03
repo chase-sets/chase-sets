@@ -29,7 +29,7 @@ function formatOptionalMoney(amount: string | null) {
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
     t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
-      amount: formatMoney(preview.marketplace_fee_unit_amount),
+      amount: formatMoney(preview.marketplace_sales_fee_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingDetailPage.net.summary", {
       amount: formatMoney(preview.seller_net_unit_amount),
@@ -113,7 +113,7 @@ export function MarketplaceListingDetailPage({
             ) : null}
             <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
             <Text>{t("marketplace.features.listings.ui.listingDetailPage.price")}{formatMoney(listing.price_amount)}</Text>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(listing.marketplace_fee_unit_amount)}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(listing.marketplace_sales_fee_unit_amount)}</Text>
             <Text>{t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(listing.seller_net_unit_amount)}</Text>
             <Text>
               {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{listing.terms_schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.default.fallback.unavailable")}
@@ -160,7 +160,7 @@ export function MarketplaceListingDetailPage({
                     </Text>
                   ) : null}
                   <Text size="sm" tone="secondary">
-                    {t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(entry.marketplace_fee_unit_amount)}
+                    {t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(entry.marketplace_sales_fee_unit_amount)}
                   </Text>
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(entry.seller_net_unit_amount)}

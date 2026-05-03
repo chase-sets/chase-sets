@@ -160,11 +160,56 @@ export function CheckoutSessionPage({
                 </Surface>
               </PageSection>
             ) : (
-              <PageSection title={t("checkout.features.sessions.ui.checkoutPage.shipping")}>
+              <PageSection
+                title={t("checkout.features.sessions.ui.checkoutPage.shipping")}
+                description={t("checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax")}
+              >
                 <Surface elevated glow>
                   <form method="post">
                     <Stack gap={3}>
                       <input type="hidden" name="intent" value="confirm-checkout" />
+                      <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.recipient.name")}
+                          name="shippingName"
+                          placeholder={t("checkout.features.sessions.ui.checkoutPage.recipient.placeholder")}
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.country")}
+                          name="shippingCountry"
+                          defaultValue="US"
+                          autoComplete="shipping country"
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.address.line1")}
+                          name="shippingLine1"
+                          autoComplete="shipping address-line1"
+                          required
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.address.line2")}
+                          name="shippingLine2"
+                          autoComplete="shipping address-line2"
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.city")}
+                          name="shippingCity"
+                          autoComplete="shipping address-level2"
+                          required
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.state")}
+                          name="shippingState"
+                          autoComplete="shipping address-level1"
+                          required
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.postal.code")}
+                          name="shippingPostalCode"
+                          autoComplete="shipping postal-code"
+                          required
+                        />
+                      </Grid>
                       <NativeSelect
                         label={t("checkout.features.sessions.ui.checkoutPage.shipping.option")}
                         name="shippingOption"
@@ -174,6 +219,17 @@ export function CheckoutSessionPage({
                           { value: "expedited", label: t("checkout.features.sessions.ui.checkoutPage.expedited") },
                           { value: "priority", label: t("checkout.features.sessions.ui.checkoutPage.priority.signature") },
                         ]}
+                      />
+                      <NativeSelect
+                        label={t("checkout.features.sessions.ui.checkoutPage.payment.method")}
+                        name="paymentMethodCategory"
+                        defaultValue="card"
+                        items={[
+                          { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
+                          { value: "bank-account", label: t("checkout.features.sessions.ui.checkoutPage.bank.account") },
+                          { value: "platform-credit", label: t("checkout.features.sessions.ui.checkoutPage.platform.credit.only") },
+                        ]}
+                        description={t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description")}
                       />
                       <TextInput
                         label={t("checkout.features.sessions.ui.checkoutPage.use.balance")}

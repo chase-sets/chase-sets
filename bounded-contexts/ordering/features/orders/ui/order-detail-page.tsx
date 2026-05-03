@@ -103,7 +103,7 @@ export function OrderingOrderDetailPage({
                 { label: t("ordering.features.orders.ui.orderDetailPage.status"), value: <Badge tone={statusTone(order.status)}>{order.status}</Badge> },
                 { label: t("ordering.features.orders.ui.orderDetailPage.item.subtotal"), value: formatMoney(order.item_subtotal_amount) },
                 { label: t("ordering.features.orders.ui.orderDetailPage.shipping"), value: formatMoney(order.shipping_charge_amount) },
-                { label: t("ordering.features.orders.ui.orderDetailPage.marketplace.fee"), value: formatMoney(order.marketplace_fee_amount) },
+                { label: t("ordering.features.orders.ui.orderDetailPage.marketplace.fee"), value: formatMoney(order.marketplace_sales_fee_amount) },
                 { label: t("ordering.features.orders.ui.orderDetailPage.seller.net"), value: formatMoney(order.seller_net_amount) },
               ]}
               total={formatMoney(order.total_amount)}

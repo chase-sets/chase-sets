@@ -120,7 +120,7 @@ describe("marketplace listing runtime", () => {
           accountId,
           accountType: "business" as const,
           basisAmount: amount,
-          marketplaceFeeUnitAmount: "1.00",
+          marketplaceSalesFeeUnitAmount: "1.00",
           sellerNetUnitAmount: "19.00",
           scheduleId: "cts_default",
           agreementId: null,
@@ -200,7 +200,7 @@ describe("marketplace listing runtime", () => {
           accountId,
           accountType: "business" as const,
           basisAmount: amount,
-          marketplaceFeeUnitAmount: "1.00",
+          marketplaceSalesFeeUnitAmount: "1.00",
           sellerNetUnitAmount: "19.00",
           scheduleId: "cts_default",
           agreementId: null,
@@ -243,7 +243,7 @@ describe("marketplace listing runtime", () => {
       {
         event_type: "marketplace.listing.published",
         stream_version: 2,
-        marketplace_fee_unit_amount: "1.00",
+        marketplace_sales_fee_unit_amount: "1.00",
         seller_net_unit_amount: "19.00",
         terms_schedule_id: "cts_default",
         performed_by_user_id: "usr_seller",
@@ -253,7 +253,7 @@ describe("marketplace listing runtime", () => {
         stream_version: 1,
         price_amount: "20.00",
         quantity_cap: 1,
-        marketplace_fee_unit_amount: "1.00",
+        marketplace_sales_fee_unit_amount: "1.00",
         seller_net_unit_amount: "19.00",
       },
     ]);
@@ -291,7 +291,7 @@ describe("marketplace listing runtime", () => {
       }),
     };
     let managedFee = {
-      marketplaceFeeUnitAmount: "1.00",
+      marketplaceSalesFeeUnitAmount: "1.00",
       sellerNetUnitAmount: "19.00",
       scheduleId: "cts_launch",
       resolvedAt: "2026-04-17T00:00:00.000Z",
@@ -305,7 +305,7 @@ describe("marketplace listing runtime", () => {
           accountId,
           accountType: "business" as const,
           basisAmount: amount,
-          marketplaceFeeUnitAmount: managedFee.marketplaceFeeUnitAmount,
+          marketplaceSalesFeeUnitAmount: managedFee.marketplaceSalesFeeUnitAmount,
           sellerNetUnitAmount: managedFee.sellerNetUnitAmount,
           scheduleId: managedFee.scheduleId,
           agreementId: null,
@@ -334,7 +334,7 @@ describe("marketplace listing runtime", () => {
     );
 
     managedFee = {
-      marketplaceFeeUnitAmount: "2.00",
+      marketplaceSalesFeeUnitAmount: "2.00",
       sellerNetUnitAmount: "18.00",
       scheduleId: "cts_after_launch",
       resolvedAt: "2026-04-18T00:00:00.000Z",
@@ -364,7 +364,7 @@ describe("marketplace listing runtime", () => {
     });
 
     expect(currentQuote).toMatchObject({
-      marketplace_fee_unit_amount: "2.00",
+      marketplace_sales_fee_unit_amount: "2.00",
       seller_net_unit_amount: "18.00",
       schedule_id: "cts_after_launch",
     });
@@ -373,7 +373,7 @@ describe("marketplace listing runtime", () => {
       expect.arrayContaining([
         expect.objectContaining({
           event_type: "marketplace.listing.published",
-          marketplace_fee_unit_amount: "1.00",
+          marketplace_sales_fee_unit_amount: "1.00",
           seller_net_unit_amount: "19.00",
           terms_schedule_id: "cts_launch",
         }),
@@ -382,7 +382,7 @@ describe("marketplace listing runtime", () => {
     expect(newHistory).toEqual([
       expect.objectContaining({
         event_type: "marketplace.listing.created",
-        marketplace_fee_unit_amount: "2.00",
+        marketplace_sales_fee_unit_amount: "2.00",
         seller_net_unit_amount: "18.00",
         terms_schedule_id: "cts_after_launch",
       }),

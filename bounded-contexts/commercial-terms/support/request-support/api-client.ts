@@ -34,8 +34,8 @@ export type CommercialTermsSchedule = Readonly<{
   schedule_id: string;
   label: string;
   account_type: string;
-  marketplace_fee_percentage_bps: number;
-  marketplace_fee_fixed_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
   status: string;
   effective_from: string;
   effective_until: string | null;
@@ -49,8 +49,8 @@ export type CommercialAgreement = Readonly<{
   account_display_name: string | null;
   account_type: string | null;
   label: string;
-  marketplace_fee_percentage_bps: number;
-  marketplace_fee_fixed_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
   status: string;
   effective_from: string;
   effective_until: string | null;

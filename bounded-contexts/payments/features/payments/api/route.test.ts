@@ -7,6 +7,18 @@ import {
 } from "./route";
 import type { PaymentServices } from "./runtime";
 
+const checkoutFeeQuote = {
+  payment_method_category: "card" as const,
+  external_basis_amount: "24.99",
+  marketplace_checkout_fee_amount: "1.06",
+  marketplace_checkout_fee_reduction_amount: "0.00",
+  total_amount: "26.05",
+  processor_amount: "26.05",
+  policy_version: "marketplace-checkout-fee-v1",
+  quote_fingerprint: "marketplace-checkout-fee-v1|card|24.99|0.00|24.99|1.06|26.05|26.05",
+  quoted_at: "2026-04-01T00:00:00.000Z",
+};
+
 function buildAccountApp(options: Readonly<{
   actor: PaymentsApiEnv["Variables"]["actor"];
   services: PaymentServices;
@@ -50,8 +62,11 @@ function createServices(): PaymentServices {
       amount: "24.99",
       balance_credit_amount: "0.00",
       processor_amount: "24.99",
-      marketplace_fee_amount: "1.00",
-      payment_fee_amount: "0.50",
+      marketplace_sales_fee_amount: "1.00",
+      marketplace_checkout_fee_amount: "0.50",
+      marketplace_checkout_fee_policy_version: "marketplace-checkout-fee-v1",
+      marketplace_checkout_fee_quote_fingerprint: "quote_1",
+      payment_method_category: "card",
       seller_net_amount: "23.49",
       currency_code: "usd",
       processor_name: "stripe",
@@ -78,8 +93,11 @@ function createServices(): PaymentServices {
       amount: "24.99",
       balance_credit_amount: "0.00",
       processor_amount: "24.99",
-      marketplace_fee_amount: "1.00",
-      payment_fee_amount: "0.50",
+      marketplace_sales_fee_amount: "1.00",
+      marketplace_checkout_fee_amount: "0.50",
+      marketplace_checkout_fee_policy_version: "marketplace-checkout-fee-v1",
+      marketplace_checkout_fee_quote_fingerprint: "quote_1",
+      payment_method_category: "card",
       seller_net_amount: "23.49",
       currency_code: "usd",
       processor_name: "stripe",
@@ -101,10 +119,37 @@ function createServices(): PaymentServices {
     })),
     getAccountPayment: vi.fn(async () => null),
     getPaymentMoneyTimeline: vi.fn(async () => null),
+    getMarketplaceCheckoutFeePolicy: vi.fn(async () => ({
+      policy_version: "marketplace-checkout-fee-v1",
+      effective_at: "2026-05-03T00:00:00.000Z",
+      enabled_jurisdictions: ["US"],
+      base: {
+        percentage_bps: 290,
+        fixed_amount: "0.30",
+      },
+      method_adjustments: [
+        {
+          payment_method_category: "card",
+          percentage_bps_delta: 0,
+          fixed_amount_delta: "0.00",
+          resulting_percentage_bps: 290,
+          resulting_fixed_amount: "0.30",
+        },
+      ],
+      unsupported_methods_default: "no-positive-fee",
+      quote_audit: {
+        confirmation_required: true,
+        stale_response_code: 409,
+        stale_response_error: "fee_quote_stale",
+        snapshot_fields: ["marketplace_checkout_fee_amount"],
+      },
+    })),
     getCheckoutStatus: vi.fn(async () => ({
       order_ids: ["ord_1"],
       currency_code: "usd",
       amount: "24.99",
+      marketplace_checkout_fee: checkoutFeeQuote,
+      payment_method_quotes: [checkoutFeeQuote],
       wallet_credit: {
         requested_amount: "0.00",
         applied_amount: "0.00",
@@ -121,8 +166,10 @@ function createServices(): PaymentServices {
       checkout_status: {
         order_ids: ["ord_1"],
         currency_code: "usd",
-        amount: "24.99",
-        wallet_credit: {
+          amount: "24.99",
+          marketplace_checkout_fee: checkoutFeeQuote,
+          payment_method_quotes: [checkoutFeeQuote],
+          wallet_credit: {
           requested_amount: "0.00",
           applied_amount: "0.00",
           external_amount: "24.99",
@@ -195,6 +242,8 @@ describe("payments routes", () => {
         orderIds: ["ord_1"],
         currencyCode: "usd",
         requestedBalanceCreditAmount: null,
+        paymentMethodCategory: null,
+        marketplaceCheckoutFeeQuoteFingerprint: null,
         returnUrlBase: "http://payments.test",
         clientRiskContext: {
           ipAddress: null,
@@ -241,6 +290,8 @@ describe("payments routes", () => {
         sourceContext: "checkout",
         sourceReferenceId: "chk_1",
         requestedBalanceCreditAmount: null,
+        paymentMethodCategory: null,
+        marketplaceCheckoutFeeQuoteFingerprint: null,
         returnUrlBase: "http://payments.test",
         clientRiskContext: {
           ipAddress: null,
@@ -362,6 +413,36 @@ describe("payments routes", () => {
       orderIds: ["ord_1"],
       currencyCode: "usd",
       requestedBalanceCreditAmount: null,
+      paymentMethodCategory: null,
+    });
+  });
+
+  it("returns the active Marketplace Checkout Fee policy for operators", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/marketplace-checkout-fee-policy"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      policy_version: "marketplace-checkout-fee-v1",
+      enabled_jurisdictions: ["US"],
+      quote_audit: {
+        stale_response_error: "fee_quote_stale",
+      },
     });
   });
 

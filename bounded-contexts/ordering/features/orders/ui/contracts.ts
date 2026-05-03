@@ -11,9 +11,17 @@ export interface OrderingOrderProjection {
   shipping_base_amount: string;
   shipping_discount_amount: string;
   shipping_charge_amount: string;
+  sales_tax_amount: string;
   total_amount: string;
-  marketplace_fee_amount: string;
+  marketplace_sales_fee_amount: string;
   seller_net_amount: string;
+  taxable_amount: string;
+  tax_jurisdiction_country: string | null;
+  tax_jurisdiction_state: string | null;
+  tax_rate_bps: number | null;
+  tax_provider_name: string | null;
+  tax_provider_quote_reference: string | null;
+  tax_quoted_at: string | null;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
@@ -40,8 +48,8 @@ export interface OrderingOrderProjectionLine {
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
-  marketplace_fee_unit_amount: string;
-  marketplace_fee_total_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  marketplace_sales_fee_total_amount: string;
   seller_net_unit_amount: string;
   seller_net_total_amount: string;
 }

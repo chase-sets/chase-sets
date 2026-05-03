@@ -98,7 +98,7 @@ export function MarketplaceOfferMatchListPage({
                         <>
                           <Text size="sm" tone="secondary">
                             {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.marketplace.fee", {
-                              amount: formatMoney(terms.marketplace_fee_unit_amount),
+                              amount: formatMoney(terms.marketplace_sales_fee_unit_amount),
                             })}
                           </Text>
                           <Text size="sm" tone="secondary">

@@ -6,6 +6,10 @@ export type ProcessorPaymentKind =
   | "checkout-session"
   | "payment-intent"
   | "balance-credit";
+export type ProcessorPaymentMethodCategory =
+  | "card"
+  | "bank-account"
+  | "platform-credit";
 
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
@@ -21,6 +25,7 @@ export type CreateProcessorPaymentInput = Readonly<{
   orderIds: readonly OrderId[];
   amount: string;
   currencyCode: PaymentCurrencyCode;
+  paymentMethodCategory: ProcessorPaymentMethodCategory;
   description: string;
   returnUrl?: string | null;
   idempotencyKey?: string | null;

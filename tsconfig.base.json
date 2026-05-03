@@ -365,6 +365,15 @@
       ],
       "@chase-sets/stripe-payments": [
         "./infrastructure/stripe-payments/index.ts"
+      ],
+      "@chase-sets/tax": [
+        "./bounded-contexts/tax/index.ts"
+      ],
+      "@chase-sets/tax/context": [
+        "./bounded-contexts/tax/context.json"
+      ],
+      "@chase-sets/tax/server": [
+        "./bounded-contexts/tax/server.ts"
       ]
     }
   }

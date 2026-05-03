@@ -383,6 +383,8 @@ export function createStripePaymentProcessorGateway(
               ui_mode: "elements",
               return_url: paymentReturnUrl,
             };
+      const paymentMethodType =
+        input.paymentMethodCategory === "bank-account" ? "us_bank_account" : "card";
       const body = await stripeRequest<StripeCheckoutSessionResponse>(
         "/v1/checkout/sessions",
         {
@@ -390,6 +392,7 @@ export function createStripePaymentProcessorGateway(
           body: toFormBody({
             mode: "payment",
             ...sessionNavigation,
+            "payment_method_types[0]": paymentMethodType,
             client_reference_id: input.paymentId,
             "line_items[0][quantity]": "1",
             "line_items[0][price_data][currency]": input.currencyCode,
@@ -400,12 +403,15 @@ export function createStripePaymentProcessorGateway(
             "payment_intent_data[metadata][payment_id]": input.paymentId,
             "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,
             "payment_intent_data[metadata][order_ids]": input.orderIds.join(","),
+            "payment_intent_data[metadata][payment_method_category]":
+              input.paymentMethodCategory,
             description: input.description,
             "metadata[payment_id]": input.paymentId,
             "metadata[funds_strategy]": "platform-held",
             "metadata[transfer_group]": `payment:${input.paymentId}`,
             "metadata[buyer_account_id]": input.buyerAccountId,
             "metadata[order_ids]": input.orderIds.join(","),
+            "metadata[payment_method_category]": input.paymentMethodCategory,
             "metadata[client_ip_collected]": input.clientRiskContext?.ipAddress
               ? "true"
               : "false",

@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
   Card,
   DataTable,
@@ -35,6 +36,12 @@ export function AgreementListPage({
         description={t("commercialTerms.features.agreements.ui.agreementListPage.manage.account.specific.overrides.for.marketplace")}
       />
 
+      <Banner
+        tone="warning"
+        title={t("commercialTerms.features.agreements.ui.agreementListPage.fee.lock.permanence")}
+        description={t("commercialTerms.features.agreements.ui.agreementListPage.fee.lock.permanence.description")}
+      />
+
       {errorMessage ? (
         <Card>
           <Text>{errorMessage}</Text>
@@ -49,14 +56,14 @@ export function AgreementListPage({
               <TextInput label={t("commercialTerms.features.agreements.ui.agreementListPage.account.id")} name="accountId" required />
               <NumberInput
                 label={t("commercialTerms.features.agreements.ui.agreementListPage.marketplace.fee.bps")}
-                name="marketplaceFeePercentageBps"
+                name="marketplaceSalesFeePercentageBps"
                 min="0"
                 defaultValue="700"
                 required
               />
               <TextInput
                 label={t("commercialTerms.features.agreements.ui.agreementListPage.marketplace.fixed.amount")}
-                name="marketplaceFeeFixedAmount"
+                name="marketplaceSalesFeeFixedAmount"
                 inputMode="decimal"
                 defaultValue="0.05"
                 required
@@ -111,7 +118,7 @@ export function AgreementListPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Text size="sm">
-                    {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}{row.marketplace_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}{row.marketplace_fee_fixed_amount}
+                    {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}{row.marketplace_sales_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}{row.marketplace_sales_fee_fixed_amount}
                   </Text>
                 </Stack>
               ),

@@ -17,6 +17,16 @@ const line = {
   quantity: 1,
 };
 
+const shippingAddress = {
+  name: "Jane Smith",
+  line1: "100 Market Street",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+} as const;
+
 describe("checkout session domain", () => {
   it("starts, selects shipping, records orders, and records payment once", () => {
     const started = decideCheckoutSession(initialCheckoutSessionState, {
@@ -37,12 +47,19 @@ describe("checkout session domain", () => {
     });
     const selectedState = selected.reduce(evolveCheckoutSession, startedState);
 
-    const orders = decideCheckoutSession(selectedState, {
+    const addressed = decideCheckoutSession(selectedState, {
+      type: "SetShippingAddress",
+      shippingAddress,
+      selectedAt: "2026-04-29T00:01:30.000Z",
+    });
+    const addressedState = addressed.reduce(evolveCheckoutSession, selectedState);
+
+    const orders = decideCheckoutSession(addressedState, {
       type: "RecordOrdersCreated",
       orderIds: ["ord_1" as never],
       recordedAt: "2026-04-29T00:02:00.000Z",
     });
-    const orderedState = orders.reduce(evolveCheckoutSession, selectedState);
+    const orderedState = orders.reduce(evolveCheckoutSession, addressedState);
 
     const payment = decideCheckoutSession(orderedState, {
       type: "RecordPaymentStarted",
@@ -55,6 +72,7 @@ describe("checkout session domain", () => {
       sessionId: "chk_1",
       sourceType: "cart",
       shippingOption: "priority",
+      shippingAddress,
       orderIds: ["ord_1"],
       paymentId: "pay_1",
     });

@@ -17,8 +17,8 @@ type PurchaseDetail = Readonly<{
   shipping_discount_amount: string;
   shipping_charge_amount: string;
   total_amount: string;
-  marketplace_fee_amount: string;
-  payment_fee_amount: string;
+  marketplace_sales_fee_amount: string;
+  marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
   status: string;
   created_at: string;
@@ -59,8 +59,8 @@ type PaymentsPaymentDetail = Readonly<{
     provider_object_reference: string | null;
     received_at: string;
   }[];
-  marketplace_fee_amount: string;
-  payment_fee_amount: string;
+  marketplace_sales_fee_amount: string;
+  marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
 }>;
 
@@ -102,8 +102,8 @@ function buildPurchase(overrides: Partial<PurchaseDetail> = {}): PurchaseDetail 
     shipping_discount_amount: "0.00",
     shipping_charge_amount: "1.00",
     total_amount: "11.00",
-    marketplace_fee_amount: "1.00",
-    payment_fee_amount: "0.50",
+    marketplace_sales_fee_amount: "1.00",
+    marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "9.50",
     status: "pending-payment",
     created_at: "2026-04-01T00:00:00.000Z",
@@ -141,8 +141,8 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     cancelled_at: null,
     processor_publishable_key: null,
     provider_events: [],
-    marketplace_fee_amount: "1.00",
-    payment_fee_amount: "0.50",
+    marketplace_sales_fee_amount: "1.00",
+    marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "9.50",
     ...overrides,
   };

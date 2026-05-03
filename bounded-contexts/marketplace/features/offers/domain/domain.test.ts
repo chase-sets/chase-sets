@@ -115,7 +115,7 @@ describe("marketplace offer domain", () => {
       type: "AcceptOffer",
       sellerAccountId: "acc_seller" as never,
       acceptedAt: "2026-03-31T00:00:00.000Z",
-      marketplaceFeeUnitAmount: "0.50",
+      marketplaceSalesFeeUnitAmount: "0.50",
       sellerNetUnitAmount: "9.50",
       termsScheduleId: "sch_standard",
       termsAgreementId: null,
@@ -125,7 +125,7 @@ describe("marketplace offer domain", () => {
 
     expect(acceptedState.status).toBe("accepted");
     expect(acceptedState.acceptedSellerAccountId).toBe("acc_seller");
-    expect(acceptedState.marketplaceFeeUnitAmount).toBe("0.50");
+    expect(acceptedState.marketplaceSalesFeeUnitAmount).toBe("0.50");
     expect(acceptedState.sellerNetUnitAmount).toBe("9.50");
   });
 });

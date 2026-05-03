@@ -5,8 +5,11 @@ export interface PaymentsPaymentDetail {
   amount: string;
   balance_credit_amount: string;
   processor_amount: string;
-  marketplace_fee_amount: string;
-  payment_fee_amount: string;
+  marketplace_sales_fee_amount: string;
+  marketplace_checkout_fee_amount: string;
+  marketplace_checkout_fee_policy_version: string | null;
+  marketplace_checkout_fee_quote_fingerprint: string | null;
+  payment_method_category: string | null;
   seller_net_amount: string;
   currency_code: string;
   processor_name: string;
@@ -33,6 +36,28 @@ export interface PaymentsCheckoutStatus {
   order_ids: readonly string[];
   currency_code: string;
   amount: string;
+  marketplace_checkout_fee: {
+    payment_method_category: "card" | "bank-account" | "platform-credit";
+    external_basis_amount: string;
+    marketplace_checkout_fee_amount: string;
+    marketplace_checkout_fee_reduction_amount: string;
+    total_amount: string;
+    processor_amount: string;
+    policy_version: string;
+    quote_fingerprint: string;
+    quoted_at: string;
+  };
+  payment_method_quotes: readonly {
+    payment_method_category: "card" | "bank-account" | "platform-credit";
+    external_basis_amount: string;
+    marketplace_checkout_fee_amount: string;
+    marketplace_checkout_fee_reduction_amount: string;
+    total_amount: string;
+    processor_amount: string;
+    policy_version: string;
+    quote_fingerprint: string;
+    quoted_at: string;
+  }[];
   wallet_credit: {
     requested_amount: string;
     applied_amount: string;
@@ -51,6 +76,30 @@ export interface PaymentsCheckoutRecoveryOptions {
   can_recover: boolean;
   recommended_action: "start-payment" | "use-existing-payment" | "unavailable";
   checkout_status: PaymentsCheckoutStatus;
+}
+
+export interface PaymentsMarketplaceCheckoutFeePolicy {
+  policy_version: string;
+  effective_at: string;
+  enabled_jurisdictions: readonly string[];
+  base: {
+    percentage_bps: number;
+    fixed_amount: string;
+  };
+  method_adjustments: readonly {
+    payment_method_category: "card" | "bank-account" | "platform-credit";
+    percentage_bps_delta: number;
+    fixed_amount_delta: string;
+    resulting_percentage_bps: number;
+    resulting_fixed_amount: string;
+  }[];
+  unsupported_methods_default: "no-positive-fee";
+  quote_audit: {
+    confirmation_required: boolean;
+    stale_response_code: number;
+    stale_response_error: string;
+    snapshot_fields: readonly string[];
+  };
 }
 
 export interface PaymentsProviderEvent {

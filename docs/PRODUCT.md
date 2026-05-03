@@ -30,7 +30,7 @@ Existing marketplaces present several inefficiencies:
 
 ### Selling Accounts
 
-- High marketplace fees
+- High marketplace sales fees
 - Inefficient pricing tools
 - Shipping losses on low-value cards
 - Limited automation and analytics
@@ -102,7 +102,7 @@ Existing marketplaces present several inefficiencies:
 
 Seller fees:
 
-- Seller-confirmed per-unit marketplace fee snapshot
+- Seller-confirmed per-unit marketplace sales fee snapshot
 - Permanent for each listed unit until that unit is sold
 - Positive fractional-cent fees round up to the next cent
 - Price edits and quantity-cap edits require a new confirmed quote and replace the locked snapshot

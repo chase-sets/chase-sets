@@ -34,7 +34,7 @@ export function ScheduleDetailPage({ schedule }: { schedule: CommercialTermsSche
             <Text>{t("commercialTerms.features.schedules.ui.scheduleDetailPage.schedule.id")}{schedule.schedule_id}</Text>
             <Text>{t("commercialTerms.features.schedules.ui.scheduleDetailPage.account.type")}{schedule.account_type}</Text>
             <Text>
-              {t("commercialTerms.features.schedules.ui.scheduleDetailPage.marketplace.fee")}{schedule.marketplace_fee_percentage_bps} {t("commercialTerms.features.schedules.ui.scheduleDetailPage.bps")}{schedule.marketplace_fee_fixed_amount}
+              {t("commercialTerms.features.schedules.ui.scheduleDetailPage.marketplace.fee")}{schedule.marketplace_sales_fee_percentage_bps} {t("commercialTerms.features.schedules.ui.scheduleDetailPage.bps")}{schedule.marketplace_sales_fee_fixed_amount}
             </Text>
             <Text>{t("commercialTerms.features.schedules.ui.scheduleDetailPage.effective.from")}{schedule.effective_from}</Text>
             <Text>{t("commercialTerms.features.schedules.ui.scheduleDetailPage.effective.until")}{schedule.effective_until ?? t("commercialTerms.features.schedules.ui.scheduleDetailPage.open.ended")}</Text>

@@ -221,7 +221,7 @@ export const module: BcApiModule<
                 selectedOptions: [...params.selectedOptions],
                 productSummary: params.productSummary,
                 priceAmount: params.priceAmount,
-                marketplaceFeeUnitAmount: params.marketplaceFeeUnitAmount,
+                marketplaceSalesFeeUnitAmount: params.marketplaceSalesFeeUnitAmount,
                 sellerNetUnitAmount: params.sellerNetUnitAmount,
                 termsScheduleId: params.termsScheduleId,
                 termsAgreementId: params.termsAgreementId,

@@ -32,6 +32,7 @@ import {
   type CheckoutSessionCommand,
   type CheckoutSessionEvent,
   type CheckoutSessionLine,
+  type CheckoutShippingAddress,
   type CheckoutSessionState,
 } from "../domain/domain";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
@@ -79,6 +80,14 @@ export type CheckoutSessionServices = Readonly<{
       sessionId: string;
       accountId: AccountId;
       shippingOption: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ sessionId: string }>;
+  setShippingAddress: (
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+      shippingAddress: CheckoutShippingAddress;
     }>,
     context: EventStoreContext,
   ) => Promise<{ sessionId: string }>;
@@ -258,6 +267,27 @@ export function createCheckoutSessionRuntime(
         command: {
           type: "SelectShippingOption",
           shippingOption: normalizeShippingOption(params.shippingOption),
+          selectedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      return { sessionId: params.sessionId };
+    },
+    setShippingAddress: async (params, context) => {
+      const session = await getCheckoutSession(
+        deps.db,
+        params.sessionId,
+        params.accountId,
+      );
+      if (!session) {
+        throw new CheckoutDomainError("Checkout session not found.");
+      }
+
+      await commandHandler({
+        streamId: `checkout.session-${params.sessionId}`,
+        command: {
+          type: "SetShippingAddress",
+          shippingAddress: params.shippingAddress,
           selectedAt: new Date().toISOString(),
         },
         context,

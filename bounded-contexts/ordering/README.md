@@ -16,7 +16,7 @@ If an item uses a `condition` dimension, that condition is represented inside th
 
 - Order creation from listing purchases and accepted offers
 - Order lines
-- Marketplace fee snapshots emitted by listing and offer workflows
+- Marketplace sales fee snapshots emitted by listing and offer workflows
 - Buyer and seller pairing per order
 - Pending-payment and cancelled order status
 - Pre-shipment cancellation rules
@@ -53,7 +53,7 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. Checkout owns cart intent and checkout session lifecycle.
-2. Ordering consumes Marketplace fee snapshots and does not resolve seller fee policy at order time.
+2. Ordering consumes Marketplace sales fee snapshots and does not resolve seller fee policy at order time.
 3. Checkout lines express buyer intent for a product; concrete listing and inventory matching happen when Ordering creates orders.
 4. A checkout session may produce one or more orders grouped by seller account.
 5. Inventory holds are placed only when an order is committed and released if the order is cancelled while pending.

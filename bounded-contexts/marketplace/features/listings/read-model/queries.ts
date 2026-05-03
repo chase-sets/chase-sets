@@ -15,7 +15,7 @@ export type MarketplaceListingListRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
-  marketplace_fee_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -32,6 +32,24 @@ export type MarketplaceItemListingRow = MarketplaceListingListRow &
     seller_display_name: string | null;
     visible_quantity: number;
   }>;
+
+export type MarketplaceListingFeeLockReportRow = Readonly<{
+  listing_id: string;
+  inventory_item_id: string;
+  item_title: string | null;
+  product_summary: string | null;
+  status: string;
+  price_amount: string;
+  quantity_cap: number;
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string | null;
+  fee_quote_fingerprint: string;
+  created_at: string;
+  updated_at: string;
+}>;
 
 export type MarketplaceMarketSummaryRow = Readonly<{
   lowest_price_amount: string | null;
@@ -53,7 +71,7 @@ type MarketplaceListingPageRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
-  marketplace_fee_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -386,6 +404,51 @@ export async function listSellerListings(
 
   return {
     items: itemsResult.rows.map(mapListingRow),
+    total: Number(countResult.rows[0]?.count ?? 0),
+  };
+}
+
+export async function listSellerListingFeeLockReport(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
+): Promise<{ items: MarketplaceListingFeeLockReportRow[]; total: number }> {
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  const offset = Math.max(0, params.offset ?? 0);
+
+  const [countResult, itemsResult] = await Promise.all([
+    db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM marketplace_listing_pages
+       WHERE account_id = $1`,
+      [params.accountId],
+    ),
+    db.query<MarketplaceListingFeeLockReportRow>(
+      `SELECT
+         listing_id,
+         inventory_item_id,
+         item_title,
+         product_summary,
+         status,
+         price_amount,
+         quantity_cap,
+         marketplace_sales_fee_unit_amount,
+         seller_net_unit_amount,
+         terms_schedule_id,
+         terms_agreement_id,
+         terms_resolved_at,
+         fee_quote_fingerprint,
+         created_at,
+         updated_at
+       FROM marketplace_listing_pages
+       WHERE account_id = $1
+       ORDER BY updated_at DESC, listing_id DESC
+       LIMIT $2 OFFSET $3`,
+      [params.accountId, limit, offset],
+    ),
+  ]);
+
+  return {
+    items: itemsResult.rows,
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }

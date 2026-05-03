@@ -4,8 +4,8 @@ export type CommercialTermsScheduleRow = Readonly<{
   schedule_id: string;
   label: string;
   account_type: string;
-  marketplace_fee_percentage_bps: number;
-  marketplace_fee_fixed_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
   status: string;
   effective_from: string;
   effective_until: string | null;
@@ -26,8 +26,8 @@ export async function listSchedules(
          schedule_id,
          label,
          account_type,
-         marketplace_fee_percentage_bps,
-         marketplace_fee_fixed_amount::text,
+         marketplace_sales_fee_percentage_bps,
+         marketplace_sales_fee_fixed_amount::text,
          status,
          effective_from,
          effective_until,
@@ -52,8 +52,8 @@ export async function getSchedule(db: PgQueryable, scheduleId: string) {
        schedule_id,
        label,
        account_type,
-       marketplace_fee_percentage_bps,
-       marketplace_fee_fixed_amount::text,
+       marketplace_sales_fee_percentage_bps,
+       marketplace_sales_fee_fixed_amount::text,
        status,
        effective_from,
        effective_until,

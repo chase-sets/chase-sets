@@ -13,11 +13,16 @@ export async function createCheckoutOrdersThroughOrdering(
   request: Request,
   session: CheckoutSessionRow,
 ) {
+  if (!session.shipping_address) {
+    throw new Error("Shipping destination is required before checkout can create purchases.");
+  }
+
   const orderingApi = createOrderingRequestApiClient(request);
   const result = await orderingApi.createCheckoutOrders({
     checkoutSessionId: session.session_id,
     sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
     shippingOption: session.shipping_option,
+    shippingAddress: session.shipping_address,
     lines: session.lines,
   });
 
@@ -29,13 +34,26 @@ export async function createCheckoutPaymentThroughPayments(
   sessionId: string,
   orderIds: readonly string[],
   requestedBalanceCreditAmount?: string | null,
+  paymentMethodCategory: string = "card",
+  marketplaceCheckoutFeeQuoteFingerprint?: string | null,
 ) {
   const paymentsApi = createPaymentsRequestApiClient(request);
+  const confirmedFingerprint =
+    marketplaceCheckoutFeeQuoteFingerprint ??
+    (
+      await paymentsApi.getCheckoutStatus({
+        orderIds,
+        requestedBalanceCreditAmount,
+        paymentMethodCategory,
+      })
+    ).marketplace_checkout_fee.quote_fingerprint;
   const payment = await paymentsApi.createAccountPayment({
     orderIds,
     sourceContext: "checkout",
     sourceReferenceId: sessionId,
     requestedBalanceCreditAmount,
+    paymentMethodCategory,
+    marketplaceCheckoutFeeQuoteFingerprint: confirmedFingerprint,
   });
 
   return payment.payment_id;

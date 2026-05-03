@@ -6,8 +6,8 @@ import {
 } from "./domain";
 
 const commercialAmounts = {
-  marketplaceFeeAmount: "2.00",
-  paymentFeeAmount: "1.00",
+  marketplaceSalesFeeAmount: "2.00",
+  marketplaceCheckoutFeeAmount: "1.00",
   sellerNetAmount: "39.50",
 } as const;
 
@@ -47,8 +47,8 @@ describe("payments payment domain", () => {
       buyerAccountId: "acc_buyer" as never,
       orderIds: ["ord_1" as never],
       amount: "10.00",
-      marketplaceFeeAmount: "1.00",
-      paymentFeeAmount: "0.50",
+      marketplaceSalesFeeAmount: "1.00",
+      marketplaceCheckoutFeeAmount: "0.50",
       sellerNetAmount: "8.50",
       currencyCode: "usd",
       processorName: "stripe",
@@ -89,8 +89,8 @@ describe("payments payment domain", () => {
         buyerAccountId: "acc_buyer" as never,
         orderIds: [],
         amount: "0.00",
-        marketplaceFeeAmount: "0.00",
-        paymentFeeAmount: "0.00",
+        marketplaceSalesFeeAmount: "0.00",
+        marketplaceCheckoutFeeAmount: "0.00",
         sellerNetAmount: "0.00",
         currencyCode: "usd",
         processorName: "stripe",

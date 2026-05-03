@@ -21,6 +21,16 @@ vi.mock("../../../support/request-support/checkout-confirmation", () => ({
 import { createAccountCheckoutSessionRoutes } from "./route";
 import type { CheckoutSessionRow } from "../read-model/queries";
 
+const shippingAddress = {
+  name: "Jane Smith",
+  line1: "100 Market Street",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+} as const;
+
 function buildApp(services: CheckoutSessionServices) {
   const app = new Hono<CheckoutApiEnv>();
 
@@ -69,6 +79,7 @@ function createSession(
         quantity: 1,
       },
     ],
+    shipping_address: shippingAddress,
     order_ids: [],
     payment_id: null,
     created_at: "2026-04-29T00:00:00.000Z",
@@ -85,6 +96,7 @@ function createServices(
     createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
     createBuyNow: vi.fn(async () => ({ sessionId: "chk_buy_now" as never })),
     selectShippingOption: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    setShippingAddress: vi.fn(async ({ sessionId }) => ({ sessionId })),
     recordOrdersCreated: vi.fn(async ({ sessionId }) => ({ sessionId })),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => ({ sessionId })),
     getSession: vi.fn(async () => createSession()),
@@ -207,7 +219,7 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ shippingAddress }),
       }),
     );
 
@@ -225,6 +237,8 @@ describe("checkout session routes", () => {
       expect.any(Request),
       "chk_1",
       ["ord_1"],
+      null,
+      "card",
       null,
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
@@ -246,7 +260,7 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ shippingAddress }),
       }),
     );
 
@@ -257,6 +271,8 @@ describe("checkout session routes", () => {
       expect.any(Request),
       "chk_1",
       ["ord_existing"],
+      null,
+      "card",
       null,
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
@@ -277,7 +293,12 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestedBalanceCreditAmount: "8.50" }),
+        body: JSON.stringify({
+          requestedBalanceCreditAmount: "8.50",
+          paymentMethodCategory: "bank-account",
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          shippingAddress,
+        }),
       }),
     );
 
@@ -287,6 +308,8 @@ describe("checkout session routes", () => {
       "chk_1",
       ["ord_1"],
       "8.50",
+      "bank-account",
+      "quote_1",
     );
   });
 

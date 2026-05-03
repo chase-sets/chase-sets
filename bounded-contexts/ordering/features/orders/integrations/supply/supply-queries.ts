@@ -20,7 +20,7 @@ type OrderingSupplyCandidateRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
-  marketplace_fee_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -70,7 +70,7 @@ export async function listOrderingSupplyCandidates(
        listing.storage_location_name,
        listing.ship_from_code,
        listing.price_amount::text AS price_amount,
-       listing.marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
+       listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount::text AS seller_net_unit_amount,
        listing.terms_schedule_id,
        listing.terms_agreement_id,
@@ -119,7 +119,7 @@ export async function listOrderingSupplyCandidates(
       storageLocationName: row.storage_location_name,
       shipFromCode: row.ship_from_code,
       priceAmount: row.price_amount,
-      marketplaceFeeUnitAmount: row.marketplace_fee_unit_amount,
+      marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
       sellerNetUnitAmount: row.seller_net_unit_amount,
       termsScheduleId: row.terms_schedule_id,
       termsAgreementId: row.terms_agreement_id,
@@ -148,7 +148,7 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.storage_location_name,
        listing.ship_from_code,
        listing.price_amount::text AS price_amount,
-       listing.marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
+       listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount::text AS seller_net_unit_amount,
        listing.terms_schedule_id,
        listing.terms_agreement_id,
@@ -196,7 +196,7 @@ export async function getOrderingSupplyCandidateByListingId(
     storageLocationName: row.storage_location_name,
     shipFromCode: row.ship_from_code,
     priceAmount: row.price_amount,
-    marketplaceFeeUnitAmount: row.marketplace_fee_unit_amount,
+    marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
     sellerNetUnitAmount: row.seller_net_unit_amount,
     termsScheduleId: row.terms_schedule_id,
     termsAgreementId: row.terms_agreement_id,

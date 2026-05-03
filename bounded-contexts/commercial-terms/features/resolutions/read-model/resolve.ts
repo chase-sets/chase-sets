@@ -11,7 +11,7 @@ export type ResolvedCommercialTerms = Readonly<{
   accountId: string;
   accountType: CommercialAccountType;
   basisAmount: string;
-  marketplaceFeeUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   scheduleId: string | null;
   agreementId: string | null;
@@ -39,14 +39,14 @@ type ProjectedAccount = Readonly<{
 
 type ActiveSchedule = Readonly<{
   schedule_id: string;
-  marketplace_fee_percentage_bps: number;
-  marketplace_fee_fixed_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
 }>;
 
 type ActiveAgreement = Readonly<{
   agreement_id: string;
-  marketplace_fee_percentage_bps: number;
-  marketplace_fee_fixed_amount: string;
+  marketplace_sales_fee_percentage_bps: number;
+  marketplace_sales_fee_fixed_amount: string;
 }>;
 
 async function getProjectedAccount(db: PgQueryable, accountId: string) {
@@ -68,8 +68,8 @@ async function getActiveSchedule(
   const result = await db.query<ActiveSchedule>(
     `SELECT
        schedule_id,
-       marketplace_fee_percentage_bps,
-       marketplace_fee_fixed_amount::text
+       marketplace_sales_fee_percentage_bps,
+       marketplace_sales_fee_fixed_amount::text
      FROM commercial_terms_schedule_pages
      WHERE account_type = $1
        AND status = 'active'
@@ -91,8 +91,8 @@ async function getActiveAgreement(
   const result = await db.query<ActiveAgreement>(
     `SELECT
        agreement_id,
-       marketplace_fee_percentage_bps,
-       marketplace_fee_fixed_amount::text
+       marketplace_sales_fee_percentage_bps,
+       marketplace_sales_fee_fixed_amount::text
      FROM commercial_terms_agreement_pages
      WHERE account_id = $1
        AND status = 'active'
@@ -133,19 +133,19 @@ async function resolveTerms(
     `No active commercial terms were found for account ${params.accountId}.`,
   );
 
-  const marketplaceFeeUnitAmount = applyFeeFormula(amount, {
+  const marketplaceSalesFeeUnitAmount = applyFeeFormula(amount, {
     percentageBps:
-      agreement?.marketplace_fee_percentage_bps ?? schedule?.marketplace_fee_percentage_bps ?? 0,
+      agreement?.marketplace_sales_fee_percentage_bps ?? schedule?.marketplace_sales_fee_percentage_bps ?? 0,
     fixedAmount:
-      agreement?.marketplace_fee_fixed_amount ?? schedule?.marketplace_fee_fixed_amount ?? "0.00",
+      agreement?.marketplace_sales_fee_fixed_amount ?? schedule?.marketplace_sales_fee_fixed_amount ?? "0.00",
   });
 
   return {
     accountId: params.accountId,
     accountType: account.account_type,
     basisAmount: amount,
-    marketplaceFeeUnitAmount,
-    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceFeeUnitAmount),
+    marketplaceSalesFeeUnitAmount,
+    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
     scheduleId: schedule?.schedule_id ?? null,
     agreementId: agreement?.agreement_id ?? null,
     resolvedAt: effectiveAt,
@@ -172,7 +172,7 @@ export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
       accountId: params.accountId,
       accountType: "business" as const,
       basisAmount: amount,
-      marketplaceFeeUnitAmount: "0.00",
+      marketplaceSalesFeeUnitAmount: "0.00",
       sellerNetUnitAmount: amount,
       scheduleId: null,
       agreementId: null,

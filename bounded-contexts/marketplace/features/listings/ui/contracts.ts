@@ -12,7 +12,7 @@ export interface MarketplaceListingListItem {
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
-  marketplace_fee_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -38,6 +38,24 @@ export interface MarketplaceGradedCardDetails {
 }
 
 export interface MarketplaceListingDetail extends MarketplaceListingListItem {}
+
+export interface MarketplaceListingFeeLockReportEntry {
+  listing_id: string;
+  inventory_item_id: string;
+  item_title: string | null;
+  product_summary: string | null;
+  status: string;
+  price_amount: string;
+  quantity_cap: number;
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string | null;
+  fee_quote_fingerprint: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface MarketplaceMarketSummary {
   lowest_price_amount: string | null;
@@ -67,7 +85,7 @@ export interface MarketplaceListingInventoryItemOption {
 export interface MarketplaceListingTermsPreview {
   account_type: "personal" | "business" | "enterprise";
   basis_amount: string;
-  marketplace_fee_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   schedule_id: string | null;
   agreement_id: string | null;
@@ -80,7 +98,7 @@ export interface MarketplaceListingFeeHistoryEntry {
   stream_version: number;
   price_amount: string | null;
   quantity_cap: number | null;
-  marketplace_fee_unit_amount: string | null;
+  marketplace_sales_fee_unit_amount: string | null;
   seller_net_unit_amount: string | null;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;

@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount numeric(12,2) NOT NULL,
-  marketplace_fee_unit_amount numeric(12,2) NOT NULL,
+  marketplace_sales_fee_unit_amount numeric(12,2) NOT NULL,
   seller_net_unit_amount numeric(12,2) NOT NULL,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,

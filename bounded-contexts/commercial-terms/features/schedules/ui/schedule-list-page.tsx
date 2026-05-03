@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
   Card,
   DataTable,
@@ -35,6 +36,12 @@ export function ScheduleListPage({
         description={t("commercialTerms.features.schedules.ui.scheduleListPage.manage.default.marketplace.fee.schedules")}
       />
 
+      <Banner
+        tone="warning"
+        title={t("commercialTerms.features.schedules.ui.scheduleListPage.fee.lock.permanence")}
+        description={t("commercialTerms.features.schedules.ui.scheduleListPage.fee.lock.permanence.description")}
+      />
+
       {errorMessage ? (
         <Card>
           <Text>{errorMessage}</Text>
@@ -59,14 +66,14 @@ export function ScheduleListPage({
               />
               <NumberInput
                 label={t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee.bps")}
-                name="marketplaceFeePercentageBps"
+                name="marketplaceSalesFeePercentageBps"
                 min="0"
                 defaultValue="850"
                 required
               />
               <TextInput
                 label={t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fixed.amount")}
-                name="marketplaceFeeFixedAmount"
+                name="marketplaceSalesFeeFixedAmount"
                 inputMode="decimal"
                 defaultValue="0.10"
                 required
@@ -119,7 +126,7 @@ export function ScheduleListPage({
               key: "marketplace",
               header: t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee"),
               cell: (row) =>
-                `${row.marketplace_fee_percentage_bps} bps + $${row.marketplace_fee_fixed_amount}`,
+                `${row.marketplace_sales_fee_percentage_bps} bps + $${row.marketplace_sales_fee_fixed_amount}`,
             },
             {
               key: "status",
