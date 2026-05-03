@@ -48,6 +48,8 @@ Errors use one envelope:
 
 Standard error codes are `authentication_required`, `authorization_forbidden`, `validation_failed`, `not_found`, `conflict`, `provider_failed`, and `internal_error`.
 
+Fee-confirmed listing and offer actions may also return `fee_quote_stale` with a `currentQuote` object. Clients should show the returned quote and retry with its `feeQuoteFingerprint`.
+
 ## Permissions
 
 - Catalog browsing and public reputation reads are anonymous unless a route needs account-specific state.
@@ -83,12 +85,54 @@ Seller listing:
 3. `POST /api/marketplace/account/listings/preview`
 4. `POST /api/marketplace/account/listings`
 5. `POST /api/marketplace/account/listings/{id}/publish`
+6. `GET /api/marketplace/account/listings/{id}/fee-history`
 
 Offer acceptance:
 
 1. `POST /api/marketplace/account/offers/submitted`
 2. `GET /api/marketplace/account/offers/matches`
-3. `POST /api/marketplace/account/offers/matches/{id}/accept`
+3. `GET /api/marketplace/account/offers/matches/{id}/terms-preview`
+4. `POST /api/marketplace/account/offers/matches/{id}/accept`
+
+## Permanent Listing Fee Confirmation
+
+Seller-side marketplace fees are confirmed before publication or acceptance and then carried as per-unit snapshots. Ordering consumes those snapshots for listing purchases and accepted offers.
+
+Listing preview returns:
+
+```json
+{
+  "basis_amount": "20.00",
+  "marketplace_fee_unit_amount": "1.00",
+  "seller_net_unit_amount": "19.00",
+  "schedule_id": "cts_default",
+  "agreement_id": null,
+  "resolved_at": "2026-05-03T18:00:00.000Z",
+  "fee_quote_fingerprint": "20.00|1.00|19.00|cts_default|"
+}
+```
+
+Publish, active price edits, active quantity-cap edits, and offer acceptance must submit the confirmed `feeQuoteFingerprint`. If terms have changed since preview, the API returns:
+
+```json
+{
+  "error": {
+    "code": "fee_quote_stale",
+    "message": "Fee quote is stale. Refresh the fee preview before continuing.",
+    "currentQuote": {
+      "basis_amount": "20.00",
+      "marketplace_fee_unit_amount": "2.00",
+      "seller_net_unit_amount": "18.00",
+      "schedule_id": "cts_default",
+      "agreement_id": null,
+      "resolved_at": "2026-05-03T18:05:00.000Z",
+      "fee_quote_fingerprint": "20.00|2.00|18.00|cts_default|"
+    }
+  }
+}
+```
+
+`GET /api/marketplace/account/listings/{id}/fee-history` returns the seller-visible lock history for listing creation, publication, active price edits, and active quantity-cap edits.
 
 Seller payout setup:
 

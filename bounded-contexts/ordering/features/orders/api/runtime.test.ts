@@ -71,29 +71,6 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   };
 }
 
-const commercialTermsResolver = {
-  resolveListingTerms: vi.fn(async ({ accountId, amount }) => ({
-    accountId,
-    accountType: "business" as const,
-    basisAmount: amount,
-    marketplaceFeeUnitAmount: "1.00",
-    sellerNetUnitAmount: "19.00",
-    scheduleId: "cts_default",
-    agreementId: null,
-    resolvedAt: "2026-03-31T00:00:00.000Z",
-  })),
-  resolveOrderTerms: vi.fn(async ({ accountId, amount }) => ({
-    accountId,
-    accountType: "business" as const,
-    basisAmount: amount,
-    marketplaceFeeUnitAmount: "1.00",
-    sellerNetUnitAmount: "19.00",
-    scheduleId: "cts_default",
-    agreementId: null,
-    resolvedAt: "2026-03-31T00:00:00.000Z",
-  })),
-};
-
 const context = {
   tenantId: "tnt_test" as never,
   audit: {
@@ -205,7 +182,6 @@ describe("ordering order runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
       carts: carts as never,
-      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -356,7 +332,6 @@ describe("ordering order runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
       carts: carts as never,
-      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: ({ itemSubtotalAmount }) => ({
           shippingOption: "standard",
@@ -456,7 +431,6 @@ describe("ordering order runtime", () => {
         listCartLines: async () => [],
         checkout: async () => ({ version: 1 }),
       } as never,
-      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -466,8 +440,6 @@ describe("ordering order runtime", () => {
         }),
       },
     });
-    commercialTermsResolver.resolveListingTerms.mockClear();
-
     await services.createOrdersFromAcceptedOffer(
       {
         offerId: "off_1",
@@ -510,7 +482,6 @@ describe("ordering order runtime", () => {
         }),
       ],
     });
-    expect(commercialTermsResolver.resolveListingTerms).not.toHaveBeenCalled();
   });
 
   it("creates buy-now orders from the requested listing only", async () => {
@@ -545,7 +516,6 @@ describe("ordering order runtime", () => {
         listCartLines: async () => [],
         checkout: async () => ({ version: 1 }),
       } as never,
-      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -613,7 +583,6 @@ describe("ordering order runtime", () => {
         listCartLines: async () => [],
         checkout: async () => ({ version: 1 }),
       } as never,
-      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -726,7 +695,6 @@ describe("ordering order runtime", () => {
         listCartLines: async () => [],
         checkout: async () => ({ version: 1 }),
       } as never,
-      commercialTermsResolver,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",

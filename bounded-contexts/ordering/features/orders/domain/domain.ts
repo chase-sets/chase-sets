@@ -363,7 +363,7 @@ function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnaps
     termsAgreementId: normalizeOptionalText(snapshot.termsAgreementId),
     termsResolvedAt: normalizeRequiredText(
       snapshot.termsResolvedAt,
-      "Commercial terms snapshot must include a resolution timestamp.",
+      "Order economics snapshot must include a resolution timestamp.",
     ),
   };
 }

@@ -14,6 +14,8 @@ Payments owns money movement with external payment rails and buyer-facing charge
 - Marketplace fee snapshots supplied by Ordering
 - Shipping rebate calculation inputs at checkout and refund time
 
+Buyer payment fee policy is tracked separately in [Buyer Payment Fee Policy Future Work](../../docs/BUYER-PAYMENT-FEE-POLICY-FUTURE-WORK.md).
+
 ## Does Not Own
 
 - Internal seller balance ledger

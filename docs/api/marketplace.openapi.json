@@ -46,18 +46,20 @@
 
     "/api/marketplace/account/listing-inventory": { "get": { "tags": ["Listings and Offers"], "summary": "List seller inventory available for listings.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/listings": { "get": { "tags": ["Listings and Offers"], "summary": "List seller listings.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Listings and Offers"], "summary": "Create a listing.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
-    "/api/marketplace/account/listings/preview": { "post": { "tags": ["Listings and Offers"], "summary": "Preview listing commercial terms.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/listings/preview": { "post": { "tags": ["Listings and Offers"], "summary": "Preview seller-confirmed listing marketplace fee terms.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/listings/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get a seller listing.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
-    "/api/marketplace/account/listings/{id}/price": { "post": { "tags": ["Listings and Offers"], "summary": "Update listing price.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
-    "/api/marketplace/account/listings/{id}/quantity-cap": { "post": { "tags": ["Listings and Offers"], "summary": "Update listing quantity cap.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
-    "/api/marketplace/account/listings/{id}/publish": { "post": { "tags": ["Listings and Offers"], "summary": "Publish listing.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/listings/{id}/fee-history": { "get": { "tags": ["Listings and Offers"], "summary": "List seller-visible listing fee lock history.", "responses": { "200": { "$ref": "#/components/responses/List" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/listings/{id}/price": { "post": { "tags": ["Listings and Offers"], "summary": "Update listing price with confirmed feeQuoteFingerprint.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/FeeQuoteStale" } } } },
+    "/api/marketplace/account/listings/{id}/quantity-cap": { "post": { "tags": ["Listings and Offers"], "summary": "Update listing quantity cap with confirmed feeQuoteFingerprint.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/FeeQuoteStale" } } } },
+    "/api/marketplace/account/listings/{id}/publish": { "post": { "tags": ["Listings and Offers"], "summary": "Publish listing with confirmed feeQuoteFingerprint.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/FeeQuoteStale" } } } },
     "/api/marketplace/account/listings/{id}/pause": { "post": { "tags": ["Listings and Offers"], "summary": "Pause listing.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/listings/{id}/withdraw": { "post": { "tags": ["Listings and Offers"], "summary": "Withdraw listing.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/offers/submitted": { "get": { "tags": ["Listings and Offers"], "summary": "List submitted buyer offers.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Listings and Offers"], "summary": "Submit a buyer offer.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/offers/submitted/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get submitted offer detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
     "/api/marketplace/account/offers/matches": { "get": { "tags": ["Listings and Offers"], "summary": "List seller offer matches.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/offers/matches/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get seller offer match detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
-    "/api/marketplace/account/offers/matches/{id}/accept": { "post": { "tags": ["Listings and Offers"], "summary": "Accept a matched offer.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/offers/matches/{id}/terms-preview": { "get": { "tags": ["Listings and Offers"], "summary": "Preview accepted-offer marketplace fee terms.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/offers/matches/{id}/accept": { "post": { "tags": ["Listings and Offers"], "summary": "Accept a matched offer with confirmed feeQuoteFingerprint.", "responses": { "201": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/FeeQuoteStale" } } } },
     "/api/marketplace/account/offers/match-sell-list": { "get": { "tags": ["Listings and Offers"], "summary": "List offer matches selected for batch acceptance.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Listings and Offers"], "summary": "Add an offer match to the sell list.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/offers/match-sell-list/accept": { "post": { "tags": ["Listings and Offers"], "summary": "Accept all offer matches in the sell list.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
 
@@ -165,6 +167,10 @@
             "properties": {
               "code": { "type": "string" },
               "message": { "type": "string" },
+              "currentQuote": {
+                "type": "object",
+                "description": "Current seller fee quote returned with fee_quote_stale responses."
+              },
               "details": {
                 "type": "array",
                 "items": {
@@ -206,6 +212,7 @@
       "AuthenticationRequired": { "description": "Authentication required.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Forbidden.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ValidationFailed": { "description": "Validation failed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "FeeQuoteStale": { "description": "Confirmed fee quote is missing or stale. Response includes error.currentQuote.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "NotFound": { "description": "Resource not found.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
     }
   }

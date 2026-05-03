@@ -5,10 +5,6 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import {
-  createOrderingCommercialTermsResolver,
-  type CommercialTermsResolver,
-} from "../../api";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import {
@@ -17,7 +13,6 @@ import {
 } from "../../features/orders/domain/policies";
 
 export type OrderingServiceOptions = Readonly<{
-  commercialTermsResolver?: CommercialTermsResolver;
   shippingQuotePolicy?: ShippingQuotePolicy;
 }>;
 
@@ -40,8 +35,6 @@ export function createOrderingServices(
     eventStore,
     checkpointStore,
     db,
-    commercialTermsResolver:
-      options.commercialTermsResolver ?? createOrderingCommercialTermsResolver(db),
     shippingQuotePolicy:
       options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
   });

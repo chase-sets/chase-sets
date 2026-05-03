@@ -38,7 +38,6 @@ import {
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { listOrderingSupplyCandidates } from "../integrations/supply/supply-queries";
 import { getOrderingSupplyCandidateByListingId } from "../integrations/supply/supply-queries";
-import type { CommercialTermsResolver } from "../../../api";
 import {
   decideOrderingOrder,
   evolveOrderingOrder,
@@ -52,7 +51,6 @@ type OrderRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
-  commercialTermsResolver: CommercialTermsResolver;
   shippingQuotePolicy: ShippingQuotePolicy;
 }>;
 

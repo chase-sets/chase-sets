@@ -8,6 +8,8 @@ Commercial Terms owns seller-side marketplace fee policy only. Buyer payment fee
 
 Marketplace owns seller confirmation. Ordering consumes Marketplace snapshots and does not call Commercial Terms for normal listing purchases.
 
+Buyer payment fee policy is tracked as separate future work in [Buyer Payment Fee Policy Future Work](./BUYER-PAYMENT-FEE-POLICY-FUTURE-WORK.md).
+
 ## Listing Flow
 
 1. Draft creation stores the latest non-binding marketplace fee quote.
@@ -89,4 +91,3 @@ GET /api/marketplace/account/listings/lst_123/fee-history
 ```
 
 Each history entry includes the event type, stream version, price, quantity cap when applicable, per-unit marketplace fee, per-unit seller net, schedule/agreement source, terms timestamp, quote fingerprint, recorded time, and actor id.
-

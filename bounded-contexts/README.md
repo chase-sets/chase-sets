@@ -14,7 +14,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
-| [Commercial Terms](./commercial-terms/README.md) | Own marketplace fee policy, payment fee policy, and account-specific commercial agreements. |
+| [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace fee policy and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
 | [Ordering](./ordering/README.md) | Own per-seller orders and commercial commitment. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
@@ -212,7 +212,7 @@ Catalog also owns the `SelectedOptionEntry` shape used to describe resolved prod
 - Marketplace depends on Commercial Terms for resolved seller fee snapshots used in listing management.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
 - Checkout depends on Discovery entry points, Catalog product identity, Ordering order creation, and Payments payment initialization.
-- Ordering depends on Marketplace product commitments, Commercial Terms resolution, Identity account references, and inventory reservation outcomes published after order commitment.
+- Ordering depends on Marketplace product commitments and seller-confirmed fee snapshots, Identity account references, and inventory reservation outcomes published after order commitment.
 - Fulfillment depends on Ordering.
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
@@ -231,7 +231,7 @@ Each context may define rich internal domain events, but only a small, stable in
 These scenarios should map cleanly to one owner per decision:
 
 1. Inventory owns bulk stock ingestion and account-held stock for a resolved product.
-2. Commercial Terms owns fee schedules, negotiated overrides, and deterministic commercial snapshots.
+2. Commercial Terms owns seller-side marketplace fee schedules, negotiated overrides, and deterministic fee resolutions.
 3. Marketplace owns listing publication and offer negotiation for products.
 4. Checkout owns cart intent and checkout sessions; Ordering owns order creation for committed products.
 5. Fulfillment owns shipment state and tracking.

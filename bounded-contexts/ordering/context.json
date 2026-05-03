@@ -23,14 +23,12 @@
     "./server"
   ],
   "allowedContextDependencies": [
-    "@chase-sets/commercial-terms",
     "@chase-sets/reputation"
   ],
   "seedRequirements": [
     "catalog",
     "identity",
     "inventory",
-    "commercial-terms",
     "marketplace"
   ],
   "eventSubscriptions": [
@@ -185,13 +183,7 @@
       "requiredDuringBootstrap": false
     }
   ],
-  "hostPorts": [
-    {
-      "portName": "commercialTermsResolver",
-      "providedBy": "commercial-terms",
-      "purpose": "Resolve order commercial terms while keeping fee and policy ownership in Commercial Terms."
-    }
-  ],
+  "hostPorts": [],
   "apiDeployables": [
     "platform-api"
   ],

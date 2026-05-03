@@ -32,7 +32,7 @@
         "build": "node ./scripts/run-workspaces.mjs build",
         "test:structure": "vitest run scripts/check-structure/account-capability-language.test.mjs",
         "test:remote-dev": "vitest run scripts/remote-dev.test.mjs",
-        "verify": "npm run sync:workspace-metadata && npm run check:postage-adapters && npm run check:structure && npm run check:ui-migration && npm run check:localization && npm run check:money-rollout && npm run test:structure && npm run test:remote-dev && npm run typecheck && npm run test:fast && npm run build",
+        "verify": "npm run sync:workspace-metadata && npm run check:postage-adapters && npm run check:structure && npm run check:ui-migration && npm run check:localization && npm run check:money-rollout && npm run check:permanent-listing-fees && npm run test:structure && npm run test:remote-dev && npm run typecheck && npm run test:fast && npm run build",
         "verify:db": "npm run test:db",
         "verify:design-system-contracts": "npm run verify:source --workspace @chase-sets/app-design-system-showcase",
         "dev:platform-api": "npm run dev --workspace @chase-sets/app-platform-api",
@@ -51,6 +51,7 @@
         "check:postage-adapters": "node ./scripts/check-postage-adapter-boundaries.mjs",
         "check:localization": "node ./scripts/check-localization.mjs",
         "check:money-rollout": "node ./scripts/check-money-schema-rollout.mjs",
+        "check:permanent-listing-fees": "node ./scripts/check-permanent-listing-fees.mjs",
         "check:ui-migration": "node ./scripts/check-design-system-migration.mjs"
     },
     "devDependencies": {

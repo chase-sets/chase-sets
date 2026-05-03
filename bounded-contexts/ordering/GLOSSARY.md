@@ -30,9 +30,15 @@ Notes:
 - Order lines reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - If condition matters for the item, it appears only through the selected product dimensions.
 
-## Commercial Terms Snapshot
+## Order Economics Snapshot
 
-A **Commercial Terms Snapshot** is the immutable capture of prices, fees, and rebate inputs used when the order is created.
+An **Order Economics Snapshot** is the immutable capture of price, shipping, Marketplace-provided fee, and seller-net inputs used when the order is created.
+
+Notes:
+
+- Listing purchases consume the locked Marketplace fee snapshot already carried by listing supply.
+- Accepted offers consume the seller-confirmed fee snapshot emitted by Marketplace at offer acceptance time.
+- Ordering does not resolve Commercial Terms for normal listing purchases.
 
 ## Order Status
 
