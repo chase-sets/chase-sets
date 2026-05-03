@@ -614,6 +614,9 @@ export function createRealtimeRoutes(options: Readonly<{
       const openedAt = performance.now();
       let nextHeartbeatAt = Date.now() + routeConfig.heartbeatIntervalMs;
       let consecutiveFullBatches = 0;
+      const retryMs = Math.max(1_000, routeConfig.pollIntervalMs);
+      const abortStream = () => stream.abort();
+      c.req.raw.signal.addEventListener("abort", abortStream, { once: true });
       options.observer?.connectionOpened?.({
         connectionKey,
         activeConnectionCount: streamLease.activeConnectionCount,
@@ -621,22 +624,49 @@ export function createRealtimeRoutes(options: Readonly<{
         storeNames: matchingStores.map((store) => store.contextName),
         actorAccountId: actor?.accountId ?? null,
       });
+      await writeRealtimeHeartbeat(stream, {
+        cursor,
+        retryMs,
+        cursorSigningKeys: routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
+      });
 
       try {
         while (!stream.aborted && !stream.closed) {
-          const batch = await readHub.read(
-            matchingStores,
-            authorizedTopics,
-            cursor,
-            batchSize,
-            {
-              pruneExpired: false,
-              includeTopicLag: true,
-              abortSignal: c.req.raw.signal,
-            },
-          );
+          let batch: Awaited<ReturnType<RealtimeReadHub["read"]>>;
+          try {
+            batch = await readHub.read(
+              matchingStores,
+              authorizedTopics,
+              cursor,
+              batchSize,
+              {
+                pruneExpired: false,
+                includeTopicLag: true,
+                abortSignal: c.req.raw.signal,
+              },
+            );
+          } catch (error) {
+            if (stream.aborted || stream.closed || c.req.raw.signal.aborted) {
+              throw error;
+            }
+
+            options.observer?.streamError?.({ connectionKey, error });
+            await writeRealtimeHeartbeat(stream, {
+              cursor,
+              retryMs,
+              cursorSigningKeys: routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
+            });
+            options.observer?.wakeWaitEnded?.({
+              result: await sleepUntilRealtimeWake(
+                stream,
+                routeConfig.pollIntervalMs,
+                authorizedTopics,
+                options.wakeSignal,
+              ),
+            });
+            continue;
+          }
           cursor = batch.cursor;
-          const cursorId = encodeRealtimeCursor(cursor, routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret);
           options.observer?.batchRead?.({
             topics: authorizedTopics,
             storeNames: matchingStores.map((store) => store.contextName),
@@ -708,10 +738,10 @@ export function createRealtimeRoutes(options: Readonly<{
             batch.messages.length === 0 &&
             Date.now() >= nextHeartbeatAt
           ) {
-            await stream.writeSSE({
-              id: cursorId,
-              event: "heartbeat",
-              data: "{}",
+            await writeRealtimeHeartbeat(stream, {
+              cursor,
+              retryMs,
+              cursorSigningKeys: routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
             });
             nextHeartbeatAt = Date.now() + routeConfig.heartbeatIntervalMs;
           }
@@ -729,6 +759,7 @@ export function createRealtimeRoutes(options: Readonly<{
         options.observer?.streamError?.({ connectionKey, error });
         throw error;
       } finally {
+        c.req.raw.signal.removeEventListener("abort", abortStream);
         await streamLease.release();
         options.observer?.connectionClosed?.({
           connectionKey,
@@ -788,6 +819,27 @@ export function createRealtimeRetentionSweeper(options: Readonly<{
     sweep,
     stop: () => clearInterval(timer),
   };
+}
+
+async function writeRealtimeHeartbeat(
+  stream: Readonly<{ writeSSE: (message: Readonly<{
+    id: string;
+    event: string;
+    data: string;
+    retry?: number;
+  }>) => Promise<unknown> }>,
+  input: Readonly<{
+    cursor: RealtimeCursor;
+    retryMs: number;
+    cursorSigningKeys?: RealtimeCursorSigningKeySet;
+  }>,
+): Promise<void> {
+  await stream.writeSSE({
+    id: encodeRealtimeCursor(input.cursor, input.cursorSigningKeys),
+    event: "heartbeat",
+    data: "{}",
+    retry: input.retryMs,
+  });
 }
 
 function readRealtimeTopicQueryValues(searchParams: URLSearchParams): readonly string[] {
@@ -883,20 +935,36 @@ async function writeRealtimeSyncRequired(
 }
 
 async function sleepUntilRealtimeWake(
-  stream: Readonly<{ sleep: (ms: number) => Promise<unknown> }>,
+  stream: Readonly<{
+    onAbort?: (listener: () => void | Promise<void>) => void;
+  }>,
   timeoutMs: number,
   topics: readonly string[],
   wakeSignal?: RealtimeWakeSignal,
 ): Promise<RealtimeWakeResult> {
+  const slept = sleepRealtimeStream(timeoutMs, stream).then(() => "timeout" as const);
   if (!wakeSignal) {
-    await stream.sleep(timeoutMs);
-    return "timeout";
+    return slept;
   }
 
   return Promise.race([
-    stream.sleep(timeoutMs).then(() => "timeout" as const),
+    slept,
     wakeSignal.wait(timeoutMs, topics),
   ]);
+}
+
+function sleepRealtimeStream(
+  timeoutMs: number,
+  stream: Readonly<{ onAbort?: (listener: () => void | Promise<void>) => void }>,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    timer.unref?.();
+    stream.onAbort?.(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 function resolveRealtimeConnectionKey(request: Request, actor: ResolvedActor | null): string {

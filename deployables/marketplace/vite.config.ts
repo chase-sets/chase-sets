@@ -64,6 +64,8 @@ export default defineConfig({
       "/api/realtime": {
         target: "http://localhost:6182",
         changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
       },
       "/api/settlement": {
         target: "http://localhost:6182",

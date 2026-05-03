@@ -38,6 +38,26 @@ const actor = {
   permissions: ["listings.view", "offers.view"],
 };
 
+async function readSseTextUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  predicate: (text: string) => boolean,
+  maxReads = 5,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+  for (let index = 0; index < maxReads; index += 1) {
+    const chunk = await reader.read();
+    if (chunk.value) {
+      text += decoder.decode(chunk.value);
+    }
+    if (predicate(text) || chunk.done) {
+      return text;
+    }
+  }
+
+  return text;
+}
+
 describe("realtime topic authorization", () => {
   it("allows anonymous public marketplace topics", () => {
     expect(
@@ -241,12 +261,14 @@ describe("realtime SSE routes", () => {
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
 
-    const chunk = await reader!.read();
-    await reader!.cancel();
+    const text = await readSseTextUntil(
+      reader!,
+      (value) => value.includes("event: projection.patch"),
+    );
     abort.abort();
+    await reader!.cancel();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const text = new TextDecoder().decode(chunk.value);
     expect(response.status).toBe(200);
     expect(queryParams).toContainEqual(["1", ["public:market"], 100]);
     expect(text).toContain(`id: ${encodeRealtimeCursor({ discovery: "2" })}`);
@@ -300,9 +322,14 @@ describe("realtime SSE routes", () => {
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
 
-    await reader!.read();
-    await reader!.cancel();
+    await readSseTextUntil(
+      reader!,
+      () => queryParams.some((params) =>
+        JSON.stringify(params) === JSON.stringify(["0", ["public:market"], 100])
+      ),
+    );
     abort.abort();
+    await reader!.cancel();
 
     expect(response.status).toBe(200);
     expect(queryParams).toContainEqual(["0", ["public:market"], 100]);
@@ -345,9 +372,14 @@ describe("realtime SSE routes", () => {
     });
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
-    await reader!.read();
-    await reader!.cancel();
+    await readSseTextUntil(
+      reader!,
+      () => queryParams.some((params) =>
+        JSON.stringify(params) === JSON.stringify(["0", ["public:market"], 7])
+      ),
+    );
     abort.abort();
+    void reader!.cancel();
 
     expect(response.status).toBe(200);
     expect(queryParams).toContainEqual(["0", ["public:market"], 7]);
@@ -385,13 +417,57 @@ describe("realtime SSE routes", () => {
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
 
-    const chunk = await reader!.read();
+    const text = await readSseTextUntil(
+      reader!,
+      (value) => value.includes("event: sync.required"),
+    );
+    abort.abort();
+    void reader!.cancel();
+
+    expect(response.status).toBe(200);
+    expect(text).toContain("event: heartbeat");
+  });
+
+  it("emits an immediate heartbeat so idle SSE streams do not look completed", async () => {
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("DELETE FROM realtime_projection_outbox")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("SELECT outbox_id")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("FROM unnest")) {
+          return { rows: [{ topic: "public:market", lag: "0" }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db }],
+      resolveActor: async () => null,
+      pollIntervalMs: 1_000,
+      heartbeatIntervalMs: 60_000,
+    });
+    const abort = new AbortController();
+
+    const response = await app.request("/public/events?topic=public%3Amarket", {
+      signal: abort.signal,
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+
+    const initial = await reader!.read();
+    const initialText = new TextDecoder().decode(initial.value);
+    expect(initialText).toContain("event: heartbeat");
     await reader!.cancel();
     abort.abort();
 
-    const text = new TextDecoder().decode(chunk.value);
     expect(response.status).toBe(200);
-    expect(text).toContain("event: heartbeat");
+    expect(initialText).toContain("retry: 1000");
   });
 
   it("requires sync instead of replaying an unbounded backlog", async () => {
@@ -451,11 +527,13 @@ describe("realtime SSE routes", () => {
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
 
-    const chunk = await reader!.read();
+    const text = await readSseTextUntil(
+      reader!,
+      (value) => value.includes("event: sync.required"),
+    );
     await reader!.cancel();
     abort.abort();
 
-    const text = new TextDecoder().decode(chunk.value);
     expect(response.status).toBe(200);
     expect(text).toContain("event: sync.required");
     expect(text).toContain("\"reason\":\"replay-backpressure\"");

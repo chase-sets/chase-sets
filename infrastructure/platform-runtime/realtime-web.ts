@@ -11,6 +11,7 @@ export type RealtimeSubscription = Readonly<{
 }>;
 
 export type { RealtimeRouteSubscriptionPreset } from "./realtime-route-subscriptions";
+export { createRealtimeRouteSubscriptionPreset } from "./realtime-route-subscriptions";
 
 type RealtimeSubscriptionHandlers = Readonly<{
   onPatch: (patch: RealtimeProjectionPatch) => void;

@@ -2,7 +2,7 @@ import type {
   RealtimeTopicManifest,
   RealtimeTopicPolicyManifest,
 } from "@chase-sets/platform-runtime/realtime";
-import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runtime/realtime";
+import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runtime/realtime-web";
 
 export const discoveryRealtimeTopics = {
   publicMarket: () => "public:market",
