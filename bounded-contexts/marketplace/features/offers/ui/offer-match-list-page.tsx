@@ -27,6 +27,10 @@ function formatMoney(amount: string) {
   return `$${amount}`;
 }
 
+function termsSource(terms: MarketplaceListingTermsPreview) {
+  return terms.agreement_id ?? terms.schedule_id ?? t("marketplace.features.offers.ui.offerMatchListPage.standard.terms");
+}
+
 function formatTimestamp(value: string) {
   const date = new Date(value);
 
@@ -77,6 +81,48 @@ export function MarketplaceOfferMatchListPage({
             <Text tone="secondary" size="sm">
               {cartData?.items.length ?? 0} offer
               {(cartData?.items.length ?? 0) === 1 ? "" : "s"} {t("marketplace.features.offers.ui.offerMatchListPage.queued.in.your.sell.list")}</Text>
+            {cartData?.items.length ? (
+              <Stack gap={2}>
+                {cartData.items.map((item) => {
+                  const terms = cartTermsByOfferId?.[item.offer_id] ?? null;
+
+                  return (
+                    <Stack key={item.offer_id} gap={1}>
+                      <Text size="sm" weight="semibold">{item.item_title}</Text>
+                      <Text size="sm" tone="secondary">
+                        {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.offer.price", {
+                          price: formatMoney(item.price_amount),
+                        })}
+                      </Text>
+                      {terms ? (
+                        <>
+                          <Text size="sm" tone="secondary">
+                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.marketplace.fee", {
+                              amount: formatMoney(terms.marketplace_fee_unit_amount),
+                            })}
+                          </Text>
+                          <Text size="sm" tone="secondary">
+                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.seller.net", {
+                              amount: formatMoney(terms.seller_net_unit_amount),
+                            })}
+                          </Text>
+                          <Text size="sm" tone="secondary">
+                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.terms.source", {
+                              source: termsSource(terms),
+                            })}
+                          </Text>
+                          <Text size="sm" tone="secondary">
+                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.quote.time", {
+                              time: new Date(terms.resolved_at).toLocaleString(),
+                            })}
+                          </Text>
+                        </>
+                      ) : null}
+                    </Stack>
+                  );
+                })}
+              </Stack>
+            ) : null}
             <form method="post">
               {cartData?.items.map((item) => (
                 <input

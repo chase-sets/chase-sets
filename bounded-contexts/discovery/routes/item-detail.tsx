@@ -40,6 +40,7 @@ import { discoveryAssetUrls } from "../support/client-support/assets";
 import {
   createMarketplaceRequestApiClient,
   type MarketplaceListingInventoryItemOption,
+  type MarketplaceListingTermsPreview,
 } from "@chase-sets/marketplace/server";
 import { createCheckoutRequestApiClient } from "@chase-sets/checkout/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
@@ -59,6 +60,10 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   error: null,
   canonicalUrl: null,
 } as const;
+
+type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch & Readonly<{
+  acceptance_terms: MarketplaceListingTermsPreview | null;
+}>;
 
 function buildRegisterToSellHref(request: Request) {
   const url = new URL(request.url);
@@ -323,6 +328,7 @@ function MarketplaceOfferMatchSection({
     seller_available_quantity: number;
     can_fulfill: boolean;
     in_sell_list: boolean;
+    acceptance_terms?: MarketplaceListingTermsPreview | null;
   } | null;
   productId: string | null;
   matchingOfferCount: number;
@@ -354,6 +360,11 @@ function MarketplaceOfferMatchSection({
     <form id={formId} method="post">
       <Stack gap={3}>
         <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
+        <input
+          type="hidden"
+          name="feeQuoteFingerprint"
+          value={selectedOffer?.acceptance_terms?.fee_quote_fingerprint ?? ""}
+        />
         {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">{t("discovery.routes.itemDetail.accept.offer")}</Text>
@@ -371,6 +382,35 @@ function MarketplaceOfferMatchSection({
                     available: selectedOffer.seller_available_quantity,
                   })}
                 </Text>
+                {selectedOffer.acceptance_terms ? (
+                  <>
+                    <Text size="sm" tone="secondary">
+                      {t("discovery.routes.itemDetail.offer.marketplace.fee", {
+                        amount: selectedOffer.acceptance_terms.marketplace_fee_unit_amount,
+                      })}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {t("discovery.routes.itemDetail.offer.seller.net", {
+                        amount: selectedOffer.acceptance_terms.seller_net_unit_amount,
+                      })}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {t("discovery.routes.itemDetail.offer.terms.source", {
+                        source:
+                          selectedOffer.acceptance_terms.agreement_id ??
+                          selectedOffer.acceptance_terms.schedule_id ??
+                          t("discovery.routes.itemDetail.standard.terms"),
+                      })}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {t("discovery.routes.itemDetail.offer.quote.time", {
+                        time: new Date(
+                          selectedOffer.acceptance_terms.resolved_at,
+                        ).toLocaleString(),
+                      })}
+                    </Text>
+                  </>
+                ) : null}
                 <Badge tone={selectedOffer.can_fulfill ? "success" : "warning"}>
                   {selectedOffer.can_fulfill ? t("discovery.routes.itemDetail.can.fulfill") : t("discovery.routes.itemDetail.needs.supply")}
                 </Badge>
@@ -625,14 +665,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       actor?.permissions.includes("listings.view") &&
         actor.permissions.includes("listings.manage"),
     );
-    let accountOfferMatches: DiscoveryAccountOfferMatch[] = [];
+    let accountOfferMatches: DiscoveryOfferMatchWithTerms[] = [];
     let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
 
     if (canReviewAccountOfferMatches) {
       try {
         const result = await marketplaceApi.listOfferMatches("limit=100&offset=0");
-        accountOfferMatches = result.items.filter(
+        const matchingOffers = result.items.filter(
           (offer) => offer.catalog_catalog_item_id === item.catalog_item_id,
+        );
+        accountOfferMatches = await Promise.all(
+          matchingOffers.map(async (offer) => ({
+            ...offer,
+            acceptance_terms:
+              offer.status === "submitted"
+                ? await marketplaceApi.previewOfferAcceptanceTerms(offer.offer_id)
+                : null,
+          })),
         );
       } catch {
         accountOfferMatches = [];
@@ -773,9 +822,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
 
       const offerId = String(formData.get("offerId") ?? "");
-      const quote = await marketplaceApi.previewOfferAcceptanceTerms(offerId);
       await marketplaceApi.acceptOfferMatch(offerId, {
-        feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
       return redirect("/account/sales");
     }
@@ -804,8 +852,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const quantityCap = Number(formData.get("quantityCap") ?? 0);
 
       if (listingId) {
-        await marketplaceApi.updateListingPrice(listingId, { priceAmount });
-        await marketplaceApi.updateListingQuantityCap(listingId, { quantityCap });
+        const quote = await marketplaceApi.previewListingTerms({ priceAmount });
+        await marketplaceApi.updateListingPrice(listingId, {
+          priceAmount,
+          feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        });
+        await marketplaceApi.updateListingQuantityCap(listingId, {
+          quantityCap,
+          feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        });
         return redirect(`/items/${item.slug || params.id}`);
       }
 
@@ -813,10 +868,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
         inventoryItemId: String(formData.get("inventoryItemId") ?? ""),
         priceAmount,
         quantityCap,
-      }) as { id?: string };
+      }) as { id?: string; feeQuoteFingerprint?: string };
 
       if (result.id) {
-        await marketplaceApi.publishListing(result.id);
+        await marketplaceApi.publishListing(result.id, {
+          feeQuoteFingerprint: result.feeQuoteFingerprint,
+        });
       }
 
       return redirect(`/items/${item.slug || params.id}`);

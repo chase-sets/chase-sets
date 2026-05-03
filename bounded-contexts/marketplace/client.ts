@@ -6,6 +6,7 @@ import type { buildMarketplaceApi } from "./api";
 export type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
+  MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
   MarketplaceListingTermsPreview,
@@ -22,6 +23,7 @@ export type {
 import type {
   MarketplaceItemListing,
   MarketplaceListingDetail,
+  MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
   MarketplaceListingTermsPreview,
@@ -134,6 +136,16 @@ export function createMarketplaceApiClient({
     async getSellerListing(id: string): Promise<MarketplaceListingDetail> {
       return parseJsonResponse(
         await client.account.listings[":id"].$get({
+          param: { id },
+          header: headers,
+        }),
+      );
+    },
+    async getSellerListingFeeHistory(
+      id: string,
+    ): Promise<{ items: MarketplaceListingFeeHistoryEntry[]; total: number; count: number }> {
+      return parseJsonResponse(
+        await client.account.listings[":id"]["fee-history"].$get({
           param: { id },
           header: headers,
         }),

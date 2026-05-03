@@ -11,6 +11,7 @@ import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type MarketplaceListingDetail,
+  type MarketplaceListingFeeHistoryEntry,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
@@ -25,6 +26,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
     return {
       listing: await api.getSellerListing(params.listingId!),
+      feeHistory: await api.getSellerListingFeeHistory(params.listingId!),
     };
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {
@@ -104,6 +106,7 @@ export default function MarketplaceAccountListingRoute() {
   return (
     <MarketplaceListingDetailPage
       listing={data.listing as MarketplaceListingDetail}
+      feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
       priceDraftAmount={actionData?.priceDraftAmount ?? null}
       pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}

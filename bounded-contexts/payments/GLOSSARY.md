@@ -22,6 +22,10 @@ A **Refund** is the reversal of captured buyer funds through an external payment
 
 A **Payment Processor Reference** is the external identifier returned by the payment service provider.
 
+## Buyer Processing Fee Placeholder
+
+A **Buyer Processing Fee Placeholder** is the zero-value payment fee amount Payments carries until buyer payment fee policy is introduced.
+
 ## Shipping Rebate Calculation
 
 A **Shipping Rebate Calculation** is the payment-time computation used to reduce the buyer's effective shipping cost under marketplace rules.

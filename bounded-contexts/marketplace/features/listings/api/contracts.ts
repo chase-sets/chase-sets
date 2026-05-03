@@ -3,6 +3,7 @@ export type {
   MarketplaceListingDetail,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
+  MarketplaceListingFeeHistoryEntry,
   MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
 } from "../ui/contracts";

@@ -54,6 +54,7 @@ export function buildPaymentsOrderInputProjectionHandlers(
           data.buyerAccountId,
           data.totalAmount,
           data.commercialTermsSnapshot.marketplaceFeeAmount,
+          // Buyer payment fee policy is deferred; keep the Payments schema explicit.
           "0.00",
           data.commercialTermsSnapshot.sellerNetAmount,
           data.commercialTermsSnapshot.termsScheduleId,

@@ -11,7 +11,10 @@ import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import { quoteMarketplaceTerms } from "../../../support/runtime-support/fee-quotes";
-import type { MarketplaceListingTermsPreview } from "../ui/contracts";
+import type {
+  MarketplaceListingFeeHistoryEntry,
+  MarketplaceListingTermsPreview,
+} from "../ui/contracts";
 import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
@@ -117,6 +120,9 @@ export type MarketplaceListingServices = Readonly<{
     listingId: string,
     accountId: string,
   ) => ReturnType<typeof getSellerListing>;
+  listSellerListingFeeHistory: (
+    params: Readonly<{ listingId: string; accountId: string }>,
+  ) => Promise<readonly MarketplaceListingFeeHistoryEntry[]>;
   getMarketSummaryForItem: (
     itemId: string,
   ) => ReturnType<typeof getMarketSummaryForItem>;
@@ -222,6 +228,51 @@ export function createMarketplaceListingRuntime(
     if (providedFingerprint !== currentQuote.fee_quote_fingerprint) {
       throw new MarketplaceFeeQuoteStaleError(currentQuote);
     }
+  }
+
+  function stringField(data: Readonly<Record<string, unknown>>, key: string) {
+    const value = data[key];
+    return typeof value === "string" && value.trim().length > 0 ? value : null;
+  }
+
+  function numberField(data: Readonly<Record<string, unknown>>, key: string) {
+    const value = data[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  function feeHistoryEntryFromEvent(
+    event: Awaited<ReturnType<typeof deps.eventStore.readStream>>[number],
+  ): MarketplaceListingFeeHistoryEntry | null {
+    const data =
+      typeof event.payload === "object" && event.payload !== null
+        ? (event.payload as Record<string, unknown>)
+        : {};
+
+    if (
+      ![
+        "marketplace.listing.created",
+        "marketplace.listing.published",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+      ].includes(event.eventType)
+    ) {
+      return null;
+    }
+
+    return {
+      event_type: event.eventType,
+      stream_version: event.streamVersion,
+      price_amount: stringField(data, "priceAmount"),
+      quantity_cap: numberField(data, "quantityCap"),
+      marketplace_fee_unit_amount: stringField(data, "marketplaceFeeUnitAmount"),
+      seller_net_unit_amount: stringField(data, "sellerNetUnitAmount"),
+      terms_schedule_id: stringField(data, "termsScheduleId"),
+      terms_agreement_id: stringField(data, "termsAgreementId"),
+      terms_resolved_at: stringField(data, "termsResolvedAt"),
+      fee_quote_fingerprint: stringField(data, "feeQuoteFingerprint"),
+      recorded_at: String(event.recordedAt),
+      performed_by_user_id: event.performedByUserId ? String(event.performedByUserId) : null,
+    } satisfies MarketplaceListingFeeHistoryEntry;
   }
 
   return {
@@ -379,6 +430,17 @@ export function createMarketplaceListingRuntime(
       listSellerInventoryItemSupply(deps.db, params),
     getSellerListing: (listingId, accountId) =>
       getSellerListing(deps.db, listingId, accountId),
+    listSellerListingFeeHistory: async (params) => {
+      await loadOwnedListingState(params.listingId, params.accountId);
+      const events = await deps.eventStore.readStream({
+        streamId: `marketplace.listing-${params.listingId}`,
+      });
+
+      return events
+        .map(feeHistoryEntryFromEvent)
+        .filter((entry): entry is MarketplaceListingFeeHistoryEntry => Boolean(entry))
+        .sort((left, right) => right.stream_version - left.stream_version);
+    },
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
     getInventoryItemSupply: (itemId, accountId) =>

@@ -74,3 +74,18 @@ export interface MarketplaceListingTermsPreview {
   resolved_at: string;
   fee_quote_fingerprint: string;
 }
+
+export interface MarketplaceListingFeeHistoryEntry {
+  event_type: string;
+  stream_version: number;
+  price_amount: string | null;
+  quantity_cap: number | null;
+  marketplace_fee_unit_amount: string | null;
+  seller_net_unit_amount: string | null;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string | null;
+  fee_quote_fingerprint: string | null;
+  recorded_at: string;
+  performed_by_user_id: string | null;
+}

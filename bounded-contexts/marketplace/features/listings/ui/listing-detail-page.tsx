@@ -12,7 +12,11 @@ import {
   TextInput,
   NumberInput,
 } from "@chase-sets/design-system";
-import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
+import type {
+  MarketplaceListingDetail,
+  MarketplaceListingFeeHistoryEntry,
+  MarketplaceListingTermsPreview,
+} from "./contracts";
 
 function formatMoney(amount: string) {
   return `$${amount}`;
@@ -33,6 +37,25 @@ function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   ].join(" | ");
 }
 
+function formatTimestamp(value: string | null) {
+  return value ? new Date(value).toLocaleString() : t("marketplace.features.listings.ui.listingDetailPage.not.set");
+}
+
+function feeHistoryLabel(eventType: string) {
+  switch (eventType) {
+    case "marketplace.listing.created":
+      return t("marketplace.features.listings.ui.listingDetailPage.fee.history.created");
+    case "marketplace.listing.published":
+      return t("marketplace.features.listings.ui.listingDetailPage.fee.history.published");
+    case "marketplace.listing.price-updated":
+      return t("marketplace.features.listings.ui.listingDetailPage.fee.history.price.updated");
+    case "marketplace.listing.quantity-cap-updated":
+      return t("marketplace.features.listings.ui.listingDetailPage.fee.history.quantity.updated");
+    default:
+      return eventType;
+  }
+}
+
 function statusTone(status: string) {
   switch (status) {
     case "active":
@@ -48,11 +71,13 @@ function statusTone(status: string) {
 
 export function MarketplaceListingDetailPage({
   listing,
+  feeHistory,
   priceDraftAmount,
   pricePreview,
   errorMessage,
 }: {
   listing: MarketplaceListingDetail;
+  feeHistory?: readonly MarketplaceListingFeeHistoryEntry[];
   priceDraftAmount?: string | null;
   pricePreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
@@ -109,6 +134,60 @@ export function MarketplaceListingDetailPage({
                   })
                 : ""}
             </Text>
+          </Stack>
+        </Card>
+      </PageSection>
+
+      <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.fee.lock.history")}>
+        <Card>
+          <Stack gap={3}>
+            {(feeHistory ?? []).length > 0 ? (
+              feeHistory!.map((entry) => (
+                <Stack key={`${entry.event_type}:${entry.stream_version}`} gap={1}>
+                  <Text weight="semibold">{feeHistoryLabel(entry.event_type)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.fee.history.recorded", {
+                      version: entry.stream_version,
+                      recordedAt: formatTimestamp(entry.recorded_at),
+                    })}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.price")}{entry.price_amount ? formatMoney(entry.price_amount) : formatMoney(listing.price_amount)}
+                  </Text>
+                  {entry.quantity_cap !== null ? (
+                    <Text size="sm" tone="secondary">
+                      {t("marketplace.features.listings.ui.listingDetailPage.quantity.cap")}{entry.quantity_cap}
+                    </Text>
+                  ) : null}
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(entry.marketplace_fee_unit_amount)}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(entry.seller_net_unit_amount)}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{entry.terms_schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.default.fallback.unavailable")}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.agreement.override")}{entry.terms_agreement_id ?? t("marketplace.features.listings.ui.listingDetailPage.none")}
+                  </Text>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at")} {formatTimestamp(entry.terms_resolved_at)}
+                  </Text>
+                  {entry.performed_by_user_id ? (
+                    <Text size="sm" tone="secondary">
+                      {t("marketplace.features.listings.ui.listingDetailPage.fee.history.changed.by", {
+                        userId: entry.performed_by_user_id,
+                      })}
+                    </Text>
+                  ) : null}
+                </Stack>
+              ))
+            ) : (
+              <Text tone="secondary">
+                {t("marketplace.features.listings.ui.listingDetailPage.no.fee.history")}
+              </Text>
+            )}
           </Stack>
         </Card>
       </PageSection>

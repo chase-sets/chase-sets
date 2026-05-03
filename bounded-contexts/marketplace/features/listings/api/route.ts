@@ -148,6 +148,28 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     return c.json(listing);
   });
 
+  app.get("/listings/:id/fee-history", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      const items = await services.listSellerListingFeeHistory({
+        listingId: c.req.param("id"),
+        accountId: access.actor.accountId,
+      });
+
+      return c.json({
+        items,
+        total: items.length,
+        count: items.length,
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/listings", async (c) => {
     const access = requireListingAccess(c, "listings.manage");
     if (access.response) {
