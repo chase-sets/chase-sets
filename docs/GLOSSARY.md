@@ -114,7 +114,19 @@ A **Commercial Terms Resolution** is the deterministic result of selecting the a
 Notes:
 
 - Commercial Terms owns the policy and resolution.
-- Ordering freezes the resolved Commercial Terms snapshot when an order is created.
+- Marketplace uses the resolution to create seller-confirmed listing and offer fee snapshots.
+- Ordering consumes Marketplace fee snapshots and does not resolve Commercial Terms for normal listing purchases.
+
+## Marketplace Fee Snapshot
+
+A **Marketplace Fee Snapshot** is the seller-confirmed per-unit marketplace fee, seller net, source schedule or agreement, and quote timestamp locked by Marketplace for a listing or accepted offer.
+
+Notes:
+
+- Listing snapshots are permanent for listed units until those units are sold.
+- Active price edits and quantity-cap edits require a fresh confirmed quote and replace the locked snapshot.
+- Partial sales, pause, resume, and sold-out availability changes do not refresh the snapshot.
+- See [Permanent Listing Fees](./PERMANENT-LISTING-FEES.md).
 
 ## Payment
 

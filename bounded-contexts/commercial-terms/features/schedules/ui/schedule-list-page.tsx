@@ -32,7 +32,7 @@ export function ScheduleListPage({
       <PageHeader
         eyebrow={t("commercialTerms.features.schedules.ui.scheduleListPage.admin")}
         title={t("commercialTerms.features.schedules.ui.scheduleListPage.fee.schedules")}
-        description={t("commercialTerms.features.schedules.ui.scheduleListPage.manage.default.marketplace.and.payment.fee")}
+        description={t("commercialTerms.features.schedules.ui.scheduleListPage.manage.default.marketplace.fee.schedules")}
       />
 
       {errorMessage ? (

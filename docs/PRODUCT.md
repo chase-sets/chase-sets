@@ -102,12 +102,17 @@ Existing marketplaces present several inefficiencies:
 
 Seller fees:
 
-- flat per item fee (not per order)
-- Rounded up to nearest cent
+- Seller-confirmed per-unit marketplace fee snapshot
+- Permanent for each listed unit until that unit is sold
+- Positive fractional-cent fees round up to the next cent
+- Price edits and quantity-cap edits require a new confirmed quote and replace the locked snapshot
+- Partial sales, pause, resume, and sold-out availability changes do not recalculate fees
+
+See [Permanent Listing Fees](./PERMANENT-LISTING-FEES.md) for the listing, offer, ordering, and visibility rules.
 
 Buyer responsibilities:
 
-- Payment processing fees
+- Buyer payment processing fees, owned by separate Payments policy
 - Shipping costs (adjusted by rebate model)
 
 Shipping model:

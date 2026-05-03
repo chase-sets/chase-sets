@@ -159,4 +159,103 @@ describe("marketplace listing runtime", () => {
       version: 2,
     });
   });
+
+  it("lists fee history from listing events owned by the seller", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceFeeUnitAmount: "1.00",
+          sellerNetUnitAmount: "19.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        })),
+      } as never,
+    });
+
+    const createResult = await services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "20.00",
+        quantityCap: 1,
+        listingIdOverride: "lst_history" as never,
+      },
+      context,
+    );
+    expect(createResult.version).toBe(1);
+
+    const preview = await services.previewListingTerms({
+      accountId: "acc_seller",
+      priceAmount: "20.00",
+    });
+    await services.publishListing(
+      {
+        accountId: "acc_seller",
+        listingId: "lst_history",
+        feeQuoteFingerprint: preview.fee_quote_fingerprint,
+      },
+      context,
+    );
+
+    const history = await services.listSellerListingFeeHistory({
+      accountId: "acc_seller",
+      listingId: "lst_history",
+    });
+
+    expect(history).toMatchObject([
+      {
+        event_type: "marketplace.listing.published",
+        stream_version: 2,
+        marketplace_fee_unit_amount: "1.00",
+        seller_net_unit_amount: "19.00",
+        terms_schedule_id: "cts_default",
+        performed_by_user_id: "usr_seller",
+      },
+      {
+        event_type: "marketplace.listing.created",
+        stream_version: 1,
+        price_amount: "20.00",
+        quantity_cap: 1,
+        marketplace_fee_unit_amount: "1.00",
+        seller_net_unit_amount: "19.00",
+      },
+    ]);
+  });
 });

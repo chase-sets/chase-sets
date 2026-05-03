@@ -35,6 +35,22 @@ function buildApp(options: Readonly<{
 function createServices(): MarketplaceListingServices {
   return {
     publishListing: vi.fn(async () => ({ listingId: "lst_1", version: 2 })),
+    listSellerListingFeeHistory: vi.fn(async () => [
+      {
+        event_type: "marketplace.listing.published",
+        stream_version: 2,
+        price_amount: null,
+        quantity_cap: null,
+        marketplace_fee_unit_amount: "1.00",
+        seller_net_unit_amount: "19.00",
+        terms_schedule_id: "cts_default",
+        terms_agreement_id: null,
+        terms_resolved_at: "2026-04-17T00:00:00.000Z",
+        fee_quote_fingerprint: "20.00|1.00|19.00|cts_default|",
+        recorded_at: "2026-04-17T00:00:00.000Z",
+        performed_by_user_id: "usr_seller",
+      },
+    ]),
     listSellerListings: vi.fn(async () => ({ items: [], total: 0 })),
     listSellerInventoryItemSupply: vi.fn(async () => ({ items: [], total: 0 })),
     projectors: [],
@@ -82,5 +98,43 @@ describe("marketplace listing routes", () => {
         }),
       }),
     );
+  });
+
+  it("returns listing fee history for the seller listing", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings/lst_1/fee-history"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      total: 1,
+      count: 1,
+      items: [
+        {
+          event_type: "marketplace.listing.published",
+          marketplace_fee_unit_amount: "1.00",
+          seller_net_unit_amount: "19.00",
+          performed_by_user_id: "usr_seller",
+        },
+      ],
+    });
+    expect(services.listSellerListingFeeHistory).toHaveBeenCalledWith({
+      listingId: "lst_1",
+      accountId: "acc_seller",
+    });
   });
 });

@@ -19,6 +19,26 @@ import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-de
 const MARKETPLACE_DESCRIPTION =
   t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
 
+function staleQuoteFromError(error: MarketplaceApiError) {
+  if (error.status !== 409) {
+    return null;
+  }
+
+  const body = error.body;
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("error" in body) ||
+    !body.error ||
+    typeof body.error !== "object" ||
+    !("currentQuote" in body.error)
+  ) {
+    return null;
+  }
+
+  return body.error.currentQuote as MarketplaceListingTermsPreview;
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const api = createMarketplaceRequestApiClient(request);
@@ -83,9 +103,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return redirect(new URL(request.url).pathname);
   } catch (error) {
     if (error instanceof MarketplaceApiError) {
+      const currentQuote = staleQuoteFromError(error);
       return {
         priceDraftAmount,
-        error: error.message,
+        pricePreview: currentQuote,
+        error: currentQuote
+          ? t("marketplace.routes.accountListing.fee.quote.stale")
+          : error.message,
       };
     }
 
