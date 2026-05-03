@@ -54,15 +54,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
       case "update-price":
         await api.updateListingPrice(params.listingId!, {
           priceAmount: priceDraftAmount,
+          feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
         });
         break;
       case "update-quantity-cap":
         await api.updateListingQuantityCap(params.listingId!, {
           quantityCap: Number(formData.get("quantityCap") ?? 0),
+          feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
         });
         break;
       case "publish":
-        await api.publishListing(params.listingId!);
+        await api.publishListing(params.listingId!, {
+          feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
+        });
         break;
       case "pause":
         await api.pauseListing(params.listingId!);

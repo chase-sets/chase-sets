@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount numeric(12, 2) NOT NULL,
+  marketplace_fee_unit_amount numeric(12, 2) NOT NULL,
+  seller_net_unit_amount numeric(12, 2) NOT NULL,
+  terms_schedule_id text NULL,
+  terms_agreement_id text NULL,
+  terms_resolved_at timestamptz NOT NULL,
   quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
   status text NOT NULL,
   updated_at timestamptz NOT NULL
@@ -61,6 +66,11 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   price_amount numeric(12, 2) NOT NULL,
+  marketplace_fee_unit_amount numeric(12, 2) NOT NULL,
+  seller_net_unit_amount numeric(12, 2) NOT NULL,
+  terms_schedule_id text NULL,
+  terms_agreement_id text NULL,
+  terms_resolved_at timestamptz NOT NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   accepted_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL

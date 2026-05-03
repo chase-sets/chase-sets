@@ -19,12 +19,12 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
-    marketplace_fee_amount: string | null;
-    payment_fee_amount: string | null;
-    seller_net_amount: string | null;
+    marketplace_fee_unit_amount: string;
+    seller_net_unit_amount: string;
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
     terms_resolved_at: string | null;
+    fee_quote_fingerprint: string;
     quantity_cap: number;
     status: string;
     created_at: string;
@@ -85,12 +85,12 @@ export function buildMarketplaceListingProjectionHandlers(
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
-        marketplaceFeeAmount: string | null;
-        paymentFeeAmount: string | null;
-        sellerNetAmount: string | null;
+        marketplaceFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
+        feeQuoteFingerprint: string;
         quantityCap: number;
       };
 
@@ -109,12 +109,12 @@ export function buildMarketplaceListingProjectionHandlers(
           storage_location_name,
           ship_from_code,
           price_amount,
-          marketplace_fee_amount,
-          payment_fee_amount,
-          seller_net_amount,
+          marketplace_fee_unit_amount,
+          seller_net_unit_amount,
           terms_schedule_id,
           terms_agreement_id,
           terms_resolved_at,
+          fee_quote_fingerprint,
           quantity_cap,
           status,
           created_at,
@@ -135,12 +135,12 @@ export function buildMarketplaceListingProjectionHandlers(
           storage_location_name = EXCLUDED.storage_location_name,
           ship_from_code = EXCLUDED.ship_from_code,
           price_amount = EXCLUDED.price_amount,
-          marketplace_fee_amount = EXCLUDED.marketplace_fee_amount,
-          payment_fee_amount = EXCLUDED.payment_fee_amount,
-          seller_net_amount = EXCLUDED.seller_net_amount,
+          marketplace_fee_unit_amount = EXCLUDED.marketplace_fee_unit_amount,
+          seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
           terms_schedule_id = EXCLUDED.terms_schedule_id,
           terms_agreement_id = EXCLUDED.terms_agreement_id,
           terms_resolved_at = EXCLUDED.terms_resolved_at,
+          fee_quote_fingerprint = EXCLUDED.fee_quote_fingerprint,
           quantity_cap = EXCLUDED.quantity_cap,
           updated_at = EXCLUDED.updated_at`,
         [
@@ -159,12 +159,12 @@ export function buildMarketplaceListingProjectionHandlers(
           data.storageLocationName,
           data.shipFromCode,
           data.priceAmount,
-          data.marketplaceFeeAmount,
-          data.paymentFeeAmount,
-          data.sellerNetAmount,
+          data.marketplaceFeeUnitAmount,
+          data.sellerNetUnitAmount,
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
+          data.feeQuoteFingerprint,
           data.quantityCap,
           event.timing.recordedAt,
         ],
@@ -175,42 +175,42 @@ export function buildMarketplaceListingProjectionHandlers(
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const {
         priceAmount,
-        marketplaceFeeAmount,
-        paymentFeeAmount,
-        sellerNetAmount,
+        marketplaceFeeUnitAmount,
+        sellerNetUnitAmount,
         termsScheduleId,
         termsAgreementId,
         termsResolvedAt,
+        feeQuoteFingerprint,
       } = event.data as {
         priceAmount: string;
-        marketplaceFeeAmount: string | null;
-        paymentFeeAmount: string | null;
-        sellerNetAmount: string | null;
+        marketplaceFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
+        feeQuoteFingerprint: string;
       };
 
       await db.query(
         `UPDATE marketplace_listing_pages
          SET price_amount = $2,
-             marketplace_fee_amount = $3,
-             payment_fee_amount = $4,
-             seller_net_amount = $5,
-             terms_schedule_id = $6,
-             terms_agreement_id = $7,
-             terms_resolved_at = $8,
+             marketplace_fee_unit_amount = $3,
+             seller_net_unit_amount = $4,
+             terms_schedule_id = $5,
+             terms_agreement_id = $6,
+             terms_resolved_at = $7,
+             fee_quote_fingerprint = $8,
              updated_at = $9
          WHERE listing_id = $1`,
         [
           listingId,
           priceAmount,
-          marketplaceFeeAmount,
-          paymentFeeAmount,
-          sellerNetAmount,
+          marketplaceFeeUnitAmount,
+          sellerNetUnitAmount,
           termsScheduleId,
           termsAgreementId,
           termsResolvedAt,
+          feeQuoteFingerprint,
           event.timing.recordedAt,
         ],
       );
@@ -218,26 +218,88 @@ export function buildMarketplaceListingProjectionHandlers(
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
-      const { quantityCap } = event.data as { quantityCap: number };
+      const {
+        quantityCap,
+        marketplaceFeeUnitAmount,
+        sellerNetUnitAmount,
+        termsScheduleId,
+        termsAgreementId,
+        termsResolvedAt,
+        feeQuoteFingerprint,
+      } = event.data as {
+        quantityCap: number;
+        marketplaceFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsScheduleId: string | null;
+        termsAgreementId: string | null;
+        termsResolvedAt: string | null;
+        feeQuoteFingerprint: string;
+      };
 
       await db.query(
         `UPDATE marketplace_listing_pages
          SET quantity_cap = $2,
-             updated_at = $3
+             marketplace_fee_unit_amount = $3,
+             seller_net_unit_amount = $4,
+             terms_schedule_id = $5,
+             terms_agreement_id = $6,
+             terms_resolved_at = $7,
+             fee_quote_fingerprint = $8,
+             updated_at = $9
          WHERE listing_id = $1`,
-        [listingId, quantityCap, event.timing.recordedAt],
+        [
+          listingId,
+          quantityCap,
+          marketplaceFeeUnitAmount,
+          sellerNetUnitAmount,
+          termsScheduleId,
+          termsAgreementId,
+          termsResolvedAt,
+          feeQuoteFingerprint,
+          event.timing.recordedAt,
+        ],
       );
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.published": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
+      const {
+        marketplaceFeeUnitAmount,
+        sellerNetUnitAmount,
+        termsScheduleId,
+        termsAgreementId,
+        termsResolvedAt,
+        feeQuoteFingerprint,
+      } = event.data as {
+        marketplaceFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsScheduleId: string | null;
+        termsAgreementId: string | null;
+        termsResolvedAt: string | null;
+        feeQuoteFingerprint: string;
+      };
 
       await db.query(
         `UPDATE marketplace_listing_pages
          SET status = 'active',
-             updated_at = $2
+             marketplace_fee_unit_amount = $2,
+             seller_net_unit_amount = $3,
+             terms_schedule_id = $4,
+             terms_agreement_id = $5,
+             terms_resolved_at = $6,
+             fee_quote_fingerprint = $7,
+             updated_at = $8
          WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
+        [
+          listingId,
+          marketplaceFeeUnitAmount,
+          sellerNetUnitAmount,
+          termsScheduleId,
+          termsAgreementId,
+          termsResolvedAt,
+          feeQuoteFingerprint,
+          event.timing.recordedAt,
+        ],
       );
       await emitListingPatch(db, event, listingId);
     },

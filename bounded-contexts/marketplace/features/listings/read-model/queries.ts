@@ -15,12 +15,12 @@ export type MarketplaceListingListRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
-  marketplace_fee_amount: string | null;
-  payment_fee_amount: string | null;
-  seller_net_amount: string | null;
+  marketplace_fee_unit_amount: string;
+  seller_net_unit_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
+  fee_quote_fingerprint: string;
   quantity_cap: number;
   status: string;
   created_at: string;
@@ -53,12 +53,12 @@ type MarketplaceListingPageRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
-  marketplace_fee_amount: string | null;
-  payment_fee_amount: string | null;
-  seller_net_amount: string | null;
+  marketplace_fee_unit_amount: string;
+  seller_net_unit_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
+  fee_quote_fingerprint: string;
   quantity_cap: number;
   status: string;
   created_at: string;
@@ -419,10 +419,24 @@ export async function getMarketSummaryForItem(
     `SELECT
        MIN(price_amount)::text AS lowest_price_amount,
        COUNT(*)::text AS active_listing_count,
-       COALESCE(SUM(quantity_cap), 0)::text AS total_visible_quantity
-     FROM marketplace_listing_pages
-     WHERE product_id = $1
-       AND status = 'active'`,
+       COALESCE(SUM(
+         LEAST(
+           listing.quantity_cap,
+           GREATEST(item.total_quantity - COALESCE(active_holds.held_quantity, 0), 0)
+         )
+       ), 0)::text AS total_visible_quantity
+     FROM marketplace_listing_pages AS listing
+     INNER JOIN marketplace_supply_items AS item
+       ON item.item_id = listing.inventory_item_id
+     LEFT JOIN (
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
+       FROM marketplace_supply_holds
+       WHERE status = 'active'
+       GROUP BY item_id
+     ) AS active_holds
+       ON active_holds.item_id = item.item_id
+     WHERE listing.product_id = $1
+       AND listing.status = 'active'`,
     [productId],
   );
 
@@ -446,12 +460,28 @@ export async function listItemListings(
     `SELECT
        listing.*,
        account.display_name AS seller_display_name,
-       listing.quantity_cap AS visible_quantity
+       LEAST(
+         listing.quantity_cap,
+         GREATEST(item.total_quantity - COALESCE(active_holds.held_quantity, 0), 0)
+       ) AS visible_quantity
      FROM marketplace_listing_pages AS listing
+     INNER JOIN marketplace_supply_items AS item
+       ON item.item_id = listing.inventory_item_id
+     LEFT JOIN (
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
+       FROM marketplace_supply_holds
+       WHERE status = 'active'
+       GROUP BY item_id
+     ) AS active_holds
+       ON active_holds.item_id = item.item_id
      LEFT JOIN marketplace_account_pages AS account
        ON account.account_id = listing.account_id
      WHERE listing.product_id = $1
        AND listing.status = 'active'
+       AND LEAST(
+         listing.quantity_cap,
+         GREATEST(item.total_quantity - COALESCE(active_holds.held_quantity, 0), 0)
+       ) > 0
      ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
     [productId],
   );

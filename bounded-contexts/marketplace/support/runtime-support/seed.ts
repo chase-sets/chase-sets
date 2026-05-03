@@ -722,10 +722,16 @@ export async function seedMarketplaceDatabase(
 
   await drainProjectors(services.projectors);
 
+  const acceptedOfferQuote = await services.offers.previewOfferAcceptanceTerms({
+    offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
+    sellerAccountId: identitySeedIds.demo.accountId,
+  });
+
   await services.offers.acceptOffer(
     {
       offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
       sellerAccountId: identitySeedIds.demo.accountId,
+      feeQuoteFingerprint: acceptedOfferQuote.fee_quote_fingerprint,
     },
     context,
   );

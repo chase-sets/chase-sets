@@ -22,8 +22,6 @@ export type CommercialTermsScheduleState = Readonly<{
   accountType: CommercialAccountType | null;
   marketplaceFeePercentageBps: number | null;
   marketplaceFeeFixedAmount: string | null;
-  paymentFeePercentageBps: number | null;
-  paymentFeeFixedAmount: string | null;
   status: CommercialTermsStatus | null;
   effectiveFrom: string | null;
   effectiveUntil: string | null;
@@ -35,8 +33,6 @@ export const initialCommercialTermsScheduleState: CommercialTermsScheduleState =
   accountType: null,
   marketplaceFeePercentageBps: null,
   marketplaceFeeFixedAmount: null,
-  paymentFeePercentageBps: null,
-  paymentFeeFixedAmount: null,
   status: null,
   effectiveFrom: null,
   effectiveUntil: null,
@@ -49,8 +45,6 @@ export type CreateScheduleCommand = Readonly<{
   accountType: CommercialAccountType;
   marketplaceFeePercentageBps: number;
   marketplaceFeeFixedAmount: string;
-  paymentFeePercentageBps: number;
-  paymentFeeFixedAmount: string;
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
@@ -66,8 +60,6 @@ export type ScheduleCreatedEvent = DomainEvent<
     accountType: CommercialAccountType;
     marketplaceFeePercentageBps: number;
     marketplaceFeeFixedAmount: string;
-    paymentFeePercentageBps: number;
-    paymentFeeFixedAmount: string;
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
@@ -102,14 +94,6 @@ export const decideCommercialTermsSchedule: AggregateDecider<
                 allowZero: true,
               },
             ),
-            paymentFeePercentageBps: normalizePercentageBps(
-              command.paymentFeePercentageBps,
-              "Payment fee percentage",
-            ),
-            paymentFeeFixedAmount: normalizeMoneyAmount(command.paymentFeeFixedAmount, {
-              fieldName: "Payment fee fixed amount",
-              allowZero: true,
-            }),
             status: normalizeCommercialTermsStatus(command.status),
             effectiveFrom: ensureIsoTimestamp(
               command.effectiveFrom,
@@ -142,8 +126,6 @@ export const evolveCommercialTermsSchedule: AggregateEvolver<
         accountType: event.data.accountType,
         marketplaceFeePercentageBps: event.data.marketplaceFeePercentageBps,
         marketplaceFeeFixedAmount: event.data.marketplaceFeeFixedAmount,
-        paymentFeePercentageBps: event.data.paymentFeePercentageBps,
-        paymentFeeFixedAmount: event.data.paymentFeeFixedAmount,
         status: event.data.status,
         effectiveFrom: event.data.effectiveFrom,
         effectiveUntil: event.data.effectiveUntil,

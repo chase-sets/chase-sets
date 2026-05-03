@@ -25,13 +25,10 @@ function formatOptionalMoney(amount: string | null) {
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
     t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
-      amount: formatMoney(preview.marketplace_fee_amount),
-    }),
-    t("marketplace.features.listings.ui.listingDetailPage.payment.fee.summary", {
-      amount: formatMoney(preview.payment_fee_amount),
+      amount: formatMoney(preview.marketplace_fee_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingDetailPage.net.summary", {
-      amount: formatMoney(preview.seller_net_amount),
+      amount: formatMoney(preview.seller_net_unit_amount),
     }),
   ].join(" | ");
 }
@@ -91,9 +88,8 @@ export function MarketplaceListingDetailPage({
             ) : null}
             <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
             <Text>{t("marketplace.features.listings.ui.listingDetailPage.price")}{formatMoney(listing.price_amount)}</Text>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(listing.marketplace_fee_amount)}</Text>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.payment.fee")}{formatOptionalMoney(listing.payment_fee_amount)}</Text>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(listing.seller_net_amount)}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(listing.marketplace_fee_unit_amount)}</Text>
+            <Text>{t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(listing.seller_net_unit_amount)}</Text>
             <Text>
               {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{listing.terms_schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.default.fallback.unavailable")}
             </Text>
@@ -129,6 +125,11 @@ export function MarketplaceListingDetailPage({
                   inputMode="decimal"
                   required
                 />
+                <input
+                  type="hidden"
+                  name="feeQuoteFingerprint"
+                  value={pricePreview?.fee_quote_fingerprint ?? listing.fee_quote_fingerprint}
+                />
                 <Stack gap={2}>
                   <Button type="submit" name="intent" value="update-price" tone="secondary">
                     {t("marketplace.features.listings.ui.listingDetailPage.save.price")}</Button>
@@ -163,6 +164,11 @@ export function MarketplaceListingDetailPage({
             <form method="post">
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="update-quantity-cap" />
+                <input
+                  type="hidden"
+                  name="feeQuoteFingerprint"
+                  value={listing.fee_quote_fingerprint}
+                />
                 <NumberInput
                   label={t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.2")}
                   name="quantityCap"
@@ -180,6 +186,11 @@ export function MarketplaceListingDetailPage({
             <Stack gap={3}>
               <form method="post">
                 <input type="hidden" name="intent" value="publish" />
+                <input
+                  type="hidden"
+                  name="feeQuoteFingerprint"
+                  value={listing.fee_quote_fingerprint}
+                />
                 <Button type="submit" disabled={listing.status === "active" || listing.status === "withdrawn"}>
                   {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}</Button>
               </form>

@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS ordering_order_pages (
   shipping_charge_amount numeric(12,2) NOT NULL,
   total_amount numeric(12,2) NOT NULL,
   marketplace_fee_amount numeric(12,2) NOT NULL,
-  payment_fee_amount numeric(12,2) NOT NULL,
   seller_net_amount numeric(12,2) NOT NULL,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
@@ -46,6 +45,10 @@ CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   unit_price_amount numeric(12,2) NOT NULL,
   quantity integer NOT NULL CHECK (quantity > 0),
   line_total_amount numeric(12,2) NOT NULL,
+  marketplace_fee_unit_amount numeric(12,2) NOT NULL,
+  marketplace_fee_total_amount numeric(12,2) NOT NULL,
+  seller_net_unit_amount numeric(12,2) NOT NULL,
+  seller_net_total_amount numeric(12,2) NOT NULL,
   PRIMARY KEY (order_id, line_id)
 );
 

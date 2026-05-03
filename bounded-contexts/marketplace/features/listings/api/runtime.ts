@@ -10,6 +10,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
+import { quoteMarketplaceTerms } from "../../../support/runtime-support/fee-quotes";
 import type { MarketplaceListingTermsPreview } from "../ui/contracts";
 import {
   decideMarketplaceListing,
@@ -50,6 +51,13 @@ function assert(condition: unknown, message: string): asserts condition {
   }
 }
 
+export class MarketplaceFeeQuoteStaleError extends Error {
+  public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
+    super("Fee quote is stale. Refresh the fee preview before continuing.");
+    this.name = "MarketplaceFeeQuoteStaleError";
+  }
+}
+
 export type MarketplaceListingServices = Readonly<{
   commandHandler: CommandHandler<
     MarketplaceListingCommand,
@@ -65,20 +73,30 @@ export type MarketplaceListingServices = Readonly<{
       listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ listingId: ListingId; version: number }>;
+  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
   previewListingTerms: (
     params: Readonly<{ accountId: string; priceAmount: string }>,
   ) => Promise<MarketplaceListingTermsPreview>;
   updateListingPrice: (
-    params: Readonly<{ accountId: string; listingId: string; priceAmount: string }>,
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      priceAmount: string;
+      feeQuoteFingerprint?: string | null;
+    }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   updateListingQuantityCap: (
-    params: Readonly<{ accountId: string; listingId: string; quantityCap: number }>,
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      quantityCap: number;
+      feeQuoteFingerprint?: string | null;
+    }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   publishListing: (
-    params: Readonly<{ accountId: string; listingId: string }>,
+    params: Readonly<{ accountId: string; listingId: string; feeQuoteFingerprint?: string | null }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   pauseListing: (
@@ -190,6 +208,22 @@ export function createMarketplaceListingRuntime(
     return listing;
   }
 
+  async function quoteListingTerms(accountId: string, priceAmount: string) {
+    return quoteMarketplaceTerms(deps.commercialTermsResolver, {
+      accountId,
+      priceAmount,
+    });
+  }
+
+  function assertConfirmedFeeQuote(
+    providedFingerprint: string | null | undefined,
+    currentQuote: MarketplaceListingTermsPreview,
+  ) {
+    if (providedFingerprint !== currentQuote.fee_quote_fingerprint) {
+      throw new MarketplaceFeeQuoteStaleError(currentQuote);
+    }
+  }
+
   return {
     commandHandler,
     createListing: async (params, context) => {
@@ -199,10 +233,7 @@ export function createMarketplaceListingRuntime(
         params.accountId,
       );
       assert(supply, "Inventory item not found.");
-      const terms = await deps.commercialTermsResolver.resolveListingTerms({
-        accountId: params.accountId,
-        amount: params.priceAmount,
-      });
+      const quote = await quoteListingTerms(params.accountId, params.priceAmount);
 
       const listingId = params.listingIdOverride ?? (createId("lst") as ListingId);
       const result = await commandHandler({
@@ -222,54 +253,38 @@ export function createMarketplaceListingRuntime(
           storageLocationName: supply.storage_location_name,
           shipFromCode: supply.ship_from_code,
           priceAmount: params.priceAmount,
-          marketplaceFeeAmount: terms.marketplaceFeeAmount,
-          paymentFeeAmount: terms.paymentFeeAmount,
-          sellerNetAmount: terms.sellerNetAmount,
-          termsScheduleId: terms.scheduleId,
-          termsAgreementId: terms.agreementId,
-          termsResolvedAt: terms.resolvedAt,
+          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          sellerNetUnitAmount: quote.seller_net_unit_amount,
+          termsScheduleId: quote.schedule_id,
+          termsAgreementId: quote.agreement_id,
+          termsResolvedAt: quote.resolved_at,
+          feeQuoteFingerprint: quote.fee_quote_fingerprint,
           quantityCap: params.quantityCap,
         },
         context,
       });
 
-      return { listingId, version: result.version };
+      return { listingId, version: result.version, feeQuoteFingerprint: quote.fee_quote_fingerprint };
     },
     previewListingTerms: async (params) => {
-      const terms = await deps.commercialTermsResolver.resolveListingTerms({
-        accountId: params.accountId,
-        amount: params.priceAmount,
-      });
-
-      return {
-        account_type: terms.accountType,
-        basis_amount: terms.basisAmount,
-        marketplace_fee_amount: terms.marketplaceFeeAmount,
-        payment_fee_amount: terms.paymentFeeAmount,
-        seller_net_amount: terms.sellerNetAmount,
-        schedule_id: terms.scheduleId,
-        agreement_id: terms.agreementId,
-        resolved_at: terms.resolvedAt,
-      };
+      return quoteListingTerms(params.accountId, params.priceAmount);
     },
     updateListingPrice: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);
-      const terms = await deps.commercialTermsResolver.resolveListingTerms({
-        accountId: params.accountId,
-        amount: params.priceAmount,
-      });
+      const quote = await quoteListingTerms(params.accountId, params.priceAmount);
+      assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
         command: {
           type: "UpdateListingPrice",
           priceAmount: params.priceAmount,
-          marketplaceFeeAmount: terms.marketplaceFeeAmount,
-          paymentFeeAmount: terms.paymentFeeAmount,
-          sellerNetAmount: terms.sellerNetAmount,
-          termsScheduleId: terms.scheduleId,
-          termsAgreementId: terms.agreementId,
-          termsResolvedAt: terms.resolvedAt,
+          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          sellerNetUnitAmount: quote.seller_net_unit_amount,
+          termsScheduleId: quote.schedule_id,
+          termsAgreementId: quote.agreement_id,
+          termsResolvedAt: quote.resolved_at,
+          feeQuoteFingerprint: quote.fee_quote_fingerprint,
         },
         context,
       });
@@ -278,6 +293,9 @@ export function createMarketplaceListingRuntime(
     },
     updateListingQuantityCap: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
+      assert(listing.priceAmount, "Listing price is missing.");
+      const quote = await quoteListingTerms(params.accountId, listing.priceAmount);
+      assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
 
       if (listing.status === "active") {
         assert(listing.inventoryItemId, "Listing inventory item is missing.");
@@ -293,6 +311,12 @@ export function createMarketplaceListingRuntime(
         command: {
           type: "UpdateListingQuantityCap",
           quantityCap: params.quantityCap,
+          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          sellerNetUnitAmount: quote.seller_net_unit_amount,
+          termsScheduleId: quote.schedule_id,
+          termsAgreementId: quote.agreement_id,
+          termsResolvedAt: quote.resolved_at,
+          feeQuoteFingerprint: quote.fee_quote_fingerprint,
         },
         context,
       });
@@ -302,6 +326,9 @@ export function createMarketplaceListingRuntime(
     publishListing: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
       assert(listing.inventoryItemId, "Listing inventory item is missing.");
+      assert(listing.priceAmount, "Listing price is missing.");
+      const quote = await quoteListingTerms(params.accountId, listing.priceAmount);
+      assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
 
       await ensureActiveCapacity(
         listing.inventoryItemId,
@@ -311,7 +338,15 @@ export function createMarketplaceListingRuntime(
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
-        command: { type: "PublishListing" },
+        command: {
+          type: "PublishListing",
+          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          sellerNetUnitAmount: quote.seller_net_unit_amount,
+          termsScheduleId: quote.schedule_id,
+          termsAgreementId: quote.agreement_id,
+          termsResolvedAt: quote.resolved_at,
+          feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        },
         context,
       });
 

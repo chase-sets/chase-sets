@@ -11,6 +11,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { OfferMatchDetail } from "./contracts";
+import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -27,10 +28,12 @@ function formatMoney(amount: string) {
 
 export function MarketplaceOfferMatchDetailPage({
   offer,
+  acceptanceTerms,
   canAccept = false,
   errorMessage,
 }: {
   offer: OfferMatchDetail;
+  acceptanceTerms?: MarketplaceListingTermsPreview | null;
   canAccept?: boolean;
   errorMessage?: string | null;
 }) {
@@ -64,6 +67,14 @@ export function MarketplaceOfferMatchDetailPage({
             <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
             <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.buyer")}{offer.buyer_display_name ?? offer.buyer_account_id}</Text>
             <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price")}{formatMoney(offer.price_amount)}</Text>
+            {acceptanceTerms ? (
+              <>
+                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee")}{formatMoney(acceptanceTerms.marketplace_fee_unit_amount)}</Text>
+                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.seller.net")}{formatMoney(acceptanceTerms.seller_net_unit_amount)}</Text>
+                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.terms.source")}{acceptanceTerms.agreement_id ?? acceptanceTerms.schedule_id ?? t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms")}</Text>
+                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quote.time")}{new Date(acceptanceTerms.resolved_at).toLocaleString()}</Text>
+              </>
+            ) : null}
             <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
             <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available")}{offer.seller_available_quantity}</Text>
             <Badge tone={offer.can_fulfill ? "success" : "warning"}>
@@ -71,6 +82,11 @@ export function MarketplaceOfferMatchDetailPage({
             </Badge>
             {canAccept && offer.status === "submitted" ? (
               <form method="post">
+                <input
+                  type="hidden"
+                  name="feeQuoteFingerprint"
+                  value={acceptanceTerms?.fee_quote_fingerprint ?? ""}
+                />
                 <Button
                   type="submit"
                   name="intent"

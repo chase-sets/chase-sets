@@ -76,9 +76,8 @@ const commercialTermsResolver = {
     accountId,
     accountType: "business" as const,
     basisAmount: amount,
-    marketplaceFeeAmount: "1.00",
-    paymentFeeAmount: "0.50",
-    sellerNetAmount: "18.50",
+    marketplaceFeeUnitAmount: "1.00",
+    sellerNetUnitAmount: "19.00",
     scheduleId: "cts_default",
     agreementId: null,
     resolvedAt: "2026-03-31T00:00:00.000Z",
@@ -87,9 +86,8 @@ const commercialTermsResolver = {
     accountId,
     accountType: "business" as const,
     basisAmount: amount,
-    marketplaceFeeAmount: "1.00",
-    paymentFeeAmount: "0.50",
-    sellerNetAmount: "18.50",
+    marketplaceFeeUnitAmount: "1.00",
+    sellerNetUnitAmount: "19.00",
     scheduleId: "cts_default",
     agreementId: null,
     resolvedAt: "2026-03-31T00:00:00.000Z",
@@ -117,6 +115,11 @@ type SupplyCandidate = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
+  marketplaceFeeUnitAmount?: string;
+  sellerNetUnitAmount?: string;
+  termsScheduleId?: string | null;
+  termsAgreementId?: string | null;
+  termsResolvedAt?: string;
   availableQuantity: number;
   updatedAt: string;
 }>;
@@ -144,6 +147,11 @@ function createSupplyDb(
         storage_location_name: candidate.storageLocationName,
         ship_from_code: candidate.shipFromCode,
         price_amount: candidate.priceAmount,
+        marketplace_fee_unit_amount: candidate.marketplaceFeeUnitAmount ?? "1.00",
+        seller_net_unit_amount: candidate.sellerNetUnitAmount ?? "19.00",
+        terms_schedule_id: candidate.termsScheduleId ?? "cts_default",
+        terms_agreement_id: candidate.termsAgreementId ?? null,
+        terms_resolved_at: candidate.termsResolvedAt ?? "2026-03-31T00:00:00.000Z",
         available_quantity: candidate.availableQuantity,
         updated_at: candidate.updatedAt,
       })),
@@ -458,6 +466,7 @@ describe("ordering order runtime", () => {
         }),
       },
     });
+    commercialTermsResolver.resolveListingTerms.mockClear();
 
     await services.createOrdersFromAcceptedOffer(
       {
@@ -471,6 +480,11 @@ describe("ordering order runtime", () => {
         selectedOptions: [],
         productSummary: null,
         priceAmount: "10.00",
+        marketplaceFeeUnitAmount: "0.50",
+        sellerNetUnitAmount: "9.50",
+        termsScheduleId: "cts_offer",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-03-31T00:00:00.000Z",
         quantityRequested: 1,
       },
       context,
@@ -482,7 +496,21 @@ describe("ordering order runtime", () => {
       sourceType: "offer-acceptance",
       sourceReferenceId: "off_1",
       sellerAccountId: "acc_seller",
+      commercialTermsSnapshot: {
+        marketplaceFeeAmount: "0.50",
+        sellerNetAmount: "9.50",
+        termsScheduleId: "cts_offer",
+      },
+      lines: [
+        expect.objectContaining({
+          marketplaceFeeUnitAmount: "0.50",
+          marketplaceFeeTotalAmount: "0.50",
+          sellerNetUnitAmount: "9.50",
+          sellerNetTotalAmount: "9.50",
+        }),
+      ],
     });
+    expect(commercialTermsResolver.resolveListingTerms).not.toHaveBeenCalled();
   });
 
   it("creates buy-now orders from the requested listing only", async () => {
@@ -647,8 +675,7 @@ describe("ordering order runtime", () => {
                 shipping_charge_amount: "4.99",
                 total_amount: "24.99",
                 marketplace_fee_amount: "1.00",
-                payment_fee_amount: "0.50",
-                seller_net_amount: "18.50",
+                seller_net_amount: "19.00",
                 terms_schedule_id: "cts_default",
                 terms_agreement_id: null,
                 terms_resolved_at: "2026-03-31T00:00:00.000Z",
@@ -727,8 +754,7 @@ describe("ordering order runtime", () => {
         totalAmount: "24.99",
         commercialTermsSnapshot: {
           marketplaceFeeAmount: "1.00",
-          paymentFeeAmount: "0.50",
-          sellerNetAmount: "18.50",
+          sellerNetAmount: "19.00",
           termsScheduleId: "cts_default",
           termsAgreementId: null,
           termsResolvedAt: "2026-03-31T00:00:00.000Z",
@@ -747,6 +773,10 @@ describe("ordering order runtime", () => {
             unitPriceAmount: "20.00",
             quantity: 1,
             lineTotalAmount: "20.00",
+            marketplaceFeeUnitAmount: "1.00",
+            marketplaceFeeTotalAmount: "1.00",
+            sellerNetUnitAmount: "19.00",
+            sellerNetTotalAmount: "19.00",
           },
         ],
         reservationRequests: [

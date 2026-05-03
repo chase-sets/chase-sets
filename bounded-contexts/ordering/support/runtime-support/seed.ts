@@ -125,18 +125,31 @@ async function buildCheckoutLine(
   };
 }
 
-async function getOfferProductId(
+async function getAcceptedOfferInput(
   services: ReturnType<typeof createOrderingServices>,
   offerId: string,
 ) {
-  const result = await services.db.query<{ product_id: string }>(
-    `SELECT product_id
+  const result = await services.db.query<{
+    product_id: string;
+    marketplace_fee_unit_amount: string;
+    seller_net_unit_amount: string;
+    terms_schedule_id: string | null;
+    terms_agreement_id: string | null;
+    terms_resolved_at: string;
+  }>(
+    `SELECT
+       product_id,
+       marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
+       seller_net_unit_amount::text AS seller_net_unit_amount,
+       terms_schedule_id,
+       terms_agreement_id,
+       terms_resolved_at
      FROM ordering_offer_acceptance_inputs
      WHERE offer_id = $1`,
     [offerId],
   );
 
-  return result.rows[0]?.product_id;
+  return result.rows[0] ?? null;
 }
 
 export async function seedOrderingDatabase(
@@ -225,18 +238,30 @@ export async function seedOrderingDatabase(
   }
 
   if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady))) {
+    const acceptedOfferInput = await getAcceptedOfferInput(
+      ordering,
+      acceptedOfferSeed.offerId,
+    );
+
     await ordering.orders.createOrdersFromAcceptedOffer(
       {
         offerId: acceptedOfferSeed.offerId,
         buyerAccountId,
         sellerAccountId: identitySeedIds.demo.accountId,
         catalogItemId: acceptedOfferSeed.catalogItemId,
-        productId: (await getOfferProductId(ordering, acceptedOfferSeed.offerId)) ?? "",
+        productId: acceptedOfferInput?.product_id ?? "",
         itemTitle: acceptedOfferSeed.itemTitle,
         itemSubtitle: acceptedOfferSeed.itemSubtitle,
         selectedOptions: [...acceptedOfferSeed.selectedOptions],
         productSummary: acceptedOfferSeed.productSummary,
         priceAmount: acceptedOfferSeed.priceAmount,
+        marketplaceFeeUnitAmount:
+          acceptedOfferInput?.marketplace_fee_unit_amount ?? "0.00",
+        sellerNetUnitAmount: acceptedOfferInput?.seller_net_unit_amount ?? "44.00",
+        termsScheduleId: acceptedOfferInput?.terms_schedule_id ?? null,
+        termsAgreementId: acceptedOfferInput?.terms_agreement_id ?? null,
+        termsResolvedAt:
+          acceptedOfferInput?.terms_resolved_at ?? new Date().toISOString(),
         quantityRequested: acceptedOfferSeed.quantityRequested,
         orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
       },

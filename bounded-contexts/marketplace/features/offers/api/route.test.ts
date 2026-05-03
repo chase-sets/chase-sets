@@ -5,7 +5,10 @@ import {
   createAccountOfferMatchRoutes,
   createAccountSubmittedOfferRoutes,
 } from "./route";
-import type { MarketplaceOfferServices } from "./runtime";
+import {
+  MarketplaceOfferFeeQuoteStaleError,
+  type MarketplaceOfferServices,
+} from "./runtime";
 
 function buildApp(options: Readonly<{
   actor: MarketplaceApiEnv["Variables"]["actor"];
@@ -40,6 +43,16 @@ function buildApp(options: Readonly<{
 function createServices(): MarketplaceOfferServices {
   const submitOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 1 }));
   const acceptOffer = vi.fn(async () => ({ offerId: "off_1" as never, version: 2 }));
+  const previewOfferAcceptanceTerms = vi.fn(async () => ({
+    account_type: "personal" as const,
+    basis_amount: "350.00",
+    marketplace_fee_unit_amount: "17.50",
+    seller_net_unit_amount: "332.50",
+    schedule_id: "sch_standard",
+    agreement_id: null,
+    resolved_at: "2026-03-31T00:00:00.000Z",
+    fee_quote_fingerprint: "350.00|17.50|332.50|sch_standard|",
+  }));
   const listSubmittedOffers = vi.fn(async () => ({ items: [], total: 0 }));
   const getSubmittedOffer = vi.fn(async () => null);
   const listOfferMatches = vi.fn(async () => ({ items: [], total: 0 }));
@@ -55,6 +68,7 @@ function createServices(): MarketplaceOfferServices {
     commandHandler: vi.fn(async () => ({ version: 1 })),
     submitOffer,
     acceptOffer,
+    previewOfferAcceptanceTerms,
     addOfferMatchSellListItem,
     listOfferMatchSellList,
     acceptOfferMatchSellList,
@@ -210,7 +224,9 @@ describe("marketplace offer routes", () => {
       new Request("http://marketplace.test/account/offers/matches/off_1/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          feeQuoteFingerprint: "350.00|17.50|332.50|sch_standard|",
+        }),
       }),
     );
 
@@ -224,9 +240,56 @@ describe("marketplace offer routes", () => {
       {
         offerId: "off_1",
         sellerAccountId: "acc_seller",
+        feeQuoteFingerprint: "350.00|17.50|332.50|sch_standard|",
       },
       expect.any(Object),
     );
+  });
+
+  it("returns a stale quote response when an offer acceptance confirmation is missing", async () => {
+    const services = createServices();
+    vi.mocked(services.acceptOffer).mockRejectedValue(
+      new MarketplaceOfferFeeQuoteStaleError({
+        account_type: "personal",
+        basis_amount: "350.00",
+        marketplace_fee_unit_amount: "17.50",
+        seller_net_unit_amount: "332.50",
+        schedule_id: "sch_standard",
+        agreement_id: null,
+        resolved_at: "2026-03-31T00:00:00.000Z",
+        fee_quote_fingerprint: "350.00|17.50|332.50|sch_standard|",
+      }),
+    );
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view", "offers.manage", "listings.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/offers/matches/off_1/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "fee_quote_stale",
+        currentQuote: {
+          fee_quote_fingerprint: "350.00|17.50|332.50|sch_standard|",
+        },
+      },
+    });
   });
 
   it("adds a offer match to the sell list", async () => {
@@ -278,7 +341,11 @@ describe("marketplace offer routes", () => {
       new Request("http://marketplace.test/account/offers/match-sell-list/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          feeQuoteFingerprintsByOfferId: {
+            off_1: "350.00|17.50|332.50|sch_standard|",
+          },
+        }),
       }),
     );
 
@@ -288,7 +355,12 @@ describe("marketplace offer routes", () => {
       skipped: [],
     });
     expect(services.acceptOfferMatchSellList).toHaveBeenCalledWith(
-      { sellerAccountId: "acc_seller" },
+      {
+        sellerAccountId: "acc_seller",
+        feeQuoteFingerprintsByOfferId: {
+          off_1: "350.00|17.50|332.50|sch_standard|",
+        },
+      },
       expect.any(Object),
     );
   });

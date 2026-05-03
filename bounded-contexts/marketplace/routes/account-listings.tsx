@@ -106,10 +106,12 @@ export async function action({ request }: ActionFunctionArgs) {
         inventoryItemId: createForm.inventoryItemId,
         priceAmount: createForm.priceAmount,
         quantityCap: Number(createForm.quantityCap ?? 0),
-      }) as { id: string };
+      }) as { id: string; feeQuoteFingerprint?: string };
 
       if (intent === "create-and-publish-listing") {
-        await api.publishListing(result.id);
+        await api.publishListing(result.id, {
+          feeQuoteFingerprint: result.feeQuoteFingerprint,
+        });
       }
 
       return redirect(`/account/listings/${result.id}`);

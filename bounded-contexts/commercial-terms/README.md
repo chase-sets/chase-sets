@@ -2,22 +2,21 @@
 
 ## Purpose
 
-Commercial Terms owns the marketplace fee and payment fee policies that determine seller-side transaction economics.
+Commercial Terms owns the marketplace fee policy that determines seller-side marketplace economics.
 
 ## Owns
 
 - Default Commercial Terms schedules by account type
 - Account-specific commercial agreements
-- Commercial Terms resolution for listings and orders
+- Commercial Terms resolution for seller-confirmed listing and offer fee previews
 - Seller-side marketplace fee amounts
-- Seller-side payment fee amounts
 - Seller net calculations
 
 ## Does Not Own
 
 - Listing lifecycle
 - Checkout orchestration
-- Payment processor state
+- Buyer payment fees and payment processor state
 - Ledger postings
 
 ## Ubiquitous Language
@@ -43,4 +42,4 @@ Commercial terms terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 1. Commercial Terms resolution is deterministic for an account and timestamp.
 2. Account-specific agreements override default schedules when both are active.
-3. Marketplace and Payments consume resolved snapshots but do not own the underlying policy.
+3. Marketplace consumes resolved snapshots for seller confirmation and emits locked snapshots for downstream ordering.

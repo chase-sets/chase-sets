@@ -120,9 +120,8 @@ describe("marketplace listing runtime", () => {
           accountId,
           accountType: "business" as const,
           basisAmount: amount,
-          marketplaceFeeAmount: "1.00",
-          paymentFeeAmount: "0.50",
-          sellerNetAmount: "18.50",
+          marketplaceFeeUnitAmount: "1.00",
+          sellerNetUnitAmount: "19.00",
           scheduleId: "cts_default",
           agreementId: null,
           resolvedAt: "2026-04-17T00:00:00.000Z",
@@ -141,11 +140,17 @@ describe("marketplace listing runtime", () => {
       context,
     );
 
+    const preview = await services.previewListingTerms({
+      accountId: "acc_seller",
+      priceAmount: "20.00",
+    });
+
     await expect(
       services.publishListing(
         {
           accountId: "acc_seller",
           listingId: "lst_seed_1",
+          feeQuoteFingerprint: preview.fee_quote_fingerprint,
         },
         context,
       ),

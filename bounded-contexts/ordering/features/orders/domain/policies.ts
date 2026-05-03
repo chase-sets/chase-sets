@@ -31,6 +31,11 @@ export type MarketplaceSupplyCandidate = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
+  marketplaceFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+  termsResolvedAt: string;
   availableQuantity: number;
   updatedAt: string;
 }>;

@@ -75,6 +75,14 @@ export function numberToMoneyAmount(value: number) {
   return value.toFixed(2);
 }
 
+export function numberToMoneyAmountRoundUp(value: number) {
+  if (value <= 0) {
+    return "0.00";
+  }
+
+  return (Math.ceil(value * 100) / 100).toFixed(2);
+}
+
 export function moneyToNumber(value: string) {
   return Number.parseFloat(
     normalizeMoneyAmount(value, {
@@ -87,9 +95,9 @@ export function moneyToNumber(value: string) {
 export function applyFeeFormula(baseAmount: string, formula: FeeFormula) {
   const base = moneyToNumber(baseAmount);
   const fixedAmount = moneyToNumber(formula.fixedAmount);
-  return numberToMoneyAmount(base * (formula.percentageBps / 10_000) + fixedAmount);
+  return numberToMoneyAmountRoundUp(base * (formula.percentageBps / 10_000) + fixedAmount);
 }
 
-export function subtractMoneyAmounts(left: string, right: string, rightTwo: string) {
-  return numberToMoneyAmount(moneyToNumber(left) - moneyToNumber(right) - moneyToNumber(rightTwo));
+export function subtractMoneyAmounts(left: string, right: string) {
+  return numberToMoneyAmount(moneyToNumber(left) - moneyToNumber(right));
 }

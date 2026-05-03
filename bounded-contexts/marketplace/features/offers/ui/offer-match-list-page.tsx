@@ -12,6 +12,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { OfferMatchListItem } from "./contracts";
+import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -44,10 +45,12 @@ function formatTimestamp(value: string) {
 export function MarketplaceOfferMatchListPage({
   data,
   cartData,
+  cartTermsByOfferId,
   errorMessage,
 }: {
   data: { items: readonly OfferMatchListItem[] };
   cartData?: { items: readonly OfferMatchListItem[] };
+  cartTermsByOfferId?: Readonly<Record<string, MarketplaceListingTermsPreview>>;
   errorMessage?: string | null;
 }) {
   return (
@@ -75,6 +78,16 @@ export function MarketplaceOfferMatchListPage({
               {cartData?.items.length ?? 0} offer
               {(cartData?.items.length ?? 0) === 1 ? "" : "s"} {t("marketplace.features.offers.ui.offerMatchListPage.queued.in.your.sell.list")}</Text>
             <form method="post">
+              {cartData?.items.map((item) => (
+                <input
+                  key={item.offer_id}
+                  type="hidden"
+                  name={`feeQuoteFingerprint:${item.offer_id}`}
+                  value={
+                    cartTermsByOfferId?.[item.offer_id]?.fee_quote_fingerprint ?? ""
+                  }
+                />
+              ))}
               <Button
                 type="submit"
                 name="intent"

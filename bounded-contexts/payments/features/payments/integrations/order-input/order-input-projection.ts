@@ -12,7 +12,6 @@ export function buildPaymentsOrderInputProjectionHandlers(
         totalAmount: string;
         commercialTermsSnapshot: {
           marketplaceFeeAmount: string;
-          paymentFeeAmount: string;
           sellerNetAmount: string;
           termsScheduleId: string | null;
           termsAgreementId: string | null;
@@ -55,7 +54,7 @@ export function buildPaymentsOrderInputProjectionHandlers(
           data.buyerAccountId,
           data.totalAmount,
           data.commercialTermsSnapshot.marketplaceFeeAmount,
-          data.commercialTermsSnapshot.paymentFeeAmount,
+          "0.00",
           data.commercialTermsSnapshot.sellerNetAmount,
           data.commercialTermsSnapshot.termsScheduleId,
           data.commercialTermsSnapshot.termsAgreementId,

@@ -65,12 +65,12 @@ export type MarketplaceListingState = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string | null;
-  marketplaceFeeAmount: string | null;
-  paymentFeeAmount: string | null;
-  sellerNetAmount: string | null;
+  marketplaceFeeUnitAmount: string | null;
+  sellerNetUnitAmount: string | null;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string | null;
+  feeQuoteFingerprint: string | null;
   quantityCap: number;
   status: ListingStatus;
 }>;
@@ -89,12 +89,12 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   storageLocationName: null,
   shipFromCode: null,
   priceAmount: null,
-  marketplaceFeeAmount: null,
-  paymentFeeAmount: null,
-  sellerNetAmount: null,
+  marketplaceFeeUnitAmount: null,
+  sellerNetUnitAmount: null,
   termsScheduleId: null,
   termsAgreementId: null,
   termsResolvedAt: null,
+  feeQuoteFingerprint: null,
   quantityCap: 0,
   status: "draft",
 };
@@ -114,32 +114,46 @@ export type CreateListingCommand = Readonly<{
   storageLocationName: string | null;
   shipFromCode: string | null;
   priceAmount: string;
-  marketplaceFeeAmount?: string | null;
-  paymentFeeAmount?: string | null;
-  sellerNetAmount?: string | null;
+  marketplaceFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
   termsResolvedAt?: string | null;
+  feeQuoteFingerprint: string;
   quantityCap: number;
 }>;
 
 export type UpdateListingPriceCommand = Readonly<{
   type: "UpdateListingPrice";
   priceAmount: string;
-  marketplaceFeeAmount?: string | null;
-  paymentFeeAmount?: string | null;
-  sellerNetAmount?: string | null;
+  marketplaceFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
   termsResolvedAt?: string | null;
+  feeQuoteFingerprint: string;
 }>;
 
 export type UpdateListingQuantityCapCommand = Readonly<{
   type: "UpdateListingQuantityCap";
   quantityCap: number;
+  marketplaceFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  termsScheduleId?: string | null;
+  termsAgreementId?: string | null;
+  termsResolvedAt?: string | null;
+  feeQuoteFingerprint: string;
 }>;
 
-export type PublishListingCommand = Readonly<{ type: "PublishListing" }>;
+export type PublishListingCommand = Readonly<{
+  type: "PublishListing";
+  marketplaceFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  termsScheduleId?: string | null;
+  termsAgreementId?: string | null;
+  termsResolvedAt?: string | null;
+  feeQuoteFingerprint: string;
+}>;
 export type PauseListingCommand = Readonly<{ type: "PauseListing" }>;
 export type WithdrawListingCommand = Readonly<{ type: "WithdrawListing" }>;
 
@@ -167,12 +181,12 @@ export type ListingCreatedEvent = DomainEvent<
     storageLocationName: string | null;
     shipFromCode: string | null;
     priceAmount: string;
-    marketplaceFeeAmount: string | null;
-    paymentFeeAmount: string | null;
-    sellerNetAmount: string | null;
+    marketplaceFeeUnitAmount: string;
+    sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
+    feeQuoteFingerprint: string;
     quantityCap: number;
   }>
 >;
@@ -180,21 +194,36 @@ export type ListingPriceUpdatedEvent = DomainEvent<
   "marketplace.listing.price-updated",
   Readonly<{
     priceAmount: string;
-    marketplaceFeeAmount: string | null;
-    paymentFeeAmount: string | null;
-    sellerNetAmount: string | null;
+    marketplaceFeeUnitAmount: string;
+    sellerNetUnitAmount: string;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
+    feeQuoteFingerprint: string;
   }>
 >;
 export type ListingQuantityCapUpdatedEvent = DomainEvent<
   "marketplace.listing.quantity-cap-updated",
-  Readonly<{ quantityCap: number }>
+  Readonly<{
+    quantityCap: number;
+    marketplaceFeeUnitAmount: string;
+    sellerNetUnitAmount: string;
+    termsScheduleId: string | null;
+    termsAgreementId: string | null;
+    termsResolvedAt: string | null;
+    feeQuoteFingerprint: string;
+  }>
 >;
 export type ListingPublishedEvent = DomainEvent<
   "marketplace.listing.published",
-  Readonly<Record<string, never>>
+  Readonly<{
+    marketplaceFeeUnitAmount: string;
+    sellerNetUnitAmount: string;
+    termsScheduleId: string | null;
+    termsAgreementId: string | null;
+    termsResolvedAt: string | null;
+    feeQuoteFingerprint: string;
+  }>
 >;
 export type ListingPausedEvent = DomainEvent<
   "marketplace.listing.paused",
@@ -241,30 +270,21 @@ export const decideMarketplaceListing: AggregateDecider<
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
             priceAmount: normalizeMoneyAmount(command.priceAmount),
-            marketplaceFeeAmount:
-              command.marketplaceFeeAmount === undefined || command.marketplaceFeeAmount === null
-                ? null
-                : normalizeMoneyAmount(command.marketplaceFeeAmount, {
-                    fieldName: "Marketplace fee amount",
-                    allowZero: true,
-                  }),
-            paymentFeeAmount:
-              command.paymentFeeAmount === undefined || command.paymentFeeAmount === null
-                ? null
-                : normalizeMoneyAmount(command.paymentFeeAmount, {
-                    fieldName: "Payment fee amount",
-                    allowZero: true,
-                  }),
-            sellerNetAmount:
-              command.sellerNetAmount === undefined || command.sellerNetAmount === null
-                ? null
-                : normalizeMoneyAmount(command.sellerNetAmount, {
-                    fieldName: "Seller net amount",
-                    allowZero: true,
-                  }),
+            marketplaceFeeUnitAmount: normalizeMoneyAmount(command.marketplaceFeeUnitAmount, {
+              fieldName: "Marketplace fee unit amount",
+              allowZero: true,
+            }),
+            sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
+              fieldName: "Seller net unit amount",
+              allowZero: true,
+            }),
             termsScheduleId: command.termsScheduleId?.trim() ?? null,
             termsAgreementId: command.termsAgreementId?.trim() ?? null,
             termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
+            feeQuoteFingerprint: normalizeRequiredText(
+              command.feeQuoteFingerprint,
+              "Fee quote fingerprint is required.",
+            ),
             quantityCap: ensurePositiveInteger(
               command.quantityCap,
               "Listing quantity cap must be a positive whole number.",
@@ -280,30 +300,21 @@ export const decideMarketplaceListing: AggregateDecider<
           type: "marketplace.listing.price-updated",
           data: {
             priceAmount: normalizeMoneyAmount(command.priceAmount),
-            marketplaceFeeAmount:
-              command.marketplaceFeeAmount === undefined || command.marketplaceFeeAmount === null
-                ? null
-                : normalizeMoneyAmount(command.marketplaceFeeAmount, {
-                    fieldName: "Marketplace fee amount",
-                    allowZero: true,
-                  }),
-            paymentFeeAmount:
-              command.paymentFeeAmount === undefined || command.paymentFeeAmount === null
-                ? null
-                : normalizeMoneyAmount(command.paymentFeeAmount, {
-                    fieldName: "Payment fee amount",
-                    allowZero: true,
-                  }),
-            sellerNetAmount:
-              command.sellerNetAmount === undefined || command.sellerNetAmount === null
-                ? null
-                : normalizeMoneyAmount(command.sellerNetAmount, {
-                    fieldName: "Seller net amount",
-                    allowZero: true,
-                  }),
+            marketplaceFeeUnitAmount: normalizeMoneyAmount(command.marketplaceFeeUnitAmount, {
+              fieldName: "Marketplace fee unit amount",
+              allowZero: true,
+            }),
+            sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
+              fieldName: "Seller net unit amount",
+              allowZero: true,
+            }),
             termsScheduleId: command.termsScheduleId?.trim() ?? null,
             termsAgreementId: command.termsAgreementId?.trim() ?? null,
             termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
+            feeQuoteFingerprint: normalizeRequiredText(
+              command.feeQuoteFingerprint,
+              "Fee quote fingerprint is required.",
+            ),
           },
         },
       ];
@@ -318,6 +329,21 @@ export const decideMarketplaceListing: AggregateDecider<
               command.quantityCap,
               "Listing quantity cap must be a positive whole number.",
             ),
+            marketplaceFeeUnitAmount: normalizeMoneyAmount(command.marketplaceFeeUnitAmount, {
+              fieldName: "Marketplace fee unit amount",
+              allowZero: true,
+            }),
+            sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
+              fieldName: "Seller net unit amount",
+              allowZero: true,
+            }),
+            termsScheduleId: command.termsScheduleId?.trim() ?? null,
+            termsAgreementId: command.termsAgreementId?.trim() ?? null,
+            termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
+            feeQuoteFingerprint: normalizeRequiredText(
+              command.feeQuoteFingerprint,
+              "Fee quote fingerprint is required.",
+            ),
           },
         },
       ];
@@ -325,7 +351,28 @@ export const decideMarketplaceListing: AggregateDecider<
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be published.");
       assert(state.status !== "active", "Listing is already active.");
-      return [{ type: "marketplace.listing.published", data: {} }];
+      return [
+        {
+          type: "marketplace.listing.published",
+          data: {
+            marketplaceFeeUnitAmount: normalizeMoneyAmount(command.marketplaceFeeUnitAmount, {
+              fieldName: "Marketplace fee unit amount",
+              allowZero: true,
+            }),
+            sellerNetUnitAmount: normalizeMoneyAmount(command.sellerNetUnitAmount, {
+              fieldName: "Seller net unit amount",
+              allowZero: true,
+            }),
+            termsScheduleId: command.termsScheduleId?.trim() ?? null,
+            termsAgreementId: command.termsAgreementId?.trim() ?? null,
+            termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
+            feeQuoteFingerprint: normalizeRequiredText(
+              command.feeQuoteFingerprint,
+              "Fee quote fingerprint is required.",
+            ),
+          },
+        },
+      ];
     case "PauseListing":
       assert(state.listingId !== null, "Listing must be created first.");
       if (state.status === "paused") {
@@ -362,12 +409,12 @@ export const evolveMarketplaceListing: AggregateEvolver<
         storageLocationName: event.data.storageLocationName,
         shipFromCode: event.data.shipFromCode,
         priceAmount: event.data.priceAmount,
-        marketplaceFeeAmount: event.data.marketplaceFeeAmount,
-        paymentFeeAmount: event.data.paymentFeeAmount,
-        sellerNetAmount: event.data.sellerNetAmount,
+        marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+        sellerNetUnitAmount: event.data.sellerNetUnitAmount,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
+        feeQuoteFingerprint: event.data.feeQuoteFingerprint,
         quantityCap: event.data.quantityCap,
         status: "draft",
       };
@@ -375,17 +422,35 @@ export const evolveMarketplaceListing: AggregateEvolver<
       return {
         ...state,
         priceAmount: event.data.priceAmount,
-        marketplaceFeeAmount: event.data.marketplaceFeeAmount,
-        paymentFeeAmount: event.data.paymentFeeAmount,
-        sellerNetAmount: event.data.sellerNetAmount,
+        marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+        sellerNetUnitAmount: event.data.sellerNetUnitAmount,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
+        feeQuoteFingerprint: event.data.feeQuoteFingerprint,
       };
     case "marketplace.listing.quantity-cap-updated":
-      return { ...state, quantityCap: event.data.quantityCap };
+      return {
+        ...state,
+        quantityCap: event.data.quantityCap,
+        marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+        sellerNetUnitAmount: event.data.sellerNetUnitAmount,
+        termsScheduleId: event.data.termsScheduleId,
+        termsAgreementId: event.data.termsAgreementId,
+        termsResolvedAt: event.data.termsResolvedAt,
+        feeQuoteFingerprint: event.data.feeQuoteFingerprint,
+      };
     case "marketplace.listing.published":
-      return { ...state, status: "active" };
+      return {
+        ...state,
+        marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+        sellerNetUnitAmount: event.data.sellerNetUnitAmount,
+        termsScheduleId: event.data.termsScheduleId,
+        termsAgreementId: event.data.termsAgreementId,
+        termsResolvedAt: event.data.termsResolvedAt,
+        feeQuoteFingerprint: event.data.feeQuoteFingerprint,
+        status: "active",
+      };
     case "marketplace.listing.paused":
       return { ...state, status: "paused" };
     case "marketplace.listing.withdrawn":
@@ -398,6 +463,12 @@ export const evolveMarketplaceListing: AggregateEvolver<
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeRequiredText(value: string, message: string): string {
+  const normalized = value.trim();
+  assert(normalized.length > 0, message);
+  return normalized;
 }
 
 function normalizeGradedCardDetails(

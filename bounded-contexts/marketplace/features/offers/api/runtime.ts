@@ -9,6 +9,8 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
+import { quoteMarketplaceTerms } from "../../../support/runtime-support/fee-quotes";
+import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
 import {
   decideMarketplaceOffer,
   evolveMarketplaceOffer,
@@ -31,6 +33,13 @@ import {
   createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
 } from "../domain/versioning";
+
+export class MarketplaceOfferFeeQuoteStaleError extends Error {
+  public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
+    super("Fee quote is stale. Refresh the fee preview before continuing.");
+    this.name = "MarketplaceOfferFeeQuoteStaleError";
+  }
+}
 
 export type MarketplaceOfferServices = Readonly<{
   commandHandler: CommandHandler<
@@ -57,9 +66,16 @@ export type MarketplaceOfferServices = Readonly<{
     params: Readonly<{
       offerId: OfferId;
       sellerAccountId: AccountId;
+      feeQuoteFingerprint?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ offerId: OfferId; version: number }>;
+  previewOfferAcceptanceTerms: (
+    params: Readonly<{
+      offerId: OfferId;
+      sellerAccountId: AccountId;
+    }>,
+  ) => Promise<MarketplaceListingTermsPreview>;
   addOfferMatchSellListItem: (
     params: Readonly<{
       offerId: OfferId;
@@ -72,6 +88,7 @@ export type MarketplaceOfferServices = Readonly<{
   acceptOfferMatchSellList: (
     params: Readonly<{
       sellerAccountId: AccountId;
+      feeQuoteFingerprintsByOfferId?: Readonly<Record<string, string>>;
     }>,
     context: EventStoreContext,
   ) => Promise<{
@@ -126,6 +143,30 @@ export function createMarketplaceOfferRuntime(
     return result.rows[0] ?? null;
   }
 
+  async function quoteOfferAcceptanceTerms(
+    offerId: OfferId,
+    sellerAccountId: AccountId,
+  ) {
+    const offer = await getOfferMatch(deps.db, offerId, sellerAccountId);
+    if (!offer) {
+      throw new Error("Offer not found.");
+    }
+
+    return quoteMarketplaceTerms(deps.commercialTermsResolver, {
+      accountId: sellerAccountId,
+      priceAmount: offer.price_amount,
+    });
+  }
+
+  function assertConfirmedFeeQuote(
+    providedFingerprint: string | null | undefined,
+    currentQuote: MarketplaceListingTermsPreview,
+  ) {
+    if (providedFingerprint !== currentQuote.fee_quote_fingerprint) {
+      throw new MarketplaceOfferFeeQuoteStaleError(currentQuote);
+    }
+  }
+
   return {
     commandHandler,
     submitOffer: async (params, context) => {
@@ -173,6 +214,8 @@ export function createMarketplaceOfferRuntime(
 
       return { offerId, version: result.version };
     },
+    previewOfferAcceptanceTerms: async (params) =>
+      quoteOfferAcceptanceTerms(params.offerId, params.sellerAccountId),
     acceptOffer: async (params, context) => {
       const offer = await getOfferMatch(
         deps.db,
@@ -186,6 +229,11 @@ export function createMarketplaceOfferRuntime(
       if (!offer.can_fulfill) {
         throw new Error("Seller does not have enough active supply to accept this offer.");
       }
+      const quote = await quoteMarketplaceTerms(deps.commercialTermsResolver, {
+        accountId: params.sellerAccountId,
+        priceAmount: offer.price_amount,
+      });
+      assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
 
       const result = await commandHandler({
         streamId: `marketplace.offer-${params.offerId}`,
@@ -193,6 +241,12 @@ export function createMarketplaceOfferRuntime(
           type: "AcceptOffer",
           sellerAccountId: params.sellerAccountId,
           acceptedAt: new Date().toISOString(),
+          marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+          sellerNetUnitAmount: quote.seller_net_unit_amount,
+          termsScheduleId: quote.schedule_id,
+          termsAgreementId: quote.agreement_id,
+          termsResolvedAt: quote.resolved_at,
+          feeQuoteFingerprint: quote.fee_quote_fingerprint,
         },
         context,
       });
@@ -224,12 +278,33 @@ export function createMarketplaceOfferRuntime(
         }
 
         try {
+          const quote = await quoteMarketplaceTerms(deps.commercialTermsResolver, {
+            accountId: params.sellerAccountId,
+            priceAmount: item.price_amount,
+          });
+          if (
+            params.feeQuoteFingerprintsByOfferId?.[item.offer_id] !==
+            quote.fee_quote_fingerprint
+          ) {
+            skipped.push({
+              offerId: item.offer_id,
+              reason: "Fee quote is stale. Refresh the fee preview before continuing.",
+            });
+            continue;
+          }
+
           await commandHandler({
             streamId: `marketplace.offer-${item.offer_id}`,
             command: {
               type: "AcceptOffer",
               sellerAccountId: params.sellerAccountId,
               acceptedAt: new Date().toISOString(),
+              marketplaceFeeUnitAmount: quote.marketplace_fee_unit_amount,
+              sellerNetUnitAmount: quote.seller_net_unit_amount,
+              termsScheduleId: quote.schedule_id,
+              termsAgreementId: quote.agreement_id,
+              termsResolvedAt: quote.resolved_at,
+              feeQuoteFingerprint: quote.fee_quote_fingerprint,
             },
             context,
           });

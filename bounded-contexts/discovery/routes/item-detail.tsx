@@ -772,7 +772,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      await marketplaceApi.acceptOfferMatch(String(formData.get("offerId") ?? ""));
+      const offerId = String(formData.get("offerId") ?? "");
+      const quote = await marketplaceApi.previewOfferAcceptanceTerms(offerId);
+      await marketplaceApi.acceptOfferMatch(offerId, {
+        feeQuoteFingerprint: quote.fee_quote_fingerprint,
+      });
       return redirect("/account/sales");
     }
 

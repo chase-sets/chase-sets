@@ -37,9 +37,6 @@ export function AgreementDetailPage({ agreement }: { agreement: CommercialAgreem
             <Text>
               {t("commercialTerms.features.agreements.ui.agreementDetailPage.marketplace.fee")}{agreement.marketplace_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementDetailPage.bps")}{agreement.marketplace_fee_fixed_amount}
             </Text>
-            <Text>
-              {t("commercialTerms.features.agreements.ui.agreementDetailPage.payment.fee")}{agreement.payment_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementDetailPage.bps.2")}{agreement.payment_fee_fixed_amount}
-            </Text>
             <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.effective.from")}{agreement.effective_from}</Text>
             <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.effective.until")}{agreement.effective_until ?? t("commercialTerms.features.agreements.ui.agreementDetailPage.open.ended")}</Text>
             <Text>{t("commercialTerms.features.agreements.ui.agreementDetailPage.updated.at")}{agreement.updated_at}</Text>

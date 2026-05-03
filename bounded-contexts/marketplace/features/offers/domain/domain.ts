@@ -37,6 +37,15 @@ function normalizeMoneyAmount(value: string): string {
   return normalized;
 }
 
+function normalizeNonNegativeMoneyAmount(value: string, fieldName: string): string {
+  const normalized = value.trim();
+  assert(
+    /^\d+(\.\d{1,2})?$/.test(normalized),
+    `${fieldName} must be a valid decimal.`,
+  );
+  return normalized;
+}
+
 function normalizeVersionSelection(
   value: readonly { dimensionId: string; optionId: string }[],
 ) {
@@ -85,6 +94,12 @@ export type MarketplaceOfferState = Readonly<{
   status: OfferStatus;
   acceptedSellerAccountId: AccountId | null;
   acceptedAt: string | null;
+  marketplaceFeeUnitAmount: string | null;
+  sellerNetUnitAmount: string | null;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+  termsResolvedAt: string | null;
+  feeQuoteFingerprint: string | null;
 }>;
 
 export const initialMarketplaceOfferState: MarketplaceOfferState = {
@@ -101,6 +116,12 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   status: "draft",
   acceptedSellerAccountId: null,
   acceptedAt: null,
+  marketplaceFeeUnitAmount: null,
+  sellerNetUnitAmount: null,
+  termsScheduleId: null,
+  termsAgreementId: null,
+  termsResolvedAt: null,
+  feeQuoteFingerprint: null,
 };
 
 export type SubmitOfferCommand = Readonly<{
@@ -121,6 +142,12 @@ export type AcceptOfferCommand = Readonly<{
   type: "AcceptOffer";
   sellerAccountId: AccountId;
   acceptedAt: string;
+  marketplaceFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+  termsResolvedAt: string;
+  feeQuoteFingerprint: string;
 }>;
 
 export type MarketplaceOfferCommand = SubmitOfferCommand | AcceptOfferCommand;
@@ -156,6 +183,12 @@ export type OfferAcceptedEvent = DomainEvent<
     priceAmount: string;
     quantityRequested: number;
     acceptedAt: string;
+    marketplaceFeeUnitAmount: string;
+    sellerNetUnitAmount: string;
+    termsScheduleId: string | null;
+    termsAgreementId: string | null;
+    termsResolvedAt: string;
+    feeQuoteFingerprint: string;
   }>
 >;
 
@@ -219,6 +252,24 @@ export const decideMarketplaceOffer: AggregateDecider<
               command.acceptedAt,
               "Offer acceptance must record a timestamp.",
             ),
+            marketplaceFeeUnitAmount: normalizeNonNegativeMoneyAmount(
+              command.marketplaceFeeUnitAmount,
+              "Marketplace fee unit amount",
+            ),
+            sellerNetUnitAmount: normalizeNonNegativeMoneyAmount(
+              command.sellerNetUnitAmount,
+              "Seller net unit amount",
+            ),
+            termsScheduleId: normalizeOptionalText(command.termsScheduleId),
+            termsAgreementId: normalizeOptionalText(command.termsAgreementId),
+            termsResolvedAt: normalizeRequiredText(
+              command.termsResolvedAt,
+              "Offer acceptance terms must record a timestamp.",
+            ),
+            feeQuoteFingerprint: normalizeRequiredText(
+              command.feeQuoteFingerprint,
+              "Offer acceptance must record a fee quote fingerprint.",
+            ),
           },
         },
       ];
@@ -246,6 +297,12 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       status: "submitted",
       acceptedSellerAccountId: null,
       acceptedAt: null,
+      marketplaceFeeUnitAmount: null,
+      sellerNetUnitAmount: null,
+      termsScheduleId: null,
+      termsAgreementId: null,
+      termsResolvedAt: null,
+      feeQuoteFingerprint: null,
     };
   }
 
@@ -255,6 +312,12 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       status: "accepted",
       acceptedSellerAccountId: event.data.sellerAccountId,
       acceptedAt: event.data.acceptedAt,
+      marketplaceFeeUnitAmount: event.data.marketplaceFeeUnitAmount,
+      sellerNetUnitAmount: event.data.sellerNetUnitAmount,
+      termsScheduleId: event.data.termsScheduleId,
+      termsAgreementId: event.data.termsAgreementId,
+      termsResolvedAt: event.data.termsResolvedAt,
+      feeQuoteFingerprint: event.data.feeQuoteFingerprint,
     };
   }
 

@@ -13,6 +13,11 @@ type AcceptedOfferParams = Readonly<{
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
   priceAmount: string;
+  marketplaceFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  termsScheduleId: string | null;
+  termsAgreementId: string | null;
+  termsResolvedAt: string;
   quantityRequested: number;
   context: EventStoreContext;
 }>;
@@ -38,6 +43,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
+        marketplaceFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsScheduleId: string | null;
+        termsAgreementId: string | null;
+        termsResolvedAt: string;
         quantityCap: number;
       };
 
@@ -55,11 +65,16 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            storage_location_name,
            ship_from_code,
            price_amount,
+           marketplace_fee_unit_amount,
+           seller_net_unit_amount,
+           terms_schedule_id,
+           terms_agreement_id,
+           terms_resolved_at,
            quantity_cap,
            status,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'draft', $14
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'draft', $19
          )
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
@@ -73,6 +88,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              storage_location_name = EXCLUDED.storage_location_name,
              ship_from_code = EXCLUDED.ship_from_code,
              price_amount = EXCLUDED.price_amount,
+             marketplace_fee_unit_amount = EXCLUDED.marketplace_fee_unit_amount,
+             seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
+             terms_schedule_id = EXCLUDED.terms_schedule_id,
+             terms_agreement_id = EXCLUDED.terms_agreement_id,
+             terms_resolved_at = EXCLUDED.terms_resolved_at,
              quantity_cap = EXCLUDED.quantity_cap,
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at`,
@@ -89,48 +109,107 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.storageLocationName,
           data.shipFromCode,
           data.priceAmount,
+          data.marketplaceFeeUnitAmount,
+          data.sellerNetUnitAmount,
+          data.termsScheduleId,
+          data.termsAgreementId,
+          data.termsResolvedAt,
           data.quantityCap,
           event.timing.recordedAt,
         ],
       );
     },
     "marketplace.listing.price-updated": async (event) => {
-      const data = event.data as { priceAmount: string };
+      const data = event.data as {
+        priceAmount: string;
+        marketplaceFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsScheduleId: string | null;
+        termsAgreementId: string | null;
+        termsResolvedAt: string;
+      };
 
       await db.query(
         `UPDATE ordering_market_listing_inputs
          SET price_amount = $2,
-             updated_at = $3
+             marketplace_fee_unit_amount = $3,
+             seller_net_unit_amount = $4,
+             terms_schedule_id = $5,
+             terms_agreement_id = $6,
+             terms_resolved_at = $7,
+             updated_at = $8
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           data.priceAmount,
+          data.marketplaceFeeUnitAmount,
+          data.sellerNetUnitAmount,
+          data.termsScheduleId,
+          data.termsAgreementId,
+          data.termsResolvedAt,
           event.timing.recordedAt,
         ],
       );
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
-      const data = event.data as { quantityCap: number };
+      const data = event.data as {
+        quantityCap: number;
+        marketplaceFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsScheduleId: string | null;
+        termsAgreementId: string | null;
+        termsResolvedAt: string;
+      };
 
       await db.query(
         `UPDATE ordering_market_listing_inputs
          SET quantity_cap = $2,
-             updated_at = $3
+             marketplace_fee_unit_amount = $3,
+             seller_net_unit_amount = $4,
+             terms_schedule_id = $5,
+             terms_agreement_id = $6,
+             terms_resolved_at = $7,
+             updated_at = $8
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           data.quantityCap,
+          data.marketplaceFeeUnitAmount,
+          data.sellerNetUnitAmount,
+          data.termsScheduleId,
+          data.termsAgreementId,
+          data.termsResolvedAt,
           event.timing.recordedAt,
         ],
       );
     },
     "marketplace.listing.published": async (event) => {
+      const data = event.data as {
+        marketplaceFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsScheduleId: string | null;
+        termsAgreementId: string | null;
+        termsResolvedAt: string;
+      };
       await db.query(
         `UPDATE ordering_market_listing_inputs
          SET status = 'active',
-             updated_at = $2
+             marketplace_fee_unit_amount = $2,
+             seller_net_unit_amount = $3,
+             terms_schedule_id = $4,
+             terms_agreement_id = $5,
+             terms_resolved_at = $6,
+             updated_at = $7
          WHERE listing_id = $1`,
-        [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
+        [
+          event.streamId.replace("marketplace.listing-", ""),
+          data.marketplaceFeeUnitAmount,
+          data.sellerNetUnitAmount,
+          data.termsScheduleId,
+          data.termsAgreementId,
+          data.termsResolvedAt,
+          event.timing.recordedAt,
+        ],
       );
     },
     "marketplace.listing.paused": async (event) => {
@@ -168,11 +247,16 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            selected_options,
            product_summary,
            price_amount,
+           marketplace_fee_unit_amount,
+           seller_net_unit_amount,
+           terms_schedule_id,
+           terms_agreement_id,
+           terms_resolved_at,
            quantity_requested,
            accepted_at,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17
          )
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -184,6 +268,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              selected_options = EXCLUDED.selected_options,
              product_summary = EXCLUDED.product_summary,
              price_amount = EXCLUDED.price_amount,
+             marketplace_fee_unit_amount = EXCLUDED.marketplace_fee_unit_amount,
+             seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
+             terms_schedule_id = EXCLUDED.terms_schedule_id,
+             terms_agreement_id = EXCLUDED.terms_agreement_id,
+             terms_resolved_at = EXCLUDED.terms_resolved_at,
              quantity_requested = EXCLUDED.quantity_requested,
              accepted_at = EXCLUDED.accepted_at,
              updated_at = EXCLUDED.updated_at`,
@@ -198,6 +287,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
           data.priceAmount,
+          data.marketplaceFeeUnitAmount,
+          data.sellerNetUnitAmount,
+          data.termsScheduleId,
+          data.termsAgreementId,
+          data.termsResolvedAt,
           data.quantityRequested,
           data.acceptedAt,
         ],

@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
-import type { MarketplaceListingServices } from "./runtime";
+import {
+  MarketplaceFeeQuoteStaleError,
+  type MarketplaceListingServices,
+} from "./runtime";
 
 function requireListingAccess(
   c: {
@@ -38,6 +41,26 @@ function requireListingAccess(
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("marketplace.features.listings.api.route.request.failed");
+}
+
+function validationError(error: unknown) {
+  if (error instanceof MarketplaceFeeQuoteStaleError) {
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: "fee_quote_stale",
+          message: error.message,
+          currentQuote: error.currentQuote,
+        },
+      }),
+      {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  return null;
 }
 
 export function createAccountListingRoutes(services: MarketplaceListingServices) {
@@ -93,7 +116,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       return access.response;
     }
 
-    const body = await c.req.json();
+    const body = await c.req.json().catch(() => ({}));
 
     try {
       const preview = await services.previewListingTerms({
@@ -149,7 +172,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
         context,
       );
 
-      return c.json({ id: result.listingId, version: result.version, status: "draft" }, 201);
+      return c.json(
+        {
+          id: result.listingId,
+          version: result.version,
+          status: "draft",
+          feeQuoteFingerprint: result.feeQuoteFingerprint,
+        },
+        201,
+      );
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -174,12 +205,18 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
           priceAmount: String(body.priceAmount ?? ""),
+          feeQuoteFingerprint:
+            typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,
       );
 
       return c.json({ id: result.listingId, version: result.version, status: "price-updated" });
     } catch (error) {
+      const response = validationError(error);
+      if (response) {
+        return response;
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
@@ -203,12 +240,18 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
           quantityCap: Number(body.quantityCap ?? 0),
+          feeQuoteFingerprint:
+            typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,
       );
 
       return c.json({ id: result.listingId, version: result.version, status: "quantity-cap-updated" });
     } catch (error) {
+      const response = validationError(error);
+      if (response) {
+        return response;
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
@@ -224,17 +267,25 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.4") } }, 401);
     }
 
+    const body = await c.req.json().catch(() => ({}));
+
     try {
       const result = await services.publishListing(
         {
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
+          feeQuoteFingerprint:
+            typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,
       );
 
       return c.json({ id: result.listingId, version: result.version, status: "published" });
     } catch (error) {
+      const response = validationError(error);
+      if (response) {
+        return response;
+      }
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });

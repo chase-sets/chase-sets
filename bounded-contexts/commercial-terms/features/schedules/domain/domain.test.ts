@@ -14,8 +14,6 @@ describe("commercial terms schedules", () => {
       accountType: "personal",
       marketplaceFeePercentageBps: 250,
       marketplaceFeeFixedAmount: "0",
-      paymentFeePercentageBps: 290,
-      paymentFeeFixedAmount: "0.30",
       status: "active",
       effectiveFrom: "2026-04-30T00:00:00.000Z",
       effectiveUntil: null,
@@ -26,7 +24,6 @@ describe("commercial terms schedules", () => {
       scheduleId: "default-personal",
       label: "Default Personal",
       marketplaceFeeFixedAmount: "0.00",
-      paymentFeeFixedAmount: "0.30",
     });
     expect(() =>
       decideCommercialTermsSchedule(state, {
@@ -36,8 +33,6 @@ describe("commercial terms schedules", () => {
         accountType: "personal",
         marketplaceFeePercentageBps: 250,
         marketplaceFeeFixedAmount: "0",
-        paymentFeePercentageBps: 290,
-        paymentFeeFixedAmount: "0.30",
         status: "active",
         effectiveFrom: "2026-04-30T00:00:00.000Z",
         effectiveUntil: null,

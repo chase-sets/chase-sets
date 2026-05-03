@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
-import type { MarketplaceOfferServices } from "./runtime";
+import {
+  MarketplaceOfferFeeQuoteStaleError,
+  type MarketplaceOfferServices,
+} from "./runtime";
 
 function requireOfferAccess(
   c: {
@@ -35,6 +38,25 @@ function requireOfferAccess(
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("marketplace.features.offers.api.route.request.failed");
+}
+
+function validationError(c: {
+  json: (body: unknown, status?: number) => Response;
+}, error: unknown) {
+  if (error instanceof MarketplaceOfferFeeQuoteStaleError) {
+    return c.json(
+      {
+        error: {
+          code: "fee_quote_stale",
+          message: error.message,
+          currentQuote: error.currentQuote,
+        },
+      },
+      409,
+    );
+  }
+
+  return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
 }
 
 function parseVersionSelection(value: unknown) {
@@ -184,6 +206,28 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     return c.json(offer);
   });
 
+  app.get("/offers/matches/:id/terms-preview", async (c) => {
+    const access = requireOfferAccess(c, "offers.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    if (!access.actor.permissions.includes("listings.view")) {
+      return c.json({ error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } }, 403);
+    }
+
+    try {
+      const quote = await services.previewOfferAcceptanceTerms({
+        offerId: c.req.param("id") as never,
+        sellerAccountId: access.actor.accountId as never,
+      });
+
+      return c.json(quote);
+    } catch (error) {
+      return validationError(c, error);
+    }
+  });
+
   app.post("/offers/matches/:id/accept", async (c) => {
     const access = requireOfferAccess(c, "offers.manage");
     if (access.response) {
@@ -200,17 +244,22 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     try {
+      const body = await c.req.json().catch(() => ({}));
       const result = await services.acceptOffer(
         {
           offerId: c.req.param("id") as never,
           sellerAccountId: access.actor.accountId as never,
+          feeQuoteFingerprint:
+            body && typeof body === "object" && "feeQuoteFingerprint" in body
+              ? String(body.feeQuoteFingerprint ?? "")
+              : null,
         },
         context,
       );
 
       return c.json({ id: result.offerId, version: result.version, status: "accepted" }, 201);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return validationError(c, error);
     }
   });
 
@@ -273,9 +322,18 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     try {
+      const body = await c.req.json().catch(() => ({}));
       const result = await services.acceptOfferMatchSellList(
         {
           sellerAccountId: access.actor.accountId as never,
+          feeQuoteFingerprintsByOfferId:
+            body &&
+            typeof body === "object" &&
+            "feeQuoteFingerprintsByOfferId" in body &&
+            body.feeQuoteFingerprintsByOfferId &&
+            typeof body.feeQuoteFingerprintsByOfferId === "object"
+              ? (body.feeQuoteFingerprintsByOfferId as Record<string, string>)
+              : undefined,
         },
         context,
       );

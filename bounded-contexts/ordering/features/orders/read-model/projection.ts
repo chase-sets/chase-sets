@@ -20,7 +20,6 @@ export function buildOrderingOrderProjectionHandlers(
         totalAmount: string;
         commercialTermsSnapshot: {
           marketplaceFeeAmount: string;
-          paymentFeeAmount: string;
           sellerNetAmount: string;
           termsScheduleId: string | null;
           termsAgreementId: string | null;
@@ -39,6 +38,10 @@ export function buildOrderingOrderProjectionHandlers(
           unitPriceAmount: string;
           quantity: number;
           lineTotalAmount: string;
+          marketplaceFeeUnitAmount: string;
+          marketplaceFeeTotalAmount: string;
+          sellerNetUnitAmount: string;
+          sellerNetTotalAmount: string;
         }>;
         reservationRequests: Array<{
           reservationRequestId: string;
@@ -62,7 +65,6 @@ export function buildOrderingOrderProjectionHandlers(
            shipping_charge_amount,
            total_amount,
            marketplace_fee_amount,
-           payment_fee_amount,
            seller_net_amount,
            terms_schedule_id,
            terms_agreement_id,
@@ -74,7 +76,7 @@ export function buildOrderingOrderProjectionHandlers(
            cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'pending-reservation', $18, $18, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending-reservation', $17, $17, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
@@ -88,7 +90,6 @@ export function buildOrderingOrderProjectionHandlers(
              shipping_charge_amount = EXCLUDED.shipping_charge_amount,
              total_amount = EXCLUDED.total_amount,
              marketplace_fee_amount = EXCLUDED.marketplace_fee_amount,
-             payment_fee_amount = EXCLUDED.payment_fee_amount,
              seller_net_amount = EXCLUDED.seller_net_amount,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
@@ -110,7 +111,6 @@ export function buildOrderingOrderProjectionHandlers(
           data.shippingChargeAmount,
           data.totalAmount,
           data.commercialTermsSnapshot.marketplaceFeeAmount,
-          data.commercialTermsSnapshot.paymentFeeAmount,
           data.commercialTermsSnapshot.sellerNetAmount,
           data.commercialTermsSnapshot.termsScheduleId,
           data.commercialTermsSnapshot.termsAgreementId,
@@ -138,9 +138,13 @@ export function buildOrderingOrderProjectionHandlers(
              product_summary,
              unit_price_amount,
              quantity,
-             line_total_amount
+             line_total_amount,
+             marketplace_fee_unit_amount,
+             marketplace_fee_total_amount,
+             seller_net_unit_amount,
+             seller_net_total_amount
            ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
            )
            ON CONFLICT (order_id, line_id) DO UPDATE
            SET line_index = EXCLUDED.line_index,
@@ -154,7 +158,11 @@ export function buildOrderingOrderProjectionHandlers(
                product_summary = EXCLUDED.product_summary,
                unit_price_amount = EXCLUDED.unit_price_amount,
                quantity = EXCLUDED.quantity,
-               line_total_amount = EXCLUDED.line_total_amount`,
+               line_total_amount = EXCLUDED.line_total_amount,
+               marketplace_fee_unit_amount = EXCLUDED.marketplace_fee_unit_amount,
+               marketplace_fee_total_amount = EXCLUDED.marketplace_fee_total_amount,
+               seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
+               seller_net_total_amount = EXCLUDED.seller_net_total_amount`,
           [
             data.orderId,
             line.lineId,
@@ -170,6 +178,10 @@ export function buildOrderingOrderProjectionHandlers(
             line.unitPriceAmount,
             line.quantity,
             line.lineTotalAmount,
+            line.marketplaceFeeUnitAmount,
+            line.marketplaceFeeTotalAmount,
+            line.sellerNetUnitAmount,
+            line.sellerNetTotalAmount,
           ],
         );
       }

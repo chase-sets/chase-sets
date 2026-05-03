@@ -20,6 +20,11 @@ type OrderingSupplyCandidateRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
+  marketplace_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string;
   available_quantity: number;
   updated_at: string;
 }>;
@@ -65,6 +70,11 @@ export async function listOrderingSupplyCandidates(
        listing.storage_location_name,
        listing.ship_from_code,
        listing.price_amount::text AS price_amount,
+       listing.marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
+       listing.seller_net_unit_amount::text AS seller_net_unit_amount,
+       listing.terms_schedule_id,
+       listing.terms_agreement_id,
+       listing.terms_resolved_at,
        LEAST(
          listing.quantity_cap,
          GREATEST(
@@ -109,6 +119,11 @@ export async function listOrderingSupplyCandidates(
       storageLocationName: row.storage_location_name,
       shipFromCode: row.ship_from_code,
       priceAmount: row.price_amount,
+      marketplaceFeeUnitAmount: row.marketplace_fee_unit_amount,
+      sellerNetUnitAmount: row.seller_net_unit_amount,
+      termsScheduleId: row.terms_schedule_id,
+      termsAgreementId: row.terms_agreement_id,
+      termsResolvedAt: row.terms_resolved_at,
       availableQuantity: row.available_quantity,
       updatedAt: row.updated_at,
     }))
@@ -133,6 +148,11 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.storage_location_name,
        listing.ship_from_code,
        listing.price_amount::text AS price_amount,
+       listing.marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
+       listing.seller_net_unit_amount::text AS seller_net_unit_amount,
+       listing.terms_schedule_id,
+       listing.terms_agreement_id,
+       listing.terms_resolved_at,
        LEAST(
          listing.quantity_cap,
          GREATEST(
@@ -176,6 +196,11 @@ export async function getOrderingSupplyCandidateByListingId(
     storageLocationName: row.storage_location_name,
     shipFromCode: row.ship_from_code,
     priceAmount: row.price_amount,
+    marketplaceFeeUnitAmount: row.marketplace_fee_unit_amount,
+    sellerNetUnitAmount: row.seller_net_unit_amount,
+    termsScheduleId: row.terms_schedule_id,
+    termsAgreementId: row.terms_agreement_id,
+    termsResolvedAt: row.terms_resolved_at,
     availableQuantity: row.available_quantity,
     updatedAt: row.updated_at,
   };

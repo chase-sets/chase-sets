@@ -7,11 +7,17 @@ import {
 
 const commercialTermsSnapshot = {
   marketplaceFeeAmount: "1.00",
-  paymentFeeAmount: "0.50",
-  sellerNetAmount: "18.50",
+  sellerNetAmount: "19.00",
   termsScheduleId: "cts_default",
   termsAgreementId: null,
   termsResolvedAt: "2026-03-31T00:00:00.000Z",
+} as const;
+
+const orderLineFees = {
+  marketplaceFeeUnitAmount: "1.00",
+  marketplaceFeeTotalAmount: "1.00",
+  sellerNetUnitAmount: "19.00",
+  sellerNetTotalAmount: "19.00",
 } as const;
 
 describe("ordering order domain", () => {
@@ -44,6 +50,7 @@ describe("ordering order domain", () => {
           unitPriceAmount: "20.00",
           quantity: 1,
           lineTotalAmount: "20.00",
+          ...orderLineFees,
         },
       ],
       reservationRequests: [
@@ -95,6 +102,7 @@ describe("ordering order domain", () => {
           unitPriceAmount: "20.00",
           quantity: 1,
           lineTotalAmount: "20.00",
+          ...orderLineFees,
         },
       ],
       reservationRequests: [

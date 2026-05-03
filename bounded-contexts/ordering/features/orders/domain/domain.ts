@@ -33,6 +33,10 @@ export type OrderingOrderLine = Readonly<{
   unitPriceAmount: string;
   quantity: number;
   lineTotalAmount: string;
+  marketplaceFeeUnitAmount: string;
+  marketplaceFeeTotalAmount: string;
+  sellerNetUnitAmount: string;
+  sellerNetTotalAmount: string;
 }>;
 
 export type OrderingReservationRequest = Readonly<{
@@ -48,7 +52,6 @@ export type OrderingReservationRequest = Readonly<{
 
 export type OrderingCommercialTermsSnapshot = Readonly<{
   marketplaceFeeAmount: string;
-  paymentFeeAmount: string;
   sellerNetAmount: string;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
@@ -291,6 +294,22 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
     lineTotalAmount: normalizeMoneyAmount(line.lineTotalAmount, {
       fieldName: "Line total",
     }),
+    marketplaceFeeUnitAmount: normalizeMoneyAmount(line.marketplaceFeeUnitAmount, {
+      fieldName: "Line marketplace fee unit amount",
+      allowZero: true,
+    }),
+    marketplaceFeeTotalAmount: normalizeMoneyAmount(line.marketplaceFeeTotalAmount, {
+      fieldName: "Line marketplace fee total amount",
+      allowZero: true,
+    }),
+    sellerNetUnitAmount: normalizeMoneyAmount(line.sellerNetUnitAmount, {
+      fieldName: "Line seller net unit amount",
+      allowZero: true,
+    }),
+    sellerNetTotalAmount: normalizeMoneyAmount(line.sellerNetTotalAmount, {
+      fieldName: "Line seller net total amount",
+      allowZero: true,
+    }),
   }));
 }
 
@@ -334,10 +353,6 @@ function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnaps
   return {
     marketplaceFeeAmount: normalizeMoneyAmount(snapshot.marketplaceFeeAmount, {
       fieldName: "Marketplace fee amount",
-      allowZero: true,
-    }),
-    paymentFeeAmount: normalizeMoneyAmount(snapshot.paymentFeeAmount, {
-      fieldName: "Payment fee amount",
       allowZero: true,
     }),
     sellerNetAmount: normalizeMoneyAmount(snapshot.sellerNetAmount, {

@@ -186,9 +186,6 @@ export default function MarketplaceAccountPaymentNewRoute() {
   const marketplaceFeeAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.marketplace_fee_amount), 0)
     .toFixed(2);
-  const paymentFeeAmount = data.orders
-    .reduce((sum, order) => sum + Number.parseFloat(order.payment_fee_amount), 0)
-    .toFixed(2);
   const sellerNetAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.seller_net_amount), 0)
     .toFixed(2);
@@ -216,7 +213,6 @@ export default function MarketplaceAccountPaymentNewRoute() {
               lines={[
                 { label: t("payments.routes.marketplace.accountPaymentNew.purchases"), value: data.orders.length },
                 { label: t("payments.routes.marketplace.accountPaymentNew.marketplace.fees"), value: formatMoney(marketplaceFeeAmount) },
-                { label: t("payments.routes.marketplace.accountPaymentNew.payment.fees"), value: formatMoney(paymentFeeAmount) },
                 { label: t("payments.routes.marketplace.accountPaymentNew.seller.net"), value: formatMoney(sellerNetAmount) },
                 ...(data.wallet
                   ? [

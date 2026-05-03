@@ -20,8 +20,6 @@ export type CommercialAgreementState = Readonly<{
   label: string | null;
   marketplaceFeePercentageBps: number | null;
   marketplaceFeeFixedAmount: string | null;
-  paymentFeePercentageBps: number | null;
-  paymentFeeFixedAmount: string | null;
   status: CommercialTermsStatus | null;
   effectiveFrom: string | null;
   effectiveUntil: string | null;
@@ -33,8 +31,6 @@ export const initialCommercialAgreementState: CommercialAgreementState = {
   label: null,
   marketplaceFeePercentageBps: null,
   marketplaceFeeFixedAmount: null,
-  paymentFeePercentageBps: null,
-  paymentFeeFixedAmount: null,
   status: null,
   effectiveFrom: null,
   effectiveUntil: null,
@@ -47,8 +43,6 @@ export type CreateAgreementCommand = Readonly<{
   label: string;
   marketplaceFeePercentageBps: number;
   marketplaceFeeFixedAmount: string;
-  paymentFeePercentageBps: number;
-  paymentFeeFixedAmount: string;
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
@@ -64,8 +58,6 @@ export type AgreementCreatedEvent = DomainEvent<
     label: string;
     marketplaceFeePercentageBps: number;
     marketplaceFeeFixedAmount: string;
-    paymentFeePercentageBps: number;
-    paymentFeeFixedAmount: string;
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
@@ -100,14 +92,6 @@ export const decideCommercialAgreement: AggregateDecider<
                 allowZero: true,
               },
             ),
-            paymentFeePercentageBps: normalizePercentageBps(
-              command.paymentFeePercentageBps,
-              "Payment fee percentage",
-            ),
-            paymentFeeFixedAmount: normalizeMoneyAmount(command.paymentFeeFixedAmount, {
-              fieldName: "Payment fee fixed amount",
-              allowZero: true,
-            }),
             status: normalizeCommercialTermsStatus(command.status),
             effectiveFrom: ensureIsoTimestamp(
               command.effectiveFrom,
@@ -140,8 +124,6 @@ export const evolveCommercialAgreement: AggregateEvolver<
         label: event.data.label,
         marketplaceFeePercentageBps: event.data.marketplaceFeePercentageBps,
         marketplaceFeeFixedAmount: event.data.marketplaceFeeFixedAmount,
-        paymentFeePercentageBps: event.data.paymentFeePercentageBps,
-        paymentFeeFixedAmount: event.data.paymentFeeFixedAmount,
         status: event.data.status,
         effectiveFrom: event.data.effectiveFrom,
         effectiveUntil: event.data.effectiveUntil,

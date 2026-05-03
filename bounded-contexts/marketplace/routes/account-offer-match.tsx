@@ -11,6 +11,7 @@ import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
   type OfferMatchDetail,
+  type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-match-detail-page";
 
@@ -29,8 +30,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createMarketplaceRequestApiClient(request);
 
   try {
+    const offerMatch = await api.getOfferMatch(params.offerId!);
     return {
-      offerMatch: await api.getOfferMatch(params.offerId!),
+      offerMatch,
+      acceptanceTerms:
+        offerMatch.status === "submitted"
+          ? await api.previewOfferAcceptanceTerms(params.offerId!)
+          : null,
     };
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {
@@ -56,14 +62,34 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   try {
     if (intent === "accept-offer") {
-      await api.acceptOfferMatch(params.offerId!);
+      await api.acceptOfferMatch(params.offerId!, {
+        feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
+      });
       return redirect("/account/sales");
     }
 
     return null;
   } catch (error) {
+    if (error instanceof MarketplaceApiError && error.status === 409) {
+      const currentQuote =
+        typeof error.body === "object" &&
+        error.body !== null &&
+        "error" in error.body &&
+        typeof error.body.error === "object" &&
+        error.body.error !== null &&
+        "currentQuote" in error.body.error
+          ? (error.body.error.currentQuote as MarketplaceListingTermsPreview)
+          : null;
+
+      return {
+        error: t("marketplace.routes.accountOfferMatch.fee.quote.stale"),
+        currentQuote,
+      };
+    }
+
     return {
       error: error instanceof Error ? error.message : t("marketplace.routes.accountOfferMatch.request.failed"),
+      currentQuote: null,
     };
   }
 }
@@ -81,6 +107,10 @@ export default function MarketplaceAccountOfferMatchRoute() {
   return (
     <MarketplaceOfferMatchDetailPage
       offer={data.offerMatch as OfferMatchDetail}
+      acceptanceTerms={
+        (actionData?.currentQuote as MarketplaceListingTermsPreview | null | undefined) ??
+        (data.acceptanceTerms as MarketplaceListingTermsPreview | null)
+      }
       canAccept
       errorMessage={actionData?.error ?? null}
     />

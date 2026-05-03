@@ -13,7 +13,6 @@ export interface OrderingOrderProjection {
   shipping_charge_amount: string;
   total_amount: string;
   marketplace_fee_amount: string;
-  payment_fee_amount: string;
   seller_net_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -41,6 +40,10 @@ export interface OrderingOrderProjectionLine {
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
+  marketplace_fee_unit_amount: string;
+  marketplace_fee_total_amount: string;
+  seller_net_unit_amount: string;
+  seller_net_total_amount: string;
 }
 
 export interface OrderingOrderProjectionHold {

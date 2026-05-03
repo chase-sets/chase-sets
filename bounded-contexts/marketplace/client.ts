@@ -175,11 +175,11 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async publishListing(id: string) {
+    async publishListing(id: string, body: Record<string, unknown> = {}) {
       return parseJsonResponse(
         await client.account.listings[":id"].publish.$post({
           param: { id },
-          json: {},
+          json: body,
           header: headers,
         }),
       );
@@ -246,11 +246,21 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async acceptOfferMatch(id: string) {
+    async previewOfferAcceptanceTerms(
+      id: string,
+    ): Promise<MarketplaceListingTermsPreview> {
+      return parseJsonResponse(
+        await client.account.offers.matches[":id"]["terms-preview"].$get({
+          param: { id },
+          header: headers,
+        }),
+      );
+    },
+    async acceptOfferMatch(id: string, body: Record<string, unknown> = {}) {
       return parseJsonResponse(
         await client.account.offers.matches[":id"].accept.$post({
           param: { id },
-          json: {},
+          json: body,
           header: headers,
         }),
       );
@@ -270,10 +280,10 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async acceptOfferMatchSellList() {
+    async acceptOfferMatchSellList(body: Record<string, unknown> = {}) {
       return parseJsonResponse(
         await client.account.offers["match-sell-list"].accept.$post({
-          json: {},
+          json: body,
           header: headers,
         }),
       );

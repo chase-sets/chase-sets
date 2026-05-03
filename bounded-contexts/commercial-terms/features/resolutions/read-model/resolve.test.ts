@@ -9,15 +9,11 @@ function createDb(options: Readonly<{
     schedule_id: string;
     marketplace_fee_percentage_bps: number;
     marketplace_fee_fixed_amount: string;
-    payment_fee_percentage_bps: number;
-    payment_fee_fixed_amount: string;
   } | null;
   agreement?: {
     agreement_id: string;
     marketplace_fee_percentage_bps: number;
     marketplace_fee_fixed_amount: string;
-    payment_fee_percentage_bps: number;
-    payment_fee_fixed_amount: string;
   } | null;
 }>): PgQueryable {
   return {
@@ -60,8 +56,6 @@ describe("commercial terms resolver", () => {
           schedule_id: "cts_personal",
           marketplace_fee_percentage_bps: 900,
           marketplace_fee_fixed_amount: "0.15",
-          payment_fee_percentage_bps: 300,
-          payment_fee_fixed_amount: "0.30",
         },
       }),
     });
@@ -73,9 +67,8 @@ describe("commercial terms resolver", () => {
     });
 
     expect(result.accountType).toBe("personal");
-    expect(result.marketplaceFeeAmount).toBe("1.05");
-    expect(result.paymentFeeAmount).toBe("0.60");
-    expect(result.sellerNetAmount).toBe("8.35");
+    expect(result.marketplaceFeeUnitAmount).toBe("1.05");
+    expect(result.sellerNetUnitAmount).toBe("8.95");
     expect(result.scheduleId).toBe("cts_personal");
     expect(result.agreementId).toBeNull();
   });
@@ -88,8 +81,6 @@ describe("commercial terms resolver", () => {
           schedule_id: "cts_business",
           marketplace_fee_percentage_bps: 850,
           marketplace_fee_fixed_amount: "0.10",
-          payment_fee_percentage_bps: 290,
-          payment_fee_fixed_amount: "0.30",
         },
       }),
     });
@@ -101,9 +92,8 @@ describe("commercial terms resolver", () => {
     });
 
     expect(result.accountType).toBe("business");
-    expect(result.marketplaceFeeAmount).toBe("0.95");
-    expect(result.paymentFeeAmount).toBe("0.59");
-    expect(result.sellerNetAmount).toBe("8.46");
+    expect(result.marketplaceFeeUnitAmount).toBe("0.95");
+    expect(result.sellerNetUnitAmount).toBe("9.05");
     expect(result.scheduleId).toBe("cts_business");
     expect(result.agreementId).toBeNull();
   });
@@ -116,8 +106,6 @@ describe("commercial terms resolver", () => {
           schedule_id: "cts_enterprise",
           marketplace_fee_percentage_bps: 500,
           marketplace_fee_fixed_amount: "0.25",
-          payment_fee_percentage_bps: 300,
-          payment_fee_fixed_amount: "0.30",
         },
       }),
     });
@@ -129,9 +117,8 @@ describe("commercial terms resolver", () => {
     });
 
     expect(result.accountType).toBe("enterprise");
-    expect(result.marketplaceFeeAmount).toBe("0.75");
-    expect(result.paymentFeeAmount).toBe("0.60");
-    expect(result.sellerNetAmount).toBe("8.65");
+    expect(result.marketplaceFeeUnitAmount).toBe("0.75");
+    expect(result.sellerNetUnitAmount).toBe("9.25");
     expect(result.scheduleId).toBe("cts_enterprise");
     expect(result.agreementId).toBeNull();
   });
@@ -143,15 +130,11 @@ describe("commercial terms resolver", () => {
           schedule_id: "cts_default",
           marketplace_fee_percentage_bps: 500,
           marketplace_fee_fixed_amount: "0.25",
-          payment_fee_percentage_bps: 300,
-          payment_fee_fixed_amount: "0.30",
         },
         agreement: {
           agreement_id: "cag_enterprise",
           marketplace_fee_percentage_bps: 250,
           marketplace_fee_fixed_amount: "0.10",
-          payment_fee_percentage_bps: 150,
-          payment_fee_fixed_amount: "0.15",
         },
       }),
     });
@@ -162,9 +145,8 @@ describe("commercial terms resolver", () => {
       effectiveAt: "2026-04-16T10:00:00.000Z",
     });
 
-    expect(result.marketplaceFeeAmount).toBe("0.60");
-    expect(result.paymentFeeAmount).toBe("0.45");
-    expect(result.sellerNetAmount).toBe("18.95");
+    expect(result.marketplaceFeeUnitAmount).toBe("0.60");
+    expect(result.sellerNetUnitAmount).toBe("19.40");
     expect(result.scheduleId).toBe("cts_default");
     expect(result.agreementId).toBe("cag_enterprise");
   });
@@ -177,8 +159,6 @@ describe("commercial terms resolver", () => {
           schedule_id: "cts_default",
           marketplace_fee_percentage_bps: 500,
           marketplace_fee_fixed_amount: "0.25",
-          payment_fee_percentage_bps: 300,
-          payment_fee_fixed_amount: "0.30",
         },
         agreement: null,
       }),
@@ -192,9 +172,29 @@ describe("commercial terms resolver", () => {
 
     expect(result.scheduleId).toBe("cts_default");
     expect(result.agreementId).toBeNull();
-    expect(result.marketplaceFeeAmount).toBe("1.25");
-    expect(result.paymentFeeAmount).toBe("0.90");
-    expect(result.sellerNetAmount).toBe("17.85");
+    expect(result.marketplaceFeeUnitAmount).toBe("1.25");
+    expect(result.sellerNetUnitAmount).toBe("18.75");
+  });
+
+  it("rounds positive fractional-cent marketplace fees up to one cent", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        schedule: {
+          schedule_id: "cts_low_value",
+          marketplace_fee_percentage_bps: 500,
+          marketplace_fee_fixed_amount: "0.00",
+        },
+      }),
+    });
+
+    const result = await resolver.resolveListingTerms({
+      accountId: "acc_test",
+      amount: "0.02",
+      effectiveAt: "2026-04-16T10:00:00.000Z",
+    });
+
+    expect(result.marketplaceFeeUnitAmount).toBe("0.01");
+    expect(result.sellerNetUnitAmount).toBe("0.01");
   });
 
   it("fails when the account is not active", async () => {
@@ -205,8 +205,6 @@ describe("commercial terms resolver", () => {
           schedule_id: "cts_business",
           marketplace_fee_percentage_bps: 850,
           marketplace_fee_fixed_amount: "0.10",
-          payment_fee_percentage_bps: 290,
-          payment_fee_fixed_amount: "0.30",
         },
       }),
     });

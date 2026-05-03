@@ -7,6 +7,7 @@ import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
+  type MarketplaceListingTermsPreview,
   type OfferMatchListItem,
 } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
@@ -29,9 +30,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const api = createMarketplaceRequestApiClient(request);
 
+  const [offerMatches, sellList] = await Promise.all([
+    api.listOfferMatches(DEFAULT_OFFER_QUERY),
+    api.getOfferMatchSellList(),
+  ]);
+  const sellListTermsEntries = await Promise.all(
+    sellList.items
+      .filter((item) => item.status === "submitted")
+      .map(async (item) => [
+        item.offer_id,
+        await api.previewOfferAcceptanceTerms(item.offer_id),
+      ] as const),
+  );
+
   return {
-    offerMatches: await api.listOfferMatches(DEFAULT_OFFER_QUERY),
-    sellList: await api.getOfferMatchSellList(),
+    offerMatches,
+    sellList,
+    sellListTermsByOfferId: Object.fromEntries(sellListTermsEntries),
   };
 }
 
@@ -50,7 +65,17 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "accept-sell-list") {
-      await api.acceptOfferMatchSellList();
+      const feeQuoteFingerprintsByOfferId: Record<string, string> = {};
+
+      for (const [key, value] of formData.entries()) {
+        if (!key.startsWith("feeQuoteFingerprint:")) {
+          continue;
+        }
+        const offerId = key.slice("feeQuoteFingerprint:".length);
+        feeQuoteFingerprintsByOfferId[offerId] = String(value ?? "");
+      }
+
+      await api.acceptOfferMatchSellList({ feeQuoteFingerprintsByOfferId });
       return redirect("/account/sales");
     }
 
@@ -108,6 +133,9 @@ export default function MarketplaceAccountOfferMatchesRoute() {
     <MarketplaceOfferMatchListPage
       data={offerMatches}
       cartData={data.sellList as ListResponse<OfferMatchListItem>}
+      cartTermsByOfferId={
+        data.sellListTermsByOfferId as Record<string, MarketplaceListingTermsPreview>
+      }
       errorMessage={actionData?.error ?? null}
     />
   );

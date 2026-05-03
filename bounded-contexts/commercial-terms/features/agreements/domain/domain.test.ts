@@ -14,8 +14,6 @@ describe("commercial terms agreements", () => {
       label: " Preferred Seller ",
       marketplaceFeePercentageBps: 125,
       marketplaceFeeFixedAmount: "0",
-      paymentFeePercentageBps: 290,
-      paymentFeeFixedAmount: "0.30",
       status: "active",
       effectiveFrom: "2026-04-30T00:00:00.000Z",
       effectiveUntil: "2027-04-30T00:00:00.000Z",

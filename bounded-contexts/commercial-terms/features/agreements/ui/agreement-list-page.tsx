@@ -61,20 +61,6 @@ export function AgreementListPage({
                 defaultValue="0.05"
                 required
               />
-              <NumberInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.payment.fee.bps")}
-                name="paymentFeePercentageBps"
-                min="0"
-                defaultValue="275"
-                required
-              />
-              <TextInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.payment.fixed.amount")}
-                name="paymentFeeFixedAmount"
-                inputMode="decimal"
-                defaultValue="0.25"
-                required
-              />
               <NativeSelect
                 label={t("commercialTerms.features.agreements.ui.agreementListPage.status")}
                 name="status"
@@ -126,9 +112,6 @@ export function AgreementListPage({
                 <Stack gap={1}>
                   <Text size="sm">
                     {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}{row.marketplace_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}{row.marketplace_fee_fixed_amount}
-                  </Text>
-                  <Text size="sm" tone="secondary">
-                    {t("commercialTerms.features.agreements.ui.agreementListPage.payment")}{row.payment_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps.2")}{row.payment_fee_fixed_amount}
                   </Text>
                 </Stack>
               ),

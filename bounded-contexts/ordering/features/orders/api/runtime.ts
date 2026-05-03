@@ -101,6 +101,13 @@ type SellerOrderDraft = Readonly<{
     unitPriceAmount: string;
     quantity: number;
     lineTotalAmount: string;
+    marketplaceFeeUnitAmount: string;
+    marketplaceFeeTotalAmount: string;
+    sellerNetUnitAmount: string;
+    sellerNetTotalAmount: string;
+    termsScheduleId: string | null;
+    termsAgreementId: string | null;
+    termsResolvedAt: string;
   }>;
   reservations: ReadonlyArray<{
     reservationRequestId: string;
@@ -145,6 +152,11 @@ export type OrderingOrderServices = Readonly<{
       selectedOptions: { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       priceAmount: string;
+      marketplaceFeeUnitAmount: string;
+      sellerNetUnitAmount: string;
+      termsScheduleId: string | null;
+      termsAgreementId: string | null;
+      termsResolvedAt: string;
       quantityRequested: number;
       orderIdsOverride?: readonly OrderId[];
     }>,
@@ -251,6 +263,13 @@ function quotePlan(
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
   priceOverrideAmount?: string,
+  feeOverride?: Readonly<{
+    marketplaceFeeUnitAmount: string;
+    sellerNetUnitAmount: string;
+    termsScheduleId: string | null;
+    termsAgreementId: string | null;
+    termsResolvedAt: string;
+  }>,
   sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
 ): CheckoutPlan {
@@ -280,6 +299,16 @@ function quotePlan(
       const lineTotalAmount = numberToMoneyAmount(
         moneyToNumber(unitPriceAmount) * allocation.quantity,
       );
+      const marketplaceFeeUnitAmount =
+        feeOverride?.marketplaceFeeUnitAmount ?? allocation.candidate.marketplaceFeeUnitAmount;
+      const sellerNetUnitAmount =
+        feeOverride?.sellerNetUnitAmount ?? allocation.candidate.sellerNetUnitAmount;
+      const marketplaceFeeTotalAmount = numberToMoneyAmount(
+        moneyToNumber(marketplaceFeeUnitAmount) * allocation.quantity,
+      );
+      const sellerNetTotalAmount = numberToMoneyAmount(
+        moneyToNumber(sellerNetUnitAmount) * allocation.quantity,
+      );
       sellerDraft.lines.push({
         lineId: createId("oli") as OrderLineId,
         listingId: allocation.candidate.listingId,
@@ -293,6 +322,13 @@ function quotePlan(
         unitPriceAmount,
         quantity: allocation.quantity,
         lineTotalAmount,
+        marketplaceFeeUnitAmount,
+        marketplaceFeeTotalAmount,
+        sellerNetUnitAmount,
+        sellerNetTotalAmount,
+        termsScheduleId: feeOverride?.termsScheduleId ?? allocation.candidate.termsScheduleId,
+        termsAgreementId: feeOverride?.termsAgreementId ?? allocation.candidate.termsAgreementId,
+        termsResolvedAt: feeOverride?.termsResolvedAt ?? allocation.candidate.termsResolvedAt,
       });
       sellerDraft.reservations.push({
         reservationRequestId: createId("rsv"),
@@ -352,6 +388,13 @@ function chooseBestPlan(
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
   priceOverrideAmount?: string,
+  feeOverride?: Readonly<{
+    marketplaceFeeUnitAmount: string;
+    sellerNetUnitAmount: string;
+    termsScheduleId: string | null;
+    termsAgreementId: string | null;
+    termsResolvedAt: string;
+  }>,
   sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
 ) {
@@ -363,6 +406,7 @@ function chooseBestPlan(
         shippingOption,
         shippingQuotePolicy,
         priceOverrideAmount,
+        feeOverride,
         sourceType,
         sourceReferenceId,
       );
@@ -392,6 +436,14 @@ function chooseBestPlan(
     throw new OrderingDomainError("No valid checkout plan could be created.");
   }
   return bestPlan;
+}
+
+function planTermsForLines(
+  lines: SellerOrderDraft["lines"],
+  fieldName: "termsScheduleId" | "termsAgreementId" | "termsResolvedAt",
+) {
+  const values = [...new Set(lines.map((line) => line[fieldName]))];
+  return values.length === 1 ? values[0] : null;
 }
 
 async function buildDemandOptions(
@@ -444,10 +496,22 @@ export function createOrderingOrderRuntime(
     const orderIds: OrderId[] = [];
 
     for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
-      const commercialTerms = await deps.commercialTermsResolver.resolveOrderTerms({
-        accountId: draft.sellerAccountId,
-        amount: draft.itemSubtotalAmount,
-      });
+      const marketplaceFeeAmount = numberToMoneyAmount(
+        draft.lines.reduce((sum, line) => sum + moneyToNumber(line.marketplaceFeeTotalAmount), 0),
+      );
+      const sellerNetAmount = numberToMoneyAmount(
+        draft.lines.reduce((sum, line) => sum + moneyToNumber(line.sellerNetTotalAmount), 0),
+      );
+      const firstLine = draft.lines[0];
+      const termsScheduleId = firstLine
+        ? planTermsForLines(draft.lines, "termsScheduleId")
+        : null;
+      const termsAgreementId = firstLine
+        ? planTermsForLines(draft.lines, "termsAgreementId")
+        : null;
+      const termsResolvedAt = firstLine
+        ? planTermsForLines(draft.lines, "termsResolvedAt") ?? new Date().toISOString()
+        : new Date().toISOString();
       const orderId =
         orderIdsOverride?.[draftIndex] ?? (createId("ord") as OrderId);
       await commandHandler({
@@ -466,12 +530,11 @@ export function createOrderingOrderRuntime(
           shippingChargeAmount: draft.shippingChargeAmount,
           totalAmount: draft.totalAmount,
           commercialTermsSnapshot: {
-            marketplaceFeeAmount: commercialTerms.marketplaceFeeAmount,
-            paymentFeeAmount: commercialTerms.paymentFeeAmount,
-            sellerNetAmount: commercialTerms.sellerNetAmount,
-            termsScheduleId: commercialTerms.scheduleId,
-            termsAgreementId: commercialTerms.agreementId,
-            termsResolvedAt: commercialTerms.resolvedAt,
+            marketplaceFeeAmount,
+            sellerNetAmount,
+            termsScheduleId,
+            termsAgreementId,
+            termsResolvedAt,
           },
           lines: [...draft.lines],
           reservationRequests: draft.reservations.map((reservation) => ({
@@ -502,6 +565,11 @@ export function createOrderingOrderRuntime(
       selectedOptions: { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       priceAmount: string;
+      marketplaceFeeUnitAmount: string;
+      sellerNetUnitAmount: string;
+      termsScheduleId: string | null;
+      termsAgreementId: string | null;
+      termsResolvedAt: string;
       quantityRequested: number;
       orderIdsOverride?: readonly OrderId[];
     }>,
@@ -523,11 +591,27 @@ export function createOrderingOrderRuntime(
       demandGroups,
       params.sellerAccountId,
     );
+    const acceptedOfferPriceAmount = normalizeMoneyAmount(params.priceAmount, {
+      fieldName: "Accepted offer price",
+    });
     const plan = chooseBestPlan(
       demandOptions,
       "standard",
       deps.shippingQuotePolicy,
-      normalizeMoneyAmount(params.priceAmount, { fieldName: "Accepted offer price" }),
+      acceptedOfferPriceAmount,
+      {
+        marketplaceFeeUnitAmount: normalizeMoneyAmount(params.marketplaceFeeUnitAmount, {
+          fieldName: "Accepted offer marketplace fee",
+          allowZero: true,
+        }),
+        sellerNetUnitAmount: normalizeMoneyAmount(params.sellerNetUnitAmount, {
+          fieldName: "Accepted offer seller net",
+          allowZero: true,
+        }),
+        termsScheduleId: params.termsScheduleId,
+        termsAgreementId: params.termsAgreementId,
+        termsResolvedAt: params.termsResolvedAt,
+      },
       "offer-acceptance",
       params.offerId,
     );
@@ -599,6 +683,7 @@ export function createOrderingOrderRuntime(
           params.shippingOption,
           deps.shippingQuotePolicy,
           undefined,
+          undefined,
           "buy-now",
           params.checkoutSessionId,
         );
@@ -618,6 +703,7 @@ export function createOrderingOrderRuntime(
         demandOptions,
         params.shippingOption,
         deps.shippingQuotePolicy,
+        undefined,
         undefined,
         "cart-checkout",
         params.checkoutSessionId,

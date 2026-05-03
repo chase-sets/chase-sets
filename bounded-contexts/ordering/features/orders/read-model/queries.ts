@@ -14,6 +14,10 @@ export type OrderingOrderLineRow = Readonly<{
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
+  marketplace_fee_unit_amount: string;
+  marketplace_fee_total_amount: string;
+  seller_net_unit_amount: string;
+  seller_net_total_amount: string;
 }>;
 
 export type OrderingOrderHoldRow = Readonly<{
@@ -41,7 +45,6 @@ export type OrderingOrderListRow = Readonly<{
   shipping_charge_amount: string;
   total_amount: string;
   marketplace_fee_amount: string;
-  payment_fee_amount: string;
   seller_net_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -77,7 +80,6 @@ type BaseOrderPageRow = Readonly<{
   shipping_charge_amount: string;
   total_amount: string;
   marketplace_fee_amount: string;
-  payment_fee_amount: string;
   seller_net_amount: string;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
@@ -105,6 +107,10 @@ type OrderLinePageRow = Readonly<{
   unit_price_amount: string;
   quantity: number;
   line_total_amount: string;
+  marketplace_fee_unit_amount: string;
+  marketplace_fee_total_amount: string;
+  seller_net_unit_amount: string;
+  seller_net_total_amount: string;
 }>;
 
 const baseOrderSelect = `
@@ -123,7 +129,6 @@ const baseOrderSelect = `
     page.shipping_charge_amount::text AS shipping_charge_amount,
     page.total_amount::text AS total_amount,
     page.marketplace_fee_amount::text AS marketplace_fee_amount,
-    page.payment_fee_amount::text AS payment_fee_amount,
     page.seller_net_amount::text AS seller_net_amount,
     page.terms_schedule_id,
     page.terms_agreement_id,
@@ -220,7 +225,11 @@ export async function getPurchase(
          product_summary,
          unit_price_amount::text AS unit_price_amount,
          quantity,
-         line_total_amount::text AS line_total_amount
+         line_total_amount::text AS line_total_amount,
+         marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
+         marketplace_fee_total_amount::text AS marketplace_fee_total_amount,
+         seller_net_unit_amount::text AS seller_net_unit_amount,
+         seller_net_total_amount::text AS seller_net_total_amount
        FROM ordering_order_line_pages
        WHERE order_id = $1
        ORDER BY line_index ASC, line_id ASC`,
@@ -308,7 +317,11 @@ export async function getSale(
          product_summary,
          unit_price_amount::text AS unit_price_amount,
          quantity,
-         line_total_amount::text AS line_total_amount
+         line_total_amount::text AS line_total_amount,
+         marketplace_fee_unit_amount::text AS marketplace_fee_unit_amount,
+         marketplace_fee_total_amount::text AS marketplace_fee_total_amount,
+         seller_net_unit_amount::text AS seller_net_unit_amount,
+         seller_net_total_amount::text AS seller_net_total_amount
        FROM ordering_order_line_pages
        WHERE order_id = $1
        ORDER BY line_index ASC, line_id ASC`,

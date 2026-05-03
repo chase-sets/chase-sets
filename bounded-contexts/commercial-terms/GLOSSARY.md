@@ -20,8 +20,8 @@ A **Marketplace Fee** is the seller-side fee charged by the marketplace for list
 
 ## Payment Fee
 
-A **Payment Fee** is the seller-side fee associated with payment processing economics.
+A **Payment Fee** is a buyer payment-processing concern owned outside Commercial Terms.
 
 ## Seller Net
 
-A **Seller Net** is the amount remaining from the resolved basis amount after marketplace fee and payment fee amounts are applied.
+A **Seller Net** is the amount remaining from the resolved basis amount after the marketplace fee amount is applied.

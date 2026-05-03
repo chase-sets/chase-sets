@@ -73,6 +73,7 @@ describe("marketplace listing routes", () => {
       {
         accountId: "acc_seller",
         listingId: "lst_1",
+        feeQuoteFingerprint: null,
       },
       expect.objectContaining({
         audit: expect.objectContaining({

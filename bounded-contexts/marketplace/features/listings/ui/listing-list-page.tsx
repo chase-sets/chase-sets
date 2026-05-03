@@ -57,19 +57,16 @@ function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
 }
 
 function renderFeeSummary(listing: MarketplaceListingListItem) {
-  if (!listing.marketplace_fee_amount && !listing.payment_fee_amount && !listing.seller_net_amount) {
+  if (!listing.marketplace_fee_unit_amount && !listing.seller_net_unit_amount) {
     return t("marketplace.features.listings.ui.listingListPage.fee.quote.unavailable");
   }
 
   const segments = [
     t("marketplace.features.listings.ui.listingListPage.marketplace.fee.summary", {
-      amount: formatMoney(listing.marketplace_fee_amount),
-    }),
-    t("marketplace.features.listings.ui.listingListPage.payment.fee.summary", {
-      amount: formatMoney(listing.payment_fee_amount),
+      amount: formatMoney(listing.marketplace_fee_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingListPage.net.summary", {
-      amount: formatMoney(listing.seller_net_amount),
+      amount: formatMoney(listing.seller_net_unit_amount),
     }),
   ];
 
@@ -79,13 +76,10 @@ function renderFeeSummary(listing: MarketplaceListingListItem) {
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
     t("marketplace.features.listings.ui.listingListPage.marketplace.fee.summary", {
-      amount: formatMoney(preview.marketplace_fee_amount),
-    }),
-    t("marketplace.features.listings.ui.listingListPage.payment.fee.summary", {
-      amount: formatMoney(preview.payment_fee_amount),
+      amount: formatMoney(preview.marketplace_fee_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingListPage.net.summary", {
-      amount: formatMoney(preview.seller_net_amount),
+      amount: formatMoney(preview.seller_net_unit_amount),
     }),
   ].join(" | ");
 }

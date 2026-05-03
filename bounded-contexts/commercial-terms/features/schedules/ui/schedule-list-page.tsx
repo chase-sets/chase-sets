@@ -71,20 +71,6 @@ export function ScheduleListPage({
                 defaultValue="0.10"
                 required
               />
-              <NumberInput
-                label={t("commercialTerms.features.schedules.ui.scheduleListPage.payment.fee.bps")}
-                name="paymentFeePercentageBps"
-                min="0"
-                defaultValue="290"
-                required
-              />
-              <TextInput
-                label={t("commercialTerms.features.schedules.ui.scheduleListPage.payment.fixed.amount")}
-                name="paymentFeeFixedAmount"
-                inputMode="decimal"
-                defaultValue="0.30"
-                required
-              />
               <NativeSelect
                 label={t("commercialTerms.features.schedules.ui.scheduleListPage.status")}
                 name="status"
@@ -134,12 +120,6 @@ export function ScheduleListPage({
               header: t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee"),
               cell: (row) =>
                 `${row.marketplace_fee_percentage_bps} bps + $${row.marketplace_fee_fixed_amount}`,
-            },
-            {
-              key: "payment",
-              header: t("commercialTerms.features.schedules.ui.scheduleListPage.payment.fee"),
-              cell: (row) =>
-                `${row.payment_fee_percentage_bps} bps + $${row.payment_fee_fixed_amount}`,
             },
             {
               key: "status",

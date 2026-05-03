@@ -5,8 +5,6 @@ CREATE TABLE IF NOT EXISTS commercial_terms_schedule_pages (
   account_type text NOT NULL,
   marketplace_fee_percentage_bps integer NOT NULL,
   marketplace_fee_fixed_amount numeric(12,2) NOT NULL,
-  payment_fee_percentage_bps integer NOT NULL,
-  payment_fee_fixed_amount numeric(12,2) NOT NULL,
   status text NOT NULL,
   effective_from timestamptz NOT NULL,
   effective_until timestamptz NULL,
