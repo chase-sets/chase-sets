@@ -1,21 +1,16 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
-import {
-  drainContextRuntime,
-  refreshProjectionReplaySummary,
-} from "@chase-sets/bounded-context-runtime";
-import { startProjectorPolling } from "@chase-sets/event-core/projector-runner";
+import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
-import type { PaymentsServices } from "@chase-sets/payments/server";
-import type { SettlementServices } from "@chase-sets/settlement/server";
 import {
   createMergedRealtimeWakeSignal,
+  createPostgresRealtimeStreamLimiter,
   createPostgresRealtimeWakeSignal,
   createRealtimeOutboxPartitionMaintainer,
   createRealtimeRetentionSweeper,
@@ -24,10 +19,9 @@ import {
   type RealtimeStreamLimiter,
   type RealtimeWakeSignal,
 } from "@chase-sets/platform-runtime/realtime";
+import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import {
   getObservabilityRuntime,
-  observeProjectors,
-  observeWorker,
   recordRealtimeAuthorizationRejected,
   recordRealtimeBatchRead,
   recordRealtimeConnectionClosed,
@@ -47,6 +41,7 @@ const observability = getObservabilityRuntime();
 const logger = observability.logger;
 const config = loadConfig();
 const pools = createPlatformApiPools(config);
+await bootstrapPlatformControlPlane(pools.control);
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -242,12 +237,6 @@ const realtimeWakeSignal = await createPlatformRealtimeWakeSignal(
 );
 const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 const app = buildPlatformApiApp(runtime, {
-  drain: () =>
-    observeWorker(
-      "context_runtime_drain",
-      { worker: "context_runtime_drain" },
-      () => drainContextRuntime(runtime),
-    ),
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readinessChecks: runtime.mountedContexts.map((entry) => ({
     name: `${entry.contextName}.database`,
@@ -295,13 +284,21 @@ const realtimeRetentionSweeper = createRealtimeRetentionSweeper({
   },
 });
 void realtimeRetentionSweeper.sweep();
-const realtimePartitionMaintainers = realtimeStores.map((store) =>
+const realtimePartitionMaintainerStores = [...new Set(
+  realtimeStores.map((store) => store.db),
+)].map((db) => {
+  const contextNames = realtimeStores
+    .filter((store) => store.db === db)
+    .map((store) => store.contextName);
+  return { db, contextNames };
+});
+const realtimePartitionMaintainers = realtimePartitionMaintainerStores.map((store) =>
   createRealtimeOutboxPartitionMaintainer({
     db: store.db,
     onError: (error) => {
       logger.error("Realtime outbox partition maintenance failed.", {
         type: "realtime.partition_maintenance.failed",
-        contextName: store.contextName,
+        contextNames: store.contextNames,
         error,
       });
     },
@@ -309,121 +306,6 @@ const realtimePartitionMaintainers = realtimeStores.map((store) =>
 );
 for (const maintainer of realtimePartitionMaintainers) {
   void maintainer.maintain();
-}
-
-const PROJECTION_INTERVAL_MS = 1_000;
-const SYSTEM_CONTEXT = {
-  tenantId: "tnt_identity" as never,
-  audit: {
-    performedByUserId: "usr_identity_system" as never,
-    forAccountId: "acc_identity_system" as never,
-  },
-};
-
-startProjectorPolling(
-  observeProjectors(runtime.projectors, { worker: "projector" }),
-  PROJECTION_INTERVAL_MS,
-  (error) => {
-    logger.error("Projection error.", {
-      type: "projection.error",
-      error,
-    });
-  },
-);
-startProjectorPolling(
-  observeProjectors(runtime.subscriptionRunners, { worker: "subscription" }),
-  PROJECTION_INTERVAL_MS,
-  (error) => {
-    logger.error("Subscription error.", {
-      type: "subscription.error",
-      error,
-    });
-  },
-);
-
-let reconciliationRunning = false;
-let paymentReconciliationRunning = false;
-let sellerFundsReleaseRunning = false;
-if (config.paymentReconciliationIntervalMs) {
-  setInterval(() => {
-    if (paymentReconciliationRunning) {
-      return;
-    }
-    paymentReconciliationRunning = true;
-    const paymentServices = runtime.services.payments as PaymentsServices;
-    void paymentServices
-      .payments
-      .scanPaymentsNeedingReconciliation({ limit: 100 })
-      .then((result) => {
-        logger.info("Payment reconciliation scan completed.", {
-          type: "payments.reconciliation-needed",
-          count: result.attention,
-        });
-      })
-      .catch((error: unknown) => {
-        logger.error("Payment reconciliation scan failed.", {
-          type: "payments.reconciliation.failed",
-          error,
-        });
-      })
-      .finally(() => {
-        paymentReconciliationRunning = false;
-      });
-  }, config.paymentReconciliationIntervalMs);
-}
-
-if (config.sellerFundsReleaseIntervalMs) {
-  setInterval(() => {
-    if (sellerFundsReleaseRunning) {
-      return;
-    }
-    sellerFundsReleaseRunning = true;
-    const settlementServices = runtime.services.settlement as SettlementServices;
-    void settlementServices.wallets
-      .releaseMaturePendingSaleCredits({ limit: 500 }, SYSTEM_CONTEXT)
-      .then((result: unknown) => {
-        logger.info("Seller funds release completed.", {
-          type: "settlement.funds-release",
-          result,
-        });
-      })
-      .catch((error: unknown) => {
-        logger.error("Seller funds release failed.", {
-          type: "settlement.funds-release.failed",
-          error,
-        });
-      })
-      .finally(() => {
-        sellerFundsReleaseRunning = false;
-      });
-  }, config.sellerFundsReleaseIntervalMs);
-}
-
-if (config.payoutReconciliationIntervalMs) {
-  setInterval(() => {
-    if (reconciliationRunning) {
-      return;
-    }
-    reconciliationRunning = true;
-    const settlementServices = runtime.services.settlement as SettlementServices;
-    void settlementServices.payouts
-      .reconcilePayoutsNeedingAttention({ limit: 100 }, SYSTEM_CONTEXT)
-      .then((result: unknown) => {
-        logger.info("Payout reconciliation completed.", {
-          type: "settlement.reconciliation",
-          result,
-        });
-      })
-      .catch((error: unknown) => {
-        logger.error("Payout reconciliation failed.", {
-          type: "settlement.reconciliation.failed",
-          error,
-        });
-      })
-      .finally(() => {
-        reconciliationRunning = false;
-      });
-  }, config.payoutReconciliationIntervalMs);
 }
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
@@ -451,6 +333,16 @@ async function createPlatformRealtimeStreamLimiter(): Promise<Readonly<{
   limiter?: RealtimeStreamLimiter;
   stop?: () => Promise<void>;
 }>> {
+  if (config.realtime.streamLimiter.kind === "postgres") {
+    return {
+      limiter: createPostgresRealtimeStreamLimiter({
+        pool: pools.control,
+        leaseTtlMs: config.realtime.streamLimiter.leaseTtlMs,
+        renewIntervalMs: config.realtime.streamLimiter.renewIntervalMs,
+      }),
+    };
+  }
+
   if (config.realtime.streamLimiter.kind !== "redis") {
     return {};
   }

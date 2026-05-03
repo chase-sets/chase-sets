@@ -90,7 +90,12 @@ export type WalletServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ accountId: AccountId; version: number }>;
   releaseMaturePendingSaleCredits: (
-    params: Readonly<{ now?: string; limit?: number }>,
+    params: Readonly<{
+      now?: string;
+      limit?: number;
+      claimOwnerId?: string;
+      claimTtlMs?: number;
+    }>,
     context: EventStoreContext,
   ) => Promise<{ released: number; skipped: number }>;
   projectors: readonly Projector[];
@@ -195,6 +200,8 @@ export function createWalletRuntime(
       const entries = await listPendingCreditEntriesMaturedBy(deps.db, {
         now,
         limit: params.limit,
+        claimOwnerId: params.claimOwnerId,
+        claimTtlMs: params.claimTtlMs,
       });
       let released = 0;
       let skipped = 0;

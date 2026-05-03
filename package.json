@@ -34,6 +34,7 @@
         "verify:db": "npm run test:db",
         "verify:design-system-contracts": "npm run verify:source --workspace @chase-sets/app-design-system-showcase",
         "dev:platform-api": "npm run dev --workspace @chase-sets/app-platform-api",
+        "dev:platform-worker": "npm run dev --workspace @chase-sets/app-platform-worker",
         "dev:admin-web": "node ./scripts/dev-system.mjs dev admin-web",
         "dev:reseed": "npm run dev:db:refresh",
         "dev:marketplace": "npm run dev --workspace @chase-sets/app-marketplace-web",

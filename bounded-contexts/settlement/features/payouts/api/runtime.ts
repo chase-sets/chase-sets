@@ -88,7 +88,12 @@ export type PayoutServices = Readonly<{
     }>[];
   }>>;
   listPayoutsNeedingReconciliation: (
-    params?: Readonly<{ limit?: number; filter?: string | null }>,
+    params?: Readonly<{
+      limit?: number;
+      filter?: string | null;
+      claimOwnerId?: string;
+      claimTtlMs?: number;
+    }>,
   ) => Promise<SettlementPayoutRow[]>;
   listProviderIdempotencyKeys: (
     params: Readonly<{ accountId: string; limit?: number }>,
@@ -165,7 +170,7 @@ export type PayoutServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ received: boolean; ignored: boolean }>;
   reconcilePayoutsNeedingAttention: (
-    params: Readonly<{ limit?: number }>,
+    params: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
     context: EventStoreContext,
   ) => Promise<{
     checked: number;
@@ -952,6 +957,8 @@ export function createPayoutRuntime(
       const startedAt = new Date().toISOString();
       const payouts = await listPayoutsNeedingReconciliation(deps.db, {
         limit: params.limit,
+        claimOwnerId: params.claimOwnerId,
+        claimTtlMs: params.claimTtlMs,
       });
       let reconciled = 0;
       let ignored = 0;

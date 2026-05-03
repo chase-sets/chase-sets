@@ -105,7 +105,8 @@ export function SearchPage({
     }
   }, [debouncedSearch, onSearchChange, search]);
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
+  const exactTotal = data?.total ?? data?.items.length ?? 0;
+  const totalPages = data?.total ? Math.ceil(data.total / PAGE_SIZE) : 0;
   const featuredCategories = categories.slice(0, 5);
   const liveListingItems =
     data?.items.filter((item) => item.market_summary?.active_listing_count).length ?? 0;
@@ -166,7 +167,7 @@ export function SearchPage({
                 })),
               ]}
               metrics={[
-                { label: t("discovery.features.search.ui.searchPage.results"), value: data?.total ?? 0, detail: activeCategoryLabel },
+                { label: t("discovery.features.search.ui.searchPage.results"), value: exactTotal, detail: activeCategoryLabel },
                 { label: t("discovery.features.search.ui.searchPage.available.now"), value: liveListingItems, detail: t("discovery.features.search.ui.searchPage.with.active.listings") },
                 { label: t("discovery.features.search.ui.searchPage.market.only.2"), value: marketOnlyItems, detail: t("discovery.features.search.ui.searchPage.tracked.items", { count: catalogDepth }) },
               ]}

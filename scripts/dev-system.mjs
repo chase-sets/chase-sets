@@ -106,6 +106,7 @@ async function preparePlatformDatabase() {
 
 const bootstrapWorkspaces = [
   "@chase-sets/app-platform-api",
+  "@chase-sets/app-platform-worker",
 ];
 
 const processes = [
@@ -120,9 +121,20 @@ const processes = [
     workspace: "@chase-sets/app-platform-api",
     env: {
       DATABASE_URL: devDatabaseUrl,
+      PLATFORM_CONTROL_DATABASE_URL: devDatabaseUrl,
       PORT: "6182",
     },
     port: 6182,
+  },
+  {
+    name: "platform-worker",
+    workspace: "@chase-sets/app-platform-worker",
+    env: {
+      DATABASE_URL: devDatabaseUrl,
+      PLATFORM_CONTROL_DATABASE_URL: devDatabaseUrl,
+      PORT: "6183",
+    },
+    port: 6183,
   },
   {
     name: "admin-web",
@@ -140,8 +152,8 @@ const processes = [
 
 const devTargets = {
   all: processes.map(({ name }) => name),
-  "admin-web": ["platform-api", "admin-web"],
-  "marketplace-full": ["platform-api", "marketplace"],
+  "admin-web": ["platform-api", "platform-worker", "admin-web"],
+  "marketplace-full": ["platform-api", "platform-worker", "marketplace"],
 };
 
 function resolveProcessesForTarget(targetName) {

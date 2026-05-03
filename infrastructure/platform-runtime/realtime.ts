@@ -17,7 +17,9 @@ import {
 } from "./realtime-read-hub";
 import {
   createInMemoryRealtimeStreamLimiter,
+  createPostgresRealtimeStreamLimiter,
   createRedisRealtimeStreamLimiter,
+  type PostgresRealtimeStreamLimiterPool,
   type RedisRealtimeStreamLimiterClient,
   type RealtimeStreamLimiter,
 } from "./realtime-stream-limiter";
@@ -97,7 +99,9 @@ export {
 } from "./realtime-read-hub";
 export {
   createInMemoryRealtimeStreamLimiter,
+  createPostgresRealtimeStreamLimiter,
   createRedisRealtimeStreamLimiter,
+  type PostgresRealtimeStreamLimiterPool,
   type RedisRealtimeStreamLimiterClient,
   type RealtimeStreamLimiter,
 } from "./realtime-stream-limiter";
@@ -586,12 +590,26 @@ export function createRealtimeRoutes(options: Readonly<{
     );
     const matchingStores = selectRealtimeStoresForTopics(options.stores, authorizedTopics);
     const connectionKey = resolveRealtimeConnectionKey(c.req.raw, actor);
-    const streamLease = await streamLimiter.acquire({
-      connectionKey,
-      maxActiveStreams: routeConfig.resourceLimits.maxActiveStreams,
-      maxActiveStreamsPerConnectionKey:
-        routeConfig.resourceLimits.maxActiveStreamsPerConnectionKey,
-    });
+    let streamLease;
+    try {
+      streamLease = await streamLimiter.acquire({
+        connectionKey,
+        maxActiveStreams: routeConfig.resourceLimits.maxActiveStreams,
+        maxActiveStreamsPerConnectionKey:
+          routeConfig.resourceLimits.maxActiveStreamsPerConnectionKey,
+      });
+    } catch (error) {
+      options.observer?.streamError?.({ connectionKey, error });
+      return c.json(
+        {
+          error: {
+            code: "realtime_limiter_unavailable",
+            message: "Realtime stream limiter is unavailable.",
+          },
+        },
+        503,
+      );
+    }
     if (!streamLease) {
       options.observer?.authorizationRejected?.({
         topics: authorizedTopics,

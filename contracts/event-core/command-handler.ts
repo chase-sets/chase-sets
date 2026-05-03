@@ -5,6 +5,7 @@ import type {
   ExpectedStreamVersion,
   StoredEvent,
 } from "./storage";
+import { recordCommittedEvents } from "./consistency";
 
 export type CommandHandlerInput<Command> = Readonly<{
   streamId: string;
@@ -64,6 +65,7 @@ export function createCommandHandler<
       context: input.context,
       events: newEvents,
     });
+    recordCommittedEvents(storedEvents);
     const state = applyEvents(loaded.state, config.evolve, newEvents);
     const version =
       storedEvents.length === 0

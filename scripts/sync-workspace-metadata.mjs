@@ -32,6 +32,18 @@ const generatedRegistryOutputs = [
     ),
   },
   {
+    kind: "worker",
+    hostName: "platform-worker",
+    outputPath: path.join(
+      repoRoot,
+      "deployables",
+      "platform-worker",
+      "src",
+      "generated",
+      "worker-context-registry.ts",
+    ),
+  },
+  {
     kind: "web",
     hostName: "admin-web",
     outputPath: path.join(
@@ -207,6 +219,37 @@ ${entries.join("\n")}
 `;
 }
 
+function buildWorkerRegistry(outputPath, hostName, contexts) {
+  const activeContexts = contexts.filter((context) =>
+    context.manifest.runtimeDeployables?.includes(hostName),
+  );
+  const contextImports = activeContexts.map(
+    (context) => {
+      const identifier = toIdentifier(context.contextName);
+      return `import { contextManifest as ${identifier}Manifest, module as ${identifier}Module } from "${context.packageName}";`;
+    },
+  );
+  const entries = activeContexts.map(
+    (context) => {
+      const identifier = toIdentifier(context.contextName);
+      return `  {
+    contextName: "${context.contextName}",
+    packageName: "${context.packageName}",
+    manifest: ${identifier}Manifest,
+    module: ${identifier}Module,
+  },`;
+    },
+  );
+
+  return `${generatedRegistryComment}
+${contextImports.join("\n")}
+
+export const workerContextRegistry = [
+${entries.join("\n")}
+] as const;
+`;
+}
+
 function contributesToWebHost(context, hostName) {
   return (
     context.manifest.deployableContributions?.some(
@@ -261,6 +304,8 @@ function syncDeployableRegistries(workspaces) {
     const content =
       output.kind === "api"
         ? buildApiRegistry(output.outputPath, output.hostName, contexts)
+        : output.kind === "worker"
+          ? buildWorkerRegistry(output.outputPath, output.hostName, contexts)
         : buildWebRegistry(output.outputPath, output.hostName, contexts);
 
     writeFileEnsured(output.outputPath, content);

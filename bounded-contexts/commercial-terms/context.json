@@ -196,5 +196,8 @@
         "Generated deployable route adapters"
       ]
     }
-  }
+  },
+  "runtimeDeployables": [
+    "platform-worker"
+  ]
 }

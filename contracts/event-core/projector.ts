@@ -22,6 +22,7 @@ export type ProjectorRunResult = Readonly<{
 }>;
 
 export type Projector = Readonly<{
+  projectorName?: string;
   runOnce: () => Promise<ProjectorRunResult>;
 }>;
 
@@ -37,6 +38,7 @@ export function createProjector(config: ProjectorConfig): Projector {
   const batchSize = assertPositiveInteger(config.batchSize ?? 100, "batchSize");
 
   return {
+    projectorName: config.projectorName,
     runOnce: async () => {
       const checkpoint = await config.checkpointStore.loadCheckpoint(
         config.projectorName,

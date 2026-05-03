@@ -15,6 +15,20 @@ export type RealtimeStreamLimiter = Readonly<{
   activeConnectionCount?: () => number;
 }>;
 
+export type PostgresRealtimeStreamLimiterPool = Readonly<{
+  connect: () => Promise<{
+    query: <Row = Record<string, unknown>>(
+      sql: string,
+      params?: readonly unknown[],
+    ) => Promise<{ rows: readonly Row[]; rowCount?: number | null }>;
+    release: () => void;
+  }>;
+  query: <Row = Record<string, unknown>>(
+    sql: string,
+    params?: readonly unknown[],
+  ) => Promise<{ rows: readonly Row[]; rowCount?: number | null }>;
+}>;
+
 export type RedisRealtimeStreamLimiterClient = Readonly<{
   eval: (
     script: string,
@@ -64,6 +78,112 @@ export function createInMemoryRealtimeStreamLimiter(): RealtimeStreamLimiter {
           }
         },
       };
+    },
+  };
+}
+
+export function createPostgresRealtimeStreamLimiter(options: Readonly<{
+  pool: PostgresRealtimeStreamLimiterPool;
+  leaseTtlMs?: number;
+  renewIntervalMs?: number;
+}>): RealtimeStreamLimiter {
+  const leaseTtlMs = options.leaseTtlMs ?? 30_000;
+  const renewIntervalMs = options.renewIntervalMs ?? 10_000;
+
+  return {
+    activeConnectionCount: () => 0,
+    acquire: async (request) => {
+      const leaseId = `${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+      const client = await options.pool.connect();
+
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          "DELETE FROM platform_realtime_stream_leases WHERE expires_at <= now()",
+        );
+        const countResult = await client.query<{
+          active_count: string;
+          connection_count: string;
+        }>(
+          `SELECT
+             COUNT(*)::text AS active_count,
+             COUNT(*) FILTER (WHERE connection_key = $1)::text AS connection_count
+           FROM platform_realtime_stream_leases`,
+          [request.connectionKey],
+        );
+        const counts = countResult.rows[0] ?? {
+          active_count: "0",
+          connection_count: "0",
+        };
+        const activeCount = Number(counts.active_count ?? 0);
+        const connectionCount = Number(counts.connection_count ?? 0);
+
+        if (
+          activeCount >= request.maxActiveStreams ||
+          connectionCount >= request.maxActiveStreamsPerConnectionKey
+        ) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+
+        await client.query(
+          `INSERT INTO platform_realtime_stream_leases (
+             lease_id,
+             connection_key,
+             expires_at,
+             acquired_at
+           ) VALUES (
+             $1,
+             $2,
+             now() + ($3::text || ' milliseconds')::interval,
+             now()
+           )`,
+          [leaseId, request.connectionKey, leaseTtlMs],
+        );
+        await client.query("COMMIT");
+
+        let released = false;
+        const renew = async () => {
+          if (released) {
+            return false;
+          }
+
+          const result = await options.pool.query(
+            `UPDATE platform_realtime_stream_leases
+             SET expires_at = now() + ($2::text || ' milliseconds')::interval
+             WHERE lease_id = $1
+               AND expires_at > now()`,
+            [leaseId, leaseTtlMs],
+          );
+          return (result.rowCount ?? 0) > 0;
+        };
+        const renewalTimer = setInterval(() => {
+          void renew();
+        }, renewIntervalMs);
+        renewalTimer.unref?.();
+
+        return {
+          activeConnectionCount: activeCount + 1,
+          renew,
+          release: async () => {
+            if (released) {
+              return;
+            }
+
+            released = true;
+            clearInterval(renewalTimer);
+            await options.pool.query(
+              "DELETE FROM platform_realtime_stream_leases WHERE lease_id = $1",
+              [leaseId],
+            );
+          },
+        };
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     },
   };
 }

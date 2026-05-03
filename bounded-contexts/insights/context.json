@@ -28,7 +28,6 @@
   ],
   "seedRequirements": [],
   "hostPorts": [],
-  "apiDeployables": [],
   "apiMounts": [],
   "deployableContributions": [],
   "shellContributions": [],
@@ -60,5 +59,9 @@
         "Generated deployable route adapters"
       ]
     }
-  }
+  },
+  "runtimeDeployables": [
+    "platform-worker"
+  ],
+  "apiDeployables": []
 }

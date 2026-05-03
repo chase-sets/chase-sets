@@ -1,6 +1,7 @@
 export * from "./aggregate-repository";
 export * from "./codec";
 export * from "./command-handler";
+export * from "./consistency";
 export * from "./domain";
 export * from "./event-store";
 export * from "./projector";

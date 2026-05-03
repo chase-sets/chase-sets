@@ -1,5 +1,6 @@
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
+import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { createPlatformApiHost } from "./app";
 import { loadBootstrapConfig } from "./config";
@@ -11,6 +12,7 @@ async function bootstrap() {
   const pools = createPlatformApiPools(config);
 
   try {
+    await bootstrapPlatformControlPlane(pools.control);
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: {

@@ -247,7 +247,7 @@ export type PaymentServices = Readonly<{
     params: Readonly<{ accountId: string; limit?: number }>,
   ) => Promise<PaymentProviderIdempotencyKeyRow[]>;
   listPaymentsNeedingReconciliation: (
-    params?: Readonly<{ limit?: number }>,
+    params?: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
   ) => Promise<PaymentDetailRow[]>;
   listReconciliationRuns: (
     params?: Readonly<{ limit?: number }>,
@@ -260,7 +260,7 @@ export type PaymentServices = Readonly<{
     webhook_signature_required: boolean;
   }>>;
   scanPaymentsNeedingReconciliation: (
-    params?: Readonly<{ limit?: number }>,
+    params?: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
   ) => Promise<Readonly<{ checked: number; attention: number; payment_ids: readonly string[] }>>;
   processWebhook: (
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,

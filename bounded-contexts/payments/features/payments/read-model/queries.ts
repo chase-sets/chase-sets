@@ -295,9 +295,61 @@ export async function listPaymentProviderIdempotencyKeys(
 
 export async function listPaymentsNeedingReconciliation(
   db: PgQueryable,
-  params: Readonly<{ limit?: number }> = {},
+  params: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }> = {},
 ): Promise<PaymentDetailRow[]> {
   const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
+  if (params.claimOwnerId) {
+    const result = await db.query<PaymentPageRow>(
+      `WITH candidates AS (
+         SELECT payment_id
+         FROM payments_payment_pages
+         WHERE (
+           status = 'pending-confirmation'
+           AND updated_at < NOW() - INTERVAL '15 minutes'
+         )
+         OR (
+           status = 'failed'
+           AND processor_payment_kind <> 'balance-credit'
+         )
+         ORDER BY updated_at ASC, payment_id ASC
+         LIMIT $1
+       ),
+       claimed AS (
+         INSERT INTO payments_work_claims (
+           work_kind,
+           entity_id,
+           owner_id,
+           claim_expires_at,
+           attempts,
+           updated_at
+         )
+         SELECT
+           'payment-reconciliation',
+           payment_id,
+           $2,
+           now() + ($3::text || ' milliseconds')::interval,
+           1,
+           now()
+         FROM candidates
+         ON CONFLICT (work_kind, entity_id)
+         DO UPDATE SET
+           owner_id = EXCLUDED.owner_id,
+           claim_expires_at = EXCLUDED.claim_expires_at,
+           attempts = payments_work_claims.attempts + 1,
+           updated_at = EXCLUDED.updated_at
+         WHERE payments_work_claims.claim_expires_at <= now()
+            OR payments_work_claims.owner_id = EXCLUDED.owner_id
+         RETURNING entity_id
+       )
+       ${paymentSelect}
+       WHERE payment_id IN (SELECT entity_id FROM claimed)
+       ORDER BY updated_at ASC, payment_id ASC`,
+      [limit, params.claimOwnerId, params.claimTtlMs ?? 120_000],
+    );
+
+    return result.rows.map(mapPaymentRow);
+  }
+
   const result = await db.query<PaymentPageRow>(
     `${paymentSelect}
      WHERE (

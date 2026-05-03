@@ -8,7 +8,12 @@ import type {
 import type {
   ProjectorRunResult,
 } from "@chase-sets/event-core/projector";
-import { ZERO_GLOBAL_POSITION, toTransportEvent } from "@chase-sets/event-core";
+import {
+  getEventCommitMetadata,
+  runWithEventCommitMetadata,
+  ZERO_GLOBAL_POSITION,
+  toTransportEvent,
+} from "@chase-sets/event-core";
 import {
   parseGlobalPosition,
   type GlobalPosition,
@@ -1217,6 +1222,45 @@ export function attachWriteDrainMiddleware(
 
       if (method !== "GET" && method !== "HEAD") {
         await drain();
+      }
+    });
+  }
+}
+
+export function attachWriteConsistencyMiddleware(
+  app: Readonly<{
+    use(path: string, middleware: (context: unknown, next: () => Promise<void>) => Promise<void>): unknown;
+  }>,
+  mounts: readonly Pick<ResolvedApiMount, "mountPath">[],
+): void {
+  for (const mountPath of uniqueMountPaths(mounts.map((mount) => mount.mountPath))) {
+    app.use(normalizeMountWildcard(mountPath), async (context: unknown, next) => {
+      await runWithEventCommitMetadata(next);
+
+      const req = (context as { req?: { method?: string } }).req;
+      const method = req?.method?.toUpperCase() ?? "GET";
+      if (method === "GET" || method === "HEAD") {
+        return;
+      }
+
+      const metadata = getEventCommitMetadata();
+      if (metadata.eventIds.length === 0) {
+        return;
+      }
+
+      const header = (context as { header?: (name: string, value: string) => void }).header;
+      if (!header) {
+        return;
+      }
+
+      header("Chase-Sets-Consistency", "eventual");
+      if (metadata.maxGlobalPosition) {
+        header("Chase-Sets-Commit-Position", metadata.maxGlobalPosition);
+      }
+
+      const compactEventIds = metadata.eventIds.join(",");
+      if (compactEventIds.length <= 4_000) {
+        header("Chase-Sets-Commit-Event-Ids", compactEventIds);
       }
     });
   }

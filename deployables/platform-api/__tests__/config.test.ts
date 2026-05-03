@@ -9,6 +9,7 @@ import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const envNames = [
   "DATABASE_URL",
+  "PLATFORM_CONTROL_DATABASE_URL",
   ...platformApiContextNames().map((contextName) =>
     getContextDatabaseEnvName(contextName),
   ),
@@ -49,6 +50,11 @@ afterEach(() => {
   delete process.env.REALTIME_REDIS_URL;
   delete process.env.REALTIME_REDIS_NAMESPACE;
   delete process.env.REALTIME_REDIS_LEASE_TTL_SECONDS;
+  delete process.env.REALTIME_STREAM_LEASE_TTL_MS;
+  delete process.env.REALTIME_STREAM_LEASE_RENEW_INTERVAL_MS;
+  delete process.env.DATABASE_POOL_MAX;
+  delete process.env.DATABASE_POOL_IDLE_TIMEOUT_MS;
+  delete process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS;
   delete process.env.REALTIME_CURSOR_SIGNING_SECRET;
   delete process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS;
   delete process.env.NODE_ENV;
@@ -61,6 +67,7 @@ describe("platform api config", () => {
     const config = loadBootstrapConfig();
 
     expect(config.sharedDatabaseUrl).toBe("postgresql://localhost/chase_sets");
+    expect(config.controlDatabaseUrl).toBe("postgresql://localhost/chase_sets");
     expect(config.contextDatabaseUrls).toEqual({});
     expect(config.paymentReconciliationIntervalMs).toBe(300_000);
     expect(config.payoutReconciliationIntervalMs).toBe(300_000);
@@ -78,6 +85,7 @@ describe("platform api config", () => {
 
   it("loads per-context database urls without a shared fallback", () => {
     delete process.env.DATABASE_URL;
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     for (const contextName of platformApiContextNames()) {
       process.env[getContextDatabaseEnvName(contextName)] =
         `postgresql://localhost/${contextName.replaceAll("-", "_")}`;
@@ -86,6 +94,7 @@ describe("platform api config", () => {
     const config = loadBootstrapConfig();
 
     expect(config.sharedDatabaseUrl).toBeNull();
+    expect(config.controlDatabaseUrl).toBe("postgresql://localhost/control");
     expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth");
     expect(config.contextDatabaseUrls.checkout).toBe("postgresql://localhost/checkout");
     expect(config.contextDatabaseUrls["commercial-terms"]).toBe(
@@ -132,8 +141,7 @@ describe("platform api config", () => {
   it("fails production config when Stripe payment or Connect secrets are missing", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
-    process.env.REALTIME_STREAM_LIMITER = "redis";
-    process.env.REALTIME_REDIS_URL = "redis://localhost:6379";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
 
     expect(() => loadConfig()).toThrow(
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
@@ -143,8 +151,7 @@ describe("platform api config", () => {
   it("fails production config when hosted payout setup URLs are missing", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
-    process.env.REALTIME_STREAM_LIMITER = "redis";
-    process.env.REALTIME_REDIS_URL = "redis://localhost:6379";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
@@ -186,8 +193,7 @@ describe("platform api config", () => {
   it("forces Stripe adapters and disables fake fallback in production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
-    process.env.REALTIME_STREAM_LIMITER = "redis";
-    process.env.REALTIME_REDIS_URL = "redis://localhost:6379";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
@@ -240,10 +246,8 @@ describe("platform api config", () => {
     process.env.REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY = "3";
     process.env.REALTIME_CURSOR_SIGNING_SECRET = "current-secret";
     process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS = "old-secret, older-secret ";
-    process.env.REALTIME_STREAM_LIMITER = "redis";
-    process.env.REALTIME_REDIS_URL = "redis://localhost:6379";
-    process.env.REALTIME_REDIS_NAMESPACE = "test:realtime";
-    process.env.REALTIME_REDIS_LEASE_TTL_SECONDS = "30";
+    process.env.REALTIME_STREAM_LEASE_TTL_MS = "30000";
+    process.env.REALTIME_STREAM_LEASE_RENEW_INTERVAL_MS = "10000";
 
     expect(loadConfig().realtime).toEqual({
       batchSize: 25,
@@ -257,20 +261,21 @@ describe("platform api config", () => {
       cursorSigningSecret: "current-secret",
       previousCursorSigningSecrets: ["old-secret", "older-secret"],
       streamLimiter: {
-        kind: "redis",
-        url: "redis://localhost:6379",
-        namespace: "test:realtime",
-        leaseTtlSeconds: 30,
+        kind: "postgres",
+        leaseTtlMs: 30_000,
+        renewIntervalMs: 10_000,
       },
     });
   });
 
-  it("requires the Redis stream limiter in production", () => {
+  it("rejects the local stream limiter in production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
+    process.env.REALTIME_STREAM_LIMITER = "local";
 
     expect(() => loadConfig()).toThrow(
-      "REALTIME_STREAM_LIMITER=redis and REALTIME_REDIS_URL are required for horizontally scalable SSE in production.",
+      "REALTIME_STREAM_LIMITER=postgres and PLATFORM_CONTROL_DATABASE_URL are required for horizontally scalable SSE in production.",
     );
   });
 });

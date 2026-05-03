@@ -97,8 +97,8 @@ const manifestRequiredFields = [
 ];
 const knownDeployables = new Set(["admin-web", "marketplace-web"]);
 const knownApiDeployables = new Set(["platform-api"]);
-const knownLifecycleDeployables = new Set(["platform-api"]);
-const knownRuntimeDeployables = new Set(["platform-api"]);
+const knownLifecycleDeployables = new Set(["platform-api", "platform-worker"]);
+const knownRuntimeDeployables = new Set(["platform-worker"]);
 const knownShellDeployables = new Set(["admin-web", "marketplace-web"]);
 const knownShellDeployableSlots = new Map([
   ["admin-web", new Set(["primary-nav"])],
@@ -873,7 +873,7 @@ function isWebDeployableFile(relativeFile) {
 }
 
 function isApiDeployableFile(relativeFile) {
-  return /deployables\/platform-api\//.test(relativeFile);
+  return /deployables\/(platform-api|platform-worker)\//.test(relativeFile);
 }
 
 function isAllowedDeployableBoundedContextImport(relativeFile, specifier) {
@@ -2270,6 +2270,9 @@ await runImportBoundaryValidation({
         normalizedFile === "deployables/platform-api/src/config.ts" ||
         normalizedFile === "deployables/platform-api/__tests__/config.test.ts" ||
         normalizedFile === "deployables/platform-api/__tests__/database-pools.test.ts" ||
+        normalizedFile === "deployables/platform-worker/src/config.ts" ||
+        normalizedFile === "deployables/platform-worker/__tests__/config.test.ts" ||
+        normalizedFile === "deployables/platform-worker/__tests__/database-pools.test.ts" ||
         normalizedFile === "scripts/dev-system.mjs";
 
       if (!databaseUrlAllowed) {

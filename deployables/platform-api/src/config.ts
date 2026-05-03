@@ -45,12 +45,20 @@ export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistr
 
 export type PlatformApiBaseConfig = Readonly<{
   sharedDatabaseUrl: string | null;
+  controlDatabaseUrl?: string;
   contextDatabaseUrls: Readonly<Partial<Record<PlatformApiContextName, string>>>;
+  pool?: PlatformApiPoolConfig;
   port: number;
   realtime?: PlatformApiRealtimeConfig;
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
   payoutReconciliationIntervalMs?: number | null;
+}>;
+
+export type PlatformApiPoolConfig = Readonly<{
+  max: number;
+  idleTimeoutMillis: number;
+  connectionTimeoutMillis: number;
 }>;
 
 export type PlatformApiRealtimeConfig = Readonly<{
@@ -68,6 +76,11 @@ export type PlatformApiRealtimeConfig = Readonly<{
 }>;
 
 export type PlatformApiRealtimeStreamLimiterConfig =
+  | Readonly<{
+      kind: "postgres";
+      leaseTtlMs: number;
+      renewIntervalMs: number;
+    }>
   | Readonly<{
       kind: "local";
     }>
@@ -147,6 +160,19 @@ export function getContextDatabaseEnvName(contextName: PlatformApiContextName) {
 
 function loadBaseConfig(): PlatformApiBaseConfig {
   const sharedDatabaseUrl = getOptionalEnv("DATABASE_URL");
+  const explicitControlDatabaseUrl = getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL");
+  const productionLike = process.env.NODE_ENV === "production";
+  const controlDatabaseUrl = explicitControlDatabaseUrl ?? sharedDatabaseUrl;
+  if (!controlDatabaseUrl) {
+    throw new Error(
+      "PLATFORM_CONTROL_DATABASE_URL or DATABASE_URL is required for platform control-plane coordination.",
+    );
+  }
+  if (productionLike && !explicitControlDatabaseUrl) {
+    throw new Error(
+      "PLATFORM_CONTROL_DATABASE_URL is required for platform control-plane coordination in production.",
+    );
+  }
   const contextDatabaseUrls = Object.fromEntries(
     platformApiContexts.flatMap((contextName) => {
       const databaseUrl = getOptionalEnv(getContextDatabaseEnvName(contextName));
@@ -168,7 +194,13 @@ function loadBaseConfig(): PlatformApiBaseConfig {
 
   return {
     sharedDatabaseUrl,
+    controlDatabaseUrl,
     contextDatabaseUrls,
+    pool: {
+      max: getPositiveNumberEnv("DATABASE_POOL_MAX", 10),
+      idleTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_IDLE_TIMEOUT_MS", 30_000),
+      connectionTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS", 5_000),
+    },
     port: Number(process.env.PORT ?? 6182),
     realtime: {
       batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
@@ -228,10 +260,10 @@ export function loadConfig(): PlatformApiConfig {
 
   if (
     productionLike &&
-    baseConfig.realtime.streamLimiter.kind !== "redis"
+    baseConfig.realtime.streamLimiter.kind !== "postgres"
   ) {
     throw new Error(
-      "REALTIME_STREAM_LIMITER=redis and REALTIME_REDIS_URL are required for horizontally scalable SSE in production.",
+      "REALTIME_STREAM_LIMITER=postgres and PLATFORM_CONTROL_DATABASE_URL are required for horizontally scalable SSE in production.",
     );
   }
 
@@ -330,7 +362,15 @@ export function loadConfig(): PlatformApiConfig {
 }
 
 function loadRealtimeStreamLimiterConfig(): PlatformApiRealtimeStreamLimiterConfig {
-  const kind = getOptionalEnv("REALTIME_STREAM_LIMITER") ?? "local";
+  const kind = getOptionalEnv("REALTIME_STREAM_LIMITER") ?? "postgres";
+  if (kind === "postgres") {
+    return {
+      kind: "postgres",
+      leaseTtlMs: getPositiveNumberEnv("REALTIME_STREAM_LEASE_TTL_MS", 30_000),
+      renewIntervalMs: getPositiveNumberEnv("REALTIME_STREAM_LEASE_RENEW_INTERVAL_MS", 10_000),
+    };
+  }
+
   if (kind === "local") {
     return { kind: "local" };
   }

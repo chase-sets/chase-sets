@@ -129,7 +129,12 @@ export async function getPayoutByProviderPayoutReference(
 
 export async function listPayoutsNeedingReconciliation(
   db: PgQueryable,
-  params: Readonly<{ limit?: number; filter?: string | null }> = {},
+  params: Readonly<{
+    limit?: number;
+    filter?: string | null;
+    claimOwnerId?: string;
+    claimTtlMs?: number;
+  }> = {},
 ): Promise<SettlementPayoutRow[]> {
   const limit = Math.max(1, Math.min(params.limit ?? 100, 500));
   const filterSql = (() => {
@@ -146,6 +151,59 @@ export async function listPayoutsNeedingReconciliation(
         return "";
     }
   })();
+  if (params.claimOwnerId) {
+    const result = await db.query<SettlementPayoutRow>(
+      `WITH candidates AS (
+         SELECT payout_id
+         FROM settlement_payout_pages
+         WHERE (
+           status = 'in-transit'
+           OR status = 'failed'
+           OR (
+             status = 'requested'
+             AND updated_at < NOW() - INTERVAL '15 minutes'
+           )
+         )
+         ${filterSql}
+         ORDER BY updated_at ASC, payout_id ASC
+         LIMIT $1
+       ),
+       claimed AS (
+         INSERT INTO settlement_work_claims (
+           work_kind,
+           entity_id,
+           owner_id,
+           claim_expires_at,
+           attempts,
+           updated_at
+         )
+         SELECT
+           'payout-reconciliation',
+           payout_id,
+           $2,
+           now() + ($3::text || ' milliseconds')::interval,
+           1,
+           now()
+         FROM candidates
+         ON CONFLICT (work_kind, entity_id)
+         DO UPDATE SET
+           owner_id = EXCLUDED.owner_id,
+           claim_expires_at = EXCLUDED.claim_expires_at,
+           attempts = settlement_work_claims.attempts + 1,
+           updated_at = EXCLUDED.updated_at
+         WHERE settlement_work_claims.claim_expires_at <= now()
+            OR settlement_work_claims.owner_id = EXCLUDED.owner_id
+         RETURNING entity_id
+       )
+       ${payoutSelect}
+       WHERE payout_id IN (SELECT entity_id FROM claimed)
+       ORDER BY updated_at ASC, payout_id ASC`,
+      [limit, params.claimOwnerId, params.claimTtlMs ?? 120_000],
+    );
+
+    return result.rows;
+  }
+
   const result = await db.query<SettlementPayoutRow>(
     `${payoutSelect}
      WHERE (

@@ -4,10 +4,31 @@ import { settlementPaymentSourceSchemaSql } from "../../features/wallets/integra
 import { settlementPayoutSchemaSql } from "../../features/payouts/read-model/schema";
 import { settlementPayoutReadinessSchemaSql } from "../../features/payout-readiness/read-model/schema";
 
+export const settlementWorkClaimSchemaSql = `
+CREATE TABLE IF NOT EXISTS settlement_work_claims (
+  work_kind text NOT NULL,
+  entity_id text NOT NULL,
+  owner_id text NOT NULL,
+  claim_expires_at timestamptz NOT NULL,
+  attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  last_error text,
+  next_eligible_at timestamptz,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (work_kind, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS settlement_work_claims_owner_idx
+  ON settlement_work_claims (owner_id);
+
+CREATE INDEX IF NOT EXISTS settlement_work_claims_eligible_idx
+  ON settlement_work_claims (work_kind, claim_expires_at, next_eligible_at);
+`;
+
 export const settlementSchemaSql = [
   eventCorePostgresSchemaSql,
   settlementPaymentSourceSchemaSql,
   settlementWalletSchemaSql,
   settlementPayoutReadinessSchemaSql,
   settlementPayoutSchemaSql,
+  settlementWorkClaimSchemaSql,
 ].join("\n\n");

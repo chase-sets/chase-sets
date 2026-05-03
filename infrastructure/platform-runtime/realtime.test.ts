@@ -4,6 +4,7 @@ import {
   coalesceRealtimeProjectionPatchInputs,
   compactRealtimeReplayMessages,
   createPostgresRealtimeWakeSignal,
+  createPostgresRealtimeStreamLimiter,
   createRealtimeOutboxPartitionName,
   createRealtimeOutboxPartitionMaintainer,
   createRealtimeReadHub,
@@ -1365,6 +1366,64 @@ describe("realtime outbox", () => {
         maxActiveStreamsPerConnectionKey: 0,
       }),
     ).resolves.toBeNull();
+  });
+
+  it("returns a retryable response when the stream limiter is unavailable", async () => {
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db: { query: async () => ({ rows: [] }) } }],
+      resolveActor: async () => null,
+      streamLimiter: {
+        acquire: async () => {
+          throw new Error("control plane unavailable");
+        },
+      },
+    });
+
+    const response = await app.request("/public/events?topic=public%3Amarket");
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "realtime_limiter_unavailable" },
+    });
+  });
+
+  it("acquires and releases Postgres-backed stream leases", async () => {
+    const statements: string[] = [];
+    const client = {
+      query: async (sql: string) => {
+        statements.push(sql);
+        if (sql.includes("SELECT") && sql.includes("active_count")) {
+          return { rows: [{ active_count: "1", connection_count: "0" }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+      release: () => undefined,
+    };
+    const pool = {
+      connect: async () => client,
+      query: async (sql: string) => {
+        statements.push(sql);
+        return { rows: [], rowCount: 1 };
+      },
+    };
+    const limiter = createPostgresRealtimeStreamLimiter({
+      pool,
+      leaseTtlMs: 30_000,
+      renewIntervalMs: 60_000,
+    });
+
+    const lease = await limiter.acquire({
+      connectionKey: "account:account_1",
+      maxActiveStreams: 10,
+      maxActiveStreamsPerConnectionKey: 2,
+    });
+    await expect(lease?.renew?.()).resolves.toBe(true);
+    await lease?.release();
+
+    expect(lease).toMatchObject({ activeConnectionCount: 2 });
+    expect(statements).toContain("BEGIN");
+    expect(statements.some((sql) => sql.includes("INSERT INTO platform_realtime_stream_leases"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("DELETE FROM platform_realtime_stream_leases WHERE lease_id"))).toBe(true);
   });
 
   it("exercises a synthetic multi-instance stream-limit load harness", async () => {

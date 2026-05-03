@@ -13,7 +13,7 @@ import {
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
-  attachWriteDrainMiddleware,
+  attachWriteConsistencyMiddleware,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
 import { createHonoObservabilityMiddleware } from "@chase-sets/observability";
@@ -55,7 +55,6 @@ export type PlatformIdentityServices = Readonly<{
 }>;
 
 export type BuildPlatformApiOptions = Readonly<{
-  drain?: () => Promise<void>;
   getProjectionReplay?: () =>
     | HealthProjectionReplaySummary
     | Promise<HealthProjectionReplaySummary>;
@@ -188,11 +187,7 @@ export function buildPlatformApiApp(
     platformActorMiddleware,
   );
 
-  attachWriteDrainMiddleware(
-    app,
-    apiMounts,
-    options.drain ?? (() => Promise.resolve()),
-  );
+  attachWriteConsistencyMiddleware(app, apiMounts);
   mountApiRouters(app, apiMounts);
 
   return app;

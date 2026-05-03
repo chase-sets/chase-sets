@@ -13,6 +13,8 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
     const status = c.req.query("status");
     const limit = c.req.query("limit");
     const offset = c.req.query("offset");
+    const cursor = c.req.query("cursor");
+    const includeTotal = c.req.query("includeTotal");
 
     const result = await services.searchItems({
       search: search || undefined,
@@ -23,12 +25,15 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       status: status || undefined,
       limit: limit ? Number.parseInt(limit, 10) : undefined,
       offset: offset ? Number.parseInt(offset, 10) : undefined,
+      cursor: cursor || undefined,
+      includeTotal: includeTotal === "true",
     });
 
     return c.json({
       items: result.items,
       total: result.total,
       count: result.items.length,
+      nextCursor: result.nextCursor,
     });
   });
 

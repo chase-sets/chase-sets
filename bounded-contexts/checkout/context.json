@@ -207,5 +207,8 @@
       ]
     }
   },
-  "hostPorts": []
+  "hostPorts": [],
+  "runtimeDeployables": [
+    "platform-worker"
+  ]
 }

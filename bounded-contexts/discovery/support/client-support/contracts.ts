@@ -17,8 +17,9 @@ export interface DiscoverySearchItem {
 
 export interface DiscoverySearchResponse {
   items: DiscoverySearchItem[];
-  total: number;
+  total: number | null;
   count: number;
+  nextCursor: string | null;
 }
 
 export interface ProductApplicabilityClause {

@@ -1,19 +1,22 @@
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
-  getApiHostContextNames,
-  type ApiHostContextName,
-} from "@chase-sets/platform-runtime/api";
+  getWorkerHostContextNames,
+  type WorkerHostContextName,
+} from "@chase-sets/platform-runtime/worker";
 import {
   getContextDatabaseEnvName,
-  type PlatformApiBaseConfig,
+  type PlatformWorkerConfig,
 } from "./config";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { workerContextRegistry } from "./generated/worker-context-registry";
 
-const platformApiContexts = getApiHostContextNames(apiContextRegistry, "platform-api");
+const platformWorkerContexts = getWorkerHostContextNames(
+  workerContextRegistry,
+  "platform-worker",
+);
 
 function resolveContextDatabaseUrl(
-  config: PlatformApiBaseConfig,
-  contextName: ApiHostContextName<typeof apiContextRegistry>,
+  config: PlatformWorkerConfig,
+  contextName: WorkerHostContextName<typeof workerContextRegistry>,
 ) {
   const contextDatabaseUrl = config.contextDatabaseUrls[contextName];
 
@@ -32,9 +35,9 @@ function resolveContextDatabaseUrl(
   );
 }
 
-export function createPlatformApiPools(
-  config: PlatformApiBaseConfig,
-): Readonly<Record<ApiHostContextName<typeof apiContextRegistry>, PgTransactionalPool>> &
+export function createPlatformWorkerPools(
+  config: PlatformWorkerConfig,
+): Readonly<Record<WorkerHostContextName<typeof workerContextRegistry>, PgTransactionalPool>> &
   Readonly<{ control: PgTransactionalPool }> {
   const poolsByDatabaseUrl = new Map<string, PgTransactionalPool>();
   const resolvePool = (databaseUrl: string) => {
@@ -44,36 +47,24 @@ export function createPlatformApiPools(
       return existingPool;
     }
 
-    const pool = createPgPool(databaseUrl, config.pool ?? DEFAULT_POOL_CONFIG);
+    const pool = createPgPool(databaseUrl, config.pool);
     poolsByDatabaseUrl.set(databaseUrl, pool);
     return pool;
   };
-
   const contextPools = Object.fromEntries(
-    platformApiContexts.map((contextName) => {
-      const databaseUrl = resolveContextDatabaseUrl(config, contextName);
-      return [contextName, resolvePool(databaseUrl)];
-    }),
-  ) as Readonly<Record<ApiHostContextName<typeof apiContextRegistry>, PgTransactionalPool>>;
+    platformWorkerContexts.map((contextName) => [
+      contextName,
+      resolvePool(resolveContextDatabaseUrl(config, contextName)),
+    ]),
+  ) as Readonly<Record<WorkerHostContextName<typeof workerContextRegistry>, PgTransactionalPool>>;
 
   return {
     ...contextPools,
-    control: resolvePool(
-      config.controlDatabaseUrl ?? config.sharedDatabaseUrl ?? resolveContextDatabaseUrl(
-        config,
-        platformApiContexts[0],
-      ),
-    ),
+    control: resolvePool(config.controlDatabaseUrl),
   };
 }
 
-const DEFAULT_POOL_CONFIG = {
-  max: 10,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
-};
-
-export async function closePlatformApiPools(
+export async function closePlatformWorkerPools(
   pools: Readonly<Record<string, PgTransactionalPool>>,
 ): Promise<void> {
   const uniquePools = [...new Set(Object.values(pools))];
