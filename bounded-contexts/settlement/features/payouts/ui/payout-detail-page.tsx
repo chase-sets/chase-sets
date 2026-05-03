@@ -8,6 +8,7 @@ import {
   PageSection,
   Stack,
   Text,
+  type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow } from "../read-model/queries";
 
@@ -15,7 +16,7 @@ function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
 }
 
-function statusTone(status: string) {
+function statusTone(status: string): Tone {
   switch (status) {
     case "completed":
       return "success";
@@ -43,7 +44,7 @@ function statusLabel(status: string) {
   }
 }
 
-function timelineTone(isComplete: boolean, isFailed = false) {
+function timelineTone(isComplete: boolean, isFailed = false): Tone {
   if (isFailed) {
     return "danger";
   }
@@ -96,7 +97,7 @@ export function SettlementPayoutDetailPage({
       <PageSection title={t("settlement.features.payouts.ui.payoutDetailPage.summary")}>
         <Card>
           <Stack gap={2}>
-            <Badge tone={statusTone(payout.status) as any}>
+            <Badge tone={statusTone(payout.status)}>
               {statusLabel(payout.status)}
             </Badge>
             <Text>{t("settlement.features.payouts.ui.payoutDetailPage.amount")}{formatMoney(payout.amount, payout.currency_code)}</Text>
@@ -143,21 +144,21 @@ export function SettlementPayoutDetailPage({
               <Text size="sm" tone="secondary">{requestedAt}</Text>
             </Stack>
             <Stack gap={1}>
-              <Badge tone={timelineTone(transferSubmitted) as any}>
+              <Badge tone={timelineTone(transferSubmitted)}>
                 {t("settlement.features.payouts.ui.payoutDetailPage.provider.transfer.submitted")}</Badge>
               <Text size="sm" tone="secondary">
                 {payout.provider_transfer_reference ?? t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.transfer.reference")}
               </Text>
             </Stack>
             <Stack gap={1}>
-              <Badge tone={timelineTone(payoutSubmitted) as any}>
+              <Badge tone={timelineTone(payoutSubmitted)}>
                 {t("settlement.features.payouts.ui.payoutDetailPage.payout.submitted")}</Badge>
               <Text size="sm" tone="secondary">
                 {payout.provider_payout_reference ?? t("settlement.features.payouts.ui.payoutDetailPage.waiting.for.provider.payout.reference")}
               </Text>
             </Stack>
             <Stack gap={1}>
-              <Badge tone={timelineTone(Boolean(payout.last_provider_event_at)) as any}>
+              <Badge tone={timelineTone(Boolean(payout.last_provider_event_at))}>
                 {t("settlement.features.payouts.ui.payoutDetailPage.provider.event.received")}</Badge>
               <Text size="sm" tone="secondary">
                 {payout.last_provider_event_at
@@ -166,7 +167,7 @@ export function SettlementPayoutDetailPage({
               </Text>
             </Stack>
             <Stack gap={1}>
-              <Badge tone={timelineTone(completed, failed) as any}>
+              <Badge tone={timelineTone(completed, failed)}>
                 {failed ? t("settlement.features.payouts.ui.payoutDetailPage.needs.attention.2") : t("settlement.features.payouts.ui.payoutDetailPage.paid.2")}
               </Badge>
               <Text size="sm" tone="secondary">

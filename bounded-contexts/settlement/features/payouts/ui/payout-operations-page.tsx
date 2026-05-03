@@ -10,6 +10,7 @@ import {
   PageSection,
   Stack,
   Text,
+  type Tone,
 } from "@chase-sets/design-system";
 import type {
   SettlementPayoutRow,
@@ -20,7 +21,7 @@ function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
 }
 
-function operationsTone(row: SettlementPayoutRow) {
+function operationsTone(row: SettlementPayoutRow): Tone {
   if (row.status === "failed") {
     return "danger";
   }
@@ -172,7 +173,7 @@ export function SettlementPayoutOperationsPage({
               key: "status",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.status"),
               cell: (row) => (
-                <Badge tone={operationsTone(row) as any}>{operationsLabel(row)}</Badge>
+                <Badge tone={operationsTone(row)}>{operationsLabel(row)}</Badge>
               ),
             },
             {

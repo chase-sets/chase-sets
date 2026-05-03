@@ -1,4 +1,5 @@
 import { hc } from "hono/client";
+import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildReputationApi } from "./api";
 
@@ -63,7 +64,9 @@ export function createReputationApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<ReputationApiApp>(baseUrl, { fetch: configuredFetch }) as any;
+  const client = hc<ReputationApiApp>(baseUrl, {
+    fetch: configuredFetch,
+  }) as unknown as HonoClientResource;
   const headers = resolveHeaders(initialHeaders);
 
   return {

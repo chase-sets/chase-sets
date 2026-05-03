@@ -1,4 +1,5 @@
 import { hc } from "hono/client";
+import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { buildDiscoveryApi } from "./api";
 import type {
   CategoryListResponse,
@@ -75,7 +76,9 @@ export function createDiscoveryApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<DiscoveryApiApp>(baseUrl, { fetch: configuredFetch }) as any;
+  const client = hc<DiscoveryApiApp>(baseUrl, {
+    fetch: configuredFetch,
+  }) as unknown as HonoClientResource;
   const headers = resolveHeaders(initialHeaders);
 
   return {

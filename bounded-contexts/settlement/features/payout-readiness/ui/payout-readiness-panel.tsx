@@ -4,11 +4,12 @@ import {
   Button,
   Stack,
   Text,
+  type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
 import { buildPayoutSetupProgress } from "../domain/setup-progress";
 
-function readinessTone(status: SettlementPayoutReadinessRow["status"]) {
+function readinessTone(status: SettlementPayoutReadinessRow["status"]): Tone {
   switch (status) {
     case "ready":
       return "success";
@@ -142,7 +143,7 @@ function checkedAtLabel(value: string | null) {
   return value ? new Date(value).toLocaleString() : t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.not.checked.yet");
 }
 
-function progressTone(status: string) {
+function progressTone(status: string): Tone {
   switch (status) {
     case "ready":
       return "success";
@@ -185,7 +186,7 @@ export function PayoutReadinessPanel({
 
   return (
     <Stack gap={2}>
-      <Badge tone={readinessTone(payoutReadiness.status) as any}>
+      <Badge tone={readinessTone(payoutReadiness.status)}>
         {readinessLabel(payoutReadiness.status)}
       </Badge>
       <Text weight="semibold">{readinessTitle(payoutReadiness.status)}</Text>
@@ -198,7 +199,7 @@ export function PayoutReadinessPanel({
       <Stack gap={1}>
         {progress.steps.map((step) => (
           <Stack key={step.id} gap={1}>
-            <Badge tone={progressTone(step.status) as any}>
+            <Badge tone={progressTone(step.status)}>
               {progressLabel(step.status)}
             </Badge>
             <Text size="sm" weight="semibold">{step.label}</Text>

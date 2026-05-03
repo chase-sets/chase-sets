@@ -21,6 +21,7 @@ import {
   Stack,
   Surface,
   Text,
+  type Tone,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
@@ -124,7 +125,7 @@ function formatMoney(amount: string) {
   return `$${amount}`;
 }
 
-function statusTone(status: string) {
+function statusTone(status: string): Tone {
   switch (status) {
     case "captured":
       return "success";
@@ -453,7 +454,7 @@ export default function MarketplaceAccountPaymentRoute() {
           <PageSection title={t("payments.routes.marketplace.accountPayment.payment.status")}>
             <Surface elevated>
               <Stack gap={2}>
-                <Badge tone={statusTone(data.payment.status) as any}>{statusCopy.label}</Badge>
+                <Badge tone={statusTone(data.payment.status)}>{statusCopy.label}</Badge>
                 <Text>{statusCopy.description}</Text>
               </Stack>
             </Surface>
@@ -477,7 +478,7 @@ export default function MarketplaceAccountPaymentRoute() {
                   </Stack>
                 ))}
                 <Stack gap={1}>
-                  <Badge tone={data.payment.captured_at ? "success" : statusTone(data.payment.status) as any}>
+                  <Badge tone={data.payment.captured_at ? "success" : statusTone(data.payment.status)}>
                     {data.payment.captured_at
                       ? t("payments.routes.marketplace.accountPayment.payment.captured")
                       : data.payment.failed_at

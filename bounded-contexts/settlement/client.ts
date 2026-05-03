@@ -1,4 +1,5 @@
 import { hc } from "hono/client";
+import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { buildSettlementApi } from "./api";
 import type {
@@ -107,7 +108,9 @@ export function createSettlementApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<SettlementApiApp>(baseUrl, { fetch: configuredFetch }) as any;
+  const client = hc<SettlementApiApp>(baseUrl, {
+    fetch: configuredFetch,
+  }) as unknown as HonoClientResource;
   const headers = resolveHeaders(initialHeaders);
 
   return {

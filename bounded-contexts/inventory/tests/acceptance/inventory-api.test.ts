@@ -2,7 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import {
   bootstrapContextDatabase,
+  type ContextProjectionGroup,
+  type ContextSubscriptionRunner,
   drainContextProcesses,
+  type MountedContextRuntimeEntry,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
   syncContextProjectionGroups,
@@ -30,6 +33,11 @@ import { module as inventoryModule } from "../..";
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
 const inventoryContextNames = ["catalog", "ordering", "inventory"] as const;
+type InventoryAcceptanceRuntime = {
+  mountedContexts: readonly MountedContextRuntimeEntry[];
+  subscriptionRunners: readonly ContextSubscriptionRunner[];
+  projectionGroups: readonly ContextProjectionGroup[];
+};
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -62,7 +70,7 @@ describeWithDatabase("inventory api", () => {
     Record<(typeof inventoryContextNames)[number], PgTransactionalPool>
   >;
   let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
-  let runtime: any;
+  let runtime: InventoryAcceptanceRuntime;
   let services: ReturnType<typeof createInventoryServices>;
   let app: Hono<InventoryApiEnv>;
 

@@ -1,4 +1,5 @@
 import { hc } from "hono/client";
+import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { buildCatalogAuthoringApi } from "../../authoring-support/api";
 
 type CatalogAuthoringApiApp = ReturnType<typeof buildCatalogAuthoringApi>;
@@ -55,7 +56,9 @@ export function createCatalogApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<CatalogAuthoringApiApp>(baseUrl, { fetch: configuredFetch }) as any;
+  const client = hc<CatalogAuthoringApiApp>(baseUrl, {
+    fetch: configuredFetch,
+  }) as unknown as HonoClientResource;
   const headers = resolveHeaders(initialHeaders);
 
   return {

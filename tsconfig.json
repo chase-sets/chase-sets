@@ -5,10 +5,21 @@
     "bounded-contexts/**/*.tsx",
     "contracts/**/*.ts",
     "contracts/**/*.tsx",
+    "deployables/**/*.ts",
+    "deployables/**/*.tsx",
     "infrastructure/**/*.ts",
-    "infrastructure/**/*.tsx"
+    "infrastructure/**/*.tsx",
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "tailwind.config.ts"
   ],
   "exclude": [
-    "bounded-contexts/**/*.tmp.*"
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.tmp.*",
+    "**/build/**",
+    "**/coverage/**",
+    "**/dist/**",
+    "**/node_modules/**"
   ]
 }

@@ -12,7 +12,7 @@ import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testi
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
-import type { PaymentServices } from "@chase-sets/payments/server";
+import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import {
   createMergedRealtimeWakeSignal,
@@ -350,8 +350,9 @@ if (config.paymentReconciliationIntervalMs) {
       return;
     }
     paymentReconciliationRunning = true;
-    const paymentServices = runtime.services.payments as PaymentServices;
+    const paymentServices = runtime.services.payments as PaymentsServices;
     void paymentServices
+      .payments
       .scanPaymentsNeedingReconciliation({ limit: 100 })
       .then((result) => {
         logger.info("Payment reconciliation scan completed.", {

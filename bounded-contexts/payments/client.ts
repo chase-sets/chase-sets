@@ -1,4 +1,5 @@
 import { hc } from "hono/client";
+import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { buildPaymentsApi } from "./api";
 import type {
   PaymentsCheckoutStatus,
@@ -62,7 +63,9 @@ export function createPaymentsApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<PaymentsApiApp>(baseUrl, { fetch: configuredFetch }) as any;
+  const client = hc<PaymentsApiApp>(baseUrl, {
+    fetch: configuredFetch,
+  }) as unknown as HonoClientResource;
   const headers = resolveHeaders(initialHeaders);
 
   return {

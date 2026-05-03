@@ -1,4 +1,5 @@
 import { hc } from "hono/client";
+import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
@@ -97,7 +98,9 @@ export function createCheckoutApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<CheckoutApiApp>(baseUrl, { fetch: configuredFetch }) as any;
+  const client = hc<CheckoutApiApp>(baseUrl, {
+    fetch: configuredFetch,
+  }) as unknown as HonoClientResource;
   const headers = resolveHeaders(initialHeaders);
 
   return {

@@ -10,6 +10,7 @@ import {
   PageSection,
   Stack,
   Text,
+  type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
@@ -23,15 +24,15 @@ function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
 }
 
-function directionTone(direction: string) {
+function directionTone(direction: string): Tone {
   return direction === "credit" ? "success" : "danger";
 }
 
-function fundsStatusTone(status: string) {
+function fundsStatusTone(status: string): Tone {
   return status === "available" ? "success" : "warning";
 }
 
-function checklistTone(isComplete: boolean) {
+function checklistTone(isComplete: boolean): Tone {
   return isComplete ? "success" : "neutral";
 }
 
@@ -66,7 +67,7 @@ export function SettlementWalletPage({
   const availableBalance = Number.parseFloat(wallet.available_balance_amount);
   const pendingBalance = Number.parseFloat(wallet.pending_balance_amount);
   const setupReady = payoutReadiness?.status === "ready";
-  const payoutAvailability = setupReady && availableBalance > 0
+  const payoutAvailability: Readonly<{ tone: Tone; label: string; detail: string }> = setupReady && availableBalance > 0
     ? {
         tone: "success",
         label: t("settlement.features.wallets.ui.walletPage.payout.available.now"),
@@ -182,7 +183,7 @@ export function SettlementWalletPage({
       <PageSection title={t("settlement.features.wallets.ui.walletPage.payout.availability")}>
         <Card>
           <Stack gap={2}>
-            <Badge tone={payoutAvailability.tone as any}>{payoutAvailability.label}</Badge>
+            <Badge tone={payoutAvailability.tone}>{payoutAvailability.label}</Badge>
             <Text>{payoutAvailability.detail}</Text>
             <Text size="sm" tone="secondary">
               {t("settlement.features.wallets.ui.walletPage.available.funds.can.be.requested.on")}</Text>

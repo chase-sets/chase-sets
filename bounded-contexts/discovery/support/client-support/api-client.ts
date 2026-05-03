@@ -1,4 +1,5 @@
 import { hc } from "hono/client";
+import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { buildDiscoveryApi } from "../../api";
 import type { CategoryListResponse } from "../../features/categories/ui/contracts";
 import type {
@@ -50,7 +51,7 @@ export function createDiscoveryApiClient({
   baseUrl = DEFAULT_BASE_URL,
   fetch = globalThis.fetch,
 }: DiscoveryApiClientOptions = {}) {
-  const client = hc<DiscoveryApiApp>(baseUrl, { fetch }) as any;
+  const client = hc<DiscoveryApiApp>(baseUrl, { fetch }) as unknown as HonoClientResource;
 
   return {
     async searchItems(query: string): Promise<DiscoveryItemsResponse> {

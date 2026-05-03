@@ -235,7 +235,7 @@ export type RealtimeContextRegistration = Readonly<{
   topicPrefixes?: readonly string[];
 }>;
 
-export type RealtimeTopicManifest<TTopics extends Record<string, (...args: any[]) => string>> =
+export type RealtimeTopicManifest<TTopics extends Record<string, (...args: never[]) => string>> =
   RealtimeContextRegistration & Readonly<{
     topics: TTopics;
   }>;
