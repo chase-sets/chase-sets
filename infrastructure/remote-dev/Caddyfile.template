@@ -1,0 +1,44 @@
+{
+  auto_https on
+}
+
+(remote_auth) {
+  basicauth {
+    {{BASIC_AUTH_USER}} {{BASIC_AUTH_HASH}}
+  }
+}
+
+(api_proxy) {
+  @payment_webhook path /api/payments/provider/webhooks /api/payments/provider/webhooks/*
+  @settlement_webhook path /api/settlement/provider/money-movement/webhooks /api/settlement/provider/money-movement/webhooks/*
+  reverse_proxy @payment_webhook 127.0.0.1:6182
+  reverse_proxy @settlement_webhook 127.0.0.1:6182
+
+  handle /api/* {
+    import remote_auth
+    reverse_proxy 127.0.0.1:6182
+  }
+}
+
+portal.{{SESSION_SLUG}}.{{REMOTE_DEV_DOMAIN}} {
+  import remote_auth
+  reverse_proxy 127.0.0.1:6170
+}
+
+marketplace.{{SESSION_SLUG}}.{{REMOTE_DEV_DOMAIN}} {
+  import api_proxy
+  import remote_auth
+  reverse_proxy 127.0.0.1:6173
+}
+
+admin.{{SESSION_SLUG}}.{{REMOTE_DEV_DOMAIN}} {
+  import api_proxy
+  import remote_auth
+  reverse_proxy 127.0.0.1:6172
+}
+
+api.{{SESSION_SLUG}}.{{REMOTE_DEV_DOMAIN}} {
+  import api_proxy
+  import remote_auth
+  reverse_proxy 127.0.0.1:6182
+}
