@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineAuthHost } from "@chase-sets/auth/server";
 import { marketplaceAuthHostConfig } from "@chase-sets/auth/host-config";
+import { requireMarketplaceActor, resolveMarketplaceActor } from "./auth.server";
 
 describe("marketplace auth host", () => {
   const marketplaceAuthHost = defineAuthHost(marketplaceAuthHostConfig);
@@ -11,6 +12,10 @@ describe("marketplace auth host", () => {
     status: "active",
     rolePermissions: ["accounts.view"],
   } as const;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it("redirects to the safe return target and sets a secure session cookie", () => {
     const response = marketplaceAuthHost.completeAuthentication(
@@ -63,6 +68,37 @@ describe("marketplace auth host", () => {
     expect(response.headers.get("Location")).toBe("/account/select?returnTo=%2Faccount");
     expect(response.headers.get("Set-Cookie")).toContain(
       "chase_sets_account_selection=selection_token",
+    );
+  });
+
+  it("treats transient auth gateway failures as unauthenticated for optional actor resolution", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 502 }))),
+    );
+
+    await expect(
+      resolveMarketplaceActor(new Request("http://localhost/search")),
+    ).resolves.toBeNull();
+  });
+
+  it("redirects protected routes to sign-in when actor resolution has a transient gateway failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 502 }))),
+    );
+
+    let thrown: unknown;
+    try {
+      await requireMarketplaceActor(new Request("http://localhost/account/listings"));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Response);
+    expect((thrown as Response).status).toBe(302);
+    expect((thrown as Response).headers.get("Location")).toBe(
+      "/sign-in?returnTo=%2Faccount%2Flistings",
     );
   });
 });

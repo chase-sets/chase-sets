@@ -7,6 +7,29 @@ import {
 
 export type { ResolvedActor } from "@chase-sets/auth-context";
 
+const TRANSIENT_AUTH_RESOLUTION_STATUSES = new Set([502, 503, 504]);
+
+export class AuthResolutionError extends Error {
+  readonly authApiBaseUrl: string;
+  readonly status: number;
+
+  constructor(authApiBaseUrl: string, status: number) {
+    super(
+      `Unable to resolve current actor from '${authApiBaseUrl}'. Status ${status}.`,
+    );
+    this.name = "AuthResolutionError";
+    this.authApiBaseUrl = authApiBaseUrl;
+    this.status = status;
+  }
+}
+
+export function isTransientAuthResolutionError(error: unknown) {
+  return (
+    error instanceof AuthResolutionError &&
+    TRANSIENT_AUTH_RESOLUTION_STATUSES.has(error.status)
+  );
+}
+
 export function hasPermission(
   actor: ResolvedActor | null | undefined,
   permission: string,
@@ -87,9 +110,7 @@ export async function resolveActorFromAuthApi(options: Readonly<{
   }
 
   if (!response.ok) {
-    throw new Error(
-      `Unable to resolve current actor from '${authApiBaseUrl}'. Status ${response.status}.`,
-    );
+    throw new AuthResolutionError(authApiBaseUrl, response.status);
   }
 
   const body = (await response.json()) as { actor: ResolvedActor };
