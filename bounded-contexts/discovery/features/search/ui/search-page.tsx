@@ -1,5 +1,4 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, useState } from "react";
 import {
   SearchInput,
   Select,
@@ -25,7 +24,6 @@ import type {
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
-import { useDebounce } from "./use-debounce";
 
 const PAGE_SIZE = 24;
 
@@ -65,6 +63,7 @@ function formatPrice(item: DiscoverySearchItem): string {
 
 export interface SearchPageProps {
   search: string;
+  committedSearch?: string;
   category: string;
   sort: string;
   page: number;
@@ -72,6 +71,7 @@ export interface SearchPageProps {
   categories: DiscoveryCategoryItem[];
   loading?: boolean;
   error?: string | null;
+  restoreSearchFocus?: boolean;
   onSearchChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onSortChange: (value: string) => void;
@@ -80,6 +80,7 @@ export interface SearchPageProps {
 
 export function SearchPage({
   search,
+  committedSearch = search,
   category,
   sort,
   page,
@@ -87,24 +88,12 @@ export function SearchPage({
   categories,
   loading = false,
   error = null,
+  restoreSearchFocus = false,
   onSearchChange,
   onCategoryChange,
   onSortChange,
   onPageChange,
 }: SearchPageProps) {
-  const [searchInput, setSearchInput] = useState(search);
-  const debouncedSearch = useDebounce(searchInput, 300);
-
-  useEffect(() => {
-    setSearchInput(search);
-  }, [search]);
-
-  useEffect(() => {
-    if (debouncedSearch !== search) {
-      onSearchChange(debouncedSearch);
-    }
-  }, [debouncedSearch, onSearchChange, search]);
-
   const exactTotal = data?.total ?? data?.items.length ?? 0;
   const totalPages = data?.total ? Math.ceil(data.total / PAGE_SIZE) : 0;
   const featuredCategories = categories.slice(0, 5);
@@ -118,7 +107,7 @@ export function SearchPage({
   const activeCategoryLabel =
     categories.find((item) => item.slug === category)?.name ?? t("discovery.features.search.ui.searchPage.all.categories");
   const hasFocusedResults =
-    search.trim().length > 0 || Boolean(category) || sort !== "relevance" || page > 1;
+    committedSearch.trim().length > 0 || Boolean(category) || sort !== "relevance" || page > 1;
 
   return (
     <SearchResultsLayout
@@ -148,8 +137,8 @@ export function SearchPage({
                   label={t("discovery.features.search.ui.searchPage.marketplace.search")}
                   hideLabel
                   placeholder={t("discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage")}
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
+                  value={search}
+                  onChange={(e) => onSearchChange(e.target.value)}
                 />
               }
               filters={[
@@ -187,8 +176,9 @@ export function SearchPage({
             <SearchInput
               hideLabel
               placeholder={t("discovery.features.search.ui.searchPage.search.catalog.items")}
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              value={search}
+              autoFocus={restoreSearchFocus}
+              onChange={(e) => onSearchChange(e.target.value)}
             />
             <Select
               hideLabel

@@ -3,10 +3,11 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   redirect,
   useLoaderData,
+  useNavigate,
   useNavigation,
   useSearchParams,
 } from "react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
@@ -16,6 +17,7 @@ import { SearchPage } from "../features/search/ui/search-page";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 const PAGE_SIZE = 24;
+const SEARCH_DEBOUNCE_MS = 300;
 const MARKETPLACE_DESCRIPTION =
   t("discovery.routes.search.browse.the.chase.sets.marketplace.with");
 const EMPTY_SEARCH_RESULT = {
@@ -118,9 +120,32 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 
 export default function DiscoverySearchRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_SEARCH_RESULT;
+  const navigate = useNavigate();
   const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [draftSearch, setDraftSearch] = useState(data.search);
   const [realtimeData, setRealtimeData] = useState<DiscoverySearchResponse | null>(data.data);
+  const draftSearchRef = useRef(data.search);
+  const pendingSearchRef = useRef<string | null>(null);
+  const restoreSearchFocusRef = useRef(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSearchTimer = useCallback(() => {
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearSearchTimer, [clearSearchTimer]);
+
+  useEffect(() => {
+    if (pendingSearchRef.current === null || pendingSearchRef.current === data.search) {
+      pendingSearchRef.current = null;
+      draftSearchRef.current = data.search;
+      setDraftSearch(data.search);
+    }
+  }, [data.search]);
 
   useEffect(() => {
     setRealtimeData(data.data);
@@ -138,16 +163,22 @@ export default function DiscoverySearchRoute() {
     return () => subscription.close();
   }, []);
 
-  function updateSearchParams(nextValues: {
+  const updateSearchParams = useCallback((nextValues: {
     search?: string;
     category?: string;
     sort?: string;
     page?: number;
-  }) {
+  }, replace = false) => {
     if (nextValues.category !== undefined) {
-      if (typeof window !== "undefined") {
-        window.location.assign(buildCategoryPath(nextValues.category, searchParams));
+      const current = new URLSearchParams(searchParams);
+      const search = pendingSearchRef.current ?? draftSearchRef.current;
+      if (search) {
+        current.set("search", search);
+      } else {
+        current.delete("search");
       }
+      current.delete("page");
+      navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
       return;
     }
 
@@ -181,22 +212,46 @@ export default function DiscoverySearchRoute() {
       }
 
       return next;
-    }, { preventScrollReset: true });
+    }, { preventScrollReset: true, replace });
+  }, [navigate, searchParams, setSearchParams]);
+
+  function handleSearchChange(value: string) {
+    restoreSearchFocusRef.current = true;
+    draftSearchRef.current = value;
+    pendingSearchRef.current = value;
+    setDraftSearch(value);
+    clearSearchTimer();
+    searchTimerRef.current = setTimeout(() => {
+      updateSearchParams({ search: pendingSearchRef.current ?? "" }, true);
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function handleImmediateSearchParamChange(nextValues: {
+    category?: string;
+    sort?: string;
+    page?: number;
+  }) {
+    clearSearchTimer();
+    const search = pendingSearchRef.current ?? draftSearchRef.current;
+    pendingSearchRef.current = search;
+    updateSearchParams({ search, ...nextValues });
   }
 
   return (
     <SearchPage
-      search={data.search}
+      search={draftSearch}
+      committedSearch={data.search}
       category={data.category}
       sort={data.sort}
       page={data.page}
       data={realtimeData}
       categories={data.categories}
       loading={navigation.state !== "idle"}
-      onSearchChange={(value) => updateSearchParams({ search: value })}
-      onCategoryChange={(value) => updateSearchParams({ category: value })}
-      onSortChange={(value) => updateSearchParams({ sort: value })}
-      onPageChange={(value) => updateSearchParams({ page: value })}
+      restoreSearchFocus={restoreSearchFocusRef.current}
+      onSearchChange={handleSearchChange}
+      onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
+      onSortChange={(value) => handleImmediateSearchParamChange({ sort: value })}
+      onPageChange={(value) => handleImmediateSearchParamChange({ page: value })}
     />
   );
 }

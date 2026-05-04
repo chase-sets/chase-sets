@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { useState, useMemo } from "react";
+import { useState } from "react";
+import { useRevalidator } from "react-router";
 import {
   Button,
   Dialog,
@@ -11,7 +12,11 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
-import { useBlueprintList, createBlueprint } from "./use-blueprints";
+import {
+  type CatalogListRouteData,
+  useCatalogListQueryControls,
+} from "../../../support/shell-support/list-query-state";
+import { createBlueprint } from "./use-blueprints";
 import type { Blueprint } from "./contracts";
 
 const columns: DataColumn<Blueprint>[] = [
@@ -27,21 +32,9 @@ const statusOptions = [
   { label: t("catalog.features.blueprints.ui.blueprintListPage.archived"), value: "archived" },
 ];
 
-export function BlueprintListPage({ initialData }: { initialData?: Parameters<typeof useBlueprintList>[1] }) {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [page, setPage] = useState(0);
-
-  const query = useMemo(() => {
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (statusFilter) params.set("status", statusFilter);
-    params.set("limit", "50");
-    params.set("offset", String(page * 50));
-    return params.toString();
-  }, [search, statusFilter, page]);
-
-  const { data, loading, error, refresh } = useBlueprintList(query, initialData);
+export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprint>) {
+  const listControls = useCatalogListQueryControls(query);
+  const revalidator = useRevalidator();
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
   const [key, setKey] = useState("");
@@ -56,7 +49,7 @@ export function BlueprintListPage({ initialData }: { initialData?: Parameters<ty
     setKey("");
     setName("");
     setDescription("");
-    refresh();
+    revalidator.revalidate();
   }
 
   return (
@@ -64,21 +57,21 @@ export function BlueprintListPage({ initialData }: { initialData?: Parameters<ty
       <EntityListPage
         title={t("catalog.features.blueprints.ui.blueprintListPage.blueprints")}
         entityName="blueprint"
-        items={data?.items ?? null}
-        total={data?.total}
-        loading={loading}
-        error={error}
+        items={data.items}
+        total={data.total}
+        loading={listControls.loading}
+        error={null}
         columns={columns}
         getRowId={(row) => row.blueprint_id}
         getHref={(row) => `/blueprints/${row.blueprint_id}`}
-        search={search}
-        onSearchChange={(v) => { setSearch(v); setPage(0); }}
-        statusFilter={statusFilter}
-        onStatusFilterChange={(v) => { setStatusFilter(v); setPage(0); }}
+        search={listControls.search}
+        onSearchChange={listControls.setSearch}
+        statusFilter={listControls.status}
+        onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
-        page={page}
-        pageSize={50}
-        onPageChange={setPage}
+        page={listControls.page}
+        pageSize={listControls.pageSize}
+        onPageChange={listControls.setPage}
         createButton={
           <Button onClick={() => setShowCreate(true)}>{t("catalog.features.blueprints.ui.blueprintListPage.new.blueprint")}</Button>
         }
@@ -98,7 +91,6 @@ export function BlueprintListPage({ initialData }: { initialData?: Parameters<ty
     </>
   );
 }
-
 
 
 

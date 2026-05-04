@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
+import { useRevalidator } from "react-router";
 import {
   Button,
   Dialog,
@@ -12,7 +13,11 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
-import { useCategoryList, createCategory } from "./use-categories";
+import {
+  type CatalogListRouteData,
+  useCatalogListQueryControls,
+} from "../../../support/shell-support/list-query-state";
+import { createCategory } from "./use-categories";
 import type { CategoryListItem } from "./contracts";
 
 function buildColumns(): DataColumn<CategoryListItem>[] {
@@ -32,21 +37,9 @@ const statusOptions = [
   { label: t("catalog.features.categories.ui.categoryListPage.archived"), value: "archived" },
 ];
 
-export function CategoryListPage({ initialData }: { initialData?: Parameters<typeof useCategoryList>[1] }) {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [page, setPage] = useState(0);
-
-  const query = useMemo(() => {
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (statusFilter) params.set("status", statusFilter);
-    params.set("limit", "50");
-    params.set("offset", String(page * 50));
-    return params.toString();
-  }, [search, statusFilter, page]);
-
-  const { data, loading, error, refresh } = useCategoryList(query, initialData);
+export function CategoryListPage({ data, query }: CatalogListRouteData<CategoryListItem>) {
+  const listControls = useCatalogListQueryControls(query);
+  const revalidator = useRevalidator();
   const columns = useMemo(() => buildColumns(), []);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
@@ -73,7 +66,7 @@ export function CategoryListPage({ initialData }: { initialData?: Parameters<typ
     setDescription("");
     setParentId("");
     setDisplayOrder("0");
-    refresh();
+    revalidator.revalidate();
   }
 
   return (
@@ -81,21 +74,21 @@ export function CategoryListPage({ initialData }: { initialData?: Parameters<typ
       <EntityListPage
         title={t("catalog.features.categories.ui.categoryListPage.categories")}
         entityName="category"
-        items={data?.items ?? null}
-        total={data?.total}
-        loading={loading}
-        error={error}
+        items={data.items}
+        total={data.total}
+        loading={listControls.loading}
+        error={null}
         columns={columns}
         getRowId={(row) => row.category_id}
         getHref={(row) => `/categories/${row.category_id}`}
-        search={search}
-        onSearchChange={(v) => { setSearch(v); setPage(0); }}
-        statusFilter={statusFilter}
-        onStatusFilterChange={(v) => { setStatusFilter(v); setPage(0); }}
+        search={listControls.search}
+        onSearchChange={listControls.setSearch}
+        statusFilter={listControls.status}
+        onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
-        page={page}
-        pageSize={50}
-        onPageChange={setPage}
+        page={listControls.page}
+        pageSize={listControls.pageSize}
+        onPageChange={listControls.setPage}
         createButton={
           <Button onClick={() => setShowCreate(true)}>{t("catalog.features.categories.ui.categoryListPage.new.category")}</Button>
         }
@@ -117,7 +110,6 @@ export function CategoryListPage({ initialData }: { initialData?: Parameters<typ
     </>
   );
 }
-
 
 
 

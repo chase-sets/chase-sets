@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { useState, useMemo } from "react";
+import { useState } from "react";
+import { useRevalidator } from "react-router";
 import {
   Button,
   Dialog,
@@ -12,7 +13,11 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
-import { useDimensionList, createDimension } from "./use-dimensions";
+import {
+  type CatalogListRouteData,
+  useCatalogListQueryControls,
+} from "../../../support/shell-support/list-query-state";
+import { createDimension } from "./use-dimensions";
 import type { Dimension } from "./contracts";
 
 const columns: DataColumn<Dimension>[] = [
@@ -35,21 +40,9 @@ const valueKindOptions = [
   { label: t("catalog.features.dimensions.ui.dimensionListPage.numeric"), value: "numeric" },
 ];
 
-export function DimensionListPage({ initialData }: { initialData?: Parameters<typeof useDimensionList>[1] }) {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [page, setPage] = useState(0);
-
-  const query = useMemo(() => {
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (statusFilter) params.set("status", statusFilter);
-    params.set("limit", "50");
-    params.set("offset", String(page * 50));
-    return params.toString();
-  }, [search, statusFilter, page]);
-
-  const { data, loading, error, refresh } = useDimensionList(query, initialData);
+export function DimensionListPage({ data, query }: CatalogListRouteData<Dimension>) {
+  const listControls = useCatalogListQueryControls(query);
+  const revalidator = useRevalidator();
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
   const [key, setKey] = useState("");
@@ -66,7 +59,7 @@ export function DimensionListPage({ initialData }: { initialData?: Parameters<ty
     setName("");
     setDescription("");
     setValueKind("unordered");
-    refresh();
+    revalidator.revalidate();
   }
 
   return (
@@ -74,21 +67,21 @@ export function DimensionListPage({ initialData }: { initialData?: Parameters<ty
       <EntityListPage
         title={t("catalog.features.dimensions.ui.dimensionListPage.dimensions")}
         entityName="dimension"
-        items={data?.items ?? null}
-        total={data?.total}
-        loading={loading}
-        error={error}
+        items={data.items}
+        total={data.total}
+        loading={listControls.loading}
+        error={null}
         columns={columns}
         getRowId={(row) => row.dimension_id}
         getHref={(row) => `/dimensions/${row.dimension_id}`}
-        search={search}
-        onSearchChange={(v) => { setSearch(v); setPage(0); }}
-        statusFilter={statusFilter}
-        onStatusFilterChange={(v) => { setStatusFilter(v); setPage(0); }}
+        search={listControls.search}
+        onSearchChange={listControls.setSearch}
+        statusFilter={listControls.status}
+        onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
-        page={page}
-        pageSize={50}
-        onPageChange={setPage}
+        page={listControls.page}
+        pageSize={listControls.pageSize}
+        onPageChange={listControls.setPage}
         createButton={
           <Button onClick={() => setShowCreate(true)}>{t("catalog.features.dimensions.ui.dimensionListPage.new.dimension")}</Button>
         }
@@ -114,7 +107,6 @@ export function DimensionListPage({ initialData }: { initialData?: Parameters<ty
     </>
   );
 }
-
 
 
 
