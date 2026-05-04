@@ -521,7 +521,7 @@ export async function readRealtimePatches(
     throwIfRealtimeReadAborted(options.abortSignal);
 
     const result = await store.db.query<RealtimeOutboxRow>(
-      `SELECT outbox_id, payload_json, payload_bytes
+      `SELECT outbox.outbox_id AS outbox_id, outbox.payload_json, outbox.payload_bytes
        FROM ${REALTIME_OUTBOX_TABLE} AS outbox
        INNER JOIN ${REALTIME_OUTBOX_TOPIC_TABLE} AS topic
          ON topic.outbox_id = outbox.outbox_id
