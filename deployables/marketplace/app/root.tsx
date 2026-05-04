@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import {
   isRouteErrorResponse,
@@ -15,6 +15,7 @@ import {
 } from "react-router";
 import { buildCanonicalUrl } from "./seo";
 import { resolveMarketplaceActor } from "./auth.server";
+import { registerMarketplaceServiceWorker } from "./pwa/register-service-worker";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   return {
@@ -37,6 +38,10 @@ export function Layout({ children }: { children: ReactNode }) {
     search: location.search,
   });
 
+  useEffect(() => {
+    registerMarketplaceServiceWorker();
+  }, []);
+
   return (
     <html lang="en">
       <head>
@@ -44,6 +49,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <link rel="canonical" href={canonicalUrl} />
+        <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="alternate icon" href="/favicon.ico" sizes="any" />
         <Links />

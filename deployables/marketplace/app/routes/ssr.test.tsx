@@ -8,6 +8,8 @@ import {
   meta as itemMeta,
 } from "@chase-sets/discovery/routes/item-detail";
 import { loader as robotsLoader } from "./robots";
+import { loader as manifestLoader } from "./manifest";
+import { loader as serviceWorkerLoader } from "./service-worker";
 import {
   loader as searchLoader,
   meta as searchMeta,
@@ -264,6 +266,41 @@ describe("marketplace SSR routes", () => {
     await expect(sitemap.text()).resolves.toContain(
       "<loc>https://marketplace.example/search</loc>",
     );
+    const manifest = manifestLoader({
+      request: new Request("https://marketplace.example/manifest.webmanifest"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
+    await expect(manifest.json()).resolves.toMatchObject({
+      name: "Chase Sets",
+      short_name: "Chase Sets",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      icons: expect.arrayContaining([
+        expect.objectContaining({
+          src: "/icons/chase-sets-192.png",
+          sizes: "192x192",
+          purpose: "any",
+        }),
+        expect.objectContaining({
+          src: "/icons/chase-sets-maskable-512.png",
+          sizes: "512x512",
+          purpose: "maskable",
+        }),
+      ]),
+    });
+    const serviceWorker = serviceWorkerLoader({
+      request: new Request("https://marketplace.example/service-worker.js"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(serviceWorker.headers.get("Content-Type")).toContain("application/javascript");
+    expect(serviceWorker.headers.get("Service-Worker-Allowed")).toBe("/");
+    await expect(serviceWorker.text()).resolves.toContain("addEventListener(\"fetch\"");
   });
 
   it("returns sign-in route SEO metadata", () => {

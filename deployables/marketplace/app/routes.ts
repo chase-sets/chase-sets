@@ -27,6 +27,8 @@ const layoutContextRoutes = contextRoutes
 
 export default [
   ...rootContextRoutes,
+  route("manifest.webmanifest", "routes/manifest.ts"),
+  route("service-worker.js", "routes/service-worker.ts"),
   route("favicon.svg", "routes/favicon-svg.ts"),
   route("favicon.ico", "routes/favicon.ts"),
   route(
@@ -35,6 +37,7 @@ export default [
   ),
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
+  route("offline", "routes/offline.tsx"),
   layout("routes/layout.tsx", [
     index("routes/index.tsx"),
     ...layoutContextRoutes,
