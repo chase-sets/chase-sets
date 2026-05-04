@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   price_amount numeric(12,2) NOT NULL,
   marketplace_sales_fee_unit_amount numeric(12,2) NOT NULL,
   seller_net_unit_amount numeric(12,2) NOT NULL,
+  shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NULL,
@@ -36,4 +37,7 @@ CREATE INDEX IF NOT EXISTS marketplace_listing_pages_catalog_version_idx
 
 CREATE INDEX IF NOT EXISTS marketplace_listing_pages_inventory_item_idx
   ON marketplace_listing_pages (inventory_item_id, status, updated_at DESC);
+
+ALTER TABLE marketplace_listing_pages
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
 `;

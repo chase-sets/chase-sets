@@ -6,6 +6,7 @@ import type {
 import {
   assert,
   assertNever,
+  DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   ensureIsoTimestamp,
   normalizeCommercialTermsStatus,
   normalizeLabel,
@@ -20,6 +21,7 @@ export type CommercialAgreementState = Readonly<{
   label: string | null;
   marketplaceSalesFeePercentageBps: number | null;
   marketplaceSalesFeeFixedAmount: string | null;
+  shippingAllowancePercentageBps: number | null;
   status: CommercialTermsStatus | null;
   effectiveFrom: string | null;
   effectiveUntil: string | null;
@@ -31,6 +33,7 @@ export const initialCommercialAgreementState: CommercialAgreementState = {
   label: null,
   marketplaceSalesFeePercentageBps: null,
   marketplaceSalesFeeFixedAmount: null,
+  shippingAllowancePercentageBps: null,
   status: null,
   effectiveFrom: null,
   effectiveUntil: null,
@@ -43,6 +46,7 @@ export type CreateAgreementCommand = Readonly<{
   label: string;
   marketplaceSalesFeePercentageBps: number;
   marketplaceSalesFeeFixedAmount: string;
+  shippingAllowancePercentageBps?: number;
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
@@ -58,6 +62,7 @@ export type AgreementCreatedEvent = DomainEvent<
     label: string;
     marketplaceSalesFeePercentageBps: number;
     marketplaceSalesFeeFixedAmount: string;
+    shippingAllowancePercentageBps: number;
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
@@ -92,6 +97,11 @@ export const decideCommercialAgreement: AggregateDecider<
                 allowZero: true,
               },
             ),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps ??
+                DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+              "Shipping allowance percentage",
+            ),
             status: normalizeCommercialTermsStatus(command.status),
             effectiveFrom: ensureIsoTimestamp(
               command.effectiveFrom,
@@ -124,6 +134,7 @@ export const evolveCommercialAgreement: AggregateEvolver<
         label: event.data.label,
         marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
         marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,
+        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
         status: event.data.status,
         effectiveFrom: event.data.effectiveFrom,
         effectiveUntil: event.data.effectiveUntil,

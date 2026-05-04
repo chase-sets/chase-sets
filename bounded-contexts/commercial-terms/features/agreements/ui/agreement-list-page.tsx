@@ -68,6 +68,13 @@ export function AgreementListPage({
                 defaultValue="0.05"
                 required
               />
+              <NumberInput
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.shipping.allowance.bps")}
+                name="shippingAllowancePercentageBps"
+                min="0"
+                defaultValue="500"
+                required
+              />
               <NativeSelect
                 label={t("commercialTerms.features.agreements.ui.agreementListPage.status")}
                 name="status"
@@ -119,6 +126,9 @@ export function AgreementListPage({
                 <Stack gap={1}>
                   <Text size="sm">
                     {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}{row.marketplace_sales_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}{row.marketplace_sales_fee_fixed_amount}
+                  </Text>
+                  <Text size="sm">
+                    {t("commercialTerms.features.agreements.ui.agreementListPage.shipping.allowance")}{row.shipping_allowance_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}
                   </Text>
                 </Stack>
               ),

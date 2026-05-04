@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
   Card,
   LinkButton,
@@ -24,6 +25,10 @@ function statusTone(status: string) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function formatAllowancePercentage(bps: number) {
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
 
 export function MarketplaceOfferMatchDetailPage({
@@ -69,8 +74,18 @@ export function MarketplaceOfferMatchDetailPage({
             <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price")}{formatMoney(offer.price_amount)}</Text>
             {acceptanceTerms ? (
               <>
+                <Banner
+                  title={t("marketplace.features.offers.ui.offerMatchDetailPage.seller.shipping.allowance")}
+                  description={t("marketplace.features.offers.ui.offerMatchDetailPage.accepting.this.offer.earns.percentage.toward.shipping", {
+                    percentage: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
+                  })}
+                />
                 <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee")}{formatMoney(acceptanceTerms.marketplace_sales_fee_unit_amount)}</Text>
                 <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.seller.net")}{formatMoney(acceptanceTerms.seller_net_unit_amount)}</Text>
+                <Text>
+                  {t("marketplace.features.offers.ui.offerMatchDetailPage.shipping.allowance.rate")}
+                  {formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps)}
+                </Text>
                 <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.terms.source")}{acceptanceTerms.agreement_id ?? acceptanceTerms.schedule_id ?? t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms")}</Text>
                 <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quote.time")}{new Date(acceptanceTerms.resolved_at).toLocaleString()}</Text>
               </>

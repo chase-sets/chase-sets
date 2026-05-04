@@ -78,6 +78,13 @@ export function ScheduleListPage({
                 defaultValue="0.10"
                 required
               />
+              <NumberInput
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.shipping.allowance.bps")}
+                name="shippingAllowancePercentageBps"
+                min="0"
+                defaultValue="500"
+                required
+              />
               <NativeSelect
                 label={t("commercialTerms.features.schedules.ui.scheduleListPage.status")}
                 name="status"
@@ -127,6 +134,11 @@ export function ScheduleListPage({
               header: t("commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fee"),
               cell: (row) =>
                 `${row.marketplace_sales_fee_percentage_bps} bps + $${row.marketplace_sales_fee_fixed_amount}`,
+            },
+            {
+              key: "shippingAllowance",
+              header: t("commercialTerms.features.schedules.ui.scheduleListPage.shipping.allowance"),
+              cell: (row) => `${row.shipping_allowance_percentage_bps} bps`,
             },
             {
               key: "status",

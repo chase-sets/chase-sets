@@ -7,6 +7,7 @@ import {
   assert,
   assertNever,
   ensureIsoTimestamp,
+  DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   normalizeCommercialAccountType,
   normalizeCommercialTermsStatus,
   normalizeLabel,
@@ -22,6 +23,7 @@ export type CommercialTermsScheduleState = Readonly<{
   accountType: CommercialAccountType | null;
   marketplaceSalesFeePercentageBps: number | null;
   marketplaceSalesFeeFixedAmount: string | null;
+  shippingAllowancePercentageBps: number | null;
   status: CommercialTermsStatus | null;
   effectiveFrom: string | null;
   effectiveUntil: string | null;
@@ -33,6 +35,7 @@ export const initialCommercialTermsScheduleState: CommercialTermsScheduleState =
   accountType: null,
   marketplaceSalesFeePercentageBps: null,
   marketplaceSalesFeeFixedAmount: null,
+  shippingAllowancePercentageBps: null,
   status: null,
   effectiveFrom: null,
   effectiveUntil: null,
@@ -45,6 +48,7 @@ export type CreateScheduleCommand = Readonly<{
   accountType: CommercialAccountType;
   marketplaceSalesFeePercentageBps: number;
   marketplaceSalesFeeFixedAmount: string;
+  shippingAllowancePercentageBps?: number;
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
@@ -60,6 +64,7 @@ export type ScheduleCreatedEvent = DomainEvent<
     accountType: CommercialAccountType;
     marketplaceSalesFeePercentageBps: number;
     marketplaceSalesFeeFixedAmount: string;
+    shippingAllowancePercentageBps: number;
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
@@ -94,6 +99,11 @@ export const decideCommercialTermsSchedule: AggregateDecider<
                 allowZero: true,
               },
             ),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps ??
+                DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+              "Shipping allowance percentage",
+            ),
             status: normalizeCommercialTermsStatus(command.status),
             effectiveFrom: ensureIsoTimestamp(
               command.effectiveFrom,
@@ -126,6 +136,7 @@ export const evolveCommercialTermsSchedule: AggregateEvolver<
         accountType: event.data.accountType,
         marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
         marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,
+        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
         status: event.data.status,
         effectiveFrom: event.data.effectiveFrom,
         effectiveUntil: event.data.effectiveUntil,

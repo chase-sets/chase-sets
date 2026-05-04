@@ -142,10 +142,17 @@ function createOrderInputDb() {
             {
               order_id: "ord_1",
               buyer_account_id: "acc_buyer",
+              seller_account_id: "acc_seller",
               total_amount: "24.99",
               marketplace_sales_fee_amount: "1.00",
               marketplace_checkout_fee_amount: "0.50",
               seller_net_amount: "23.49",
+              seller_item_net_amount: "23.49",
+              shipping_allowance_amount: "1.00",
+              shipping_overage_amount: "3.99",
+              seller_shipping_payout_amount: "1.00",
+              seller_payout_amount: "24.49",
+              shipping_allowance_percentage_bps: 500,
               terms_schedule_id: null,
               terms_agreement_id: null,
               terms_resolved_at: "2026-04-29T00:00:00.000Z",
@@ -280,7 +287,31 @@ describe("payment runtime", () => {
       balance_credit_amount: "10.00",
       processor_amount: "15.75",
       marketplace_checkout_fee_amount: "0.76",
+      seller_payout_amount: "24.49",
+      seller_payouts: [
+        {
+          orderId: "ord_1",
+          sellerAccountId: "acc_seller",
+          sellerItemNetAmount: "23.49",
+          shippingAllowanceAmount: "1.00",
+          sellerShippingPayoutAmount: "1.00",
+          sellerPayoutAmount: "24.49",
+        },
+      ],
       status: "pending-confirmation",
+    });
+    expect(readAllEvents()[0]?.payload).toMatchObject({
+      sellerPayoutAmount: "24.49",
+      sellerPayouts: [
+        {
+          orderId: "ord_1",
+          sellerAccountId: "acc_seller",
+          sellerItemNetAmount: "23.49",
+          shippingAllowanceAmount: "1.00",
+          sellerShippingPayoutAmount: "1.00",
+          sellerPayoutAmount: "24.49",
+        },
+      ],
     });
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",
@@ -328,7 +359,18 @@ describe("payment runtime", () => {
       balance_credit_amount: "24.99",
       processor_amount: "0.00",
       processor_status: "balance-credit-captured",
+      seller_payout_amount: "24.49",
       status: "captured",
+    });
+    expect(readAllEvents()[1]?.payload).toMatchObject({
+      sellerPayoutAmount: "24.49",
+      sellerPayouts: [
+        expect.objectContaining({
+          orderId: "ord_1",
+          shippingAllowanceAmount: "1.00",
+          sellerShippingPayoutAmount: "1.00",
+        }),
+      ],
     });
     expect(readAllEvents().map((event) => event.eventType)).toEqual([
       "payments.payment-created",

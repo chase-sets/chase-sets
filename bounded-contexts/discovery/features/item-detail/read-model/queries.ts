@@ -35,6 +35,7 @@ export type DiscoveryItemDetailRow = Readonly<{
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
+    shipping_allowance_percentage_bps: number;
     quantity_cap: number;
     status: string;
     seller_display_name: string | null;

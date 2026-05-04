@@ -44,6 +44,9 @@ export function CheckoutAddToCartSection({
                 {t("checkout.features.cart.ui.addToCartSection.matching.visible.listings.right.now")}{visibleListingCount}
               </Text>
               <Text size="sm" tone="secondary">
+                {t("checkout.features.cart.ui.addToCartSection.same.seller.cards.earn.five.percent.toward.shipping")}
+              </Text>
+              <Text size="sm" tone="secondary">
                 {t("checkout.features.cart.ui.addToCartSection.cart.lines.capture.buyer.intent.exact")}</Text>
             </Stack>
             {errorMessage ? <Text>{errorMessage}</Text> : null}

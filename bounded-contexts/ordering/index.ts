@@ -18,6 +18,7 @@ import {
   buildOrderingInventorySupplyProjectionHandlers,
   buildOrderingMarketplaceSupplyProjectionHandlers,
 } from "./features/orders/integrations/supply/supply-projection";
+import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaSql } from "./support/runtime-support/schema";
 import { seedOrderingDatabase } from "./support/runtime-support/seed";
@@ -205,6 +206,47 @@ export const module: BcApiModule<
         subscriptionVersion: marketplaceOfferAcceptanceSubscription.subscriptionVersion,
         handlers: buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
           onOfferAccepted: async (params) => {
+            if (params.acceptanceBatchId) {
+              const batchRows = await listAcceptedOfferBatchInputs(
+                services.db,
+                params.acceptanceBatchId,
+              );
+              const expectedSize = params.acceptanceBatchSize ?? batchRows.length;
+              if (batchRows.length < expectedSize) {
+                return;
+              }
+              if (await hasOrderForSource(services.db, "offer-acceptance", params.acceptanceBatchId)) {
+                return;
+              }
+
+              await services.orders.createOrdersFromAcceptedOfferBatch(
+                {
+                  acceptanceBatchId: params.acceptanceBatchId,
+                  offers: batchRows.map((row) => ({
+                    offerId: row.offer_id,
+                    buyerAccountId: row.buyer_account_id as never,
+                    sellerAccountId: row.seller_account_id as never,
+                    catalogItemId: row.catalog_catalog_item_id,
+                    productId: row.product_id,
+                    itemTitle: row.item_title,
+                    itemSubtitle: row.item_subtitle,
+                    selectedOptions: [...row.selected_options],
+                    productSummary: row.product_summary,
+                    priceAmount: row.price_amount,
+                    marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
+                    sellerNetUnitAmount: row.seller_net_unit_amount,
+                    shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
+                    termsScheduleId: row.terms_schedule_id,
+                    termsAgreementId: row.terms_agreement_id,
+                    termsResolvedAt: row.terms_resolved_at,
+                    quantityRequested: row.quantity_requested,
+                  })),
+                },
+                params.context,
+              );
+              return;
+            }
+
             if (await hasOrderForSource(services.db, "offer-acceptance", params.offerId)) {
               return;
             }
@@ -226,6 +268,7 @@ export const module: BcApiModule<
                 termsScheduleId: params.termsScheduleId,
                 termsAgreementId: params.termsAgreementId,
                 termsResolvedAt: params.termsResolvedAt,
+                shippingAllowancePercentageBps: params.shippingAllowancePercentageBps,
                 quantityRequested: params.quantityRequested,
               },
               params.context,

@@ -2,10 +2,17 @@ export const paymentsOrderInputSchemaSql = `
 CREATE TABLE IF NOT EXISTS payments_order_inputs (
   order_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
+  seller_account_id text NOT NULL DEFAULT '',
   total_amount numeric(12, 2) NOT NULL,
   marketplace_sales_fee_amount numeric(12, 2) NOT NULL,
   marketplace_checkout_fee_amount numeric(12, 2) NOT NULL,
   seller_net_amount numeric(12, 2) NOT NULL,
+  seller_item_net_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  shipping_allowance_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  shipping_overage_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  seller_shipping_payout_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
@@ -18,4 +25,19 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
 
 CREATE INDEX IF NOT EXISTS payments_order_inputs_buyer_status_idx
   ON payments_order_inputs (buyer_account_id, status, updated_at DESC);
+
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS seller_account_id text NOT NULL DEFAULT '';
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS seller_item_net_amount numeric(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS shipping_allowance_amount numeric(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS shipping_overage_amount numeric(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS seller_shipping_payout_amount numeric(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
 `;

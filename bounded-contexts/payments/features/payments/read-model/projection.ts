@@ -19,6 +19,8 @@ export function buildPaymentProjectionHandlers(
         marketplaceCheckoutFeeQuoteFingerprint?: string | null;
         paymentMethodCategory?: string | null;
         sellerNetAmount: string;
+        sellerPayoutAmount?: string;
+        sellerPayouts?: unknown;
         currencyCode: string;
         processorName: string;
         processorPaymentKind?: string | null;
@@ -45,6 +47,8 @@ export function buildPaymentProjectionHandlers(
            marketplace_checkout_fee_quote_fingerprint,
            payment_method_category,
            seller_net_amount,
+           seller_payout_amount,
+           seller_payouts,
            currency_code,
            processor_name,
            processor_payment_kind,
@@ -64,7 +68,7 @@ export function buildPaymentProjectionHandlers(
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'pending-confirmation', NULL, NULL, $22, $22, NULL, NULL, NULL, $23
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'pending-confirmation', NULL, NULL, $24, $24, NULL, NULL, NULL, $25
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -78,6 +82,8 @@ export function buildPaymentProjectionHandlers(
              marketplace_checkout_fee_quote_fingerprint = EXCLUDED.marketplace_checkout_fee_quote_fingerprint,
              payment_method_category = EXCLUDED.payment_method_category,
              seller_net_amount = EXCLUDED.seller_net_amount,
+             seller_payout_amount = EXCLUDED.seller_payout_amount,
+             seller_payouts = EXCLUDED.seller_payouts,
              currency_code = EXCLUDED.currency_code,
              processor_name = EXCLUDED.processor_name,
              processor_payment_kind = EXCLUDED.processor_payment_kind,
@@ -104,6 +110,8 @@ export function buildPaymentProjectionHandlers(
           data.marketplaceCheckoutFeeQuoteFingerprint ?? null,
           data.paymentMethodCategory ?? null,
           data.sellerNetAmount,
+          data.sellerPayoutAmount ?? data.sellerNetAmount,
+          JSON.stringify(Array.isArray(data.sellerPayouts) ? data.sellerPayouts : []),
           data.currencyCode,
           data.processorName,
           data.processorPaymentKind ?? "payment-intent",

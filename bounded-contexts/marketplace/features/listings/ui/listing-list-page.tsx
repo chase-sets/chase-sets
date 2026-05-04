@@ -43,6 +43,10 @@ function statusTone(status: string) {
   }
 }
 
+function formatAllowancePercentage(bps: number) {
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
+}
+
 function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
   const segments = [
     inventoryItem.item_title ?? inventoryItem.catalog_catalog_item_id,
@@ -69,6 +73,9 @@ function renderFeeSummary(listing: MarketplaceListingListItem) {
     t("marketplace.features.listings.ui.listingListPage.net.summary", {
       amount: formatMoney(listing.seller_net_unit_amount),
     }),
+    t("marketplace.features.listings.ui.listingListPage.buyer.shipping.credit.summary", {
+      percentage: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+    }),
   ];
 
   return segments.join(" | ");
@@ -81,6 +88,9 @@ function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
     }),
     t("marketplace.features.listings.ui.listingListPage.net.summary", {
       amount: formatMoney(preview.seller_net_unit_amount),
+    }),
+    t("marketplace.features.listings.ui.listingListPage.buyer.shipping.credit.summary", {
+      percentage: formatAllowancePercentage(preview.shipping_allowance_percentage_bps),
     }),
   ].join(" | ");
 }

@@ -26,6 +26,7 @@ const currentQuote: MarketplaceListingTermsPreview = {
   basis_amount: "20.00",
   marketplace_sales_fee_unit_amount: "1.00",
   seller_net_unit_amount: "19.00",
+  shipping_allowance_percentage_bps: 500,
   schedule_id: "cts_current",
   agreement_id: null,
   resolved_at: "2026-04-17T00:00:00.000Z",

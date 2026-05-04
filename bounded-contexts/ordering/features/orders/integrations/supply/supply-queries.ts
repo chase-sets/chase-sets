@@ -22,6 +22,7 @@ type OrderingSupplyCandidateRow = Readonly<{
   price_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
@@ -72,9 +73,10 @@ export async function listOrderingSupplyCandidates(
        listing.price_amount::text AS price_amount,
        listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount::text AS seller_net_unit_amount,
+       listing.shipping_allowance_percentage_bps,
        listing.terms_schedule_id,
        listing.terms_agreement_id,
-       listing.terms_resolved_at,
+       listing.terms_resolved_at::text AS terms_resolved_at,
        LEAST(
          listing.quantity_cap,
          GREATEST(
@@ -82,7 +84,7 @@ export async function listOrderingSupplyCandidates(
            0
          )
        ) AS available_quantity,
-       listing.updated_at
+       listing.updated_at::text AS updated_at
      FROM ordering_market_listing_inputs AS listing
      INNER JOIN ordering_inventory_item_inputs AS item
        ON item.item_id = listing.inventory_item_id
@@ -121,6 +123,7 @@ export async function listOrderingSupplyCandidates(
       priceAmount: row.price_amount,
       marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
       sellerNetUnitAmount: row.seller_net_unit_amount,
+      shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
       termsScheduleId: row.terms_schedule_id,
       termsAgreementId: row.terms_agreement_id,
       termsResolvedAt: row.terms_resolved_at,
@@ -150,9 +153,10 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.price_amount::text AS price_amount,
        listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount::text AS seller_net_unit_amount,
+       listing.shipping_allowance_percentage_bps,
        listing.terms_schedule_id,
        listing.terms_agreement_id,
-       listing.terms_resolved_at,
+       listing.terms_resolved_at::text AS terms_resolved_at,
        LEAST(
          listing.quantity_cap,
          GREATEST(
@@ -160,7 +164,7 @@ export async function getOrderingSupplyCandidateByListingId(
            0
          )
        ) AS available_quantity,
-       listing.updated_at
+       listing.updated_at::text AS updated_at
      FROM ordering_market_listing_inputs AS listing
      INNER JOIN ordering_inventory_item_inputs AS item
        ON item.item_id = listing.inventory_item_id
@@ -198,10 +202,76 @@ export async function getOrderingSupplyCandidateByListingId(
     priceAmount: row.price_amount,
     marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
     sellerNetUnitAmount: row.seller_net_unit_amount,
+    shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
     termsScheduleId: row.terms_schedule_id,
     termsAgreementId: row.terms_agreement_id,
     termsResolvedAt: row.terms_resolved_at,
     availableQuantity: row.available_quantity,
     updatedAt: row.updated_at,
   };
+}
+
+export type OrderingAcceptedOfferBatchInputRow = Readonly<{
+  offer_id: string;
+  buyer_account_id: string;
+  seller_account_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string;
+  item_subtitle: string | null;
+  selected_options: readonly VersionSelectedOptionEntry[];
+  product_summary: string | null;
+  price_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string;
+  quantity_requested: number;
+  acceptance_batch_id: string | null;
+  acceptance_batch_size: number | null;
+}>;
+
+export async function listAcceptedOfferBatchInputs(
+  db: PgQueryable,
+  acceptanceBatchId: string,
+): Promise<readonly OrderingAcceptedOfferBatchInputRow[]> {
+  const result = await db.query<
+    Omit<OrderingAcceptedOfferBatchInputRow, "selected_options"> & Readonly<{
+      selected_options: unknown;
+    }>
+  >(
+    `SELECT
+       offer_id,
+       buyer_account_id,
+       seller_account_id,
+       catalog_catalog_item_id,
+       product_id,
+       item_title,
+       item_subtitle,
+       selected_options,
+       product_summary,
+       price_amount::text AS price_amount,
+       marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
+       seller_net_unit_amount::text AS seller_net_unit_amount,
+       shipping_allowance_percentage_bps,
+       terms_schedule_id,
+       terms_agreement_id,
+       terms_resolved_at::text AS terms_resolved_at,
+       quantity_requested,
+       acceptance_batch_id,
+       acceptance_batch_size
+     FROM ordering_offer_acceptance_inputs
+     WHERE acceptance_batch_id = $1
+     ORDER BY buyer_account_id ASC, offer_id ASC`,
+    [acceptanceBatchId],
+  );
+
+  return result.rows.map((row) => ({
+    ...row,
+    selected_options: Array.isArray(row.selected_options)
+      ? normalizeVersionSelection(row.selected_options as VersionSelectedOptionEntry[])
+      : [],
+  }));
 }

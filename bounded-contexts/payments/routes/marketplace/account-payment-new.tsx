@@ -222,8 +222,8 @@ export default function MarketplaceAccountPaymentNewRoute() {
   const marketplaceSalesFeeAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.marketplace_sales_fee_amount), 0)
     .toFixed(2);
-  const sellerNetAmount = data.orders
-    .reduce((sum, order) => sum + Number.parseFloat(order.seller_net_amount), 0)
+  const sellerPayoutAmount = data.orders
+    .reduce((sum, order) => sum + Number.parseFloat(order.seller_payout_amount), 0)
     .toFixed(2);
   const salesTaxAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.sales_tax_amount ?? "0.00"), 0)
@@ -253,7 +253,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
               lines={[
                 { label: t("payments.routes.marketplace.accountPaymentNew.purchases"), value: data.orders.length },
                 { label: t("payments.routes.marketplace.accountPaymentNew.marketplace.sales.fee"), value: formatMoney(marketplaceSalesFeeAmount) },
-                { label: t("payments.routes.marketplace.accountPaymentNew.seller.net"), value: formatMoney(sellerNetAmount) },
+                { label: t("payments.routes.marketplace.accountPaymentNew.seller.payout"), value: formatMoney(sellerPayoutAmount) },
                 { label: t("payments.routes.marketplace.accountPaymentNew.sales.tax"), value: formatMoney(salesTaxAmount) },
                 {
                   label: t("payments.routes.marketplace.accountPaymentNew.marketplace.checkout.fee"),
@@ -434,8 +434,8 @@ export default function MarketplaceAccountPaymentNewRoute() {
                         <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPaymentNew.seller.net.2")}</Text>
-                        <Text>{formatMoney(order.seller_net_amount)}</Text>
+                        <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPaymentNew.seller.payout")}</Text>
+                        <Text>{formatMoney(order.seller_payout_amount)}</Text>
                       </Stack>
                     </Grid>
                     <Divider />

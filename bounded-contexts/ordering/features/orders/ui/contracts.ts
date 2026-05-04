@@ -10,11 +10,16 @@ export interface OrderingOrderProjection {
   item_subtotal_amount: string;
   shipping_base_amount: string;
   shipping_discount_amount: string;
+  shipping_allowance_amount: string;
+  shipping_overage_amount: string;
   shipping_charge_amount: string;
   sales_tax_amount: string;
   total_amount: string;
   marketplace_sales_fee_amount: string;
   seller_net_amount: string;
+  seller_item_net_amount: string;
+  seller_payout_amount: string;
+  shipping_allowance_percentage_bps: number;
   taxable_amount: string;
   tax_jurisdiction_country: string | null;
   tax_jurisdiction_state: string | null;

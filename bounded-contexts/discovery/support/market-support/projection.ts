@@ -46,6 +46,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
+    shipping_allowance_percentage_bps: number;
     quantity_cap: number;
     status: string;
     created_at: string;
@@ -387,6 +388,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
+        shippingAllowancePercentageBps?: number;
         quantityCap: number;
       };
       const listingSlug = createMarketplaceSlug(
@@ -423,12 +425,13 @@ export function buildDiscoveryMarketProjectionHandlers(
           storage_location_name,
           ship_from_code,
           price_amount,
+          shipping_allowance_percentage_bps,
           quantity_cap,
           status,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'draft', $16, $16
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'draft', $17, $17
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           listing_slug = EXCLUDED.listing_slug,
@@ -444,6 +447,7 @@ export function buildDiscoveryMarketProjectionHandlers(
           storage_location_name = EXCLUDED.storage_location_name,
           ship_from_code = EXCLUDED.ship_from_code,
           price_amount = EXCLUDED.price_amount,
+          shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
           quantity_cap = EXCLUDED.quantity_cap,
           updated_at = EXCLUDED.updated_at`,
         [
@@ -461,6 +465,7 @@ export function buildDiscoveryMarketProjectionHandlers(
           data.storageLocationName,
           data.shipFromCode,
           data.priceAmount,
+          data.shippingAllowancePercentageBps ?? 500,
           data.quantityCap,
           event.timing.recordedAt,
         ],
@@ -485,11 +490,13 @@ export function buildDiscoveryMarketProjectionHandlers(
       await db.query(
         `UPDATE discovery_market_listings
          SET price_amount = $2,
-             updated_at = $3
+             shipping_allowance_percentage_bps = COALESCE($3, shipping_allowance_percentage_bps),
+             updated_at = $4
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           (event.data as { priceAmount: string }).priceAmount,
+          (event.data as { shippingAllowancePercentageBps?: number }).shippingAllowancePercentageBps ?? null,
           event.timing.recordedAt,
         ],
       );
@@ -499,11 +506,13 @@ export function buildDiscoveryMarketProjectionHandlers(
       await db.query(
         `UPDATE discovery_market_listings
          SET quantity_cap = $2,
-             updated_at = $3
+             shipping_allowance_percentage_bps = COALESCE($3, shipping_allowance_percentage_bps),
+             updated_at = $4
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           (event.data as { quantityCap: number }).quantityCap,
+          (event.data as { shippingAllowancePercentageBps?: number }).shippingAllowancePercentageBps ?? null,
           event.timing.recordedAt,
         ],
       );

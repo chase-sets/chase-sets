@@ -88,8 +88,8 @@ export function OrderingOrderListPage({
                       <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderListPage.seller.net")}</Text>
-                      <Text>{formatMoney(order.seller_net_amount)}</Text>
+                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderListPage.seller.payout")}</Text>
+                      <Text>{formatMoney(order.seller_payout_amount)}</Text>
                     </Stack>
                   </Grid>
                   <LinkButton href={`${orderDetailBasePath}/${order.order_id}`} tone="secondary">

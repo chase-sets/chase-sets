@@ -8,6 +8,7 @@ export type CommercialAgreementRow = Readonly<{
   label: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
+  shipping_allowance_percentage_bps: number;
   status: string;
   effective_from: string;
   effective_until: string | null;
@@ -24,6 +25,7 @@ const agreementSelect = `
     agreement.label,
     agreement.marketplace_sales_fee_percentage_bps,
     agreement.marketplace_sales_fee_fixed_amount::text,
+    agreement.shipping_allowance_percentage_bps,
     agreement.status,
     agreement.effective_from,
     agreement.effective_until,

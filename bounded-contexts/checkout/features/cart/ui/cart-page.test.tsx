@@ -24,6 +24,8 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Calculated during checkout");
     expect(markup).toContain("Ready for checkout");
     expect(markup).toContain("Cart status");
+    expect(markup).toContain("Shipping credit grows with same-seller cards");
+    expect(markup).toContain("Listings earn 5% of item value toward shipping");
     expect(markup).toContain("Start checkout");
     expect(markup).not.toContain("Estimated total");
     expect(markup).not.toContain(">Pending<");

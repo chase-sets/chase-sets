@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS discovery_market_listings (
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount text NOT NULL,
+  shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   quantity_cap integer NOT NULL DEFAULT 0,
   status text NOT NULL DEFAULT 'draft',
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -38,6 +39,9 @@ ALTER TABLE discovery_market_listings
 
 ALTER TABLE discovery_market_listings
   ADD COLUMN IF NOT EXISTS product_slug text NOT NULL DEFAULT '';
+
+ALTER TABLE discovery_market_listings
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
 
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_market_listings_listing_slug_idx
   ON discovery_market_listings (listing_slug) WHERE listing_slug <> '';

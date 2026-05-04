@@ -7,6 +7,7 @@ import {
   createSessionTags,
   normalizeDomain,
   parseArgs,
+  resolveDnsRecordNames,
   resolveExpiresAt,
   resolveSessionUrls,
   sanitizeSlugPart,
@@ -38,6 +39,17 @@ describe("remote-dev planning helpers", () => {
     expect(createSessionTags({ slug: "abc", branch: "main", expiresAt })).toContain("rd-exp:1777982400");
   });
 
+  it("resolves DNS record names inside an apex zone", () => {
+    expect(resolveDnsRecordNames("smoke-test", "dev.chasesets.com", "chasesets.com")).toEqual({
+      root: "smoke-test.dev",
+      wildcard: "*.smoke-test.dev",
+    });
+    expect(resolveDnsRecordNames("smoke-test", "dev.chasesets.com")).toEqual({
+      root: "smoke-test",
+      wildcard: "*.smoke-test",
+    });
+  });
+
   it("builds create plans with DigitalOcean droplet, firewall, and DNS commands", () => {
     const plan = buildCreatePlan({
       slug: "main-fedefa2-x1y2z3",
@@ -47,6 +59,7 @@ describe("remote-dev planning helpers", () => {
       size: "s-2vcpu-4gb",
       image: "ubuntu-24-04-x64",
       domain: "dev.example.com",
+      dnsZone: "example.com",
       sshKeyId: "12345",
       userDataPath: "/tmp/cloud-init.yml",
       publicIpPlaceholder: "203.0.113.10",
@@ -63,13 +76,15 @@ describe("remote-dev planning helpers", () => {
       "Create wildcard DNS record",
     ]);
     expect(plan.find((step) => step.label === "Create Droplet").args).toContain("ubuntu-24-04-x64");
-    expect(plan.at(-1).args).toContain("*.main-fedefa2-x1y2z3");
+    expect(plan.at(-2).args).toContain("main-fedefa2-x1y2z3.dev");
+    expect(plan.at(-1).args).toContain("*.main-fedefa2-x1y2z3.dev");
   });
 
   it("builds destroy plans for droplet, DNS, firewall, and session tag cleanup", () => {
     const plan = buildDestroyPlan({
       slug: "abc",
       domain: "dev.example.com",
+      dnsZone: "example.com",
       dropletId: 101,
       dnsRecordIds: [201, 202],
       firewallId: "fw-1",
@@ -78,6 +93,7 @@ describe("remote-dev planning helpers", () => {
     expect(plan.map((step) => step.command)).toEqual(["doctl", "doctl", "doctl", "doctl", "doctl"]);
     expect(plan[0].args).toEqual(["compute", "droplet", "delete", "101", "--force"]);
     expect(plan[1].args).toContain("201");
+    expect(plan[1].args).toContain("example.com");
     expect(plan[3].args).toContain("fw-1");
   });
 

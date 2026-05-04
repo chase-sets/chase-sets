@@ -33,6 +33,7 @@ export type MarketplaceSupplyCandidate = Readonly<{
   priceAmount: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
@@ -43,8 +44,8 @@ export type MarketplaceSupplyCandidate = Readonly<{
 export type ShippingQuoteResult = Readonly<{
   shippingOption: ShippingOption;
   baseAmount: string;
-  discountAmount: string;
-  chargeAmount: string;
+  discountAmount?: string;
+  chargeAmount?: string;
 }>;
 
 export interface ShippingQuotePolicy {
@@ -75,24 +76,11 @@ export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
     const consolidationSurcharge = Math.max(0, listingCount - 1) * 0.5;
     const baseAmount = perOrderBase + volumeSurcharge + consolidationSurcharge;
 
-    const discountAmount =
-      shippingOption === "standard"
-        ? subtotal >= 50
-          ? baseAmount
-          : subtotal >= 25
-            ? Math.min(baseAmount, 2.5)
-            : 0
-        : shippingOption === "expedited"
-          ? subtotal >= 100
-            ? Math.min(baseAmount, 5)
-            : 0
-          : 0;
-
     return {
       shippingOption,
       baseAmount: numberToMoneyAmount(baseAmount),
-      discountAmount: numberToMoneyAmount(discountAmount),
-      chargeAmount: numberToMoneyAmount(Math.max(0, baseAmount - discountAmount)),
+      discountAmount: "0.00",
+      chargeAmount: numberToMoneyAmount(baseAmount),
     };
   },
 };

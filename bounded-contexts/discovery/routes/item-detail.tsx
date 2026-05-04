@@ -65,6 +65,10 @@ type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch & Readonly<{
   acceptance_terms: MarketplaceListingTermsPreview | null;
 }>;
 
+function formatAllowancePercentage(bps: number) {
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
+}
+
 function buildRegisterToSellHref(request: Request) {
   const url = new URL(request.url);
   const returnTo = `${url.pathname}${url.search}`;
@@ -215,7 +219,13 @@ export function CheckoutPurchaseIntentSection({
   actions?: ReactNode;
   catalogItemId: string;
   productId: string | null;
-  selectedListing: { listing_id: string; price_amount: string; seller_display_name: string | null; visible_quantity: number } | null;
+  selectedListing: {
+    listing_id: string;
+    price_amount: string;
+    seller_display_name: string | null;
+    shipping_allowance_percentage_bps: number;
+    visible_quantity: number;
+  } | null;
   itemTitle: string;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
@@ -268,6 +278,13 @@ export function CheckoutPurchaseIntentSection({
                 {t("discovery.routes.itemDetail.selected.listing.summary", {
                   price: selectedListing.price_amount,
                   seller: selectedListing.seller_display_name ?? t("discovery.routes.itemDetail.seller"),
+                })}
+              </Text>
+            ) : null}
+            {selectedListing ? (
+              <Text size="sm" tone="secondary">
+                {t("discovery.routes.itemDetail.selected.listing.shipping.credit", {
+                  percentage: formatAllowancePercentage(selectedListing.shipping_allowance_percentage_bps),
                 })}
               </Text>
             ) : null}
@@ -392,6 +409,13 @@ function MarketplaceOfferMatchSection({
                     <Text size="sm" tone="secondary">
                       {t("discovery.routes.itemDetail.offer.seller.net", {
                         amount: selectedOffer.acceptance_terms.seller_net_unit_amount,
+                      })}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {t("discovery.routes.itemDetail.offer.shipping.allowance", {
+                        percentage: formatAllowancePercentage(
+                          selectedOffer.acceptance_terms.shipping_allowance_percentage_bps,
+                        ),
                       })}
                     </Text>
                     <Text size="sm" tone="secondary">

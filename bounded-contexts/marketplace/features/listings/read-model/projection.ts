@@ -21,6 +21,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     price_amount: string;
     marketplace_sales_fee_unit_amount: string;
     seller_net_unit_amount: string;
+    shipping_allowance_percentage_bps: number;
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
     terms_resolved_at: string | null;
@@ -87,6 +88,7 @@ export function buildMarketplaceListingProjectionHandlers(
         priceAmount: string;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
@@ -111,6 +113,7 @@ export function buildMarketplaceListingProjectionHandlers(
           price_amount,
           marketplace_sales_fee_unit_amount,
           seller_net_unit_amount,
+          shipping_allowance_percentage_bps,
           terms_schedule_id,
           terms_agreement_id,
           terms_resolved_at,
@@ -120,7 +123,7 @@ export function buildMarketplaceListingProjectionHandlers(
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'draft', $21, $21
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'draft', $22, $22
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
@@ -137,6 +140,7 @@ export function buildMarketplaceListingProjectionHandlers(
           price_amount = EXCLUDED.price_amount,
           marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
           seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
+          shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
           terms_schedule_id = EXCLUDED.terms_schedule_id,
           terms_agreement_id = EXCLUDED.terms_agreement_id,
           terms_resolved_at = EXCLUDED.terms_resolved_at,
@@ -161,6 +165,7 @@ export function buildMarketplaceListingProjectionHandlers(
           data.priceAmount,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
+          data.shippingAllowancePercentageBps ?? 500,
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
@@ -177,6 +182,7 @@ export function buildMarketplaceListingProjectionHandlers(
         priceAmount,
         marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount,
+        shippingAllowancePercentageBps,
         termsScheduleId,
         termsAgreementId,
         termsResolvedAt,
@@ -185,6 +191,7 @@ export function buildMarketplaceListingProjectionHandlers(
         priceAmount: string;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
@@ -196,17 +203,19 @@ export function buildMarketplaceListingProjectionHandlers(
          SET price_amount = $2,
              marketplace_sales_fee_unit_amount = $3,
              seller_net_unit_amount = $4,
-             terms_schedule_id = $5,
-             terms_agreement_id = $6,
-             terms_resolved_at = $7,
-             fee_quote_fingerprint = $8,
-             updated_at = $9
+             shipping_allowance_percentage_bps = $5,
+             terms_schedule_id = $6,
+             terms_agreement_id = $7,
+             terms_resolved_at = $8,
+             fee_quote_fingerprint = $9,
+             updated_at = $10
          WHERE listing_id = $1`,
         [
           listingId,
           priceAmount,
           marketplaceSalesFeeUnitAmount,
           sellerNetUnitAmount,
+          shippingAllowancePercentageBps ?? 500,
           termsScheduleId,
           termsAgreementId,
           termsResolvedAt,
@@ -222,6 +231,7 @@ export function buildMarketplaceListingProjectionHandlers(
         quantityCap,
         marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount,
+        shippingAllowancePercentageBps,
         termsScheduleId,
         termsAgreementId,
         termsResolvedAt,
@@ -230,6 +240,7 @@ export function buildMarketplaceListingProjectionHandlers(
         quantityCap: number;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
@@ -241,17 +252,19 @@ export function buildMarketplaceListingProjectionHandlers(
          SET quantity_cap = $2,
              marketplace_sales_fee_unit_amount = $3,
              seller_net_unit_amount = $4,
-             terms_schedule_id = $5,
-             terms_agreement_id = $6,
-             terms_resolved_at = $7,
-             fee_quote_fingerprint = $8,
-             updated_at = $9
+             shipping_allowance_percentage_bps = $5,
+             terms_schedule_id = $6,
+             terms_agreement_id = $7,
+             terms_resolved_at = $8,
+             fee_quote_fingerprint = $9,
+             updated_at = $10
          WHERE listing_id = $1`,
         [
           listingId,
           quantityCap,
           marketplaceSalesFeeUnitAmount,
           sellerNetUnitAmount,
+          shippingAllowancePercentageBps ?? 500,
           termsScheduleId,
           termsAgreementId,
           termsResolvedAt,
@@ -266,6 +279,7 @@ export function buildMarketplaceListingProjectionHandlers(
       const {
         marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount,
+        shippingAllowancePercentageBps,
         termsScheduleId,
         termsAgreementId,
         termsResolvedAt,
@@ -273,6 +287,7 @@ export function buildMarketplaceListingProjectionHandlers(
       } = event.data as {
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string | null;
@@ -284,16 +299,18 @@ export function buildMarketplaceListingProjectionHandlers(
          SET status = 'active',
              marketplace_sales_fee_unit_amount = $2,
              seller_net_unit_amount = $3,
-             terms_schedule_id = $4,
-             terms_agreement_id = $5,
-             terms_resolved_at = $6,
-             fee_quote_fingerprint = $7,
-             updated_at = $8
+             shipping_allowance_percentage_bps = $4,
+             terms_schedule_id = $5,
+             terms_agreement_id = $6,
+             terms_resolved_at = $7,
+             fee_quote_fingerprint = $8,
+             updated_at = $9
          WHERE listing_id = $1`,
         [
           listingId,
           marketplaceSalesFeeUnitAmount,
           sellerNetUnitAmount,
+          shippingAllowancePercentageBps ?? 500,
           termsScheduleId,
           termsAgreementId,
           termsResolvedAt,

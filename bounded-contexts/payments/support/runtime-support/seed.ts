@@ -13,10 +13,15 @@ import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
 type OrderRow = Readonly<{
   order_id: string;
   buyer_account_id: string;
+  seller_account_id: string;
   total_amount: string;
   marketplace_sales_fee_amount: string;
   marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
+  seller_item_net_amount: string;
+  shipping_allowance_amount: string;
+  seller_shipping_payout_amount: string;
+  seller_payout_amount: string;
 }>;
 
 type PaymentPageRow = Readonly<{
@@ -60,10 +65,15 @@ async function getSeedOrder(
     `SELECT
        order_id,
        buyer_account_id,
+       seller_account_id,
        total_amount::text AS total_amount,
        marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
        marketplace_checkout_fee_amount::text AS marketplace_checkout_fee_amount,
        seller_net_amount::text AS seller_net_amount,
+       seller_item_net_amount::text AS seller_item_net_amount,
+       shipping_allowance_amount::text AS shipping_allowance_amount,
+       seller_shipping_payout_amount::text AS seller_shipping_payout_amount,
+       seller_payout_amount::text AS seller_payout_amount,
        status
      FROM payments_order_inputs
      WHERE order_id = $1
@@ -85,10 +95,15 @@ async function getSeedOrder(
   return {
     order_id: order.order_id,
     buyer_account_id: order.buyer_account_id,
+    seller_account_id: order.seller_account_id,
     total_amount: order.total_amount,
     marketplace_sales_fee_amount: order.marketplace_sales_fee_amount,
     marketplace_checkout_fee_amount: order.marketplace_checkout_fee_amount,
     seller_net_amount: order.seller_net_amount,
+    seller_item_net_amount: order.seller_item_net_amount,
+    shipping_allowance_amount: order.shipping_allowance_amount,
+    seller_shipping_payout_amount: order.seller_shipping_payout_amount,
+    seller_payout_amount: order.seller_payout_amount,
   };
 }
 
@@ -186,6 +201,27 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         sellerNetAmount: normalizeMoneyAmount(order.seller_net_amount, {
           allowZero: true,
         }),
+        sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount, {
+          allowZero: true,
+        }),
+        sellerPayouts: [
+          {
+            orderId: order.order_id as never,
+            sellerAccountId: order.seller_account_id as never,
+            sellerItemNetAmount: normalizeMoneyAmount(order.seller_item_net_amount, {
+              allowZero: true,
+            }),
+            shippingAllowanceAmount: normalizeMoneyAmount(order.shipping_allowance_amount, {
+              allowZero: true,
+            }),
+            sellerShippingPayoutAmount: normalizeMoneyAmount(order.seller_shipping_payout_amount, {
+              allowZero: true,
+            }),
+            sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount, {
+              allowZero: true,
+            }),
+          },
+        ],
         currencyCode: "usd",
         processorName: processorPayment.processorName,
         processorPaymentKind: processorPayment.processorPaymentKind,

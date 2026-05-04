@@ -16,6 +16,8 @@ export function buildOrderingOrderProjectionHandlers(
         itemSubtotalAmount: string;
         shippingBaseAmount: string;
         shippingDiscountAmount: string;
+        shippingAllowanceAmount?: string;
+        shippingOverageAmount?: string;
         shippingChargeAmount: string;
         totalAmount: string;
         salesTaxAmount: string;
@@ -32,6 +34,10 @@ export function buildOrderingOrderProjectionHandlers(
         commercialTermsSnapshot: {
           marketplaceSalesFeeAmount: string;
           sellerNetAmount: string;
+          sellerItemNetAmount?: string;
+          shippingAllowanceAmount?: string;
+          sellerPayoutAmount?: string;
+          shippingAllowancePercentageBps?: number;
           termsScheduleId: string | null;
           termsAgreementId: string | null;
           termsResolvedAt: string;
@@ -73,6 +79,8 @@ export function buildOrderingOrderProjectionHandlers(
            item_subtotal_amount,
            shipping_base_amount,
            shipping_discount_amount,
+           shipping_allowance_amount,
+           shipping_overage_amount,
            shipping_charge_amount,
            sales_tax_amount,
            taxable_amount,
@@ -85,6 +93,9 @@ export function buildOrderingOrderProjectionHandlers(
            total_amount,
            marketplace_sales_fee_amount,
            seller_net_amount,
+           seller_item_net_amount,
+           seller_payout_amount,
+           shipping_allowance_percentage_bps,
            terms_schedule_id,
            terms_agreement_id,
            terms_resolved_at,
@@ -95,7 +106,7 @@ export function buildOrderingOrderProjectionHandlers(
            cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-reservation', $25, $25, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, 'pending-reservation', $30, $30, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
@@ -106,6 +117,8 @@ export function buildOrderingOrderProjectionHandlers(
              item_subtotal_amount = EXCLUDED.item_subtotal_amount,
              shipping_base_amount = EXCLUDED.shipping_base_amount,
              shipping_discount_amount = EXCLUDED.shipping_discount_amount,
+             shipping_allowance_amount = EXCLUDED.shipping_allowance_amount,
+             shipping_overage_amount = EXCLUDED.shipping_overage_amount,
              shipping_charge_amount = EXCLUDED.shipping_charge_amount,
              sales_tax_amount = EXCLUDED.sales_tax_amount,
              taxable_amount = EXCLUDED.taxable_amount,
@@ -118,6 +131,9 @@ export function buildOrderingOrderProjectionHandlers(
              total_amount = EXCLUDED.total_amount,
              marketplace_sales_fee_amount = EXCLUDED.marketplace_sales_fee_amount,
              seller_net_amount = EXCLUDED.seller_net_amount,
+             seller_item_net_amount = EXCLUDED.seller_item_net_amount,
+             seller_payout_amount = EXCLUDED.seller_payout_amount,
+             shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
              terms_resolved_at = EXCLUDED.terms_resolved_at,
@@ -135,6 +151,8 @@ export function buildOrderingOrderProjectionHandlers(
           data.itemSubtotalAmount,
           data.shippingBaseAmount,
           data.shippingDiscountAmount,
+          data.shippingAllowanceAmount ?? data.shippingChargeAmount,
+          data.shippingOverageAmount ?? "0.00",
           data.shippingChargeAmount,
           data.salesTaxAmount,
           data.taxSnapshot.taxableAmount,
@@ -147,6 +165,18 @@ export function buildOrderingOrderProjectionHandlers(
           data.totalAmount,
           data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
           data.commercialTermsSnapshot.sellerNetAmount,
+          data.commercialTermsSnapshot.sellerItemNetAmount ??
+            data.commercialTermsSnapshot.sellerNetAmount,
+          data.commercialTermsSnapshot.sellerPayoutAmount ??
+            (
+              Number.parseFloat(data.commercialTermsSnapshot.sellerNetAmount) +
+              Number.parseFloat(
+                data.commercialTermsSnapshot.shippingAllowanceAmount ??
+                  data.shippingAllowanceAmount ??
+                  "0.00",
+              )
+            ).toFixed(2),
+          data.commercialTermsSnapshot.shippingAllowancePercentageBps ?? 500,
           data.commercialTermsSnapshot.termsScheduleId,
           data.commercialTermsSnapshot.termsAgreementId,
           data.commercialTermsSnapshot.termsResolvedAt,

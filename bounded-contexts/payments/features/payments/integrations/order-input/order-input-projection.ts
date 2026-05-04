@@ -9,10 +9,18 @@ export function buildPaymentsOrderInputProjectionHandlers(
       const data = event.data as {
         orderId: string;
         buyerAccountId: string;
+        sellerAccountId: string;
         totalAmount: string;
+        shippingAllowanceAmount?: string;
+        shippingOverageAmount?: string;
         commercialTermsSnapshot: {
           marketplaceSalesFeeAmount: string;
           sellerNetAmount: string;
+          sellerItemNetAmount?: string;
+          shippingAllowanceAmount?: string;
+          sellerShippingPayoutAmount?: string;
+          sellerPayoutAmount?: string;
+          shippingAllowancePercentageBps?: number;
           termsScheduleId: string | null;
           termsAgreementId: string | null;
           termsResolvedAt: string;
@@ -23,10 +31,17 @@ export function buildPaymentsOrderInputProjectionHandlers(
         `INSERT INTO payments_order_inputs (
            order_id,
            buyer_account_id,
+           seller_account_id,
            total_amount,
            marketplace_sales_fee_amount,
            marketplace_checkout_fee_amount,
            seller_net_amount,
+           seller_item_net_amount,
+            shipping_allowance_amount,
+            shipping_overage_amount,
+            seller_shipping_payout_amount,
+            seller_payout_amount,
+           shipping_allowance_percentage_bps,
            terms_schedule_id,
            terms_agreement_id,
            terms_resolved_at,
@@ -35,13 +50,20 @@ export function buildPaymentsOrderInputProjectionHandlers(
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending-reservation', $10, $10, NULL, NULL)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending-reservation', $17, $17, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
+             seller_account_id = EXCLUDED.seller_account_id,
              total_amount = EXCLUDED.total_amount,
              marketplace_sales_fee_amount = EXCLUDED.marketplace_sales_fee_amount,
              marketplace_checkout_fee_amount = EXCLUDED.marketplace_checkout_fee_amount,
              seller_net_amount = EXCLUDED.seller_net_amount,
+             seller_item_net_amount = EXCLUDED.seller_item_net_amount,
+              shipping_allowance_amount = EXCLUDED.shipping_allowance_amount,
+              shipping_overage_amount = EXCLUDED.shipping_overage_amount,
+              seller_shipping_payout_amount = EXCLUDED.seller_shipping_payout_amount,
+              seller_payout_amount = EXCLUDED.seller_payout_amount,
+             shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
              terms_resolved_at = EXCLUDED.terms_resolved_at,
@@ -52,11 +74,33 @@ export function buildPaymentsOrderInputProjectionHandlers(
         [
           data.orderId,
           data.buyerAccountId,
+          data.sellerAccountId,
           data.totalAmount,
           data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
           // Marketplace Checkout Fee is payment-level; order inputs stay explicit at zero.
           "0.00",
           data.commercialTermsSnapshot.sellerNetAmount,
+          data.commercialTermsSnapshot.sellerItemNetAmount ??
+            data.commercialTermsSnapshot.sellerNetAmount,
+          data.commercialTermsSnapshot.shippingAllowanceAmount ??
+            data.shippingAllowanceAmount ??
+            "0.00",
+          data.shippingOverageAmount ?? "0.00",
+          data.commercialTermsSnapshot.sellerShippingPayoutAmount ??
+            data.commercialTermsSnapshot.shippingAllowanceAmount ??
+            data.shippingAllowanceAmount ??
+            "0.00",
+          data.commercialTermsSnapshot.sellerPayoutAmount ??
+            (
+              Number.parseFloat(data.commercialTermsSnapshot.sellerNetAmount) +
+              Number.parseFloat(
+                data.commercialTermsSnapshot.sellerShippingPayoutAmount ??
+                  data.commercialTermsSnapshot.shippingAllowanceAmount ??
+                  data.shippingAllowanceAmount ??
+                  "0.00",
+              )
+            ).toFixed(2),
+          data.commercialTermsSnapshot.shippingAllowancePercentageBps ?? 500,
           data.commercialTermsSnapshot.termsScheduleId,
           data.commercialTermsSnapshot.termsAgreementId,
           data.commercialTermsSnapshot.termsResolvedAt,

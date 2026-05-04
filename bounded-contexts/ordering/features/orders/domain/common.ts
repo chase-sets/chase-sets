@@ -79,6 +79,11 @@ export function numberToMoneyAmount(value: number) {
   return value.toFixed(2);
 }
 
+export function numberToMoneyAmountRoundDown(value: number) {
+  assert(Number.isFinite(value) && value >= 0, "Monetary values cannot be negative.");
+  return (Math.floor(value * 100) / 100).toFixed(2);
+}
+
 export function normalizeVersionSelection(
   value: readonly VersionSelectedOptionEntry[],
 ): VersionSelectedOptionEntry[] {

@@ -42,6 +42,8 @@ export type OrderingOrderListRow = Readonly<{
   item_subtotal_amount: string;
   shipping_base_amount: string;
   shipping_discount_amount: string;
+  shipping_allowance_amount: string;
+  shipping_overage_amount: string;
   shipping_charge_amount: string;
   sales_tax_amount: string;
   taxable_amount: string;
@@ -54,6 +56,9 @@ export type OrderingOrderListRow = Readonly<{
   total_amount: string;
   marketplace_sales_fee_amount: string;
   seller_net_amount: string;
+  seller_item_net_amount: string;
+  seller_payout_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
@@ -85,6 +90,8 @@ type BaseOrderPageRow = Readonly<{
   item_subtotal_amount: string;
   shipping_base_amount: string;
   shipping_discount_amount: string;
+  shipping_allowance_amount: string;
+  shipping_overage_amount: string;
   shipping_charge_amount: string;
   sales_tax_amount: string;
   taxable_amount: string;
@@ -97,6 +104,9 @@ type BaseOrderPageRow = Readonly<{
   total_amount: string;
   marketplace_sales_fee_amount: string;
   seller_net_amount: string;
+  seller_item_net_amount: string;
+  seller_payout_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
@@ -142,6 +152,8 @@ const baseOrderSelect = `
     page.item_subtotal_amount::text AS item_subtotal_amount,
     page.shipping_base_amount::text AS shipping_base_amount,
     page.shipping_discount_amount::text AS shipping_discount_amount,
+    page.shipping_allowance_amount::text AS shipping_allowance_amount,
+    page.shipping_overage_amount::text AS shipping_overage_amount,
     page.shipping_charge_amount::text AS shipping_charge_amount,
     page.sales_tax_amount::text AS sales_tax_amount,
     page.taxable_amount::text AS taxable_amount,
@@ -154,6 +166,9 @@ const baseOrderSelect = `
     page.total_amount::text AS total_amount,
     page.marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
     page.seller_net_amount::text AS seller_net_amount,
+    page.seller_item_net_amount::text AS seller_item_net_amount,
+    page.seller_payout_amount::text AS seller_payout_amount,
+    page.shipping_allowance_percentage_bps,
     page.terms_schedule_id,
     page.terms_agreement_id,
     page.terms_resolved_at,

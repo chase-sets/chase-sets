@@ -88,6 +88,7 @@ export function createAgreementRoutes(services: AgreementServices) {
           label: String(body.label ?? ""),
           marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
           marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
+          shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
           status: String(body.status ?? "active") as never,
           effectiveFrom:
             typeof body.effectiveFrom === "string"

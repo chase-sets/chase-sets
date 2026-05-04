@@ -38,6 +38,25 @@ const webhookPathPrefixes = [
   "/api/settlement/provider/money-movement/webhooks",
 ];
 
+const persistedEnvKeys = [
+  "DIGITALOCEAN_ACCESS_TOKEN",
+  "REMOTE_DEV_DOMAIN",
+  "REMOTE_DEV_DNS_ZONE",
+  "REMOTE_DEV_SSH_KEY_ID",
+  "REMOTE_DEV_SSH_PUBLIC_KEY_PATH",
+  "REMOTE_DEV_SSH_USER",
+  "REMOTE_DEV_SSH_CIDR",
+  "REMOTE_DEV_REGION",
+  "REMOTE_DEV_SIZE",
+  "REMOTE_DEV_IMAGE",
+  "REMOTE_DEV_TTL_HOURS",
+  "REMOTE_DEV_BASIC_AUTH_USER",
+  "REMOTE_DEV_BASIC_AUTH_PASSWORD",
+  "REMOTE_DEV_BASIC_AUTH_HASH",
+  "REMOTE_DEV_CADDY_EMAIL",
+  "REMOTE_DEV_SECRET_ENV_PATH",
+];
+
 function printUsage() {
   console.log(`Usage:
   npm run remote-dev -- create [--dry-run] [--name <slug>] [--branch <branch>]
@@ -59,6 +78,7 @@ function printUsage() {
 Required for create:
   DIGITALOCEAN_ACCESS_TOKEN
   REMOTE_DEV_DOMAIN
+  REMOTE_DEV_DNS_ZONE, optional when different from REMOTE_DEV_DOMAIN
   REMOTE_DEV_SSH_KEY_ID or REMOTE_DEV_SSH_PUBLIC_KEY_PATH
   REMOTE_DEV_BASIC_AUTH_USER and either REMOTE_DEV_BASIC_AUTH_HASH or REMOTE_DEV_BASIC_AUTH_PASSWORD
 `);
@@ -148,6 +168,28 @@ export function resolveSessionUrls(slug, domain) {
       `https://${service}.${slug}.${normalizedDomain}`,
     ]),
   );
+}
+
+export function resolveDnsRecordNames(slug, domain, dnsZone = domain) {
+  const normalizedDomain = normalizeDomain(domain);
+  const normalizedZone = normalizeDomain(dnsZone);
+  const rootName = relativeDnsRecordName(`${slug}.${normalizedDomain}`, normalizedZone);
+  return {
+    root: rootName,
+    wildcard: `*.${rootName}`,
+  };
+}
+
+function relativeDnsRecordName(fqdn, dnsZone) {
+  const normalizedFqdn = normalizeDomain(fqdn);
+  const normalizedZone = normalizeDomain(dnsZone);
+  if (normalizedFqdn === normalizedZone) {
+    return "@";
+  }
+  if (normalizedFqdn.endsWith(`.${normalizedZone}`)) {
+    return normalizedFqdn.slice(0, -normalizedZone.length - 1);
+  }
+  throw new Error(`${normalizedFqdn} is not inside DNS zone ${normalizedZone}.`);
 }
 
 export function buildCaddyfile({
@@ -258,6 +300,8 @@ export function buildSessionEnv({
 
 export function buildCreatePlan(config) {
   const domain = normalizeDomain(config.domain);
+  const dnsZone = normalizeDomain(config.dnsZone ?? domain);
+  const dnsRecords = resolveDnsRecordNames(config.slug, domain, dnsZone);
   const slug = assertNonBlank(config.slug, "session slug");
   const name = dropletName(slug);
   const tags = createSessionTags({
@@ -341,11 +385,11 @@ export function buildCreatePlan(config) {
         "domain",
         "records",
         "create",
-        domain,
+        dnsZone,
         "--record-type",
         "A",
         "--record-name",
-        slug,
+        dnsRecords.root,
         "--record-data",
         config.publicIpPlaceholder ?? "<droplet-ip>",
         "--record-ttl",
@@ -360,11 +404,11 @@ export function buildCreatePlan(config) {
         "domain",
         "records",
         "create",
-        domain,
+        dnsZone,
         "--record-type",
         "A",
         "--record-name",
-        `*.${slug}`,
+        dnsRecords.wildcard,
         "--record-data",
         config.publicIpPlaceholder ?? "<droplet-ip>",
         "--record-ttl",
@@ -374,7 +418,7 @@ export function buildCreatePlan(config) {
   ];
 }
 
-export function buildDestroyPlan({ slug, domain, dropletId, dnsRecordIds = [], firewallId }) {
+export function buildDestroyPlan({ slug, domain, dnsZone = domain, dropletId, dnsRecordIds = [], firewallId }) {
   const steps = [];
   if (dropletId) {
     steps.push({
@@ -388,7 +432,7 @@ export function buildDestroyPlan({ slug, domain, dropletId, dnsRecordIds = [], f
     steps.push({
       label: `Delete DNS record ${recordId}`,
       command: "doctl",
-      args: ["compute", "domain", "records", "delete", normalizeDomain(domain), String(recordId), "--force"],
+      args: ["compute", "domain", "records", "delete", normalizeDomain(dnsZone), String(recordId), "--force"],
     });
   }
 
@@ -434,6 +478,7 @@ export function toSshRepoUrl(remoteUrl) {
 }
 
 async function main() {
+  hydratePersistedEnvironment();
   const { command, positionals, flags } = parseArgs(process.argv.slice(2));
 
   try {
@@ -447,6 +492,42 @@ async function main() {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
+}
+
+function hydratePersistedEnvironment() {
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  for (const key of persistedEnvKeys) {
+    if (process.env[key]) {
+      continue;
+    }
+
+    const value = readWindowsUserEnvironmentValue(key);
+    if (value) {
+      process.env[key] = value;
+    }
+  }
+}
+
+function readWindowsUserEnvironmentValue(key) {
+  const result = spawnSync("reg", ["query", "HKCU\\Environment", "/v", key], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    return "";
+  }
+
+  const line = result.stdout
+    .split(/\r?\n/)
+    .find((entry) => entry.trim().startsWith(key));
+  if (!line) {
+    return "";
+  }
+
+  return line.trim().replace(new RegExp(`^${escapeRegExp(key)}\\s+REG_\\w+\\s+`), "").trim();
 }
 
 async function runCli(command, positionals, flags) {
@@ -554,6 +635,7 @@ async function createSession(flags) {
     size: String(flags.size ?? env.size),
     image: String(flags.image ?? env.image),
     domain: env.domain,
+    dnsZone: env.dnsZone,
     sshKeyId: env.sshKeyId,
     sshCidr: flags["ssh-cidr"] ?? env.sshCidr,
     userDataPath,
@@ -582,6 +664,7 @@ async function createSession(flags) {
   writeSessionCache(slug, {
     slug,
     domain: normalizeDomain(env.domain),
+    dnsZone: normalizeDomain(env.dnsZone),
     branch,
     sha,
     publicIp,
@@ -699,11 +782,12 @@ async function destroySession(slug, flags) {
   const dryRun = Boolean(flags["dry-run"]);
   const env = loadEnvConfig(flags);
   const session = dryRun ? { id: "<droplet-id>", slug } : await requireSession(slug);
-  const dnsRecordIds = dryRun ? ["<root-record-id>", "<wildcard-record-id>"] : await findDnsRecordIds(slug, env.domain);
+  const dnsRecordIds = dryRun ? ["<root-record-id>", "<wildcard-record-id>"] : await findDnsRecordIds(slug, env.domain, env.dnsZone);
   const firewallId = dryRun ? "<firewall-id>" : await findFirewallId(slug);
   const plan = buildDestroyPlan({
     slug,
     domain: env.domain,
+    dnsZone: env.dnsZone,
     dropletId: session.id,
     dnsRecordIds,
     firewallId,
@@ -783,19 +867,20 @@ async function requireSession(slug) {
   return session;
 }
 
-async function findDnsRecordIds(slug, domain) {
+async function findDnsRecordIds(slug, domain, dnsZone = domain) {
+  const dnsRecords = resolveDnsRecordNames(slug, domain, dnsZone);
   const records = runJson("doctl", [
     "compute",
     "domain",
     "records",
     "list",
-    normalizeDomain(domain),
+    normalizeDomain(dnsZone),
     "--output",
     "json",
   ]);
   return records
     .filter((record) =>
-      record.type === "A" && (record.name === slug || record.name === `*.${slug}`),
+      record.type === "A" && (record.name === dnsRecords.root || record.name === dnsRecords.wildcard),
     )
     .map((record) => record.id);
 }
@@ -825,6 +910,7 @@ function mapDroplet(droplet) {
 function loadEnvConfig(flags) {
   return {
     domain: normalizeDomain(flags.domain ?? process.env.REMOTE_DEV_DOMAIN),
+    dnsZone: normalizeDomain(flags["dns-zone"] ?? process.env.REMOTE_DEV_DNS_ZONE ?? flags.domain ?? process.env.REMOTE_DEV_DOMAIN),
     sshKeyId: flags["ssh-key-id"] ?? process.env.REMOTE_DEV_SSH_KEY_ID,
     sshPublicKeyPath:
       flags["ssh-public-key-path"]
@@ -846,6 +932,7 @@ function loadEnvConfig(flags) {
 
 function validateCreateEnvironment(env, { dryRun }) {
   assertNonBlank(env.domain, "REMOTE_DEV_DOMAIN");
+  assertNonBlank(env.dnsZone, "REMOTE_DEV_DNS_ZONE");
   assertNonBlank(env.sshKeyId, "REMOTE_DEV_SSH_KEY_ID");
   assertNonBlank(env.basicAuthUser, "REMOTE_DEV_BASIC_AUTH_USER");
   if (!env.basicAuthHash && !env.basicAuthPassword) {
@@ -1111,6 +1198,10 @@ function assertNonBlank(value, name) {
     throw new Error(`${name} is required.`);
   }
   return text;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function indentYamlScalar(value, spaces) {

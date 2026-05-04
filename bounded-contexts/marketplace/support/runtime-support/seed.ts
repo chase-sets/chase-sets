@@ -650,7 +650,7 @@ export async function seedMarketplaceDatabase(
     }
 
     const seededListingId = listing.listingId;
-    await services.listings.createListing(
+    const createdListing = await services.listings.createListing(
       {
         accountId,
         inventoryItemId: supply.item_id,
@@ -666,6 +666,7 @@ export async function seedMarketplaceDatabase(
         {
           accountId,
           listingId: seededListingId,
+          feeQuoteFingerprint: createdListing.feeQuoteFingerprint,
         },
         listingContext,
       );

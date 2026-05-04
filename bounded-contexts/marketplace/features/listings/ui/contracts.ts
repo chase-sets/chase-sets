@@ -14,6 +14,7 @@ export interface MarketplaceListingListItem {
   price_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
@@ -49,6 +50,7 @@ export interface MarketplaceListingFeeLockReportEntry {
   quantity_cap: number;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
@@ -87,6 +89,7 @@ export interface MarketplaceListingTermsPreview {
   basis_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
   schedule_id: string | null;
   agreement_id: string | null;
   resolved_at: string;
@@ -100,6 +103,7 @@ export interface MarketplaceListingFeeHistoryEntry {
   quantity_cap: number | null;
   marketplace_sales_fee_unit_amount: string | null;
   seller_net_unit_amount: string | null;
+  shipping_allowance_percentage_bps: number | null;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;

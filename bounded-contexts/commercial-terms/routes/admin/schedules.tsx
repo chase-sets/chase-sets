@@ -22,6 +22,7 @@ export async function action({ request }: ActionFunctionArgs) {
       accountType: formData.get("accountType"),
       marketplaceSalesFeePercentageBps: Number(formData.get("marketplaceSalesFeePercentageBps") ?? 0),
       marketplaceSalesFeeFixedAmount: formData.get("marketplaceSalesFeeFixedAmount"),
+      shippingAllowancePercentageBps: Number(formData.get("shippingAllowancePercentageBps") ?? 500),
       status: formData.get("status"),
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),

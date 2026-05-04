@@ -32,6 +32,8 @@ export type PaymentState = Readonly<{
   marketplaceCheckoutFeeQuoteFingerprint: string | null;
   paymentMethodCategory: string | null;
   sellerNetAmount: string | null;
+  sellerPayoutAmount: string | null;
+  sellerPayouts: readonly SellerPayoutComponent[];
   currencyCode: CurrencyCode | null;
   processorName: PaymentProcessorName | null;
   processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit" | null;
@@ -50,6 +52,15 @@ export type PaymentState = Readonly<{
   cancelledAt: string | null;
 }>;
 
+export type SellerPayoutComponent = Readonly<{
+  orderId: OrderId;
+  sellerAccountId: AccountId;
+  sellerItemNetAmount: string;
+  shippingAllowanceAmount: string;
+  sellerShippingPayoutAmount: string;
+  sellerPayoutAmount: string;
+}>;
+
 export const initialPaymentState: PaymentState = {
   paymentId: null,
   buyerAccountId: null,
@@ -63,6 +74,8 @@ export const initialPaymentState: PaymentState = {
   marketplaceCheckoutFeeQuoteFingerprint: null,
   paymentMethodCategory: null,
   sellerNetAmount: null,
+  sellerPayoutAmount: null,
+  sellerPayouts: [],
   currencyCode: null,
   processorName: null,
   processorPaymentKind: null,
@@ -95,6 +108,8 @@ export type CreatePaymentCommand = Readonly<{
   marketplaceCheckoutFeeQuoteFingerprint?: string | null;
   paymentMethodCategory?: string | null;
   sellerNetAmount: string;
+  sellerPayoutAmount?: string;
+  sellerPayouts?: readonly SellerPayoutComponent[];
   currencyCode: CurrencyCode;
   processorName: PaymentProcessorName;
   processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
@@ -154,6 +169,8 @@ export type PaymentCreatedEvent = DomainEvent<
     marketplaceCheckoutFeeQuoteFingerprint: string | null;
     paymentMethodCategory: string | null;
     sellerNetAmount: string;
+    sellerPayoutAmount: string;
+    sellerPayouts: SellerPayoutComponent[];
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentKind: "checkout-session" | "payment-intent" | "balance-credit";
@@ -191,6 +208,8 @@ export type PaymentCapturedEvent = DomainEvent<
     marketplaceCheckoutFeeQuoteFingerprint: string | null;
     paymentMethodCategory: string | null;
     sellerNetAmount: string;
+    sellerPayoutAmount: string;
+    sellerPayouts: SellerPayoutComponent[];
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
@@ -214,6 +233,8 @@ export type PaymentFailedEvent = DomainEvent<
     marketplaceCheckoutFeeQuoteFingerprint: string | null;
     paymentMethodCategory: string | null;
     sellerNetAmount: string;
+    sellerPayoutAmount: string;
+    sellerPayouts: SellerPayoutComponent[];
     currencyCode: CurrencyCode;
     processorName: PaymentProcessorName;
     processorPaymentReference: string;
@@ -239,6 +260,40 @@ export type PaymentEvent =
   | PaymentFailedEvent
   | PaymentCancelledEvent;
 
+function normalizeSellerPayoutComponents(
+  components: readonly SellerPayoutComponent[],
+): SellerPayoutComponent[] {
+  return components.map((component) => ({
+    orderId: normalizeRequiredText(
+      component.orderId,
+      "Seller payout component must include an order.",
+    ) as OrderId,
+    sellerAccountId: normalizeRequiredText(
+      component.sellerAccountId,
+      "Seller payout component must include a seller account.",
+    ) as AccountId,
+    sellerItemNetAmount: normalizeMoneyAmount(component.sellerItemNetAmount, {
+      fieldName: "Seller item net amount",
+      allowZero: true,
+    }),
+    shippingAllowanceAmount: normalizeMoneyAmount(component.shippingAllowanceAmount, {
+      fieldName: "Shipping allowance amount",
+      allowZero: true,
+    }),
+    sellerShippingPayoutAmount: normalizeMoneyAmount(
+      component.sellerShippingPayoutAmount ?? component.shippingAllowanceAmount,
+      {
+        fieldName: "Seller shipping payout amount",
+        allowZero: true,
+      },
+    ),
+    sellerPayoutAmount: normalizeMoneyAmount(component.sellerPayoutAmount, {
+      fieldName: "Seller payout amount",
+      allowZero: true,
+    }),
+  }));
+}
+
 export const decidePayment: AggregateDecider<
   PaymentState,
   PaymentCommand,
@@ -247,6 +302,17 @@ export const decidePayment: AggregateDecider<
   switch (command.type) {
     case "CreatePayment":
       assert(state.paymentId === null, "Payment has already been created.");
+      const sellerPayouts = normalizeSellerPayoutComponents(command.sellerPayouts ?? []);
+      const sellerPayoutAmount = normalizeMoneyAmount(
+        command.sellerPayoutAmount ??
+          sellerPayouts
+            .reduce((sum, component) => sum + Number.parseFloat(component.sellerPayoutAmount), 0)
+            .toFixed(2),
+        {
+          fieldName: "Seller payout amount",
+          allowZero: true,
+        },
+      );
       return [
         {
           type: "payments.payment-created",
@@ -289,6 +355,8 @@ export const decidePayment: AggregateDecider<
               fieldName: "Seller net amount",
               allowZero: true,
             }),
+            sellerPayoutAmount,
+            sellerPayouts,
             currencyCode: normalizeCurrencyCode(command.currencyCode),
             processorName: normalizeProcessorName(command.processorName),
             processorPaymentKind: command.processorPaymentKind,
@@ -357,6 +425,8 @@ export const decidePayment: AggregateDecider<
               state.marketplaceCheckoutFeeQuoteFingerprint,
             paymentMethodCategory: state.paymentMethodCategory,
             sellerNetAmount: state.sellerNetAmount!,
+            sellerPayoutAmount: state.sellerPayoutAmount!,
+            sellerPayouts: [...state.sellerPayouts],
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
@@ -396,6 +466,8 @@ export const decidePayment: AggregateDecider<
               state.marketplaceCheckoutFeeQuoteFingerprint,
             paymentMethodCategory: state.paymentMethodCategory,
             sellerNetAmount: state.sellerNetAmount!,
+            sellerPayoutAmount: state.sellerPayoutAmount!,
+            sellerPayouts: [...state.sellerPayouts],
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
@@ -456,6 +528,8 @@ export const evolvePayment: AggregateEvolver<
           event.data.marketplaceCheckoutFeeQuoteFingerprint ?? null,
         paymentMethodCategory: event.data.paymentMethodCategory ?? null,
         sellerNetAmount: event.data.sellerNetAmount,
+        sellerPayoutAmount: event.data.sellerPayoutAmount ?? event.data.sellerNetAmount,
+        sellerPayouts: [...(event.data.sellerPayouts ?? [])],
         currencyCode: event.data.currencyCode,
         processorName: event.data.processorName,
         processorPaymentKind: event.data.processorPaymentKind,

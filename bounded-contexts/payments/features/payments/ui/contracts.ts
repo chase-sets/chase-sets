@@ -11,6 +11,15 @@ export interface PaymentsPaymentDetail {
   marketplace_checkout_fee_quote_fingerprint: string | null;
   payment_method_category: string | null;
   seller_net_amount: string;
+  seller_payout_amount: string;
+  seller_payouts: readonly {
+    orderId: string;
+    sellerAccountId: string;
+    sellerItemNetAmount: string;
+    shippingAllowanceAmount: string;
+    sellerShippingPayoutAmount: string;
+    sellerPayoutAmount: string;
+  }[];
   currency_code: string;
   processor_name: string;
   processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";

@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
   CheckoutLayout,
   CheckoutTrustPanel,
@@ -118,6 +119,11 @@ export function CheckoutSessionPage({
                 </Stack>
               </Surface>
             ) : null}
+
+            <Banner
+              title={t("checkout.features.sessions.ui.checkoutPage.same.seller.shipping.credit")}
+              description={t("checkout.features.sessions.ui.checkoutPage.each.seller.grouped.purchase.applies.the.listing.credit")}
+            />
 
             <PageSection
               title={t("checkout.features.sessions.ui.checkoutPage.review.items")}

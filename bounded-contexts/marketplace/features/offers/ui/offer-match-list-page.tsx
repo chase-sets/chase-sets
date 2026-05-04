@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
   Card,
   DataTable,
@@ -25,6 +26,10 @@ function statusTone(status: string) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function formatAllowancePercentage(bps: number) {
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
 
 function termsSource(terms: MarketplaceListingTermsPreview) {
@@ -78,6 +83,10 @@ export function MarketplaceOfferMatchListPage({
       <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.sell.list")}>
         <Card>
           <Stack gap={3}>
+            <Banner
+              title={t("marketplace.features.offers.ui.offerMatchListPage.seller.shipping.allowance")}
+              description={t("marketplace.features.offers.ui.offerMatchListPage.offers.earn.five.percent.of.accepted.value.toward.shipping")}
+            />
             <Text tone="secondary" size="sm">
               {cartData?.items.length ?? 0} offer
               {(cartData?.items.length ?? 0) === 1 ? "" : "s"} {t("marketplace.features.offers.ui.offerMatchListPage.queued.in.your.sell.list")}</Text>
@@ -104,6 +113,11 @@ export function MarketplaceOfferMatchListPage({
                           <Text size="sm" tone="secondary">
                             {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.seller.net", {
                               amount: formatMoney(terms.seller_net_unit_amount),
+                            })}
+                          </Text>
+                          <Text size="sm" tone="secondary">
+                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.shipping.allowance", {
+                              percentage: formatAllowancePercentage(terms.shipping_allowance_percentage_bps),
                             })}
                           </Text>
                           <Text size="sm" tone="secondary">

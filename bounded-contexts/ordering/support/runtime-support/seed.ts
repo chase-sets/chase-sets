@@ -153,7 +153,7 @@ async function getAcceptedOfferInput(
        seller_net_unit_amount::text AS seller_net_unit_amount,
        terms_schedule_id,
        terms_agreement_id,
-       terms_resolved_at
+       terms_resolved_at::text AS terms_resolved_at
      FROM ordering_offer_acceptance_inputs
      WHERE offer_id = $1`,
     [offerId],

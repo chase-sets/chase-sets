@@ -53,6 +53,11 @@ export type OrderingReservationRequest = Readonly<{
 export type OrderingCommercialTermsSnapshot = Readonly<{
   marketplaceSalesFeeAmount: string;
   sellerNetAmount: string;
+  sellerItemNetAmount?: string;
+  shippingAllowanceAmount?: string;
+  sellerShippingPayoutAmount?: string;
+  sellerPayoutAmount?: string;
+  shippingAllowancePercentageBps?: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
@@ -79,6 +84,8 @@ export type OrderingOrderState = Readonly<{
   itemSubtotalAmount: string | null;
   shippingBaseAmount: string | null;
   shippingDiscountAmount: string | null;
+  shippingAllowanceAmount: string | null;
+  shippingOverageAmount: string | null;
   shippingChargeAmount: string | null;
   salesTaxAmount: string | null;
   totalAmount: string | null;
@@ -102,6 +109,8 @@ export const initialOrderingOrderState: OrderingOrderState = {
   itemSubtotalAmount: null,
   shippingBaseAmount: null,
   shippingDiscountAmount: null,
+  shippingAllowanceAmount: null,
+  shippingOverageAmount: null,
   shippingChargeAmount: null,
   salesTaxAmount: null,
   totalAmount: null,
@@ -126,6 +135,8 @@ export type CreateOrderCommand = Readonly<{
   itemSubtotalAmount: string;
   shippingBaseAmount: string;
   shippingDiscountAmount: string;
+  shippingAllowanceAmount?: string;
+  shippingOverageAmount?: string;
   shippingChargeAmount: string;
   salesTaxAmount: string;
   totalAmount: string;
@@ -194,6 +205,8 @@ export type OrderCreatedEvent = DomainEvent<
     itemSubtotalAmount: string;
     shippingBaseAmount: string;
     shippingDiscountAmount: string;
+    shippingAllowanceAmount: string;
+    shippingOverageAmount: string;
     shippingChargeAmount: string;
     salesTaxAmount: string;
     totalAmount: string;
@@ -378,6 +391,38 @@ function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnaps
       fieldName: "Seller net amount",
       allowZero: true,
     }),
+    sellerItemNetAmount: normalizeMoneyAmount(
+      snapshot.sellerItemNetAmount ?? snapshot.sellerNetAmount,
+      {
+        fieldName: "Seller item net amount",
+        allowZero: true,
+      },
+    ),
+    shippingAllowanceAmount: normalizeMoneyAmount(
+      snapshot.shippingAllowanceAmount ?? "0.00",
+      {
+        fieldName: "Shipping allowance amount",
+        allowZero: true,
+      },
+    ),
+    sellerShippingPayoutAmount: normalizeMoneyAmount(
+      snapshot.sellerShippingPayoutAmount ?? snapshot.shippingAllowanceAmount ?? "0.00",
+      {
+        fieldName: "Seller shipping payout amount",
+        allowZero: true,
+      },
+    ),
+    sellerPayoutAmount: normalizeMoneyAmount(
+      snapshot.sellerPayoutAmount ?? snapshot.sellerNetAmount,
+      {
+        fieldName: "Seller payout amount",
+        allowZero: true,
+      },
+    ),
+    shippingAllowancePercentageBps: Math.max(
+      0,
+      Math.trunc(Number(snapshot.shippingAllowancePercentageBps ?? 500)),
+    ),
     termsScheduleId: normalizeOptionalText(snapshot.termsScheduleId),
     termsAgreementId: normalizeOptionalText(snapshot.termsAgreementId),
     termsResolvedAt: normalizeRequiredText(
@@ -472,6 +517,14 @@ export const decideOrderingOrder: AggregateDecider<
             }),
             shippingDiscountAmount: normalizeMoneyAmount(command.shippingDiscountAmount, {
               fieldName: "Shipping discount amount",
+              allowZero: true,
+            }),
+            shippingAllowanceAmount: normalizeMoneyAmount(command.shippingAllowanceAmount ?? command.shippingChargeAmount, {
+              fieldName: "Shipping allowance amount",
+              allowZero: true,
+            }),
+            shippingOverageAmount: normalizeMoneyAmount(command.shippingOverageAmount ?? "0.00", {
+              fieldName: "Shipping overage amount",
               allowZero: true,
             }),
             shippingChargeAmount: normalizeMoneyAmount(command.shippingChargeAmount, {
@@ -776,6 +829,8 @@ export const evolveOrderingOrder: AggregateEvolver<
         itemSubtotalAmount: event.data.itemSubtotalAmount,
         shippingBaseAmount: event.data.shippingBaseAmount,
         shippingDiscountAmount: event.data.shippingDiscountAmount,
+        shippingAllowanceAmount: event.data.shippingAllowanceAmount,
+        shippingOverageAmount: event.data.shippingOverageAmount,
         shippingChargeAmount: event.data.shippingChargeAmount,
         salesTaxAmount: event.data.salesTaxAmount,
         totalAmount: event.data.totalAmount,

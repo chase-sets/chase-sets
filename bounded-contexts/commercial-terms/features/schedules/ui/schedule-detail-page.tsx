@@ -36,6 +36,9 @@ export function ScheduleDetailPage({ schedule }: { schedule: CommercialTermsSche
             <Text>
               {t("commercialTerms.features.schedules.ui.scheduleDetailPage.marketplace.fee")}{schedule.marketplace_sales_fee_percentage_bps} {t("commercialTerms.features.schedules.ui.scheduleDetailPage.bps")}{schedule.marketplace_sales_fee_fixed_amount}
             </Text>
+            <Text>
+              {t("commercialTerms.features.schedules.ui.scheduleDetailPage.shipping.allowance")}{schedule.shipping_allowance_percentage_bps} {t("commercialTerms.features.schedules.ui.scheduleDetailPage.bps")}
+            </Text>
             <Text>{t("commercialTerms.features.schedules.ui.scheduleDetailPage.effective.from")}{schedule.effective_from}</Text>
             <Text>{t("commercialTerms.features.schedules.ui.scheduleDetailPage.effective.until")}{schedule.effective_until ?? t("commercialTerms.features.schedules.ui.scheduleDetailPage.open.ended")}</Text>
             <Text>{t("commercialTerms.features.schedules.ui.scheduleDetailPage.updated.at")}{schedule.updated_at}</Text>

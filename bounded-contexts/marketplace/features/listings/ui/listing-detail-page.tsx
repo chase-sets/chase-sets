@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
   Card,
   LinkButton,
@@ -26,6 +27,10 @@ function formatOptionalMoney(amount: string | null) {
   return amount ? formatMoney(amount) : t("marketplace.features.listings.ui.listingDetailPage.not.set");
 }
 
+function formatAllowancePercentage(bps: number) {
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
+}
+
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
   return [
     t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
@@ -33,6 +38,9 @@ function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
     }),
     t("marketplace.features.listings.ui.listingDetailPage.net.summary", {
       amount: formatMoney(preview.seller_net_unit_amount),
+    }),
+    t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.summary", {
+      percentage: formatAllowancePercentage(preview.shipping_allowance_percentage_bps),
     }),
   ].join(" | ");
 }
@@ -103,6 +111,12 @@ export function MarketplaceListingDetailPage({
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}>
         <Card>
           <Stack gap={2}>
+            <Banner
+              title={t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit")}
+              description={t("marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping", {
+                percentage: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+              })}
+            />
             {listing.item_subtitle ? (
               <Text tone="secondary">{listing.item_subtitle}</Text>
             ) : null}
@@ -115,6 +129,10 @@ export function MarketplaceListingDetailPage({
             <Text>{t("marketplace.features.listings.ui.listingDetailPage.price")}{formatMoney(listing.price_amount)}</Text>
             <Text>{t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(listing.marketplace_sales_fee_unit_amount)}</Text>
             <Text>{t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(listing.seller_net_unit_amount)}</Text>
+            <Text>
+              {t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate")}
+              {formatAllowancePercentage(listing.shipping_allowance_percentage_bps)}
+            </Text>
             <Text>
               {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{listing.terms_schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.default.fallback.unavailable")}
             </Text>

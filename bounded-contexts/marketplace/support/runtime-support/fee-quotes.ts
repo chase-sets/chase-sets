@@ -5,6 +5,7 @@ export function createFeeQuoteFingerprint(quote: Readonly<{
   basis_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
   schedule_id: string | null;
   agreement_id: string | null;
 }>) {
@@ -12,6 +13,7 @@ export function createFeeQuoteFingerprint(quote: Readonly<{
     quote.basis_amount,
     quote.marketplace_sales_fee_unit_amount,
     quote.seller_net_unit_amount,
+    String(quote.shipping_allowance_percentage_bps),
     quote.schedule_id ?? "",
     quote.agreement_id ?? "",
   ].join("|");
@@ -30,6 +32,7 @@ export async function quoteMarketplaceTerms(
     basis_amount: terms.basisAmount,
     marketplace_sales_fee_unit_amount: terms.marketplaceSalesFeeUnitAmount,
     seller_net_unit_amount: terms.sellerNetUnitAmount,
+    shipping_allowance_percentage_bps: terms.shippingAllowancePercentageBps,
     schedule_id: terms.scheduleId,
     agreement_id: terms.agreementId,
     resolved_at: terms.resolvedAt,
@@ -41,4 +44,3 @@ export async function quoteMarketplaceTerms(
     fee_quote_fingerprint: createFeeQuoteFingerprint(quote),
   };
 }
-

@@ -15,10 +15,13 @@ type AcceptedOfferParams = Readonly<{
   priceAmount: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
   quantityRequested: number;
+  acceptanceBatchId: string | null;
+  acceptanceBatchSize: number | null;
   context: EventStoreContext;
 }>;
 
@@ -45,6 +48,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         priceAmount: string;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string;
@@ -67,6 +71,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            price_amount,
            marketplace_sales_fee_unit_amount,
            seller_net_unit_amount,
+           shipping_allowance_percentage_bps,
            terms_schedule_id,
            terms_agreement_id,
            terms_resolved_at,
@@ -74,7 +79,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            status,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'draft', $19
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'draft', $20
          )
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
@@ -90,6 +95,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              price_amount = EXCLUDED.price_amount,
              marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
              seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
+             shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
              terms_resolved_at = EXCLUDED.terms_resolved_at,
@@ -111,6 +117,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.priceAmount,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
+          data.shippingAllowancePercentageBps ?? 500,
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
@@ -124,6 +131,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         priceAmount: string;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string;
@@ -134,16 +142,18 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
          SET price_amount = $2,
              marketplace_sales_fee_unit_amount = $3,
              seller_net_unit_amount = $4,
-             terms_schedule_id = $5,
-             terms_agreement_id = $6,
-             terms_resolved_at = $7,
-             updated_at = $8
+             shipping_allowance_percentage_bps = $5,
+             terms_schedule_id = $6,
+             terms_agreement_id = $7,
+             terms_resolved_at = $8,
+             updated_at = $9
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           data.priceAmount,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
+          data.shippingAllowancePercentageBps ?? 500,
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
@@ -156,6 +166,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         quantityCap: number;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string;
@@ -166,16 +177,18 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
          SET quantity_cap = $2,
              marketplace_sales_fee_unit_amount = $3,
              seller_net_unit_amount = $4,
-             terms_schedule_id = $5,
-             terms_agreement_id = $6,
-             terms_resolved_at = $7,
-             updated_at = $8
+             shipping_allowance_percentage_bps = $5,
+             terms_schedule_id = $6,
+             terms_agreement_id = $7,
+             terms_resolved_at = $8,
+             updated_at = $9
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           data.quantityCap,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
+          data.shippingAllowancePercentageBps ?? 500,
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
@@ -187,6 +200,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
       const data = event.data as {
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string;
@@ -196,15 +210,17 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
          SET status = 'active',
              marketplace_sales_fee_unit_amount = $2,
              seller_net_unit_amount = $3,
-             terms_schedule_id = $4,
-             terms_agreement_id = $5,
-             terms_resolved_at = $6,
-             updated_at = $7
+             shipping_allowance_percentage_bps = $4,
+             terms_schedule_id = $5,
+             terms_agreement_id = $6,
+             terms_resolved_at = $7,
+             updated_at = $8
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
+          data.shippingAllowancePercentageBps ?? 500,
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
@@ -249,14 +265,17 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            price_amount,
            marketplace_sales_fee_unit_amount,
            seller_net_unit_amount,
+           shipping_allowance_percentage_bps,
            terms_schedule_id,
            terms_agreement_id,
            terms_resolved_at,
            quantity_requested,
            accepted_at,
+           acceptance_batch_id,
+           acceptance_batch_size,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
          )
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -270,11 +289,14 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              price_amount = EXCLUDED.price_amount,
              marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
              seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
+             shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
              terms_resolved_at = EXCLUDED.terms_resolved_at,
              quantity_requested = EXCLUDED.quantity_requested,
              accepted_at = EXCLUDED.accepted_at,
+             acceptance_batch_id = EXCLUDED.acceptance_batch_id,
+             acceptance_batch_size = EXCLUDED.acceptance_batch_size,
              updated_at = EXCLUDED.updated_at`,
         [
           data.offerId,
@@ -289,11 +311,15 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.priceAmount,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
+          data.shippingAllowancePercentageBps ?? 500,
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
           data.quantityRequested,
           data.acceptedAt,
+          data.acceptanceBatchId ?? null,
+          data.acceptanceBatchSize ?? null,
+          event.timing.recordedAt,
         ],
       );
 

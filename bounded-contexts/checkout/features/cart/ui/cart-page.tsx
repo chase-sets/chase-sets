@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
   CheckoutLayout,
   CheckoutTrustPanel,
@@ -153,6 +154,10 @@ export function CheckoutCartPage({
           }
         >
           <Stack gap={4}>
+            <Banner
+              title={t("checkout.features.cart.ui.cartPage.shipping.credit.grows.with.same.seller.cards")}
+              description={t("checkout.features.cart.ui.cartPage.listings.earn.five.percent.of.item.value.toward.shipping")}
+            />
             {cartContent}
             <PageSection id="checkout" title={t("checkout.features.cart.ui.cartPage.checkout")}>
               <Surface elevated glow>

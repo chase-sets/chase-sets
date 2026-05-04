@@ -9,11 +9,13 @@ function createDb(options: Readonly<{
     schedule_id: string;
     marketplace_sales_fee_percentage_bps: number;
     marketplace_sales_fee_fixed_amount: string;
+    shipping_allowance_percentage_bps?: number;
   } | null;
   agreement?: {
     agreement_id: string;
     marketplace_sales_fee_percentage_bps: number;
     marketplace_sales_fee_fixed_amount: string;
+    shipping_allowance_percentage_bps?: number;
   } | null;
 }>): PgQueryable {
   return {
@@ -69,6 +71,7 @@ describe("commercial terms resolver", () => {
     expect(result.accountType).toBe("personal");
     expect(result.marketplaceSalesFeeUnitAmount).toBe("1.05");
     expect(result.sellerNetUnitAmount).toBe("8.95");
+    expect(result.shippingAllowancePercentageBps).toBe(500);
     expect(result.scheduleId).toBe("cts_personal");
     expect(result.agreementId).toBeNull();
   });
@@ -135,6 +138,7 @@ describe("commercial terms resolver", () => {
           agreement_id: "cag_enterprise",
           marketplace_sales_fee_percentage_bps: 250,
           marketplace_sales_fee_fixed_amount: "0.10",
+          shipping_allowance_percentage_bps: 750,
         },
       }),
     });
@@ -147,8 +151,30 @@ describe("commercial terms resolver", () => {
 
     expect(result.marketplaceSalesFeeUnitAmount).toBe("0.60");
     expect(result.sellerNetUnitAmount).toBe("19.40");
+    expect(result.shippingAllowancePercentageBps).toBe(750);
     expect(result.scheduleId).toBe("cts_default");
     expect(result.agreementId).toBe("cag_enterprise");
+  });
+
+  it("uses the schedule shipping allowance when no account agreement overrides it", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        schedule: {
+          schedule_id: "cts_default",
+          marketplace_sales_fee_percentage_bps: 500,
+          marketplace_sales_fee_fixed_amount: "0.25",
+          shipping_allowance_percentage_bps: 625,
+        },
+      }),
+    });
+
+    const result = await resolver.resolveListingTerms({
+      accountId: "acc_test",
+      amount: "20.00",
+      effectiveAt: "2026-04-16T10:00:00.000Z",
+    });
+
+    expect(result.shippingAllowancePercentageBps).toBe(625);
   });
 
   it("falls back to the schedule when the account agreement is inactive or out of range", async () => {

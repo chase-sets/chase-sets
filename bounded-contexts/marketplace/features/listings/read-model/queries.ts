@@ -17,6 +17,7 @@ export type MarketplaceListingListRow = Readonly<{
   price_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
@@ -43,6 +44,7 @@ export type MarketplaceListingFeeLockReportRow = Readonly<{
   quantity_cap: number;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
@@ -73,6 +75,7 @@ type MarketplaceListingPageRow = Readonly<{
   price_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
@@ -433,6 +436,7 @@ export async function listSellerListingFeeLockReport(
          quantity_cap,
          marketplace_sales_fee_unit_amount,
          seller_net_unit_amount,
+         shipping_allowance_percentage_bps,
          terms_schedule_id,
          terms_agreement_id,
          terms_resolved_at,

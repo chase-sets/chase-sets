@@ -243,10 +243,13 @@ export function createMarketplaceOfferRuntime(
           acceptedAt: new Date().toISOString(),
           marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
           sellerNetUnitAmount: quote.seller_net_unit_amount,
+          shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
           termsScheduleId: quote.schedule_id,
           termsAgreementId: quote.agreement_id,
           termsResolvedAt: quote.resolved_at,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
+          acceptanceBatchId: null,
+          acceptanceBatchSize: null,
         },
         context,
       });
@@ -266,6 +269,11 @@ export function createMarketplaceOfferRuntime(
       const items = await listOfferMatchSellList(deps.db, params.sellerAccountId);
       const acceptedOfferIds: OfferId[] = [];
       const skipped: Array<{ offerId: string; reason: string }> = [];
+      const acceptanceBatchId = createId("ofb");
+      const targets: Array<{
+        item: (typeof items)[number];
+        quote: MarketplaceListingTermsPreview;
+      }> = [];
 
       for (const item of items) {
         if (item.status !== "submitted") {
@@ -293,28 +301,35 @@ export function createMarketplaceOfferRuntime(
             continue;
           }
 
-          await commandHandler({
-            streamId: `marketplace.offer-${item.offer_id}`,
-            command: {
-              type: "AcceptOffer",
-              sellerAccountId: params.sellerAccountId,
-              acceptedAt: new Date().toISOString(),
-              marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-              sellerNetUnitAmount: quote.seller_net_unit_amount,
-              termsScheduleId: quote.schedule_id,
-              termsAgreementId: quote.agreement_id,
-              termsResolvedAt: quote.resolved_at,
-              feeQuoteFingerprint: quote.fee_quote_fingerprint,
-            },
-            context,
-          });
-          acceptedOfferIds.push(item.offer_id as OfferId);
+          targets.push({ item, quote });
         } catch (error) {
           skipped.push({
             offerId: item.offer_id,
             reason: error instanceof Error ? error.message : "Offer could not be accepted.",
           });
         }
+      }
+
+      for (const { item, quote } of targets) {
+        await commandHandler({
+          streamId: `marketplace.offer-${item.offer_id}`,
+          command: {
+            type: "AcceptOffer",
+            sellerAccountId: params.sellerAccountId,
+            acceptedAt: new Date().toISOString(),
+            marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
+            sellerNetUnitAmount: quote.seller_net_unit_amount,
+            shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
+            termsScheduleId: quote.schedule_id,
+            termsAgreementId: quote.agreement_id,
+            termsResolvedAt: quote.resolved_at,
+            feeQuoteFingerprint: quote.fee_quote_fingerprint,
+            acceptanceBatchId,
+            acceptanceBatchSize: targets.length,
+          },
+          context,
+        });
+        acceptedOfferIds.push(item.offer_id as OfferId);
       }
 
       await removeOfferMatchSellListItems(deps.db, {

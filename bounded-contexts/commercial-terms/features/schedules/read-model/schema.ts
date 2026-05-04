@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS commercial_terms_schedule_pages (
   account_type text NOT NULL,
   marketplace_sales_fee_percentage_bps integer NOT NULL,
   marketplace_sales_fee_fixed_amount numeric(12,2) NOT NULL,
+  shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   status text NOT NULL,
   effective_from timestamptz NOT NULL,
   effective_until timestamptz NULL,
@@ -14,4 +15,7 @@ CREATE TABLE IF NOT EXISTS commercial_terms_schedule_pages (
 
 CREATE INDEX IF NOT EXISTS commercial_terms_schedule_pages_account_type_idx
   ON commercial_terms_schedule_pages (account_type, effective_from DESC, updated_at DESC);
+
+ALTER TABLE commercial_terms_schedule_pages
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
 `;

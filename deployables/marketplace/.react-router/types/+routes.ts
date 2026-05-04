@@ -14,6 +14,12 @@ type Pages = {
   "/": {
     params: {};
   };
+  "/manifest.webmanifest": {
+    params: {};
+  };
+  "/service-worker.js": {
+    params: {};
+  };
   "/favicon.svg": {
     params: {};
   };
@@ -27,6 +33,9 @@ type Pages = {
     params: {};
   };
   "/sitemap.xml": {
+    params: {};
+  };
+  "/offline": {
     params: {};
   };
   "/account/select": {
@@ -208,7 +217,15 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/favicon.svg" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/account/select" | "/register" | "/sign-in" | "/sign-out" | "/account/cart" | "/checkout/start" | "/checkout/:sessionId" | "/categories/:categorySlug" | "/items/:id" | "/listings/:listingSlug" | "/sellers/:sellerSlug" | "/search" | "/account/shipments/:shipmentId" | "/account/shipments" | "/account/sales/shipments/:shipmentId" | "/account/sales/shipments" | "/account" | "/account/consents" | "/account/security" | "/account/team" | "/account/inventory" | "/account/inventory/locations" | "/account/inventory/items/:itemId" | "/account/listings/:listingId" | "/account/listings" | "/account/offers/matches/:offerId" | "/account/offers/matches" | "/account/offers/submitted/:offerId" | "/account/offers/submitted" | "/account/purchases/:purchaseId" | "/account/purchases" | "/account/sales/:orderId" | "/account/sales" | "/account/payments/:paymentId" | "/account/payments/new" | "/account/purchases/:purchaseId/review" | "/account/reviews/received" | "/account/reviews" | "/account/reviews/:reviewId" | "/account/sales/:orderId/review" | "/account/reviews/written" | "/account/money-health" | "/account/payout-operations" | "/account/payouts/:payoutId" | "/account/payouts" | "/account/settlement";
+    page: "/" | "/manifest.webmanifest" | "/service-worker.js" | "/favicon.svg" | "/favicon.ico" | "/.well-known/appspecific/com.chrome.devtools.json" | "/robots.txt" | "/sitemap.xml" | "/offline" | "/account/select" | "/register" | "/sign-in" | "/sign-out" | "/account/cart" | "/checkout/start" | "/checkout/:sessionId" | "/categories/:categorySlug" | "/items/:id" | "/listings/:listingSlug" | "/sellers/:sellerSlug" | "/search" | "/account/shipments/:shipmentId" | "/account/shipments" | "/account/sales/shipments/:shipmentId" | "/account/sales/shipments" | "/account" | "/account/consents" | "/account/security" | "/account/team" | "/account/inventory" | "/account/inventory/locations" | "/account/inventory/items/:itemId" | "/account/listings/:listingId" | "/account/listings" | "/account/offers/matches/:offerId" | "/account/offers/matches" | "/account/offers/submitted/:offerId" | "/account/offers/submitted" | "/account/purchases/:purchaseId" | "/account/purchases" | "/account/sales/:orderId" | "/account/sales" | "/account/payments/:paymentId" | "/account/payments/new" | "/account/purchases/:purchaseId/review" | "/account/reviews/received" | "/account/reviews" | "/account/reviews/:reviewId" | "/account/sales/:orderId/review" | "/account/reviews/written" | "/account/money-health" | "/account/payout-operations" | "/account/payouts/:payoutId" | "/account/payouts" | "/account/settlement";
+  };
+  "routes/manifest.ts": {
+    id: "routes/manifest";
+    page: "/manifest.webmanifest";
+  };
+  "routes/service-worker.ts": {
+    id: "routes/service-worker";
+    page: "/service-worker.js";
   };
   "routes/favicon-svg.ts": {
     id: "routes/favicon-svg";
@@ -229,6 +246,10 @@ type RouteFiles = {
   "routes/sitemap.ts": {
     id: "routes/sitemap";
     page: "/sitemap.xml";
+  };
+  "routes/offline.tsx": {
+    id: "routes/offline";
+    page: "/offline";
   };
   "routes/layout.tsx": {
     id: "routes/layout";
@@ -425,11 +446,14 @@ type RouteFiles = {
 
 type RouteModules = {
   "root": typeof import("./app/root.tsx");
+  "routes/manifest": typeof import("./app/routes/manifest.ts");
+  "routes/service-worker": typeof import("./app/routes/service-worker.ts");
   "routes/favicon-svg": typeof import("./app/routes/favicon-svg.ts");
   "routes/favicon": typeof import("./app/routes/favicon.ts");
   "routes/chrome-devtools": typeof import("./app/routes/chrome-devtools.ts");
   "routes/robots": typeof import("./app/routes/robots.ts");
   "routes/sitemap": typeof import("./app/routes/sitemap.ts");
+  "routes/offline": typeof import("./app/routes/offline.tsx");
   "routes/layout": typeof import("./app/routes/layout.tsx");
   "routes/index": typeof import("./app/routes/index.tsx");
   "auth/account-select": unknown;

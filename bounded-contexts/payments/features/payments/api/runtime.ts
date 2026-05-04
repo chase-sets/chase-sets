@@ -55,6 +55,7 @@ import {
   type PaymentCommand,
   type PaymentEvent,
   type PaymentState,
+  type SellerPayoutComponent,
 } from "../domain/domain";
 
 type PaymentRuntimeDeps = Readonly<{
@@ -162,15 +163,20 @@ function sumFeeAmounts(
     marketplace_sales_fee_amount: string;
     marketplace_checkout_fee_amount: string;
     seller_net_amount: string;
+    seller_payout_amount: string;
   }>[],
-  fieldName: "marketplace_sales_fee_amount" | "marketplace_checkout_fee_amount" | "seller_net_amount",
+  fieldName:
+    | "marketplace_sales_fee_amount"
+    | "marketplace_checkout_fee_amount"
+    | "seller_net_amount"
+    | "seller_payout_amount",
 ) {
   return orders
     .reduce(
       (sum, order) =>
         sum +
         Number.parseFloat(
-          normalizeMoneyAmount(order[fieldName], {
+          normalizeMoneyAmount(order[fieldName] ?? order.seller_net_amount, {
             fieldName,
             allowZero: true,
           }),
@@ -178,6 +184,47 @@ function sumFeeAmounts(
       0,
     )
     .toFixed(2);
+}
+
+function buildSellerPayoutComponents(
+  orders: readonly Readonly<{
+    order_id: string;
+    seller_account_id: string;
+    seller_net_amount: string;
+    seller_item_net_amount: string;
+    shipping_allowance_amount: string;
+    seller_shipping_payout_amount: string;
+    seller_payout_amount: string;
+  }>[],
+): SellerPayoutComponent[] {
+  return orders.flatMap((order) => {
+    if (!order.seller_account_id) {
+      return [];
+    }
+    return [{
+      orderId: order.order_id as OrderId,
+      sellerAccountId: order.seller_account_id as AccountId,
+      sellerItemNetAmount: normalizeMoneyAmount(order.seller_item_net_amount ?? order.seller_net_amount, {
+        fieldName: "Seller item net amount",
+        allowZero: true,
+      }),
+      shippingAllowanceAmount: normalizeMoneyAmount(order.shipping_allowance_amount ?? "0.00", {
+        fieldName: "Shipping allowance amount",
+        allowZero: true,
+      }),
+      sellerShippingPayoutAmount: normalizeMoneyAmount(
+        order.seller_shipping_payout_amount ?? order.shipping_allowance_amount ?? "0.00",
+        {
+          fieldName: "Seller shipping payout amount",
+          allowZero: true,
+        },
+      ),
+      sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount ?? order.seller_net_amount, {
+        fieldName: "Seller payout amount",
+        allowZero: true,
+      }),
+    }];
+  });
 }
 
 function normalizePaymentMethodCategory(value: string | null | undefined): PaymentMethodCategory {
@@ -656,6 +703,8 @@ export function createPaymentRuntime(
       const marketplaceCheckoutFeeAmount =
         marketplaceCheckoutFeeQuote.marketplace_checkout_fee_amount;
       const sellerNetAmount = sumFeeAmounts(orders, "seller_net_amount");
+      const sellerPayoutAmount = sumFeeAmounts(orders, "seller_payout_amount");
+      const sellerPayouts = buildSellerPayoutComponents(orders);
       const paymentId = createId("pay") as PaymentId;
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
       const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
@@ -703,6 +752,8 @@ export function createPaymentRuntime(
           marketplaceCheckoutFeeQuoteFingerprint: marketplaceCheckoutFeeQuote.quote_fingerprint,
           paymentMethodCategory,
           sellerNetAmount,
+          sellerPayoutAmount,
+          sellerPayouts,
           currencyCode,
           processorName: processorPayment.processorName,
           processorPaymentKind: processorPayment.processorPaymentKind,
@@ -753,6 +804,8 @@ export function createPaymentRuntime(
           marketplaceCheckoutFeeQuote.quote_fingerprint,
         payment_method_category: marketplaceCheckoutFeeQuote.payment_method_category,
         seller_net_amount: sellerNetAmount,
+        seller_payout_amount: sellerPayoutAmount,
+        seller_payouts: sellerPayouts,
         currency_code: currencyCode,
         processor_name: processorPayment.processorName,
         processor_payment_kind: processorPayment.processorPaymentKind,

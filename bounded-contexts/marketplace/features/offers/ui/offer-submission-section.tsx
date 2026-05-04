@@ -45,6 +45,9 @@ export function MarketplaceOfferSubmissionSection({
                 {t("marketplace.features.offers.ui.offerSubmissionSection.matching.visible.listings.for.this.product")}{visibleListingCount}
               </Text>
               <Text size="sm" tone="secondary">
+                {t("marketplace.features.offers.ui.offerSubmissionSection.sellers.can.batch.same.buyer.offers.for.shipping.allowance")}
+              </Text>
+              <Text size="sm" tone="secondary">
                 {t("marketplace.features.offers.ui.offerSubmissionSection.offers.are.marketplace.wide.they.are")}</Text>
             </Stack>
             {errorMessage ? <Text>{errorMessage}</Text> : null}

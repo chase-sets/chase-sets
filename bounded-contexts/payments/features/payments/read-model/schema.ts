@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   marketplace_checkout_fee_quote_fingerprint text NULL,
   payment_method_category text NULL,
   seller_net_amount numeric(12, 2) NOT NULL,
+  seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0,
+  seller_payouts jsonb NOT NULL DEFAULT '[]'::jsonb,
   currency_code text NOT NULL,
   processor_name text NOT NULL,
   processor_payment_kind text NOT NULL DEFAULT 'payment-intent',
@@ -62,6 +64,12 @@ ALTER TABLE payments_payment_pages
 
 ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS payment_method_category text NULL;
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS seller_payouts jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS payments_provider_idempotency_keys (
   operation_key text PRIMARY KEY,

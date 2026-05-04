@@ -17,6 +17,7 @@ import {
   moneyToNumber,
   normalizeMoneyAmount,
   numberToMoneyAmount,
+  numberToMoneyAmountRoundDown,
   type OrderLineId,
   type OrderSourceType,
   type OrderStatus,
@@ -141,6 +142,9 @@ type SellerOrderDraft = Readonly<{
   itemSubtotalAmount: string;
   shippingBaseAmount: string;
   shippingDiscountAmount: string;
+  shippingAllowanceAmount: string;
+  shippingOverageAmount: string;
+  sellerShippingPayoutAmount: string;
   shippingChargeAmount: string;
   salesTaxAmount: string;
   totalAmount: string;
@@ -165,6 +169,7 @@ type SellerOrderDraft = Readonly<{
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string;
+    shippingAllowancePercentageBps: number;
   }>;
   reservations: ReadonlyArray<{
     reservationRequestId: string;
@@ -215,8 +220,34 @@ export type OrderingOrderServices = Readonly<{
       termsScheduleId: string | null;
       termsAgreementId: string | null;
       termsResolvedAt: string;
+      shippingAllowancePercentageBps?: number;
       quantityRequested: number;
       orderIdsOverride?: readonly OrderId[];
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ orderIds: readonly OrderId[] }>;
+  createOrdersFromAcceptedOfferBatch: (
+    params: Readonly<{
+      acceptanceBatchId: string;
+      offers: readonly Readonly<{
+        offerId: string;
+        buyerAccountId: AccountId;
+        sellerAccountId: AccountId;
+        catalogItemId: string;
+        productId: string;
+        itemTitle: string;
+        itemSubtitle: string | null;
+        selectedOptions: { dimensionId: string; optionId: string }[];
+        productSummary: string | null;
+        priceAmount: string;
+        marketplaceSalesFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        shippingAllowancePercentageBps?: number;
+        termsScheduleId: string | null;
+        termsAgreementId: string | null;
+        termsResolvedAt: string;
+        quantityRequested: number;
+      }>[];
     }>,
     context: EventStoreContext,
   ) => Promise<{ orderIds: readonly OrderId[] }>;
@@ -316,6 +347,63 @@ function enumerateDemandAllocations(
   return results;
 }
 
+function planShippingAllowanceBps(lines: SellerOrderDraft["lines"]) {
+  const values = lines.map((line) => line.shippingAllowancePercentageBps);
+  const unique = [...new Set(values)];
+  if (values.length === 0) {
+    return 500;
+  }
+  return unique.length === 1 ? unique[0] ?? 500 : Math.min(...values);
+}
+
+function calculateShippingIncentive(params: Readonly<{
+  sourceType: OrderSourceType;
+  itemSubtotalAmount: string;
+  shippingBaseAmount: string;
+  shippingAllowancePercentageBps: number;
+}>) {
+  const shippingBaseAmount = normalizeMoneyAmount(params.shippingBaseAmount, {
+    fieldName: "Shipping base amount",
+    allowZero: true,
+  });
+  const earnedAmount = numberToMoneyAmount(
+    Math.min(
+      moneyToNumber(shippingBaseAmount),
+      moneyToNumber(
+        numberToMoneyAmountRoundDown(
+          moneyToNumber(params.itemSubtotalAmount) *
+            (params.shippingAllowancePercentageBps / 10_000),
+        ),
+      ),
+    ),
+  );
+
+  if (params.sourceType === "offer-acceptance") {
+    return {
+      shippingBaseAmount,
+      shippingDiscountAmount: "0.00",
+      shippingAllowanceAmount: earnedAmount,
+      shippingOverageAmount: numberToMoneyAmount(
+        Math.max(0, moneyToNumber(shippingBaseAmount) - moneyToNumber(earnedAmount)),
+      ),
+      sellerShippingPayoutAmount: earnedAmount,
+      shippingChargeAmount: earnedAmount,
+    };
+  }
+
+  const shippingChargeAmount = numberToMoneyAmount(
+    Math.max(0, moneyToNumber(shippingBaseAmount) - moneyToNumber(earnedAmount)),
+  );
+  return {
+    shippingBaseAmount,
+    shippingDiscountAmount: earnedAmount,
+    shippingAllowanceAmount: earnedAmount,
+    shippingOverageAmount: "0.00",
+    sellerShippingPayoutAmount: shippingChargeAmount,
+    shippingChargeAmount,
+  };
+}
+
 function quotePlan(
   demandPlans: readonly DemandPlan[],
   shippingOption: ShippingOption,
@@ -327,6 +415,7 @@ function quotePlan(
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string;
+    shippingAllowancePercentageBps?: number;
   }>,
   sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
@@ -361,6 +450,9 @@ function quotePlan(
         feeOverride?.marketplaceSalesFeeUnitAmount ?? allocation.candidate.marketplaceSalesFeeUnitAmount;
       const sellerNetUnitAmount =
         feeOverride?.sellerNetUnitAmount ?? allocation.candidate.sellerNetUnitAmount;
+      const shippingAllowancePercentageBps =
+        feeOverride?.shippingAllowancePercentageBps ??
+        allocation.candidate.shippingAllowancePercentageBps;
       const marketplaceSalesFeeTotalAmount = numberToMoneyAmount(
         moneyToNumber(marketplaceSalesFeeUnitAmount) * allocation.quantity,
       );
@@ -387,6 +479,7 @@ function quotePlan(
         termsScheduleId: feeOverride?.termsScheduleId ?? allocation.candidate.termsScheduleId,
         termsAgreementId: feeOverride?.termsAgreementId ?? allocation.candidate.termsAgreementId,
         termsResolvedAt: feeOverride?.termsResolvedAt ?? allocation.candidate.termsResolvedAt,
+        shippingAllowancePercentageBps,
       });
       sellerDraft.reservations.push({
         reservationRequestId: createId("rsv"),
@@ -405,6 +498,7 @@ function quotePlan(
   let itemSubtotalAmount = 0;
 
   for (const [sellerAccountId, draft] of groupedBySeller.entries()) {
+    const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
     const quote = shippingQuotePolicy.quote({
       sellerAccountId,
       shippingOption,
@@ -412,7 +506,13 @@ function quotePlan(
       quantity: draft.quantity,
       listingCount: draft.listingIds.size,
     });
-    const orderTotal = draft.subtotal + moneyToNumber(quote.chargeAmount);
+    const shippingEconomics = calculateShippingIncentive({
+      sourceType,
+      itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
+      shippingBaseAmount: quote.baseAmount,
+      shippingAllowancePercentageBps,
+    });
+    const orderTotal = draft.subtotal + moneyToNumber(shippingEconomics.shippingChargeAmount);
     totalAmount += orderTotal;
     itemSubtotalAmount += draft.subtotal;
 
@@ -422,9 +522,12 @@ function quotePlan(
       sourceReferenceId,
       shippingOption,
       itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
-      shippingBaseAmount: quote.baseAmount,
-      shippingDiscountAmount: quote.discountAmount,
-      shippingChargeAmount: quote.chargeAmount,
+      shippingBaseAmount: shippingEconomics.shippingBaseAmount,
+      shippingDiscountAmount: shippingEconomics.shippingDiscountAmount,
+      shippingAllowanceAmount: shippingEconomics.shippingAllowanceAmount,
+      shippingOverageAmount: shippingEconomics.shippingOverageAmount,
+      sellerShippingPayoutAmount: shippingEconomics.sellerShippingPayoutAmount,
+      shippingChargeAmount: shippingEconomics.shippingChargeAmount,
       salesTaxAmount: "0.00",
       totalAmount: numberToMoneyAmount(orderTotal),
       taxQuote: {
@@ -509,6 +612,7 @@ function chooseBestPlan(
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string;
+    shippingAllowancePercentageBps?: number;
   }>,
   sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
@@ -618,6 +722,10 @@ export function createOrderingOrderRuntime(
       const sellerNetAmount = numberToMoneyAmount(
         draft.lines.reduce((sum, line) => sum + moneyToNumber(line.sellerNetTotalAmount), 0),
       );
+      const sellerPayoutAmount = numberToMoneyAmount(
+        moneyToNumber(sellerNetAmount) + moneyToNumber(draft.sellerShippingPayoutAmount),
+      );
+      const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
       const firstLine = draft.lines[0];
       const termsScheduleId = firstLine
         ? planTermsForLines(draft.lines, "termsScheduleId")
@@ -643,6 +751,8 @@ export function createOrderingOrderRuntime(
           itemSubtotalAmount: draft.itemSubtotalAmount,
           shippingBaseAmount: draft.shippingBaseAmount,
           shippingDiscountAmount: draft.shippingDiscountAmount,
+          shippingAllowanceAmount: draft.shippingAllowanceAmount,
+          shippingOverageAmount: draft.shippingOverageAmount,
           shippingChargeAmount: draft.shippingChargeAmount,
           salesTaxAmount: draft.salesTaxAmount,
           totalAmount: draft.totalAmount,
@@ -659,6 +769,11 @@ export function createOrderingOrderRuntime(
           commercialTermsSnapshot: {
             marketplaceSalesFeeAmount,
             sellerNetAmount,
+            sellerItemNetAmount: sellerNetAmount,
+            shippingAllowanceAmount: draft.shippingAllowanceAmount,
+            sellerShippingPayoutAmount: draft.sellerShippingPayoutAmount,
+            sellerPayoutAmount,
+            shippingAllowancePercentageBps,
             termsScheduleId,
             termsAgreementId,
             termsResolvedAt,
@@ -680,7 +795,7 @@ export function createOrderingOrderRuntime(
     return orderIds;
   };
 
-  const createOrdersFromAcceptedOffer = async (
+  const buildAcceptedOfferPlan = async (
     params: Readonly<{
       offerId: string;
       buyerAccountId: AccountId;
@@ -697,10 +812,9 @@ export function createOrderingOrderRuntime(
       termsScheduleId: string | null;
       termsAgreementId: string | null;
       termsResolvedAt: string;
+      shippingAllowancePercentageBps?: number;
       quantityRequested: number;
-      orderIdsOverride?: readonly OrderId[];
     }>,
-    context: EventStoreContext,
   ) => {
     const demandGroups: MarketplaceDemand[] = [
       {
@@ -738,6 +852,7 @@ export function createOrderingOrderRuntime(
         termsScheduleId: params.termsScheduleId,
         termsAgreementId: params.termsAgreementId,
         termsResolvedAt: params.termsResolvedAt,
+        shippingAllowancePercentageBps: params.shippingAllowancePercentageBps,
       },
       "offer-acceptance",
       params.offerId,
@@ -756,6 +871,33 @@ export function createOrderingOrderRuntime(
       },
       taxQuoteResolver,
     );
+    return taxAdjustedPlan;
+  };
+
+  const createOrdersFromAcceptedOffer = async (
+    params: Readonly<{
+      offerId: string;
+      buyerAccountId: AccountId;
+      sellerAccountId: AccountId;
+      catalogItemId: string;
+      productId: string;
+      itemTitle: string;
+      itemSubtitle: string | null;
+      selectedOptions: { dimensionId: string; optionId: string }[];
+      productSummary: string | null;
+      priceAmount: string;
+      marketplaceSalesFeeUnitAmount: string;
+      sellerNetUnitAmount: string;
+      termsScheduleId: string | null;
+      termsAgreementId: string | null;
+      termsResolvedAt: string;
+      shippingAllowancePercentageBps?: number;
+      quantityRequested: number;
+      orderIdsOverride?: readonly OrderId[];
+    }>,
+    context: EventStoreContext,
+  ) => {
+    const taxAdjustedPlan = await buildAcceptedOfferPlan(params);
     const orderIds = await createOrdersFromPlan(
       params.buyerAccountId,
       taxAdjustedPlan,
@@ -764,6 +906,106 @@ export function createOrderingOrderRuntime(
     );
     return { orderIds };
   };
+
+  const createOrdersFromAcceptedOfferBatch: OrderingOrderServices["createOrdersFromAcceptedOfferBatch"] =
+    async (params, context) => {
+      const groupedByBuyer = new Map<string, SellerOrderDraft[]>();
+
+      for (const offer of params.offers) {
+        const plan = await buildAcceptedOfferPlan({
+          ...offer,
+          offerId: params.acceptanceBatchId,
+        });
+        for (const draft of plan.orderDrafts) {
+          const drafts = groupedByBuyer.get(offer.buyerAccountId) ?? [];
+          drafts.push({
+            ...draft,
+            sourceReferenceId: params.acceptanceBatchId,
+          });
+          groupedByBuyer.set(offer.buyerAccountId, drafts);
+        }
+      }
+
+      const orderIds: OrderId[] = [];
+      for (const [buyerAccountId, drafts] of groupedByBuyer.entries()) {
+        const mergedBySeller = new Map<string, SellerOrderDraft>();
+
+        for (const draft of drafts) {
+          const existing = mergedBySeller.get(draft.sellerAccountId);
+          if (!existing) {
+            mergedBySeller.set(draft.sellerAccountId, draft);
+            continue;
+          }
+
+          const lines = [...existing.lines, ...draft.lines];
+          const reservations = [...existing.reservations, ...draft.reservations];
+          const itemSubtotalAmount = numberToMoneyAmount(
+            moneyToNumber(existing.itemSubtotalAmount) + moneyToNumber(draft.itemSubtotalAmount),
+          );
+          const listingIds = new Set(lines.map((line) => line.listingId));
+          const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+          const quote = deps.shippingQuotePolicy.quote({
+            sellerAccountId: draft.sellerAccountId,
+            shippingOption: draft.shippingOption,
+            itemSubtotalAmount,
+            quantity,
+            listingCount: listingIds.size,
+          });
+          const shippingAllowancePercentageBps = planShippingAllowanceBps(lines);
+          const shippingEconomics = calculateShippingIncentive({
+            sourceType: "offer-acceptance",
+            itemSubtotalAmount,
+            shippingBaseAmount: quote.baseAmount,
+            shippingAllowancePercentageBps,
+          });
+          mergedBySeller.set(draft.sellerAccountId, {
+            ...existing,
+            itemSubtotalAmount,
+            shippingBaseAmount: shippingEconomics.shippingBaseAmount,
+            shippingDiscountAmount: shippingEconomics.shippingDiscountAmount,
+            shippingAllowanceAmount: shippingEconomics.shippingAllowanceAmount,
+            shippingOverageAmount: shippingEconomics.shippingOverageAmount,
+            sellerShippingPayoutAmount: shippingEconomics.sellerShippingPayoutAmount,
+            shippingChargeAmount: shippingEconomics.shippingChargeAmount,
+            salesTaxAmount: "0.00",
+            totalAmount: numberToMoneyAmount(
+              moneyToNumber(itemSubtotalAmount) +
+                moneyToNumber(shippingEconomics.shippingChargeAmount),
+            ),
+            lines,
+            reservations,
+          });
+        }
+
+        const taxAdjustedPlan = await applyTaxToPlan(
+          {
+            orderDrafts: [...mergedBySeller.values()],
+            totalAmount: 0,
+            itemSubtotalAmount: 0,
+            orderCount: mergedBySeller.size,
+          },
+          buyerAccountId as AccountId,
+          {
+            name: null,
+            line1: "Accepted offer destination pending",
+            line2: null,
+            city: "Unknown",
+            state: "ZZ",
+            postalCode: "00000",
+            country: "US",
+          },
+          taxQuoteResolver,
+        );
+        const buyerOrderIds = await createOrdersFromPlan(
+          buyerAccountId as AccountId,
+          taxAdjustedPlan,
+          context,
+        );
+        orderIds.push(...buyerOrderIds);
+      }
+
+      return { orderIds };
+    };
 
   return {
     commandHandler,
@@ -871,6 +1113,7 @@ export function createOrderingOrderRuntime(
       return { orderIds };
     },
     createOrdersFromAcceptedOffer,
+    createOrdersFromAcceptedOfferBatch,
     cancelPurchase: async (params, context) => {
       const order = await getPurchase(deps.db, params.orderId, params.buyerAccountId);
       if (!order) {

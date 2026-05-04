@@ -17,6 +17,7 @@ Set these environment variables outside the repo:
 ```bash
 export DIGITALOCEAN_ACCESS_TOKEN=...
 export REMOTE_DEV_DOMAIN=dev.example.com
+export REMOTE_DEV_DNS_ZONE=example.com
 export REMOTE_DEV_SSH_KEY_ID=...
 export REMOTE_DEV_SSH_PUBLIC_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
 export REMOTE_DEV_BASIC_AUTH_USER=...
@@ -36,6 +37,7 @@ export REMOTE_DEV_CADDY_EMAIL=you@example.com
 ```
 
 Delegate the configured `REMOTE_DEV_DOMAIN` to DigitalOcean DNS before creating sessions.
+If DigitalOcean manages the apex domain, set `REMOTE_DEV_DNS_ZONE` to that apex zone. For example, use `REMOTE_DEV_DOMAIN=dev.chasesets.com` and `REMOTE_DEV_DNS_ZONE=chasesets.com` so session records are created as `<slug>.dev` and `*.<slug>.dev` inside the `chasesets.com` zone.
 
 ## Lifecycle
 

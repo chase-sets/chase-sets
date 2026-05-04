@@ -13,6 +13,7 @@ export type ResolvedCommercialTerms = Readonly<{
   basisAmount: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps: number;
   scheduleId: string | null;
   agreementId: string | null;
   resolvedAt: string;
@@ -41,12 +42,14 @@ type ActiveSchedule = Readonly<{
   schedule_id: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
+  shipping_allowance_percentage_bps: number;
 }>;
 
 type ActiveAgreement = Readonly<{
   agreement_id: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
+  shipping_allowance_percentage_bps: number;
 }>;
 
 async function getProjectedAccount(db: PgQueryable, accountId: string) {
@@ -69,7 +72,8 @@ async function getActiveSchedule(
     `SELECT
        schedule_id,
        marketplace_sales_fee_percentage_bps,
-       marketplace_sales_fee_fixed_amount::text
+       marketplace_sales_fee_fixed_amount::text,
+       shipping_allowance_percentage_bps
      FROM commercial_terms_schedule_pages
      WHERE account_type = $1
        AND status = 'active'
@@ -92,7 +96,8 @@ async function getActiveAgreement(
     `SELECT
        agreement_id,
        marketplace_sales_fee_percentage_bps,
-       marketplace_sales_fee_fixed_amount::text
+       marketplace_sales_fee_fixed_amount::text,
+       shipping_allowance_percentage_bps
      FROM commercial_terms_agreement_pages
      WHERE account_id = $1
        AND status = 'active'
@@ -146,6 +151,10 @@ async function resolveTerms(
     basisAmount: amount,
     marketplaceSalesFeeUnitAmount,
     sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
+    shippingAllowancePercentageBps:
+      agreement?.shipping_allowance_percentage_bps ??
+      schedule?.shipping_allowance_percentage_bps ??
+      500,
     scheduleId: schedule?.schedule_id ?? null,
     agreementId: agreement?.agreement_id ?? null,
     resolvedAt: effectiveAt,
@@ -174,6 +183,7 @@ export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
       basisAmount: amount,
       marketplaceSalesFeeUnitAmount: "0.00",
       sellerNetUnitAmount: amount,
+      shippingAllowancePercentageBps: 500,
       scheduleId: null,
       agreementId: null,
       resolvedAt: params.effectiveAt ?? new Date().toISOString(),

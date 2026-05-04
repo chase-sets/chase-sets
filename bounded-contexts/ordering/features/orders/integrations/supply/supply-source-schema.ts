@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   price_amount numeric(12, 2) NOT NULL,
   marketplace_sales_fee_unit_amount numeric(12, 2) NOT NULL,
   seller_net_unit_amount numeric(12, 2) NOT NULL,
+  shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
@@ -68,13 +69,28 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   price_amount numeric(12, 2) NOT NULL,
   marketplace_sales_fee_unit_amount numeric(12, 2) NOT NULL,
   seller_net_unit_amount numeric(12, 2) NOT NULL,
+  shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   accepted_at timestamptz NOT NULL,
+  acceptance_batch_id text NULL,
+  acceptance_batch_size integer NULL,
   updated_at timestamptz NOT NULL
 );
+
+ALTER TABLE ordering_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+
+ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+
+ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS acceptance_batch_id text NULL;
+
+ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS acceptance_batch_size integer NULL;
 
 CREATE TABLE IF NOT EXISTS ordering_payment_capture_inputs (
   payment_id text PRIMARY KEY,

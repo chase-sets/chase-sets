@@ -115,6 +115,7 @@ type SupplyCandidate = Readonly<{
   priceAmount: string;
   marketplaceSalesFeeUnitAmount?: string;
   sellerNetUnitAmount?: string;
+  shippingAllowancePercentageBps?: number;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
   termsResolvedAt?: string;
@@ -147,6 +148,7 @@ function createSupplyDb(
         price_amount: candidate.priceAmount,
         marketplace_sales_fee_unit_amount: candidate.marketplaceSalesFeeUnitAmount ?? "1.00",
         seller_net_unit_amount: candidate.sellerNetUnitAmount ?? "19.00",
+        shipping_allowance_percentage_bps: candidate.shippingAllowancePercentageBps ?? 500,
         terms_schedule_id: candidate.termsScheduleId ?? "cts_default",
         terms_agreement_id: candidate.termsAgreementId ?? null,
         terms_resolved_at: candidate.termsResolvedAt ?? "2026-03-31T00:00:00.000Z",
@@ -240,7 +242,7 @@ describe("ordering order runtime", () => {
     ).rejects.toThrow("Not enough active supply is available for Charizard.");
   });
 
-  it("chooses the lowest total buyer cost, not just the lowest unit price", async () => {
+  it("keeps buyer cost lowest by rewarding same-seller checkout grouping", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const carts = {
       listCartLines: vi.fn(async () => [
@@ -402,23 +404,143 @@ describe("ordering order runtime", () => {
 
     expect(result.orderIds).toHaveLength(1);
 
+    const createdEvents = readAllEvents()
+      .filter((event) => event.eventType === "ordering.order.created")
+      .map((event) => event.payload);
+    expect(createdEvents).toEqual([
+      expect.objectContaining({
+        sellerAccountId: "acc_single",
+        itemSubtotalAmount: "11.00",
+        shippingBaseAmount: "4.99",
+        shippingDiscountAmount: "0.55",
+        shippingAllowanceAmount: "0.55",
+        shippingOverageAmount: "0.00",
+        shippingChargeAmount: "4.44",
+        totalAmount: "15.44",
+      }),
+    ]);
+  });
+
+  it("groups same-seller checkout lines and applies the buyer shipping allowance as a shipping credit", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createSupplyDb((params) => {
+      const productId = String(params?.[0] ?? "");
+      return [
+        {
+          listingId: productId === "cat_1::" ? "lst_1" : "lst_2",
+          sellerAccountId: "acc_seller",
+          inventoryItemId: productId === "cat_1::" ? "inv_1" : "inv_2",
+          catalogItemId: productId === "cat_1::" ? "cat_1" : "cat_2",
+          productId,
+          itemTitle: productId === "cat_1::" ? "Charizard" : "Blastoise",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          storageLocationName: "A",
+          shipFromCode: "A",
+          priceAmount: productId === "cat_1::" ? "10.00" : "4.99",
+          availableQuantity: 1,
+          updatedAt: "2026-03-31T00:00:00.000Z",
+        },
+      ];
+    });
+    const taxQuoteResolver = {
+      quoteTax: vi.fn(async (input: { itemSubtotalAmount: string; shippingAmount: string }) => ({
+        taxableAmount: (
+          Number.parseFloat(input.itemSubtotalAmount) +
+          Number.parseFloat(input.shippingAmount)
+        ).toFixed(2),
+        taxAmount: "1.57",
+        jurisdictionCountry: "US",
+        jurisdictionState: "IL",
+        rateBps: 1000,
+        itemTaxable: true,
+        shippingTaxable: true,
+        marketplaceCheckoutFeeTaxable: false,
+        providerName: "test-tax",
+        providerQuoteReference: "tax_1",
+        quotedAt: "2026-03-31T00:00:00.000Z",
+      })),
+    };
+
+    const services = createOrderingOrderRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      carts: {
+        listCartLines: async () => [],
+        checkout: async () => ({ version: 1 }),
+      } as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+      taxQuoteResolver: taxQuoteResolver as never,
+    });
+
+    const result = await services.createOrdersFromCheckout(
+      {
+        buyerAccountId: "acc_buyer" as never,
+        checkoutSessionId: "chk_allowance",
+        sourceType: "cart-checkout",
+        shippingOption: "standard",
+        shippingAddress,
+        lines: [
+          {
+            listingId: null,
+            cartLineId: "cli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+          {
+            listingId: null,
+            cartLineId: "cli_2",
+            catalogItemId: "cat_2",
+            productId: "cat_2::",
+            itemTitle: "Blastoise",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      },
+      context,
+    );
+
+    expect(result.orderIds).toHaveLength(1);
+    expect(taxQuoteResolver.quoteTax).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemSubtotalAmount: "14.99",
+        shippingAmount: "4.25",
+      }),
+    );
     const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
     expect(createdEvent?.payload).toMatchObject({
-      sellerAccountId: "acc_single",
-      itemSubtotalAmount: "11.00",
-      totalAmount: "15.99",
-      reservationRequests: [
-        expect.objectContaining({
-          sellerAccountId: "acc_single",
-          inventoryItemId: "inv_b1",
-          quantity: 1,
-        }),
-        expect.objectContaining({
-          sellerAccountId: "acc_single",
-          inventoryItemId: "inv_b2",
-          quantity: 1,
-        }),
-      ],
+      sellerAccountId: "acc_seller",
+      itemSubtotalAmount: "14.99",
+      shippingBaseAmount: "4.99",
+      shippingDiscountAmount: "0.74",
+      shippingAllowanceAmount: "0.74",
+      shippingOverageAmount: "0.00",
+      shippingChargeAmount: "4.25",
+      salesTaxAmount: "1.57",
+      totalAmount: "20.81",
+      commercialTermsSnapshot: {
+        sellerItemNetAmount: "38.00",
+        shippingAllowanceAmount: "0.74",
+        sellerShippingPayoutAmount: "4.25",
+        sellerPayoutAmount: "42.25",
+      },
     });
   });
 
@@ -505,6 +627,119 @@ describe("ordering order runtime", () => {
         }),
       ],
     });
+  });
+
+  it("groups accepted offer batches by buyer and seller into one allowance-bearing order", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createSupplyDb((params) => {
+      const productId = String(params?.[0] ?? "");
+      expect(params?.[1]).toBe("acc_seller");
+      return [
+        {
+          listingId: productId === "cat_1::" ? "lst_1" : "lst_2",
+          sellerAccountId: "acc_seller",
+          inventoryItemId: productId === "cat_1::" ? "inv_1" : "inv_2",
+          catalogItemId: productId === "cat_1::" ? "cat_1" : "cat_2",
+          productId,
+          itemTitle: productId === "cat_1::" ? "Charizard" : "Blastoise",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          storageLocationName: "A",
+          shipFromCode: "A",
+          priceAmount: "99.00",
+          availableQuantity: 1,
+          updatedAt: "2026-03-31T00:00:00.000Z",
+        },
+      ];
+    });
+
+    const services = createOrderingOrderRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      carts: {
+        listCartLines: async () => [],
+        checkout: async () => ({ version: 1 }),
+      } as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+
+    const result = await services.createOrdersFromAcceptedOfferBatch(
+      {
+        acceptanceBatchId: "ofb_1",
+        offers: [
+          {
+            offerId: "off_1",
+            buyerAccountId: "acc_buyer" as never,
+            sellerAccountId: "acc_seller" as never,
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            priceAmount: "10.00",
+            marketplaceSalesFeeUnitAmount: "0.50",
+            sellerNetUnitAmount: "9.50",
+            shippingAllowancePercentageBps: 500,
+            termsScheduleId: "cts_offer",
+            termsAgreementId: null,
+            termsResolvedAt: "2026-03-31T00:00:00.000Z",
+            quantityRequested: 1,
+          },
+          {
+            offerId: "off_2",
+            buyerAccountId: "acc_buyer" as never,
+            sellerAccountId: "acc_seller" as never,
+            catalogItemId: "cat_2",
+            productId: "cat_2::",
+            itemTitle: "Blastoise",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            priceAmount: "10.00",
+            marketplaceSalesFeeUnitAmount: "0.50",
+            sellerNetUnitAmount: "9.50",
+            shippingAllowancePercentageBps: 500,
+            termsScheduleId: "cts_offer",
+            termsAgreementId: null,
+            termsResolvedAt: "2026-03-31T00:00:00.000Z",
+            quantityRequested: 1,
+          },
+        ],
+      },
+      context,
+    );
+
+    expect(result.orderIds).toHaveLength(1);
+    const createdEvent = readAllEvents().find((event) => event.eventType === "ordering.order.created");
+    expect(createdEvent?.payload).toMatchObject({
+      sourceType: "offer-acceptance",
+      sourceReferenceId: "ofb_1",
+      buyerAccountId: "acc_buyer",
+      sellerAccountId: "acc_seller",
+      itemSubtotalAmount: "20.00",
+      shippingAllowanceAmount: "1.00",
+      shippingOverageAmount: "3.99",
+      shippingChargeAmount: "1.00",
+      totalAmount: "21.00",
+      commercialTermsSnapshot: {
+        marketplaceSalesFeeAmount: "1.00",
+        sellerItemNetAmount: "19.00",
+        shippingAllowanceAmount: "1.00",
+        sellerShippingPayoutAmount: "1.00",
+        sellerPayoutAmount: "20.00",
+      },
+    });
+    expect((createdEvent?.payload as { lines?: unknown[] } | undefined)?.lines).toHaveLength(2);
   });
 
   it("creates buy-now orders from the requested listing only", async () => {

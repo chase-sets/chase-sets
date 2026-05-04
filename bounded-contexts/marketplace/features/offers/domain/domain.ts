@@ -46,6 +46,12 @@ function normalizeNonNegativeMoneyAmount(value: string, fieldName: string): stri
   return normalized;
 }
 
+function normalizePercentageBps(value: number, fieldName: string): number {
+  assert(Number.isInteger(value), `${fieldName} must be a whole number of basis points.`);
+  assert(value >= 0, `${fieldName} must be zero or greater.`);
+  return value;
+}
+
 function normalizeVersionSelection(
   value: readonly { dimensionId: string; optionId: string }[],
 ) {
@@ -96,10 +102,13 @@ export type MarketplaceOfferState = Readonly<{
   acceptedAt: string | null;
   marketplaceSalesFeeUnitAmount: string | null;
   sellerNetUnitAmount: string | null;
+  shippingAllowancePercentageBps: number | null;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string | null;
   feeQuoteFingerprint: string | null;
+  acceptanceBatchId: string | null;
+  acceptanceBatchSize: number | null;
 }>;
 
 export const initialMarketplaceOfferState: MarketplaceOfferState = {
@@ -118,10 +127,13 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   acceptedAt: null,
   marketplaceSalesFeeUnitAmount: null,
   sellerNetUnitAmount: null,
+  shippingAllowancePercentageBps: null,
   termsScheduleId: null,
   termsAgreementId: null,
   termsResolvedAt: null,
   feeQuoteFingerprint: null,
+  acceptanceBatchId: null,
+  acceptanceBatchSize: null,
 };
 
 export type SubmitOfferCommand = Readonly<{
@@ -144,10 +156,13 @@ export type AcceptOfferCommand = Readonly<{
   acceptedAt: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps?: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
   feeQuoteFingerprint: string;
+  acceptanceBatchId?: string | null;
+  acceptanceBatchSize?: number | null;
 }>;
 
 export type MarketplaceOfferCommand = SubmitOfferCommand | AcceptOfferCommand;
@@ -185,10 +200,13 @@ export type OfferAcceptedEvent = DomainEvent<
     acceptedAt: string;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
+    shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string;
     feeQuoteFingerprint: string;
+    acceptanceBatchId: string | null;
+    acceptanceBatchSize: number | null;
   }>
 >;
 
@@ -260,6 +278,10 @@ export const decideMarketplaceOffer: AggregateDecider<
               command.sellerNetUnitAmount,
               "Seller net unit amount",
             ),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps ?? 500,
+              "Shipping allowance percentage",
+            ),
             termsScheduleId: normalizeOptionalText(command.termsScheduleId),
             termsAgreementId: normalizeOptionalText(command.termsAgreementId),
             termsResolvedAt: normalizeRequiredText(
@@ -270,6 +292,14 @@ export const decideMarketplaceOffer: AggregateDecider<
               command.feeQuoteFingerprint,
               "Offer acceptance must record a fee quote fingerprint.",
             ),
+            acceptanceBatchId: normalizeOptionalText(command.acceptanceBatchId),
+            acceptanceBatchSize:
+              command.acceptanceBatchId == null
+                ? null
+                : ensurePositiveInteger(
+                    command.acceptanceBatchSize ?? 1,
+                    "Offer acceptance batch size must be a positive whole number.",
+                  ),
           },
         },
       ];
@@ -299,10 +329,13 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       acceptedAt: null,
       marketplaceSalesFeeUnitAmount: null,
       sellerNetUnitAmount: null,
+      shippingAllowancePercentageBps: null,
       termsScheduleId: null,
       termsAgreementId: null,
       termsResolvedAt: null,
       feeQuoteFingerprint: null,
+      acceptanceBatchId: null,
+      acceptanceBatchSize: null,
     };
   }
 
@@ -314,10 +347,13 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       acceptedAt: event.data.acceptedAt,
       marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
       sellerNetUnitAmount: event.data.sellerNetUnitAmount,
+      shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
       termsScheduleId: event.data.termsScheduleId,
       termsAgreementId: event.data.termsAgreementId,
       termsResolvedAt: event.data.termsResolvedAt,
       feeQuoteFingerprint: event.data.feeQuoteFingerprint,
+      acceptanceBatchId: event.data.acceptanceBatchId,
+      acceptanceBatchSize: event.data.acceptanceBatchSize,
     };
   }
 

@@ -4,10 +4,17 @@ import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 export type PaymentOrderInputRow = Readonly<{
   order_id: string;
   buyer_account_id: string;
+  seller_account_id: string;
   total_amount: string;
   marketplace_sales_fee_amount: string;
   marketplace_checkout_fee_amount: string;
   seller_net_amount: string;
+  seller_item_net_amount: string;
+  shipping_allowance_amount: string;
+  shipping_overage_amount: string;
+  seller_shipping_payout_amount: string;
+  seller_payout_amount: string;
+  shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
@@ -27,10 +34,17 @@ export async function listPaymentOrderInputs(
     `SELECT
        order_id,
        buyer_account_id,
+       seller_account_id,
        total_amount::text AS total_amount,
        marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
        marketplace_checkout_fee_amount::text AS marketplace_checkout_fee_amount,
        seller_net_amount::text AS seller_net_amount,
+       seller_item_net_amount::text AS seller_item_net_amount,
+        shipping_allowance_amount::text AS shipping_allowance_amount,
+        shipping_overage_amount::text AS shipping_overage_amount,
+        seller_shipping_payout_amount::text AS seller_shipping_payout_amount,
+        seller_payout_amount::text AS seller_payout_amount,
+       shipping_allowance_percentage_bps,
        terms_schedule_id,
        terms_agreement_id,
        terms_resolved_at,

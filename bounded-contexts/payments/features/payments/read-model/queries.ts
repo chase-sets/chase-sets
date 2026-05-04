@@ -13,6 +13,15 @@ export type PaymentDetailRow = Readonly<{
   marketplace_checkout_fee_quote_fingerprint: string | null;
   payment_method_category: string | null;
   seller_net_amount: string;
+  seller_payout_amount: string;
+  seller_payouts: readonly {
+    orderId: string;
+    sellerAccountId: string;
+    sellerItemNetAmount: string;
+    shippingAllowanceAmount: string;
+    sellerShippingPayoutAmount: string;
+    sellerPayoutAmount: string;
+  }[];
   currency_code: string;
   processor_name: string;
   processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
@@ -61,8 +70,9 @@ export type PaymentReconciliationRunRow = Readonly<{
   completed_at: string;
 }>;
 
-type PaymentPageRow = Omit<PaymentDetailRow, "order_ids"> & Readonly<{
+type PaymentPageRow = Omit<PaymentDetailRow, "order_ids" | "seller_payouts"> & Readonly<{
   order_ids: unknown;
+  seller_payouts: unknown;
 }>;
 
 function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
@@ -71,6 +81,14 @@ function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
     amount: String(row.amount),
     order_ids: Array.isArray(row.order_ids)
       ? row.order_ids.filter((value): value is string => typeof value === "string")
+      : [],
+    seller_payouts: Array.isArray(row.seller_payouts)
+      ? row.seller_payouts.filter((value): value is PaymentDetailRow["seller_payouts"][number] =>
+          Boolean(value) &&
+          typeof value === "object" &&
+          typeof (value as { orderId?: unknown }).orderId === "string" &&
+          typeof (value as { sellerAccountId?: unknown }).sellerAccountId === "string",
+        )
       : [],
   };
 }
@@ -89,6 +107,8 @@ const paymentSelect = `
     marketplace_checkout_fee_quote_fingerprint,
     payment_method_category,
     seller_net_amount::text AS seller_net_amount,
+    seller_payout_amount::text AS seller_payout_amount,
+    seller_payouts,
     currency_code,
     processor_name,
     processor_payment_kind,

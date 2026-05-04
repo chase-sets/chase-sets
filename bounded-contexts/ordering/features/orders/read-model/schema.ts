@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS ordering_order_pages (
   item_subtotal_amount numeric(12,2) NOT NULL,
   shipping_base_amount numeric(12,2) NOT NULL,
   shipping_discount_amount numeric(12,2) NOT NULL,
+  shipping_allowance_amount numeric(12,2) NOT NULL DEFAULT 0,
+  shipping_overage_amount numeric(12,2) NOT NULL DEFAULT 0,
   shipping_charge_amount numeric(12,2) NOT NULL,
   sales_tax_amount numeric(12,2) NOT NULL DEFAULT 0,
   taxable_amount numeric(12,2) NOT NULL DEFAULT 0,
@@ -21,6 +23,9 @@ CREATE TABLE IF NOT EXISTS ordering_order_pages (
   total_amount numeric(12,2) NOT NULL,
   marketplace_sales_fee_amount numeric(12,2) NOT NULL,
   seller_net_amount numeric(12,2) NOT NULL,
+  seller_item_net_amount numeric(12,2) NOT NULL DEFAULT 0,
+  seller_payout_amount numeric(12,2) NOT NULL DEFAULT 0,
+  shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
@@ -54,6 +59,16 @@ ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS tax_provider_quote_reference text NULL;
 ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS tax_quoted_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS shipping_allowance_amount numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS shipping_overage_amount numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS seller_item_net_amount numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
 
 CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   order_id text NOT NULL,

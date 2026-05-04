@@ -34,6 +34,7 @@ const baseListing: DiscoveryMarketListing = {
   storage_location_name: null,
   ship_from_code: null,
   price_amount: "399.99",
+  shipping_allowance_percentage_bps: 500,
   quantity_cap: 2,
   status: "active",
   seller_display_name: "Chase Sets",

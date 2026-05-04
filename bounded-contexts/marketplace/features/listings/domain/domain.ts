@@ -36,6 +36,12 @@ function normalizeMoneyAmount(
   return normalized;
 }
 
+function normalizePercentageBps(value: number, fieldName: string): number {
+  assert(Number.isInteger(value), `${fieldName} must be a whole number of basis points.`);
+  assert(value >= 0, `${fieldName} must be zero or greater.`);
+  return value;
+}
+
 export type ListingStatus = "draft" | "active" | "paused" | "withdrawn";
 
 export type MarketplaceGradedCardDetails = Readonly<{
@@ -67,6 +73,7 @@ export type MarketplaceListingState = Readonly<{
   priceAmount: string | null;
   marketplaceSalesFeeUnitAmount: string | null;
   sellerNetUnitAmount: string | null;
+  shippingAllowancePercentageBps: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string | null;
@@ -91,6 +98,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   priceAmount: null,
   marketplaceSalesFeeUnitAmount: null,
   sellerNetUnitAmount: null,
+  shippingAllowancePercentageBps: 500,
   termsScheduleId: null,
   termsAgreementId: null,
   termsResolvedAt: null,
@@ -116,6 +124,7 @@ export type CreateListingCommand = Readonly<{
   priceAmount: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps?: number;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
   termsResolvedAt?: string | null;
@@ -128,6 +137,7 @@ export type UpdateListingPriceCommand = Readonly<{
   priceAmount: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps?: number;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
   termsResolvedAt?: string | null;
@@ -139,6 +149,7 @@ export type UpdateListingQuantityCapCommand = Readonly<{
   quantityCap: number;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps?: number;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
   termsResolvedAt?: string | null;
@@ -149,6 +160,7 @@ export type PublishListingCommand = Readonly<{
   type: "PublishListing";
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps?: number;
   termsScheduleId?: string | null;
   termsAgreementId?: string | null;
   termsResolvedAt?: string | null;
@@ -183,6 +195,7 @@ export type ListingCreatedEvent = DomainEvent<
     priceAmount: string;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
+    shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
@@ -196,6 +209,7 @@ export type ListingPriceUpdatedEvent = DomainEvent<
     priceAmount: string;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
+    shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
@@ -208,6 +222,7 @@ export type ListingQuantityCapUpdatedEvent = DomainEvent<
     quantityCap: number;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
+    shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
@@ -219,6 +234,7 @@ export type ListingPublishedEvent = DomainEvent<
   Readonly<{
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
+    shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
@@ -278,6 +294,10 @@ export const decideMarketplaceListing: AggregateDecider<
               fieldName: "Seller net unit amount",
               allowZero: true,
             }),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps ?? 500,
+              "Shipping allowance percentage",
+            ),
             termsScheduleId: command.termsScheduleId?.trim() ?? null,
             termsAgreementId: command.termsAgreementId?.trim() ?? null,
             termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
@@ -308,6 +328,10 @@ export const decideMarketplaceListing: AggregateDecider<
               fieldName: "Seller net unit amount",
               allowZero: true,
             }),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps ?? 500,
+              "Shipping allowance percentage",
+            ),
             termsScheduleId: command.termsScheduleId?.trim() ?? null,
             termsAgreementId: command.termsAgreementId?.trim() ?? null,
             termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
@@ -337,6 +361,10 @@ export const decideMarketplaceListing: AggregateDecider<
               fieldName: "Seller net unit amount",
               allowZero: true,
             }),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps ?? 500,
+              "Shipping allowance percentage",
+            ),
             termsScheduleId: command.termsScheduleId?.trim() ?? null,
             termsAgreementId: command.termsAgreementId?.trim() ?? null,
             termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
@@ -363,6 +391,10 @@ export const decideMarketplaceListing: AggregateDecider<
               fieldName: "Seller net unit amount",
               allowZero: true,
             }),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps ?? 500,
+              "Shipping allowance percentage",
+            ),
             termsScheduleId: command.termsScheduleId?.trim() ?? null,
             termsAgreementId: command.termsAgreementId?.trim() ?? null,
             termsResolvedAt: command.termsResolvedAt?.trim() ?? null,
@@ -411,6 +443,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         priceAmount: event.data.priceAmount,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
+        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
@@ -424,6 +457,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         priceAmount: event.data.priceAmount,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
+        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
@@ -435,6 +469,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         quantityCap: event.data.quantityCap,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
+        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
@@ -445,6 +480,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         ...state,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
+        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
         termsScheduleId: event.data.termsScheduleId,
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,

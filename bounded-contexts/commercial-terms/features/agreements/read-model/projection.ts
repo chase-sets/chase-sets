@@ -10,6 +10,7 @@ export function buildAgreementProjectionHandlers(db: PgQueryable): ProjectorHand
         label: string;
         marketplaceSalesFeePercentageBps: number;
         marketplaceSalesFeeFixedAmount: string;
+        shippingAllowancePercentageBps?: number;
         status: string;
         effectiveFrom: string;
         effectiveUntil: string | null;
@@ -22,19 +23,21 @@ export function buildAgreementProjectionHandlers(db: PgQueryable): ProjectorHand
            label,
            marketplace_sales_fee_percentage_bps,
            marketplace_sales_fee_fixed_amount,
+           shipping_allowance_percentage_bps,
            status,
            effective_from,
            effective_until,
            created_at,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $9
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10
          )
          ON CONFLICT (agreement_id) DO UPDATE
          SET account_id = EXCLUDED.account_id,
              label = EXCLUDED.label,
              marketplace_sales_fee_percentage_bps = EXCLUDED.marketplace_sales_fee_percentage_bps,
              marketplace_sales_fee_fixed_amount = EXCLUDED.marketplace_sales_fee_fixed_amount,
+             shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
              status = EXCLUDED.status,
              effective_from = EXCLUDED.effective_from,
              effective_until = EXCLUDED.effective_until,
@@ -45,6 +48,7 @@ export function buildAgreementProjectionHandlers(db: PgQueryable): ProjectorHand
           data.label,
           data.marketplaceSalesFeePercentageBps,
           data.marketplaceSalesFeeFixedAmount,
+          data.shippingAllowancePercentageBps ?? 500,
           data.status,
           data.effectiveFrom,
           data.effectiveUntil,

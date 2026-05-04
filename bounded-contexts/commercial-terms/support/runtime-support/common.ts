@@ -1,5 +1,6 @@
 export type CommercialAccountType = "personal" | "business" | "enterprise";
 export type CommercialTermsStatus = "active" | "inactive";
+export const DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS = 500;
 
 export type FeeFormula = Readonly<{
   percentageBps: number;

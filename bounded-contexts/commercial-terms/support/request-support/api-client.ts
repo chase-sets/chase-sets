@@ -36,6 +36,7 @@ export type CommercialTermsSchedule = Readonly<{
   account_type: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
+  shipping_allowance_percentage_bps: number;
   status: string;
   effective_from: string;
   effective_until: string | null;
@@ -51,6 +52,7 @@ export type CommercialAgreement = Readonly<{
   label: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
+  shipping_allowance_percentage_bps: number;
   status: string;
   effective_from: string;
   effective_until: string | null;

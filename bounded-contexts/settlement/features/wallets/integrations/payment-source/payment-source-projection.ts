@@ -1,7 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { AccountId, LedgerEntryId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, LedgerEntryId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { WalletServices } from "../../api/runtime";
 import {
   compareMoney,
@@ -55,6 +55,127 @@ async function debitAppliedBalanceCredit(
   }
 }
 
+type SellerPayoutComponent = Readonly<{
+  orderId: string;
+  sellerAccountId: string;
+  sellerItemNetAmount: string;
+  shippingAllowanceAmount: string;
+  sellerShippingPayoutAmount: string;
+  sellerPayoutAmount: string;
+}>;
+
+function normalizeSellerPayoutComponents(value: unknown): SellerPayoutComponent[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((component) => {
+    if (!component || typeof component !== "object") {
+      return [];
+    }
+    const candidate = component as Partial<SellerPayoutComponent>;
+    if (
+      typeof candidate.orderId !== "string" ||
+      typeof candidate.sellerAccountId !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      orderId: candidate.orderId,
+      sellerAccountId: candidate.sellerAccountId,
+      sellerItemNetAmount: candidate.sellerItemNetAmount ?? "0.00",
+      shippingAllowanceAmount: candidate.shippingAllowanceAmount ?? "0.00",
+      sellerShippingPayoutAmount:
+        candidate.sellerShippingPayoutAmount ?? candidate.shippingAllowanceAmount ?? "0.00",
+      sellerPayoutAmount: candidate.sellerPayoutAmount ?? "0.00",
+    }];
+  });
+}
+
+async function postWalletEntryIdempotently(
+  wallets: WalletServices,
+  params: Parameters<WalletServices["postEntry"]>[0],
+  context: Parameters<WalletServices["postEntry"]>[1],
+) {
+  try {
+    await wallets.postEntry(params, context);
+  } catch (error) {
+    if (
+      error instanceof SettlementDomainError &&
+      error.message === "Ledger entry has already been posted."
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function creditSellerPayouts(
+  wallets: WalletServices | undefined,
+  data: Readonly<{
+    paymentId: string;
+    currencyCode: string;
+    capturedAt: string;
+    sellerPayouts: readonly SellerPayoutComponent[];
+  }>,
+  event: TransportEvent,
+) {
+  if (!wallets) {
+    return;
+  }
+
+  const context = {
+    tenantId: event.tenantId,
+    audit: event.audit,
+    trace: event.trace,
+  };
+
+  for (const payout of data.sellerPayouts) {
+    const sellerAccountId = payout.sellerAccountId as AccountId;
+    const paymentId = data.paymentId as PaymentId;
+
+    if (compareMoney(payout.sellerItemNetAmount, "0.00") > 0) {
+      await postWalletEntryIdempotently(
+        wallets,
+        {
+          accountId: sellerAccountId,
+          ledgerEntryId: `led_sale_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+          kind: "sale",
+          direction: "credit",
+          amount: payout.sellerItemNetAmount,
+          currencyCode: normalizeCurrencyCode(data.currencyCode),
+          fundsStatus: "pending",
+          orderId: payout.orderId as OrderId,
+          paymentId,
+          description: `Item sale proceeds for order ${payout.orderId}`,
+          postedAt: data.capturedAt,
+        },
+        context,
+      );
+    }
+
+    if (compareMoney(payout.sellerShippingPayoutAmount, "0.00") > 0) {
+      await postWalletEntryIdempotently(
+        wallets,
+        {
+          accountId: sellerAccountId,
+          ledgerEntryId: `led_shipping_allowance_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+          kind: "rebate",
+          direction: "credit",
+          amount: payout.sellerShippingPayoutAmount,
+          currencyCode: normalizeCurrencyCode(data.currencyCode),
+          fundsStatus: "pending",
+          orderId: payout.orderId as OrderId,
+          paymentId,
+          description: `Shipping allowance for order ${payout.orderId}`,
+          postedAt: data.capturedAt,
+        },
+        context,
+      );
+    }
+  }
+}
+
 export function buildSettlementPaymentInputProjectionHandlers(
   db: PgQueryable,
   wallets?: WalletServices,
@@ -65,6 +186,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
         paymentId: string;
         buyerAccountId: string;
         orderIds: string[];
+        sellerPayouts?: unknown;
         amount: string;
         balanceCreditAmount?: string;
         processorAmount?: string;
@@ -80,6 +202,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
            payment_id,
            buyer_account_id,
            order_ids,
+           seller_payouts,
            amount,
            balance_credit_amount,
            processor_amount,
@@ -97,11 +220,12 @@ export function buildSettlementPaymentInputProjectionHandlers(
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending-confirmation', NULL, NULL, $11, $11, NULL, NULL, NULL, $12
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending-confirmation', NULL, NULL, $12, $12, NULL, NULL, NULL, $13
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              order_ids = EXCLUDED.order_ids,
+             seller_payouts = EXCLUDED.seller_payouts,
              amount = EXCLUDED.amount,
              balance_credit_amount = EXCLUDED.balance_credit_amount,
              processor_amount = EXCLUDED.processor_amount,
@@ -117,6 +241,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
           data.paymentId,
           data.buyerAccountId,
           JSON.stringify(data.orderIds),
+          JSON.stringify(normalizeSellerPayoutComponents(data.sellerPayouts)),
           data.amount,
           data.balanceCreditAmount ?? "0.00",
           data.processorAmount ?? data.amount,
@@ -152,6 +277,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
         buyerAccountId: string;
         balanceCreditAmount?: string;
         currencyCode?: string;
+        sellerPayouts?: unknown;
         processorStatus: string;
         capturedAt: string;
       };
@@ -178,6 +304,16 @@ export function buildSettlementPaymentInputProjectionHandlers(
           amount: data.balanceCreditAmount ?? "0.00",
           currencyCode: data.currencyCode ?? "usd",
           capturedAt: data.capturedAt,
+        },
+        event,
+      );
+      await creditSellerPayouts(
+        wallets,
+        {
+          paymentId: data.paymentId,
+          currencyCode: data.currencyCode ?? "usd",
+          capturedAt: data.capturedAt,
+          sellerPayouts: normalizeSellerPayoutComponents(data.sellerPayouts),
         },
         event,
       );

@@ -23,6 +23,7 @@ const listing: MarketplaceListingDetail = {
   price_amount: "20.00",
   marketplace_sales_fee_unit_amount: "0.00",
   seller_net_unit_amount: "20.00",
+  shipping_allowance_percentage_bps: 500,
   terms_schedule_id: "cts_launch",
   terms_agreement_id: null,
   terms_resolved_at: "2026-04-01T00:00:00.000Z",
@@ -38,6 +39,7 @@ const currentQuote: MarketplaceListingTermsPreview = {
   basis_amount: "20.00",
   marketplace_sales_fee_unit_amount: "1.00",
   seller_net_unit_amount: "19.00",
+  shipping_allowance_percentage_bps: 750,
   schedule_id: "cts_current",
   agreement_id: null,
   resolved_at: "2026-04-17T00:00:00.000Z",
@@ -59,6 +61,9 @@ describe("MarketplaceListingDetailPage", () => {
     expect(
       screen.getByText("Fee quote changed. Review the current preview and submit again."),
     ).toBeTruthy();
+    expect(screen.getByText("Buyer shipping credit")).toBeTruthy();
+    expect(screen.getByText("Buyer shipping credit rate: 5%")).toBeTruthy();
+    expect(screen.getByText(/Buyer shipping credit 7.5%/)).toBeTruthy();
     expect(
       container.querySelector(
         'input[name="feeQuoteFingerprint"][value="current-fingerprint"]',
