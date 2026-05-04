@@ -8,10 +8,7 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { orderingReservedSeedIds } from "../seed-support/ids";
-import {
-  createOrderingServices,
-  type OrderingServices,
-} from "./services";
+import { createOrderingServices, type OrderingServices } from "./services";
 
 const rawExcellentVersionSelection = [
   {
@@ -47,7 +44,8 @@ const cancelledCartLines = [
 ] as const;
 
 const acceptedOfferSeed = {
-  offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
+  offerId:
+    marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
   catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
   itemTitle: "Twilight Masquerade Elite Trainer Box",
   itemSubtitle: "Sealed elite trainer box",
@@ -98,9 +96,28 @@ async function hasOrderPage(db: PgQueryable, orderId: string) {
   return result.rows[0]?.exists ?? false;
 }
 
+async function listOrderPagesForSource(
+  db: PgQueryable,
+  sourceType: "cart-checkout" | "offer-acceptance" | "buy-now",
+  sourceReferenceId: string,
+) {
+  const result = await db.query<{ order_id: string }>(
+    `SELECT order_id
+     FROM ordering_order_pages
+     WHERE source_type = $1
+       AND source_reference_id = $2
+     ORDER BY order_id ASC`,
+    [sourceType, sourceReferenceId],
+  );
+
+  return result.rows.map((row) => row.order_id);
+}
+
 async function buildCheckoutLine(
   services: ReturnType<typeof createOrderingServices>,
-  line: (typeof checkoutCartLines)[number] | (typeof cancelledCartLines)[number],
+  line:
+    | (typeof checkoutCartLines)[number]
+    | (typeof cancelledCartLines)[number],
 ) {
   const result = await services.db.query<{
     product_id: string;
@@ -128,7 +145,10 @@ async function buildCheckoutLine(
     itemTitle: line.itemTitle,
     itemSubtitle: line.itemSubtitle,
     selectedOptions: Array.isArray(snapshot.selected_options)
-      ? (snapshot.selected_options as { dimensionId: string; optionId: string }[])
+      ? (snapshot.selected_options as {
+          dimensionId: string;
+          optionId: string;
+        }[])
       : [...line.selectedOptions],
     productSummary: line.productSummary,
     quantity: line.quantity,
@@ -171,16 +191,18 @@ export async function seedOrderingDatabase(
   try {
     const [hasCheckoutPending, hasCancelledOrder, hasAcceptedOfferOrder] =
       await Promise.all([
-        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending),
+        hasOrderPage(
+          ordering.db,
+          orderingReservedSeedIds.orders.checkoutPending,
+        ),
         hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled),
-        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady),
+        hasOrderPage(
+          ordering.db,
+          orderingReservedSeedIds.orders.acceptedOfferReady,
+        ),
       ]);
 
-    if (
-      hasCheckoutPending &&
-      hasCancelledOrder &&
-      hasAcceptedOfferOrder
-    ) {
+    if (hasCheckoutPending && hasCancelledOrder && hasAcceptedOfferOrder) {
       console.log("Ordering already contains seed data. Skipping seed.");
       return;
     }
@@ -201,7 +223,12 @@ export async function seedOrderingDatabase(
     identitySeedIds.demo.userId,
   );
 
-  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
+  if (
+    !(await hasOrderPage(
+      ordering.db,
+      orderingReservedSeedIds.orders.checkoutPending,
+    ))
+  ) {
     const checkoutResult = await ordering.orders.createOrdersFromCheckout(
       {
         buyerAccountId,
@@ -215,10 +242,14 @@ export async function seedOrderingDatabase(
       buyerContext,
     );
     await drainProjectors(ordering.projectors);
-    console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
+    console.log(
+      `  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`,
+    );
   }
 
-  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled))) {
+  if (
+    !(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled))
+  ) {
     const cancelledOrderResult = await ordering.orders.createOrdersFromCheckout(
       {
         buyerAccountId,
@@ -235,7 +266,9 @@ export async function seedOrderingDatabase(
 
     const cancelledOrderId = cancelledOrderResult.orderIds[0];
     if (!cancelledOrderId) {
-      throw new Error("Ordering demo seed could not create the cancellable order.");
+      throw new Error(
+        "Ordering demo seed could not create the cancellable order.",
+      );
     }
 
     await ordering.orders.cancelPurchase(
@@ -249,40 +282,57 @@ export async function seedOrderingDatabase(
     console.log(`  Cancelled order seeded (${cancelledOrderId})`);
   }
 
-  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady))) {
-    const acceptedOfferInput = await getAcceptedOfferInput(
-      ordering,
+  if (
+    !(await hasOrderPage(
+      ordering.db,
+      orderingReservedSeedIds.orders.acceptedOfferReady,
+    ))
+  ) {
+    const existingAcceptedOfferOrderIds = await listOrderPagesForSource(
+      ordering.db,
+      "offer-acceptance",
       acceptedOfferSeed.offerId,
     );
+    if (existingAcceptedOfferOrderIds.length > 0) {
+      console.log(
+        `  Accepted-offer order already seeded (${existingAcceptedOfferOrderIds.join(", ")})`,
+      );
+    } else {
+      const acceptedOfferInput = await getAcceptedOfferInput(
+        ordering,
+        acceptedOfferSeed.offerId,
+      );
 
-    await ordering.orders.createOrdersFromAcceptedOffer(
-      {
-        offerId: acceptedOfferSeed.offerId,
-        buyerAccountId,
-        sellerAccountId: identitySeedIds.demo.accountId,
-        catalogItemId: acceptedOfferSeed.catalogItemId,
-        productId: acceptedOfferInput?.product_id ?? "",
-        itemTitle: acceptedOfferSeed.itemTitle,
-        itemSubtitle: acceptedOfferSeed.itemSubtitle,
-        selectedOptions: [...acceptedOfferSeed.selectedOptions],
-        productSummary: acceptedOfferSeed.productSummary,
-        priceAmount: acceptedOfferSeed.priceAmount,
-        marketplaceSalesFeeUnitAmount:
-          acceptedOfferInput?.marketplace_sales_fee_unit_amount ?? "0.00",
-        sellerNetUnitAmount: acceptedOfferInput?.seller_net_unit_amount ?? "44.00",
-        termsScheduleId: acceptedOfferInput?.terms_schedule_id ?? null,
-        termsAgreementId: acceptedOfferInput?.terms_agreement_id ?? null,
-        termsResolvedAt:
-          acceptedOfferInput?.terms_resolved_at ?? new Date().toISOString(),
-        quantityRequested: acceptedOfferSeed.quantityRequested,
-        orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
-      },
-      sellerContext,
-    );
-    await drainProjectors(ordering.projectors);
-    console.log(
-      `  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`,
-    );
+      await ordering.orders.createOrdersFromAcceptedOffer(
+        {
+          offerId: acceptedOfferSeed.offerId,
+          buyerAccountId,
+          sellerAccountId: identitySeedIds.demo.accountId,
+          catalogItemId: acceptedOfferSeed.catalogItemId,
+          productId: acceptedOfferInput?.product_id ?? "",
+          itemTitle: acceptedOfferSeed.itemTitle,
+          itemSubtitle: acceptedOfferSeed.itemSubtitle,
+          selectedOptions: [...acceptedOfferSeed.selectedOptions],
+          productSummary: acceptedOfferSeed.productSummary,
+          priceAmount: acceptedOfferSeed.priceAmount,
+          marketplaceSalesFeeUnitAmount:
+            acceptedOfferInput?.marketplace_sales_fee_unit_amount ?? "0.00",
+          sellerNetUnitAmount:
+            acceptedOfferInput?.seller_net_unit_amount ?? "44.00",
+          termsScheduleId: acceptedOfferInput?.terms_schedule_id ?? null,
+          termsAgreementId: acceptedOfferInput?.terms_agreement_id ?? null,
+          termsResolvedAt:
+            acceptedOfferInput?.terms_resolved_at ?? new Date().toISOString(),
+          quantityRequested: acceptedOfferSeed.quantityRequested,
+          orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
+        },
+        sellerContext,
+      );
+      await drainProjectors(ordering.projectors);
+      console.log(
+        `  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`,
+      );
+    }
   }
 
   console.log("\nOrdering seed complete!");

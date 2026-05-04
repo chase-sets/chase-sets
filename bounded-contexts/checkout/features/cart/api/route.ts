@@ -8,6 +8,7 @@ function requireCartAccess(
     get(key: "actor"): CheckoutApiEnv["Variables"]["actor"];
   },
   permission: "orders.view" | "orders.manage",
+  options: Readonly<{ allowGuestCheckout?: boolean }> = {},
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -21,6 +22,13 @@ function requireCartAccess(
   }
 
   if (!actor.permissions.includes(permission)) {
+    if (
+      options.allowGuestCheckout &&
+      actor.permissions.includes("guest-checkout.manage")
+    ) {
+      return { actor, response: null };
+    }
+
     return {
       actor: null,
       response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("checkout.features.cart.api.route.forbidden") } }), {
@@ -289,7 +297,9 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
   });
 
   app.post("/cart/merge-to-account", async (c) => {
-    const access = requireCartAccess(c, "orders.manage");
+    const access = requireCartAccess(c, "orders.manage", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }

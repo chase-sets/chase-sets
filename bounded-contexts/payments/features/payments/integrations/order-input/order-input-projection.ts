@@ -8,6 +8,8 @@ export function buildPaymentsOrderInputProjectionHandlers(
     "ordering.order.created": async (event) => {
       const data = event.data as {
         orderId: string;
+        sourceType: string;
+        sourceReferenceId: string | null;
         buyerAccountId: string;
         sellerAccountId: string;
         totalAmount: string;
@@ -30,6 +32,8 @@ export function buildPaymentsOrderInputProjectionHandlers(
       await db.query(
         `INSERT INTO payments_order_inputs (
            order_id,
+           source_type,
+           source_reference_id,
            buyer_account_id,
            seller_account_id,
            total_amount,
@@ -50,9 +54,11 @@ export function buildPaymentsOrderInputProjectionHandlers(
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending-reservation', $17, $17, NULL, NULL)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'pending-reservation', $19, $19, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
-         SET buyer_account_id = EXCLUDED.buyer_account_id,
+         SET source_type = EXCLUDED.source_type,
+             source_reference_id = EXCLUDED.source_reference_id,
+             buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              total_amount = EXCLUDED.total_amount,
              marketplace_sales_fee_amount = EXCLUDED.marketplace_sales_fee_amount,
@@ -73,6 +79,8 @@ export function buildPaymentsOrderInputProjectionHandlers(
              ready_for_fulfillment_at = EXCLUDED.ready_for_fulfillment_at`,
         [
           data.orderId,
+          data.sourceType,
+          data.sourceReferenceId,
           data.buyerAccountId,
           data.sellerAccountId,
           data.totalAmount,

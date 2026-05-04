@@ -1,15 +1,26 @@
 const DEFAULT_BASE_URL = "/api/auth";
 
+function getApiErrorMessage(status: number, body: unknown) {
+  if (body && typeof body === "object" && "error" in body) {
+    const error = (body as { error?: unknown }).error;
+    if (error && typeof error === "object" && "message" in error) {
+      return String((error as { message?: unknown }).message);
+    }
+
+    if (typeof error === "string") {
+      return error;
+    }
+  }
+
+  return `API error ${status}`;
+}
+
 export class AuthApiError extends Error {
   public constructor(
     public readonly status: number,
     public readonly body: unknown,
   ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
+    super(getApiErrorMessage(status, body));
   }
 }
 
@@ -20,9 +31,7 @@ export interface AuthApiClientOptions {
   credentials?: RequestCredentials;
 }
 
-function resolveHeaders(
-  headers?: HeadersInit | (() => HeadersInit),
-) {
+function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
 
@@ -167,7 +176,9 @@ export function createAuthApiClient({
         headers,
       );
     },
-    async resolveAccountSelection<T>(body: Record<string, unknown>): Promise<T> {
+    async resolveAccountSelection<T>(
+      body: Record<string, unknown>,
+    ): Promise<T> {
       return postJson<T>(
         configuredFetch,
         buildUrl("account-selection/resolve"),
@@ -175,7 +186,9 @@ export function createAuthApiClient({
         headers,
       );
     },
-    async completeAccountSelection<T>(body: Record<string, unknown>): Promise<T> {
+    async completeAccountSelection<T>(
+      body: Record<string, unknown>,
+    ): Promise<T> {
       return postJson<T>(
         configuredFetch,
         buildUrl("account-selection/complete"),

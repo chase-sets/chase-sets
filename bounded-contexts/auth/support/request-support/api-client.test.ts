@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAuthApiClient } from "../../client";
+import { AuthApiError, createAuthApiClient } from "../../client";
 import { PLATFORM_INTERNAL_AUTH_HEADER } from "@chase-sets/platform-runtime/http";
 import {
   createAuthRequestApiClient,
@@ -7,7 +7,11 @@ import {
 } from "./api-client";
 
 function createRecordingFetch() {
-  const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+  const calls: {
+    url: string;
+    body: unknown;
+    headers: Record<string, string>;
+  }[] = [];
   const fetch: typeof globalThis.fetch = async (input, init) => {
     calls.push({
       url: String(input),
@@ -33,7 +37,10 @@ afterEach(() => {
 describe("auth api client authentication methods", () => {
   it("posts magic link and passkey flows to their bounded auth endpoints", async () => {
     const { fetch, calls } = createRecordingFetch();
-    const api = createAuthApiClient({ baseUrl: "https://app.test/api/auth", fetch });
+    const api = createAuthApiClient({
+      baseUrl: "https://app.test/api/auth",
+      fetch,
+    });
 
     await api.requestMagicLink({ email: "seller@example.com" });
     await api.consumeMagicLink({ token: "magic_token" });
@@ -123,5 +130,38 @@ describe("auth api client authentication methods", () => {
     expect(() =>
       createInternalAuthRequestApiClient(new Request("https://app.test/")),
     ).toThrow("PLATFORM_INTERNAL_AUTH_SECRET is required");
+  });
+
+  it("uses structured API error messages instead of object stringification", async () => {
+    const api = createAuthApiClient({
+      baseUrl: "https://app.test/api/auth",
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "internal_error",
+              message: "Internal server error.",
+            },
+          }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    });
+
+    await expect(
+      api.startGuestCheckout({
+        displayName: "Jane Smith",
+        email: "jane@example.com",
+      }),
+    ).rejects.toThrow(
+      new AuthApiError(500, {
+        error: {
+          code: "internal_error",
+          message: "Internal server error.",
+        },
+      }),
+    );
   });
 });

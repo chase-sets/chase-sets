@@ -44,6 +44,18 @@ function createServices(): CheckoutCartServices {
   } as unknown as CheckoutCartServices;
 }
 
+function guestCheckoutActor(): CheckoutApiEnv["Variables"]["actor"] {
+  return {
+    sessionId: "guest:tok_1",
+    tenantId: "tnt_identity",
+    userId: "usr_guest_checkout",
+    accountId: "acc_guest",
+    membershipId: "guest:tok_1",
+    roleKey: "guest-buyer",
+    permissions: ["guest-checkout.manage"],
+  };
+}
+
 describe("checkout cart routes", () => {
   it("adds a browsed marketplace item to the current account cart", async () => {
     const services = createServices();
@@ -135,6 +147,39 @@ describe("checkout cart routes", () => {
       expect.objectContaining({
         audit: expect.objectContaining({
           forAccountId: "acc_guest_checkout",
+          performedByUserId: "usr_guest_checkout",
+        }),
+      }),
+    );
+  });
+
+  it("merges an anonymous cart into a guest checkout account", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: guestCheckoutActor(),
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart/merge-to-account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_cart_1",
+        },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.mergeCartIntoAccount).toHaveBeenCalledWith(
+      {
+        sourceOwnerId: "anon_cart_1",
+        targetAccountId: "acc_guest",
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_guest",
           performedByUserId: "usr_guest_checkout",
         }),
       }),

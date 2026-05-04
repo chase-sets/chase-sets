@@ -1,5 +1,6 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { createPaymentsServices } from "./services";
@@ -34,7 +35,12 @@ type PaymentPageRow = Readonly<{
   processor_payment_reference: string;
 }>;
 
-function createSeedContext(accountId: string, userId: string): EventStoreContext {
+class SeedOrderMissingError extends Error {}
+
+function createSeedContext(
+  accountId: string,
+  userId: string,
+): EventStoreContext {
   return {
     tenantId: "tnt_seed_development" as never,
     audit: {
@@ -83,12 +89,21 @@ async function getSeedOrder(
   const order = result.rows[0];
 
   if (!order) {
-    throw new Error(`Payments seed requires order ${orderId} to exist.`);
+    throw new SeedOrderMissingError(
+      `Payments seed requires order ${orderId} to exist.`,
+    );
   }
 
+  return requirePendingPaymentOrder(order, `order ${orderId}`);
+}
+
+function requirePendingPaymentOrder(
+  order: OrderRow & Readonly<{ status: string }>,
+  description: string,
+): OrderRow {
   if (order.status !== "pending-payment") {
     throw new Error(
-      `Payments seed requires order ${orderId} to be in pending-payment status.`,
+      `Payments seed requires ${description} to be in pending-payment status.`,
     );
   }
 
@@ -105,6 +120,124 @@ async function getSeedOrder(
     seller_shipping_payout_amount: order.seller_shipping_payout_amount,
     seller_payout_amount: order.seller_payout_amount,
   };
+}
+
+async function getSeedOrderForSource(
+  pool: PgTransactionalPool,
+  sourceType: "cart-checkout" | "offer-acceptance" | "buy-now",
+  sourceReferenceId: string,
+  buyerAccountId: string,
+): Promise<OrderRow | null> {
+  const result = await pool.query<OrderRow & Readonly<{ status: string }>>(
+    `SELECT
+       order_id,
+       buyer_account_id,
+       seller_account_id,
+       total_amount::text AS total_amount,
+       marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
+       marketplace_checkout_fee_amount::text AS marketplace_checkout_fee_amount,
+       seller_net_amount::text AS seller_net_amount,
+       seller_item_net_amount::text AS seller_item_net_amount,
+       shipping_allowance_amount::text AS shipping_allowance_amount,
+       seller_shipping_payout_amount::text AS seller_shipping_payout_amount,
+       seller_payout_amount::text AS seller_payout_amount,
+       status
+     FROM payments_order_inputs
+     WHERE source_type = $1
+       AND source_reference_id = $2
+       AND buyer_account_id = $3
+     ORDER BY order_id ASC
+     LIMIT 1`,
+    [sourceType, sourceReferenceId, buyerAccountId],
+  );
+  const order = result.rows[0];
+
+  return order
+    ? requirePendingPaymentOrder(order, `${sourceType} ${sourceReferenceId}`)
+    : null;
+}
+
+async function getSeedOrderForSharedOrderingSource(
+  pool: PgTransactionalPool,
+  sourceType: "cart-checkout" | "offer-acceptance" | "buy-now",
+  sourceReferenceId: string,
+  buyerAccountId: string,
+): Promise<OrderRow | null> {
+  const tableResult = await pool.query<{ table_name: string | null }>(
+    "SELECT to_regclass('public.ordering_order_pages')::text AS table_name",
+  );
+  if (!tableResult.rows[0]?.table_name) {
+    return null;
+  }
+
+  const result = await pool.query<OrderRow & Readonly<{ status: string }>>(
+    `SELECT
+       input.order_id,
+       input.buyer_account_id,
+       input.seller_account_id,
+       input.total_amount::text AS total_amount,
+       input.marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
+       input.marketplace_checkout_fee_amount::text AS marketplace_checkout_fee_amount,
+       input.seller_net_amount::text AS seller_net_amount,
+       input.seller_item_net_amount::text AS seller_item_net_amount,
+       input.shipping_allowance_amount::text AS shipping_allowance_amount,
+       input.seller_shipping_payout_amount::text AS seller_shipping_payout_amount,
+       input.seller_payout_amount::text AS seller_payout_amount,
+       input.status
+     FROM payments_order_inputs AS input
+     INNER JOIN ordering_order_pages AS page
+       ON page.order_id = input.order_id
+     WHERE page.source_type = $1
+       AND page.source_reference_id = $2
+       AND input.buyer_account_id = $3
+     ORDER BY input.order_id ASC
+     LIMIT 1`,
+    [sourceType, sourceReferenceId, buyerAccountId],
+  );
+  const order = result.rows[0];
+
+  return order
+    ? requirePendingPaymentOrder(order, `${sourceType} ${sourceReferenceId}`)
+    : null;
+}
+
+async function getAcceptedOfferSeedOrder(
+  pool: PgTransactionalPool,
+): Promise<OrderRow> {
+  try {
+    return await getSeedOrder(
+      pool,
+      orderingReservedSeedIds.orders.acceptedOfferReady,
+      identitySeedIds.collector.accountId,
+    );
+  } catch (error) {
+    if (!(error instanceof SeedOrderMissingError)) {
+      throw error;
+    }
+
+    const sourceType = "offer-acceptance";
+    const sourceReferenceId =
+      marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted;
+    const sourceOrder =
+      (await getSeedOrderForSource(
+        pool,
+        sourceType,
+        sourceReferenceId,
+        identitySeedIds.collector.accountId,
+      )) ??
+      (await getSeedOrderForSharedOrderingSource(
+        pool,
+        sourceType,
+        sourceReferenceId,
+        identitySeedIds.collector.accountId,
+      ));
+
+    if (!sourceOrder) {
+      throw error;
+    }
+
+    return sourceOrder;
+  }
 }
 
 async function getPaymentPage(
@@ -156,11 +289,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     orderingReservedSeedIds.orders.checkoutPending,
     identitySeedIds.collector.accountId,
   );
-  const acceptedOfferOrder = await getSeedOrder(
-    pool,
-    orderingReservedSeedIds.orders.acceptedOfferReady,
-    identitySeedIds.collector.accountId,
-  );
+  const acceptedOfferOrder = await getAcceptedOfferSeedOrder(pool);
   const buyerContext = createSeedContext(
     identitySeedIds.collector.accountId,
     identitySeedIds.collector.userId,
@@ -170,7 +299,11 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     identitySeedIds.demo.userId,
   );
 
-  const createPayment = async (paymentId: PaymentId, order: OrderRow, createdAt: string) => {
+  const createPayment = async (
+    paymentId: PaymentId,
+    order: OrderRow,
+    createdAt: string,
+  ) => {
     const processorPayment = await processorGateway.createPaymentSession({
       paymentId,
       buyerAccountId: order.buyer_account_id as never,
@@ -189,12 +322,18 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         buyerAccountId: order.buyer_account_id as never,
         orderIds: [order.order_id as never],
         amount: normalizeMoneyAmount(order.total_amount, { allowZero: true }),
-        marketplaceSalesFeeAmount: normalizeMoneyAmount(order.marketplace_sales_fee_amount, {
-          allowZero: true,
-        }),
-        marketplaceCheckoutFeeAmount: normalizeMoneyAmount(order.marketplace_checkout_fee_amount, {
-          allowZero: true,
-        }),
+        marketplaceSalesFeeAmount: normalizeMoneyAmount(
+          order.marketplace_sales_fee_amount,
+          {
+            allowZero: true,
+          },
+        ),
+        marketplaceCheckoutFeeAmount: normalizeMoneyAmount(
+          order.marketplace_checkout_fee_amount,
+          {
+            allowZero: true,
+          },
+        ),
         marketplaceCheckoutFeePolicyVersion: "seed",
         marketplaceCheckoutFeeQuoteFingerprint: "seed",
         paymentMethodCategory: "card",
@@ -208,18 +347,30 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
           {
             orderId: order.order_id as never,
             sellerAccountId: order.seller_account_id as never,
-            sellerItemNetAmount: normalizeMoneyAmount(order.seller_item_net_amount, {
-              allowZero: true,
-            }),
-            shippingAllowanceAmount: normalizeMoneyAmount(order.shipping_allowance_amount, {
-              allowZero: true,
-            }),
-            sellerShippingPayoutAmount: normalizeMoneyAmount(order.seller_shipping_payout_amount, {
-              allowZero: true,
-            }),
-            sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount, {
-              allowZero: true,
-            }),
+            sellerItemNetAmount: normalizeMoneyAmount(
+              order.seller_item_net_amount,
+              {
+                allowZero: true,
+              },
+            ),
+            shippingAllowanceAmount: normalizeMoneyAmount(
+              order.shipping_allowance_amount,
+              {
+                allowZero: true,
+              },
+            ),
+            sellerShippingPayoutAmount: normalizeMoneyAmount(
+              order.seller_shipping_payout_amount,
+              {
+                allowZero: true,
+              },
+            ),
+            sellerPayoutAmount: normalizeMoneyAmount(
+              order.seller_payout_amount,
+              {
+                allowZero: true,
+              },
+            ),
           },
         ],
         currencyCode: "usd",
@@ -358,7 +509,8 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
           type: "RecordRefundFailure",
           processorStatus: "failed",
           failureCode: null,
-          failureMessage: error instanceof Error ? error.message : "Refund failed.",
+          failureMessage:
+            error instanceof Error ? error.message : "Refund failed.",
           failedAt: requestedAt,
         },
         context: sellerContext,

@@ -1,6 +1,8 @@
 export const paymentsOrderInputSchemaSql = `
 CREATE TABLE IF NOT EXISTS payments_order_inputs (
   order_id text PRIMARY KEY,
+  source_type text NULL,
+  source_reference_id text NULL,
   buyer_account_id text NOT NULL,
   seller_account_id text NOT NULL DEFAULT '',
   total_amount numeric(12, 2) NOT NULL,
@@ -27,6 +29,10 @@ CREATE INDEX IF NOT EXISTS payments_order_inputs_buyer_status_idx
   ON payments_order_inputs (buyer_account_id, status, updated_at DESC);
 
 ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS source_type text NULL;
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS source_reference_id text NULL;
+ALTER TABLE payments_order_inputs
   ADD COLUMN IF NOT EXISTS seller_account_id text NOT NULL DEFAULT '';
 ALTER TABLE payments_order_inputs
   ADD COLUMN IF NOT EXISTS seller_item_net_amount numeric(12, 2) NOT NULL DEFAULT 0;
@@ -40,4 +46,8 @@ ALTER TABLE payments_order_inputs
   ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0;
 ALTER TABLE payments_order_inputs
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+
+CREATE INDEX IF NOT EXISTS payments_order_inputs_source_idx
+  ON payments_order_inputs (source_type, source_reference_id)
+  WHERE source_type IS NOT NULL AND source_reference_id IS NOT NULL;
 `;

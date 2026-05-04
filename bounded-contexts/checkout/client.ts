@@ -69,11 +69,7 @@ export class CheckoutApiError extends Error {
     public readonly status: number,
     public readonly body: unknown,
   ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
+    super(checkoutApiErrorMessage(status, body));
   }
 }
 
@@ -96,6 +92,29 @@ function mergeHeaders(
     ...Object.fromEntries(new Headers(headers).entries()),
     ...extra,
   };
+}
+
+function checkoutApiErrorMessage(status: number, body: unknown) {
+  if (!body || typeof body !== "object" || !("error" in body)) {
+    return `API error ${status}`;
+  }
+
+  const error = (body as { error?: unknown }).error;
+  if (!error || typeof error !== "object") {
+    return String(error ?? `API error ${status}`);
+  }
+
+  const message = (error as { message?: unknown }).message;
+  if (typeof message === "string" && message.trim()) {
+    return message;
+  }
+
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string" && code.trim()) {
+    return code;
+  }
+
+  return `API error ${status}`;
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {

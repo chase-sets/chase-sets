@@ -13,7 +13,9 @@ import {
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
+  attachWriteDrainMiddleware,
   attachWriteConsistencyMiddleware,
+  drainContextRuntime,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
 import { createHonoObservabilityMiddleware } from "@chase-sets/observability";
@@ -65,7 +67,9 @@ export type BuildPlatformApiOptions = Readonly<{
   realtimeRouteTuning?: RealtimeRouteTuning;
   realtimeCursorSigningSecret?: string;
   realtimeCursorSigningKeys?: RealtimeCursorSigningKeySet;
-  realtimeStreamLimiter?: Parameters<typeof createRealtimeRoutes>[0]["streamLimiter"];
+  realtimeStreamLimiter?: Parameters<
+    typeof createRealtimeRoutes
+  >[0]["streamLimiter"];
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   realtimeActiveConnectionCount?: () => number;
   mcp?: CreateMcpRoutesOptions;
@@ -101,8 +105,10 @@ export function buildPlatformApiApp(
   const app = new Hono<TenantContextEnv>();
   const apiMounts = resolveApiHostMounts(runtime);
   const realtimeStores = runtime.mountedContexts
-    .filter((entry) =>
-      entry.contextName === "discovery" || entry.contextName === "marketplace"
+    .filter(
+      (entry) =>
+        entry.contextName === "discovery" ||
+        entry.contextName === "marketplace",
     )
     .map((entry) => ({
       ...(entry.contextName === "discovery"
@@ -117,7 +123,9 @@ export function buildPlatformApiApp(
   ]);
   const identityServices = {
     auth: runtime.services.auth as ReturnType<typeof authModule.createServices>,
-    identity: runtime.services.identity as ReturnType<typeof identityModule.createServices>,
+    identity: runtime.services.identity as ReturnType<
+      typeof identityModule.createServices
+    >,
   } satisfies PlatformIdentityServices;
 
   app.onError(errorHandler);
@@ -156,7 +164,8 @@ export function buildPlatformApiApp(
       wakeSignal: options.realtimeWakeSignal,
       streamLimiter: options.realtimeStreamLimiter,
       cursorSigningKeys:
-        options.realtimeCursorSigningKeys ?? options.realtimeCursorSigningSecret,
+        options.realtimeCursorSigningKeys ??
+        options.realtimeCursorSigningSecret,
       topicPolicyManifest: realtimeTopicPolicyManifest,
       ...options.realtimeRouteTuning,
       resourceLimits: options.realtimeResourceLimits ?? {
@@ -170,7 +179,10 @@ export function buildPlatformApiApp(
   attachApiMountMiddleware(
     app,
     apiMounts
-      .filter((mount) => mount.contextName === "auth" || mount.contextName === "identity")
+      .filter(
+        (mount) =>
+          mount.contextName === "auth" || mount.contextName === "identity",
+      )
       .map((mount) => mount.mountPath),
     createIdentityAuthMiddleware(identityServices, {
       internalAuthSecret: options.internalAuthSecret,
@@ -191,6 +203,9 @@ export function buildPlatformApiApp(
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
+  attachWriteDrainMiddleware(app, apiMounts, () =>
+    drainContextRuntime(runtime),
+  );
   mountApiRouters(app, apiMounts);
 
   return app;
