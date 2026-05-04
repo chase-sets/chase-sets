@@ -36,6 +36,7 @@ export async function createCheckoutPaymentThroughPayments(
   requestedBalanceCreditAmount?: string | null,
   paymentMethodCategory: string = "card",
   marketplaceCheckoutFeeQuoteFingerprint?: string | null,
+  returnUrlPath?: string | null,
 ) {
   const paymentsApi = createPaymentsRequestApiClient(request);
   const confirmedFingerprint =
@@ -54,6 +55,7 @@ export async function createCheckoutPaymentThroughPayments(
     requestedBalanceCreditAmount,
     paymentMethodCategory,
     marketplaceCheckoutFeeQuoteFingerprint: confirmedFingerprint,
+    returnUrlPath,
   });
 
   return payment.payment_id;

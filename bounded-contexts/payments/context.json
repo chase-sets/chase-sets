@@ -106,6 +106,13 @@
           "fileExport": "./routes/marketplace/account-payment-new",
           "routeType": "route",
           "sourceContext": "payments"
+        },
+        {
+          "routeId": "checkout-payment",
+          "routePath": "checkout/payments/:paymentId",
+          "fileExport": "./routes/marketplace/checkout-payment",
+          "routeType": "route",
+          "sourceContext": "payments"
         }
       ]
     }

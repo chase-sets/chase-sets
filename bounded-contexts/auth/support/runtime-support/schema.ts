@@ -87,6 +87,29 @@ CREATE TABLE IF NOT EXISTS identity_account_selection_tokens (
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS identity_guest_checkout_tokens (
+  token_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  contact_email text NOT NULL,
+  contact_name text NOT NULL,
+  token_hash text NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS identity_guest_checkout_claim_tokens (
+  token_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  payment_id text NOT NULL,
+  email text NOT NULL,
+  token_hash text NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
 );`;
 
 export const authSchemaSql = [

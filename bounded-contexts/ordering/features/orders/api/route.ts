@@ -9,6 +9,7 @@ function requireOrderAccess(
     get(key: "actor"): OrderingApiEnv["Variables"]["actor"];
   },
   permission: "orders.view" | "orders.manage",
+  options: Readonly<{ allowGuestCheckout?: boolean }> = {},
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -22,6 +23,13 @@ function requireOrderAccess(
   }
 
   if (!actor.permissions.includes(permission)) {
+    if (
+      options.allowGuestCheckout &&
+      actor.permissions.includes("guest-checkout.manage")
+    ) {
+      return { actor, response: null };
+    }
+
     return {
       actor: null,
       response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("ordering.features.orders.api.route.forbidden") } }), {
@@ -64,7 +72,9 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
   const app = new Hono<OrderingApiEnv>();
 
   app.post("/purchases/checkout", async (c) => {
-    const access = requireOrderAccess(c, "orders.manage");
+    const access = requireOrderAccess(c, "orders.manage", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }
@@ -143,7 +153,9 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
   });
 
   app.get("/purchases/:id", async (c) => {
-    const access = requireOrderAccess(c, "orders.view");
+    const access = requireOrderAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }

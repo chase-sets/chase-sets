@@ -352,3 +352,148 @@ export async function consumeAccountSelectionToken(
 
   return result.rows[0] ?? null;
 }
+
+export async function upsertGuestCheckoutToken(
+  db: PgQueryable,
+  params: Readonly<{
+    tokenId: string;
+    accountId: string;
+    contactEmail: string;
+    contactName: string;
+    tokenHash: string;
+    expiresAt: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO identity_guest_checkout_tokens (
+       token_id,
+       account_id,
+       contact_email,
+       contact_name,
+       token_hash,
+       expires_at,
+       created_at,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+     ON CONFLICT (token_id) DO UPDATE
+     SET account_id = $2,
+         contact_email = $3,
+         contact_name = $4,
+         token_hash = $5,
+         expires_at = $6,
+         revoked_at = NULL,
+         updated_at = now()`,
+    [
+      params.tokenId,
+      params.accountId,
+      params.contactEmail,
+      params.contactName,
+      params.tokenHash,
+      params.expiresAt,
+    ],
+  );
+}
+
+export async function getGuestCheckoutTokenByHash(
+  db: PgQueryable,
+  tokenHash: string,
+) {
+  const result = await db.query<{
+    token_id: string;
+    account_id: string;
+    contact_email: string;
+    contact_name: string;
+    token_hash: string;
+    expires_at: string;
+    revoked_at: string | null;
+  }>(
+    `SELECT token_id, account_id, contact_email, contact_name, token_hash, expires_at, revoked_at
+     FROM identity_guest_checkout_tokens
+     WHERE token_hash = $1
+       AND revoked_at IS NULL
+       AND expires_at > now()`,
+    [tokenHash],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function revokeGuestCheckoutTokenByHash(
+  db: PgQueryable,
+  tokenHash: string,
+) {
+  await db.query(
+    `UPDATE identity_guest_checkout_tokens
+     SET revoked_at = now(),
+         updated_at = now()
+     WHERE token_hash = $1
+       AND revoked_at IS NULL`,
+    [tokenHash],
+  );
+}
+
+export async function insertGuestCheckoutClaimToken(
+  db: PgQueryable,
+  params: Readonly<{
+    tokenId: string;
+    accountId: string;
+    paymentId: string;
+    email: string;
+    tokenHash: string;
+    expiresAt: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO identity_guest_checkout_claim_tokens (
+       token_id,
+       account_id,
+       payment_id,
+       email,
+       token_hash,
+       expires_at,
+       created_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, now())`,
+    [
+      params.tokenId,
+      params.accountId,
+      params.paymentId,
+      params.email,
+      params.tokenHash,
+      params.expiresAt,
+    ],
+  );
+}
+
+export async function consumeGuestCheckoutClaimToken(
+  db: PgQueryable,
+  params: Readonly<{
+    tokenHash: string;
+    accountId: string;
+    paymentId: string;
+    email: string;
+  }>,
+) {
+  const result = await db.query<{
+    token_id: string;
+    account_id: string;
+    payment_id: string;
+    email: string;
+    expires_at: string;
+    consumed_at: string | null;
+  }>(
+    `UPDATE identity_guest_checkout_claim_tokens
+     SET consumed_at = now()
+     WHERE token_hash = $1
+       AND account_id = $2
+       AND payment_id = $3
+       AND email = $4
+       AND consumed_at IS NULL
+       AND expires_at > now()
+     RETURNING token_id, account_id, payment_id, email, expires_at, consumed_at`,
+    [params.tokenHash, params.accountId, params.paymentId, params.email],
+  );
+
+  return result.rows[0] ?? null;
+}

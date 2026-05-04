@@ -6,7 +6,7 @@ import type {
 } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
@@ -50,18 +50,29 @@ function shippingAddressFromForm(formData: FormData) {
   };
 }
 
+function paymentPathForActor(
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+  paymentId: string,
+) {
+  return actor && actor.roleKey !== "guest-buyer"
+    ? `/account/payments/${paymentId}`
+    : `/checkout/payments/${paymentId}`;
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "orders.view" });
+  const actor = await resolveActorFromAuthApi({ request });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
   }
   const api = createCheckoutRequestApiClient(request);
   const session = await api.getCheckoutSession(params.sessionId);
   if (session.payment_id) {
-    throw redirect(`/account/payments/${session.payment_id}`);
+    throw redirect(paymentPathForActor(actor, session.payment_id));
   }
 
-  const wallet = await loadWalletBalance(request);
+  const wallet = actor && actor.roleKey !== "guest-buyer"
+    ? await loadWalletBalance(request)
+    : null;
 
   return {
     session,
@@ -70,7 +81,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "orders.manage" });
+  const actor = await resolveActorFromAuthApi({ request });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found.2"), { status: 404 });
   }
@@ -90,7 +101,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         paymentMethodCategory: String(formData.get("paymentMethodCategory") ?? "card"),
         shippingAddress: shippingAddressFromForm(formData),
       });
-      return redirect(`/account/payments/${result.payment_id}`);
+      return redirect(paymentPathForActor(actor, result.payment_id));
     }
 
     return null;

@@ -237,6 +237,7 @@ const realtimeWakeSignal = await createPlatformRealtimeWakeSignal(
 );
 const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 const app = buildPlatformApiApp(runtime, {
+  internalAuthSecret: config.internalAuthSecret,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readinessChecks: runtime.mountedContexts.map((entry) => ({
     name: `${entry.contextName}.database`,

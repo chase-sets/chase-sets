@@ -10,6 +10,7 @@ import {
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
 import type { InteractiveAuthResult } from "../runtime-support/services";
+export type { InteractiveAuthResult } from "../runtime-support/services";
 import { AuthApiError } from "../../client";
 import {
   appendAccountSelectionCookie,
@@ -200,7 +201,7 @@ function requireAccountSelectionTokenOrRedirect(
   return selectionToken;
 }
 
-function completeBrowserAuthentication(
+export function completeBrowserAuthentication(
   request: Request,
   result: InteractiveAuthResult,
   options: Readonly<{

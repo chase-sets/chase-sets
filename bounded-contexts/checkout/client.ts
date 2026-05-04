@@ -88,6 +88,16 @@ function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
 
+function mergeHeaders(
+  headers: HeadersInit | undefined,
+  extra: Record<string, string>,
+) {
+  return {
+    ...Object.fromEntries(new Headers(headers).entries()),
+    ...extra,
+  };
+}
+
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
@@ -119,9 +129,46 @@ export function createCheckoutApiClient({
         await client.account.cart.$get({ header: headers }),
       );
     },
+    async getGuestCart(
+      anonymousCartId: string | null,
+    ): Promise<{ items: readonly CheckoutCartLine[]; count: number }> {
+      return parseJsonResponse(
+        await client.guest.cart.$get({
+          header: mergeHeaders(
+            headers,
+            anonymousCartId
+              ? { "x-checkout-anonymous-cart-id": anonymousCartId }
+              : {},
+          ),
+        }),
+      );
+    },
     async addCartLine(body: AddCheckoutCartLineRequest) {
       return parseJsonResponse(
         await client.account.cart.$post({ json: body, header: headers }),
+      );
+    },
+    async addGuestCartLine(
+      anonymousCartId: string,
+      body: AddCheckoutCartLineRequest,
+    ) {
+      return parseJsonResponse(
+        await client.guest.cart.$post({
+          json: body,
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-cart-id": anonymousCartId,
+          }),
+        }),
+      );
+    },
+    async mergeGuestCartToAccount(anonymousCartId: string) {
+      return parseJsonResponse(
+        await client.guest.cart["merge-to-account"].$post({
+          json: {},
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-cart-id": anonymousCartId,
+          }),
+        }),
       );
     },
     async updateCartLineQuantity(
@@ -136,12 +183,38 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async updateGuestCartLineQuantity(
+      anonymousCartId: string,
+      lineId: string,
+      body: UpdateCheckoutCartLineQuantityRequest,
+    ) {
+      return parseJsonResponse(
+        await client.guest.cart[":lineId"].quantity.$post({
+          param: { lineId },
+          json: body,
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-cart-id": anonymousCartId,
+          }),
+        }),
+      );
+    },
     async removeCartLine(lineId: string) {
       return parseJsonResponse(
         await client.account.cart[":lineId"].remove.$post({
           param: { lineId },
           json: {},
           header: headers,
+        }),
+      );
+    },
+    async removeGuestCartLine(anonymousCartId: string, lineId: string) {
+      return parseJsonResponse(
+        await client.guest.cart[":lineId"].remove.$post({
+          param: { lineId },
+          json: {},
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-cart-id": anonymousCartId,
+          }),
         }),
       );
     },

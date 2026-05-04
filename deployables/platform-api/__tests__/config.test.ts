@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  PLATFORM_INTERNAL_AUTH_SECRET_ENV,
+} from "@chase-sets/platform-runtime/http";
+import {
   getContextDatabaseEnvName,
   loadBootstrapConfig,
   loadConfig,
@@ -58,6 +61,7 @@ afterEach(() => {
   delete process.env.REALTIME_CURSOR_SIGNING_SECRET;
   delete process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS;
   delete process.env.NODE_ENV;
+  delete process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV];
 });
 
 describe("platform api config", () => {
@@ -200,6 +204,7 @@ describe("platform api config", () => {
     process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_live";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
 
     const config = loadConfig();
 
@@ -212,6 +217,22 @@ describe("platform api config", () => {
       fakeFallbackAllowed: false,
       liveSecretKeyLikely: true,
     });
+  });
+
+  it("requires an internal auth secret in production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NODE_ENV = "production";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
+    process.env.EASYPOST_API_KEY = "EZAK_live";
+
+    expect(() => loadConfig()).toThrow(
+      `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
+    );
   });
 
   it("loads hosted Checkout fallback configuration", () => {

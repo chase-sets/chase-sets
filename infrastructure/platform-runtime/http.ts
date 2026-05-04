@@ -1,3 +1,33 @@
+export const PLATFORM_INTERNAL_AUTH_HEADER = "x-chase-sets-internal-auth";
+export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET";
+const DEFAULT_DEV_INTERNAL_AUTH_SECRET = "dev-platform-internal-auth-secret";
+
+export function resolvePlatformInternalAuthSecret(
+  options: Readonly<{ requireExplicitInProduction?: boolean }> = {},
+) {
+  const configured = process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV]?.trim();
+  if (
+    options.requireExplicitInProduction &&
+    process.env.NODE_ENV === "production" &&
+    !configured
+  ) {
+    throw new Error(
+      `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API calls in production.`,
+    );
+  }
+
+  return configured || DEFAULT_DEV_INTERNAL_AUTH_SECRET;
+}
+
+export function createPlatformInternalAuthHeaders(
+  initHeaders?: HeadersInit,
+  secret = resolvePlatformInternalAuthSecret(),
+): Headers {
+  const headers = new Headers(initHeaders);
+  headers.set(PLATFORM_INTERNAL_AUTH_HEADER, secret);
+  return headers;
+}
+
 export function createForwardedAuthHeaders(
   request: Request,
   initHeaders?: HeadersInit,

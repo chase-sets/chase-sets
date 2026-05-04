@@ -20,18 +20,32 @@ export type CreateAccountPaymentRequest = Readonly<{
   requestedBalanceCreditAmount?: string | null;
   paymentMethodCategory?: string | null;
   marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+  returnUrlPath?: string | null;
 }>;
+
+function paymentsApiErrorMessage(status: number, body: unknown) {
+  if (body && typeof body === "object" && "error" in body) {
+    const error = (body as Record<string, unknown>).error;
+    if (typeof error === "string") {
+      return error;
+    }
+    if (error && typeof error === "object" && "message" in error) {
+      const message = (error as Record<string, unknown>).message;
+      if (typeof message === "string" && message.trim()) {
+        return message;
+      }
+    }
+  }
+
+  return `API error ${status}`;
+}
 
 export class PaymentsApiError extends Error {
   public constructor(
     public readonly status: number,
     public readonly body: unknown,
   ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
+    super(paymentsApiErrorMessage(status, body));
   }
 }
 

@@ -138,6 +138,85 @@ async function createPersonalIdentityForAuth(
   return { userId, accountId };
 }
 
+async function createGuestAccountForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    email: string;
+    displayName: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const accountId = createId("acc") as AccountId;
+  const displayName = params.displayName.trim() || params.email.trim();
+
+  await services.accounts.commandHandler({
+    streamId: `identity.account-${accountId}`,
+    command: {
+      type: "CreateAccount",
+      accountId,
+      name: displayName,
+      accountType: "personal",
+      displayName,
+    },
+    context: params.context,
+  });
+
+  await drainProjectors(services);
+  return { accountId };
+}
+
+async function createUserForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    email: string;
+    displayName: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const userId = createId("usr") as UserId;
+  const displayName = params.displayName.trim() || params.email.trim();
+
+  await services.users.commandHandler({
+    streamId: `identity.user-${userId}`,
+    command: {
+      type: "CreateUser",
+      userId,
+      displayName,
+      primaryEmail: params.email,
+    },
+    context: params.context,
+  });
+
+  await drainProjectors(services);
+  return { userId };
+}
+
+async function grantGuestAccountForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    accountId: string;
+    userId: string;
+    roleKey: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const membershipId = createId("mbr") as MembershipId;
+  await services.memberships.commandHandler({
+    streamId: `identity.membership-${membershipId}`,
+    command: {
+      type: "GrantMembership",
+      membershipId,
+      userId: params.userId as UserId,
+      accountId: params.accountId as AccountId,
+      roleKey: params.roleKey as RoleKey,
+    },
+    context: params.context,
+  });
+
+  await drainProjectors(services);
+  return { membershipId };
+}
+
 async function enablePasswordCredentialForAuth(
   services: IdentityServices,
   params: Readonly<{
@@ -255,6 +334,40 @@ function requirePermission(
 
 export function buildIdentityApi(services: IdentityServices) {
   const app = new Hono<IdentityApiEnv>();
+
+  app.post("/internal/auth/guest-accounts", async (c) => {
+    const body = await c.req.json();
+    const account = await createGuestAccountForAuth(services, {
+      email: String(body.email ?? ""),
+      displayName: String(body.displayName ?? ""),
+      context: getBootstrapContext(c),
+    });
+
+    return c.json(account, 201);
+  });
+
+  app.post("/internal/auth/users", async (c) => {
+    const body = await c.req.json();
+    const user = await createUserForAuth(services, {
+      email: String(body.email ?? ""),
+      displayName: String(body.displayName ?? ""),
+      context: getBootstrapContext(c),
+    });
+
+    return c.json(user, 201);
+  });
+
+  app.post("/internal/auth/guest-accounts/:id/claim", async (c) => {
+    const body = await c.req.json();
+    const membership = await grantGuestAccountForAuth(services, {
+      accountId: c.req.param("id"),
+      userId: String(body.userId ?? ""),
+      roleKey: String(body.roleKey ?? "owner"),
+      context: getBootstrapContext(c),
+    });
+
+    return c.json(membership, 201);
+  });
 
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();

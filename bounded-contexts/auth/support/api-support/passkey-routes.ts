@@ -25,6 +25,25 @@ export function passkeyMatchesChallengeUser(
   return challengeUserId === null || challengeUserId === passkeyUserId;
 }
 
+export function resolvePasskeyRegistrationUserId(params: Readonly<{
+  actorUserId: string | null;
+  bodyUserId: string | null;
+  challengeUserId: string | null;
+}>) {
+  if (
+    params.actorUserId &&
+    params.bodyUserId &&
+    params.bodyUserId !== params.actorUserId
+  ) {
+    return { status: "forbidden" as const };
+  }
+
+  return {
+    status: "resolved" as const,
+    userId: params.actorUserId ?? params.challengeUserId,
+  };
+}
+
 export function registerPasskeyRoutes(
   app: AuthApiApp,
   services: AuthServices,
@@ -71,10 +90,16 @@ export function registerPasskeyRoutes(
       );
     }
 
-    let userId =
-      (typeof body.userId === "string" ? body.userId : challenge.user_id) ??
-      actor?.userId ??
-      null;
+    const resolvedUser = resolvePasskeyRegistrationUserId({
+      actorUserId: actor?.userId ?? null,
+      bodyUserId: typeof body.userId === "string" ? body.userId : null,
+      challengeUserId: challenge.user_id,
+    });
+    if (resolvedUser.status === "forbidden") {
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkeys.can.only.be.linked.to") }, 403);
+    }
+
+    let userId = resolvedUser.userId;
     let accountId: string | undefined;
     if (!userId && challenge.email) {
       const identity = await identityMutations.createPersonalIdentity({

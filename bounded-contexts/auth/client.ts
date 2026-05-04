@@ -41,13 +41,13 @@ async function postJson<T>(
   body: Record<string, unknown>,
   headers?: HeadersInit,
 ) {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Content-Type", "application/json");
+
   return parseJsonResponse<T>(
     await fetchImpl(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...new Headers(headers),
-      },
+      headers: requestHeaders,
       body: JSON.stringify(body),
     }),
   );
@@ -91,6 +91,54 @@ export function createAuthApiClient({
       return postJson<T>(
         configuredFetch,
         buildUrl("magic-link/consume"),
+        body,
+        headers,
+      );
+    },
+    async startGuestCheckout<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("guest-checkout/start"),
+        body,
+        headers,
+      );
+    },
+    async claimGuestCheckoutWithMagicLink<T>(
+      body: Record<string, unknown>,
+    ): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("guest-checkout/claim-with-magic-link"),
+        body,
+        headers,
+      );
+    },
+    async requestGuestCheckoutClaimLink<T>(
+      body: Record<string, unknown>,
+    ): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("guest-checkout/claim-link/request"),
+        body,
+        headers,
+      );
+    },
+    async getGuestCheckoutClaimContext<T>(
+      body: Record<string, unknown>,
+    ): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("guest-checkout/claim-context"),
+        body,
+        headers,
+      );
+    },
+    async claimGuestCheckoutWithPasskey<T>(
+      body: Record<string, unknown>,
+    ): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("guest-checkout/claim-with-passkey"),
         body,
         headers,
       );

@@ -141,6 +141,18 @@ function checkoutRecoveryReference(
   ].join(":");
 }
 
+function resolvePaymentReturnPath(value: string | null | undefined, paymentId: PaymentId) {
+  const fallback = `/account/payments/${paymentId}`;
+  const raw = value?.trim();
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) {
+    return fallback;
+  }
+
+  return raw
+    .replaceAll(":paymentId", paymentId)
+    .replaceAll("{paymentId}", paymentId);
+}
+
 function sumOrderAmounts(
   orders: readonly Readonly<{ total_amount: string }>[],
 ) {
@@ -342,6 +354,7 @@ export type PaymentServices = Readonly<{
       paymentMethodCategory?: string | null;
       marketplaceCheckoutFeeQuoteFingerprint?: string | null;
       returnUrlBase?: string | null;
+      returnUrlPath?: string | null;
       clientRiskContext?: Readonly<{
         ipAddress?: string | null;
         userAgent?: string | null;
@@ -361,6 +374,7 @@ export type PaymentServices = Readonly<{
       paymentMethodCategory?: string | null;
       marketplaceCheckoutFeeQuoteFingerprint?: string | null;
       returnUrlBase?: string | null;
+      returnUrlPath?: string | null;
       clientRiskContext?: Readonly<{
         ipAddress?: string | null;
         userAgent?: string | null;
@@ -707,6 +721,10 @@ export function createPaymentRuntime(
       const sellerPayouts = buildSellerPayoutComponents(orders);
       const paymentId = createId("pay") as PaymentId;
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
+      const returnUrlPath = resolvePaymentReturnPath(
+        params.returnUrlPath,
+        paymentId,
+      );
       const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
       const processorPayment = compareMoney(processorAmount, "0.00") === 0
         ? {
@@ -729,7 +747,7 @@ export function createPaymentRuntime(
                 ? `Chase Sets order ${orderIds[0]}`
                 : `Chase Sets checkout for ${orderIds.length} orders`,
             returnUrl: returnUrlBase
-              ? `${returnUrlBase}/account/payments/${paymentId}`
+              ? `${returnUrlBase}${returnUrlPath}`
               : null,
             idempotencyKey: providerIdempotencyKey,
             clientRiskContext: params.clientRiskContext ?? null,

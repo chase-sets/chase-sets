@@ -42,7 +42,11 @@ import {
   type MarketplaceListingInventoryItemOption,
   type MarketplaceListingTermsPreview,
 } from "@chase-sets/marketplace/server";
-import { createCheckoutRequestApiClient } from "@chase-sets/checkout/server";
+import {
+  appendAnonymousCartCookie,
+  createCheckoutRequestApiClient,
+  ensureAnonymousCartId,
+} from "@chase-sets/checkout/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
@@ -796,13 +800,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "add-to-cart") {
-      await requireActorFromAuthApi({
-        request,
-        permission: "orders.manage",
-      });
+      const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
-
-      await checkoutApi.addCartLine({
+      const cartLine = {
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
@@ -810,30 +810,53 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity: Number(formData.get("quantity") ?? 0),
-      });
+      };
+
+      if (!actor) {
+        const anonymousCartId = ensureAnonymousCartId(request);
+        await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
+        const response = redirect("/account/cart");
+        appendAnonymousCartCookie(response.headers, anonymousCartId);
+        return response;
+      }
+
+      await checkoutApi.addCartLine(cartLine);
 
       return redirect("/account/cart");
     }
 
     if (intent === "buy-now") {
-      await requireActorFromAuthApi({
-        request,
-        permission: "orders.manage",
-      });
+      const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
+      const source = {
+        type: "buy-now",
+        listingId: String(formData.get("listingId") ?? ""),
+        catalogItemId: item.catalog_item_id,
+        productId: String(formData.get("productId") ?? ""),
+        itemTitle: item.title,
+        itemSubtitle: item.subtitle,
+        selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+        productSummary: String(formData.get("productSummary") ?? "") || null,
+        quantity: Number(formData.get("quantity") ?? 0),
+      } as const;
+
+      if (!actor) {
+        const query = new URLSearchParams({
+          source: "buy-now",
+          listingId: source.listingId,
+          catalogItemId: source.catalogItemId,
+          productId: source.productId,
+          itemTitle: source.itemTitle,
+          itemSubtitle: source.itemSubtitle ?? "",
+          selectedOptions: JSON.stringify(source.selectedOptions),
+          productSummary: source.productSummary ?? "",
+          quantity: String(source.quantity),
+        });
+        return redirect(`/checkout/start?${query.toString()}`);
+      }
 
       const session = await checkoutApi.createCheckoutSession({
-        source: {
-          type: "buy-now",
-          listingId: String(formData.get("listingId") ?? ""),
-          catalogItemId: item.catalog_item_id,
-          productId: String(formData.get("productId") ?? ""),
-          itemTitle: item.title,
-          itemSubtitle: item.subtitle,
-          selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
-          productSummary: String(formData.get("productSummary") ?? "") || null,
-          quantity: Number(formData.get("quantity") ?? 0),
-        },
+        source,
       });
 
       return redirect(`/checkout/${session.session_id}`);

@@ -117,7 +117,11 @@ function createProcessorGateway() {
       dynamicPaymentMethods: true,
       sensitivePaymentDetailsHandledByProcessor: true,
     })),
-    createPaymentSession: vi.fn(async (input: { paymentId: string; amount: string }) => ({
+    createPaymentSession: vi.fn(async (input: {
+      paymentId: string;
+      amount: string;
+      returnUrl?: string | null;
+    }) => ({
       processorName: "stripe" as const,
       processorPaymentKind: "payment-intent" as const,
       processorPaymentReference: `pi_${input.paymentId}`,
@@ -376,5 +380,41 @@ describe("payment runtime", () => {
       "payments.payment-created",
       "payments.payment-captured",
     ]);
+  });
+
+  it("uses an explicit relative return path for processor payment sessions", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway,
+    });
+
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "bank-account",
+    });
+    const result = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "bank-account",
+        marketplaceCheckoutFeeQuoteFingerprint:
+          status.marketplace_checkout_fee.quote_fingerprint,
+        returnUrlBase: "https://market.test",
+        returnUrlPath: "/checkout/payments/:paymentId",
+      },
+      context,
+    );
+
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentMethodCategory: "bank-account",
+        returnUrl: `https://market.test/checkout/payments/${result.payment_id}`,
+      }),
+    );
   });
 });

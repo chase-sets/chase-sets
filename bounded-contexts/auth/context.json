@@ -29,7 +29,8 @@
     "./host-config",
     "./routes/*",
     "./seed-support/*",
-    "./server"
+    "./server",
+    "./web"
   ],
   "allowedContextDependencies": [
     "@chase-sets/identity"

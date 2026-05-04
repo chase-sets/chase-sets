@@ -1,8 +1,0 @@
-
-> dev:marketplace
-> npm run dev --workspace @chase-sets/app-marketplace-web --host 127.0.0.1 --port 5173
-
-
-> @chase-sets/app-marketplace-web@0.1.0 dev
-> react-router dev 127.0.0.1 5173
-

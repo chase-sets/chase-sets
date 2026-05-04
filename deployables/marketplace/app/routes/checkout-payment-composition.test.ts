@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { webContextRegistry } from "../generated/web-context-registry";
+import * as checkoutPaymentRoute from "@chase-sets/payments/routes/marketplace/checkout-payment";
 
 type RouteContribution = Readonly<{
   routeId: string;
@@ -51,7 +52,17 @@ describe("marketplace checkout and payment composition", () => {
           fileExport: "./routes/marketplace/account-payment",
           sourceContext: "payments",
         }),
+        expect.objectContaining({
+          routeId: "checkout-payment",
+          routePath: "checkout/payments/:paymentId",
+          fileExport: "./routes/marketplace/checkout-payment",
+          sourceContext: "payments",
+        }),
       ]),
     );
+  });
+
+  it("carries the guest payment recovery error boundary on the checkout payment wrapper", () => {
+    expect(checkoutPaymentRoute.ErrorBoundary).toEqual(expect.any(Function));
   });
 });

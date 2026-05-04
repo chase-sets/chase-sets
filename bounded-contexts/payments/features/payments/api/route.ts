@@ -12,6 +12,7 @@ function requirePaymentAccess(
     get(key: "actor"): PaymentsApiEnv["Variables"]["actor"];
   },
   permission: "orders.view" | "orders.manage",
+  options: Readonly<{ allowGuestCheckout?: boolean }> = {},
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -25,6 +26,13 @@ function requirePaymentAccess(
   }
 
   if (!actor.permissions.includes(permission)) {
+    if (
+      options.allowGuestCheckout &&
+      actor.permissions.includes("guest-checkout.manage")
+    ) {
+      return { actor, response: null };
+    }
+
     return {
       actor: null,
       response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("payments.features.payments.api.route.forbidden") } }), {
@@ -74,7 +82,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   const app = new Hono<PaymentsApiEnv>();
 
   app.post("/payments", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
+    const access = requirePaymentAccess(c, "orders.manage", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }
@@ -115,6 +125,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
               ? null
               : String(body.marketplaceCheckoutFeeQuoteFingerprint),
           returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
+          returnUrlPath:
+            body.returnUrlPath === null || body.returnUrlPath === undefined
+              ? null
+              : String(body.returnUrlPath),
           clientRiskContext: {
             ipAddress:
               c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
@@ -140,7 +154,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   });
 
   app.get("/checkout/status", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view");
+    const access = requirePaymentAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }
@@ -166,7 +182,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   });
 
   app.get("/marketplace-checkout-fee-policy", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view");
+    const access = requirePaymentAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }
@@ -175,7 +193,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   });
 
   app.post("/checkout/recover", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
+    const access = requirePaymentAccess(c, "orders.manage", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }
@@ -207,6 +227,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
               ? null
               : String(body.marketplaceCheckoutFeeQuoteFingerprint),
           returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
+          returnUrlPath:
+            body.returnUrlPath === null || body.returnUrlPath === undefined
+              ? null
+              : String(body.returnUrlPath),
           clientRiskContext: {
             ipAddress:
               c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
@@ -229,7 +253,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   });
 
   app.get("/checkout/recovery", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view");
+    const access = requirePaymentAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }
@@ -255,7 +281,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   });
 
   app.get("/payments/:id", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view");
+    const access = requirePaymentAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }
@@ -272,7 +300,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   });
 
   app.get("/payments/:id/timeline", async (c) => {
-    const access = requirePaymentAccess(c, "orders.view");
+    const access = requirePaymentAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
     if (access.response) {
       return access.response;
     }

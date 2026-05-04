@@ -9,6 +9,10 @@ import {
   createActorEventStoreContext,
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
+import {
+  PLATFORM_INTERNAL_AUTH_HEADER,
+  resolvePlatformInternalAuthSecret,
+} from "@chase-sets/platform-runtime/http";
 import type { PlatformIdentityServices } from "../app";
 import {
   createAuthBootstrapContext,
@@ -34,13 +38,15 @@ const ANONYMOUS_ROUTES = new Set([
   "POST /api/auth/magic-link/request",
   "POST /api/auth/magic-link/consume",
   "POST /api/auth/passkeys/challenge",
+  "POST /api/auth/passkeys/register",
   "POST /api/auth/passkeys/sign-in",
   "POST /api/auth/invitations/accept",
+  "POST /api/auth/guest-checkout/start",
+  "POST /api/auth/guest-checkout/claim-link/request",
+  "POST /api/auth/guest-checkout/claim-with-magic-link",
+  "POST /api/auth/guest-checkout/claim-with-passkey",
   "POST /api/auth/account-selection/resolve",
   "POST /api/auth/account-selection/complete",
-  "POST /api/identity/internal/auth/personal-identities",
-  "POST /api/identity/internal/auth/users/:id/password-credential",
-  "POST /api/identity/internal/auth/invitations/:id/accept",
   "POST /api/identity/api-keys/resolve",
 ]);
 
@@ -50,13 +56,24 @@ function isAnonymousAllowed(method: string, pathname: string) {
     return true;
   }
 
+  return false;
+}
+
+function isInternalIdentityAuthRoute(pathname: string) {
+  return pathname.startsWith("/api/identity/internal/auth/");
+}
+
+function isInternalGuestCheckoutClaimRoute(pathname: string) {
   return (
-    method.toUpperCase() === "POST" &&
-    (
-      /^\/api\/identity\/internal\/auth\/users\/[^/]+\/password-credential$/.test(pathname) ||
-      /^\/api\/identity\/internal\/auth\/invitations\/[^/]+\/accept$/.test(pathname)
-    )
+    pathname === "/api/auth/guest-checkout/claim-context" ||
+    pathname === "/api/auth/guest-checkout/claim-link/request" ||
+    pathname === "/api/auth/guest-checkout/claim-with-magic-link" ||
+    pathname === "/api/auth/guest-checkout/claim-with-passkey"
   );
+}
+
+function hasInternalCapability(request: Request, secret: string) {
+  return request.headers.get(PLATFORM_INTERNAL_AUTH_HEADER) === secret;
 }
 
 function createContextFromHeaders(request: Request) {
@@ -78,13 +95,34 @@ function createContextFromHeaders(request: Request) {
   } satisfies EventStoreContext;
 }
 
-export function createIdentityAuthMiddleware(services: PlatformIdentityServices) {
+export function createIdentityAuthMiddleware(
+  services: PlatformIdentityServices,
+  options: Readonly<{ internalAuthSecret?: string }> = {},
+) {
+  const internalAuthSecret =
+    options.internalAuthSecret ?? resolvePlatformInternalAuthSecret();
   return async function identityAuthMiddleware(
     c: Context<TenantContextEnv>,
     next: Next,
   ): Promise<Response | void> {
     const pathname = new URL(c.req.url).pathname;
     const headerContext = createContextFromHeaders(c.req.raw);
+
+    if (
+      isInternalIdentityAuthRoute(pathname) ||
+      isInternalGuestCheckoutClaimRoute(pathname)
+    ) {
+      if (!hasInternalCapability(c.req.raw, internalAuthSecret)) {
+        return c.json(authenticationRequiredResponse(), 401);
+      }
+
+      if (isInternalIdentityAuthRoute(pathname)) {
+        c.set("actor", null);
+        c.set("context", attachActiveTraceContext(createAuthBootstrapContext(services.auth)));
+        await next();
+        return;
+      }
+    }
 
     if (headerContext) {
       c.set("context", attachActiveTraceContext(headerContext));

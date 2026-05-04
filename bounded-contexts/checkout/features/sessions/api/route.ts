@@ -26,6 +26,10 @@ function requireCheckoutAccess(
   }
 
   if (!actor.permissions.includes(permission)) {
+    if (actor.permissions.includes("guest-checkout.manage")) {
+      return { actor, response: null };
+    }
+
     return {
       actor: null,
       response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("checkout.features.sessions.api.route.forbidden") } }), {
@@ -263,6 +267,9 @@ export function createAccountCheckoutSessionRoutes(
         requestedBalanceCreditAmount,
         paymentMethodCategory,
         marketplaceCheckoutFeeQuoteFingerprint,
+        access.actor.roleKey === "guest-buyer"
+          ? "/checkout/payments/:paymentId"
+          : "/account/payments/:paymentId",
       );
       await services.recordPaymentStarted(
         {

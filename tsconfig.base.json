@@ -39,6 +39,9 @@
       "@chase-sets/auth/server": [
         "./bounded-contexts/auth/server.ts"
       ],
+      "@chase-sets/auth/web": [
+        "./bounded-contexts/auth/web.ts"
+      ],
       "@chase-sets/bounded-context-module": [
         "./contracts/bounded-context-module/index.ts"
       ],

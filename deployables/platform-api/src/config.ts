@@ -2,6 +2,10 @@ import {
   getApiHostContextNames,
   type ApiHostContextName,
 } from "@chase-sets/platform-runtime/api";
+import {
+  PLATFORM_INTERNAL_AUTH_SECRET_ENV,
+  resolvePlatformInternalAuthSecret,
+} from "@chase-sets/platform-runtime/http";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
 export type PlatformApiPaymentProcessorConfig =
@@ -49,6 +53,7 @@ export type PlatformApiBaseConfig = Readonly<{
   contextDatabaseUrls: Readonly<Partial<Record<PlatformApiContextName, string>>>;
   pool?: PlatformApiPoolConfig;
   port: number;
+  internalAuthSecret?: string;
   realtime?: PlatformApiRealtimeConfig;
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
@@ -202,6 +207,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       connectionTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS", 5_000),
     },
     port: Number(process.env.PORT ?? 6182),
+    internalAuthSecret: resolvePlatformInternalAuthSecret(),
     realtime: {
       batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
       pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),
@@ -286,6 +292,11 @@ export function loadConfig(): PlatformApiConfig {
   ) {
     throw new Error(
       "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for hosted payout setup in production.",
+    );
+  }
+  if (productionLike && !getOptionalEnv(PLATFORM_INTERNAL_AUTH_SECRET_ENV)) {
+    throw new Error(
+      `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
     );
   }
 

@@ -1,7 +1,0 @@
-npm error Lifecycle script `start` failed with error:
-npm error code 4294967295
-npm error path D:\Users\ToddS\Source\Repos\chase-sets\deployables\design-system-showcase
-npm error workspace @chase-sets/app-design-system-showcase@0.1.0
-npm error location D:\Users\ToddS\Source\Repos\chase-sets\deployables\design-system-showcase
-npm error command failed
-npm error command C:\WINDOWS\system32\cmd.exe /d /s /c react-router-serve ./build/server/index.js

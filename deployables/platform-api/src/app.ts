@@ -69,6 +69,7 @@ export type BuildPlatformApiOptions = Readonly<{
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   realtimeActiveConnectionCount?: () => number;
   mcp?: CreateMcpRoutesOptions;
+  internalAuthSecret?: string;
 }>;
 
 export function createPlatformApiHost(
@@ -171,7 +172,9 @@ export function buildPlatformApiApp(
     apiMounts
       .filter((mount) => mount.contextName === "auth" || mount.contextName === "identity")
       .map((mount) => mount.mountPath),
-    createIdentityAuthMiddleware(identityServices),
+    createIdentityAuthMiddleware(identityServices, {
+      internalAuthSecret: options.internalAuthSecret,
+    }),
   );
 
   attachApiMountMiddleware(

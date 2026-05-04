@@ -245,6 +245,7 @@ describe("payments routes", () => {
         paymentMethodCategory: null,
         marketplaceCheckoutFeeQuoteFingerprint: null,
         returnUrlBase: "http://payments.test",
+        returnUrlPath: null,
         clientRiskContext: {
           ipAddress: null,
           userAgent: null,
@@ -293,6 +294,7 @@ describe("payments routes", () => {
         paymentMethodCategory: null,
         marketplaceCheckoutFeeQuoteFingerprint: null,
         returnUrlBase: "http://payments.test",
+        returnUrlPath: null,
         clientRiskContext: {
           ipAddress: null,
           userAgent: null,
@@ -415,6 +417,52 @@ describe("payments routes", () => {
       requestedBalanceCreditAmount: null,
       paymentMethodCategory: null,
     });
+  });
+
+  it("passes an explicit return path into checkout payment recovery", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "guest:tok_1",
+        tenantId: "tnt_identity",
+        userId: "usr_guest_checkout",
+        accountId: "acc_guest",
+        membershipId: "guest:tok_1",
+        roleKey: "guest-buyer",
+        permissions: ["guest-checkout.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/checkout/recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderIds: ["ord_1"],
+          currencyCode: "usd",
+          requestedBalanceCreditAmount: "3.25",
+          paymentMethodCategory: "bank-account",
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_retry",
+          returnUrlPath: "/checkout/payments/:paymentId",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.recoverCheckoutPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_guest",
+        orderIds: ["ord_1"],
+        currencyCode: "usd",
+        requestedBalanceCreditAmount: "3.25",
+        paymentMethodCategory: "bank-account",
+        marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_retry",
+        returnUrlBase: "http://payments.test",
+        returnUrlPath: "/checkout/payments/:paymentId",
+      }),
+      expect.any(Object),
+    );
   });
 
   it("returns the active Marketplace Checkout Fee policy for operators", async () => {

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
-import { createAccountCartRoutes } from "./route";
+import { createAccountCartRoutes, createGuestCartRoutes } from "./route";
 import type { CheckoutCartServices } from "./runtime";
 
 function buildApp(options: Readonly<{
@@ -28,6 +28,7 @@ function buildApp(options: Readonly<{
   });
 
   app.route("/account", createAccountCartRoutes(options.services));
+  app.route("/guest", createGuestCartRoutes(options.services));
 
   return app;
 }
@@ -38,6 +39,7 @@ function createServices(): CheckoutCartServices {
     setLineQuantity: vi.fn(async () => ({ lineId: "cli_1" as never, version: 2 })),
     removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 3 })),
     listCartLines: vi.fn(async () => []),
+    mergeCartIntoAccount: vi.fn(async () => ({ movedLineCount: 0 })),
     projectors: [],
   } as unknown as CheckoutCartServices;
 }
@@ -91,6 +93,49 @@ describe("checkout cart routes", () => {
         audit: expect.objectContaining({
           forAccountId: "acc_buyer",
           performedByUserId: "usr_1",
+        }),
+      }),
+    );
+  });
+
+  it("adds signed-out marketplace intent to an anonymous cart owner", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_cart_1",
+        },
+        body: JSON.stringify({
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form=raw",
+          itemTitle: "Charizard",
+          itemSubtitle: "Base Set 4/102 Holo Rare",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          productSummary: "Form: Raw",
+          quantity: 2,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.addLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "anon_cart_1",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::form=raw",
+        quantity: 2,
+      }),
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_guest_checkout",
+          performedByUserId: "usr_guest_checkout",
         }),
       }),
     );

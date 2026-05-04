@@ -28,6 +28,16 @@ import {
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
 import { listCartLines } from "../read-model/queries";
 
+function isIdempotentMergeReplay(error: unknown) {
+  return (
+    error instanceof Error &&
+    (
+      error.message.includes("Cart line has already been added.") ||
+      error.message.includes("Cart must contain at least one line.")
+    )
+  );
+}
+
 export type CheckoutCartRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
@@ -72,6 +82,13 @@ export type CheckoutCartServices = Readonly<{
     accountId: AccountId,
     context: EventStoreContext,
   ) => Promise<{ version: number }>;
+  mergeCartIntoAccount: (
+    params: Readonly<{
+      sourceOwnerId: string;
+      targetAccountId: AccountId;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ mergedLineCount: number }>;
   listCartLines: (accountId: string) => ReturnType<typeof listCartLines>;
   projectors: readonly Projector[];
 }>;
@@ -191,6 +208,61 @@ export function createCheckoutCartRuntime(
       });
 
       return { version: result.version };
+    },
+    mergeCartIntoAccount: async (params, context) => {
+      const sourceLines = await listCartLines(deps.db, params.sourceOwnerId);
+      const existingTargetLineIds = new Set(
+        (await listCartLines(deps.db, params.targetAccountId)).map(
+          (line) => line.line_id,
+        ),
+      );
+      for (const line of sourceLines) {
+        if (existingTargetLineIds.has(line.line_id)) {
+          continue;
+        }
+
+        try {
+          await commandHandler({
+            streamId: `checkout.cart-${params.targetAccountId}`,
+            command: {
+              type: "AddCartLine",
+              buyerAccountId: params.targetAccountId,
+              lineId: line.line_id as CartLineId,
+              catalogItemId: line.catalog_catalog_item_id,
+              productId: line.product_id,
+              itemTitle: line.item_title,
+              itemSubtitle: line.item_subtitle,
+              selectedOptions: line.selected_options,
+              productSummary: line.product_summary,
+              quantity: line.quantity,
+            },
+            context,
+          });
+        } catch (error) {
+          if (!isIdempotentMergeReplay(error)) {
+            throw error;
+          }
+        }
+      }
+
+      if (sourceLines.length > 0) {
+        try {
+          await commandHandler({
+            streamId: `checkout.cart-${params.sourceOwnerId}`,
+            command: {
+              type: "CheckoutCart",
+              checkedOutAt: new Date().toISOString(),
+            },
+            context,
+          });
+        } catch (error) {
+          if (!isIdempotentMergeReplay(error)) {
+            throw error;
+          }
+        }
+      }
+
+      return { mergedLineCount: sourceLines.length };
     },
     listCartLines: (accountId) => listCartLines(deps.db, accountId),
     projectors: [

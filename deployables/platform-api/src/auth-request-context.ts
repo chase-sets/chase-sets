@@ -3,6 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PlatformIdentityServices } from "./app";
 
 const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
+const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
 
 function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
@@ -90,13 +91,52 @@ async function resolveActorFromSessionId(
   };
 }
 
+async function resolveGuestCheckoutActor(
+  services: PlatformIdentityServices["auth"],
+  request: Request,
+): Promise<ResolvedActor | null> {
+  const guestToken =
+    parseCookieHeader(request.headers.get("cookie")).get(AUTH_GUEST_CHECKOUT_COOKIE_NAME) ??
+    null;
+  if (!guestToken) {
+    return null;
+  }
+
+  const result = await services.db.query<{
+    token_id: string;
+    account_id: string;
+    expires_at: string;
+  }>(
+    `SELECT token_id, account_id, expires_at
+     FROM identity_guest_checkout_tokens
+     WHERE token_hash = $1
+       AND revoked_at IS NULL
+       AND expires_at > now()`,
+    [services.auth.hashSecret(guestToken)],
+  );
+  const tokenRecord = result.rows[0] ?? null;
+  if (!tokenRecord || new Date(tokenRecord.expires_at).getTime() <= Date.now()) {
+    return null;
+  }
+
+  return {
+    sessionId: `guest:${tokenRecord.token_id}`,
+    tenantId: services.identity.bootstrapTenantId,
+    userId: "usr_guest_checkout",
+    accountId: tokenRecord.account_id,
+    membershipId: `guest:${tokenRecord.token_id}`,
+    roleKey: "guest-buyer",
+    permissions: ["guest-checkout.manage"],
+  };
+}
+
 export async function resolveActorFromRequest(
   services: PlatformIdentityServices["auth"],
   request: Request,
 ): Promise<ResolvedActor | null> {
   const sessionToken = readAuthSessionToken(request);
   if (!sessionToken) {
-    return null;
+    return resolveGuestCheckoutActor(services, request);
   }
 
   const result = await services.db.query<{
@@ -111,8 +151,11 @@ export async function resolveActorFromRequest(
   const tokenRecord = result.rows[0] ?? null;
 
   if (!tokenRecord || new Date(tokenRecord.expires_at).getTime() <= Date.now()) {
-    return null;
+    return resolveGuestCheckoutActor(services, request);
   }
 
-  return resolveActorFromSessionId(services, tokenRecord.session_id);
+  return (
+    (await resolveActorFromSessionId(services, tokenRecord.session_id)) ??
+    (await resolveGuestCheckoutActor(services, request))
+  );
 }

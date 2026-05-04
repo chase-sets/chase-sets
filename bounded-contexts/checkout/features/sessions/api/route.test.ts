@@ -31,24 +31,27 @@ const shippingAddress = {
   country: "US",
 } as const;
 
-function buildApp(services: CheckoutSessionServices) {
+function buildApp(
+  services: CheckoutSessionServices,
+  actor: CheckoutApiEnv["Variables"]["actor"] = {
+    sessionId: "ses_1",
+    tenantId: "tnt_identity",
+    userId: "usr_1",
+    accountId: "acc_buyer",
+    membershipId: "mbr_1",
+    roleKey: "owner",
+    permissions: ["orders.view", "orders.manage"],
+  },
+) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.use("*", async (c, next) => {
-    c.set("actor", {
-      sessionId: "ses_1",
-      tenantId: "tnt_identity",
-      userId: "usr_1",
-      accountId: "acc_buyer",
-      membershipId: "mbr_1",
-      roleKey: "owner",
-      permissions: ["orders.view", "orders.manage"],
-    });
+    c.set("actor", actor);
     c.set("context", {
       tenantId: "tnt_identity" as never,
       audit: {
-        performedByUserId: "usr_1" as never,
-        forAccountId: "acc_buyer" as never,
+        performedByUserId: actor?.userId as never,
+        forAccountId: actor?.accountId as never,
       },
     });
     await next();
@@ -240,6 +243,7 @@ describe("checkout session routes", () => {
       null,
       "card",
       null,
+      "/account/payments/:paymentId",
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
@@ -274,6 +278,7 @@ describe("checkout session routes", () => {
       null,
       "card",
       null,
+      "/account/payments/:paymentId",
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       expect.objectContaining({ paymentId: "pay_existing" }),
@@ -310,6 +315,43 @@ describe("checkout session routes", () => {
       "8.50",
       "bank-account",
       "quote_1",
+      "/account/payments/:paymentId",
+    );
+  });
+
+  it("uses the guest payment return path when confirming guest checkout", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue(["ord_1"]);
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
+    });
+    const app = buildApp(services, {
+      sessionId: "guest:tok_1",
+      tenantId: "tnt_identity",
+      userId: "usr_guest_checkout",
+      accountId: "acc_guest",
+      membershipId: "guest:tok_1",
+      roleKey: "guest-buyer",
+      permissions: ["guest-checkout.manage"],
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      null,
+      "/checkout/payments/:paymentId",
     );
   });
 

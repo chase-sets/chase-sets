@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 
@@ -70,16 +71,21 @@ type StripeWindow = Window &
     Stripe?: StripeMock;
   };
 
-const { mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
+const { mockUseActionData, mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
+  mockUseActionData: vi.fn(),
   mockUseLoaderData: vi.fn(),
   mockUseRevalidator: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
+  const React = await vi.importActual<typeof import("react")>("react");
 
   return {
     ...actual,
+    Form: ({ children, ...props }: { children: ReactNode }) =>
+      React.createElement("form", props, children),
+    useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
     useRevalidator: mockUseRevalidator,
   };
@@ -150,6 +156,7 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
 
 describe("marketplace account payment route", () => {
   beforeEach(() => {
+    mockUseActionData.mockReturnValue(null);
     mockUseRevalidator.mockReturnValue({
       revalidate: vi.fn(),
     });
@@ -213,6 +220,61 @@ describe("marketplace account payment route", () => {
     expect(retryLink.getAttribute("href")).toBe(
       "/account/payments/new?orderIds=ord_1%2Cord_2",
     );
+  });
+
+  it("renders guest retry errors beside the retry form", () => {
+    mockUseActionData.mockReturnValue({
+      scope: "retry",
+      error: "Fee quote changed.",
+    });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "failed",
+        processor_status: "requires_payment_method",
+        failure_message: "Card was declined.",
+        failed_at: "2026-04-01T00:04:00.000Z",
+      }),
+      orders: [buildPurchase()],
+      isGuestCheckoutPayment: true,
+      guestClaimContext: null,
+      showSupportDetails: false,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByText("Could not retry payment")).toBeTruthy();
+    expect(screen.getByText("Fee quote changed.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry payment" })).toBeTruthy();
+  });
+
+  it("renders guest retry when a failed payment has no processor message", () => {
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "failed",
+        processor_status: "requires_payment_method",
+        failure_message: null,
+        failed_at: "2026-04-01T00:04:00.000Z",
+      }),
+      orders: [buildPurchase()],
+      isGuestCheckoutPayment: true,
+      guestClaimContext: null,
+      showSupportDetails: false,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expect(
+      screen.getAllByText("The secure processor could not complete this payment.").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Retry payment" })).toBeTruthy();
   });
 
   it("confirms a pending Stripe payment and revalidates afterward", async () => {

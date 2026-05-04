@@ -37,6 +37,17 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("checkout.features.cart.api.route.request.failed");
 }
 
+function createGuestCheckoutContext() {
+  return {
+    tenantId: "tnt_identity",
+    audit: {
+      performedByUserId: "usr_guest_checkout",
+      forAccountId: "acc_guest_checkout",
+    },
+    trace: {},
+  } as never;
+}
+
 function parseVersionSelection(value: unknown) {
   return Array.isArray(value)
     ? value
@@ -165,6 +176,143 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
+  });
+
+  return app;
+}
+
+function requireAnonymousCartId(c: { req: { header: (name: string) => string | undefined } }) {
+  const ownerId = c.req.header("x-checkout-anonymous-cart-id")?.trim() ?? "";
+  if (!ownerId.startsWith("anon_")) {
+    return null;
+  }
+
+  return ownerId;
+}
+
+export function createGuestCartRoutes(services: CheckoutCartServices) {
+  const app = new Hono<CheckoutApiEnv>();
+
+  app.get("/cart", async (c) => {
+    const ownerId = requireAnonymousCartId(c);
+    if (!ownerId) {
+      return c.json({ items: [], count: 0 });
+    }
+
+    const items = await services.listCartLines(ownerId);
+    return c.json({ items, count: items.length });
+  });
+
+  app.post("/cart", async (c) => {
+    const ownerId = requireAnonymousCartId(c);
+    if (!ownerId) {
+      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+    }
+
+    const context = c.get("context") ?? createGuestCheckoutContext();
+
+    const body = await c.req.json();
+
+    try {
+      const result = await services.addLine(
+        {
+          accountId: ownerId as never,
+          catalogItemId: String(body.catalogItemId ?? ""),
+          productId: String(body.productId ?? ""),
+          itemTitle: String(body.itemTitle ?? ""),
+          itemSubtitle:
+            body.itemSubtitle === null || body.itemSubtitle === undefined
+              ? null
+              : String(body.itemSubtitle),
+          selectedOptions: parseVersionSelection(body.selectedOptions),
+          productSummary:
+            body.productSummary === null || body.productSummary === undefined
+              ? null
+              : String(body.productSummary),
+          quantity: Number(body.quantity ?? 0),
+        },
+        context,
+      );
+
+      return c.json({ id: result.lineId, version: result.version, status: "added" }, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/cart/:lineId/quantity", async (c) => {
+    const ownerId = requireAnonymousCartId(c);
+    if (!ownerId) {
+      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+    }
+
+    const context = c.get("context") ?? createGuestCheckoutContext();
+    const body = await c.req.json();
+
+    try {
+      const result = await services.setLineQuantity(
+        {
+          accountId: ownerId as never,
+          lineId: c.req.param("lineId") as never,
+          quantity: Number(body.quantity ?? 0),
+        },
+        context,
+      );
+
+      return c.json({ id: result.lineId, version: result.version, status: "quantity-updated" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/cart/:lineId/remove", async (c) => {
+    const ownerId = requireAnonymousCartId(c);
+    if (!ownerId) {
+      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+    }
+
+    const context = c.get("context") ?? createGuestCheckoutContext();
+
+    try {
+      const result = await services.removeLine(
+        {
+          accountId: ownerId as never,
+          lineId: c.req.param("lineId") as never,
+        },
+        context,
+      );
+
+      return c.json({ id: result.lineId, version: result.version, status: "removed" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/cart/merge-to-account", async (c) => {
+    const access = requireCartAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const ownerId = requireAnonymousCartId(c);
+    if (!ownerId) {
+      return c.json({ mergedLineCount: 0 });
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "context_required", message: t("checkout.features.cart.api.route.authentication.context.missing.2") } }, 401);
+    }
+
+    const result = await services.mergeCartIntoAccount(
+      {
+        sourceOwnerId: ownerId,
+        targetAccountId: access.actor.accountId as never,
+      },
+      context,
+    );
+
+    return c.json(result);
   });
 
   return app;

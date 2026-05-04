@@ -1,12 +1,40 @@
 .claude/
+.codex/
 node_modules/
 dist/
 build/
 artifacts/
 coverage/
 .react-router/
+
+# Local dev logs
+*.log
+.codex*.log
+
+# Local runtime and test output
+*.jsonl
+*.pid
+*.tmp
+*.temp
+*.tsbuildinfo
+*.sqlite
+*.sqlite3
+.cache/
+.turbo/
+.vite/
+.vitest/
+playwright-report/
+test-results/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
 .env
-.env.local
+.env.*
+!.env.example
+!**/.env.example
 !deployables/catalog-api/.env
 !deployables/identity-api/.env
 !deployables/inventory-api/.env

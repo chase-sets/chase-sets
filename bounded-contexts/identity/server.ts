@@ -6,6 +6,7 @@ import {
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
 import {
+  createPlatformInternalAuthHeaders,
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
@@ -35,6 +36,14 @@ export function createIdentityRequestApiClient(request: Request) {
 }
 
 export type IdentityAuthMutationClient = Readonly<{
+  createGuestAccount: (params: Readonly<{
+    email: string;
+    displayName: string;
+  }>) => Promise<Readonly<{ accountId: string }>>;
+  createUser: (params: Readonly<{
+    email: string;
+    displayName: string;
+  }>) => Promise<Readonly<{ userId: string }>>;
   createPersonalIdentity: (params: Readonly<{
     email: string;
     displayName: string;
@@ -50,6 +59,11 @@ export type IdentityAuthMutationClient = Readonly<{
     userId: string;
     credentialId: string;
   }>) => Promise<void>;
+  claimGuestAccount: (params: Readonly<{
+    accountId: string;
+    userId: string;
+    roleKey: string;
+  }>) => Promise<Readonly<{ membershipId: string }>>;
   acceptInvitationForUser: (params: Readonly<{
     invitationId: string;
     userId: string;
@@ -76,14 +90,16 @@ export function createIdentityAuthRequestClient(
     parseJsonResponse<T>(
       await fetch(new URL(path, `${baseUrl}/`), {
         method: "POST",
-        headers: {
+        headers: createPlatformInternalAuthHeaders({
           "Content-Type": "application/json",
-        },
+        }),
         body: JSON.stringify(body),
       }),
     );
 
   return {
+    createGuestAccount: (params) => postJson("guest-accounts", params),
+    createUser: (params) => postJson("users", params),
     createPersonalIdentity: (params) => postJson("personal-identities", params),
     enablePasswordCredential: async ({ userId, credentialId }) => {
       await postJson(`users/${userId}/password-credential`, { credentialId });
@@ -91,6 +107,11 @@ export function createIdentityAuthRequestClient(
     registerPasskeyCredential: async ({ userId, credentialId }) => {
       await postJson(`users/${userId}/passkey-credential`, { credentialId });
     },
+    claimGuestAccount: ({ accountId, userId, roleKey }) =>
+      postJson(`guest-accounts/${accountId}/claim`, {
+        userId,
+        roleKey,
+      }),
     acceptInvitationForUser: ({ invitationId, userId, accountId, roleKey }) =>
       postJson(`invitations/${invitationId}/accept`, {
         userId,

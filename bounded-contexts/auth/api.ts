@@ -3,6 +3,7 @@ import type { AuthServices } from "./support/runtime-support/services";
 import { registerAccountSelectionRoutes } from "./support/api-support/account-selection-routes";
 import { registerInvitationRoutes } from "./support/api-support/invitation-routes";
 import { registerMagicLinkRoutes } from "./support/api-support/magic-link-routes";
+import { registerGuestCheckoutRoutes } from "./support/api-support/guest-checkout-routes";
 import { registerPasskeyRoutes } from "./support/api-support/passkey-routes";
 import { registerPasswordRoutes } from "./support/api-support/password-routes";
 import { registerRegistrationRoutes } from "./support/api-support/register-routes";
@@ -16,6 +17,7 @@ export function buildAuthApi(services: AuthServices) {
   registerRegistrationRoutes(app, services);
   registerPasswordRoutes(app, services);
   registerMagicLinkRoutes(app, services);
+  registerGuestCheckoutRoutes(app, services);
   registerAccountSelectionRoutes(app, services);
   registerPasskeyRoutes(app, services);
   registerInvitationRoutes(app, services);
