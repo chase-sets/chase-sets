@@ -1,9 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData, useRouteLoaderData } from "react-router";
-import { useEffect, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -38,35 +37,39 @@ export default function MarketplaceAccountSubmittedOffersRoute() {
   const rootData = useRouteLoaderData("root") as
     | { actor?: { accountId?: string } | null }
     | undefined;
-  const [submittedOffers, setSubmittedOffers] = useState(
-    data.submittedOffers as ListResponse<SubmittedOfferListItem>,
+  const accountId = rootData?.actor?.accountId ?? null;
+
+  return (
+    <MarketplaceAccountSubmittedOffersRealtimeView
+      key={[
+        accountId ?? "anonymous",
+        data.submittedOffers.total,
+        data.submittedOffers.items.map((item) => item.offer_id).join("|"),
+      ].join("\n")}
+      data={data}
+      accountId={accountId}
+    />
   );
+}
 
-  useEffect(() => {
-    setSubmittedOffers(data.submittedOffers as ListResponse<SubmittedOfferListItem>);
-  }, [data.submittedOffers]);
-
-  useEffect(() => {
-    const accountId = rootData?.actor?.accountId;
-    if (!accountId) {
-      return;
-    }
-
-    const subscription = subscribeRealtimePatches({
-      preset: marketplaceRealtimeRouteTopics.accountOffers(accountId),
-      onPatch: (patch) => {
-        setSubmittedOffers((current) =>
-          applyMarketplaceListPatch(current, patch, {
-            entity: "marketplace.offer",
-            idField: "offer_id",
-          }),
-        );
-      },
-      onSyncRequired: reloadForRealtimeSync,
-    });
-
-    return () => subscription.close();
-  }, [rootData?.actor?.accountId]);
+function MarketplaceAccountSubmittedOffersRealtimeView({
+  data,
+  accountId,
+}: {
+  data: Awaited<ReturnType<typeof loader>>;
+  accountId: string | null;
+}) {
+  const submittedOffers = useRealtimePatchedSnapshot<ListResponse<SubmittedOfferListItem>>({
+    initialSnapshot: data.submittedOffers as ListResponse<SubmittedOfferListItem>,
+    snapshotKey: JSON.stringify(data.submittedOffers),
+    topics: accountId ? marketplaceRealtimeRouteTopics.accountOffers(accountId).topics : [],
+    applyPatch: (current, patch) =>
+      applyMarketplaceListPatch(current, patch, {
+        entity: "marketplace.offer",
+        idField: "offer_id",
+      }),
+    onSyncRequired: reloadForRealtimeSync,
+  });
 
   return (
     <MarketplaceSubmittedOfferListPage

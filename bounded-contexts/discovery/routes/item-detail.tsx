@@ -4,7 +4,7 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   Badge,
@@ -24,7 +24,7 @@ import {
   resolveActorFromAuthApi,
 } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
@@ -959,27 +959,43 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 export default function DiscoveryItemDetailRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;
   const actionData = useActionData<typeof action>();
-  const [realtimeItem, setRealtimeItem] = useState(data.item);
 
-  useEffect(() => {
-    setRealtimeItem(data.item);
-  }, [data.item]);
+  return (
+    <DiscoveryItemDetailRealtimeView
+      key={[
+        data.item?.catalog_item_id ?? "empty",
+        data.item?.market_listings.map((listing) => listing.listing_id).join("|") ?? "",
+        data.item?.buyer_offer_matches.map((offer) => offer.offer_id).join("|") ?? "",
+      ].join("\n")}
+      data={data}
+      actionData={actionData}
+    />
+  );
+}
 
-  useEffect(() => {
-    if (!data.item) {
-      return;
-    }
+type DiscoveryItemDetailRouteData =
+  | typeof EMPTY_ITEM_DETAIL_RESULT
+  | Awaited<ReturnType<typeof loader>>;
+type DiscoveryItemDetailActionData =
+  | Exclude<Awaited<ReturnType<typeof action>>, Response>
+  | undefined;
 
-    const subscription = subscribeRealtimePatches({
-      preset: discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id),
-      onPatch: (patch) => {
-        setRealtimeItem((current) => applyDiscoveryItemPatch(current, patch));
-      },
-      onSyncRequired: reloadForRealtimeSync,
-    });
-
-    return () => subscription.close();
-  }, [data.item?.catalog_item_id]);
+function DiscoveryItemDetailRealtimeView({
+  data,
+  actionData,
+}: {
+  data: DiscoveryItemDetailRouteData;
+  actionData: DiscoveryItemDetailActionData;
+}) {
+  const realtimeItem = useRealtimePatchedSnapshot({
+    initialSnapshot: data.item,
+    snapshotKey: JSON.stringify(data.item),
+    topics: data.item
+      ? discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id).topics
+      : [],
+    applyPatch: applyDiscoveryItemPatch,
+    onSyncRequired: reloadForRealtimeSync,
+  });
 
   return (
     <ItemDetailPage

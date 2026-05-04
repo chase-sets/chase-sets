@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../utils/cx";
 
@@ -46,12 +46,6 @@ export function ImageGallery({
     () => new Set(),
   );
 
-  useEffect(() => {
-    if (activeIndex >= images.length) {
-      setActiveIndex(0);
-    }
-  }, [activeIndex, images.length]);
-
   function resolveImage(image: GalleryImage | undefined): GalleryImage | undefined {
     if (!image) {
       return fallbackImage && !failedImageSources.has(fallbackImage.src)
@@ -81,7 +75,8 @@ export function ImageGallery({
   }
 
   const hasProvidedImages = images.length > 0;
-  const active = resolveImage(hasProvidedImages ? images[activeIndex] : undefined);
+  const safeActiveIndex = activeIndex < images.length ? activeIndex : 0;
+  const active = resolveImage(hasProvidedImages ? images[safeActiveIndex] : undefined);
   const galleryStyle = {
     aspectRatio,
     "--gallery-aspect-ratio": String(parseAspectRatio(aspectRatio)),
@@ -146,7 +141,7 @@ export function ImageGallery({
                 onClick={() => setActiveIndex(index)}
                 className={cx(
                   "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
-                  index === activeIndex
+                  index === safeActiveIndex
                     ? "border-accent shadow-tokenSm"
                     : "border-muted hover:border-accent"
                 )}

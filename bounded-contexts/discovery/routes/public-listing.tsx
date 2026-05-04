@@ -1,7 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { useEffect, useState } from "react";
 import {
   Badge,
   Card,
@@ -15,7 +14,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
@@ -85,27 +84,28 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 
 export default function PublicListingRoute() {
   const data = useLoaderData<typeof loader>();
-  const [listing, setListing] = useState(data.listing);
 
-  useEffect(() => {
-    setListing(data.listing);
-  }, [data.listing]);
+  return (
+    <PublicListingRealtimeView
+      key={[
+        data.listing?.listing_id ?? "empty",
+        data.listing?.updated_at ?? data.listing?.status ?? "",
+      ].join("\n")}
+      data={data}
+    />
+  );
+}
 
-  useEffect(() => {
-    if (!data.listing) {
-      return;
-    }
-
-    const subscription = subscribeRealtimePatches({
-      preset: discoveryRealtimeRouteTopics.publicListing(data.listing.listing_id),
-      onPatch: (patch) => {
-        setListing((current) => applyDiscoveryPublicListingPatch(current, patch));
-      },
-      onSyncRequired: reloadForRealtimeSync,
-    });
-
-    return () => subscription.close();
-  }, [data.listing?.listing_id]);
+function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof loader>> }) {
+  const listing = useRealtimePatchedSnapshot({
+    initialSnapshot: data.listing,
+    snapshotKey: JSON.stringify(data.listing),
+    topics: data.listing
+      ? discoveryRealtimeRouteTopics.publicListing(data.listing.listing_id).topics
+      : [],
+    applyPatch: applyDiscoveryPublicListingPatch,
+    onSyncRequired: reloadForRealtimeSync,
+  });
 
   if (!listing) {
     return (

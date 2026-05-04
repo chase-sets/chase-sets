@@ -1,6 +1,5 @@
 import { t } from "@chase-sets/localization";
 import {
-  useEffect,
   useState,
   type KeyboardEvent,
   type ReactNode,
@@ -370,22 +369,6 @@ export function ItemDetailPage({
     context: ItemDetailMarketplaceSectionContext,
   ) => ItemDetailCommerceSections | null;
 }) {
-  const [selections, setSelections] = useState<Record<string, string>>(() =>
-    getInitialSelections(data),
-  );
-  const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
-  const [marketIntent, setMarketIntent] = useState<"buy" | "sell">("buy");
-  const [activeMobileCommerce, setActiveMobileCommerce] = useState<
-    "buy" | "offer" | "sell" | "list" | null
-  >(null);
-
-  useEffect(() => {
-    setSelections(getInitialSelections(data));
-    setSelectedListingId(null);
-    setSelectedOfferId(null);
-  }, [data?.catalog_item_id]);
-
   if (error) {
     return <Banner tone="danger" title={t("discovery.features.itemDetail.ui.itemDetailPage.error")} description={error} />;
   }
@@ -403,6 +386,37 @@ export function ItemDetailPage({
       />
     );
   }
+
+  return (
+    <LoadedItemDetailPage
+      key={data.catalog_item_id}
+      data={data}
+      accountOfferMatches={accountOfferMatches}
+      renderCommerce={renderCommerce}
+    />
+  );
+}
+
+function LoadedItemDetailPage({
+  data,
+  accountOfferMatches,
+  renderCommerce,
+}: {
+  data: DiscoveryItemDetail;
+  accountOfferMatches: readonly DiscoveryAccountOfferMatch[];
+  renderCommerce?: (
+    context: ItemDetailMarketplaceSectionContext,
+  ) => ItemDetailCommerceSections | null;
+}) {
+  const [selections, setSelections] = useState<Record<string, string>>(() =>
+    getInitialSelections(data),
+  );
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [marketIntent, setMarketIntent] = useState<"buy" | "sell">("buy");
+  const [activeMobileCommerce, setActiveMobileCommerce] = useState<
+    "buy" | "offer" | "sell" | "list" | null
+  >(null);
 
   const images = data.image_urls.map((url, index) => ({
     src: url,

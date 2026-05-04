@@ -5,10 +5,9 @@ import type {
   MetaFunction,
 } from "react-router";
 import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
-import { useEffect, useState } from "react";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import type { ListResponse } from "@chase-sets/http/responses";
 import {
   createMarketplaceRequestApiClient,
@@ -145,43 +144,58 @@ export default function MarketplaceAccountListingsRoute() {
   const rootData = useRouteLoaderData("root") as
     | { actor?: { accountId?: string } | null }
     | undefined;
-  const [listings, setListings] = useState(data.listings as ListResponse<MarketplaceListingListItem>);
-  const [feeLockReport, setFeeLockReport] = useState(
-    data.feeLockReport as ListResponse<MarketplaceListingFeeLockReportEntry>,
+  const accountId = rootData?.actor?.accountId ?? null;
+
+  return (
+    <MarketplaceAccountListingsRealtimeView
+      key={[
+        accountId ?? "anonymous",
+        data.listings.total,
+        data.listings.items.map((item) => item.listing_id).join("|"),
+        data.feeLockReport.total,
+        data.feeLockReport.items.map((item) => item.listing_id).join("|"),
+      ].join("\n")}
+      data={data}
+      actionData={actionData}
+      accountId={accountId}
+    />
   );
+}
 
-  useEffect(() => {
-    setListings(data.listings as ListResponse<MarketplaceListingListItem>);
-    setFeeLockReport(data.feeLockReport as ListResponse<MarketplaceListingFeeLockReportEntry>);
-  }, [data.feeLockReport, data.listings]);
-
-  useEffect(() => {
-    const accountId = rootData?.actor?.accountId;
-    if (!accountId) {
-      return;
-    }
-
-    const subscription = subscribeRealtimePatches({
-      preset: marketplaceRealtimeRouteTopics.accountListings(accountId),
-      onPatch: (patch) => {
-        setListings((current) =>
-          applyMarketplaceListPatch(current, patch, {
-            entity: "marketplace.sellerListing",
-            idField: "listing_id",
-          }),
-        );
-        setFeeLockReport((current) =>
-          applyMarketplaceListPatch(current, patch, {
-            entity: "marketplace.sellerListing",
-            idField: "listing_id",
-          }),
-        );
-      },
-      onSyncRequired: reloadForRealtimeSync,
-    });
-
-    return () => subscription.close();
-  }, [rootData?.actor?.accountId]);
+function MarketplaceAccountListingsRealtimeView({
+  data,
+  actionData,
+  accountId,
+}: {
+  data: Awaited<ReturnType<typeof loader>>;
+  actionData: Exclude<Awaited<ReturnType<typeof action>>, Response> | undefined;
+  accountId: string | null;
+}) {
+  const topics = accountId
+    ? marketplaceRealtimeRouteTopics.accountListings(accountId).topics
+    : [];
+  const listings = useRealtimePatchedSnapshot<ListResponse<MarketplaceListingListItem>>({
+    initialSnapshot: data.listings as ListResponse<MarketplaceListingListItem>,
+    snapshotKey: JSON.stringify(data.listings),
+    topics,
+    applyPatch: (current, patch) =>
+      applyMarketplaceListPatch(current, patch, {
+        entity: "marketplace.sellerListing",
+        idField: "listing_id",
+      }),
+    onSyncRequired: reloadForRealtimeSync,
+  });
+  const feeLockReport = useRealtimePatchedSnapshot<ListResponse<MarketplaceListingFeeLockReportEntry>>({
+    initialSnapshot: data.feeLockReport as ListResponse<MarketplaceListingFeeLockReportEntry>,
+    snapshotKey: JSON.stringify(data.feeLockReport),
+    topics,
+    applyPatch: (current, patch) =>
+      applyMarketplaceListPatch(current, patch, {
+        entity: "marketplace.sellerListing",
+        idField: "listing_id",
+      }),
+    onSyncRequired: reloadForRealtimeSync,
+  });
 
   return (
     <MarketplaceListingListPage
