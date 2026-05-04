@@ -46,6 +46,7 @@ import {
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
+  createPaymentsApiClient,
   createPaymentsRequestApiClient,
   PaymentsApiError,
   type PaymentsPaymentDetail,
@@ -236,6 +237,12 @@ function providerEventLabel(eventKind: string) {
     default:
       return eventKind.replaceAll("-", " ");
   }
+}
+
+function createBrowserPaymentsApiClient() {
+  return createPaymentsApiClient({
+    fetch: (input, init) => globalThis.fetch(input, init),
+  });
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -514,12 +521,39 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
       return;
     }
 
+    let cancelled = false;
+    let pollInFlight = false;
+    const paymentsApi = createBrowserPaymentsApiClient();
     const interval = window.setInterval(() => {
-      void revalidator.revalidate();
+      if (pollInFlight) {
+        return;
+      }
+
+      pollInFlight = true;
+      void paymentsApi.getAccountPayment(payment.payment_id)
+        .then((latestPayment) => {
+          if (cancelled || latestPayment.status === "pending-confirmation") {
+            return;
+          }
+
+          window.clearInterval(interval);
+          void revalidator.revalidate();
+        })
+        .catch(() => {
+          if (!cancelled) {
+            void revalidator.revalidate();
+          }
+        })
+        .finally(() => {
+          pollInFlight = false;
+        });
     }, 2_000);
 
-    return () => window.clearInterval(interval);
-  }, [payment.status, revalidator]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [payment.payment_id, payment.status, revalidator]);
 
   async function handleConfirm() {
     if (!stripeRef.current || (!checkoutRef.current && !elementsRef.current)) {

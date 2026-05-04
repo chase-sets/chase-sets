@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
@@ -163,7 +163,9 @@ describe("marketplace account payment route", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
     delete (window as StripeWindow).Stripe;
     document.head.innerHTML = "";
   });
@@ -325,5 +327,104 @@ describe("marketplace account payment route", () => {
       timeout: 1000,
     });
     expect(paymentElement.mount).toHaveBeenCalled();
+  });
+
+  it("polls only the payment while Stripe confirmation is pending", async () => {
+    vi.useFakeTimers();
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const revalidate = vi.fn();
+    const fetchPayment = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(buildPayment()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({
+        create: vi.fn(() => paymentElement),
+      })),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(fetchPayment).toHaveBeenCalledTimes(1);
+    const requestedPayment = fetchPayment.mock.calls[0]?.[0];
+    const requestedPaymentUrl = requestedPayment instanceof Request
+      ? requestedPayment.url
+      : requestedPayment?.toString();
+    expect(requestedPaymentUrl).toContain("/api/marketplace/account/payments/pay_1");
+    expect(revalidate).not.toHaveBeenCalled();
+  });
+
+  it("revalidates the route once the payment is no longer pending", async () => {
+    vi.useFakeTimers();
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const revalidate = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify(buildPayment({
+          status: "captured",
+          processor_status: "succeeded",
+          captured_at: "2026-04-01T00:05:00.000Z",
+        })),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({
+        create: vi.fn(() => paymentElement),
+      })),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(revalidate).toHaveBeenCalledTimes(1);
   });
 });
