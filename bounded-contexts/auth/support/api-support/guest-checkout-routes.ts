@@ -157,9 +157,22 @@ export function registerGuestCheckoutRoutes(
 ) {
   app.post("/guest-checkout/start", async (c) => {
     const body = await c.req.json();
-    const identityMutations = createIdentityMutations(c);
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
     const displayName = normalizeDisplayName(body.displayName, email);
+    const existingUser = await services.identity.getUserByEmail(email);
+    if (existingUser) {
+      return c.json(
+        {
+          error: {
+            code: "account_sign_in_required",
+            message: "Sign in to continue checkout with this email.",
+          },
+        },
+        409,
+      );
+    }
+
+    const identityMutations = createIdentityMutations(c);
     const account = await identityMutations.createGuestAccount({
       email,
       displayName,
