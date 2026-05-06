@@ -212,7 +212,7 @@ describe("realtime SSE routes", () => {
           return { rows: [{ min_outbox_id: "2" }] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           return {
             rows: [
               {
@@ -295,7 +295,7 @@ describe("realtime SSE routes", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           return { rows: [] };
         }
 
@@ -348,7 +348,7 @@ describe("realtime SSE routes", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           return { rows: [] };
         }
 
@@ -393,7 +393,7 @@ describe("realtime SSE routes", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           return { rows: [] };
         }
 
@@ -436,7 +436,7 @@ describe("realtime SSE routes", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id")) {
           return { rows: [] };
         }
 
@@ -478,7 +478,7 @@ describe("realtime SSE routes", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           return {
             rows: [
               {
@@ -926,7 +926,7 @@ describe("realtime outbox", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           expect(params).toEqual(["4", ["item:item_1"], 100]);
           return {
             rows: [
@@ -998,7 +998,7 @@ describe("realtime outbox", () => {
           return { rows: [{ topic: "public:market", outbox_id: "4" }] };
         }
 
-        if (sql.includes("SELECT outbox_id")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id")) {
           outboxReadCount += 1;
           return { rows: [] };
         }
@@ -1029,7 +1029,7 @@ describe("realtime outbox", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           return { rows: [] };
         }
 
@@ -1114,7 +1114,7 @@ describe("realtime outbox", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           const after = Number(params?.[0] ?? 0);
           const limit = Number(params?.[2] ?? 100);
           return {
@@ -1159,7 +1159,7 @@ describe("realtime outbox", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("SELECT outbox_id, payload")) {
+        if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           outboxReadCount += 1;
           await new Promise((resolve) => setTimeout(resolve, 5));
           return { rows: [] };

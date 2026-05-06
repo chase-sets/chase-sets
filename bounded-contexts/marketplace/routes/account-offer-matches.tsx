@@ -1,9 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
-import { useEffect, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -99,35 +98,42 @@ export default function MarketplaceAccountOfferMatchesRoute() {
   const rootData = useRouteLoaderData("root") as
     | { actor?: { accountId?: string } | null }
     | undefined;
-  const [offerMatches, setOfferMatches] = useState(
-    data.offerMatches as ListResponse<OfferMatchListItem>,
+  const accountId = rootData?.actor?.accountId ?? null;
+
+  return (
+    <MarketplaceAccountOfferMatchesRealtimeView
+      key={[
+        accountId ?? "anonymous",
+        data.offerMatches.total,
+        data.offerMatches.items.map((item) => item.offer_id).join("|"),
+      ].join("\n")}
+      data={data}
+      actionData={actionData}
+      accountId={accountId}
+    />
   );
+}
 
-  useEffect(() => {
-    setOfferMatches(data.offerMatches as ListResponse<OfferMatchListItem>);
-  }, [data.offerMatches]);
-
-  useEffect(() => {
-    const accountId = rootData?.actor?.accountId;
-    if (!accountId) {
-      return;
-    }
-
-    const subscription = subscribeRealtimePatches({
-      preset: marketplaceRealtimeRouteTopics.accountOffers(accountId),
-      onPatch: (patch) => {
-        setOfferMatches((current) =>
-          applyMarketplaceListPatch(current, patch, {
-            entity: "marketplace.offerMatch",
-            idField: "offer_id",
-          }),
-        );
-      },
-      onSyncRequired: reloadForRealtimeSync,
-    });
-
-    return () => subscription.close();
-  }, [rootData?.actor?.accountId]);
+function MarketplaceAccountOfferMatchesRealtimeView({
+  data,
+  actionData,
+  accountId,
+}: {
+  data: Awaited<ReturnType<typeof loader>>;
+  actionData: Exclude<Awaited<ReturnType<typeof action>>, Response> | undefined;
+  accountId: string | null;
+}) {
+  const offerMatches = useRealtimePatchedSnapshot<ListResponse<OfferMatchListItem>>({
+    initialSnapshot: data.offerMatches as ListResponse<OfferMatchListItem>,
+    snapshotKey: JSON.stringify(data.offerMatches),
+    topics: accountId ? marketplaceRealtimeRouteTopics.accountOffers(accountId).topics : [],
+    applyPatch: (current, patch) =>
+      applyMarketplaceListPatch(current, patch, {
+        entity: "marketplace.offerMatch",
+        idField: "offer_id",
+      }),
+    onSyncRequired: reloadForRealtimeSync,
+  });
 
   return (
     <MarketplaceOfferMatchListPage

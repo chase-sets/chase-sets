@@ -1,7 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { useEffect, useState } from "react";
 import {
   BuyerProtectionModule,
   Container,
@@ -15,7 +14,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import {
   createDiscoveryRequestApiClient,
   DiscoveryApiError,
@@ -97,27 +96,29 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 
 export default function PublicSellerRoute() {
   const data = useLoaderData<typeof loader>();
-  const [seller, setSeller] = useState(data.seller);
 
-  useEffect(() => {
-    setSeller(data.seller);
-  }, [data.seller]);
+  return (
+    <PublicSellerRealtimeView
+      key={[
+        data.seller?.account_id ?? "empty",
+        data.seller?.active_listing_count ?? 0,
+        data.seller?.listings.map((listing) => listing.listing_id).join("|") ?? "",
+      ].join("\n")}
+      data={data}
+    />
+  );
+}
 
-  useEffect(() => {
-    if (!data.seller) {
-      return;
-    }
-
-    const subscription = subscribeRealtimePatches({
-      preset: discoveryRealtimeRouteTopics.publicSeller(data.seller.account_id),
-      onPatch: (patch) => {
-        setSeller((current) => applyDiscoveryPublicSellerPatch(current, patch));
-      },
-      onSyncRequired: reloadForRealtimeSync,
-    });
-
-    return () => subscription.close();
-  }, [data.seller?.account_id]);
+function PublicSellerRealtimeView({ data }: { data: Awaited<ReturnType<typeof loader>> }) {
+  const seller = useRealtimePatchedSnapshot({
+    initialSnapshot: data.seller,
+    snapshotKey: JSON.stringify(data.seller),
+    topics: data.seller
+      ? discoveryRealtimeRouteTopics.publicSeller(data.seller.account_id).topics
+      : [],
+    applyPatch: applyDiscoveryPublicSellerPatch,
+    onSyncRequired: reloadForRealtimeSync,
+  });
 
   if (!seller) {
     return (

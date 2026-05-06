@@ -1,4 +1,4 @@
-import { useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useState, type HTMLAttributes, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   BottomNav,
@@ -591,16 +591,16 @@ export function ProductCard({
   ...rest
 }: ProductCardProps) {
   const motionSettings = useChaseMotion();
-  const [resolvedImageSrc, setResolvedImageSrc] = useState(
-    () => imageSrc ?? fallbackImageSrc,
+  const [failedImageSources, setFailedImageSources] = useState<ReadonlySet<string>>(
+    () => new Set(),
   );
 
-  useEffect(() => {
-    setResolvedImageSrc(imageSrc ?? fallbackImageSrc);
-  }, [imageSrc, fallbackImageSrc]);
-
-  const showingFallbackImage =
-    Boolean(fallbackImageSrc) && resolvedImageSrc === fallbackImageSrc;
+  const resolvedImageSrc = imageSrc && !failedImageSources.has(imageSrc)
+    ? imageSrc
+    : fallbackImageSrc && !failedImageSources.has(fallbackImageSrc)
+      ? fallbackImageSrc
+      : undefined;
+  const showingFallbackImage = Boolean(fallbackImageSrc) && resolvedImageSrc === fallbackImageSrc;
   const resolvedImageFit = showingFallbackImage ? fallbackImageFit : imageFit;
   const resolvedImageAlt = showingFallbackImage
     ? fallbackImageAlt ?? imageAlt ?? ""
@@ -622,11 +622,15 @@ export function ProductCard({
                 src={resolvedImageSrc}
                 alt={resolvedImageAlt}
                 onError={() => {
-                  setResolvedImageSrc((current) =>
-                    fallbackImageSrc && current !== fallbackImageSrc
-                      ? fallbackImageSrc
-                      : undefined,
-                  );
+                  setFailedImageSources((current) => {
+                    if (current.has(resolvedImageSrc)) {
+                      return current;
+                    }
+
+                    const next = new Set(current);
+                    next.add(resolvedImageSrc);
+                    return next;
+                  });
                 }}
                 className={cx(
                   "h-full w-full",

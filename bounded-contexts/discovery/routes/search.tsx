@@ -9,7 +9,7 @@ import {
 } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
 import type { DiscoverySearchResponse } from "../support/request-support/api-client";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
@@ -120,15 +120,51 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 
 export default function DiscoverySearchRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_SEARCH_RESULT;
+
+  return (
+    <DiscoverySearchRealtimeView
+      data={data}
+    />
+  );
+}
+
+type DiscoverySearchRouteData =
+  | typeof EMPTY_SEARCH_RESULT
+  | Awaited<ReturnType<typeof loader>>;
+
+function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [draftSearch, setDraftSearch] = useState(data.search);
-  const [realtimeData, setRealtimeData] = useState<DiscoverySearchResponse | null>(data.data);
   const draftSearchRef = useRef(data.search);
   const pendingSearchRef = useRef<string | null>(null);
   const restoreSearchFocusRef = useRef(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [draftSearchState, setDraftSearchState] = useState(() => ({
+    committedSearch: data.search,
+    value: data.search,
+  }));
+  const realtimeData = useRealtimePatchedSnapshot<DiscoverySearchResponse | null>({
+    initialSnapshot: data.data,
+    snapshotKey: JSON.stringify([data.search, data.category, data.sort, data.page, data.data]),
+    topics: discoveryRealtimeRouteTopics.search().topics,
+    applyPatch: applyDiscoverySearchPatch,
+    onSyncRequired: reloadForRealtimeSync,
+  });
+  let draftSearch = draftSearchState.value;
+
+  if (
+    draftSearchState.committedSearch !== data.search &&
+    (pendingSearchRef.current === null || pendingSearchRef.current === data.search)
+  ) {
+    pendingSearchRef.current = null;
+    draftSearchRef.current = data.search;
+    draftSearch = data.search;
+    setDraftSearchState({
+      committedSearch: data.search,
+      value: data.search,
+    });
+  }
 
   const clearSearchTimer = useCallback(() => {
     if (searchTimerRef.current) {
@@ -138,30 +174,6 @@ export default function DiscoverySearchRoute() {
   }, []);
 
   useEffect(() => clearSearchTimer, [clearSearchTimer]);
-
-  useEffect(() => {
-    if (pendingSearchRef.current === null || pendingSearchRef.current === data.search) {
-      pendingSearchRef.current = null;
-      draftSearchRef.current = data.search;
-      setDraftSearch(data.search);
-    }
-  }, [data.search]);
-
-  useEffect(() => {
-    setRealtimeData(data.data);
-  }, [data.data]);
-
-  useEffect(() => {
-    const subscription = subscribeRealtimePatches({
-      preset: discoveryRealtimeRouteTopics.search(),
-      onPatch: (patch) => {
-        setRealtimeData((current) => applyDiscoverySearchPatch(current, patch));
-      },
-      onSyncRequired: reloadForRealtimeSync,
-    });
-
-    return () => subscription.close();
-  }, []);
 
   const updateSearchParams = useCallback((nextValues: {
     search?: string;
@@ -223,7 +235,7 @@ export default function DiscoverySearchRoute() {
     restoreSearchFocusRef.current = true;
     draftSearchRef.current = value;
     pendingSearchRef.current = value;
-    setDraftSearch(value);
+    setDraftSearchState((current) => ({ ...current, value }));
     clearSearchTimer();
     searchTimerRef.current = setTimeout(() => {
       updateSearchParams({ search: pendingSearchRef.current ?? "" }, true);
@@ -249,7 +261,7 @@ export default function DiscoverySearchRoute() {
       sort={data.sort}
       page={data.page}
       data={realtimeData}
-      categories={data.categories}
+      categories={[...data.categories]}
       loading={navigation.state !== "idle"}
       restoreSearchFocus={restoreSearchFocusRef.current}
       onSearchChange={handleSearchChange}

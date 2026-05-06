@@ -504,25 +504,6 @@ export function ItemDetailPage({
     context: ItemDetailMarketplaceSectionContext,
   ) => ItemDetailCommerceSections | null;
 }) {
-  const [selections, setSelections] = useState<Record<string, string>>(() =>
-    getInitialSelections(data, initialMarketIntent),
-  );
-  const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
-  const [marketIntent, setMarketIntent] = useState<"buy" | "sell">(
-    initialMarketIntent,
-  );
-  const [activeMobileCommerce, setActiveMobileCommerce] = useState<
-    "buy" | "offer" | "sell" | "list" | null
-  >(null);
-
-  useEffect(() => {
-    setSelections(getInitialSelections(data, initialMarketIntent));
-    setSelectedListingId(null);
-    setSelectedOfferId(null);
-    setMarketIntent(initialMarketIntent);
-  }, [data?.catalog_item_id, initialMarketIntent]);
-
   if (error) {
     return <Banner tone="danger" title={t("discovery.features.itemDetail.ui.itemDetailPage.error")} description={error} />;
   }
@@ -540,6 +521,53 @@ export function ItemDetailPage({
       />
     );
   }
+
+  return (
+    <LoadedItemDetailPage
+      key={data.catalog_item_id}
+      data={data}
+      accountOfferMatches={accountOfferMatches}
+      viewerAccountId={viewerAccountId}
+      initialMarketIntent={initialMarketIntent}
+      renderCommerce={renderCommerce}
+    />
+  );
+}
+
+function LoadedItemDetailPage({
+  data,
+  accountOfferMatches,
+  viewerAccountId,
+  initialMarketIntent,
+  renderCommerce,
+}: {
+  data: DiscoveryItemDetail;
+  accountOfferMatches: readonly DiscoveryAccountOfferMatch[];
+  viewerAccountId: string | null;
+  initialMarketIntent: "buy" | "sell";
+  renderCommerce?: (
+    context: ItemDetailMarketplaceSectionContext,
+  ) => ItemDetailCommerceSections | null;
+}) {
+  const [selections, setSelections] = useState<Record<string, string>>(() =>
+    getInitialSelections(data, initialMarketIntent),
+  );
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [marketIntent, setMarketIntent] = useState<"buy" | "sell">(
+    initialMarketIntent,
+  );
+  const [activeMobileCommerce, setActiveMobileCommerce] = useState<
+    "buy" | "offer" | "sell" | "list" | null
+  >(null);
+
+  useEffect(() => {
+    setSelections(getInitialSelections(data, initialMarketIntent));
+    setSelectedListingId(null);
+    setSelectedOfferId(null);
+    setMarketIntent(initialMarketIntent);
+    setActiveMobileCommerce(null);
+  }, [data.catalog_item_id, initialMarketIntent]);
 
   const images = data.image_urls.map((url, index) => ({
     src: url,
