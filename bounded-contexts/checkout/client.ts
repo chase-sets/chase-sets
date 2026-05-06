@@ -30,6 +30,13 @@ export type UpdateCheckoutCartLineQuantityRequest = Readonly<{
   quantity: number;
 }>;
 
+export type UpdateCheckoutCartLineFulfillmentRequest = Readonly<{
+  fulfillmentMode: "optimize" | "locked-listing";
+  lockedListingId?: string | null;
+  sellerPreferenceId?: string | null;
+  availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
+}>;
+
 export type CreateCartCheckoutSessionRequest = Readonly<{
   source: Readonly<{ type: "cart" }>;
   shippingOption?: string;
@@ -220,6 +227,33 @@ export function createCheckoutApiClient({
     ) {
       return parseJsonResponse(
         await client.guest.cart[":lineId"].quantity.$post({
+          param: { lineId },
+          json: body,
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-cart-id": anonymousCartId,
+          }),
+        }),
+      );
+    },
+    async updateCartLineFulfillment(
+      lineId: string,
+      body: UpdateCheckoutCartLineFulfillmentRequest,
+    ) {
+      return parseJsonResponse(
+        await client.account.cart[":lineId"].fulfillment.$post({
+          param: { lineId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async updateGuestCartLineFulfillment(
+      anonymousCartId: string,
+      lineId: string,
+      body: UpdateCheckoutCartLineFulfillmentRequest,
+    ) {
+      return parseJsonResponse(
+        await client.guest.cart[":lineId"].fulfillment.$post({
           param: { lineId },
           json: body,
           header: mergeHeaders(headers, {

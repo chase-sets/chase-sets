@@ -17,8 +17,9 @@ const MARKETPLACE_DESCRIPTION =
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
+  const canUseAccountCart = actor?.permissions.includes("orders.view") ?? false;
 
-  if (!actor) {
+  if (!actor || !canUseAccountCart) {
     return {
       cart: await api.getGuestCart(readAnonymousCartId(request)),
     };
@@ -36,13 +37,14 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
   const anonymousCartId = readAnonymousCartId(request);
+  const canManageAccountCart = actor?.permissions.includes("orders.manage") ?? false;
 
   try {
     if (intent === "update-cart-line") {
       const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
       const [primaryLineId, ...duplicateLineIds] = lineIds;
 
-      if (!actor && anonymousCartId) {
+      if ((!actor || !canManageAccountCart) && anonymousCartId) {
         await api.updateGuestCartLineQuantity(
           anonymousCartId,
           primaryLineId ?? "",
@@ -58,7 +60,7 @@ export async function action({ request }: ActionFunctionArgs) {
         return redirect("/account/cart");
       }
 
-      if (!actor) {
+      if (!actor || !canManageAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
@@ -74,18 +76,52 @@ export async function action({ request }: ActionFunctionArgs) {
     if (intent === "remove-cart-line") {
       const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
 
-      if (!actor && anonymousCartId) {
+      if ((!actor || !canManageAccountCart) && anonymousCartId) {
         await Promise.all(
           lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)),
         );
         return redirect("/account/cart");
       }
 
-      if (!actor) {
+      if (!actor || !canManageAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
       await Promise.all(lineIds.map((lineId) => api.removeCartLine(lineId)));
+      return redirect("/account/cart");
+    }
+
+    if (intent === "unlock-cart-line") {
+      const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
+
+      if ((!actor || !canManageAccountCart) && anonymousCartId) {
+        await Promise.all(
+          lineIds.map((lineId) =>
+            api.updateGuestCartLineFulfillment(anonymousCartId, lineId, {
+              fulfillmentMode: "optimize",
+              lockedListingId: null,
+              sellerPreferenceId: null,
+              availabilityState: "available",
+            }),
+          ),
+        );
+        return redirect("/account/cart");
+      }
+
+      if (!actor || !canManageAccountCart) {
+        throw new Error(t("checkout.routes.accountCart.request.failed"));
+      }
+
+      await Promise.all(
+        lineIds.map((lineId) =>
+          api.updateCartLineFulfillment(lineId, {
+            fulfillmentMode: "optimize",
+            lockedListingId: null,
+            sellerPreferenceId: null,
+            availabilityState: "available",
+          }),
+        ),
+      );
       return redirect("/account/cart");
     }
 

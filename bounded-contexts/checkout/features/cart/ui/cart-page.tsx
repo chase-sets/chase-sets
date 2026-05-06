@@ -186,6 +186,15 @@ export function CheckoutCartPage({
                           {line.availability_state === "available" ? "Estimated at checkout" : "Needs supply"}
                         </Badge>
                       </Inline>
+                      {line.fulfillment_mode === "optimize" ? (
+                        <Text size="sm" tone="secondary">
+                          Lock a preferred seller from seller options on the item detail page.
+                        </Text>
+                      ) : (
+                        <Text size="sm" tone="secondary">
+                          Unlock to let checkout re-optimize this product intent.
+                        </Text>
+                      )}
                     </Stack>
                   }
                   quantityControl={
@@ -202,6 +211,28 @@ export function CheckoutCartPage({
                       <Button type="submit" size="md" tone="secondary" leadingIcon="check" block>
                         {t("checkout.features.cart.ui.cartPage.update")}
                       </Button>
+                      {line.fulfillment_mode === "locked-listing" ? (
+                        <Button
+                          type="submit"
+                          size="md"
+                          name="intent"
+                          value="unlock-cart-line"
+                          tone="secondary"
+                          leadingIcon="lock"
+                          block
+                        >
+                          Unlock seller
+                        </Button>
+                      ) : (
+                        <LinkButton
+                          href="/search"
+                          tone="secondary"
+                          size="md"
+                          block
+                        >
+                          Seller options
+                        </LinkButton>
+                      )}
                       <Button
                           type="submit"
                           size="md"

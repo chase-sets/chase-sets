@@ -86,6 +86,33 @@ export function buildCheckoutCartProjectionHandlers(
         [data.lineId, data.quantity, event.timing.recordedAt],
       );
     },
+    "checkout.cart.line-fulfillment-set": async (event) => {
+      const data = event.data as {
+        lineId: string;
+        fulfillmentMode: string;
+        lockedListingId: string | null;
+        sellerPreferenceId: string | null;
+        availabilityState: string;
+      };
+
+      await db.query(
+        `UPDATE checkout_cart_line_pages
+         SET fulfillment_mode = $2,
+             locked_listing_id = $3,
+             seller_preference_id = $4,
+             availability_state = $5,
+             updated_at = $6
+         WHERE line_id = $1`,
+        [
+          data.lineId,
+          data.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
+          data.lockedListingId,
+          data.sellerPreferenceId,
+          data.availabilityState,
+          event.timing.recordedAt,
+        ],
+      );
+    },
     "checkout.cart.line-removed": async (event) => {
       const data = event.data as { lineId: string };
 

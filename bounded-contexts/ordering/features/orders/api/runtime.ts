@@ -140,6 +140,7 @@ type DemandPlan = Readonly<{
 
 type SellerOrderDraft = Readonly<{
   sellerAccountId: string;
+  sellerDisplayName: string | null;
   sourceType: OrderSourceType;
   sourceReferenceId: string | null;
   shippingOption: ShippingOption;
@@ -196,6 +197,7 @@ export type CheckoutFulfillmentPreview = Readonly<{
   unavailableLineKeys: readonly string[];
   sellerGroups: readonly Readonly<{
     sellerAccountId: string;
+    sellerDisplayName: string | null;
     itemSubtotalAmount: string;
     shippingChargeAmount: string;
     salesTaxAmount: string;
@@ -498,6 +500,7 @@ function quotePlan(
     {
       lines: Array<SellerOrderDraft["lines"][number]>;
       reservations: Array<SellerOrderDraft["reservations"][number]>;
+      sellerDisplayName: string | null;
       subtotal: number;
       listingIds: Set<string>;
       quantity: number;
@@ -511,6 +514,7 @@ function quotePlan(
         {
           lines: [],
           reservations: [],
+          sellerDisplayName: allocation.candidate.sellerDisplayName,
           subtotal: 0,
           listingIds: new Set<string>(),
           quantity: 0,
@@ -559,6 +563,8 @@ function quotePlan(
         inventoryItemId: allocation.candidate.inventoryItemId,
         quantity: allocation.quantity,
       });
+      sellerDraft.sellerDisplayName =
+        sellerDraft.sellerDisplayName ?? allocation.candidate.sellerDisplayName;
       sellerDraft.subtotal += moneyToNumber(lineTotalAmount);
       sellerDraft.listingIds.add(allocation.candidate.listingId);
       sellerDraft.quantity += allocation.quantity;
@@ -591,6 +597,7 @@ function quotePlan(
 
     orderDrafts.push({
       sellerAccountId,
+      sellerDisplayName: draft.sellerDisplayName,
       sourceType,
       sourceReferenceId,
       shippingOption,
@@ -818,6 +825,7 @@ function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) 
       .map((group) =>
         [
           group.sellerAccountId,
+          group.sellerDisplayName ?? "",
           group.totalAmount,
           group.lines
             .map((line) =>
@@ -858,6 +866,7 @@ function planToPreview(params: Readonly<{
     .filter((key) => !params.unavailableLines.some((line) => line.lineKey === key));
   const sellerGroups = params.plan.orderDrafts.map((draft) => ({
     sellerAccountId: draft.sellerAccountId,
+    sellerDisplayName: draft.sellerDisplayName,
     itemSubtotalAmount: draft.itemSubtotalAmount,
     shippingChargeAmount: draft.shippingChargeAmount,
     salesTaxAmount: draft.salesTaxAmount,

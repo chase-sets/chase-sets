@@ -75,6 +75,17 @@ export type CheckoutCartServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ lineId: CartLineId; version: number }>;
+  setLineFulfillment: (
+    params: Readonly<{
+      accountId: AccountId;
+      lineId: CartLineId;
+      fulfillmentMode: "optimize" | "locked-listing";
+      lockedListingId?: string | null;
+      sellerPreferenceId?: string | null;
+      availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ lineId: CartLineId; version: number }>;
   removeLine: (
     params: Readonly<{
       accountId: AccountId;
@@ -218,6 +229,22 @@ export function createCheckoutCartRuntime(
           type: "SetCartLineQuantity",
           lineId: params.lineId,
           quantity: params.quantity,
+        },
+        context,
+      });
+
+      return { lineId: params.lineId, version: result.version };
+    },
+    setLineFulfillment: async (params, context) => {
+      const result = await commandHandler({
+        streamId: `checkout.cart-${params.accountId}`,
+        command: {
+          type: "SetCartLineFulfillment",
+          lineId: params.lineId,
+          fulfillmentMode: params.fulfillmentMode,
+          lockedListingId: params.lockedListingId,
+          sellerPreferenceId: params.sellerPreferenceId,
+          availabilityState: params.availabilityState,
         },
         context,
       });

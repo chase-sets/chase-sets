@@ -67,6 +67,15 @@ export type SetCartLineQuantityCommand = Readonly<{
   quantity: number;
 }>;
 
+export type SetCartLineFulfillmentCommand = Readonly<{
+  type: "SetCartLineFulfillment";
+  lineId: CartLineId;
+  fulfillmentMode: "optimize" | "locked-listing";
+  lockedListingId?: string | null;
+  sellerPreferenceId?: string | null;
+  availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
+}>;
+
 export type RemoveCartLineCommand = Readonly<{
   type: "RemoveCartLine";
   lineId: CartLineId;
@@ -80,6 +89,7 @@ export type ClearCartCommand = Readonly<{
 export type CheckoutCartCommand =
   | AddCartLineCommand
   | SetCartLineQuantityCommand
+  | SetCartLineFulfillmentCommand
   | RemoveCartLineCommand
   | ClearCartCommand;
 
@@ -111,6 +121,17 @@ export type CartLineQuantitySetEvent = DomainEvent<
   }>
 >;
 
+export type CartLineFulfillmentSetEvent = DomainEvent<
+  "checkout.cart.line-fulfillment-set",
+  Readonly<{
+    lineId: CartLineId;
+    fulfillmentMode: "optimize" | "locked-listing";
+    lockedListingId: string | null;
+    sellerPreferenceId: string | null;
+    availabilityState: "available" | "unavailable" | "changed" | "waiting-for-supply";
+  }>
+>;
+
 export type CartLineRemovedEvent = DomainEvent<
   "checkout.cart.line-removed",
   Readonly<{
@@ -129,6 +150,7 @@ export type CartCheckedOutEvent = DomainEvent<
 export type CheckoutCartEvent =
   | CartLineAddedEvent
   | CartLineQuantitySetEvent
+  | CartLineFulfillmentSetEvent
   | CartLineRemovedEvent
   | CartCheckedOutEvent;
 
@@ -225,6 +247,30 @@ export const decideCheckoutCart: AggregateDecider<
           },
         },
       ];
+    case "SetCartLineFulfillment": {
+      requireCartLine(state, command.lineId);
+      const lockedListingId = normalizeOptionalText(command.lockedListingId);
+      const fulfillmentMode = normalizeFulfillmentMode(
+        command.fulfillmentMode,
+        lockedListingId,
+      );
+      assert(
+        fulfillmentMode === "optimize" || Boolean(lockedListingId),
+        "Locked cart lines must reference a listing.",
+      );
+      return [
+        {
+          type: "checkout.cart.line-fulfillment-set",
+          data: {
+            lineId: command.lineId,
+            fulfillmentMode,
+            lockedListingId: fulfillmentMode === "locked-listing" ? lockedListingId : null,
+            sellerPreferenceId: normalizeOptionalText(command.sellerPreferenceId),
+            availabilityState: normalizeAvailabilityState(command.availabilityState),
+          },
+        },
+      ];
+    }
     case "RemoveCartLine":
       requireCartLine(state, command.lineId);
       return [
@@ -292,6 +338,21 @@ export const evolveCheckoutCart: AggregateEvolver<
         lines: state.lines.map((line) =>
           line.lineId === event.data.lineId
             ? { ...line, quantity: event.data.quantity }
+            : line,
+        ),
+      };
+    case "checkout.cart.line-fulfillment-set":
+      return {
+        ...state,
+        lines: state.lines.map((line) =>
+          line.lineId === event.data.lineId
+            ? {
+                ...line,
+                fulfillmentMode: event.data.fulfillmentMode,
+                lockedListingId: event.data.lockedListingId,
+                sellerPreferenceId: event.data.sellerPreferenceId,
+                availabilityState: event.data.availabilityState,
+              }
             : line,
         ),
       };

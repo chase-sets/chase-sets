@@ -455,7 +455,9 @@ export function CheckoutPurchaseIntentSection({
     ? formatMoneyAmount(selectedListing.price_amount)
     : t("discovery.routes.itemDetail.unavailable");
   const selectedListingSeller =
-    selectedListing?.seller_display_name ?? t("discovery.routes.itemDetail.seller");
+    selectedListing
+      ? selectedListing.seller_display_name ?? t("discovery.routes.itemDetail.seller")
+      : "No active seller";
   const selectedListingAvailability = selectedListing
     ? t("discovery.routes.itemDetail.quantity.available.count", {
         count: selectedListingQuantity,
@@ -466,6 +468,11 @@ export function CheckoutPurchaseIntentSection({
     : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
+  const productIntentGuidance = productId
+    ? visibleListingCount === 0
+      ? "This saves product demand. Checkout can continue only when active supply appears, and you can make an offer meanwhile."
+      : "Buy optimized lets checkout pick fulfillment. Buy locked to this seller keeps the selected seller as a hard constraint."
+    : "Choose every required product option before buying, saving demand, or making an offer.";
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {
       notifyCartCountChanged(addToCartFetcher.data.quantity);
@@ -487,10 +494,12 @@ export function CheckoutPurchaseIntentSection({
         type="submit"
         name="intent"
         value="buy-now"
+        tone={productId ? "primary" : "secondary"}
         disabled={!productId}
         block
       >
-        {t("discovery.routes.itemDetail.buy.now")}</Button>
+        Buy optimized
+      </Button>
       <Button
         type="submit"
         name="intent"
@@ -499,7 +508,7 @@ export function CheckoutPurchaseIntentSection({
         disabled={!productId || !selectedListing}
         block
       >
-        Buy this seller
+        Buy locked to this seller
       </Button>
       <Button
         type="button"
@@ -512,7 +521,7 @@ export function CheckoutPurchaseIntentSection({
       >
         {addToCartPending
           ? t("discovery.routes.itemDetail.adding.to.cart")
-          : t("discovery.routes.itemDetail.add.to.cart")}</Button>
+          : "Add product to cart"}</Button>
     </>
   );
   const form = (
@@ -544,17 +553,17 @@ export function CheckoutPurchaseIntentSection({
         />
         {showSummary ? (
           <Stack gap={2}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.buy.selected.product")}</Text>
+            <Text weight="semibold">Selected product intent</Text>
             <KeyValueList
               density="compact"
               variant="plain"
               items={[
                 {
-                  key: t("discovery.routes.itemDetail.price"),
+                  key: selectedListing ? "Selected seller signal" : "Market signal",
                   value: selectedListingPrice,
                 },
                 {
-                  key: t("discovery.routes.itemDetail.seller"),
+                  key: selectedListing ? "Selected seller" : "Seller options",
                   value: selectedListingSeller,
                 },
                 {
@@ -582,7 +591,7 @@ export function CheckoutPurchaseIntentSection({
                 {t("discovery.routes.itemDetail.add.to.cart.saves.buyer.intent")}</Text>
             ) : null}
             <Text size="sm" tone="secondary">
-              Buy now optimizes fulfillment at checkout. Use Buy this seller to lock the selected seller listing.
+              {productIntentGuidance}
             </Text>
             <Inline gap={2}>
               <BuyerProtectionBadge label={t("discovery.routes.itemDetail.buyer.protection.included")} />

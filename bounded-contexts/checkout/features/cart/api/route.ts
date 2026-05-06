@@ -188,6 +188,42 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     }
   });
 
+  app.post("/cart/:lineId/fulfillment", async (c) => {
+    const access = requireCartAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing.2") } }, 401);
+    }
+
+    const body = await c.req.json();
+    const fulfillment = parseFulfillmentMode(body);
+
+    try {
+      const result = await services.setLineFulfillment(
+        {
+          accountId: access.actor.accountId as never,
+          lineId: c.req.param("lineId") as never,
+          availabilityState:
+            body.availabilityState === "unavailable" ||
+            body.availabilityState === "changed" ||
+            body.availabilityState === "waiting-for-supply"
+              ? body.availabilityState
+              : "available",
+          ...fulfillment,
+        },
+        context,
+      );
+
+      return c.json({ id: result.lineId, version: result.version, status: "fulfillment-updated" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/cart/:lineId/remove", async (c) => {
     const access = requireCartAccess(c, "orders.manage");
     if (access.response) {
@@ -302,6 +338,38 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
       );
 
       return c.json({ id: result.lineId, version: result.version, status: "quantity-updated" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/cart/:lineId/fulfillment", async (c) => {
+    const ownerId = requireAnonymousCartId(c);
+    if (!ownerId) {
+      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+    }
+
+    const context = c.get("context") ?? createGuestCheckoutContext();
+    const body = await c.req.json();
+    const fulfillment = parseFulfillmentMode(body);
+
+    try {
+      const result = await services.setLineFulfillment(
+        {
+          accountId: ownerId as never,
+          lineId: c.req.param("lineId") as never,
+          availabilityState:
+            body.availabilityState === "unavailable" ||
+            body.availabilityState === "changed" ||
+            body.availabilityState === "waiting-for-supply"
+              ? body.availabilityState
+              : "available",
+          ...fulfillment,
+        },
+        context,
+      );
+
+      return c.json({ id: result.lineId, version: result.version, status: "fulfillment-updated" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

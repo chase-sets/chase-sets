@@ -323,9 +323,9 @@ describe("item detail commerce panel", () => {
     const buyDrawer = screen.getByRole("dialog", { name: "Buy selected product" });
     expect(within(buyDrawer).getByRole("spinbutton", { name: /Quantity/ }))
       .toBeTruthy();
-    expect(within(buyDrawer).getByRole("button", { name: "Buy now" }))
+    expect(within(buyDrawer).getByRole("button", { name: "Buy optimized" }))
       .not.toHaveProperty("disabled", true);
-    expect(within(buyDrawer).getByRole("button", { name: "Add to cart" }))
+    expect(within(buyDrawer).getByRole("button", { name: "Add product to cart" }))
       .not.toHaveProperty("disabled", true);
     expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
   });
@@ -726,11 +726,12 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add to cart" })).toBeTruthy();
-    expect(screen.getByText("Price")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Buy optimized" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Buy locked to this seller" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add product to cart" })).toBeTruthy();
+    expect(screen.getByText("Selected seller signal")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
-    expect(screen.getByText("Seller")).toBeTruthy();
+    expect(screen.getByText("Selected seller")).toBeTruthy();
     expect(screen.getByText("Chase Sets")).toBeTruthy();
     expect(screen.getByText("Availability")).toBeTruthy();
     expect(screen.getByText("2 available")).toBeTruthy();

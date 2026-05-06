@@ -10,6 +10,7 @@ type VersionSelectedOptionEntry = Readonly<{
 type OrderingSupplyCandidateRow = Readonly<{
   listing_id: string;
   seller_account_id: string;
+  seller_display_name: string | null;
   inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
@@ -61,6 +62,7 @@ export async function listOrderingSupplyCandidates(
     `SELECT
        listing.listing_id,
        listing.seller_account_id,
+       seller.display_name AS seller_display_name,
        listing.inventory_item_id,
        listing.catalog_catalog_item_id,
        listing.product_id,
@@ -88,6 +90,8 @@ export async function listOrderingSupplyCandidates(
      FROM ordering_market_listing_inputs AS listing
      INNER JOIN ordering_inventory_item_inputs AS item
        ON item.item_id = listing.inventory_item_id
+     LEFT JOIN ordering_account_pages AS seller
+       ON seller.account_id = listing.seller_account_id
      LEFT JOIN (
        SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM ordering_inventory_hold_inputs
@@ -109,6 +113,7 @@ export async function listOrderingSupplyCandidates(
     .map((row) => ({
       listingId: row.listing_id,
       sellerAccountId: row.seller_account_id as AccountId,
+      sellerDisplayName: normalizeOptionalText(row.seller_display_name),
       inventoryItemId: row.inventory_item_id,
       catalogItemId: row.catalog_catalog_item_id,
       productId: row.product_id,
@@ -141,6 +146,7 @@ export async function getOrderingSupplyCandidateByListingId(
     `SELECT
        listing.listing_id,
        listing.seller_account_id,
+       seller.display_name AS seller_display_name,
        listing.inventory_item_id,
        listing.catalog_catalog_item_id,
        listing.product_id,
@@ -168,6 +174,8 @@ export async function getOrderingSupplyCandidateByListingId(
      FROM ordering_market_listing_inputs AS listing
      INNER JOIN ordering_inventory_item_inputs AS item
        ON item.item_id = listing.inventory_item_id
+     LEFT JOIN ordering_account_pages AS seller
+       ON seller.account_id = listing.seller_account_id
      LEFT JOIN (
        SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM ordering_inventory_hold_inputs
@@ -188,6 +196,7 @@ export async function getOrderingSupplyCandidateByListingId(
   return {
     listingId: row.listing_id,
     sellerAccountId: row.seller_account_id as AccountId,
+    sellerDisplayName: normalizeOptionalText(row.seller_display_name),
     inventoryItemId: row.inventory_item_id,
     catalogItemId: row.catalog_catalog_item_id,
     productId: row.product_id,

@@ -76,6 +76,7 @@ export type CheckoutFulfillmentPreview = Readonly<{
   unavailableLineKeys: readonly string[];
   sellerGroups: readonly Readonly<{
     sellerAccountId: string;
+    sellerDisplayName: string | null;
     itemSubtotalAmount: string;
     shippingChargeAmount: string;
     salesTaxAmount: string;
