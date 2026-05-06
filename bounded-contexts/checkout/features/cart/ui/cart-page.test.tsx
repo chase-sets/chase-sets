@@ -18,6 +18,22 @@ const cartLine: CheckoutCartLine = {
   locked_listing_id: null,
   seller_preference_id: null,
   availability_state: "available",
+  seller_options: [
+    {
+      listing_id: "lst_card_vault",
+      seller_display_name: "Card Vault",
+      price_amount: "389.00",
+      available_quantity: 2,
+      product_summary: "Form: Raw | Condition: Near Mint",
+    },
+    {
+      listing_id: "lst_hobby_shop",
+      seller_display_name: "Hobby Shop",
+      price_amount: "395.00",
+      available_quantity: 1,
+      product_summary: "Form: Raw | Condition: Near Mint",
+    },
+  ],
   created_at: "2026-04-28T00:00:00.000Z",
   updated_at: "2026-04-28T00:00:00.000Z",
 };
@@ -31,6 +47,9 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Cart status");
     expect(markup).toContain("Shipping credit grows with same-seller cards");
     expect(markup).toContain("Listings earn 5% of item value toward shipping");
+    expect(markup).toContain("Seller option");
+    expect(markup).toContain("Card Vault - $389.00 - 2 available");
+    expect(markup).toContain("Lock seller");
     expect(markup).toContain("Start checkout");
     expect(markup).not.toContain("Estimated total");
     expect(markup).not.toContain(">Pending<");
@@ -61,5 +80,32 @@ describe("checkout cart page", () => {
     expect(markup).toContain('name="lineId" value="cart_line_2"');
     expect(markup).not.toContain("Catalog item:");
     expect(markup).not.toContain("cat_charizard");
+  });
+
+  it("shows locked, optimized, and unavailable recovery controls together", () => {
+    const lockedLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_locked",
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_card_vault",
+    };
+    const unavailableLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_unavailable",
+      product_id: "cat_charizard::condition:played",
+      product_summary: "Form: Raw | Condition: Played",
+      availability_state: "waiting-for-supply",
+      seller_options: [],
+    };
+
+    const markup = renderToString(
+      <CheckoutCartPage cartLines={[cartLine, lockedLine, unavailableLine]} />,
+    );
+
+    expect(markup).toContain("Optimized at checkout");
+    expect(markup).toContain("Locked to seller - not reserved yet");
+    expect(markup).toContain("Unlock seller");
+    expect(markup).toContain("Waiting for supply");
+    expect(markup).toContain("Make offer");
   });
 });

@@ -36,6 +36,10 @@ function sellerGroupLabel(group: CheckoutFulfillmentPreview["sellerGroups"][numb
   return group.sellerDisplayName?.trim() || "Marketplace seller";
 }
 
+function marketRecoveryHref(itemTitle: string) {
+  return `/search?q=${encodeURIComponent(itemTitle)}`;
+}
+
 export function CheckoutSessionPage({
   session,
   wallet,
@@ -238,7 +242,7 @@ export function CheckoutSessionPage({
                               </Stack>
                               <Text>{line.reason}</Text>
                               <LinkButton
-                                href={`/items/${line.catalogItemId}#make-offer`}
+                                href={marketRecoveryHref(line.itemTitle)}
                                 tone="secondary"
                                 size="sm"
                               >

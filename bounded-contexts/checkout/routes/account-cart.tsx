@@ -125,6 +125,44 @@ export async function action({ request }: ActionFunctionArgs) {
       return redirect("/account/cart");
     }
 
+    if (intent === "lock-cart-line") {
+      const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
+      const lockedListingId = String(formData.get("lockedListingId") ?? "").trim();
+      if (!lockedListingId) {
+        throw new Error("Choose a seller option before locking fulfillment.");
+      }
+
+      if ((!actor || !canManageAccountCart) && anonymousCartId) {
+        await Promise.all(
+          lineIds.map((lineId) =>
+            api.updateGuestCartLineFulfillment(anonymousCartId, lineId, {
+              fulfillmentMode: "locked-listing",
+              lockedListingId,
+              sellerPreferenceId: null,
+              availabilityState: "available",
+            }),
+          ),
+        );
+        return redirect("/account/cart");
+      }
+
+      if (!actor || !canManageAccountCart) {
+        throw new Error(t("checkout.routes.accountCart.request.failed"));
+      }
+
+      await Promise.all(
+        lineIds.map((lineId) =>
+          api.updateCartLineFulfillment(lineId, {
+            fulfillmentMode: "locked-listing",
+            lockedListingId,
+            sellerPreferenceId: null,
+            availabilityState: "available",
+          }),
+        ),
+      );
+      return redirect("/account/cart");
+    }
+
     return null;
   } catch (error) {
     return {

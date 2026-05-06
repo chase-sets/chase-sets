@@ -13,6 +13,13 @@ export interface CheckoutCartLine {
   locked_listing_id: string | null;
   seller_preference_id: string | null;
   availability_state: "available" | "unavailable" | "changed" | "waiting-for-supply";
+  seller_options: readonly {
+    listing_id: string;
+    seller_display_name: string | null;
+    price_amount: string;
+    available_quantity: number;
+    product_summary: string | null;
+  }[];
   created_at: string;
   updated_at: string;
 }

@@ -125,6 +125,12 @@ function notifyCartCountChanged(quantity: number) {
   );
 }
 
+function canUseAccountCheckoutCart(
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+) {
+  return Boolean(actor?.permissions.includes("orders.manage"));
+}
+
 function formatAllowancePercentage(bps: number) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
@@ -358,6 +364,7 @@ function MarketplaceOfferSubmissionSection({
 function MarketplaceOfferRegistrationSection({
   panelVariant = "card",
   showSummary = panelVariant === "card",
+  isAuthenticated,
   productId,
   itemTitle,
   productSelectionDetails = [],
@@ -367,6 +374,7 @@ function MarketplaceOfferRegistrationSection({
 }: {
   panelVariant?: FormPanelVariant;
   showSummary?: boolean;
+  isAuthenticated: boolean;
   productId: string | null;
   itemTitle: string;
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
@@ -379,14 +387,22 @@ function MarketplaceOfferRegistrationSection({
       <Stack gap={3}>
         {showSummary ? (
           <Stack gap={2}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.make.offer.after.sign.in")}</Text>
+            <Text weight="semibold">
+              {isAuthenticated
+                ? "Make offer unavailable"
+                : t("discovery.routes.itemDetail.make.offer.after.sign.in")}
+            </Text>
             <ProductSelectionSummary
               selections={productSelectionDetails}
               summary={productSummary ?? itemTitle}
               summaryAsChip={productSelectionDetails.length === 0}
             />
             <Text size="sm" tone="secondary">
-              {productId
+              {productId && isAuthenticated
+                ? `${visibleListingCount} ${
+                    visibleListingCount === 1 ? "listing matches" : "listings match"
+                  } this product. Product-wide offers become available once buyer access is enabled.`
+                : productId
                 ? t("discovery.routes.itemDetail.offer.registration.context", {
                     count: visibleListingCount,
                     listingLabel: t(
@@ -400,10 +416,14 @@ function MarketplaceOfferRegistrationSection({
           </Stack>
         ) : null}
         <Text size="sm" tone="secondary">
-          {t("discovery.routes.itemDetail.offer.requires.account")}
+          {isAuthenticated
+            ? "This account cannot submit product-wide offers yet."
+            : t("discovery.routes.itemDetail.offer.requires.account")}
         </Text>
         <LinkButton href={registerHref} tone="secondary" block>
-          {t("discovery.routes.itemDetail.sign.in.or.register.to.make.offer")}
+          {isAuthenticated
+            ? "Complete account setup to make offer"
+            : t("discovery.routes.itemDetail.sign.in.or.register.to.make.offer")}
         </LinkButton>
       </Stack>
     </FormPanel>
@@ -1385,7 +1405,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         lockedListingId: null,
       };
 
-      if (!actor) {
+      if (!canUseAccountCheckoutCart(actor)) {
         const anonymousCartId = ensureAnonymousCartId(request);
         await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
         const response = Response.json({
@@ -1427,7 +1447,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         lockedListingId: lockedListingId || null,
       } as const;
 
-      if (!actor) {
+      if (!canUseAccountCheckoutCart(actor)) {
         const query = new URLSearchParams({
           source: "buy-now",
           listingId: source.listingId,
@@ -1656,6 +1676,7 @@ function DiscoveryItemDetailRealtimeView({
                   <MarketplaceOfferRegistrationSection
                     panelVariant={panelVariant}
                     showSummary={showSummary}
+                    isAuthenticated={Boolean(data.viewerAccountId)}
                     productId={context.selectedProductId}
                     itemTitle={context.itemTitle}
                     productSelectionDetails={context.selectedProductSelectionDetails}

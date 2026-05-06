@@ -9,6 +9,7 @@ import {
   LinkButton,
   MarketplaceCartLineItem,
   MarketplaceEmptyState,
+  NativeSelect,
   NumberInput,
   Page,
   PageHeader,
@@ -59,6 +60,7 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
       ...existing,
       quantity: existing.quantity + line.quantity,
       lineIds: [...existing.lineIds, line.line_id],
+      seller_options: mergeSellerOptions(existing.seller_options, line.seller_options),
       updated_at:
         new Date(line.updated_at).getTime() > new Date(existing.updated_at).getTime()
           ? line.updated_at
@@ -70,6 +72,20 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
     (left, right) =>
       new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime() ||
       left.line_id.localeCompare(right.line_id),
+  );
+}
+
+function mergeSellerOptions(
+  left: CheckoutCartLine["seller_options"],
+  right: CheckoutCartLine["seller_options"],
+) {
+  return [
+    ...new Map(
+      [...left, ...right].map((option) => [option.listing_id, option] as const),
+    ).values(),
+  ].sort((a, b) =>
+    Number(a.price_amount) - Number(b.price_amount) ||
+    a.listing_id.localeCompare(b.listing_id),
   );
 }
 
@@ -96,6 +112,15 @@ function productSelectionDetails(summary: string | null) {
     .filter((part): part is { label: string; value: string } => part !== null);
 
   return labeledParts.length === parts.length ? labeledParts : [];
+}
+
+function sellerOptionLabel(option: CheckoutCartLine["seller_options"][number]) {
+  const seller = option.seller_display_name?.trim() || "Marketplace seller";
+  return `${seller} - $${option.price_amount} - ${option.available_quantity} available`;
+}
+
+function marketRecoveryHref(itemTitle: string) {
+  return `/search?q=${encodeURIComponent(itemTitle)}`;
 }
 
 function fulfillmentLabel(line: CheckoutCartLine) {
@@ -188,7 +213,7 @@ export function CheckoutCartPage({
                       </Inline>
                       {line.fulfillment_mode === "optimize" ? (
                         <Text size="sm" tone="secondary">
-                          Lock a preferred seller from seller options on the item detail page.
+                          Lock a preferred seller here or let checkout optimize fulfillment.
                         </Text>
                       ) : (
                         <Text size="sm" tone="secondary">
@@ -223,19 +248,36 @@ export function CheckoutCartPage({
                         >
                           Unlock seller
                         </Button>
-                      ) : (
-                        <LinkButton
-                          href="/search"
-                          tone="secondary"
-                          size="md"
-                          block
-                        >
-                          Seller options
-                        </LinkButton>
-                      )}
+                      ) : line.seller_options.length > 0 ? (
+                        <>
+                          <NativeSelect
+                            label="Seller option"
+                            name="lockedListingId"
+                            defaultValue=""
+                            items={[
+                              { value: "", label: "Let checkout optimize" },
+                              ...line.seller_options.map((option) => ({
+                                value: option.listing_id,
+                                label: sellerOptionLabel(option),
+                              })),
+                            ]}
+                          />
+                          <Button
+                            type="submit"
+                            size="md"
+                            name="intent"
+                            value="lock-cart-line"
+                            tone="secondary"
+                            leadingIcon="lock"
+                            block
+                          >
+                            Lock seller
+                          </Button>
+                        </>
+                      ) : null}
                       <Button
-                          type="submit"
-                          size="md"
+                        type="submit"
+                        size="md"
                         name="intent"
                         value="remove-cart-line"
                         tone="danger"
@@ -246,7 +288,7 @@ export function CheckoutCartPage({
                       </Button>
                       {line.availability_state !== "available" ? (
                         <LinkButton
-                          href={`/items/${line.catalog_catalog_item_id}#make-offer`}
+                          href={marketRecoveryHref(line.item_title)}
                           tone="secondary"
                           size="md"
                           block

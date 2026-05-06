@@ -37,6 +37,7 @@ function createServices(): CheckoutCartServices {
   return {
     addLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 1 })),
     setLineQuantity: vi.fn(async () => ({ lineId: "cli_1" as never, version: 2 })),
+    setLineFulfillment: vi.fn(async () => ({ lineId: "cli_1" as never, version: 4 })),
     removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 3 })),
     listCartLines: vi.fn(async () => []),
     mergeCartIntoAccount: vi.fn(async () => ({ movedLineCount: 0 })),
@@ -211,6 +212,44 @@ describe("checkout cart routes", () => {
           performedByUserId: "usr_guest_checkout",
         }),
       }),
+    );
+  });
+
+  it("locks an account cart line to a selected seller listing", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart/cli_1/fulfillment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "lst_card_vault",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.setLineFulfillment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        lineId: "cli_1",
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_card_vault",
+      }),
+      expect.anything(),
     );
   });
 });

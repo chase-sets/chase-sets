@@ -351,4 +351,107 @@ describe("item detail buy now action", () => {
       quantity: 2,
     });
   });
+
+  it("falls back to the anonymous cart when a resolved actor cannot manage checkout orders", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller_only",
+      permissions: ["listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addCartLine: mockAddCartLine,
+      addGuestCartLine: mockAddGuestCartLine.mockResolvedValue({ id: "cli_1" }),
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "add-to-cart");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set(
+      "selectedOptions",
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    form.set("productSummary", "Raw");
+    form.set("quantity", "1");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockAddGuestCartLine).toHaveBeenCalledWith(
+      "anon_cart_1",
+      expect.objectContaining({
+        productId: "cat_charizard::form:raw",
+        fulfillmentMode: "optimize",
+        quantity: 1,
+      }),
+    );
+    expect(mockAddCartLine).not.toHaveBeenCalled();
+    expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(
+      response.headers,
+      "anon_cart_1",
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("routes buy now through guest checkout when the actor cannot manage checkout orders", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller_only",
+      permissions: ["listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+      addCartLine: mockAddCartLine,
+      addGuestCartLine: mockAddGuestCartLine,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "buy-now");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set(
+      "selectedOptions",
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    form.set("productSummary", "Raw");
+    form.set("quantity", "1");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    const location = response.headers.get("Location") ?? "";
+    const redirectUrl = new URL(location, "http://localhost");
+
+    expect(response.status).toBe(302);
+    expect(redirectUrl.pathname).toBe("/checkout/start");
+    expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("optimize");
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
 });

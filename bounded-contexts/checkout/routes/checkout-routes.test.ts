@@ -10,6 +10,7 @@ const {
   mockConfirmCheckoutSession,
   mockStartGuestCheckout,
   mockMergeGuestCartToAccount,
+  mockGetCart,
   mockGetGuestCart,
 } = vi.hoisted(() => ({
   mockRequireActorFromAuthApi: vi.fn(),
@@ -21,6 +22,7 @@ const {
   mockConfirmCheckoutSession: vi.fn(),
   mockStartGuestCheckout: vi.fn(),
   mockMergeGuestCartToAccount: vi.fn(),
+  mockGetCart: vi.fn(),
   mockGetGuestCart: vi.fn(),
 }));
 
@@ -60,6 +62,7 @@ import {
   action as checkoutSessionAction,
   loader as checkoutSessionLoader,
 } from "./checkout-session";
+import { loader as accountCartLoader } from "./account-cart";
 
 describe("checkout web routes", () => {
   afterEach(() => {
@@ -133,6 +136,27 @@ describe("checkout web routes", () => {
       cartCount: 2,
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
     });
+  });
+
+  it("falls back to the anonymous cart when guest checkout returns to cart", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCart: mockGetCart,
+      getGuestCart: mockGetGuestCart,
+    });
+
+    const result = await accountCartLoader({
+      request: new Request("http://localhost/account/cart", {
+        headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({ cart: { items: [], count: 0 } });
+    expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
+    expect(mockGetCart).not.toHaveBeenCalled();
   });
 
   it("preserves buy-now checkout intent in the sign-in return target", async () => {
