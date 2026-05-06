@@ -2,8 +2,11 @@ import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
+  SpecificationList,
   Stack,
   Text,
+  UiInline,
+  UiSurface,
   type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
@@ -187,7 +190,7 @@ export function PayoutReadinessPanel({
 
   return (
     <Stack gap={4}>
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+      <Stack gap={3}>
         <Stack gap={2}>
           <Badge tone={readinessTone(payoutReadiness.status)}>
             {readinessLabel(payoutReadiness.status)}
@@ -202,14 +205,11 @@ export function PayoutReadinessPanel({
         <Text size="sm" tone="secondary">
           {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.last.checked")}{checkedAtLabel(payoutReadiness.updated_at)}
         </Text>
-      </div>
+      </Stack>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Stack gap={3}>
         {progress.steps.map((step) => (
-          <div
-            key={step.id}
-            className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
-          >
+          <UiSurface key={step.id}>
             <Stack gap={1}>
               <Badge tone={progressTone(step.status)}>
                 {progressLabel(step.status)}
@@ -217,24 +217,30 @@ export function PayoutReadinessPanel({
               <Text size="sm" weight="semibold">{step.label}</Text>
               <Text size="sm" tone="secondary">{step.detail}</Text>
             </Stack>
-          </div>
+          </UiSurface>
         ))}
-      </div>
+      </Stack>
 
-      <div className="grid gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3 sm:grid-cols-2">
-        <Text size="sm" tone="secondary">
-          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.onboarding")}{setupStatusLabel(payoutReadiness.onboarding_status)}
-        </Text>
-        <Text size="sm" tone="secondary">
-          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers")}{setupStatusLabel(payoutReadiness.transfer_capability_status)}
-        </Text>
-        <Text size="sm" tone="secondary">
-          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts")}{setupStatusLabel(payoutReadiness.payout_capability_status)}
-        </Text>
-        <Text size="sm" tone="secondary">
-          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.destination")}{setupStatusLabel(payoutReadiness.payout_destination_status)}
-        </Text>
-      </div>
+      <SpecificationList
+        specs={[
+          {
+            label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.onboarding"),
+            value: setupStatusLabel(payoutReadiness.onboarding_status),
+          },
+          {
+            label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers"),
+            value: setupStatusLabel(payoutReadiness.transfer_capability_status),
+          },
+          {
+            label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts"),
+            value: setupStatusLabel(payoutReadiness.payout_capability_status),
+          },
+          {
+            label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.destination"),
+            value: setupStatusLabel(payoutReadiness.payout_destination_status),
+          },
+        ]}
+      />
 
       {missingRequirementGroups.length > 0 ? (
         <Stack gap={1}>
@@ -252,7 +258,7 @@ export function PayoutReadinessPanel({
         </Text>
       ) : null}
       {showActions ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <UiInline>
           {payoutReadiness.status === "ready" ? null : (
             <form method="post">
               <input type="hidden" name="intent" value="start-payout-setup" />
@@ -271,7 +277,7 @@ export function PayoutReadinessPanel({
             <Button type="submit" tone="secondary">
               {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status")}</Button>
           </form>
-        </div>
+        </UiInline>
       ) : null}
     </Stack>
   );

@@ -315,7 +315,6 @@ function MarketplaceOfferSubmissionSection({
               <ProductSelectionSummary
                 selections={productSelectionDetails}
                 summary={productSummary ?? itemTitle}
-                className="justify-start"
               />
             ) : (
               <Text size="sm" tone="secondary">
@@ -385,7 +384,6 @@ function MarketplaceOfferRegistrationSection({
               selections={productSelectionDetails}
               summary={productSummary ?? itemTitle}
               summaryAsChip={productSelectionDetails.length === 0}
-              className="justify-start"
             />
             <Text size="sm" tone="secondary">
               {productId
@@ -1089,7 +1087,6 @@ function MarketplaceListingSubmissionSection({
               <ProductSelectionSummary
                 selections={productSelectionDetails}
                 summary={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.list.matching.inventory")}
-                className="justify-start"
               />
             ) : (
               <Text size="sm" tone="secondary">

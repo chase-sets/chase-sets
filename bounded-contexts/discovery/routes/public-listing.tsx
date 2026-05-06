@@ -205,7 +205,6 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
             selections={productDetails}
             summary={listing.product_summary ?? t("discovery.routes.publicListing.standard")}
             summaryAsChip
-            className="justify-start"
           />
           <Text tone="secondary">
             {formatMoney(listing.price_amount)} from{" "}

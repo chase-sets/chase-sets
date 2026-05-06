@@ -2,10 +2,11 @@ import { t } from "@chase-sets/localization";
 import {
   MarketplaceDashboardPanel,
   PlatformCredibilityCue,
+  SpecificationList,
+  Stack,
   UiPage,
   UiPageHeader,
   UiPageSection,
-  UiSurface,
 } from "@chase-sets/design-system";
 import type { Account } from "./contracts";
 
@@ -53,35 +54,28 @@ export function AccountProfilePage({ account }: { account: Account }) {
         title={t("identity.features.accounts.ui.accountProfilePage.trust.details")}
         description={t("identity.features.accounts.ui.accountProfilePage.trust.details.description")}
       >
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <UiSurface>
-            <dl className="grid gap-3">
-              {[
-                {
-                  label: t("identity.features.accounts.ui.accountProfilePage.legal.name"),
-                  value: account.name,
-                },
-                {
-                  label: t("identity.features.accounts.ui.accountProfilePage.marketplace.name"),
-                  value: account.display_name,
-                },
-                {
-                  label: t("identity.features.accounts.ui.accountProfilePage.status"),
-                  value: formatAccountValue(account.status),
-                },
-              ].map((item) => (
-                <div key={item.label} className="grid gap-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                  <dt className="text-xs font-semibold uppercase text-[var(--muted-foreground)]">{item.label}</dt>
-                  <dd className="m-0 text-sm font-semibold text-[var(--foreground)]">{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </UiSurface>
+        <Stack>
+          <SpecificationList
+            specs={[
+              {
+                label: t("identity.features.accounts.ui.accountProfilePage.legal.name"),
+                value: account.name,
+              },
+              {
+                label: t("identity.features.accounts.ui.accountProfilePage.marketplace.name"),
+                value: account.display_name,
+              },
+              {
+                label: t("identity.features.accounts.ui.accountProfilePage.status"),
+                value: formatAccountValue(account.status),
+              },
+            ]}
+          />
           <PlatformCredibilityCue
             title={t("identity.features.accounts.ui.accountProfilePage.platform.protection.active")}
             description={t("identity.features.accounts.ui.accountProfilePage.platform.protection.active.description")}
           />
-        </div>
+        </Stack>
       </UiPageSection>
     </UiPage>
   );

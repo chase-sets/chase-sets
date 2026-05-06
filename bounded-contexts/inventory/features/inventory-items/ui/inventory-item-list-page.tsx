@@ -280,7 +280,6 @@ export function InventoryItemListPage({
                           selections={productSelectionDetailsFromSummary(row.product_summary)}
                           summary={row.product_summary}
                           summaryAsChip
-                          className="justify-start"
                         />
                       ) : null}
                     </Stack>

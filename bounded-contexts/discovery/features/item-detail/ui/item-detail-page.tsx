@@ -859,7 +859,6 @@ function LoadedItemDetailPage({
       <ProductSelectionSummary
         selections={explicitSelectedProductSelectionDetails}
         summary={explicitSelectedProductSummary}
-        className="justify-start"
       />
     ) : marketIntent === "sell"
         ? explicitSelectedProductSummary ??
@@ -1047,7 +1046,6 @@ function LoadedItemDetailPage({
               selections={explicitSelectedProductSelectionDetails}
               summary={currentOptionSummary}
               summaryAsChip
-              className="justify-start"
             />
           </Stack>
         </Stack>
@@ -1096,7 +1094,6 @@ function LoadedItemDetailPage({
                     src: discoveryAssetUrls.defaultProductImage,
                     alt: t("discovery.features.itemDetail.ui.itemDetailPage.pokemon.card.back"),
                   }}
-                  maxHeightClassName="[--gallery-max-height:34rem]"
                   emptyState={
                     <Stack gap={3} align="center">
                       <Surface tone="muted" padding={4}>
@@ -1237,7 +1234,6 @@ function LoadedItemDetailPage({
                                   <ProductSelectionSummary
                                     selections={getProductSelectionDetails(listing.selected_options)}
                                     summary={listing.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard")}
-                                    className="justify-start"
                                   />
                                 </Stack>
                               </Grid>
@@ -1366,7 +1362,6 @@ function LoadedItemDetailPage({
                                   <ProductSelectionSummary
                                     selections={getProductSelectionDetails(offer.selected_options)}
                                     summary={offer.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard.2")}
-                                    className="justify-start"
                                   />
                                 </Stack>
                                 <Stack gap={1}>

@@ -53,6 +53,41 @@ function searchData(search = "") {
   };
 }
 
+function searchDataWithResults(search = "") {
+  const data = searchData(search);
+
+  return {
+    ...data,
+    data: {
+      items: [
+        {
+          catalog_item_id: "cat_pikachu",
+          slug: "pikachu",
+          title: "Pikachu",
+          subtitle: "Jungle 60/64 Common",
+          description: "A catalog item for route behavior tests.",
+          blueprint_id: "bp_card",
+          blueprint_name: "Pokemon Card Single",
+          status: "active",
+          category_names: ["Cards"],
+          category_slugs: ["cards"],
+          tags: ["pikachu"],
+          image_urls: [],
+          market_summary: {
+            lowest_price_amount: "12.00",
+            active_listing_count: 2,
+            total_visible_quantity: 3,
+          },
+          updated_at: "2026-05-01T00:00:00.000Z",
+        },
+      ],
+      total: 1,
+      count: 1,
+      nextCursor: null,
+    },
+  };
+}
+
 describe("marketplace search route", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -161,7 +196,7 @@ describe("marketplace search route", () => {
 
   it("navigates category changes without forcing a document reload", () => {
     const navigate = vi.fn();
-    mockUseLoaderData.mockReturnValue(searchData("pikachu"));
+    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
     mockUseNavigate.mockReturnValue(navigate);
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&page=3"), vi.fn()]);

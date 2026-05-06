@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   DataTable,
+  Inline,
   LinkButton,
   MarketplaceDashboardPanel,
   MarketplaceNotice,
@@ -131,7 +132,6 @@ function ProductSummaryChips({ summary }: { summary: string }) {
       selections={productSelectionDetailsFromSummary(summary)}
       summary={summary}
       summaryAsChip
-      className="justify-start"
     />
   );
 }
@@ -264,7 +264,7 @@ export function MarketplaceListingListPage({
                 required
                 disabled={!hasInventory}
               />
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <Inline>
                 <Button
                   type="submit"
                   name="intent"
@@ -288,7 +288,7 @@ export function MarketplaceListingListPage({
                   disabled={!hasInventory}
                 >
                   {t("marketplace.features.listings.ui.listingListPage.save.as.draft")}</Button>
-              </div>
+              </Inline>
             </Stack>
           </form>
         </Card>

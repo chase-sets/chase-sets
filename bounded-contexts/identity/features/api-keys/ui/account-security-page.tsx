@@ -5,10 +5,11 @@ import {
   MarketplaceDashboardPanel,
   PlatformCredibilityCue,
   SecurePaymentCue,
+  SpecificationList,
+  Stack,
   UiPage,
   UiPageHeader,
   UiPageSection,
-  UiSurface,
 } from "@chase-sets/design-system";
 
 export function SecurityPage({
@@ -62,35 +63,27 @@ export function SecurityPage({
         title={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals")}
         description={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals.description")}
       >
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <UiSurface>
-            <div className="grid gap-3">
-              <SecurePaymentCue label={t("identity.features.apiKeys.ui.accountSecurityPage.sign.in.methods.verified")} />
-              <dl className="grid gap-3">
-                <div className="grid gap-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                  <dt className="text-xs font-semibold uppercase text-[var(--muted-foreground)]">
-                    {t("identity.features.apiKeys.ui.accountSecurityPage.enabled.methods")}
-                  </dt>
-                  <dd className="m-0 text-sm font-semibold text-[var(--foreground)]">{enabledMethods}</dd>
-                </div>
-                <div className="grid gap-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                  <dt className="text-xs font-semibold uppercase text-[var(--muted-foreground)]">
-                    {t("identity.features.apiKeys.ui.accountSecurityPage.api.keys")}
-                  </dt>
-                  <dd className="m-0 text-sm font-semibold text-[var(--foreground)]">
-                    {apiKeys.length > 0
-                      ? apiKeys.map((key) => `${key.name} (${key.status})`).join(", ")
-                      : t("identity.features.apiKeys.ui.accountSecurityPage.no.api.keys.yet")}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          </UiSurface>
+        <Stack>
+          <SecurePaymentCue label={t("identity.features.apiKeys.ui.accountSecurityPage.sign.in.methods.verified")} />
+          <SpecificationList
+            specs={[
+              {
+                label: t("identity.features.apiKeys.ui.accountSecurityPage.enabled.methods"),
+                value: enabledMethods,
+              },
+              {
+                label: t("identity.features.apiKeys.ui.accountSecurityPage.api.keys"),
+                value: apiKeys.length > 0
+                  ? apiKeys.map((key) => `${key.name} (${key.status})`).join(", ")
+                  : t("identity.features.apiKeys.ui.accountSecurityPage.no.api.keys.yet"),
+              },
+            ]}
+          />
           <PlatformCredibilityCue
             title={t("identity.features.apiKeys.ui.accountSecurityPage.checkout.safety")}
             description={t("identity.features.apiKeys.ui.accountSecurityPage.checkout.safety.description")}
           />
-        </div>
+        </Stack>
       </UiPageSection>
     </UiPage>
   );

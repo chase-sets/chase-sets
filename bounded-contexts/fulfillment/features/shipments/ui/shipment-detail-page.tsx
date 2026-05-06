@@ -39,7 +39,6 @@ function ProductSummaryChips({ summary }: { summary: string }) {
       selections={productSelectionDetailsFromSummary(summary)}
       summary={summary}
       summaryAsChip
-      className="justify-start"
     />
   );
 }

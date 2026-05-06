@@ -152,7 +152,6 @@ export function CheckoutCartPage({
                       selections={productSelectionDetails(line.product_summary)}
                       summary={line.product_summary ?? t("checkout.features.cart.ui.cartPage.standard")}
                       summaryAsChip
-                      className="justify-start"
                     />
                   }
                   quantityControl={
@@ -167,10 +166,7 @@ export function CheckoutCartPage({
                   actions={
                     <>
                       <Button type="submit" size="md" tone="secondary" leadingIcon="check" block>
-                        <span className="sm:hidden">{t("checkout.features.cart.ui.cartPage.update")}</span>
-                        <span className="hidden sm:inline">
-                          {t("checkout.features.cart.ui.cartPage.update.quantity")}
-                        </span>
+                        {t("checkout.features.cart.ui.cartPage.update")}
                       </Button>
                       <Button
                           type="submit"
