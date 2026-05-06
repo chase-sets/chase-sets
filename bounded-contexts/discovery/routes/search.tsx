@@ -64,7 +64,7 @@ function buildCategoryPath(categorySlug: string, current: URLSearchParams) {
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  const search = url.searchParams.get("search") ?? "";
+  const search = url.searchParams.get("q") ?? url.searchParams.get("search") ?? "";
   const categoryParam = params.categorySlug ?? url.searchParams.get("category") ?? "";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
@@ -185,8 +185,10 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       const current = new URLSearchParams(searchParams);
       const search = pendingSearchRef.current ?? draftSearchRef.current;
       if (search) {
-        current.set("search", search);
+        current.set("q", search);
+        current.delete("search");
       } else {
+        current.delete("q");
         current.delete("search");
       }
       current.delete("page");
@@ -199,8 +201,10 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
 
       if (nextValues.search !== undefined) {
         if (nextValues.search) {
-          next.set("search", nextValues.search);
+          next.set("q", nextValues.search);
+          next.delete("search");
         } else {
+          next.delete("q");
           next.delete("search");
         }
         next.delete("page");

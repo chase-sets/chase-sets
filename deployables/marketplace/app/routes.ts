@@ -41,5 +41,6 @@ export default [
   layout("routes/layout.tsx", [
     index("routes/index.tsx"),
     ...layoutContextRoutes,
+    route("*", "routes/not-found.tsx"),
   ]),
 ] satisfies RouteConfig;

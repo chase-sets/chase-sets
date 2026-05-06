@@ -1,13 +1,18 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
-  Banner,
   Button,
+  BuyerProtectionModule,
   Card,
+  ListingCard,
   LinkButton,
+  MarketplaceNotice,
+  MarketplaceStatusTimeline,
   Page,
   PageHeader,
   PageSection,
+  PriceBreakdown,
+  SpecificationList,
   Stack,
   Text,
   TextInput,
@@ -42,7 +47,7 @@ function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
     t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.summary", {
       percentage: formatAllowancePercentage(preview.shipping_allowance_percentage_bps),
     }),
-  ].join(" | ");
+  ].join(". ");
 }
 
 function formatTimestamp(value: string | null) {
@@ -62,6 +67,18 @@ function feeHistoryLabel(eventType: string) {
     default:
       return eventType;
   }
+}
+
+function termsLabel(terms: Pick<MarketplaceListingTermsPreview, "agreement_id" | "schedule_id">) {
+  if (terms.agreement_id) {
+    return "Seller terms";
+  }
+
+  if (terms.schedule_id) {
+    return "Standard seller terms";
+  }
+
+  return t("marketplace.features.listings.ui.listingDetailPage.default.fallback.unavailable");
 }
 
 function statusTone(status: string) {
@@ -103,57 +120,135 @@ export function MarketplaceListingDetailPage({
       />
 
       {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
+        <MarketplaceNotice tone="error" title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")} description={errorMessage} />
       ) : null}
 
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}>
-        <Card>
-          <Stack gap={2}>
-            <Banner
-              title={t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit")}
-              description={t("marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping", {
-                percentage: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
-              })}
-            />
-            {listing.item_subtitle ? (
-              <Text tone="secondary">{listing.item_subtitle}</Text>
-            ) : null}
-            {listing.product_summary ? (
-              <Text size="sm" tone="secondary">
-                {listing.product_summary}
-              </Text>
-            ) : null}
-            <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.price")}{formatMoney(listing.price_amount)}</Text>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(listing.marketplace_sales_fee_unit_amount)}</Text>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(listing.seller_net_unit_amount)}</Text>
-            <Text>
-              {t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate")}
-              {formatAllowancePercentage(listing.shipping_allowance_percentage_bps)}
-            </Text>
-            <Text>
-              {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{listing.terms_schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.default.fallback.unavailable")}
-            </Text>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.agreement.override")}{listing.terms_agreement_id ?? t("marketplace.features.listings.ui.listingDetailPage.none")}</Text>
-            <Text>
-              {t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at")}{" "}
-              {listing.terms_resolved_at
-                ? new Date(listing.terms_resolved_at).toLocaleString()
-                : t("marketplace.features.listings.ui.listingDetailPage.not.set.2")}
-            </Text>
-            <Text>{t("marketplace.features.listings.ui.listingDetailPage.quantity.cap")}{listing.quantity_cap}</Text>
-            <Text>
-              {t("marketplace.features.listings.ui.listingDetailPage.inventory")}{listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location")}{" "}
-              {listing.ship_from_code
-                ? t("marketplace.features.listings.ui.listingDetailPage.ship.from.code", {
-                    shipFromCode: listing.ship_from_code,
-                  })
-                : ""}
-            </Text>
-          </Stack>
-        </Card>
+        <Stack gap={4}>
+          <ListingCard
+            title={listing.item_title ?? listing.catalog_catalog_item_id}
+            showMediaPlaceholder={false}
+            price={formatMoney(listing.price_amount)}
+            priceDetail={renderPreviewSummary({
+              account_type: "personal",
+              basis_amount: listing.price_amount,
+              fee_quote_fingerprint: listing.fee_quote_fingerprint,
+              marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount ?? "0.00",
+              seller_net_unit_amount: listing.seller_net_unit_amount ?? "0.00",
+              shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
+              schedule_id: listing.terms_schedule_id,
+              agreement_id: listing.terms_agreement_id,
+              resolved_at: listing.terms_resolved_at ?? new Date().toISOString(),
+            })}
+            sellerName={t("marketplace.features.listings.ui.listingDetailPage.seller")}
+            sellerTrustLabel={
+              listing.status === "active"
+                ? t("marketplace.features.listings.ui.listingDetailPage.verified.seller")
+                : t("marketplace.features.listings.ui.listingDetailPage.seller.details.visible")
+            }
+            sellerVerified={listing.status === "active"}
+            fulfillment={listing.ship_from_code
+              ? t("marketplace.features.listings.ui.listingDetailPage.ship.from.code", {
+                  shipFromCode: listing.ship_from_code,
+                })
+              : t("marketplace.features.listings.ui.listingDetailPage.unknown.location")}
+            availability={listing.status}
+            condition={listing.product_summary ?? t("marketplace.features.listings.ui.listingDetailPage.not.set")}
+            valueCue={listing.item_subtitle ?? t("marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps")}
+            protection={t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit")}
+            primaryAction={
+              <LinkButton href="#update-listing" size="sm">
+                {t("marketplace.features.listings.ui.listingDetailPage.update.listing")}
+              </LinkButton>
+            }
+            secondaryAction={
+              <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
+            }
+          />
+
+          <PriceBreakdown
+            lines={[
+              {
+                label: t("marketplace.features.listings.ui.listingDetailPage.price"),
+                value: formatMoney(listing.price_amount),
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee"),
+                value: formatOptionalMoney(listing.marketplace_sales_fee_unit_amount),
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
+                value: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingDetailPage.quantity.cap"),
+                value: listing.quantity_cap,
+              },
+            ]}
+            total={formatOptionalMoney(listing.seller_net_unit_amount)}
+            totalLabel={t("marketplace.features.listings.ui.listingDetailPage.seller.net")}
+          />
+
+          <BuyerProtectionModule
+            title={t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit")}
+            items={[
+              {
+                title: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit"),
+                description: t("marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping", {
+                  percentage: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+                }),
+              },
+              {
+                title: t("marketplace.features.listings.ui.listingDetailPage.inventory"),
+                description: listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location"),
+              },
+              {
+                title: t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at"),
+                description: listing.terms_resolved_at
+                  ? new Date(listing.terms_resolved_at).toLocaleString()
+                  : t("marketplace.features.listings.ui.listingDetailPage.not.set.2"),
+              },
+            ]}
+          />
+
+          <SpecificationList
+            title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}
+            specs={[
+              {
+                label: t("marketplace.features.listings.ui.listingDetailPage.terms.schedule"),
+                value: termsLabel({
+                  agreement_id: listing.terms_agreement_id,
+                  schedule_id: listing.terms_schedule_id,
+                }),
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingDetailPage.agreement.override"),
+                value: listing.terms_agreement_id
+                  ? t("marketplace.features.listings.ui.listingDetailPage.seller.terms.override")
+                  : t("marketplace.features.listings.ui.listingDetailPage.none"),
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingDetailPage.inventory"),
+                value: `${listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location")} ${listing.ship_from_code ?? ""}`.trim(),
+              },
+            ]}
+          />
+
+          <MarketplaceStatusTimeline
+            steps={[
+              {
+                label: listing.status,
+                description: t("marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps"),
+                status: listing.status === "active" ? "complete" : "current",
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingDetailPage.fee.lock.history"),
+                description: t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at") + " " + formatTimestamp(listing.terms_resolved_at),
+                status: listing.terms_resolved_at ? "complete" : "upcoming",
+              },
+            ]}
+          />
+        </Stack>
       </PageSection>
 
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.fee.lock.history")}>
@@ -184,21 +279,14 @@ export function MarketplaceListingDetailPage({
                     {t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(entry.seller_net_unit_amount)}
                   </Text>
                   <Text size="sm" tone="secondary">
-                    {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{entry.terms_schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.default.fallback.unavailable")}
-                  </Text>
-                  <Text size="sm" tone="secondary">
-                    {t("marketplace.features.listings.ui.listingDetailPage.agreement.override")}{entry.terms_agreement_id ?? t("marketplace.features.listings.ui.listingDetailPage.none")}
+                    {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{termsLabel({
+                      agreement_id: entry.terms_agreement_id,
+                      schedule_id: entry.terms_schedule_id,
+                    })}
                   </Text>
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at")} {formatTimestamp(entry.terms_resolved_at)}
                   </Text>
-                  {entry.performed_by_user_id ? (
-                    <Text size="sm" tone="secondary">
-                      {t("marketplace.features.listings.ui.listingDetailPage.fee.history.changed.by", {
-                        userId: entry.performed_by_user_id,
-                      })}
-                    </Text>
-                  ) : null}
                 </Stack>
               ))
             ) : (
@@ -210,7 +298,7 @@ export function MarketplaceListingDetailPage({
         </Card>
       </PageSection>
 
-      <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")}>
+      <PageSection id="update-listing" title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")}>
         <Stack gap={4}>
           <Card>
             <form method="post">
@@ -248,10 +336,7 @@ export function MarketplaceListingDetailPage({
                   {t("marketplace.features.listings.ui.listingDetailPage.basis.amount")}{formatMoney(pricePreview.basis_amount)}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule.2")}{pricePreview.schedule_id ?? t("marketplace.features.listings.ui.listingDetailPage.no.schedule.available")}
-                </Text>
-                <Text size="sm" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.agreement.override.2")}{pricePreview.agreement_id ?? t("marketplace.features.listings.ui.listingDetailPage.none.2")}
+                  {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule.2")}{termsLabel(pricePreview)}
                 </Text>
               </Stack>
             ) : null}

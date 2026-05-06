@@ -17,6 +17,7 @@ export type AddCheckoutCartLineRequest = Readonly<{
   productId: string;
   itemTitle: string;
   itemSubtitle?: string | null;
+  itemImageUrl?: string | null;
   selectedOptions: readonly CheckoutSelectedOptionInput[];
   productSummary?: string | null;
   quantity: number;

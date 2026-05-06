@@ -1,15 +1,15 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
-  EmptyState,
   Grid,
   LinkButton,
+  MarketplaceDashboardPanel,
+  MarketplaceEmptyState,
   Page,
   PageHeader,
   PageSection,
+  PlatformCredibilityCue,
   Stack,
-  Stat,
-  StatGrid,
   Surface,
   Text,
 } from "@chase-sets/design-system";
@@ -28,6 +28,10 @@ function statusTone(status: string) {
     default:
       return "accent";
   }
+}
+
+function orderLabel(title: string) {
+  return title.toLowerCase().includes("sale") ? "Sale" : "Purchase";
 }
 
 export function OrderingOrderListPage({
@@ -56,26 +60,40 @@ export function OrderingOrderListPage({
         description={t("ordering.features.orders.ui.orderListPage.review.pending.commercial.commitments.created.by")}
       />
 
-      <StatGrid columns={{ base: 1, md: 3 }}>
-        <Stat label={title} value={orders.length} />
-        <Stat label={t("ordering.features.orders.ui.orderListPage.items")} value={totalQuantity} />
-        <Stat label={t("ordering.features.orders.ui.orderListPage.pending")} value={pendingCount} />
-      </StatGrid>
+      <MarketplaceDashboardPanel
+        title={title}
+        description={t("ordering.features.orders.ui.orderListPage.review.pending.commercial.commitments.created.by")}
+        metrics={[
+          { label: title, value: orders.length },
+          { label: t("ordering.features.orders.ui.orderListPage.items"), value: totalQuantity },
+          { label: t("ordering.features.orders.ui.orderListPage.pending"), value: pendingCount },
+        ]}
+      />
 
       <PageSection title={title}>
         <Grid columns={{ base: 1, xl: 2 }} gap={3}>
           {orders.length === 0 ? (
-            <EmptyState
+            <MarketplaceEmptyState
               title={emptyTitle}
               description={emptyDescription}
-              icon="cart"
+              trustCue={
+                <PlatformCredibilityCue
+                  title={t("ordering.features.orders.ui.orderListPage.empty.orders.protection.title")}
+                  description={t("ordering.features.orders.ui.orderListPage.empty.orders.protection.description")}
+                />
+              }
+              recoveryActions={
+                <LinkButton href="/" tone="secondary">
+                  {t("ordering.features.orders.ui.orderListPage.browse.marketplace")}
+                </LinkButton>
+              }
             />
           ) : (
             orders.map((order) => (
               <Surface key={order.order_id} elevated>
                 <Stack gap={3}>
                   <Stack gap={1}>
-                    <Text weight="semibold">{t("ordering.features.orders.ui.orderListPage.order")}{order.order_id}</Text>
+                    <Text weight="semibold">{orderLabel(title)}</Text>
                     <Badge tone={statusTone(order.status)}>{order.status}</Badge>
                   </Stack>
                   <Grid columns={{ base: 1, sm: 3 }} gap={3}>

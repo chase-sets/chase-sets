@@ -3,18 +3,21 @@ import {
   Badge,
   Banner,
   Button,
+  BuyerProtectionModule,
   CheckoutLayout,
-  CheckoutTrustPanel,
   Divider,
-  EmptyState,
   Grid,
   LinkButton,
+  MarketplaceEmptyState,
+  MarketplaceNotice,
   NativeSelect,
-  OrderSummary,
   Page,
   PageHeader,
   PageSection,
+  PriceBreakdown,
+  SecurePaymentIndicator,
   Stack,
+  StickyCtaBar,
   Surface,
   Text,
   TextInput,
@@ -43,8 +46,7 @@ export function CheckoutSessionPage({
   const hasPayment = Boolean(session.payment_id);
   const summary = (
     <Stack gap={4}>
-      <OrderSummary
-        title={t("checkout.features.sessions.ui.checkoutPage.checkout.summary")}
+      <PriceBreakdown
         lines={[
           { label: t("checkout.features.sessions.ui.checkoutPage.items"), value: lineCount },
           { label: t("checkout.features.sessions.ui.checkoutPage.lines"), value: lines.length },
@@ -66,21 +68,19 @@ export function CheckoutSessionPage({
         ]}
         total={hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
         totalLabel={t("checkout.features.sessions.ui.checkoutPage.checkout.status")}
+        reassurance={<SecurePaymentIndicator label={t("checkout.features.sessions.ui.checkoutPage.secure.payment")} />}
       />
-      <CheckoutTrustPanel
+      <BuyerProtectionModule
         items={[
           {
-            icon: "shield",
             title: t("checkout.features.sessions.ui.checkoutPage.buyer.protection"),
             description: t("checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment"),
           },
           {
-            icon: "lock",
             title: t("checkout.features.sessions.ui.checkoutPage.secure.payment"),
             description: t("checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are"),
           },
           {
-            icon: "truck",
             title: t("checkout.features.sessions.ui.checkoutPage.fulfillment.ready"),
             description: t("checkout.features.sessions.ui.checkoutPage.shipping.preference.is.captured.before.order"),
           },
@@ -102,11 +102,10 @@ export function CheckoutSessionPage({
       />
 
       {lines.length === 0 ? (
-        <EmptyState
+        <MarketplaceEmptyState
           title={t("checkout.features.sessions.ui.checkoutPage.your.cart.is.empty")}
           description={t("checkout.features.sessions.ui.checkoutPage.add.a.product.before.starting.checkout")}
-          icon="cart"
-          actions={<LinkButton href="/search">{t("checkout.features.sessions.ui.checkoutPage.browse.marketplace")}</LinkButton>}
+          recoveryActions={<LinkButton href="/search">{t("checkout.features.sessions.ui.checkoutPage.browse.marketplace")}</LinkButton>}
         />
       ) : (
         <CheckoutLayout summary={summary}>
@@ -171,9 +170,14 @@ export function CheckoutSessionPage({
                 description={t("checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax")}
               >
                 <Surface elevated glow>
-                  <form method="post">
+                  <form id="checkout-confirmation-form" method="post">
                     <Stack gap={3}>
                       <input type="hidden" name="intent" value="confirm-checkout" />
+                      <MarketplaceNotice
+                        tone="info"
+                        title={t("checkout.features.sessions.ui.checkoutPage.transparent.totals")}
+                        description={t("checkout.features.sessions.ui.checkoutPage.transparent.totals.description")}
+                      />
                       <Grid columns={{ base: 1, md: 2 }} gap={3}>
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.recipient.name")}
@@ -266,6 +270,32 @@ export function CheckoutSessionPage({
                 </Surface>
               </PageSection>
             )}
+            <StickyCtaBar
+              price={hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
+              context={t("checkout.features.sessions.ui.checkoutPage.final.totals.before.payment")}
+              primaryAction={
+                hasPayment && session.payment_id ? (
+                  <LinkButton href={`/account/payments/${session.payment_id}`}>
+                    {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
+                  </LinkButton>
+                ) : (
+                  <Button
+                    type="submit"
+                    form="checkout-confirmation-form"
+                    leadingIcon="lock"
+                    disabled={isSubmitting}
+                    loading={isSubmitting}
+                  >
+                    {isSubmitting ? t("checkout.features.sessions.ui.checkoutPage.creating.purchases") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}
+                  </Button>
+                )
+              }
+              secondaryAction={
+                <LinkButton href="/account/cart" tone="secondary">
+                  {t("checkout.features.sessions.ui.checkoutPage.back.to.cart")}
+                </LinkButton>
+              }
+            />
           </Stack>
         </CheckoutLayout>
       )}

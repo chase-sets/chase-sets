@@ -5,6 +5,8 @@ import {
   DataTable,
   Grid,
   LinkButton,
+  MarketplaceDashboardPanel,
+  MarketplaceNotice,
   Page,
   PageHeader,
   PageSection,
@@ -142,6 +144,35 @@ export function SettlementWalletPage({
         }
       />
 
+      <MarketplaceDashboardPanel
+        title={t("settlement.features.wallets.ui.walletPage.balance")}
+        description={t("settlement.features.wallets.ui.walletPage.track.your.pending.and.available.balances")}
+        metrics={[
+          {
+            label: t("settlement.features.wallets.ui.walletPage.available"),
+            value: formatMoney(wallet.available_balance_amount, wallet.currency_code),
+            detail: t("settlement.features.wallets.ui.walletPage.funds.ready.for.platform.purchases.and"),
+          },
+          {
+            label: t("settlement.features.wallets.ui.walletPage.pending.2"),
+            value: formatMoney(wallet.pending_balance_amount, wallet.currency_code),
+            detail: t("settlement.features.wallets.ui.walletPage.hold.days.before.they.become.available", {
+              count: sellerFundsHoldPolicy.holdDays,
+            }),
+          },
+          {
+            label: t("settlement.features.wallets.ui.walletPage.payout.availability"),
+            value: payoutAvailability.label,
+            detail: payoutAvailability.detail,
+          },
+        ]}
+        action={
+          <LinkButton href="/account/payouts" tone="secondary" size="sm">
+            {t("settlement.features.wallets.ui.walletPage.view.payouts")}
+          </LinkButton>
+        }
+      />
+
       <PageSection title={t("settlement.features.wallets.ui.walletPage.balance")}>
         <Grid columns={{ base: 1, md: 2 }} gap={3}>
           <Card>
@@ -181,14 +212,17 @@ export function SettlementWalletPage({
       ) : null}
 
       <PageSection title={t("settlement.features.wallets.ui.walletPage.payout.availability")}>
-        <Card>
-          <Stack gap={2}>
-            <Badge tone={payoutAvailability.tone}>{payoutAvailability.label}</Badge>
-            <Text>{payoutAvailability.detail}</Text>
-            <Text size="sm" tone="secondary">
-              {t("settlement.features.wallets.ui.walletPage.available.funds.can.be.requested.on")}</Text>
-          </Stack>
-        </Card>
+        <MarketplaceNotice
+          tone={payoutAvailability.tone === "danger" ? "error" : payoutAvailability.tone === "accent" ? "info" : payoutAvailability.tone}
+          title={payoutAvailability.label}
+          description={
+            <>
+              {payoutAvailability.detail}
+              <br />
+              {t("settlement.features.wallets.ui.walletPage.available.funds.can.be.requested.on")}
+            </>
+          }
+        />
       </PageSection>
 
       <PageSection title={t("settlement.features.wallets.ui.walletPage.seller.setup.checklist")}>

@@ -1,7 +1,9 @@
 import { t } from "@chase-sets/localization";
 import {
+  BuyerProtectionModule,
   Button,
   Card,
+  MarketplaceNotice,
   NumberInput,
   PageSection,
   Stack,
@@ -28,46 +30,67 @@ export function MarketplaceOfferSubmissionSection({
 }) {
   return (
     <PageSection title={t("marketplace.features.offers.ui.offerSubmissionSection.make.an.offer")}>
-      <Card>
-        <form method="post">
-          <Stack gap={3}>
-            <input type="hidden" name="intent" value="submit-offer" />
-            <input type="hidden" name="catalogItemId" value={catalogItemId} />
-            <input type="hidden" name="productId" value={productId} />
-            <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
-            <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-            <Stack gap={1}>
-              <Text weight="semibold">{itemTitle}</Text>
-              <Text size="sm" tone="secondary">
-                {productSummary ?? t("marketplace.features.offers.ui.offerSubmissionSection.standard.product")}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.offers.ui.offerSubmissionSection.matching.visible.listings.for.this.product")}{visibleListingCount}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.offers.ui.offerSubmissionSection.sellers.can.batch.same.buyer.offers.for.shipping.allowance")}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.offers.ui.offerSubmissionSection.offers.are.marketplace.wide.they.are")}</Text>
+      <Stack gap={4}>
+        <BuyerProtectionModule
+          title={t("marketplace.features.offers.ui.offerSubmissionSection.make.an.offer")}
+          items={[
+            {
+              title: t("marketplace.features.offers.ui.offerSubmissionSection.matching.visible.listings.for.this.product"),
+              description: String(visibleListingCount),
+            },
+            {
+              title: t("marketplace.features.offers.ui.offerSubmissionSection.sellers.can.batch.same.buyer.offers.for.shipping.allowance"),
+              description: t("marketplace.features.offers.ui.offerSubmissionSection.offers.are.marketplace.wide.they.are"),
+            },
+            {
+              title: t("marketplace.features.offers.ui.offerSubmissionSection.standard.product"),
+              description: productSummary ?? t("marketplace.features.offers.ui.offerSubmissionSection.standard.product"),
+            },
+          ]}
+        />
+        <Card>
+          <form method="post">
+            <Stack gap={3}>
+              <input type="hidden" name="intent" value="submit-offer" />
+              <input type="hidden" name="catalogItemId" value={catalogItemId} />
+              <input type="hidden" name="productId" value={productId} />
+              <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+              <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+              <Stack gap={1}>
+                <Text weight="semibold">{itemTitle}</Text>
+                <Text size="sm" tone="secondary">
+                  {productSummary ?? t("marketplace.features.offers.ui.offerSubmissionSection.standard.product")}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {t("marketplace.features.offers.ui.offerSubmissionSection.matching.visible.listings.for.this.product")}{visibleListingCount}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {t("marketplace.features.offers.ui.offerSubmissionSection.sellers.can.batch.same.buyer.offers.for.shipping.allowance")}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {t("marketplace.features.offers.ui.offerSubmissionSection.offers.are.marketplace.wide.they.are")}</Text>
+              </Stack>
+              {errorMessage ? (
+                <MarketplaceNotice tone="error" title={t("marketplace.features.offers.ui.offerSubmissionSection.make.an.offer")} description={errorMessage} />
+              ) : null}
+              <TextInput
+                label={t("marketplace.features.offers.ui.offerSubmissionSection.offer.price")}
+                name="priceAmount"
+                placeholder="24.99"
+                inputMode="decimal"
+                required
+              />
+              <NumberInput
+                label={t("marketplace.features.offers.ui.offerSubmissionSection.quantity.requested")}
+                name="quantityRequested"
+                min="1"
+                required
+              />
+              <Button type="submit">{t("marketplace.features.offers.ui.offerSubmissionSection.submit.offer")}</Button>
             </Stack>
-            {errorMessage ? <Text>{errorMessage}</Text> : null}
-            <TextInput
-              label={t("marketplace.features.offers.ui.offerSubmissionSection.offer.price")}
-              name="priceAmount"
-              placeholder="24.99"
-              inputMode="decimal"
-              required
-            />
-            <NumberInput
-              label={t("marketplace.features.offers.ui.offerSubmissionSection.quantity.requested")}
-              name="quantityRequested"
-              min="1"
-              required
-            />
-            <Button type="submit">{t("marketplace.features.offers.ui.offerSubmissionSection.submit.offer")}</Button>
-          </Stack>
-        </form>
-      </Card>
+          </form>
+        </Card>
+      </Stack>
     </PageSection>
   );
 }

@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import {
@@ -165,7 +166,7 @@ export function registerGuestCheckoutRoutes(
         {
           error: {
             code: "account_sign_in_required",
-            message: "Sign in to continue checkout with this email.",
+            message: t("auth.support.apiSupport.guestCheckoutRoutes.sign.in.to.continue.checkout.with.this.email"),
           },
         },
         409,
@@ -207,7 +208,7 @@ export function registerGuestCheckoutRoutes(
       c.var.actor,
     );
     if (!context) {
-      return c.json({ error: "Guest checkout token required." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -227,7 +228,7 @@ export function registerGuestCheckoutRoutes(
       c.var.actor,
     );
     if (!context) {
-      return c.json({ error: "Guest checkout token required." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
     }
 
     const email = context.tokenRecord.contact_email;
@@ -256,7 +257,7 @@ export function registerGuestCheckoutRoutes(
       c.var.actor,
     );
     if (!context) {
-      return c.json({ error: "Guest checkout token required." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
     }
 
     const identityMutations = createIdentityMutations(c);
@@ -267,7 +268,7 @@ export function registerGuestCheckoutRoutes(
       email: context.tokenRecord.contact_email,
     });
     if (!record) {
-      return c.json({ error: "Claim link is invalid or expired." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.claim.link.is.invalid.or.expired") }, 401);
     }
 
     const displayName = normalizeDisplayName(body.displayName, record.email);
@@ -298,7 +299,7 @@ export function registerGuestCheckoutRoutes(
       c.var.actor,
     );
     if (!context) {
-      return c.json({ error: "Guest checkout token required." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
     }
 
     const identityMutations = createIdentityMutations(c);
@@ -310,7 +311,7 @@ export function registerGuestCheckoutRoutes(
       challengeValue: String(body.challenge ?? ""),
     });
     if (!challenge || challenge.email !== email) {
-      return c.json({ error: "Passkey challenge is invalid or expired." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.is.invalid.or.expired") }, 401);
     }
 
     const userId = await resolveClaimUser(services, identityMutations, {
@@ -318,7 +319,7 @@ export function registerGuestCheckoutRoutes(
       displayName,
     });
     if (challenge.user_id && challenge.user_id !== userId) {
-      return c.json({ error: "Passkey challenge does not match this email." }, 401);
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.does.not.match.this.email") }, 401);
     }
 
     const credentialId = createId("crd");

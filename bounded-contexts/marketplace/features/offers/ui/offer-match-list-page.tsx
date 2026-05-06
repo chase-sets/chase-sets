@@ -6,11 +6,15 @@ import {
   Card,
   DataTable,
   LinkButton,
+  MarketplaceDashboardPanel,
+  MarketplaceNotice,
   Page,
   PageHeader,
   PageSection,
+  ProductSelectionSummary,
   Stack,
   Text,
+  productSelectionDetailsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchListItem } from "./contracts";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
@@ -33,7 +37,13 @@ function formatAllowancePercentage(bps: number) {
 }
 
 function termsSource(terms: MarketplaceListingTermsPreview) {
-  return terms.agreement_id ?? terms.schedule_id ?? t("marketplace.features.offers.ui.offerMatchListPage.standard.terms");
+  if (terms.agreement_id) {
+    return "Seller terms";
+  }
+
+  return terms.schedule_id
+    ? "Standard seller terms"
+    : t("marketplace.features.offers.ui.offerMatchListPage.standard.terms");
 }
 
 function formatTimestamp(value: string) {
@@ -51,6 +61,16 @@ function formatTimestamp(value: string) {
   }).format(date);
 }
 
+function ProductSummaryChips({ summary }: { summary: string }) {
+  return (
+    <ProductSelectionSummary
+      selections={productSelectionDetailsFromSummary(summary)}
+      summary={summary}
+      summaryAsChip
+    />
+  );
+}
+
 export function MarketplaceOfferMatchListPage({
   data,
   cartData,
@@ -62,6 +82,9 @@ export function MarketplaceOfferMatchListPage({
   cartTermsByOfferId?: Readonly<Record<string, MarketplaceListingTermsPreview>>;
   errorMessage?: string | null;
 }) {
+  const queuedCount = cartData?.items.length ?? 0;
+  const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
+
   return (
     <Page>
       <PageHeader
@@ -74,10 +97,22 @@ export function MarketplaceOfferMatchListPage({
         }
       />
 
+      <MarketplaceDashboardPanel
+        title={t("marketplace.features.offers.ui.offerMatchListPage.offer.match.health")}
+        description={t("marketplace.features.offers.ui.offerMatchListPage.offer.match.health.description")}
+        metrics={[
+          { label: t("marketplace.features.offers.ui.offerMatchListPage.active.matches"), value: data.items.length },
+          { label: t("marketplace.features.offers.ui.offerMatchListPage.ready.to.fulfill"), value: fulfillableCount },
+          { label: t("marketplace.features.offers.ui.offerMatchListPage.queued"), value: queuedCount },
+        ]}
+      />
+
       {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
+        <MarketplaceNotice
+          tone="error"
+          title={t("marketplace.features.offers.ui.offerMatchListPage.offer.match.issue")}
+          description={errorMessage}
+        />
       ) : null}
 
       <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.sell.list")}>
@@ -88,8 +123,8 @@ export function MarketplaceOfferMatchListPage({
               description={t("marketplace.features.offers.ui.offerMatchListPage.offers.earn.five.percent.of.accepted.value.toward.shipping")}
             />
             <Text tone="secondary" size="sm">
-              {cartData?.items.length ?? 0} offer
-              {(cartData?.items.length ?? 0) === 1 ? "" : "s"} {t("marketplace.features.offers.ui.offerMatchListPage.queued.in.your.sell.list")}</Text>
+              {queuedCount} offer
+              {queuedCount === 1 ? "" : "s"} {t("marketplace.features.offers.ui.offerMatchListPage.queued.in.your.sell.list")}</Text>
             {cartData?.items.length ? (
               <Stack gap={2}>
                 {cartData.items.map((item) => {
@@ -154,7 +189,9 @@ export function MarketplaceOfferMatchListPage({
                 value="accept-sell-list"
                 disabled={!cartData || cartData.items.length === 0}
               >
-                {t("marketplace.features.offers.ui.offerMatchListPage.accept.sell.list")}</Button>
+                {cartData && cartData.items.length > 0
+                  ? t("marketplace.features.offers.ui.offerMatchListPage.accept.sell.list")
+                  : "Select offers to accept"}</Button>
             </form>
           </Stack>
         </Card>
@@ -177,9 +214,7 @@ export function MarketplaceOfferMatchListPage({
                     </Text>
                   ) : null}
                   {row.product_summary ? (
-                    <Text tone="secondary" size="sm">
-                      {row.product_summary}
-                    </Text>
+                    <ProductSummaryChips summary={row.product_summary} />
                   ) : null}
                 </Stack>
               ),

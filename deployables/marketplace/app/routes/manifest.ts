@@ -11,8 +11,8 @@ function buildMarketplaceManifest() {
     display: "standalone",
     orientation: "any",
     categories: ["shopping", "productivity"],
-    theme_color: "#1d64ff",
-    background_color: "#ffffff",
+    theme_color: "#1d5fd6",
+    background_color: "#f8fafc",
     icons: [
       {
         src: "/icons/chase-sets-192.png",

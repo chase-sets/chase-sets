@@ -26,14 +26,14 @@ export function Banner({
         softToneClasses[tone]
       )}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
         <Icon name={toneIcon(tone)} size="sm" tone={tone} />
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <div className="text-sm font-semibold">{title}</div>
           {description ? <div className="text-sm">{description}</div> : null}
         </div>
       </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
     </div>
   );
 }

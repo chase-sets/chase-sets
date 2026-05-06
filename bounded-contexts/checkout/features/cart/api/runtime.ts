@@ -57,6 +57,7 @@ export type CheckoutCartServices = Readonly<{
       productId: string;
       itemTitle: string;
       itemSubtitle: string | null;
+      itemImageUrl: string | null;
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       quantity: number;
@@ -152,6 +153,26 @@ export function createCheckoutCartRuntime(
         );
       }
 
+      const existingLine = (await listCartLines(deps.db, params.accountId))
+        .find((line) =>
+          line.catalog_catalog_item_id === params.catalogItemId &&
+          line.product_id === catalogVersion.productId,
+        );
+
+      if (existingLine) {
+        const result = await commandHandler({
+          streamId: `checkout.cart-${params.accountId}`,
+          command: {
+            type: "SetCartLineQuantity",
+            lineId: existingLine.line_id as CartLineId,
+            quantity: existingLine.quantity + params.quantity,
+          },
+          context,
+        });
+
+        return { lineId: existingLine.line_id as CartLineId, version: result.version };
+      }
+
       const lineId = createId("cli") as CartLineId;
       const result = await commandHandler({
         streamId: `checkout.cart-${params.accountId}`,
@@ -163,6 +184,7 @@ export function createCheckoutCartRuntime(
           productId: catalogVersion.productId,
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,
+          itemImageUrl: params.itemImageUrl,
           selectedOptions: catalogVersion.selection,
           productSummary: params.productSummary,
           quantity: params.quantity,
@@ -232,6 +254,7 @@ export function createCheckoutCartRuntime(
               productId: line.product_id,
               itemTitle: line.item_title,
               itemSubtitle: line.item_subtitle,
+              itemImageUrl: line.item_image_url,
               selectedOptions: line.selected_options,
               productSummary: line.product_summary,
               quantity: line.quantity,

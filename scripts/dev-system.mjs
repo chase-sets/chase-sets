@@ -111,12 +111,6 @@ const bootstrapWorkspaces = [
 
 const processes = [
   {
-    name: "showcase",
-    workspace: "@chase-sets/app-design-system-showcase",
-    env: {},
-    port: 6171,
-  },
-  {
     name: "platform-api",
     workspace: "@chase-sets/app-platform-api",
     env: {

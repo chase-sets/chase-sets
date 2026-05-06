@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useRouteLoaderData } from "react-router";
 import { Banner, Button, LinkButton, Stack } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
@@ -69,11 +70,36 @@ export default function MarketplaceLayoutRoute() {
   const rootData = useRouteLoaderData("root") as
     | {
         actor?: MarketplaceActor;
+        cartCount?: number;
       }
     | undefined;
   const actor = rootData?.actor ?? null;
-  const topNavItems = resolveMarketplaceNavItems("top-nav", actor);
-  const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor);
+  const [cartCount, setCartCount] = useState(rootData?.cartCount ?? 0);
+  useEffect(() => {
+    setCartCount(rootData?.cartCount ?? 0);
+  }, [rootData?.cartCount]);
+  useEffect(() => {
+    const handleCartCountChanged = (event: Event) => {
+      if (!(event instanceof CustomEvent)) {
+        return;
+      }
+
+      const countDelta = Number(event.detail?.countDelta ?? 0);
+      const count = Number(event.detail?.count ?? Number.NaN);
+      setCartCount((current) =>
+        Number.isFinite(count)
+          ? Math.max(0, count)
+          : Math.max(0, current + (Number.isFinite(countDelta) ? countDelta : 0)),
+      );
+    };
+
+    window.addEventListener("chase-sets:cart-count-changed", handleCartCountChanged);
+    return () => {
+      window.removeEventListener("chase-sets:cart-count-changed", handleCartCountChanged);
+    };
+  }, []);
+  const topNavItems = resolveMarketplaceNavItems("top-nav", actor, { cartCount });
+  const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor, { cartCount });
   const prompt = new URLSearchParams(location.search).get("authPrompt");
   const showAddPasskeyPrompt = Boolean(actor && prompt === "add-passkey");
 

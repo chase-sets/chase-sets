@@ -44,6 +44,12 @@ function operationsLabel(row: SettlementPayoutRow) {
   return t("settlement.features.payouts.ui.payoutOperationsPage.review");
 }
 
+function payoutConfirmationLabel(row: SettlementPayoutRow) {
+  return row.provider_payout_reference
+    ? t("settlement.features.payouts.ui.payoutOperationsPage.confirmed")
+    : t("settlement.features.payouts.ui.payoutOperationsPage.pending.confirmation");
+}
+
 export function SettlementPayoutOperationsPage({
   payouts,
   idempotencyKeys = [],
@@ -113,7 +119,7 @@ export function SettlementPayoutOperationsPage({
                 </Text>
                 {runResult.errors.length > 0 ? (
                   <Text size="sm" tone="secondary">
-                    {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}{runResult.errors.map((error) => `${error.payoutId}: ${error.message}`).join("; ")}
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}{runResult.errors.map((error) => error.message).join("; ")}
                   </Text>
                 ) : null}
               </Stack>
@@ -183,12 +189,12 @@ export function SettlementPayoutOperationsPage({
             },
             {
               key: "provider_payout_reference",
-              header: t("settlement.features.payouts.ui.payoutOperationsPage.provider.payout"),
-              cell: (row) => row.provider_payout_reference ?? t("settlement.features.payouts.ui.payoutOperationsPage.missing"),
+              header: t("settlement.features.payouts.ui.payoutOperationsPage.payout.confirmation"),
+              cell: (row) => payoutConfirmationLabel(row),
             },
             {
               key: "provider_status",
-              header: t("settlement.features.payouts.ui.payoutOperationsPage.provider.status"),
+              header: t("settlement.features.payouts.ui.payoutOperationsPage.external.status"),
               cell: (row) => row.provider_status ?? t("settlement.features.payouts.ui.payoutOperationsPage.unknown"),
             },
             {
@@ -249,7 +255,7 @@ export function SettlementPayoutOperationsPage({
             {
               key: "idempotency",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.idempotency.key"),
-              cell: (row) => row.idempotency_key,
+              cell: () => t("settlement.features.payouts.ui.payoutOperationsPage.protected.retry.key"),
             },
             {
               key: "created",

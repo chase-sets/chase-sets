@@ -5,6 +5,7 @@ export interface CheckoutCartLine {
   product_id: string;
   item_title: string;
   item_subtitle: string | null;
+  item_image_url: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   quantity: number;

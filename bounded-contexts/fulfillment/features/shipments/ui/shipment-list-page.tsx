@@ -2,8 +2,8 @@ import { t } from "@chase-sets/localization";
 import {
   Badge,
   Card,
-  EmptyState,
   LinkButton,
+  MarketplaceEmptyState,
   Page,
   PageHeader,
   PageSection,
@@ -25,6 +25,14 @@ function statusTone(status: string) {
     default:
       return "neutral";
   }
+}
+
+function shipmentTitle(shipment: FulfillmentShipmentListItem) {
+  if (shipment.tracking_identifier) {
+    return `Tracking ${shipment.tracking_identifier}`;
+  }
+
+  return "Shipment details";
 }
 
 export function FulfillmentShipmentListPage({
@@ -53,29 +61,27 @@ export function FulfillmentShipmentListPage({
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentListPage.shipments")}>
         <Stack gap={3}>
           {shipments.length === 0 ? (
-            <EmptyState
+            <MarketplaceEmptyState
               title={emptyTitle}
               description={emptyDescription}
-              icon="package"
             />
           ) : (
             shipments.map((shipment) => (
               <Card key={shipment.shipment_id}>
                 <Stack gap={2}>
                   <Stack gap={1}>
-                    <Text weight="semibold">{t("fulfillment.features.shipments.ui.shipmentListPage.shipment")}{shipment.shipment_id}</Text>
+                    <Text weight="semibold">{shipmentTitle(shipment)}</Text>
                     <Badge tone={statusTone(shipment.status)}>{shipment.status}</Badge>
                   </Stack>
-                  <Text size="sm" tone="secondary">
-                    {t("fulfillment.features.shipments.ui.shipmentListPage.order")}{shipment.order_id}
-                  </Text>
                   <Text size="sm" tone="secondary">
                     {t("fulfillment.features.shipments.ui.shipmentListPage.quantity")}{shipment.total_quantity} {t("fulfillment.features.shipments.ui.shipmentListPage.across")}{shipment.line_count} line
                     {shipment.line_count === 1 ? "" : "s"}
                   </Text>
-                  <Text size="sm" tone="secondary">
-                    {t("fulfillment.features.shipments.ui.shipmentListPage.tracking")}{shipment.tracking_identifier ?? t("fulfillment.features.shipments.ui.shipmentListPage.not.attached.yet")}
-                  </Text>
+                  {shipment.tracking_identifier ? null : (
+                    <Text size="sm" tone="secondary">
+                      {t("fulfillment.features.shipments.ui.shipmentListPage.tracking")}{t("fulfillment.features.shipments.ui.shipmentListPage.not.attached.yet")}
+                    </Text>
+                  )}
                   <LinkButton
                     href={`${shipmentDetailBasePath}/${shipment.shipment_id}`}
                     tone="secondary"

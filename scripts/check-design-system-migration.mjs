@@ -7,8 +7,7 @@ const radixPattern = /@radix-ui/;
 const radixScanRoots = [
   "package-lock.json",
   "packages/design-system/package.json",
-  "packages/design-system/src",
-  "deployables/design-system-showcase/src"
+  "packages/design-system/src"
 ];
 const generatedPathFragments = [
   "/build/",

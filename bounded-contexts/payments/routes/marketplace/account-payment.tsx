@@ -28,16 +28,19 @@ import { appendClearedGuestCheckoutCookie } from "@chase-sets/checkout/server";
 import {
   Badge,
   Banner,
+  BuyerProtectionModule,
   Button,
   CheckoutLayout,
-  CheckoutTrustPanel,
   Divider,
   Grid,
   LinkButton,
-  OrderSummary,
+  MarketplaceNotice,
   Page,
   PageHeader,
   PageSection,
+  PaymentRecoveryPanel,
+  PriceBreakdown,
+  SecurePaymentIndicator,
   Stack,
   Surface,
   Text,
@@ -332,7 +335,7 @@ export async function action({
       if (payment.status !== "failed" && payment.status !== "cancelled") {
         return {
           scope: "retry",
-          error: "This payment cannot be retried.",
+          error: t("payments.routes.marketplace.accountPayment.this.payment.cannot.be.retried"),
         };
       }
 
@@ -359,7 +362,7 @@ export async function action({
     if (!isClaimablePayment(payment)) {
       return {
         scope: "claim",
-        error: "You can save this order after payment is complete.",
+        error: t("payments.routes.marketplace.accountPayment.you.can.save.this.order.after.payment"),
       };
     }
 
@@ -429,8 +432,8 @@ export async function action({
       error: error instanceof Error
         ? error.message
         : intent === "retry-payment"
-          ? "Could not retry this payment."
-          : "Could not save this order.",
+          ? t("payments.routes.marketplace.accountPayment.could.not.retry.this.payment")
+          : t("payments.routes.marketplace.accountPayment.could.not.save.this.order"),
     };
   }
 }
@@ -654,7 +657,7 @@ function GuestClaimPrompt({
       window.setTimeout(() => passkeyFormRef.current?.requestSubmit(), 0);
     } catch (error) {
       setPasskeyError(
-        error instanceof Error ? error.message : "Passkey registration failed.",
+        error instanceof Error ? error.message : t("payments.routes.marketplace.accountPayment.passkey.registration.failed"),
       );
     } finally {
       setIsCreatingPasskey(false);
@@ -662,18 +665,18 @@ function GuestClaimPrompt({
   }
 
   return (
-    <PageSection title="Save this order">
+    <PageSection title={t("payments.routes.marketplace.accountPayment.save.this.order")}>
       <Surface elevated glow>
         <Stack gap={3}>
-          <Badge tone="accent">Recommended</Badge>
+          <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.recommended")}</Badge>
           <Text tone="secondary">
-            Save this order after payment with a passkey. You can use an email link if this device cannot create one.
+            {t("payments.routes.marketplace.accountPayment.save.this.order.after.payment.with.a.passkey")}
           </Text>
           {actionData && "error" in actionData && actionData.scope === "claim" ? (
-            <Banner title="Could not save order" description={actionData.error} tone="danger" />
+            <Banner title={t("payments.routes.marketplace.accountPayment.could.not.save.order")} description={actionData.error} tone="danger" />
           ) : null}
           {passkeyError ? (
-            <Banner title="Passkey unavailable" description={passkeyError} tone="warning" />
+            <Banner title={t("payments.routes.marketplace.accountPayment.passkey.unavailable")} description={passkeyError} tone="warning" />
           ) : null}
           <Form ref={passkeyFormRef} method="post" onSubmit={handlePasskeySubmit}>
             <Stack gap={3}>
@@ -681,7 +684,7 @@ function GuestClaimPrompt({
               <input type="hidden" name="email" value={claimContext.contactEmail} readOnly />
               <PasskeyHiddenFields payload={passkeyPayload} />
               <TextInput
-                label="Contact name"
+                label={t("payments.routes.marketplace.accountPayment.contact.name")}
                 name="displayName"
                 required
                 value={displayName}
@@ -689,11 +692,13 @@ function GuestClaimPrompt({
               />
               <Surface tone="subtle">
                 <Text size="sm" tone="secondary">
-                  We will save this order to {claimContext.contactEmail}.
+                  {t("payments.routes.marketplace.accountPayment.we.will.save.this.order.to", {
+                    email: claimContext.contactEmail,
+                  })}
                 </Text>
               </Surface>
               <Button type="submit" leadingIcon="shield" loading={isCreatingPasskey}>
-                Save with passkey
+                {t("payments.routes.marketplace.accountPayment.save.with.passkey")}
               </Button>
             </Stack>
           </Form>
@@ -703,10 +708,12 @@ function GuestClaimPrompt({
               <input type="hidden" name="intent" value="claim-link-request" readOnly />
               <input type="hidden" name="displayName" value={displayName} readOnly />
               <Text size="sm" tone="secondary">
-                Send a claim link to {claimContext.contactEmail}.
+                {t("payments.routes.marketplace.accountPayment.send.a.claim.link.to", {
+                  email: claimContext.contactEmail,
+                })}
               </Text>
               <Button type="submit" tone="secondary" leadingIcon="message">
-                Email me a claim link
+                {t("payments.routes.marketplace.accountPayment.email.me.a.claim.link")}
               </Button>
             </Stack>
           </Form>
@@ -715,22 +722,22 @@ function GuestClaimPrompt({
               <Form method="post">
                 <Stack gap={2}>
                   <Text size="sm" tone="secondary">
-                    Local recovery token. In production this arrives by email.
+                    {t("payments.routes.marketplace.accountPayment.local.recovery.token.in.production")}
                   </Text>
                   <input type="hidden" name="intent" value="claim-link-consume" readOnly />
                   <input type="hidden" name="displayName" value={actionData.displayName} readOnly />
-                  <TextInput label="Claim token" name="token" defaultValue={actionData.token} required />
+                  <TextInput label={t("payments.routes.marketplace.accountPayment.claim.token")} name="token" defaultValue={actionData.token} required />
                   <Button type="submit" leadingIcon="message">
-                    Verify email and save order
+                    {t("payments.routes.marketplace.accountPayment.verify.email.and.save.order")}
                   </Button>
                 </Stack>
               </Form>
             </Surface>
           ) : null}
           <details>
-            <summary>Other options</summary>
+            <summary>{t("payments.routes.marketplace.accountPayment.other.options")}</summary>
             <Text size="sm" tone="secondary">
-              Password setup is available only after email verification or an authenticated session.
+              {t("payments.routes.marketplace.accountPayment.password.setup.is.available.only.after")}
             </Text>
           </details>
         </Stack>
@@ -767,8 +774,7 @@ export default function MarketplaceAccountPaymentRoute() {
       <CheckoutLayout
         summary={
           <Stack gap={4}>
-            <OrderSummary
-              title={t("payments.routes.marketplace.accountPayment.payment.summary")}
+            <PriceBreakdown
               lines={[
                 { label: t("payments.routes.marketplace.accountPayment.status"), value: <Badge tone={statusTone(data.payment.status)}>{statusCopy.label}</Badge> },
                 { label: t("payments.routes.marketplace.accountPayment.wallet.balance.used"), value: formatMoney(data.payment.balance_credit_amount) },
@@ -780,16 +786,17 @@ export default function MarketplaceAccountPaymentRoute() {
                 { label: t("payments.routes.marketplace.accountPayment.processor"), value: data.payment.processor_name },
               ]}
               total={formatMoney(data.payment.amount)}
+              totalLabel={t("payments.routes.marketplace.accountPayment.payment.summary")}
+              reassurance={<SecurePaymentIndicator label={t("payments.routes.marketplace.accountPayment.secure.payment")} />}
             />
-            <CheckoutTrustPanel
+            <BuyerProtectionModule
+              title={t("payments.routes.marketplace.accountPayment.checkout.confidence")}
               items={[
                 {
-                  icon: "lock",
                   title: t("payments.routes.marketplace.accountPayment.secure.payment.flow"),
                   description: t("payments.routes.marketplace.accountPayment.payment.details.stay.inside.the.secure"),
                 },
                 {
-                  icon: "shield",
                   title: t("payments.routes.marketplace.accountPayment.purchase.coverage"),
                   description: t("payments.routes.marketplace.accountPayment.covers.purchases", {
                     count: data.payment.order_ids.length,
@@ -801,7 +808,6 @@ export default function MarketplaceAccountPaymentRoute() {
                   }),
                 },
                 {
-                  icon: "creditCard",
                   title: t("payments.routes.marketplace.accountPayment.fee.transparency"),
                   description: t("payments.routes.marketplace.accountPayment.marketplace.and.processor.fees.stay.visible"),
                 },
@@ -812,24 +818,32 @@ export default function MarketplaceAccountPaymentRoute() {
       >
         <Stack gap={4}>
           {data.payment.status === "failed" || data.payment.status === "cancelled" ? (
+            <MarketplaceNotice
+              tone="warning"
+              title={
+                data.payment.status === "cancelled"
+                  ? t("payments.routes.marketplace.accountPayment.payment.session.closed")
+                  : t("payments.routes.marketplace.accountPayment.payment.issue")
+              }
+              description={
+                data.payment.failure_message ??
+                t(
+                  data.payment.status === "cancelled"
+                    ? "payments.routes.marketplace.accountPayment.this.secure.payment.session.is.no"
+                    : "payments.routes.marketplace.accountPayment.the.secure.processor.could.not.complete",
+                )
+              }
+            />
+          ) : null}
+
+          {data.payment.status === "failed" || data.payment.status === "cancelled" ? (
             <Surface tone="subtle" elevated>
               <Stack gap={2}>
-                <Badge tone="danger">
-                  {data.payment.status === "cancelled" ? t("payments.routes.marketplace.accountPayment.payment.session.closed") : t("payments.routes.marketplace.accountPayment.payment.issue")}
-                </Badge>
-                <Text>
-                  {data.payment.failure_message ??
-                    t(
-                      data.payment.status === "cancelled"
-                        ? "payments.routes.marketplace.accountPayment.this.secure.payment.session.is.no"
-                        : "payments.routes.marketplace.accountPayment.the.secure.processor.could.not.complete",
-                    )}
-                </Text>
                 {data.payment.status === "failed" || data.payment.status === "cancelled" ? (
                   data.isGuestCheckoutPayment ? (
                     <Stack gap={2}>
                       {retryActionError ? (
-                        <Banner title="Could not retry payment" description={retryActionError} tone="danger" />
+                        <Banner title={t("payments.routes.marketplace.accountPayment.could.not.retry.payment")} description={retryActionError} tone="danger" />
                       ) : null}
                       <Form method="post">
                         <input type="hidden" name="intent" value="retry-payment" readOnly />
@@ -1022,27 +1036,29 @@ export function ErrorBoundary() {
   return (
     <Page>
       <PageHeader
-        eyebrow="Secure checkout"
-        title="Payment link expired"
-        description="This checkout payment link is no longer valid. Your payment was not changed from this link."
+        eyebrow={t("payments.routes.marketplace.accountPayment.secure.checkout")}
+        title={t("payments.routes.marketplace.accountPayment.payment.link.expired")}
+        description={t("payments.routes.marketplace.accountPayment.this.checkout.payment.link.is.no.longer")}
       />
-      <PageSection title="Recover checkout">
-        <Surface elevated>
-          <Stack gap={3}>
-            <Badge tone="warning">Link unavailable</Badge>
-            <Text>
-              Return to your cart to review your items and start checkout again. If you already completed payment, contact support with the email address you used at checkout.
-            </Text>
-            <Stack direction={{ base: "column", sm: "row" }} gap={3}>
-              <LinkButton href="/account/cart" leadingIcon="cart">
-                Return to cart
-              </LinkButton>
-              <LinkButton href="/" tone="secondary" leadingIcon="search">
-                Continue shopping
-              </LinkButton>
-            </Stack>
-          </Stack>
-        </Surface>
+      <PageSection title={t("payments.routes.marketplace.accountPayment.recover.checkout")}>
+        <PaymentRecoveryPanel
+          statusLabel={t("payments.routes.marketplace.accountPayment.link.unavailable")}
+          title={t("payments.routes.marketplace.accountPayment.payment.link.expired")}
+          description={t("payments.routes.marketplace.accountPayment.return.to.your.cart.to.review")}
+          chargeStatus={t("payments.routes.marketplace.accountPayment.no.payment.was.charged")}
+          nextStep={t("payments.routes.marketplace.accountPayment.review.cart.or.start.checkout.again")}
+          supportPath={t("payments.routes.marketplace.accountPayment.support.can.help.with.order.access")}
+          primaryAction={
+            <LinkButton href="/account/cart" leadingIcon="cart">
+              {t("payments.routes.marketplace.accountPayment.return.to.cart")}
+            </LinkButton>
+          }
+          secondaryAction={
+            <LinkButton href="/" tone="secondary" leadingIcon="search">
+              {t("payments.routes.marketplace.accountPayment.continue.shopping")}
+            </LinkButton>
+          }
+        />
       </PageSection>
     </Page>
   );

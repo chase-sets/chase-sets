@@ -75,6 +75,10 @@ function parseVersionSelection(value: unknown) {
     : [];
 }
 
+function countCartItems(items: readonly { quantity: number }[]) {
+  return items.reduce((sum, item) => sum + item.quantity, 0);
+}
+
 export function createAccountCartRoutes(services: CheckoutCartServices) {
   const app = new Hono<CheckoutApiEnv>();
 
@@ -87,7 +91,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     const items = await services.listCartLines(access.actor.accountId);
     return c.json({
       items,
-      count: items.length,
+      count: countCartItems(items),
     });
   });
 
@@ -111,13 +115,17 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
           catalogItemId: String(body.catalogItemId ?? ""),
           productId: String(body.productId ?? ""),
           itemTitle: String(body.itemTitle ?? ""),
-          itemSubtitle:
-            body.itemSubtitle === null || body.itemSubtitle === undefined
-              ? null
-              : String(body.itemSubtitle),
-          selectedOptions: parseVersionSelection(body.selectedOptions),
-          productSummary:
-            body.productSummary === null || body.productSummary === undefined
+            itemSubtitle:
+              body.itemSubtitle === null || body.itemSubtitle === undefined
+                ? null
+                : String(body.itemSubtitle),
+            itemImageUrl:
+              body.itemImageUrl === null || body.itemImageUrl === undefined
+                ? null
+                : String(body.itemImageUrl),
+            selectedOptions: parseVersionSelection(body.selectedOptions),
+            productSummary:
+              body.productSummary === null || body.productSummary === undefined
               ? null
               : String(body.productSummary),
           quantity: Number(body.quantity ?? 0),
@@ -208,7 +216,7 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
     }
 
     const items = await services.listCartLines(ownerId);
-    return c.json({ items, count: items.length });
+    return c.json({ items, count: countCartItems(items) });
   });
 
   app.post("/cart", async (c) => {
@@ -228,13 +236,17 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
           catalogItemId: String(body.catalogItemId ?? ""),
           productId: String(body.productId ?? ""),
           itemTitle: String(body.itemTitle ?? ""),
-          itemSubtitle:
-            body.itemSubtitle === null || body.itemSubtitle === undefined
-              ? null
-              : String(body.itemSubtitle),
-          selectedOptions: parseVersionSelection(body.selectedOptions),
-          productSummary:
-            body.productSummary === null || body.productSummary === undefined
+            itemSubtitle:
+              body.itemSubtitle === null || body.itemSubtitle === undefined
+                ? null
+                : String(body.itemSubtitle),
+            itemImageUrl:
+              body.itemImageUrl === null || body.itemImageUrl === undefined
+                ? null
+                : String(body.itemImageUrl),
+            selectedOptions: parseVersionSelection(body.selectedOptions),
+            productSummary:
+              body.productSummary === null || body.productSummary === undefined
               ? null
               : String(body.productSummary),
           quantity: Number(body.quantity ?? 0),

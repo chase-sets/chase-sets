@@ -25,8 +25,9 @@ export type { PaginationProps } from "./pagination";
 export { PageStepper } from "./page-stepper";
 export type { PageStepperItem, PageStepperProps } from "./page-stepper";
 
-export { TopNav, SideNav, BottomNav, NavRail } from "./navigation";
+export { BrandLink, TopNav, SideNav, BottomNav, NavRail } from "./navigation";
 export type {
+  BrandLinkProps,
   NavigationItem,
   TopNavProps,
   SideNavProps,

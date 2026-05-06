@@ -16,10 +16,48 @@ import {
 import { buildCanonicalUrl } from "./seo";
 import { resolveMarketplaceActor } from "./auth.server";
 import { registerMarketplaceServiceWorker } from "./pwa/register-service-worker";
+import {
+  ChaseRoot,
+  Container,
+  LinkButton,
+  MarketplaceEmptyState,
+  Page,
+  Stack,
+} from "@chase-sets/design-system";
+import {
+  createCheckoutRequestApiClient,
+  readAnonymousCartId,
+} from "@chase-sets/checkout/server";
+
+type MarketplaceRootActor = Awaited<ReturnType<typeof resolveMarketplaceActor>>;
+
+async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
+  try {
+    const checkoutApi = createCheckoutRequestApiClient(request);
+
+    if (actor) {
+      const cart = await checkoutApi.getCart();
+      return cart.count;
+    }
+
+    const anonymousCartId = readAnonymousCartId(request);
+    if (!anonymousCartId) {
+      return 0;
+    }
+
+    const cart = await checkoutApi.getGuestCart(anonymousCartId);
+    return cart.count;
+  } catch {
+    return 0;
+  }
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  const actor = await resolveMarketplaceActor(request);
+
   return {
-    actor: await resolveMarketplaceActor(request),
+    actor,
+    cartCount: await resolveCartCount(request, actor),
     origin: new URL(request.url).origin,
   };
 }
@@ -69,16 +107,60 @@ export default function App() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  const message = isRouteErrorResponse(error)
+  const isRouteError = isRouteErrorResponse(error);
+  const isNotFound = isRouteError && error.status === 404;
+  const message = isRouteError
     ? error.statusText
     : error instanceof Error
       ? error.message
       : t("marketplace.app.root.unknown.error");
+  const title = isNotFound
+    ? t("marketplace.app.root.page.not.found")
+    : t("marketplace.app.root.marketplace.error");
+  const description = isNotFound
+    ? t("marketplace.app.root.page.not.found.description")
+    : message;
 
   return (
-    <main>
-      <h1>{t("marketplace.app.root.marketplace.error")}</h1>
-      <p>{message}</p>
-    </main>
+    <html lang="en">
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <Meta />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="alternate icon" href="/favicon.ico" sizes="any" />
+        <Links />
+      </head>
+      <body>
+        <ChaseRoot colorMode="system">
+          <main>
+            <Page width="narrow">
+              <Container width="content">
+                <Stack gap={4}>
+                  <MarketplaceEmptyState
+                    title={title}
+                    description={description}
+                    trustCue={t("marketplace.app.root.error.trust.cue")}
+                    recoveryActions={
+                      <>
+                        <LinkButton href="/search">
+                          {t("marketplace.app.root.browse.marketplace")}
+                        </LinkButton>
+                        <LinkButton href="/" tone="secondary">
+                          {t("marketplace.app.root.go.home")}
+                        </LinkButton>
+                      </>
+                    }
+                  />
+                </Stack>
+              </Container>
+            </Page>
+          </main>
+        </ChaseRoot>
+        <ScrollRestoration />
+        <Scripts />
+      </body>
+    </html>
   );
 }

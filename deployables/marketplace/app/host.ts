@@ -11,17 +11,22 @@ export function resolveMarketplaceRouteConfigRecords() {
 export function resolveMarketplaceNavItems(
   slot: "top-nav" | "bottom-nav",
   actor?: Readonly<{ permissions?: readonly string[] }> | null,
+  options: Readonly<{ cartCount?: number }> = {},
 ): NavigationItem[] {
   const items = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor)
     .map(toTraderNavItem);
+  const cartCount = options.cartCount ?? 0;
 
   if (!actor || slot === "bottom-nav") {
-    return slot === "bottom-nav" && actor
+    const resolvedItems = slot === "bottom-nav" && actor
       ? buildMarketplaceBottomNav(items, actor)
       : items;
+    const withCart = withCartNavigation(resolvedItems, cartCount, { includeGuestCart: !actor });
+
+    return slot === "top-nav" ? moveCartLast(withCart) : withCart;
   }
 
-  return groupMarketplaceTopNav(items, actor);
+  return moveCartLast(withCartNavigation(groupMarketplaceTopNav(items, actor), cartCount));
 }
 
 const sellingWorkflowKeys = new Set([
@@ -30,22 +35,22 @@ const sellingWorkflowKeys = new Set([
   "offer-matches",
   "sales",
   "sale-shipments",
-  "reviews",
   "payouts",
 ]);
 
 const sellingInfrastructureKeys = new Set([
   "shipments",
 ]);
+const topNavUtilityKeys = new Set(["account", "cart", "register", "sign-in"]);
 
-const accountTopNavOrder = ["search", "cart", "purchases", "account"];
+const accountTopNavOrder = ["search", "cart", "purchases", "account", "reviews"];
+const accountChildNavOrder = ["account", "submitted-offers", "reviews"];
 const sellingNavOrder = [
   "inventory",
   "listings",
   "offer-matches",
   "sales",
   "sale-shipments",
-  "reviews",
   "payouts",
 ];
 
@@ -96,14 +101,94 @@ function hasPermission(
 
 function toTraderNavItem(item: NavigationItem): NavigationItem {
   const override = traderNavOverrides[item.key];
+  const placement = topNavUtilityKeys.has(item.key) ? "utility" : item.placement;
 
-  return override ? { ...item, ...override } : item;
+  return override ? { ...item, placement, ...override } : { ...item, placement };
+}
+
+function formatCartBadge(count: number) {
+  if (count <= 0) {
+    return undefined;
+  }
+
+  return count > 99 ? "99+" : String(count);
+}
+
+function applyCartBadge(item: NavigationItem, badge: string | undefined): NavigationItem {
+  return item.key === "cart"
+    ? { ...item, badge, placement: "utility" }
+    : {
+        ...item,
+        children: item.children?.map((child) => applyCartBadge(child, badge)),
+      };
+}
+
+function withCartNavigation(
+  items: NavigationItem[],
+  cartCount: number,
+  options: Readonly<{ includeGuestCart?: boolean }> = {},
+): NavigationItem[] {
+  const badge = formatCartBadge(cartCount);
+
+  if (items.some((item) => item.key === "cart")) {
+    return items.map((item) => applyCartBadge(item, badge));
+  }
+
+  if (!options.includeGuestCart || !badge) {
+    return items;
+  }
+
+  const cartItem: NavigationItem = {
+    key: "cart",
+    label: t("marketplace.app.host.cart"),
+    icon: "cart",
+    href: "/account/cart",
+    badge,
+    placement: "utility",
+  };
+
+  return [
+    ...items,
+    cartItem,
+  ];
+}
+
+function moveCartLast(items: NavigationItem[]): NavigationItem[] {
+  const cartItem = items.find((item) => item.key === "cart");
+
+  return cartItem
+    ? [
+        ...items.filter((item) => item.key !== "cart"),
+        cartItem,
+      ]
+    : items;
 }
 
 function orderAccountNav(items: NavigationItem[]): NavigationItem[] {
   return [...items].sort((a, b) => {
     const aIndex = accountTopNavOrder.indexOf(a.key);
     const bIndex = accountTopNavOrder.indexOf(b.key);
+
+    if (aIndex === -1 && bIndex === -1) {
+      return 0;
+    }
+
+    if (aIndex === -1) {
+      return 1;
+    }
+
+    if (bIndex === -1) {
+      return -1;
+    }
+
+    return aIndex - bIndex;
+  });
+}
+
+function orderAccountChildNav(items: NavigationItem[]): NavigationItem[] {
+  return [...items].sort((a, b) => {
+    const aIndex = accountChildNavOrder.indexOf(a.key);
+    const bIndex = accountChildNavOrder.indexOf(b.key);
 
     if (aIndex === -1 && bIndex === -1) {
       return 0;
@@ -179,8 +264,17 @@ function buildMarketplaceBottomNav(
     ),
   );
   const accountItems = orderAccountNav(
-    visibleItems.filter((item) => ["search", "cart", "purchases"].includes(item.key)),
+    visibleItems.filter((item) => ["search", "cart", "purchases", "account", "reviews"].includes(item.key)),
   );
+  const accountItem = accountItems.find((item) => item.key === "account");
+  const accountGroup: NavigationItem | undefined = accountItem
+    ? {
+        ...accountItem,
+        children: orderAccountChildNav(
+          visibleItems.filter((item) => ["account", "submitted-offers", "reviews"].includes(item.key)),
+        ),
+      }
+    : undefined;
 
   if (sellingItems.length === 0) {
     return orderAccountNav(
@@ -197,9 +291,10 @@ function buildMarketplaceBottomNav(
   };
 
   return [
-    ...accountItems,
+    ...accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
     sellingGroup,
-  ].slice(0, 4);
+    ...(accountGroup ? [accountGroup] : []),
+  ].slice(0, 5);
 }
 
 function groupMarketplaceTopNav(
@@ -214,18 +309,17 @@ function groupMarketplaceTopNav(
     ),
   );
   const accountItems = orderAccountNav(
-    visibleItems.filter((item) => !sellingWorkflowKeys.has(item.key) && item.key !== "submitted-offers"),
+    visibleItems.filter((item) => !sellingWorkflowKeys.has(item.key) && !["submitted-offers", "reviews"].includes(item.key)),
   );
-  const submittedOffers = visibleItems.find((item) => item.key === "submitted-offers");
   const accountItem = accountItems.find((item) => item.key === "account");
-  const accountGroup: NavigationItem | undefined = accountItem && submittedOffers
+  const accountChildren = orderAccountChildNav(
+    visibleItems.filter((item) => ["account", "submitted-offers", "reviews"].includes(item.key)),
+  );
+  const accountGroup: NavigationItem | undefined = accountItem && accountChildren.length > 1
     ? {
         ...accountItem,
         href: undefined,
-        children: [
-          accountItem,
-          submittedOffers,
-        ],
+        children: accountChildren,
       }
     : accountItem;
 

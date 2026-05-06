@@ -8,6 +8,7 @@ const {
   mockCreateCheckoutRequestApiClient,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockCreateSubmittedOffer,
   mockAddGuestCartLine,
   mockAppendAnonymousCartCookie,
   mockEnsureAnonymousCartId,
@@ -19,6 +20,7 @@ const {
   mockCreateCheckoutRequestApiClient: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
+  mockCreateSubmittedOffer: vi.fn(),
   mockAddGuestCartLine: vi.fn(),
   mockAppendAnonymousCartCookie: vi.fn((headers: Headers, anonymousCartId: string) => {
     headers.append("Set-Cookie", `chase_sets_anonymous_cart=${anonymousCartId}`);
@@ -58,6 +60,65 @@ import { action } from "../routes/item-detail";
 describe("item detail buy now action", () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("returns buyers to the item offer list after submitting an offer", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      permissions: ["offers.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      createSubmittedOffer: mockCreateSubmittedOffer.mockResolvedValue({
+        offer_id: "offer_charizard",
+      }),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "submit-offer");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set(
+      "selectedOptions",
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    form.set("productSummary", "Raw");
+    form.set("priceAmount", "350.00");
+    form.set("quantityRequested", "1");
+
+    const response = await action({
+      request: new Request("http://localhost/items/charizard-base-set", {
+        method: "POST",
+        body: form,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }),
+      params: { id: "charizard-base-set" },
+      context: {},
+    });
+
+    expect(mockCreateSubmittedOffer).toHaveBeenCalledWith({
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      itemTitle: "Charizard",
+      itemSubtitle: "Base Set 4/102 Holo Rare",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw",
+      priceAmount: "350.00",
+      quantityRequested: 1,
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "/items/charizard-base-set?market=sell&offerSubmitted=1",
+    );
   });
 
   it("creates a buy-now checkout session and redirects to checkout", async () => {
@@ -163,13 +224,18 @@ describe("item detail buy now action", () => {
       productId: "cat_charizard::form:raw",
       itemTitle: "Charizard",
       itemSubtitle: "Base Set 4/102 Holo Rare",
+      itemImageUrl: null,
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Raw",
       quantity: 2,
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/cart");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "added-to-cart",
+      itemTitle: "Charizard",
+      quantity: 2,
+    });
   });
 
   it("starts signed-out buy now at guest checkout contact instead of sign-in", async () => {
@@ -260,6 +326,7 @@ describe("item detail buy now action", () => {
       productId: "cat_charizard::form:raw",
       itemTitle: "Charizard",
       itemSubtitle: "Base Set 4/102 Holo Rare",
+      itemImageUrl: null,
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Raw",
       quantity: 2,
@@ -269,7 +336,11 @@ describe("item detail buy now action", () => {
       "anon_cart_1",
     );
     expect(mockAddCartLine).not.toHaveBeenCalled();
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/cart");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "added-to-cart",
+      itemTitle: "Charizard",
+      quantity: 2,
+    });
   });
 });

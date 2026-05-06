@@ -8,6 +8,7 @@ export type CheckoutCartLineRow = Readonly<{
   product_id: string;
   item_title: string;
   item_subtitle: string | null;
+  item_image_url: string | null;
   selected_options: readonly VersionSelectedOptionEntry[];
   product_summary: string | null;
   quantity: number;
@@ -22,6 +23,7 @@ type CartLinePageRow = Readonly<{
   product_id: string;
   item_title: string;
   item_subtitle: string | null;
+  item_image_url: string | null;
   selected_options: unknown;
   product_summary: string | null;
   quantity: number;
@@ -44,20 +46,23 @@ export async function listCartLines(
 ): Promise<CheckoutCartLineRow[]> {
   const result = await db.query<CartLinePageRow>(
     `SELECT
-       buyer_account_id,
-       line_id,
-       catalog_catalog_item_id,
-       product_id,
-       item_title,
-       item_subtitle,
-       selected_options,
-       product_summary,
-       quantity,
-       created_at,
-       updated_at
-     FROM checkout_cart_line_pages
-     WHERE buyer_account_id = $1
-     ORDER BY updated_at DESC, line_id ASC`,
+       line.buyer_account_id,
+       line.line_id,
+       line.catalog_catalog_item_id,
+       line.product_id,
+       line.item_title,
+       line.item_subtitle,
+       item_page.image_urls->>0 AS item_image_url,
+       line.selected_options,
+       line.product_summary,
+       line.quantity,
+       line.created_at,
+       line.updated_at
+     FROM checkout_cart_line_pages line
+     LEFT JOIN discovery_item_detail_pages item_page
+       ON item_page.catalog_item_id = line.catalog_catalog_item_id
+     WHERE line.buyer_account_id = $1
+     ORDER BY line.updated_at DESC, line.line_id ASC`,
     [buyerAccountId],
   );
 

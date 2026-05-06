@@ -2,12 +2,13 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
+  BuyerProtectionModule,
   Container,
-  EmptyState,
   Grid,
-  Heading,
+  ListingCard,
   LinkButton,
-  MarketplaceProductCard,
+  MarketplaceEmptyState,
+  SellerCredibilityHeader,
   PageSection,
   Stack,
   Text,
@@ -24,6 +25,26 @@ import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics
 
 function formatMoney(value: string): string {
   return `$${value}`;
+}
+
+function buyerFulfillmentLabel(shipFromCode: string | null) {
+  if (!shipFromCode) {
+    return t("discovery.routes.publicSeller.fulfillment.confirmed.at.checkout");
+  }
+
+  const normalized = shipFromCode.toUpperCase();
+  if (normalized.startsWith("STL")) {
+    return t("discovery.routes.publicSeller.ships.from", {
+      shipFrom: "St. Louis, MO",
+    });
+  }
+  if (normalized.startsWith("CHI")) {
+    return t("discovery.routes.publicSeller.ships.from", {
+      shipFrom: "Chicago, IL",
+    });
+  }
+
+  return t("discovery.routes.publicSeller.seller.fulfillment.center");
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -112,48 +133,130 @@ function PublicSellerRealtimeView({ data }: { data: Awaited<ReturnType<typeof lo
   return (
     <Container width="expanded">
       <Stack gap={6}>
-        <Stack gap={2}>
-          <Heading level={1}>{seller.seller_display_name ?? t("discovery.routes.publicSeller.seller.2")}</Heading>
-          <Text size="lg" tone="secondary">
-            {t("discovery.routes.publicSeller.active.listing.count", {
-              count: seller.active_listing_count,
-              listingLabel: t(
-                seller.active_listing_count === 1
-                  ? "discovery.routes.publicSeller.listing.singular"
-                  : "discovery.routes.publicSeller.listing.plural",
-              ),
-            })}
-          </Text>
-        </Stack>
+        <SellerCredibilityHeader
+          name={seller.seller_display_name ?? t("discovery.routes.publicSeller.seller.2")}
+          verification={
+            seller.status === "active"
+              ? t("discovery.routes.publicSeller.verified.seller")
+              : t("discovery.routes.publicSeller.building.trust")
+          }
+          summary={
+            seller.active_listing_count > 0
+              ? t("discovery.routes.publicSeller.verified.marketplace.seller.profile")
+              : t("discovery.routes.publicSeller.new.seller.protected.checkout")
+          }
+          facts={[
+            {
+              label: t("discovery.routes.publicSeller.active.listings"),
+              value: seller.active_listing_count,
+            },
+            {
+              label: t("discovery.routes.publicSeller.review.history"),
+              value: seller.active_listing_count > 0
+                ? t("discovery.routes.publicSeller.reviews.visible.after.orders")
+                : t("discovery.routes.publicSeller.new.seller"),
+            },
+            {
+              label: t("discovery.routes.publicSeller.response.time"),
+              value: t("discovery.routes.publicSeller.responds.through.order.updates"),
+            },
+            {
+              label: t("discovery.routes.publicSeller.profile.updated"),
+              value: new Intl.DateTimeFormat("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              }).format(new Date(seller.updated_at)),
+            },
+          ]}
+          policies={[
+            {
+              label: t("discovery.routes.publicSeller.buyer.protection"),
+              value: t("discovery.routes.publicSeller.buyer.protection.description"),
+            },
+            {
+              label: t("discovery.routes.publicSeller.return.refund.policy"),
+              value: t("discovery.routes.publicSeller.policies.confirmed.before.payment"),
+            },
+          ]}
+          contactAction={
+            <LinkButton href="/sign-in?returnTo=%2Faccount%2Fmessages" tone="secondary">
+              {t("discovery.routes.publicSeller.sign.in.to.contact.seller")}
+            </LinkButton>
+          }
+          reportAction={
+            <LinkButton href="/support" tone="ghost">
+              {t("discovery.routes.publicSeller.report.seller")}
+            </LinkButton>
+          }
+        />
+
+        <BuyerProtectionModule
+          title={t("discovery.routes.publicSeller.buyer.confidence")}
+          items={[
+            {
+              title: t("discovery.routes.publicSeller.verified.seller.status"),
+              description: t("discovery.routes.publicSeller.verified.seller.status.description"),
+            },
+            {
+              title: t("discovery.routes.publicSeller.clear.listing.details"),
+              description: t("discovery.routes.publicSeller.clear.listing.details.description"),
+            },
+            {
+              title: t("discovery.routes.publicSeller.secure.checkout"),
+              description: t("discovery.routes.publicSeller.secure.checkout.description"),
+            },
+          ]}
+        />
 
         {seller.listings.length > 0 ? (
-          <Grid columns={{ base: 1, sm: 2, xl: 4 }} gap={4}>
+          <Grid columns={{ base: 1, lg: 2 }} gap={4}>
             {seller.listings.map((listing) => (
-              <MarketplaceProductCard
+              <ListingCard
                 key={listing.listing_id}
-                href={`/listings/${listing.listing_slug}`}
                 title={listing.item_title ?? t("discovery.routes.publicSeller.marketplace.listing")}
-                subtitle={listing.item_subtitle ?? listing.product_summary}
-                description={listing.product_summary ?? t("discovery.routes.publicSeller.active.marketplace.listing")}
-                fallbackImageSrc={discoveryAssetUrls.defaultProductImage}
-                fallbackImageAlt={t("discovery.routes.publicSeller.pokemon.card.back")}
-                status="available"
+                imageSrc={discoveryAssetUrls.defaultProductImage}
+                imageAlt={listing.item_title ?? t("discovery.routes.publicSeller.pokemon.card.back")}
                 price={formatMoney(listing.price_amount)}
-                meta={t("discovery.routes.publicSeller.quantity.available", {
+                priceDetail={t("discovery.routes.publicSeller.quantity.available", {
                   quantity: listing.quantity_cap,
                 })}
-                actionLabel={t("discovery.routes.publicSeller.view.listing")}
-                categoryTags={[]}
-                metadataTags={[]}
+                sellerName={seller.seller_display_name ?? t("discovery.routes.publicSeller.seller.2")}
+                sellerTrustLabel={
+                  seller.status === "active"
+                    ? t("discovery.routes.publicSeller.verified.seller")
+                    : t("discovery.routes.publicSeller.seller.details.visible")
+                }
+                sellerVerified={seller.status === "active"}
+                fulfillment={buyerFulfillmentLabel(listing.ship_from_code)}
+                availability={t("discovery.routes.publicSeller.quantity.available", {
+                  quantity: listing.quantity_cap,
+                })}
+                condition={listing.product_summary ?? t("discovery.routes.publicSeller.standard.product")}
+                valueCue={t("discovery.routes.publicSeller.price.quantity.and.seller.visible")}
+                protection={t("discovery.routes.publicSeller.buyer.protected")}
+                primaryAction={
+                  <LinkButton href={`/listings/${listing.listing_slug}`} size="sm">
+                    {t("discovery.routes.publicSeller.view.listing")}
+                  </LinkButton>
+                }
+                secondaryAction={
+                  <LinkButton
+                    href={`/items/${listing.catalog_item_slug ?? listing.catalog_catalog_item_id}`}
+                    tone="secondary"
+                    size="sm"
+                  >
+                    {t("discovery.routes.publicSeller.compare")}
+                  </LinkButton>
+                }
               />
             ))}
           </Grid>
         ) : (
-          <EmptyState
+          <MarketplaceEmptyState
             title={t("discovery.routes.publicSeller.no.active.listings")}
             description={t("discovery.routes.publicSeller.this.seller.does.not.have.active")}
-            icon="store"
-            actions={<LinkButton href="/search">{t("discovery.routes.publicSeller.browse.marketplace")}</LinkButton>}
+            recoveryActions={<LinkButton href="/search">{t("discovery.routes.publicSeller.browse.marketplace")}</LinkButton>}
           />
         )}
       </Stack>

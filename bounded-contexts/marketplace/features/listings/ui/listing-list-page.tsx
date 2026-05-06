@@ -5,15 +5,21 @@ import {
   Button,
   Card,
   DataTable,
+  Inline,
   LinkButton,
+  MarketplaceDashboardPanel,
+  MarketplaceNotice,
   Page,
   PageHeader,
   PageSection,
+  PriceBreakdown,
+  ProductSelectionSummary,
   Stack,
   Text,
   TextInput,
   NumberInput,
   NativeSelect,
+  productSelectionDetailsFromSummary,
 } from "@chase-sets/design-system";
 import type {
   MarketplaceListingFeeLockReportEntry,
@@ -51,14 +57,14 @@ function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
   const segments = [
     inventoryItem.item_title ?? inventoryItem.catalog_catalog_item_id,
     inventoryItem.item_subtitle,
-    inventoryItem.product_summary,
+    inventoryItem.product_summary?.replaceAll(" | ", ", "),
     t("marketplace.features.listings.ui.listingListPage.quantity.available", {
       quantity: inventoryItem.available_quantity,
     }),
     inventoryItem.storage_location_name,
   ].filter(Boolean);
 
-  return segments.join(" | ");
+  return segments.join(" - ");
 }
 
 function renderFeeSummary(listing: MarketplaceListingListItem) {
@@ -78,7 +84,7 @@ function renderFeeSummary(listing: MarketplaceListingListItem) {
     }),
   ];
 
-  return segments.join(" | ");
+  return segments.join(". ");
 }
 
 function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
@@ -92,20 +98,16 @@ function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
     t("marketplace.features.listings.ui.listingListPage.buyer.shipping.credit.summary", {
       percentage: formatAllowancePercentage(preview.shipping_allowance_percentage_bps),
     }),
-  ].join(" | ");
+  ].join(". ");
 }
 
 function termsSource(row: MarketplaceListingFeeLockReportEntry) {
   if (row.terms_agreement_id) {
-    return t("marketplace.features.listings.ui.listingListPage.agreement.source", {
-      source: row.terms_agreement_id,
-    });
+    return "Seller terms";
   }
 
   return row.terms_schedule_id
-    ? t("marketplace.features.listings.ui.listingListPage.schedule.source", {
-        source: row.terms_schedule_id,
-      })
+    ? "Standard seller terms"
     : t("marketplace.features.listings.ui.listingListPage.source.unavailable");
 }
 
@@ -122,6 +124,16 @@ function selectedInventorySummary(
   }
 
   return inventoryItems.find((inventoryItem) => inventoryItem.item_id === inventoryItemId) ?? null;
+}
+
+function ProductSummaryChips({ summary }: { summary: string }) {
+  return (
+    <ProductSelectionSummary
+      selections={productSelectionDetailsFromSummary(summary)}
+      summary={summary}
+      summaryAsChip
+    />
+  );
 }
 
 export function MarketplaceListingListPage({
@@ -148,6 +160,9 @@ export function MarketplaceListingListPage({
     createForm?.inventoryItemId,
   );
   const hasInventory = inventoryItems.length > 0;
+  const activeListings = data.items.filter((item) => item.status === "active").length;
+  const draftListings = data.items.filter((item) => item.status === "draft").length;
+  const pausedListings = data.items.filter((item) => item.status === "paused").length;
 
   return (
     <Page>
@@ -162,10 +177,38 @@ export function MarketplaceListingListPage({
       />
 
       {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
+        <MarketplaceNotice tone="error" title={t("marketplace.features.listings.ui.listingListPage.listings")} description={errorMessage} />
       ) : null}
+
+      <MarketplaceDashboardPanel
+        title={t("marketplace.features.listings.ui.listingListPage.current.listings")}
+        description={t("marketplace.features.listings.ui.listingListPage.create.publish.and.manage.seller.listings")}
+        metrics={[
+          {
+            label: t("marketplace.features.listings.ui.listingListPage.active.listings"),
+            value: activeListings,
+            detail: t("marketplace.features.listings.ui.listingListPage.current.listings"),
+          },
+          {
+            label: t("marketplace.features.listings.ui.listingListPage.draft.listings"),
+            value: draftListings,
+            detail: t("marketplace.features.listings.ui.listingListPage.create.a.listing.from.available.inventory"),
+          },
+          {
+            label: t("marketplace.features.listings.ui.listingListPage.inventory"),
+            value: inventoryItems.length,
+            detail: t("marketplace.features.listings.ui.listingListPage.paused.listings.count", {
+              count: pausedListings,
+              label: t("marketplace.features.listings.ui.listingListPage.status"),
+            }),
+          },
+        ]}
+        action={
+          <LinkButton href="/account/inventory" tone="secondary" size="sm">
+            {t("marketplace.features.listings.ui.listingListPage.view.inventory")}
+          </LinkButton>
+        }
+      />
 
       <PageSection title={t("marketplace.features.listings.ui.listingListPage.create.listing")}>
         <Card>
@@ -221,7 +264,7 @@ export function MarketplaceListingListPage({
                 required
                 disabled={!hasInventory}
               />
-              <Stack gap={2}>
+              <Inline>
                 <Button
                   type="submit"
                   name="intent"
@@ -232,46 +275,52 @@ export function MarketplaceListingListPage({
                 <Button
                   type="submit"
                   name="intent"
-                  value="create-listing"
-                  tone="secondary"
-                  disabled={!hasInventory}
-                >
-                  {t("marketplace.features.listings.ui.listingListPage.save.as.draft")}</Button>
-                <Button
-                  type="submit"
-                  name="intent"
                   value="preview-listing"
                   tone="secondary"
                   disabled={!hasInventory}
                 >
                   {t("marketplace.features.listings.ui.listingListPage.preview.fees")}</Button>
-              </Stack>
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="create-listing"
+                  tone="ghost"
+                  disabled={!hasInventory}
+                >
+                  {t("marketplace.features.listings.ui.listingListPage.save.as.draft")}</Button>
+              </Inline>
             </Stack>
           </form>
         </Card>
         {createPreview ? (
-          <Card>
-            <Stack gap={2}>
-              <Text weight="semibold">{t("marketplace.features.listings.ui.listingListPage.listing.fee.preview")}</Text>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.listings.ui.listingListPage.account.type")}{createPreview.account_type}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {renderPreviewSummary(createPreview)}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.listings.ui.listingListPage.basis.amount")}{formatMoney(createPreview.basis_amount)}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.listings.ui.listingListPage.terms.schedule")}{createPreview.schedule_id ?? t("marketplace.features.listings.ui.listingListPage.no.schedule.available")}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.listings.ui.listingListPage.agreement.override")}{createPreview.agreement_id ?? t("marketplace.features.listings.ui.listingListPage.none")}
-              </Text>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.listings.ui.listingListPage.if.you.create.the.listing.now")}</Text>
-            </Stack>
-          </Card>
+          <PriceBreakdown
+            lines={[
+              {
+                label: t("marketplace.features.listings.ui.listingListPage.account.type"),
+                value: createPreview.account_type,
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingListPage.basis.amount"),
+                value: formatMoney(createPreview.basis_amount),
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingListPage.locked.fee"),
+                value: formatMoney(createPreview.marketplace_sales_fee_unit_amount),
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingListPage.buyer.shipping.credit.summary", {
+                  percentage: formatAllowancePercentage(createPreview.shipping_allowance_percentage_bps),
+                }),
+                value: t("marketplace.features.listings.ui.listingListPage.if.you.create.the.listing.now"),
+              },
+              {
+                label: t("marketplace.features.listings.ui.listingListPage.terms.schedule"),
+                value: createPreview.schedule_id ?? t("marketplace.features.listings.ui.listingListPage.no.schedule.available"),
+              },
+            ]}
+            total={formatMoney(createPreview.seller_net_unit_amount)}
+            totalLabel={t("marketplace.features.listings.ui.listingListPage.listing.fee.preview")}
+          />
         ) : null}
       </PageSection>
 
@@ -292,9 +341,7 @@ export function MarketplaceListingListPage({
                     </Text>
                   ) : null}
                   {row.product_summary ? (
-                    <Text tone="secondary" size="sm">
-                      {row.product_summary}
-                    </Text>
+                    <ProductSummaryChips summary={row.product_summary} />
                   ) : null}
                 </Stack>
               ),
@@ -328,9 +375,6 @@ export function MarketplaceListingListPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Text>{row.storage_location_name ?? t("marketplace.features.listings.ui.listingListPage.location.unavailable")}</Text>
-                  <Text size="sm" tone="secondary">
-                    {row.ship_from_code ?? row.inventory_item_id}
-                  </Text>
                   {row.terms_resolved_at ? (
                     <Text size="sm" tone="secondary">
                       {t("marketplace.features.listings.ui.listingListPage.terms.resolved")}{new Date(row.terms_resolved_at).toLocaleString()}
@@ -365,9 +409,7 @@ export function MarketplaceListingListPage({
                 <Stack gap={1}>
                   <Text weight="semibold">{row.item_title ?? row.inventory_item_id}</Text>
                   {row.product_summary ? (
-                    <Text tone="secondary" size="sm">
-                      {row.product_summary}
-                    </Text>
+                    <ProductSummaryChips summary={row.product_summary} />
                   ) : null}
                 </Stack>
               ),
