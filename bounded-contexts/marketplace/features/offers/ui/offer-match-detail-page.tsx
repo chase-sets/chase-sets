@@ -3,10 +3,12 @@ import {
   Badge,
   Button,
   BuyerProtectionModule,
+  Card,
+  Inline,
+  KeyValueList,
   LinkButton,
   MarketplaceNotice,
   MarketplaceStatusTimeline,
-  OfferCard,
   Page,
   PageHeader,
   PageSection,
@@ -64,8 +66,11 @@ export function MarketplaceOfferMatchDetailPage({
   canAccept?: boolean;
   errorMessage?: string | null;
 }) {
-  const acceptOfferAction =
-    canAccept && offer.status === "submitted" ? (
+  const canAcceptSubmitted = canAccept && offer.status === "submitted";
+  const fulfillmentLabel = offer.can_fulfill
+    ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
+    : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply");
+  const acceptOfferAction = canAcceptSubmitted ? (
       <form method="post">
         <input
           type="hidden"
@@ -86,7 +91,7 @@ export function MarketplaceOfferMatchDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow={t("marketplace.features.offers.ui.offerMatchDetailPage.inventory")}
+        eyebrow={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match")}
         title={offer.item_title}
         description={t("marketplace.features.offers.ui.offerMatchDetailPage.review.an.offer.match.that.matches")}
         actions={
@@ -101,26 +106,43 @@ export function MarketplaceOfferMatchDetailPage({
 
       <PageSection title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}>
         <Stack gap={4}>
-          <OfferCard
-            title={offer.item_title}
-            amount={formatMoney(offer.price_amount)}
-            status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
-            details={
+          <Card>
+            <Stack gap={4}>
               <Stack gap={2}>
+                <Inline>
+                  <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
+                  <Badge tone={offer.can_fulfill ? "success" : "warning"}>
+                    {fulfillmentLabel}
+                  </Badge>
+                </Inline>
+                <Text size="lg" weight="semibold">{formatMoney(offer.price_amount)}</Text>
+                <Text weight="semibold">{offer.item_title}</Text>
                 {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
                 {offer.product_summary ? (
                   <ProductSummaryChips summary={offer.product_summary} />
                 ) : null}
-                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.buyer")}{offer.buyer_display_name ?? offer.buyer_account_id}</Text>
-                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
-                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available")}{offer.seller_available_quantity}</Text>
-                <Badge tone={offer.can_fulfill ? "success" : "warning"}>
-                  {offer.can_fulfill ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill") : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply")}
-                </Badge>
               </Stack>
-            }
-            actions={acceptOfferAction}
-          />
+              <KeyValueList
+                density="compact"
+                variant="plain"
+                items={[
+                  {
+                    key: t("marketplace.features.offers.ui.offerMatchDetailPage.buyer"),
+                    value: offer.buyer_display_name ?? offer.buyer_account_id,
+                  },
+                  {
+                    key: t("marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested"),
+                    value: offer.quantity_requested,
+                  },
+                  {
+                    key: t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available"),
+                    value: offer.seller_available_quantity,
+                  },
+                ]}
+              />
+              {acceptOfferAction}
+            </Stack>
+          </Card>
 
           {acceptanceTerms ? (
             <PriceBreakdown
@@ -191,7 +213,9 @@ export function MarketplaceOfferMatchDetailPage({
                 label: t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match"),
                 description: offer.status === "accepted"
                   ? t("marketplace.features.offers.ui.offerMatchDetailPage.this.offer.match.has.already.been")
-                  : t("marketplace.features.offers.ui.offerMatchDetailPage.this.view.is.read.only.for"),
+                  : offer.can_fulfill
+                    ? t("marketplace.features.offers.ui.offerMatchDetailPage.accept.this.match.to.create.the.sale")
+                    : t("marketplace.features.offers.ui.offerMatchDetailPage.add.enough.available.supply.before.accepting"),
                 status: offer.status === "accepted" ? "complete" : "upcoming",
               },
             ]}

@@ -4,7 +4,8 @@ import {
   Button,
   BuyerProtectionModule,
   Card,
-  ListingCard,
+  Inline,
+  KeyValueList,
   LinkButton,
   MarketplaceNotice,
   MarketplaceStatusTimeline,
@@ -17,6 +18,8 @@ import {
   Text,
   TextInput,
   NumberInput,
+  ProductSelectionSummary,
+  productSelectionDetailsFromSummary,
 } from "@chase-sets/design-system";
 import type {
   MarketplaceListingDetail,
@@ -94,6 +97,16 @@ function statusTone(status: string) {
   }
 }
 
+function ProductSummaryChips({ summary }: { summary: string }) {
+  return (
+    <ProductSelectionSummary
+      selections={productSelectionDetailsFromSummary(summary)}
+      summary={summary}
+      summaryAsChip
+    />
+  );
+}
+
 export function MarketplaceListingDetailPage({
   listing,
   feeHistory,
@@ -125,46 +138,64 @@ export function MarketplaceListingDetailPage({
 
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}>
         <Stack gap={4}>
-          <ListingCard
-            title={listing.item_title ?? listing.catalog_catalog_item_id}
-            showMediaPlaceholder={false}
-            price={formatMoney(listing.price_amount)}
-            priceDetail={renderPreviewSummary({
-              account_type: "personal",
-              basis_amount: listing.price_amount,
-              fee_quote_fingerprint: listing.fee_quote_fingerprint,
-              marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount ?? "0.00",
-              seller_net_unit_amount: listing.seller_net_unit_amount ?? "0.00",
-              shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
-              schedule_id: listing.terms_schedule_id,
-              agreement_id: listing.terms_agreement_id,
-              resolved_at: listing.terms_resolved_at ?? new Date().toISOString(),
-            })}
-            sellerName={t("marketplace.features.listings.ui.listingDetailPage.seller")}
-            sellerTrustLabel={
-              listing.status === "active"
-                ? t("marketplace.features.listings.ui.listingDetailPage.verified.seller")
-                : t("marketplace.features.listings.ui.listingDetailPage.seller.details.visible")
-            }
-            sellerVerified={listing.status === "active"}
-            fulfillment={listing.ship_from_code
-              ? t("marketplace.features.listings.ui.listingDetailPage.ship.from.code", {
-                  shipFromCode: listing.ship_from_code,
-                })
-              : t("marketplace.features.listings.ui.listingDetailPage.unknown.location")}
-            availability={listing.status}
-            condition={listing.product_summary ?? t("marketplace.features.listings.ui.listingDetailPage.not.set")}
-            valueCue={listing.item_subtitle ?? t("marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps")}
-            protection={t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit")}
-            primaryAction={
+          <Card>
+            <Stack gap={4}>
+              <Stack gap={2}>
+                <Inline>
+                  <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
+                  {listing.status === "active" ? (
+                    <Badge tone="success">
+                      {t("marketplace.features.listings.ui.listingDetailPage.verified.seller")}
+                    </Badge>
+                  ) : null}
+                </Inline>
+                <Text size="lg" weight="semibold">
+                  {listing.item_title ?? listing.catalog_catalog_item_id}
+                </Text>
+                {listing.item_subtitle ? (
+                  <Text tone="secondary">{listing.item_subtitle}</Text>
+                ) : null}
+                {listing.product_summary ? (
+                  <ProductSummaryChips summary={listing.product_summary} />
+                ) : null}
+                <Text size="lg" weight="semibold">{formatMoney(listing.price_amount)}</Text>
+                <Text size="sm" tone="secondary">
+                  {renderPreviewSummary({
+                    account_type: "personal",
+                    basis_amount: listing.price_amount,
+                    fee_quote_fingerprint: listing.fee_quote_fingerprint,
+                    marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount ?? "0.00",
+                    seller_net_unit_amount: listing.seller_net_unit_amount ?? "0.00",
+                    shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
+                    schedule_id: listing.terms_schedule_id,
+                    agreement_id: listing.terms_agreement_id,
+                    resolved_at: listing.terms_resolved_at ?? new Date().toISOString(),
+                  })}
+                </Text>
+              </Stack>
+              <KeyValueList
+                density="compact"
+                variant="plain"
+                items={[
+                  {
+                    key: t("marketplace.features.listings.ui.listingDetailPage.inventory"),
+                    value: `${listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location")} ${listing.ship_from_code ?? ""}`.trim(),
+                  },
+                  {
+                    key: t("marketplace.features.listings.ui.listingDetailPage.quantity.cap"),
+                    value: listing.quantity_cap,
+                  },
+                  {
+                    key: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
+                    value: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+                  },
+                ]}
+              />
               <LinkButton href="#update-listing" size="sm">
                 {t("marketplace.features.listings.ui.listingDetailPage.update.listing")}
               </LinkButton>
-            }
-            secondaryAction={
-              <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
-            }
-          />
+            </Stack>
+          </Card>
 
           <PriceBreakdown
             lines={[

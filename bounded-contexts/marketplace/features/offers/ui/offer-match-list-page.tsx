@@ -84,11 +84,14 @@ export function MarketplaceOfferMatchListPage({
 }) {
   const queuedCount = cartData?.items.length ?? 0;
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
+  const nextAcceptableOffer = data.items.find((item) => item.can_fulfill && item.status === "submitted")
+    ?? data.items.find((item) => item.status === "submitted")
+    ?? data.items[0];
 
   return (
     <Page>
       <PageHeader
-        eyebrow={t("marketplace.features.offers.ui.offerMatchListPage.inventory")}
+        eyebrow={t("marketplace.features.offers.ui.offerMatchListPage.seller")}
         title={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches")}
         description={t("marketplace.features.offers.ui.offerMatchListPage.review.offer.matches.that.currently.match")}
         actions={
@@ -183,15 +186,24 @@ export function MarketplaceOfferMatchListPage({
                   }
                 />
               ))}
-              <Button
-                type="submit"
-                name="intent"
-                value="accept-sell-list"
-                disabled={!cartData || cartData.items.length === 0}
-              >
-                {cartData && cartData.items.length > 0
-                  ? t("marketplace.features.offers.ui.offerMatchListPage.accept.sell.list")
-                  : "Select offers to accept"}</Button>
+              {cartData && cartData.items.length > 0 ? (
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="accept-sell-list"
+                >
+                  {t("marketplace.features.offers.ui.offerMatchListPage.accept.sell.list")}</Button>
+              ) : nextAcceptableOffer ? (
+                <LinkButton
+                  href={`/account/offers/matches/${nextAcceptableOffer.offer_id}`}
+                  tone="secondary"
+                >
+                  {t("marketplace.features.offers.ui.offerMatchListPage.open.next.match.to.accept")}</LinkButton>
+              ) : (
+                <Button type="submit" disabled>
+                  {t("marketplace.features.offers.ui.offerMatchListPage.no.offers.ready")}
+                </Button>
+              )}
             </form>
           </Stack>
         </Card>

@@ -163,6 +163,10 @@ export function MarketplaceListingListPage({
   const activeListings = data.items.filter((item) => item.status === "active").length;
   const draftListings = data.items.filter((item) => item.status === "draft").length;
   const pausedListings = data.items.filter((item) => item.status === "paused").length;
+  const pausedListingDetail = t("marketplace.features.listings.ui.listingListPage.paused.listings.detail", {
+    count: pausedListings,
+    label: pausedListings === 1 ? "listing" : "listings",
+  });
 
   return (
     <Page>
@@ -181,33 +185,25 @@ export function MarketplaceListingListPage({
       ) : null}
 
       <MarketplaceDashboardPanel
-        title={t("marketplace.features.listings.ui.listingListPage.current.listings")}
-        description={t("marketplace.features.listings.ui.listingListPage.create.publish.and.manage.seller.listings")}
+        title={t("marketplace.features.listings.ui.listingListPage.listing.health")}
+        description={t("marketplace.features.listings.ui.listingListPage.track.active.supply.drafts.and.sellable")}
         metrics={[
           {
             label: t("marketplace.features.listings.ui.listingListPage.active.listings"),
             value: activeListings,
-            detail: t("marketplace.features.listings.ui.listingListPage.current.listings"),
+            detail: t("marketplace.features.listings.ui.listingListPage.visible.to.buyers"),
           },
           {
             label: t("marketplace.features.listings.ui.listingListPage.draft.listings"),
             value: draftListings,
-            detail: t("marketplace.features.listings.ui.listingListPage.create.a.listing.from.available.inventory"),
+            detail: t("marketplace.features.listings.ui.listingListPage.not.visible.yet"),
           },
           {
             label: t("marketplace.features.listings.ui.listingListPage.inventory"),
             value: inventoryItems.length,
-            detail: t("marketplace.features.listings.ui.listingListPage.paused.listings.count", {
-              count: pausedListings,
-              label: t("marketplace.features.listings.ui.listingListPage.status"),
-            }),
+            detail: pausedListingDetail,
           },
         ]}
-        action={
-          <LinkButton href="/account/inventory" tone="secondary" size="sm">
-            {t("marketplace.features.listings.ui.listingListPage.view.inventory")}
-          </LinkButton>
-        }
       />
 
       <PageSection title={t("marketplace.features.listings.ui.listingListPage.create.listing")}>
@@ -223,7 +219,13 @@ export function MarketplaceListingListPage({
                       {t("marketplace.features.listings.ui.listingListPage.add.inventory")}</LinkButton>
                   }
                 />
-              ) : null}
+              ) : (
+                <Banner
+                  title={t("marketplace.features.listings.ui.listingListPage.preview.fees.before.publishing")}
+                  description={t("marketplace.features.listings.ui.listingListPage.choose.inventory.enter.a.price.and.preview")}
+                  tone="info"
+                />
+              )}
               {selectedInventory ? (
                 <Banner
                   title={t("marketplace.features.listings.ui.listingListPage.selected.inventory")}
