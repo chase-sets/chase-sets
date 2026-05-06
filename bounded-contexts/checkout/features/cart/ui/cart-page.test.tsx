@@ -10,8 +10,9 @@ const cartLine: CheckoutCartLine = {
   product_id: "cat_charizard::condition:raw",
   item_title: "Charizard",
   item_subtitle: "Base Set 4/102 Holo Rare",
+  item_image_url: "/fake-cdn/assets/charizard.png",
   selected_options: [{ dimensionId: "condition", optionId: "raw" }],
-  product_summary: "Raw / Near Mint",
+  product_summary: "Form: Raw | Condition: Near Mint",
   quantity: 2,
   created_at: "2026-04-28T00:00:00.000Z",
   updated_at: "2026-04-28T00:00:00.000Z",
@@ -30,5 +31,31 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("Estimated total");
     expect(markup).not.toContain(">Pending<");
     expect(markup).not.toContain("Checkout cart");
+  });
+
+  it("groups duplicate product intent as one quantity-controlled cart line", () => {
+    const duplicateLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_2",
+      quantity: 3,
+      updated_at: "2026-04-29T00:00:00.000Z",
+    };
+
+    const markup = renderToString(
+      <CheckoutCartPage cartLines={[cartLine, duplicateLine]} />,
+    );
+
+    expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
+    expect(markup).toContain("Charizard");
+    expect(markup).toContain("Base Set 4/102 Holo Rare");
+    expect(markup).toContain("Form<!-- -->: <!-- -->Raw");
+    expect(markup).toContain("Condition<!-- -->: <!-- -->Near Mint");
+    expect(markup).not.toContain("Charizard | Base Set 4/102 Holo Rare");
+    expect(markup).not.toContain("Form: Raw | Condition: Near Mint");
+    expect(markup).toContain('value="5"');
+    expect(markup).toContain('name="lineId" value="cart_line_1"');
+    expect(markup).toContain('name="lineId" value="cart_line_2"');
+    expect(markup).not.toContain("Catalog item:");
+    expect(markup).not.toContain("cat_charizard");
   });
 });

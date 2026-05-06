@@ -1,6 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { useId } from "react";
 import { LayoutGroup } from "motion/react";
+import { ChaseSetsLogo } from "../../brand/chase-sets-logo";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
 import { layoutWidthClasses, type LayoutWidth } from "../../primitives/layout";
@@ -13,6 +14,7 @@ export interface NavigationItem {
   icon?: IconName;
   badge?: string;
   href?: string;
+  placement?: "primary" | "utility";
   avatar?: ReactNode;
   children?: NavigationItem[];
 }
@@ -190,6 +192,20 @@ export function TopNav({
   ...rest
 }: TopNavProps) {
   const groupId = useId();
+  const primaryItems = items.filter((item) => item.placement !== "utility");
+  const utilityItems = items
+    .filter((item) => item.placement === "utility")
+    .sort((left, right) => {
+      if (left.key === "cart" && right.key !== "cart") {
+        return 1;
+      }
+
+      if (right.key === "cart" && left.key !== "cart") {
+        return -1;
+      }
+
+      return 0;
+    });
 
   return (
     <nav
@@ -206,7 +222,7 @@ export function TopNav({
           {brand}
           <LayoutGroup id={groupId}>
             <div className="hidden items-center gap-1 md:flex">
-              {items.map((item) =>
+              {primaryItems.map((item) =>
                 renderNavigationItem(
                   item,
                   isNavigationItemActive(item, activeKey),
@@ -219,9 +235,45 @@ export function TopNav({
             </div>
           </LayoutGroup>
         </div>
-        <div className="flex items-center gap-2">{actions}</div>
+        <div className="flex items-center gap-2">
+          {actions}
+          {utilityItems.length > 0 ? (
+            <LayoutGroup id={`${groupId}-utility`}>
+              <div className="hidden items-center gap-1 md:flex">
+                {utilityItems.map((item) =>
+                  renderNavigationItem(
+                    item,
+                    isNavigationItemActive(item, activeKey),
+                    "horizontal",
+                    `${groupId}-utility`,
+                    onSelect,
+                    activeKey
+                  )
+                )}
+              </div>
+            </LayoutGroup>
+          ) : null}
+        </div>
       </div>
     </nav>
+  );
+}
+
+export interface BrandLinkProps {
+  href?: string;
+  label: string;
+}
+
+export function BrandLink({ href = "/", label }: BrandLinkProps) {
+  return (
+    <a
+      href={href}
+      aria-label={label}
+      className="focus-ring inline-flex items-center gap-2 rounded-tokenSm px-1 py-1 text-sm font-semibold text-foreground transition hover:text-accent"
+    >
+      <ChaseSetsLogo decorative size={20} />
+      <span>{label}</span>
+    </a>
   );
 }
 
@@ -270,6 +322,17 @@ export function BottomNav({
   ...rest
 }: BottomNavProps) {
   const groupId = useId();
+  const visibleItems = items.slice(0, 5);
+  const gridColumnsClass =
+    visibleItems.length >= 5
+      ? "grid-cols-5"
+      : visibleItems.length === 4
+        ? "grid-cols-4"
+        : visibleItems.length === 3
+          ? "grid-cols-3"
+          : visibleItems.length === 2
+            ? "grid-cols-2"
+            : "grid-cols-1";
 
   return (
     <nav
@@ -277,8 +340,8 @@ export function BottomNav({
       className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/88 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl md:hidden"
     >
       <LayoutGroup id={groupId}>
-        <div className={cx("mx-auto grid w-full grid-cols-4 gap-2", layoutWidthClasses[width])}>
-          {items.slice(0, 4).map((item) =>
+        <div className={cx("mx-auto grid w-full gap-2", gridColumnsClass, layoutWidthClasses[width])}>
+          {visibleItems.map((item) =>
             renderBottomNavigationItem(item, isNavigationItemActive(item, activeKey), groupId, onSelect)
           )}
         </div>

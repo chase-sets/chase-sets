@@ -15,10 +15,10 @@ Application code should not introduce:
 ## Foundations
 
 - React component package: `packages/design-system/`
-- Internal showcase: `deployables/design-system-showcase/`
 - Styling system: Tailwind CSS v4
-- Primitive behavior layer: Radix UI
-- Theme model: one Chase Sets brand theme with semantic tokens and CSS variable overrides
+- Primitive behavior layer: Base UI Shadcn-compatible primitives
+- Theme model: Chase Sets marketplace theme with light, dark, and system semantic tokens
+- Typography: IBM Plex Sans with tabular numerals for price, rating, quantity, fee, and total displays
 - Motion runtime: Motion for React, configured centrally through `ChaseRoot`
 
 ## Composition Rules
@@ -40,6 +40,19 @@ Application code should not introduce:
 - Marketplace navigation uses bottom navigation on smaller screens.
 - Admin navigation uses bottom navigation on smaller screens and persistent side navigation at larger breakpoints.
 - `DataTable` defaults to stacked cards on mobile.
+
+## Marketplace System Rules
+
+Marketplace UI follows this hierarchy: Trust -> Clarity -> Speed -> Comparison -> Polish -> Delight.
+
+- Listing cards must show price, seller name, seller trust, availability, fulfillment, and one dominant primary action.
+- Save, compare, and watchlist actions are secondary affordances.
+- Checkout must make subtotal, shipping, fees, tax, discounts, wallet credit, final total, secure payment, policy, and support paths visible before commitment.
+- Search and filtering must show selected state, counts when available, clear-all, and reversible recovery paths.
+- Trust signals must use text and semantic icons, not color alone.
+- Brand expression belongs in hero, category, story, onboarding, featured collection, and confirmation moments. Transactional screens stay task-first.
+
+Avoid decorative gradients, glow-heavy surfaces, video backgrounds, ambient animation, sparse cards that hide decision facts, hidden pricing, and competing CTAs in marketplace flows.
 
 ## Boundaries
 
@@ -63,7 +76,7 @@ The design system does not own:
 
 ## Validation
 
-Use the showcase application as the default visual validation surface and `npm run test:design-system` for component-level regression checks.
+Use the real marketplace and admin applications as the default visual validation surfaces, and use `npm run test:design-system` for component-level regression checks.
 
 ## Motion
 

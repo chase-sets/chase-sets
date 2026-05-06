@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { Button, Stack } from "@chase-sets/design-system";
 import { afterEach, describe, expect, it } from "vitest";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import type { ReactElement } from "react";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 import {
   ItemCommercePanel,
   CheckoutPurchaseIntentSection,
+  MarketplaceOfferMatchSection,
   MarketplaceSellerRegistrationSection,
 } from "../routes/item-detail";
 import type {
@@ -135,6 +137,18 @@ const variantSchema: ProductSchema = {
   ],
 };
 
+function renderWithDataRouter(element: ReactElement) {
+  const router = createMemoryRouter([
+    {
+      path: "/",
+      element,
+      action: async () => ({ status: "ok" }),
+    },
+  ]);
+
+  return render(<RouterProvider router={router} />);
+}
+
 function createItem(
   overrides: Partial<DiscoveryItemDetail> = {},
 ): DiscoveryItemDetail {
@@ -187,6 +201,47 @@ describe("item detail commerce panel", () => {
       .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
   });
 
+  it("uses buyer demand in the signed-out sell registration module", () => {
+    render(
+      <MarketplaceSellerRegistrationSection
+        productSummary="Raw / Near Mint"
+        selectedOffer={{
+          buyer_account_id: "buyer_1",
+          buyer_display_name: "Top Loader Capital",
+          price_amount: "380.00",
+          quantity_requested: 1,
+        }}
+        matchingOfferCount={5}
+        registerHref="/register?returnTo=%2Fitems%2Fcat_charizard"
+      />,
+    );
+
+    expect(screen.getByText("Accept offer after registration")).toBeTruthy();
+    expect(screen.getByText("$380.00 offer")).toBeTruthy();
+    expect(screen.getByText("From Top Loader Capital")).toBeTruthy();
+    expect(screen.getByText("5 offers")).toBeTruthy();
+    expect(screen.getByText("1 requested")).toBeTruthy();
+    expect(screen.getByText("$353.35 after $26.65 fee")).toBeTruthy();
+    expect(screen.getByText("$19.00 (5%)")).toBeTruthy();
+    expect(screen.getAllByText("Raw / Near Mint")).toHaveLength(2);
+    expect(screen.getByText("Quote preview uses Standard seller terms; final account terms are confirmed after registration.")).toBeTruthy();
+    expect(
+      screen.getByText("Register to confirm inventory, see seller payout, and accept matching offers."),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Sign in or register to accept offer" }).getAttribute("href"))
+      .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
+    expect(screen.getByText("Create a listing after registration")).toBeTruthy();
+    expect(
+      screen.getByText("If this offer does not meet your price, sign in or register to list this item instead."),
+    ).toBeTruthy();
+    expect(screen.getByText("Asking price")).toBeTruthy();
+    expect(screen.getByText("Set after registration")).toBeTruthy();
+    expect(screen.getByText("Inventory")).toBeTruthy();
+    expect(screen.getByText("Confirm after registration")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Sign in or register to list" }).getAttribute("href"))
+      .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
+  });
+
   it("opens the selected mobile commerce section in a drawer", () => {
     render(
       <ItemDetailPage
@@ -218,36 +273,10 @@ describe("item detail commerce panel", () => {
   });
 
   it("keeps checkout purchase actions available in the mobile buy drawer", () => {
-    render(
+    renderWithDataRouter(
       <ItemDetailPage
         data={createItem()}
         renderCommerce={(context) => {
-          const renderBuyActions = (formId: string) => (
-            <Stack gap={2}>
-              <Button
-                form={formId}
-                type="submit"
-                name="intent"
-                value="buy-now"
-                disabled={!context.selectedProductId || !context.selectedListing}
-                block
-              >
-                Buy now
-              </Button>
-              <Button
-                form={formId}
-                type="submit"
-                name="intent"
-                value="add-to-cart"
-                tone="secondary"
-                disabled={!context.selectedProductId}
-                block
-              >
-                Add to cart
-              </Button>
-            </Stack>
-          );
-
           return {
             buy: <div>Desktop buy rail</div>,
             offer: <div>Make an offer</div>,
@@ -257,7 +286,6 @@ describe("item detail commerce panel", () => {
                   <CheckoutPurchaseIntentSection
                     formId="mobile-buy-box"
                     panelVariant="plain"
-                    actions={null}
                     catalogItemId={context.itemId}
                     productId={context.selectedProductId}
                     selectedListing={context.selectedListing}
@@ -267,7 +295,6 @@ describe("item detail commerce panel", () => {
                     visibleListingCount={context.visibleListings.length}
                   />
                 ),
-                footer: renderBuyActions("mobile-buy-box"),
               },
             },
           };
@@ -414,6 +441,40 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("1 active listing")).toBeNull();
   });
 
+  it("keeps the market intent URL in sync when switching tabs", () => {
+    window.history.pushState(null, "", "/items/charizard-base-set?market=sell");
+
+    render(
+      <ItemDetailPage
+        data={createItem()}
+        initialMarketIntent="sell"
+        renderCommerce={() => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: <div>Accept offer</div>,
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Buy" }),
+    );
+
+    expect(new URL(window.location.href).searchParams.get("market")).toBe("buy");
+    expect(screen.getByText("Buy selected product")).toBeTruthy();
+
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Sell" }),
+    );
+
+    expect(new URL(window.location.href).searchParams.get("market")).toBe("sell");
+    expect(screen.getByText("Accept offer")).toBeTruthy();
+  });
+
   it("shows fulfillment badges for the selling account when eligible offer match data is available", () => {
     render(
       <ItemDetailPage
@@ -465,6 +526,112 @@ describe("item detail commerce panel", () => {
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
       "value",
       "listing_charizard",
+    );
+  });
+
+  it("orders listings by lowest price and selects the cheapest listing by default", () => {
+    const cheaperListing: DiscoveryMarketListing = {
+      ...alternateListing,
+      listing_id: "listing_charizard_cheapest",
+      seller_display_name: "Best Price Cards",
+      price_amount: "300.00",
+    };
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [baseListing, cheaperListing, alternateListing],
+        })}
+        renderCommerce={(context) => (
+          {
+            buy: (
+              <form>
+                <input
+                  data-testid="selected-listing-id"
+                  name="listingId"
+                  readOnly
+                  value={context.selectedListing?.listing_id ?? ""}
+                />
+                <input
+                  data-testid="best-listing-id"
+                  name="bestListingId"
+                  readOnly
+                  value={context.bestListing?.listing_id ?? ""}
+                />
+              </form>
+            ),
+            offer: <div>Make an offer</div>,
+          }
+        )}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Best Price Cards/ }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
+      "value",
+      "listing_charizard_cheapest",
+    );
+    expect(screen.getByTestId("best-listing-id")).toHaveProperty(
+      "value",
+      "listing_charizard_cheapest",
+    );
+    expect(
+      screen.getAllByRole("button", { name: /\$/ }).map((button) => button.textContent),
+    ).toEqual([
+      expect.stringContaining("$300.00"),
+      expect.stringContaining("$399.99"),
+      expect.stringContaining("$410.00"),
+    ]);
+  });
+
+  it("ignores listings from other catalog items when selecting the buy listing", () => {
+    const foreignListing: DiscoveryMarketListing = {
+      ...alternateListing,
+      listing_id: "listing_pikachu_wrong_item",
+      catalog_catalog_item_id: "cat_pikachu",
+      product_id: "cat_pikachu::",
+      item_title: "Pikachu",
+      price_amount: "1.00",
+      seller_display_name: "Wrong Item Seller",
+    };
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [foreignListing, baseListing],
+        })}
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input
+                data-testid="selected-listing-id"
+                name="listingId"
+                readOnly
+                value={context.selectedListing?.listing_id ?? ""}
+              />
+              <input
+                data-testid="selected-product-id"
+                name="productId"
+                readOnly
+                value={context.selectedProductId ?? ""}
+              />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.queryByText("Wrong Item Seller")).toBeNull();
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
+      "value",
+      "listing_charizard",
+    );
+    expect(screen.getByTestId("selected-product-id")).toHaveProperty(
+      "value",
+      "cat_charizard::",
     );
   });
 
@@ -531,7 +698,7 @@ describe("item detail commerce panel", () => {
   });
 
   it("keeps shipping out of the item buy panel", () => {
-    render(
+    renderWithDataRouter(
       <CheckoutPurchaseIntentSection
         catalogItemId="cat_charizard"
         productId="cat_charizard::"
@@ -545,9 +712,47 @@ describe("item detail commerce panel", () => {
 
     expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add to cart" })).toBeTruthy();
+    expect(screen.getByText("Price")).toBeTruthy();
+    expect(screen.getByText("$399.99")).toBeTruthy();
+    expect(screen.getByText("Seller")).toBeTruthy();
+    expect(screen.getByText("Chase Sets")).toBeTruthy();
+    expect(screen.getByText("Availability")).toBeTruthy();
+    expect(screen.getByText("2 available")).toBeTruthy();
     expect(screen.getByRole("spinbutton", { name: /Quantity/ })).toBeTruthy();
     expect(screen.queryByLabelText("Shipping")).toBeNull();
     expect(screen.queryByRole("combobox", { name: /shipping/i })).toBeNull();
+  });
+
+  it("summarizes offer acceptance around payout, fulfillment, and readable terms", () => {
+    render(
+      <MarketplaceOfferMatchSection
+        selectedOffer={{
+          ...baseAccountOfferMatch,
+          price_amount: "380.00",
+          buyer_display_name: "Top Loader Capital",
+          acceptance_terms: {
+            account_type: "personal",
+            basis_amount: "380.00",
+            marketplace_sales_fee_unit_amount: "26.65",
+            seller_net_unit_amount: "353.35",
+            shipping_allowance_percentage_bps: 500,
+            schedule_id: null,
+            agreement_id: "csg_seller_override",
+            resolved_at: "2026-05-05T16:36:36.000Z",
+            fee_quote_fingerprint: "380.00|26.65|353.35|500||csg_seller_override",
+          },
+        }}
+        productId="cat_charizard::"
+        matchingOfferCount={1}
+      />,
+    );
+
+    expect(screen.getByText("$380.00 offer")).toBeTruthy();
+    expect(screen.getByText("From Top Loader Capital")).toBeTruthy();
+    expect(screen.getByText("$353.35 after $26.65 fee")).toBeTruthy();
+    expect(screen.getByText("$19.00 (5%)")).toBeTruthy();
+    expect(screen.getByText(/Seller-specific terms/)).toBeTruthy();
+    expect(screen.queryByText(/csg_seller_override/)).toBeNull();
   });
 
   it("changes the selected offer when another offer is clicked", () => {
@@ -582,18 +787,167 @@ describe("item detail commerce panel", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed"),
-    ).toBe("true");
-
-    fireEvent.click(screen.getByRole("button", { name: /Misty/ }));
-
-    expect(
       screen.getByRole("button", { name: /Misty/ }).getAttribute("aria-pressed"),
     ).toBe("true");
     expect(screen.getByTestId("selected-offer-id")).toHaveProperty(
       "value",
       "offer_charizard_alt",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: /Ash Ketchum/ }));
+
+    expect(
+      screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty(
+      "value",
+      "offer_charizard",
+    );
+  });
+
+  it("shows the viewer's own offer without selecting it for seller acceptance", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [baseListing],
+          buyer_offer_matches: [baseOffer, alternateOffer],
+        })}
+        accountOfferMatches={[baseAccountOfferMatch]}
+        viewerAccountId="buyer_2"
+        renderCommerce={(context) => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: (
+            <form>
+              <input
+                data-testid="selected-offer-id"
+                name="offerId"
+                readOnly
+                value={context.selectedAccountOfferMatch?.offer_id ?? ""}
+              />
+            </form>
+          ),
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Sell" }),
+    );
+
+    expect(screen.getByRole("button", { name: /Misty/ })).toBeTruthy();
+    expect(screen.getByText("Your offer")).toBeTruthy();
+    expect(
+      screen.getByText("Visible to eligible sellers. You cannot accept your own offer."),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty(
+      "value",
+      "offer_charizard",
+    );
+  });
+
+  it("uses buyer offer demand for option summaries and product selection in sell mode", () => {
+    const rawListing: DiscoveryMarketListing = {
+      ...baseListing,
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw",
+      price_amount: "300.00",
+    };
+    const gradedOffer: DiscoveryOffer = {
+      ...alternateOffer,
+      product_id: "cat_charizard::form:graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      product_summary: "Graded / PSA 9",
+      price_amount: "360.00",
+      quantity_requested: 1,
+    };
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: variantSchema,
+          market_listings: [rawListing],
+          buyer_offer_matches: [gradedOffer],
+        })}
+        initialMarketIntent="sell"
+        renderCommerce={(context) => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: (
+            <form>
+              <div data-testid="sell-product-summary">
+                Selected sell product {context.selectedProductSummary ?? "none"}
+              </div>
+              <input
+                data-testid="selected-options"
+                readOnly
+                value={JSON.stringify(context.selectedProductOptions)}
+              />
+            </form>
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("sell-product-summary").textContent).toBe(
+      "Selected sell product Graded",
+    );
+    expect(screen.getByText("Graded · 1 requested from $360.00")).toBeTruthy();
+    expect(screen.queryByText("Selected offer product")).toBeNull();
+    expect(screen.queryByText(/Matched listing:/)).toBeNull();
+    expect(screen.getByTestId("selected-options")).toHaveProperty(
+      "value",
+      JSON.stringify([{ dimensionId: "form", optionId: "graded" }]),
+    );
+  });
+
+  it("separates current option filters from the selected listing summary", () => {
+    const rawListing: DiscoveryMarketListing = {
+      ...baseListing,
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw",
+      ship_from_code: "STL-VAULT-4",
+      quantity_cap: 2,
+      visible_quantity: Number.NaN,
+    };
+    const gradedListing: DiscoveryMarketListing = {
+      ...alternateListing,
+      product_id: "cat_charizard::form:graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      product_summary: "Graded / PSA 9",
+      quantity_cap: 1,
+      visible_quantity: 1,
+    };
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: variantSchema,
+          market_listings: [rawListing, gradedListing],
+          buyer_offer_matches: [],
+        })}
+        renderCommerce={() => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Chosen options")).toBeTruthy();
+    expect(screen.getByText("All listings")).toBeTruthy();
+    expect(screen.queryByText("Selected listing product")).toBeNull();
+    expect(screen.queryByText("Fulfillment")).toBeNull();
+    expect(screen.queryByText("Confirmed at checkout")).toBeNull();
+    expect(screen.queryByText("STL-VAULT-4")).toBeNull();
+    expect(screen.queryByText("Shipping credit")).toBeNull();
+    expect(screen.queryByText("Unavailable")).toBeNull();
   });
 
   it("selecting a listing updates the selected product options", () => {

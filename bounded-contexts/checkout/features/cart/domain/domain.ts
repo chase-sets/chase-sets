@@ -21,6 +21,7 @@ export type CheckoutCartLine = Readonly<{
   productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
+  itemImageUrl: string | null;
   selectedOptions: readonly VersionSelectedOptionEntry[];
   productSummary: string | null;
   quantity: number;
@@ -46,6 +47,7 @@ export type AddCartLineCommand = Readonly<{
   productId: string;
   itemTitle: string;
   itemSubtitle: string | null;
+  itemImageUrl: string | null;
   selectedOptions: readonly VersionSelectedOptionEntry[];
   productSummary: string | null;
   quantity: number;
@@ -82,6 +84,7 @@ export type CartLineAddedEvent = DomainEvent<
     productId: string;
     itemTitle: string;
     itemSubtitle: string | null;
+    itemImageUrl: string | null;
     selectedOptions: VersionSelectedOptionEntry[];
     productSummary: string | null;
     quantity: number;
@@ -157,6 +160,7 @@ export const decideCheckoutCart: AggregateDecider<
               "Cart lines must include an item title snapshot.",
             ),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
+            itemImageUrl: normalizeOptionalText(command.itemImageUrl),
             selectedOptions: normalizeVersionSelection(command.selectedOptions),
             productSummary: normalizeOptionalText(command.productSummary),
             quantity: ensurePositiveInteger(
@@ -226,6 +230,7 @@ export const evolveCheckoutCart: AggregateEvolver<
             productId: event.data.productId,
             itemTitle: event.data.itemTitle,
             itemSubtitle: event.data.itemSubtitle,
+            itemImageUrl: event.data.itemImageUrl,
             selectedOptions: event.data.selectedOptions,
             productSummary: event.data.productSummary,
             quantity: event.data.quantity,

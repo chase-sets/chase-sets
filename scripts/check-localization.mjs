@@ -14,6 +14,7 @@ const files = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
   .trim()
   .split(/\r?\n/)
   .filter(Boolean)
+  .filter((file) => fs.existsSync(file))
   .filter(isCheckedSourceFile);
 
 const copyAttributes = new Set([
@@ -98,7 +99,6 @@ console.log(`Localization check passed for ${files.length} source files.`);
 function isCheckedSourceFile(file) {
   const normalized = file.replaceAll("\\", "/");
   if (normalized.includes("/.react-router/")) return false;
-  if (normalized.includes("deployables/design-system-showcase/")) return false;
   if (normalized.includes(".test.")) return false;
   if (normalized.startsWith("contracts/localization/")) return false;
   if (normalized.includes("/features/") && normalized.includes("/domain/")) return false;

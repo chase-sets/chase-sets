@@ -1,14 +1,18 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
-  Card,
-  DataTable,
+  Grid,
   LinkButton,
+  MarketplaceEmptyState,
+  MarketplaceNotice,
+  OfferCard,
   Page,
   PageHeader,
   PageSection,
+  ProductSelectionSummary,
   Stack,
   Text,
+  productSelectionDetailsFromSummary,
 } from "@chase-sets/design-system";
 import type { SubmittedOfferListItem } from "./contracts";
 
@@ -40,6 +44,17 @@ function formatTimestamp(value: string) {
   }).format(date);
 }
 
+function ProductSummaryChips({ summary }: { summary: string }) {
+  return (
+    <ProductSelectionSummary
+      selections={productSelectionDetailsFromSummary(summary)}
+      summary={summary}
+      summaryAsChip
+      className="justify-start"
+    />
+  );
+}
+
 export function MarketplaceSubmittedOfferListPage({
   data,
   errorMessage,
@@ -56,68 +71,57 @@ export function MarketplaceSubmittedOfferListPage({
       />
 
       {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
+        <MarketplaceNotice
+          tone="error"
+          title={t("marketplace.features.offers.ui.submittedOfferListPage.offer.status.issue")}
+          description={errorMessage}
+        />
       ) : null}
 
       <PageSection title={t("marketplace.features.offers.ui.submittedOfferListPage.submitted.offers.2")}>
-        <DataTable
-          rows={[...data.items]}
-          getRowId={(row) => row.offer_id}
-          columns={[
-            {
-              key: "item",
-              header: t("marketplace.features.offers.ui.submittedOfferListPage.item"),
-              cell: (row) => (
-                <Stack gap={1}>
-                  <Text weight="semibold">{row.item_title}</Text>
-                  {row.item_subtitle ? (
-                    <Text tone="secondary" size="sm">
-                      {row.item_subtitle}
+        {data.items.length === 0 ? (
+          <MarketplaceEmptyState
+            title={t("marketplace.features.offers.ui.submittedOfferListPage.no.submitted.offers.yet")}
+            description={t("marketplace.features.offers.ui.submittedOfferListPage.submit.an.offer.from.any.item")}
+            recoveryActions={
+              <LinkButton href="/" tone="secondary">
+                {t("marketplace.features.offers.ui.submittedOfferListPage.browse.marketplace")}
+              </LinkButton>
+            }
+          />
+        ) : (
+          <Grid columns={{ base: 1, xl: 2 }} gap={3}>
+            {data.items.map((offer) => (
+              <OfferCard
+                key={offer.offer_id}
+                title={offer.item_title}
+                amount={formatMoney(offer.price_amount)}
+                status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
+                details={
+                  <Stack gap={2}>
+                    {offer.item_subtitle ? <Text size="sm">{offer.item_subtitle}</Text> : null}
+                    {offer.product_summary ? <ProductSummaryChips summary={offer.product_summary} /> : null}
+                    <Text size="sm" tone="secondary">
+                      {t("marketplace.features.offers.ui.submittedOfferListPage.quantity.requested", {
+                        quantity: offer.quantity_requested,
+                      })}
                     </Text>
-                  ) : null}
-                  {row.product_summary ? (
-                    <Text tone="secondary" size="sm">
-                      {row.product_summary}
+                    <Text size="sm" tone="secondary">
+                      {t("marketplace.features.offers.ui.submittedOfferListPage.updated.on", {
+                        date: formatTimestamp(offer.updated_at),
+                      })}
                     </Text>
-                  ) : null}
-                </Stack>
-              ),
-            },
-            {
-              key: "price",
-              header: t("marketplace.features.offers.ui.submittedOfferListPage.offer.price"),
-              cell: (row) => formatMoney(row.price_amount),
-            },
-            {
-              key: "quantity",
-              header: t("marketplace.features.offers.ui.submittedOfferListPage.quantity"),
-              align: "right",
-              cell: (row) => row.quantity_requested,
-            },
-            {
-              key: "status",
-              header: t("marketplace.features.offers.ui.submittedOfferListPage.status"),
-              cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
-            },
-            {
-              key: "updated",
-              header: t("marketplace.features.offers.ui.submittedOfferListPage.updated"),
-              cell: (row) => formatTimestamp(row.updated_at),
-            },
-            {
-              key: "actions",
-              header: t("marketplace.features.offers.ui.submittedOfferListPage.actions"),
-              cell: (row) => (
-                <LinkButton href={`/account/offers/submitted/${row.offer_id}`} tone="secondary" size="sm">
-                  {t("marketplace.features.offers.ui.submittedOfferListPage.open")}</LinkButton>
-              ),
-            },
-          ]}
-          emptyTitle={t("marketplace.features.offers.ui.submittedOfferListPage.no.submitted.offers.yet")}
-          emptyDescription={t("marketplace.features.offers.ui.submittedOfferListPage.submit.an.offer.from.any.item")}
-        />
+                  </Stack>
+                }
+                actions={
+                  <LinkButton href={`/account/offers/submitted/${offer.offer_id}`} tone="secondary" size="sm">
+                    {t("marketplace.features.offers.ui.submittedOfferListPage.open")}
+                  </LinkButton>
+                }
+              />
+            ))}
+          </Grid>
+        )}
       </PageSection>
     </Page>
   );

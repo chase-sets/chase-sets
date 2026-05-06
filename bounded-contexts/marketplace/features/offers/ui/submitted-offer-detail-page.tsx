@@ -1,13 +1,19 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
-  Card,
+  BuyerProtectionModule,
   LinkButton,
+  MarketplaceNotice,
+  MarketplaceStatusTimeline,
+  OfferCard,
   Page,
   PageHeader,
   PageSection,
+  PriceBreakdown,
+  ProductSelectionSummary,
   Stack,
   Text,
+  productSelectionDetailsFromSummary,
 } from "@chase-sets/design-system";
 import type { SubmittedOfferDetail } from "./contracts";
 
@@ -22,6 +28,17 @@ function statusTone(status: string) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function ProductSummaryChips({ summary }: { summary: string }) {
+  return (
+    <ProductSelectionSummary
+      selections={productSelectionDetailsFromSummary(summary)}
+      summary={summary}
+      summaryAsChip
+      className="justify-start"
+    />
+  );
 }
 
 export function MarketplaceSubmittedOfferDetailPage({
@@ -44,27 +61,75 @@ export function MarketplaceSubmittedOfferDetailPage({
       />
 
       {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
+        <MarketplaceNotice tone="error" title={t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview")} description={errorMessage} />
       ) : null}
 
       <PageSection title={t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview")}>
-        <Card>
-          <Stack gap={2}>
-            {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
-            {offer.product_summary ? (
-              <Text size="sm" tone="secondary">
-                {offer.product_summary}
-              </Text>
-            ) : null}
-            <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
-            <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.offer.price")}{formatMoney(offer.price_amount)}</Text>
-            <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
-            <Text>
-              {t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide")}</Text>
-          </Stack>
-        </Card>
+        <Stack gap={4}>
+          <OfferCard
+            title={offer.item_title}
+            amount={formatMoney(offer.price_amount)}
+            status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
+            details={
+              <Stack gap={2}>
+                {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
+                {offer.product_summary ? (
+                  <ProductSummaryChips summary={offer.product_summary} />
+                ) : null}
+                <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
+                <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide")}</Text>
+              </Stack>
+            }
+          />
+
+          <PriceBreakdown
+            lines={[
+              {
+                label: t("marketplace.features.offers.ui.submittedOfferDetailPage.offer.price"),
+                value: formatMoney(offer.price_amount),
+              },
+              {
+                label: t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested"),
+                value: offer.quantity_requested,
+              },
+            ]}
+            total={formatMoney(offer.price_amount)}
+            totalLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.offer.price")}
+          />
+
+          <BuyerProtectionModule
+            title={t("marketplace.features.offers.ui.submittedOfferDetailPage.offers")}
+            items={[
+              {
+                title: t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide"),
+                description: t("marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted"),
+              },
+              {
+                title: t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested"),
+                description: String(offer.quantity_requested),
+              },
+              {
+                title: t("marketplace.features.offers.ui.submittedOfferDetailPage.back.to.submitted.offers"),
+                description: t("marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted"),
+              },
+            ]}
+          />
+
+          <MarketplaceStatusTimeline
+            steps={[
+              {
+                label: offer.status,
+                description: t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide"),
+                status: offer.status === "submitted" ? "current" : "complete",
+              },
+              {
+                label: t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview"),
+                description: t("marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted"),
+                status: "upcoming",
+              },
+            ]}
+          />
+        </Stack>
       </PageSection>
     </Page>
   );

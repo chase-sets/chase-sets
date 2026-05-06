@@ -57,6 +57,34 @@ function guestCheckoutActor(): CheckoutApiEnv["Variables"]["actor"] {
 }
 
 describe("checkout cart routes", () => {
+  it("counts cart item quantities instead of raw cart lines", async () => {
+    const services = createServices();
+    vi.mocked(services.listCartLines).mockResolvedValue([
+      { line_id: "cli_1", quantity: 2 },
+      { line_id: "cli_2", quantity: 3 },
+    ] as never);
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart"),
+    );
+
+    await expect(response.json()).resolves.toMatchObject({
+      count: 5,
+    });
+  });
+
   it("adds a browsed marketplace item to the current account cart", async () => {
     const services = createServices();
     const app = buildApp({

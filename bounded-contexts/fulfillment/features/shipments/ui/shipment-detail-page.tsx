@@ -1,35 +1,26 @@
 import { t } from "@chase-sets/localization";
 import {
-  Badge,
   Button,
+  BuyerProtectionModule,
   Card,
+  DetailConfidenceModule,
   LinkButton,
+  MarketplaceEmptyState,
+  MarketplaceNotice,
+  MarketplaceStatusTimeline,
   NativeSelect,
   NumberInput,
   Page,
   PageHeader,
   PageSection,
+  ProductSelectionSummary,
   Stack,
   Text,
   TextInput,
   Textarea,
+  productSelectionDetailsFromSummary,
 } from "@chase-sets/design-system";
 import type { FulfillmentShipmentDetail } from "./contracts";
-
-function statusTone(status: string) {
-  switch (status) {
-    case "delivered":
-      return "success";
-    case "returned":
-    case "exception":
-      return "warning";
-    case "dispatched":
-    case "label-attached":
-      return "accent";
-    default:
-      return "neutral";
-  }
-}
 
 function canRaiseException(status: string) {
   return status !== "delivered" && status !== "returned";
@@ -41,6 +32,17 @@ const uspsServiceLevels = [
   { value: "PRIORITY_EXPRESS", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.priority.mail.express") },
   { value: "MEDIA_MAIL", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.media.mail") },
 ];
+
+function ProductSummaryChips({ summary }: { summary: string }) {
+  return (
+    <ProductSelectionSummary
+      selections={productSelectionDetailsFromSummary(summary)}
+      summary={summary}
+      summaryAsChip
+      className="justify-start"
+    />
+  );
+}
 
 export function FulfillmentShipmentDetailPage({
   role,
@@ -62,9 +64,7 @@ export function FulfillmentShipmentDetailPage({
     <Page>
       <PageHeader
         eyebrow={role === "buyer" ? t("fulfillment.features.shipments.ui.shipmentDetailPage.buyer") : t("fulfillment.features.shipments.ui.shipmentDetailPage.seller")}
-        title={t("fulfillment.features.shipments.ui.shipmentDetailPage.shipment.title", {
-          shipmentId: shipment.shipment_id,
-        })}
+        title={t("fulfillment.features.shipments.ui.shipmentDetailPage.shipment")}
         description={t("fulfillment.features.shipments.ui.shipmentDetailPage.order.with.counterpart", {
           orderId: shipment.order_id,
           counterpart: counterpartLabel,
@@ -76,49 +76,106 @@ export function FulfillmentShipmentDetailPage({
       />
 
       {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
+        <MarketplaceNotice tone="error" title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")} description={errorMessage} />
       ) : null}
 
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")}>
-        <Card>
-          <Stack gap={2}>
-            <Badge tone={statusTone(shipment.status)}>{shipment.status}</Badge>
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.option")}{shipment.shipping_option}</Text>
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.method")}{shipment.shipping_method ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet")}</Text>
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.service.level")}{shipment.postage_service_level ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.2")}</Text>
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.carrier")}{shipment.carrier_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.3")}</Text>
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking")}{shipment.tracking_identifier ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.attached.yet")}</Text>
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status")}{shipment.label_status}</Text>
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider")}{shipment.postage_provider_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4")}</Text>
-            {shipment.postage_amount_cents != null ? (
-              <Text>
-                {t("fulfillment.features.shipments.ui.shipmentDetailPage.postage")}{(shipment.postage_amount_cents / 100).toFixed(2)}{" "}
-                {shipment.postage_currency ?? "USD"}
-              </Text>
-            ) : null}
-            {shipment.label_document_url ? (
-              <LinkButton href={shipment.label_document_url} tone="secondary">
-                {t("fulfillment.features.shipments.ui.shipmentDetailPage.open.label.pdf")}</LinkButton>
-            ) : null}
-            {shipment.label_error_message ? (
-              <Text tone="accent">{shipment.label_error_message}</Text>
-            ) : null}
-            {shipment.label_refund_status ? (
-              <Text>
-                {t("fulfillment.features.shipments.ui.shipmentDetailPage.refund")}{shipment.label_refund_status}
-                {shipment.label_refund_reference
+        <Stack gap={4}>
+          <MarketplaceStatusTimeline
+            steps={[
+              {
+                label: shipment.status,
+                description: t("fulfillment.features.shipments.ui.shipmentDetailPage.package.state") + shipment.package_status,
+                status: shipment.status === "delivered"
+                  ? "complete"
+                  : shipment.status === "exception"
+                    ? "issue"
+                    : "current",
+              },
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking"),
+                description: shipment.tracking_identifier ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.attached.yet"),
+                status: shipment.tracking_identifier ? "complete" : "upcoming",
+              },
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.carrier"),
+                description: shipment.carrier_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.3"),
+                status: shipment.carrier_name ? "complete" : "upcoming",
+              },
+            ]}
+          />
+
+          <DetailConfidenceModule
+            title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")}
+            items={[
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.option"),
+                value: shipment.shipping_option,
+              },
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.method"),
+                value: shipment.shipping_method ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet"),
+              },
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.service.level"),
+                value: shipment.postage_service_level ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.2"),
+              },
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status"),
+                value: shipment.label_status,
+              },
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider"),
+                value: shipment.postage_provider_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4"),
+              },
+              {
+                label: t("fulfillment.features.shipments.ui.shipmentDetailPage.package.count"),
+                value: shipment.package_count ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
+              },
+            ]}
+          />
+
+          <BuyerProtectionModule
+            title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")}
+            items={[
+              {
+                title: t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking"),
+                description: shipment.tracking_identifier ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.attached.yet"),
+              },
+              {
+                title: t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status"),
+                description: shipment.label_status,
+              },
+              {
+                title: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage"),
+                description: shipment.postage_amount_cents != null
+                  ? `${(shipment.postage_amount_cents / 100).toFixed(2)} ${shipment.postage_currency ?? "USD"}`
+                  : t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4"),
+              },
+            ]}
+          />
+
+          {shipment.label_document_url ? (
+            <LinkButton href={shipment.label_document_url} tone="secondary">
+              {t("fulfillment.features.shipments.ui.shipmentDetailPage.open.label.pdf")}</LinkButton>
+          ) : null}
+          {shipment.label_error_message ? (
+            <MarketplaceNotice tone="warning" title={t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status")} description={shipment.label_error_message} />
+          ) : null}
+          {shipment.label_refund_status ? (
+            <MarketplaceNotice
+              tone="info"
+              title={t("fulfillment.features.shipments.ui.shipmentDetailPage.refund")}
+              description={`${shipment.label_refund_status}${
+                shipment.label_refund_reference
                   ? t("fulfillment.features.shipments.ui.shipmentDetailPage.refund.reference", {
                       reference: shipment.label_refund_reference,
                     })
-                  : ""}
-              </Text>
-            ) : null}
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.package.state")}{shipment.package_status}</Text>
-            <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.package.count")}{shipment.package_count ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet")}</Text>
-          </Stack>
-        </Card>
+                  : ""
+              }`}
+            />
+          ) : null}
+        </Stack>
       </PageSection>
 
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.lines")}>
@@ -132,9 +189,7 @@ export function FulfillmentShipmentDetailPage({
                     {line.item_subtitle}
                   </Text>
                 ) : null}
-                <Text size="sm" tone="secondary">
-                  {line.product_summary ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.standard")}
-                </Text>
+                <ProductSummaryChips summary={line.product_summary ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.standard")} />
                 <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.quantity")}{line.quantity}</Text>
               </Stack>
             </Card>
@@ -145,9 +200,10 @@ export function FulfillmentShipmentDetailPage({
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.exceptions")}>
         <Stack gap={3}>
           {shipment.exceptions.length === 0 ? (
-            <Card>
-              <Text tone="secondary">{t("fulfillment.features.shipments.ui.shipmentDetailPage.no.shipment.exceptions.recorded")}</Text>
-            </Card>
+            <MarketplaceEmptyState
+              title={t("fulfillment.features.shipments.ui.shipmentDetailPage.no.shipment.exceptions.recorded")}
+              description={t("fulfillment.features.shipments.ui.shipmentDetailPage.no.shipment.exceptions.recorded")}
+            />
           ) : (
             shipment.exceptions.map((exception) => (
               <Card key={`${exception.exception_type}-${exception.raised_at}`}>

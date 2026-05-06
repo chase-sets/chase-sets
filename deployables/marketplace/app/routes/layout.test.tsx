@@ -65,10 +65,10 @@ describe("marketplace route layout", () => {
     ]);
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
-      "Cart",
       "Purchases",
       "Sell",
       "Account",
+      "Cart",
     ]);
     expect(sellNav?.children?.map((item) => item.label)).toEqual([
       "Inventory",
@@ -76,12 +76,12 @@ describe("marketplace route layout", () => {
       "Offer Matches",
       "Sales",
       "Shipping",
-      "Reviews",
       "Payouts",
     ]);
     expect(accountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
       "Submitted Offers",
+      "Reviews",
     ]);
     expect(
       resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
@@ -90,6 +90,7 @@ describe("marketplace route layout", () => {
       "Cart",
       "Purchases",
       "Sell",
+      "Account",
     ]);
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/cart"');
@@ -122,9 +123,9 @@ describe("marketplace route layout", () => {
 
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
-      "Cart",
       "Purchases",
       "Account",
+      "Cart",
     ]);
     expect(accountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
@@ -143,6 +144,7 @@ describe("marketplace route layout", () => {
   it("keeps sign-in and registration entry points for signed-out actors", () => {
     mockUseRouteLoaderData.mockReturnValue({
       actor: null,
+      cartCount: 0,
     });
 
     const html = renderToString(<MarketplaceLayoutRoute />);
@@ -159,6 +161,33 @@ describe("marketplace route layout", () => {
     expect(html).not.toContain('action="/sign-out"');
     expect(html).not.toContain('href="/account/inventory"');
     expect(html).not.toContain("Verified");
+  });
+
+  it("keeps signed-out guest cart access visible when cart has items", () => {
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: null,
+      cartCount: 2,
+    });
+
+    const html = renderToString(<MarketplaceLayoutRoute />);
+
+    expect(
+      resolveMarketplaceNavItems("top-nav", null, { cartCount: 2 }).map((item) => item.href),
+    ).toEqual([
+      "/search",
+      "/sign-in",
+      "/register",
+      "/account/cart",
+    ]);
+    expect(
+      resolveMarketplaceNavItems("top-nav", null, { cartCount: 2 }).find((item) => item.key === "cart")?.placement,
+    ).toBe("utility");
+    expect(html).toContain('href="/account/cart"');
+    expect(html).toContain("Cart");
+    expect(html).toContain("2");
+    expect(html.indexOf('href="/register"')).toBeLessThan(
+      html.indexOf('href="/account/cart"'),
+    );
   });
 
   it("prompts signed-in users to add a passkey after fallback registration", () => {

@@ -61,8 +61,7 @@ describe("MarketplaceListingDetailPage", () => {
     expect(
       screen.getByText("Fee quote changed. Review the current preview and submit again."),
     ).toBeTruthy();
-    expect(screen.getByText("Buyer shipping credit")).toBeTruthy();
-    expect(screen.getByText("Buyer shipping credit rate: 5%")).toBeTruthy();
+    expect(screen.getAllByText("Buyer shipping credit").length).toBeGreaterThan(0);
     expect(screen.getByText(/Buyer shipping credit 7.5%/)).toBeTruthy();
     expect(
       container.querySelector(

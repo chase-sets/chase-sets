@@ -219,6 +219,10 @@ describe("checkout web routes", () => {
         itemSubtitle: "Base Set",
         selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
         productSummary: "Raw",
+        priceAmount: null,
+        sellerName: null,
+        availability: null,
+        fulfillment: null,
         quantity: 2,
       },
     });

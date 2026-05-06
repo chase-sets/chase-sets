@@ -183,42 +183,59 @@ export function PayoutReadinessPanel({
     payoutReadiness.missing_requirements,
   );
   const progress = buildPayoutSetupProgress(payoutReadiness);
+  const canReceivePayouts = payoutReadiness.status === "ready";
 
   return (
-    <Stack gap={2}>
-      <Badge tone={readinessTone(payoutReadiness.status)}>
-        {readinessLabel(payoutReadiness.status)}
-      </Badge>
-      <Text weight="semibold">{readinessTitle(payoutReadiness.status)}</Text>
-      <Text size="sm" tone="secondary">
-        {readinessDescription(payoutReadiness.status, readyDescription)}
-      </Text>
-      <Text size="sm" tone="secondary">
-        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.last.checked")}{checkedAtLabel(payoutReadiness.updated_at)}
-      </Text>
-      <Stack gap={1}>
-        {progress.steps.map((step) => (
-          <Stack key={step.id} gap={1}>
-            <Badge tone={progressTone(step.status)}>
-              {progressLabel(step.status)}
-            </Badge>
-            <Text size="sm" weight="semibold">{step.label}</Text>
-            <Text size="sm" tone="secondary">{step.detail}</Text>
+    <Stack gap={4}>
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+        <Stack gap={2}>
+          <Badge tone={readinessTone(payoutReadiness.status)}>
+            {readinessLabel(payoutReadiness.status)}
+          </Badge>
+          <Stack gap={1}>
+            <Text weight="semibold">{readinessTitle(payoutReadiness.status)}</Text>
+            <Text size="sm" tone="secondary">
+              {readinessDescription(payoutReadiness.status, readyDescription)}
+            </Text>
           </Stack>
+        </Stack>
+        <Text size="sm" tone="secondary">
+          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.last.checked")}{checkedAtLabel(payoutReadiness.updated_at)}
+        </Text>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {progress.steps.map((step) => (
+          <div
+            key={step.id}
+            className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+          >
+            <Stack gap={1}>
+              <Badge tone={progressTone(step.status)}>
+                {progressLabel(step.status)}
+              </Badge>
+              <Text size="sm" weight="semibold">{step.label}</Text>
+              <Text size="sm" tone="secondary">{step.detail}</Text>
+            </Stack>
+          </div>
         ))}
-      </Stack>
-      <Text size="sm" tone="secondary">
-        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.onboarding")}{setupStatusLabel(payoutReadiness.onboarding_status)}
-      </Text>
-      <Text size="sm" tone="secondary">
-        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers")}{setupStatusLabel(payoutReadiness.transfer_capability_status)}
-      </Text>
-      <Text size="sm" tone="secondary">
-        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts")}{setupStatusLabel(payoutReadiness.payout_capability_status)}
-      </Text>
-      <Text size="sm" tone="secondary">
-        {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.destination")}{setupStatusLabel(payoutReadiness.payout_destination_status)}
-      </Text>
+      </div>
+
+      <div className="grid gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3 sm:grid-cols-2">
+        <Text size="sm" tone="secondary">
+          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.onboarding")}{setupStatusLabel(payoutReadiness.onboarding_status)}
+        </Text>
+        <Text size="sm" tone="secondary">
+          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers")}{setupStatusLabel(payoutReadiness.transfer_capability_status)}
+        </Text>
+        <Text size="sm" tone="secondary">
+          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts")}{setupStatusLabel(payoutReadiness.payout_capability_status)}
+        </Text>
+        <Text size="sm" tone="secondary">
+          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.destination")}{setupStatusLabel(payoutReadiness.payout_destination_status)}
+        </Text>
+      </div>
+
       {missingRequirementGroups.length > 0 ? (
         <Stack gap={1}>
           <Text size="sm" weight="semibold">{t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention")}</Text>
@@ -229,8 +246,13 @@ export function PayoutReadinessPanel({
           ))}
         </Stack>
       ) : null}
+      {canReceivePayouts ? (
+        <Text size="sm" tone="secondary">
+          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.eligible.seller.balances")}
+        </Text>
+      ) : null}
       {showActions ? (
-        <Stack gap={2}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {payoutReadiness.status === "ready" ? null : (
             <form method="post">
               <input type="hidden" name="intent" value="start-payout-setup" />
@@ -249,7 +271,7 @@ export function PayoutReadinessPanel({
             <Button type="submit" tone="secondary">
               {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status")}</Button>
           </form>
-        </Stack>
+        </div>
       ) : null}
     </Stack>
   );

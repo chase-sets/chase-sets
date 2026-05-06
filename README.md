@@ -36,7 +36,7 @@ contracts/             Stable cross-context contracts and primitives.
 deployables/           Thin runnable applications and services.
 docs/                  Product, language, runbooks, ADRs, and API documentation.
 infrastructure/        Runtime adapters, persistence, observability, provider integrations, and test providers.
-packages/design-system Canonical React UI system, tokens, primitives, shells, patterns, and showcase contracts.
+packages/design-system Canonical React UI system, tokens, primitives, shells, and shared patterns.
 scripts/               Workspace automation, verification, dev system, replay, structure, and provider tooling.
 artifacts/             Generated local logs, screenshots, observability output, and structure metrics.
 ```
@@ -68,14 +68,12 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `deployables/admin-web`: internal admin web app.
 - `deployables/platform-api`: Hono-based platform API and HTTP composition root.
 - `deployables/platform-worker`: background worker composition root.
-- `deployables/design-system-showcase`: visual and contract surface for the design system.
 
 Default local ports:
 
 | Surface | URL |
 | --- | --- |
 | Dev portal | <http://localhost:6170> |
-| Design system showcase | <http://localhost:6171> |
 | Admin web | <http://localhost:6172> |
 | Marketplace web | <http://localhost:6173> |
 | Platform API | <http://localhost:6182> |
@@ -105,7 +103,6 @@ Focused dev targets are available when you only need part of the system:
 ```bash
 npm run dev:admin-web
 npm run dev:marketplace-full
-npm run dev:showcase
 ```
 
 Useful local lifecycle commands:
@@ -160,7 +157,6 @@ For UI work, start with:
 - [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md)
 - [docs/DESIGN-SYSTEM-COMPONENTS.md](docs/DESIGN-SYSTEM-COMPONENTS.md)
 - `packages/design-system/src/`
-- `deployables/design-system-showcase/`
 
 ## Event-Sourced Shape
 

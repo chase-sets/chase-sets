@@ -13,6 +13,7 @@ export function buildCheckoutCartProjectionHandlers(
         productId: string;
         itemTitle: string;
         itemSubtitle: string | null;
+        itemImageUrl?: string | null;
         selectedOptions: unknown;
         productSummary: string | null;
         quantity: number;
@@ -26,17 +27,19 @@ export function buildCheckoutCartProjectionHandlers(
            product_id,
            item_title,
            item_subtitle,
+           item_image_url,
            selected_options,
            product_summary,
            quantity,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
          ON CONFLICT (buyer_account_id, line_id) DO UPDATE
          SET catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              item_title = EXCLUDED.item_title,
              item_subtitle = EXCLUDED.item_subtitle,
+             item_image_url = EXCLUDED.item_image_url,
              selected_options = EXCLUDED.selected_options,
              product_summary = EXCLUDED.product_summary,
              quantity = EXCLUDED.quantity,
@@ -48,6 +51,7 @@ export function buildCheckoutCartProjectionHandlers(
           data.productId,
           data.itemTitle,
           data.itemSubtitle,
+          data.itemImageUrl ?? null,
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
           data.quantity,

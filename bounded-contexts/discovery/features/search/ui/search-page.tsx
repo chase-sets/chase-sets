@@ -1,21 +1,25 @@
 import { t } from "@chase-sets/localization";
 import {
+  AppliedFilterChips,
   SearchInput,
   Select,
-  FilterBar,
   Pagination,
-  EmptyState,
   LoadingSpinner,
   Banner,
-  Reveal,
+  Button,
   Stack,
   Inline,
   SearchResultsLayout,
   Grid,
+  LinkButton,
+  ListingCard,
+  NoResultsRecovery,
+  PlatformCredibilityCue,
   PromoStrip,
   MarketplaceFacetRail,
   MarketplaceLandingHero,
-  MarketplaceProductCard,
+  SavedSearchPrompt,
+  SearchControlBar,
 } from "@chase-sets/design-system";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type {
@@ -59,6 +63,32 @@ function formatPrice(item: DiscoverySearchItem): string {
   return lowestPrice
     ? t("discovery.features.search.ui.searchPage.from.price", { price: `$${lowestPrice}` })
     : t("discovery.features.search.ui.searchPage.market.only");
+}
+
+function formatAvailability(item: DiscoverySearchItem): string {
+  const visibleQuantity = item.market_summary?.total_visible_quantity ?? 0;
+
+  return visibleQuantity > 0
+    ? t("discovery.features.search.ui.searchPage.available.quantity", {
+        visibleQuantity,
+      })
+    : t("discovery.features.search.ui.searchPage.market.watch");
+}
+
+function formatSellerSignal(item: DiscoverySearchItem): string {
+  const listingCount = item.market_summary?.active_listing_count ?? 0;
+
+  return listingCount > 0
+    ? t("discovery.features.search.ui.searchPage.verified.marketplace.sellers")
+    : t("discovery.features.search.ui.searchPage.no.active.sellers.yet");
+}
+
+function formatValueCue(item: DiscoverySearchItem): string {
+  const listingCount = item.market_summary?.active_listing_count ?? 0;
+
+  return listingCount > 0
+    ? t("discovery.features.search.ui.searchPage.compare.price.seller.and.fulfillment")
+    : t("discovery.features.search.ui.searchPage.save.search.to.watch.new.supply");
 }
 
 export interface SearchPageProps {
@@ -108,11 +138,41 @@ export function SearchPage({
     categories.find((item) => item.slug === category)?.name ?? t("discovery.features.search.ui.searchPage.all.categories");
   const hasFocusedResults =
     committedSearch.trim().length > 0 || Boolean(category) || sort !== "relevance" || page > 1;
+  const appliedFilters = [
+    ...(committedSearch.trim()
+      ? [{
+          id: "search",
+          label: t("discovery.features.search.ui.searchPage.search.filter.label", {
+            search: committedSearch,
+          }),
+          onRemove: () => onSearchChange(""),
+        }]
+      : []),
+    ...(category
+      ? [{
+          id: "category",
+          label: t("discovery.features.search.ui.searchPage.category.filter.label", {
+            category: activeCategoryLabel,
+          }),
+          onRemove: () => onCategoryChange(""),
+        }]
+      : []),
+    ...(sort !== "relevance"
+      ? [{
+          id: "sort",
+          label: t("discovery.features.search.ui.searchPage.sort.filter.label", {
+            sort: sortOptions.find((item) => item.value === sort)?.label ?? sort,
+          }),
+          onRemove: () => onSortChange("relevance"),
+        }]
+      : []),
+  ];
 
   return (
     <SearchResultsLayout
       filters={
-        <MarketplaceFacetRail
+        hasFocusedResults ? null : (
+          <MarketplaceFacetRail
           items={categories.map((item) => ({
             id: item.slug,
             label: item.name,
@@ -120,7 +180,8 @@ export function SearchPage({
           }))}
           selectedId={category}
           onSelect={onCategoryChange}
-        />
+          />
+        )
       }
       summary={
         hasFocusedResults ? null : (
@@ -172,22 +233,52 @@ export function SearchPage({
     >
       <Stack gap={hasFocusedResults ? 6 : 4}>
         {hasFocusedResults ? (
-          <FilterBar sticky={false}>
-            <SearchInput
-              hideLabel
-              placeholder={t("discovery.features.search.ui.searchPage.search.catalog.items")}
-              value={search}
-              autoFocus={restoreSearchFocus}
-              onChange={(e) => onSearchChange(e.target.value)}
-            />
-            <Select
-              hideLabel
-              label={t("discovery.features.search.ui.searchPage.sort")}
-              items={sortOptions}
-              value={sort}
-              onValueChange={onSortChange}
-            />
-          </FilterBar>
+          <SearchControlBar
+            search={
+              <SearchInput
+                hideLabel
+                placeholder={t("discovery.features.search.ui.searchPage.search.catalog.items")}
+                value={search}
+                autoFocus={restoreSearchFocus}
+                onChange={(e) => onSearchChange(e.target.value)}
+              />
+            }
+            sort={
+              <Select
+                hideLabel
+                label={t("discovery.features.search.ui.searchPage.sort")}
+                items={sortOptions}
+                value={sort}
+                onValueChange={onSortChange}
+              />
+            }
+            filters={
+              <LinkButton href="/search" tone="secondary" size="sm">
+                {t("discovery.features.search.ui.searchPage.clear.all.filters")}
+              </LinkButton>
+            }
+            appliedFilters={
+              <AppliedFilterChips
+                filters={appliedFilters}
+                clearAction={
+                  appliedFilters.length ? (
+                    <LinkButton href="/search" tone="ghost" size="sm">
+                      {t("discovery.features.search.ui.searchPage.clear.all")}
+                    </LinkButton>
+                  ) : null
+                }
+                removeLabel={(label) =>
+                  t("discovery.features.search.ui.searchPage.remove.filter", {
+                    filter: String(label),
+                  })
+                }
+              />
+            }
+            summary={t("discovery.features.search.ui.searchPage.results.summary", {
+              count: exactTotal,
+              category: activeCategoryLabel,
+            })}
+          />
         ) : null}
 
         {error ? <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} /> : null}
@@ -195,43 +286,111 @@ export function SearchPage({
         {loading && !data ? (
           <LoadingSpinner label={t("discovery.features.search.ui.searchPage.searching")} />
         ) : data && data.items.length === 0 ? (
-          <EmptyState
+          <NoResultsRecovery
             title={t("discovery.features.search.ui.searchPage.no.items.found")}
             description={
               search || category
                 ? t("discovery.features.search.ui.searchPage.try.adjusting.your.search.or.filters")
                 : t("discovery.features.search.ui.searchPage.no.catalog.items.are.available.yet")
             }
-            icon="search"
+            recommendations={featuredCategories.slice(0, 3).map((item) => item.name)}
+            trustCue={
+              <PlatformCredibilityCue
+                title={t("discovery.features.search.ui.searchPage.saved.search.recovery.title")}
+                description={t("discovery.features.search.ui.searchPage.saved.search.recovery.description")}
+              />
+            }
+            resetAction={
+              <LinkButton href="/search" tone="secondary">
+                {t("discovery.features.search.ui.searchPage.all.categories")}
+              </LinkButton>
+            }
+            savedSearchAction={
+              <LinkButton href="/account/saved-searches" tone="secondary">
+                {t("discovery.features.search.ui.searchPage.save.search")}
+              </LinkButton>
+            }
           />
         ) : data ? (
           <>
-            <Grid columns={{ base: 1, sm: 2, xl: 4 }} gap={4}>
+            <Grid columns={{ base: 1, sm: 2, xl: 3 }} gap={4}>
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
+                const hasActiveListings = listingCount > 0;
 
                 return (
-                  <Reveal key={item.catalog_item_id} preset="lift">
-                    <MarketplaceProductCard
-                      href={`/items/${item.slug}`}
-                      title={item.title}
-                      subtitle={item.subtitle ?? item.blueprint_name}
-                      description={item.description}
-                      imageSrc={item.image_urls[0]}
-                      imageAlt={item.title}
-                      fallbackImageSrc={discoveryAssetUrls.defaultProductImage}
-                      fallbackImageAlt={t("discovery.features.search.ui.searchPage.pokemon.card.back")}
-                      status={listingCount > 0 ? "available" : "marketOnly"}
-                      price={formatPrice(item)}
-                      meta={formatListingMeta(item)}
-                      actionLabel={listingCount > 0 ? t("discovery.features.search.ui.searchPage.view.listings") : t("discovery.features.search.ui.searchPage.watch.market")}
-                      categoryTags={uniqueDisplayValues(item.category_names)}
-                      metadataTags={uniqueDisplayValues(item.tags).slice(0, 3)}
-                    />
-                  </Reveal>
+                  <ListingCard
+                    key={item.catalog_item_id}
+                    title={item.title}
+                    imageSrc={item.image_urls[0] ?? discoveryAssetUrls.defaultProductImage}
+                    imageAlt={item.title}
+                    price={formatPrice(item)}
+                    priceDetail={formatListingMeta(item)}
+                    sellerName={formatSellerSignal(item)}
+                    sellerTrustLabel={
+                      hasActiveListings
+                        ? t("discovery.features.search.ui.searchPage.verified.supply")
+                        : t("discovery.features.search.ui.searchPage.market.data")
+                    }
+                    sellerVerified={hasActiveListings}
+                    fulfillment={formatAvailability(item)}
+                    availability={item.blueprint_name ?? item.subtitle}
+                    condition={uniqueDisplayValues(item.category_names)[0] ?? t("discovery.features.search.ui.searchPage.marketplace")}
+                    valueCue={formatValueCue(item)}
+                    promotion={hasActiveListings ? t("discovery.features.search.ui.searchPage.available.now") : undefined}
+                    primaryAction={
+                      <LinkButton href={`/items/${item.slug}`} size="sm">
+                        {hasActiveListings
+                          ? t("discovery.features.search.ui.searchPage.view.listings")
+                          : t("discovery.features.search.ui.searchPage.watch.market")}
+                      </LinkButton>
+                    }
+                    secondaryAction={
+                      <LinkButton href={`/items/${item.slug}`} tone="secondary" size="sm">
+                        {t("discovery.features.search.ui.searchPage.compare")}
+                      </LinkButton>
+                    }
+                  />
                 );
               })}
             </Grid>
+            {hasFocusedResults ? (
+              <Inline>
+                <Button
+                  tone={!category ? "primary" : "ghost"}
+                  size="sm"
+                  leadingIcon="grid"
+                  onClick={() => onCategoryChange("")}
+                >
+                  {t("discovery.features.search.ui.searchPage.all.categories")}
+                </Button>
+                {featuredCategories.map((item) => (
+                  <Button
+                    key={item.slug}
+                    tone={category === item.slug ? "primary" : "ghost"}
+                    size="sm"
+                    leadingIcon="tag"
+                onClick={() => onCategoryChange(item.slug)}
+              >
+                {t("discovery.features.search.ui.searchPage.category.count.label", {
+                  category: item.name,
+                  count: item.item_count,
+                })}
+              </Button>
+                ))}
+              </Inline>
+            ) : null}
+            {hasFocusedResults ? (
+              <SavedSearchPrompt
+                title={t("discovery.features.search.ui.searchPage.save.this.search")}
+                description={t("discovery.features.search.ui.searchPage.get.alerts.when.supply.matches")}
+                action={
+                  <LinkButton href="/account/saved-searches" tone="secondary" size="sm">
+                    {t("discovery.features.search.ui.searchPage.save.search")}
+                  </LinkButton>
+                }
+              />
+            ) : null}
             {totalPages > 1 ? (
               <Inline align="center">
                 <Pagination

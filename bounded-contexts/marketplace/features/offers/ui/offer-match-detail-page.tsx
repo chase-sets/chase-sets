@@ -1,15 +1,21 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
-  Banner,
   Button,
-  Card,
+  BuyerProtectionModule,
   LinkButton,
+  MarketplaceNotice,
+  MarketplaceStatusTimeline,
+  OfferCard,
   Page,
   PageHeader,
   PageSection,
+  PriceBreakdown,
+  ProductSelectionSummary,
   Stack,
+  StickyCtaBar,
   Text,
+  productSelectionDetailsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchDetail } from "./contracts";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
@@ -31,6 +37,23 @@ function formatAllowancePercentage(bps: number) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
 
+function termsSourceLabel(terms: MarketplaceListingTermsPreview) {
+  return terms.agreement_id
+    ? "Seller terms"
+    : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms");
+}
+
+function ProductSummaryChips({ summary }: { summary: string }) {
+  return (
+    <ProductSelectionSummary
+      selections={productSelectionDetailsFromSummary(summary)}
+      summary={summary}
+      summaryAsChip
+      className="justify-start"
+    />
+  );
+}
+
 export function MarketplaceOfferMatchDetailPage({
   offer,
   acceptanceTerms,
@@ -42,6 +65,25 @@ export function MarketplaceOfferMatchDetailPage({
   canAccept?: boolean;
   errorMessage?: string | null;
 }) {
+  const acceptOfferAction =
+    canAccept && offer.status === "submitted" ? (
+      <form method="post">
+        <input
+          type="hidden"
+          name="feeQuoteFingerprint"
+          value={acceptanceTerms?.fee_quote_fingerprint ?? ""}
+        />
+        <Button
+          type="submit"
+          name="intent"
+          value="accept-offer"
+          disabled={!offer.can_fulfill}
+        >
+          {t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match")}
+        </Button>
+      </form>
+    ) : null;
+
   return (
     <Page>
       <PageHeader
@@ -55,71 +97,123 @@ export function MarketplaceOfferMatchDetailPage({
       />
 
       {errorMessage ? (
-        <Card>
-          <Text>{errorMessage}</Text>
-        </Card>
+        <MarketplaceNotice tone="error" title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")} description={errorMessage} />
       ) : null}
 
       <PageSection title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}>
-        <Card>
-          <Stack gap={2}>
-            {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
-            {offer.product_summary ? (
-              <Text size="sm" tone="secondary">
-                {offer.product_summary}
-              </Text>
-            ) : null}
-            <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
-            <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.buyer")}{offer.buyer_display_name ?? offer.buyer_account_id}</Text>
-            <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price")}{formatMoney(offer.price_amount)}</Text>
-            {acceptanceTerms ? (
-              <>
-                <Banner
-                  title={t("marketplace.features.offers.ui.offerMatchDetailPage.seller.shipping.allowance")}
-                  description={t("marketplace.features.offers.ui.offerMatchDetailPage.accepting.this.offer.earns.percentage.toward.shipping", {
-                    percentage: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
-                  })}
-                />
-                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee")}{formatMoney(acceptanceTerms.marketplace_sales_fee_unit_amount)}</Text>
-                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.seller.net")}{formatMoney(acceptanceTerms.seller_net_unit_amount)}</Text>
-                <Text>
-                  {t("marketplace.features.offers.ui.offerMatchDetailPage.shipping.allowance.rate")}
-                  {formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps)}
-                </Text>
-                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.terms.source")}{acceptanceTerms.agreement_id ?? acceptanceTerms.schedule_id ?? t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms")}</Text>
-                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quote.time")}{new Date(acceptanceTerms.resolved_at).toLocaleString()}</Text>
-              </>
-            ) : null}
-            <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
-            <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available")}{offer.seller_available_quantity}</Text>
-            <Badge tone={offer.can_fulfill ? "success" : "warning"}>
-              {offer.can_fulfill ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill") : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply")}
-            </Badge>
-            {canAccept && offer.status === "submitted" ? (
-              <form method="post">
-                <input
-                  type="hidden"
-                  name="feeQuoteFingerprint"
-                  value={acceptanceTerms?.fee_quote_fingerprint ?? ""}
-                />
-                <Button
-                  type="submit"
-                  name="intent"
-                  value="accept-offer"
-                  disabled={!offer.can_fulfill}
-                >
-                  {t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match")}</Button>
-              </form>
-            ) : (
-              <Text>
-                {offer.status === "accepted"
+        <Stack gap={4}>
+          <OfferCard
+            title={offer.item_title}
+            amount={formatMoney(offer.price_amount)}
+            status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
+            details={
+              <Stack gap={2}>
+                {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
+                {offer.product_summary ? (
+                  <ProductSummaryChips summary={offer.product_summary} />
+                ) : null}
+                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.buyer")}{offer.buyer_display_name ?? offer.buyer_account_id}</Text>
+                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
+                <Text>{t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available")}{offer.seller_available_quantity}</Text>
+                <Badge tone={offer.can_fulfill ? "success" : "warning"}>
+                  {offer.can_fulfill ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill") : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply")}
+                </Badge>
+              </Stack>
+            }
+            actions={acceptOfferAction}
+          />
+
+          {acceptanceTerms ? (
+            <PriceBreakdown
+              lines={[
+                {
+                  label: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price"),
+                  value: formatMoney(offer.price_amount),
+                },
+                {
+                  label: t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee"),
+                  value: formatMoney(acceptanceTerms.marketplace_sales_fee_unit_amount),
+                },
+                {
+                  label: t("marketplace.features.offers.ui.offerMatchDetailPage.shipping.allowance.rate"),
+                  value: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
+                },
+                {
+                  label: t("marketplace.features.offers.ui.offerMatchDetailPage.terms.source"),
+                  value: termsSourceLabel(acceptanceTerms),
+                },
+              ]}
+              total={formatMoney(acceptanceTerms.seller_net_unit_amount)}
+              totalLabel={t("marketplace.features.offers.ui.offerMatchDetailPage.seller.net")}
+            />
+          ) : null}
+
+          <BuyerProtectionModule
+            title={t("marketplace.features.offers.ui.offerMatchDetailPage.seller.shipping.allowance")}
+            items={[
+              {
+                title: t("marketplace.features.offers.ui.offerMatchDetailPage.seller.shipping.allowance"),
+                description: acceptanceTerms
+                  ? t("marketplace.features.offers.ui.offerMatchDetailPage.accepting.this.offer.earns.percentage.toward.shipping", {
+                      percentage: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
+                    })
+                  : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms"),
+              },
+              {
+                title: t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill"),
+                description: offer.can_fulfill
+                  ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
+                  : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply"),
+              },
+              {
+                title: t("marketplace.features.offers.ui.offerMatchDetailPage.quote.time"),
+                description: acceptanceTerms
+                  ? new Date(acceptanceTerms.resolved_at).toLocaleString()
+                  : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms"),
+              },
+            ]}
+          />
+
+          <MarketplaceStatusTimeline
+            steps={[
+              {
+                label: offer.status,
+                description: t("marketplace.features.offers.ui.offerMatchDetailPage.review.an.offer.match.that.matches"),
+                status: offer.status === "accepted" ? "complete" : "current",
+              },
+              {
+                label: offer.can_fulfill
+                  ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
+                  : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply"),
+                description: t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available") + offer.seller_available_quantity,
+                status: offer.can_fulfill ? "complete" : "issue",
+              },
+              {
+                label: t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match"),
+                description: offer.status === "accepted"
                   ? t("marketplace.features.offers.ui.offerMatchDetailPage.this.offer.match.has.already.been")
-                  : t("marketplace.features.offers.ui.offerMatchDetailPage.this.view.is.read.only.for")}
-              </Text>
-            )}
-          </Stack>
-        </Card>
+                  : t("marketplace.features.offers.ui.offerMatchDetailPage.this.view.is.read.only.for"),
+                status: offer.status === "accepted" ? "complete" : "upcoming",
+              },
+            ]}
+          />
+        </Stack>
       </PageSection>
+
+      {acceptOfferAction ? (
+        <StickyCtaBar
+          price={formatMoney(offer.price_amount)}
+          context={offer.can_fulfill
+            ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
+            : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply")}
+          primaryAction={acceptOfferAction}
+          secondaryAction={
+            <LinkButton href="/account/offers/matches" tone="secondary">
+              {t("marketplace.features.offers.ui.offerMatchDetailPage.back.to.offer.matches")}
+            </LinkButton>
+          }
+        />
+      ) : null}
     </Page>
   );
 }

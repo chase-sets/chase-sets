@@ -13,6 +13,8 @@ import {
   TextInput,
   NumberInput,
   NativeSelect,
+  ProductSelectionSummary,
+  productSelectionDetailsFromSummary,
 } from "@chase-sets/design-system";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import {
@@ -168,7 +170,7 @@ export function InventoryItemListPage({
                 label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id")}
                 name="catalogItemId"
                 required
-                placeholder="cat_..."
+                placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item")}
                 value={catalogItemId}
                 onChange={(event) => setCatalogItemId(event.target.value)}
                 description={t("inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to")}
@@ -239,10 +241,7 @@ export function InventoryItemListPage({
                 placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location")}
                 items={locations.map((location) => ({
                   value: location.storage_location_id,
-                  label: t("inventory.features.inventoryItems.ui.inventoryItemListPage.location.option", {
-                    name: location.name,
-                    shipFromCode: location.ship_from_code,
-                  }),
+                  label: location.name,
                 }))}
               />
               <NumberInput label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity")} name="totalQuantity" required min="1" />
@@ -277,9 +276,12 @@ export function InventoryItemListPage({
                         </Text>
                       ) : null}
                       {row.product_summary ? (
-                        <Text tone="secondary" size="sm">
-                          {row.product_summary}
-                        </Text>
+                        <ProductSelectionSummary
+                          selections={productSelectionDetailsFromSummary(row.product_summary)}
+                          summary={row.product_summary}
+                          summaryAsChip
+                          className="justify-start"
+                        />
                       ) : null}
                     </Stack>
                   ),
@@ -290,9 +292,6 @@ export function InventoryItemListPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Text>{row.storage_location_name}</Text>
-                  <Text tone="secondary" size="sm">
-                    {row.ship_from_code}
-                  </Text>
                 </Stack>
               ),
             },

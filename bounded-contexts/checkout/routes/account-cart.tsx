@@ -31,39 +31,29 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
+  const intentValues = formData.getAll("intent");
+  const intent = String(intentValues.at(-1) ?? "");
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
   const anonymousCartId = readAnonymousCartId(request);
 
   try {
     if (intent === "update-cart-line") {
+      const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
+      const [primaryLineId, ...duplicateLineIds] = lineIds;
+
       if (!actor && anonymousCartId) {
         await api.updateGuestCartLineQuantity(
           anonymousCartId,
-          String(formData.get("lineId") ?? ""),
+          primaryLineId ?? "",
           {
             quantity: Number(formData.get("quantity") ?? 0),
           },
         );
-        return redirect("/account/cart");
-      }
-
-      if (!actor) {
-        throw new Error(t("checkout.routes.accountCart.request.failed"));
-      }
-
-      await api.updateCartLineQuantity(String(formData.get("lineId") ?? ""), {
-        quantity: Number(formData.get("quantity") ?? 0),
-      });
-      return redirect("/account/cart");
-    }
-
-    if (intent === "remove-cart-line") {
-      if (!actor && anonymousCartId) {
-        await api.removeGuestCartLine(
-          anonymousCartId,
-          String(formData.get("lineId") ?? ""),
+        await Promise.all(
+          duplicateLineIds.map((lineId) =>
+            api.removeGuestCartLine(anonymousCartId, lineId),
+          ),
         );
         return redirect("/account/cart");
       }
@@ -72,7 +62,30 @@ export async function action({ request }: ActionFunctionArgs) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
-      await api.removeCartLine(String(formData.get("lineId") ?? ""));
+      await api.updateCartLineQuantity(primaryLineId ?? "", {
+        quantity: Number(formData.get("quantity") ?? 0),
+      });
+      await Promise.all(
+        duplicateLineIds.map((lineId) => api.removeCartLine(lineId)),
+      );
+      return redirect("/account/cart");
+    }
+
+    if (intent === "remove-cart-line") {
+      const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
+
+      if (!actor && anonymousCartId) {
+        await Promise.all(
+          lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)),
+        );
+        return redirect("/account/cart");
+      }
+
+      if (!actor) {
+        throw new Error(t("checkout.routes.accountCart.request.failed"));
+      }
+
+      await Promise.all(lineIds.map((lineId) => api.removeCartLine(lineId)));
       return redirect("/account/cart");
     }
 

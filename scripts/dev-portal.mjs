@@ -4,12 +4,6 @@ const port = parseInt(process.env.PORT ?? "6170", 10);
 
 const services = [
   {
-    name: "Design System Showcase",
-    url: "http://localhost:6171",
-    description: "Component library and design token reference",
-    category: "frontend",
-  },
-  {
     name: "Admin Web",
     url: "http://localhost:6172",
     description: "Unified catalog and identity administration workspace",

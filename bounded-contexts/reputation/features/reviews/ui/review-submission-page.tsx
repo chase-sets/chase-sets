@@ -1,9 +1,12 @@
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
+  BuyerProtectionModule,
   Button,
   Card,
+  DetailConfidenceModule,
   LinkButton,
+  MarketplaceNotice,
   Page,
   PageHeader,
   PageSection,
@@ -56,20 +59,54 @@ export function ReviewSubmissionPage({
       />
 
       <PageSection title={t("reputation.features.reviews.ui.reviewSubmissionPage.verified.order")}>
-        <Card>
-          <Stack gap={2}>
-            <Text>{t("reputation.features.reviews.ui.reviewSubmissionPage.order")}{opportunity.order_id}</Text>
-            <Text>{t("reputation.features.reviews.ui.reviewSubmissionPage.counterparty")}{counterpartyLabel}</Text>
-            <Text size="sm" tone="secondary">
-              {t("reputation.features.reviews.ui.reviewSubmissionPage.reviews.open.only.after.the.order")}</Text>
-          </Stack>
-        </Card>
+        <Stack gap={4}>
+          <DetailConfidenceModule
+            title={t("reputation.features.reviews.ui.reviewSubmissionPage.verified.order")}
+            description={t("reputation.features.reviews.ui.reviewSubmissionPage.reviews.open.only.after.the.order")}
+            items={[
+              {
+                label: t("reputation.features.reviews.ui.reviewSubmissionPage.order"),
+                value: opportunity.order_id,
+              },
+              {
+                label: t("reputation.features.reviews.ui.reviewSubmissionPage.counterparty"),
+                value: counterpartyLabel,
+              },
+              {
+                label: t("reputation.features.reviews.ui.reviewSubmissionPage.reviews"),
+                value: counterpartyRole,
+              },
+            ]}
+          />
+          <BuyerProtectionModule
+            title={t("reputation.features.reviews.ui.reviewSubmissionPage.verified.order")}
+            items={[
+              {
+                title: t("reputation.features.reviews.ui.reviewSubmissionPage.reviews.open.only.after.the.order"),
+                description: t("reputation.features.reviews.ui.reviewSubmissionPage.feedback.description", {
+                  counterpartyRole,
+                  orderId: opportunity.order_id,
+                }),
+              },
+              {
+                title: t("reputation.features.reviews.ui.reviewSubmissionPage.rating"),
+                description: t("reputation.features.reviews.ui.reviewSubmissionPage.tell.the.account.what.went.well"),
+              },
+              {
+                title: t("reputation.features.reviews.ui.reviewSubmissionPage.counterparty"),
+                description: counterpartyLabel,
+              },
+            ]}
+          />
+        </Stack>
       </PageSection>
 
       <PageSection title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}>
         <Card>
           <Stack gap={3}>
-            {errorMessage ? <Text>{errorMessage}</Text> : null}
+            {errorMessage ? (
+              <MarketplaceNotice tone="error" title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")} description={errorMessage} />
+            ) : null}
             <form method="post">
               <Stack gap={3}>
                 <input type="hidden" name="rating" value={rating} />

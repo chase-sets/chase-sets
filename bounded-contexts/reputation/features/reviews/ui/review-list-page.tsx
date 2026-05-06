@@ -2,12 +2,12 @@ import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   Badge,
-  Card,
-  EmptyState,
   LinkButton,
+  MarketplaceEmptyState,
   Page,
   PageHeader,
   PageSection,
+  ReviewCard,
   Stack,
   Text,
 } from "@chase-sets/design-system";
@@ -46,33 +46,34 @@ export function ReviewListPage({
       <PageSection title={t("reputation.features.reviews.ui.reviewListPage.reviews")}>
         <Stack gap={3}>
           {reviews.length === 0 ? (
-            <EmptyState
+            <MarketplaceEmptyState
               title={emptyTitle}
               description={emptyDescription}
-              icon="star"
             />
           ) : (
             reviews.map((review) => (
-              <Card key={review.review_id}>
-                <Stack gap={2}>
-                  <Stack gap={1}>
-                    <Text weight="semibold">{t("reputation.features.reviews.ui.reviewListPage.order")}{review.order_id}</Text>
-                    <Badge tone={statusTone(review.status)}>{review.status}</Badge>
-                  </Stack>
-                  <Text>{review.rating} / 5</Text>
-                  <Text size="sm" tone="secondary">
-                    {t("reputation.features.reviews.ui.reviewListPage.review.author")}{review.author_display_name ?? review.author_account_id}
-                  </Text>
-                  <Text size="sm" tone="secondary">
-                    {t("reputation.features.reviews.ui.reviewListPage.reviewed.account")}{review.subject_display_name ?? review.subject_account_id}
-                  </Text>
-                  <Text size="sm" tone="secondary">
-                    {review.feedback ?? t("reputation.features.reviews.ui.reviewListPage.no.written.feedback")}
-                  </Text>
-                  <LinkButton href={`${reviewDetailBasePath}/${review.review_id}`} tone="secondary">
-                    {t("reputation.features.reviews.ui.reviewListPage.open.review")}</LinkButton>
-                </Stack>
-              </Card>
+              <Stack key={review.review_id} gap={2}>
+                <ReviewCard
+                  author={`${t("reputation.features.reviews.ui.reviewListPage.review.author")}${review.author_display_name ?? review.author_account_id}`}
+                  rating={review.rating}
+                  body={review.feedback ?? t("reputation.features.reviews.ui.reviewListPage.no.written.feedback")}
+                  meta={
+                    <Stack gap={1}>
+                      <Text size="sm" tone="secondary">
+                        {t("reputation.features.reviews.ui.reviewListPage.verified.order")}
+                      </Text>
+                      <Text size="sm" tone="secondary">
+                        {t("reputation.features.reviews.ui.reviewListPage.reviewed.account")}{review.subject_display_name ?? review.subject_account_id}
+                      </Text>
+                      <Badge tone={statusTone(review.status)}>{review.status}</Badge>
+                    </Stack>
+                  }
+                  verified
+                />
+                <LinkButton href={`${reviewDetailBasePath}/${review.review_id}`} tone="secondary">
+                  {t("reputation.features.reviews.ui.reviewListPage.open.review")}
+                </LinkButton>
+              </Stack>
             ))
           )}
         </Stack>

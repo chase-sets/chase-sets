@@ -1,991 +1,586 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
-  Button,
-  CopyButton,
-  NavigationMenu,
-  SegmentedControl,
-  Tabs,
-  Toggle,
-  ToggleGroup,
-  Toolbar,
-  ToolbarButton,
-  ToolbarInput,
-  ToolbarSeparator,
-} from "../components/actions";
-import { Card, DataTable, ImageGallery } from "../components/data-display";
-import { Accordion, Dialog, Menu, Rating, ToastRegion, Tooltip } from "../components/feedback";
-import {
-  Checkbox,
-  Combobox,
-  Autocomplete,
-  NativeSelect,
-  NumberField,
-  PasswordInput,
-  SearchInput,
-  Select,
-  Switch,
-  TagInput
-} from "../components/forms";
-import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
-import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
-import {
-  AdminShell,
-  CommerceActionBar,
-  CommerceDrawer,
-  MarketStatusBadge,
-  MarketplaceFacetRail,
-  MarketplaceLandingHero,
-  MarketplaceMarketSummary,
-  MarketplaceProductCard,
-  MarketplaceShell,
-  OrderSummary,
-  ProductCard,
-  SellerBadge,
-  TokenSwatch,
-  Wizard
-} from "../patterns/app-shells";
-import { SkipLink } from "../primitives/layout";
-import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
-import { resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
-import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
+  AppliedFilterChips,
+  BuyerProtectionBadge,
+  UiBadge as Badge,
+  UiButton as Button,
+  UiCard as Card,
+  UiCardContent as CardContent,
+  UiCardHeader as CardHeader,
+  UiCardTitle as CardTitle,
+  UiDialog as Dialog,
+  Input,
+  NavigationHeader,
+  ThemeToggle,
+  ListingCard,
+  TrustBadge,
+  VerifiedSellerBadge,
+  SecurePaymentCue,
+  SellerTrustCard,
+  PriceBreakdown,
+  BuyerProtectionModule,
+  ComparisonModule,
+  SavedSearchPrompt,
+  SearchFilterPanel,
+  StickyCtaBar,
+  MarketplaceEmptyState,
+  MarketplaceCartLineItem,
+  MarketplaceStatusTimeline,
+  MarketplaceTemplateGallery,
+  MessageThreadPreview,
+  ListingPurchasePanel,
+  OrderIntentSummary,
+  OfferCard,
+  PaymentRecoveryPanel,
+  ProductSelectionSummary,
+  ProductMediaModule,
+  ReviewCard,
+  SearchControlBar,
+  SellerProfileHeader,
+  SellerCredibilityHeader,
+  UiSelect as Select,
+  UiTable as Table,
+  UiTableBody as TableBody,
+  UiTableCell as TableCell,
+  UiTableHead as TableHead,
+  UiTableHeader as TableHeader,
+  UiTableRow as TableRow,
+  UiTabs as Tabs,
+  UiTextarea as Textarea,
+  UiTooltip as Tooltip,
+  formatMarketplaceNumber
+} from "../index";
 
-function ControlledToastHarness() {
-  const [open, setOpen] = useState(true);
-
-  return (
-    <ChaseRoot>
-      <ToastRegion
-        items={[
-          {
-            id: "controlled-toast",
-            title: "Controlled toast",
-            description: "Closes through caller state.",
-            tone: "success",
-            open,
-            onOpenChange: setOpen
-          }
-        ]}
-      />
-    </ChaseRoot>
-  );
-}
-
-function UncontrolledToastHarness() {
-  return (
-    <ChaseRoot>
-      <ToastRegion
-        items={[
-          {
-            id: "uncontrolled-toast",
-            title: "Uncontrolled toast",
-            description: "Closes without external state.",
-            tone: "info"
-          }
-        ]}
-      />
-    </ChaseRoot>
-  );
-}
-
-function MotionStatus() {
-  const reducedMotion = useReducedMotion();
-  const motionSettings = useChaseMotion();
-
-  return (
-    <div>
-      <span>{reducedMotion ? "reduced" : "full"}</span>
-      <span>{motionSettings.reducedMotionSetting}</span>
-    </div>
-  );
-}
-
-function DialogInteractionHarness({ title }: { title: string }) {
-  const [open, setOpen] = useState(true);
-
-  return (
-    <ChaseRoot>
-      <Dialog open={open} onOpenChange={setOpen} title={title}>
-        Dialog body
-      </Dialog>
-    </ChaseRoot>
-  );
-}
-
-describe("design system", () => {
-  const marketplaceNav = [
-    { key: "browse", label: "Browse", icon: "search" as const }
-  ];
-
-  it("resolves theme variables", () => {
-    const style = resolveThemeStyle({
-      colors: {
-        accent: "#000000"
-      }
-    });
-
-    expect(style["--color-accent" as never]).toBe("#000000");
-  });
-
-  it("only injects explicit theme overrides for scoped runtime styles", () => {
-    const style = resolveThemeOverrideStyle({
-      typography: {
-        body: "Instrument Sans"
-      }
-    });
-
-    expect(style?.["--font-body" as never]).toBe("Instrument Sans");
-    expect(style?.["--color-background" as never]).toBeUndefined();
-  });
-
-  it("renders safely on the server", () => {
+describe("design-system", () => {
+  it("renders primitive components on the server", () => {
     const markup = renderToString(
-      <ChaseRoot>
-        <Button>Ship it</Button>
-      </ChaseRoot>
+      <Card>
+        <CardHeader>
+          <CardTitle>Listing tools</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button>Save</Button>
+          <Badge variant="success">Ready</Badge>
+          <Input defaultValue="Charizard" />
+          <Textarea defaultValue="Seller note" />
+        </CardContent>
+      </Card>
     );
 
-    expect(markup).toContain("data-chase-theme");
-    expect(markup).toContain('data-color-mode="system"');
-    expect(markup).toContain("Ship it");
+    expect(markup).toContain("Listing tools");
+    expect(markup).toContain("Ready");
+    expect(markup).toContain("Charizard");
   });
 
-  it("supports explicit reduced motion policy overrides", () => {
-    render(
-      <ChaseRoot reducedMotion="always">
-        <MotionStatus />
-      </ChaseRoot>
+  it("renders conversion-first marketplace listing signals", () => {
+    const markup = renderToString(
+      <ListingCard
+        title="2020 Pikachu VMAX"
+        price="$1,250.00"
+        priceDetail="Free insured shipping"
+        condition="PSA 10"
+        sellerName="Vaulted Collectibles"
+        sellerTrustLabel="Verified seller"
+        sellerVerified
+        sellerMeta="1,248 sales"
+        fulfillment="Arrives May 9-11"
+        availability="1 available"
+        rating={4.9}
+        reviewCount="824"
+        protection="Buyer protected"
+        primaryAction={<Button>Buy now</Button>}
+      />
     );
 
-    expect(screen.getByText("reduced")).toBeTruthy();
-    expect(screen.getByText("always")).toBeTruthy();
+    expect(markup).toContain("2020 Pikachu VMAX");
+    expect(markup).toContain("$1,250.00");
+    expect(markup).toContain("Verified seller");
+    expect(markup).toContain("Buyer protected");
+    expect(markup).toContain("Arrives May 9-11");
   });
 
-  it("resolves the user reduced motion policy from matchMedia", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      writable: true,
-      value: () => ({
-        matches: true,
-        addEventListener: () => {},
-        removeEventListener: () => {}
-      })
-    });
-
-    render(
-      <ChaseRoot>
-        <MotionStatus />
-      </ChaseRoot>
+  it("keeps listing cards to one dominant primary action", () => {
+    const markup = renderToString(
+      <ListingCard
+        title="1999 Base Set Charizard"
+        price="$428.00"
+        sellerName="Mint Table Cards"
+        sellerTrustLabel="Verified seller"
+        sellerTrust={<VerifiedSellerBadge label="Verified seller" />}
+        fulfillment="Ships tomorrow"
+        availability="1 available"
+        primaryAction={<Button>Buy now</Button>}
+      />
     );
 
-    expect(screen.getByText("reduced")).toBeTruthy();
-    expect(screen.getByText("user")).toBeTruthy();
+    expect(markup).toContain('data-primary-action-count="1"');
+    expect(markup).toContain("Buy now");
+    expect(markup).not.toContain("View details");
   });
 
-  it("renders tab content", () => {
+  it("surfaces an explicit seller trust signal even when the seller is not verified", () => {
+    const markup = renderToString(
+      <ListingCard
+        title="Raw Squirtle lot"
+        price="$18.00"
+        sellerName="New seller"
+        sellerTrustLabel="Seller details visible"
+        fulfillment="Pickup or shipping confirmed before checkout"
+        availability="4 available"
+        primaryAction={<Button>View details</Button>}
+      />
+    );
+
+    expect(markup).toContain("Seller details visible");
+    expect(markup).toContain("Pickup or shipping confirmed before checkout");
+  });
+
+  it("renders named trust components with visible text and icons", () => {
+    const markup = renderToString(
+      <div>
+        <VerifiedSellerBadge label="Verified seller" />
+        <BuyerProtectionBadge label="Buyer protected" />
+        <SecurePaymentCue label="Secure payment" />
+      </div>
+    );
+
+    expect(markup).toContain("Verified seller");
+    expect(markup).toContain("Buyer protected");
+    expect(markup).toContain("Secure payment");
+    expect(markup).toContain("<svg");
+  });
+
+  it("keeps unsafe marketplace numbers out of rendered copy", () => {
+    expect(formatMarketplaceNumber(Number.NaN, "Unavailable")).toBe("Unavailable");
+    expect(formatMarketplaceNumber(undefined, "Not listed")).toBe("Not listed");
+    expect(formatMarketplaceNumber("12", "Unavailable")).toBe("12");
+  });
+
+  it("renders selected product details as structured marketplace chips", () => {
     render(
-      <ChaseRoot>
-        <Tabs
-          items={[
+      <ProductSelectionSummary
+        selections={[
+          { label: "Form", value: "Raw" },
+          { label: "Condition", value: "Near Mint" },
+        ]}
+        summary="Raw / Near Mint"
+      />
+    );
+
+    expect(screen.getByText("Form: Raw")).toBeTruthy();
+    expect(screen.getByText("Condition: Near Mint")).toBeTruthy();
+    expect(screen.queryByText("Raw / Near Mint")).toBeNull();
+  });
+
+  it("can render an empty selected product summary as a chip", () => {
+    render(
+      <ProductSelectionSummary
+        selections={[]}
+        summary="All listings"
+        summaryAsChip
+      />
+    );
+
+    expect(screen.getByText("All listings").className).toContain("rounded");
+  });
+
+  it("renders responsive marketplace cart lines with media, product, quantity, and actions", () => {
+    const markup = renderToString(
+      <MarketplaceCartLineItem
+        imageSrc="/fake-cdn/assets/charizard.png"
+        imageAlt="Charizard product"
+        title="Charizard"
+        subtitle="Base Set 4/102 Holo Rare"
+        productLabel="Product"
+        productSummary={
+          <ProductSelectionSummary
+            selections={[
+              { label: "Form", value: "Raw" },
+              { label: "Condition", value: "Near Mint" },
+            ]}
+          />
+        }
+        quantityControl={<label>Quantity<input name="quantity" defaultValue="5" /></label>}
+        actions={<Button>Update quantity</Button>}
+      />
+    );
+
+    expect(markup).toContain("data-marketplace-cart-line");
+    expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
+    expect(markup).toContain("Raw");
+    expect(markup).toContain("Quantity");
+    expect(markup).toContain("Update quantity");
+  });
+
+  it("renders listing purchase panels with one primary action region", () => {
+    const markup = renderToString(
+      <ListingPurchasePanel
+        title="Ready to buy this listing"
+        price="$42.00"
+        seller="Card Vault"
+        trust="Verified seller"
+        availability="3 available"
+        fulfillment="Ships from TX"
+        policy="Return policy reviewed before payment"
+        protection="Buyer protected"
+        reassurance="Final totals appear before payment."
+        primaryAction={<Button>Buy now</Button>}
+        secondaryAction={<Button variant="secondary">Compare market</Button>}
+      />
+    );
+
+    expect(markup).toContain("Ready to buy this listing");
+    expect(markup).toContain("3 available");
+    expect(markup).toContain('data-primary-action-count="1"');
+  });
+
+  it("renders checkout order intent before payment starts", () => {
+    const markup = renderToString(
+      <OrderIntentSummary
+        title="Charizard Base Set"
+        subtitle="Near Mint"
+        price="$390.00"
+        quantity="1"
+        seller="Verified Card Shop"
+        availability="Available"
+        fulfillment="Ships from IL"
+        protection="Buyer protection included"
+        paymentStatus="Not charged yet"
+      />
+    );
+
+    expect(markup).toContain("Charizard Base Set");
+    expect(markup).toContain("Verified Card Shop");
+    expect(markup).toContain("Not charged yet");
+  });
+
+  it("renders search controls with applied filters and saved search recovery", () => {
+    const markup = renderToString(
+      <SearchControlBar
+        search={<Input aria-label="Search" defaultValue="pikachu" />}
+        sort={<Select label="Sort" items={[{ label: "Newest", value: "newest" }]} />}
+        appliedFilters={<AppliedFilterChips filters={[{ id: "q", label: "Search: pikachu" }]} />}
+        savedSearch={
+          <SavedSearchPrompt
+            title="Save this search"
+            description="Get alerts."
+            action={<Button>Save search</Button>}
+          />
+        }
+      />
+    );
+
+    expect(markup).toContain("Search: pikachu");
+    expect(markup).toContain("Save this search");
+  });
+
+  it("renders seller credibility and payment recovery contracts", () => {
+    const markup = renderToString(
+      <>
+        <SellerCredibilityHeader
+          name="Card Vault"
+          verification="Verified seller"
+          facts={[{ label: "Response time", value: "Fast" }]}
+          policies={[{ label: "Buyer protection", value: "Included" }]}
+          contactAction={<Button>Contact seller</Button>}
+        />
+        <PaymentRecoveryPanel
+          statusLabel="Link unavailable"
+          title="Payment link expired"
+          description="The link is no longer valid."
+          chargeStatus="No payment was charged."
+          nextStep="Return to cart."
+          primaryAction={<Button>Return to cart</Button>}
+        />
+      </>
+    );
+
+    expect(markup).toContain("Card Vault");
+    expect(markup).toContain("No payment was charged.");
+  });
+
+  it("renders trust, seller, protection, and price modules", () => {
+    const markup = renderToString(
+      <div>
+        <TrustBadge>Verified seller</TrustBadge>
+        <SellerTrustCard
+          name="Vaulted Collectibles"
+          verified
+          completedSales="1,248"
+          responseTime="< 2 hours"
+        />
+        <BuyerProtectionModule
+          items={[{ title: "Secure payment", description: "Funds are held safely." }]}
+        />
+        <PriceBreakdown
+          lines={[{ label: "Item price", value: "$1,250.00" }]}
+          total="$1,420.78"
+          totalLabel="Total"
+        />
+      </div>
+    );
+
+    expect(markup).toContain("Verified seller");
+    expect(markup).toContain("Vaulted Collectibles");
+    expect(markup).toContain("Secure payment");
+    expect(markup).toContain("$1,420.78");
+    expect(markup).not.toContain("No surprise costs at payment.");
+  });
+
+  it("renders search filters with selected chips and saved-search recovery", () => {
+    render(
+      <div>
+        <SearchFilterPanel
+          searchLabel="Search marketplace"
+          filterLabel="Filters"
+          clearLabel="Clear all"
+          placeholder="Search listings"
+          resultCount="12 results"
+          appliedFilters={["Verified sellers"]}
+        />
+        <AppliedFilterChips
+          filters={[{ id: "verified", label: "Verified sellers" }]}
+          clearAction={<Button variant="ghost">Clear all</Button>}
+        />
+        <AppliedFilterChips
+          filters={[{ id: "ships", label: "Ships today", onRemove: vi.fn() }]}
+          removeLabel={(label) => `Remove ${String(label)}`}
+        />
+        <SavedSearchPrompt
+          title="Save this search"
+          description="Get alerts when matching listings appear."
+          action={<Button>Save search</Button>}
+        />
+      </div>
+    );
+
+    expect(screen.getByLabelText("Search marketplace")).toBeTruthy();
+    expect(screen.getByLabelText("Remove Ships today")).toBeTruthy();
+    expect(screen.getAllByText("Verified sellers").length).toBeGreaterThan(1);
+    expect(screen.getByText("Save this search")).toBeTruthy();
+  });
+
+  it("renders sticky checkout CTAs without hiding context", () => {
+    const markup = renderToString(
+      <StickyCtaBar
+        price="$472.19"
+        context="Final total before payment"
+        primaryAction={<Button>Continue to payment</Button>}
+        secondaryAction={<Button variant="outline">Edit cart</Button>}
+      />
+    );
+
+    expect(markup).toContain("$472.19");
+    expect(markup).toContain('data-primary-action-count="1"');
+    expect(markup).toContain("Final total before payment");
+    expect(markup).toContain("Continue to payment");
+    expect(markup).toContain("Edit cart");
+  });
+
+  it("renders marketplace detail, seller, review, and comparison templates", () => {
+    const markup = renderToString(
+      <div>
+        <ProductMediaModule title="Pikachu VMAX" media={[{ alt: "Front scan", label: "Front" }]} />
+        <SellerProfileHeader
+          name="Vaulted Collectibles"
+          verified
+          stats={[{ label: "Completed sales", value: "1,248" }]}
+        />
+        <ReviewCard
+          author="Jordan M."
+          rating={5}
+          verified
+          body="Arrived as described."
+        />
+        <ComparisonModule
+          columns={["Seller A", "Seller B"]}
+          rows={[{ label: "Total price", values: ["$120", "$124"] }]}
+        />
+      </div>
+    );
+
+    expect(markup).toContain("Pikachu VMAX media");
+    expect(markup).toContain("Vaulted Collectibles");
+    expect(markup).toContain("Verified purchase");
+    expect(markup).toContain("Total price");
+  });
+
+  it("renders marketplace recovery, status, messaging, offer, and page templates", () => {
+    const markup = renderToString(
+      <div>
+        <MarketplaceEmptyState
+          title="No exact matches"
+          description="Widen filters or save the search."
+          recommendations={["Remove PSA 10"]}
+        />
+        <MarketplaceStatusTimeline
+          steps={[
+            { label: "Order confirmed", status: "complete" },
+            { label: "Delivery in progress", status: "current" }
+          ]}
+        />
+        <MessageThreadPreview
+          sellerName="Vaulted Collectibles"
+          title="Message Vaulted Collectibles"
+          messages={[{ author: "Buyer", body: "Can you ship tomorrow?" }]}
+        />
+        <OfferCard title="Offer pending" amount="$1,180.00" />
+        <MarketplaceTemplateGallery
+          templates={[
             {
-              value: "one",
-              label: "One",
-              content: <div>First tab</div>
+              name: "Checkout",
+              purpose: "Remove surprise costs.",
+              criticalSignals: ["Final total", "Secure payment"],
+              primaryAction: "Confirm payment"
             }
           ]}
         />
-      </ChaseRoot>
+      </div>
     );
 
-    expect(screen.getByText("First tab")).toBeTruthy();
+    expect(markup).toContain("No exact matches");
+    expect(markup).toContain("Order confirmed");
+    expect(markup).toContain("Vaulted Collectibles");
+    expect(markup).toContain("Offer pending");
+    expect(markup).toContain("Confirm payment");
   });
 
-  it("renders empty state for empty data tables", () => {
-    render(
-      <DataTable
-        rows={[]}
-        columns={[
-          {
-            key: "name",
-            header: "Name",
-            cell: (row: { name: string }) => row.name
-          }
+  it("renders tables with headers and rows", () => {
+    const markup = renderToString(
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow>
+            <TableCell data-label="Name">Pikachu</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    );
+
+    expect(markup).toContain("Name");
+    expect(markup).toContain("Pikachu");
+    expect(markup).toContain('data-label="Name"');
+  });
+
+  it("renders navigation headers with active links", () => {
+    const markup = renderToString(
+      <NavigationHeader
+        sticky={false}
+        brand="Chase Sets"
+        badge="Seller tools"
+        description="Marketplace operations"
+        items={[
+          { href: "/admin", label: "Admin", active: true },
+          { href: "/marketplace", label: "Marketplace" }
         ]}
       />
     );
 
-    expect(screen.getByText("Nothing to review")).toBeTruthy();
+    expect(markup).toContain("Chase Sets");
+    expect(markup).toContain("Seller tools");
+    expect(markup).toContain('aria-current="page"');
   });
 
-  it("renders open dialogs", () => {
-    render(
-      <ChaseRoot>
-        <Dialog open title="Review listing">
-          Content body
-        </Dialog>
-      </ChaseRoot>
-    );
+  it("syncs theme toggle choices to the document theme", async () => {
+    const user = userEvent.setup();
+    const storage = new Map<string, string>();
 
-    expect(screen.getByText("Review listing")).toBeTruthy();
-    expect(screen.getByText("Content body")).toBeTruthy();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+        removeItem: (key: string) => storage.delete(key)
+      }
+    });
+    document.documentElement.removeAttribute("data-theme");
+    document.documentElement.removeAttribute("data-theme-preference");
+
+    render(<ThemeToggle />);
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.themePreference).toBe("system");
+    });
+
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+
+    expect(storage.get("chase-sets-theme")).toBe("dark");
+    await waitFor(() => {
+      expect(document.documentElement.dataset.themePreference).toBe("dark");
+      expect(document.documentElement.dataset.theme).toBe("dark");
+    });
   });
 
-  it("uses motion-safe scroll areas for overlay content", async () => {
-    const { unmount } = render(
-      <ChaseRoot>
-        <Dialog open title="Review listing">
-          Content body
-        </Dialog>
-      </ChaseRoot>
-    );
-
-    expect(document.querySelector(".motion-safe-scroll-area")?.textContent)
-      .toContain("Content body");
-
-    unmount();
-
-    render(
-      <ChaseRoot>
-        <Combobox
-          label="Condition"
-          items={[{ value: "nm", label: "Near Mint" }]}
-        />
-      </ChaseRoot>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Condition" }));
-
-    expect((await screen.findByRole("listbox")).getAttribute("class"))
-      .toContain("motion-safe-scroll-area");
-  });
-
-  it("selects values from Base UI select popups", async () => {
+  it("changes select values through Base UI", async () => {
     const user = userEvent.setup();
     const onValueChange = vi.fn();
 
     render(
-      <ChaseRoot>
-        <Select
-          label="Condition"
-          items={[
-            { value: "lp", label: "Lightly Played" },
-            { value: "nm", label: "Near Mint" }
-          ]}
-          onValueChange={onValueChange}
-        />
-      </ChaseRoot>
+      <Select
+        label="Condition"
+        items={[
+          { value: "lp", label: "Lightly Played" },
+          { value: "nm", label: "Near Mint" }
+        ]}
+        onValueChange={onValueChange}
+      />
     );
 
     await user.click(screen.getByRole("combobox", { name: "Condition" }));
-    const option = await screen.findByRole("option", { name: "Near Mint" });
-
-    await user.click(option);
+    await user.click(await screen.findByRole("option", { name: "Near Mint" }));
 
     expect(onValueChange).toHaveBeenCalledWith("nm");
   });
 
-  it("closes dialogs with Escape and backdrop interaction", async () => {
-    const { unmount } = render(<DialogInteractionHarness title="Escape dialog" />);
-
-    fireEvent.keyDown(document, { key: "Escape" });
-
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Escape dialog" })).toBeNull();
-    });
-
-    unmount();
-    render(<DialogInteractionHarness title="Backdrop dialog" />);
-
-    const backdrop = document.querySelector(".fixed.inset-0.z-modal");
-    expect(backdrop).toBeTruthy();
-
-    fireEvent.pointerDown(backdrop as Element);
-    fireEvent.click(backdrop as Element);
-
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Backdrop dialog" })).toBeNull();
-    });
-  });
-
-  it("fires menu item selections", async () => {
-    const onSelect = vi.fn();
-
+  it("renders tabs and panels", () => {
     render(
-      <ChaseRoot>
-        <Menu
-          trigger={<Button>Actions</Button>}
-          items={[{ key: "duplicate", label: "Duplicate listing", onSelect }]}
-        />
-      </ChaseRoot>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Duplicate listing" }));
-
-    expect(onSelect).toHaveBeenCalledTimes(1);
-  });
-
-  it("updates checkbox and switch state through Base UI callbacks", () => {
-    const onCheckedChange = vi.fn();
-    const onSwitchChange = vi.fn();
-
-    render(
-      <ChaseRoot>
-        <Checkbox label="Accept terms" onCheckedChange={onCheckedChange} />
-        <Switch label="Auto price" onCheckedChange={onSwitchChange} />
-      </ChaseRoot>
-    );
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Accept terms" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Auto price" }));
-
-    expect(onCheckedChange).toHaveBeenCalledWith(true);
-    expect(onSwitchChange).toHaveBeenCalledWith(true);
-  });
-
-  it("shows and hides tooltips from trigger focus", async () => {
-    render(
-      <ChaseRoot>
-        <Tooltip content="Price includes marketplace fees">
-          <button type="button">Fee help</button>
-        </Tooltip>
-      </ChaseRoot>
-    );
-
-    fireEvent.focus(screen.getByRole("button", { name: "Fee help" }));
-
-    expect(await screen.findByText("Price includes marketplace fees")).toBeTruthy();
-
-    fireEvent.blur(screen.getByRole("button", { name: "Fee help" }));
-
-    await waitFor(() => {
-      expect(screen.queryByText("Price includes marketplace fees")).toBeNull();
-    });
-  });
-
-  it("selects autocomplete options", async () => {
-    const user = userEvent.setup();
-    const onValueChange = vi.fn();
-
-    render(
-      <ChaseRoot>
-        <Autocomplete
-          label="Character"
-          items={[
-            { value: "charizard", label: "Charizard" },
-            { value: "pikachu", label: "Pikachu" }
-          ]}
-          onValueChange={onValueChange}
-        />
-      </ChaseRoot>
-    );
-
-    await user.click(screen.getByRole("combobox", { name: "Character" }));
-    await user.click(await screen.findByRole("option", { name: "Pikachu" }));
-
-    expect(onValueChange).toHaveBeenCalledWith("Pikachu");
-  });
-
-  it("increments number fields through Base UI controls", async () => {
-    const user = userEvent.setup();
-    const onValueChange = vi.fn();
-
-    render(
-      <ChaseRoot>
-        <NumberField
-          label="Quantity"
-          defaultValue={1}
-          onValueChange={onValueChange}
-          incrementLabel="Increase quantity"
-          decrementLabel="Decrease quantity"
-        />
-      </ChaseRoot>
-    );
-
-    await user.click(screen.getByRole("button", { name: "Increase quantity" }));
-
-    expect(onValueChange).toHaveBeenCalledWith(2);
-  });
-
-  it("updates toggle and toggle group state", async () => {
-    const user = userEvent.setup();
-    const onPressedChange = vi.fn();
-    const onValueChange = vi.fn();
-
-    render(
-      <ChaseRoot>
-        <Toggle aria-label="Watch listing" onPressedChange={onPressedChange} />
-        <ToggleGroup
-          label="View mode"
-          items={[
-            { value: "grid", label: "Grid" },
-            { value: "list", label: "List" }
-          ]}
-          onValueChange={onValueChange}
-        />
-      </ChaseRoot>
-    );
-
-    await user.click(screen.getByRole("button", { name: "Watch listing" }));
-    await user.click(screen.getByRole("button", { name: "List" }));
-
-    expect(onPressedChange).toHaveBeenCalledWith(true);
-    expect(onValueChange).toHaveBeenCalledWith(["list"]);
-  });
-
-  it("renders toolbar and navigation menu wrappers", async () => {
-    const user = userEvent.setup();
-
-    render(
-      <ChaseRoot>
-        <Toolbar label="Listing tools">
-          <ToolbarButton icon="search">Find</ToolbarButton>
-          <ToolbarSeparator />
-          <ToolbarInput aria-label="Filter listings" />
-        </Toolbar>
-        <NavigationMenu
-          items={[
-            { value: "browse", label: "Browse", href: "#browse", active: true },
-            {
-              value: "sell",
-              label: "Sell",
-              content: <div>Seller workflows</div>
-            }
-          ]}
-        />
-      </ChaseRoot>
-    );
-
-    expect(screen.getByRole("toolbar", { name: "Listing tools" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Find" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Filter listings" })).toBeTruthy();
-    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Browse" }).getAttribute("href")).toBe("#browse");
-
-    await user.click(screen.getByRole("button", { name: "Sell" }));
-
-    expect(await screen.findByText("Seller workflows")).toBeTruthy();
-  });
-
-  it("renders motion primitives safely on the server", () => {
-    const markup = renderToString(
-      <ChaseRoot reducedMotion="never">
-        <Stagger>
-          <Reveal preset="lift">
-            <div>Animated card</div>
-          </Reveal>
-          <ViewTransition transitionKey="search">
-            <div>Animated page</div>
-          </ViewTransition>
-        </Stagger>
-      </ChaseRoot>
-    );
-
-    expect(markup).toContain("Animated card");
-    expect(markup).toContain("Animated page");
-  });
-
-  it("dismisses controlled toasts through caller state", async () => {
-    render(<ControlledToastHarness />);
-
-    expect(screen.getByText("Controlled toast")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Dismiss notification" })
-    ).toBeTruthy();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Dismiss notification" })
-    );
-
-    await waitFor(() => {
-      expect(screen.queryByText("Controlled toast")).toBeNull();
-    });
-  });
-
-  it("dismisses uncontrolled toasts without external state", async () => {
-    render(<UncontrolledToastHarness />);
-
-    expect(screen.getByText("Uncontrolled toast")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Dismiss notification" })
-    ).toBeTruthy();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Dismiss notification" })
-    );
-
-    await waitFor(() => {
-      expect(screen.queryByText("Uncontrolled toast")).toBeNull();
-    });
-  });
-
-  it("renders the Chase Sets logo and uses it in seller badges", () => {
-    const logoMarkup = renderToString(<ChaseSetsLogo title="Chase Sets logo" />);
-    const badgeMarkup = renderToString(<SellerBadge name="Chase Sets" verified />);
-
-    expect(chaseSetsLogoSvg).toContain("logoGradient");
-    expect(logoMarkup).toContain('role="img"');
-    expect(logoMarkup).toContain("Chase Sets logo");
-    expect(badgeMarkup).toContain("Chase Sets");
-    expect(badgeMarkup).toContain("Verified");
-    expect(badgeMarkup).toContain("<svg");
-  });
-
-  it("renders marketplace market summaries as compact buyer signals", () => {
-    const markup = renderToString(
-      <MarketplaceMarketSummary
-        price="$21.50"
-        note="Raw / Excellent"
-        facts={[
-          { label: "Available", value: "3" },
-          { label: "Sellers", value: "1" }
+      <Tabs
+        items={[
+          { value: "summary", label: "Summary", content: <div>Summary content</div> },
+          { value: "activity", label: "Activity", content: <div>Activity content</div> }
         ]}
       />
     );
 
-    expect(markup).toContain("$21.50");
-    expect(markup).toContain("Raw / Excellent");
-    expect(markup).toContain("Available");
-    expect(markup).toContain("Sellers");
+    expect(screen.getByRole("tab", { name: "Summary" })).toBeTruthy();
+    expect(screen.getByText("Summary content")).toBeTruthy();
   });
 
-  it("renders commerce action bars with optional intent controls", () => {
-    const markup = renderToString(
-      <CommerceActionBar
-        intentControl={
-          <SegmentedControl
-            fullWidth
-            aria-label="Choose intent"
-            items={[
-              { value: "buy", label: "Buy" },
-              { value: "sell", label: "Sell" }
-            ]}
-            value="buy"
-          />
-        }
-        summary="Raw / Near Mint"
-        primaryAction={<button type="button">Buy</button>}
-        secondaryAction={<button type="button">Make offer</button>}
-      />
-    );
+  it("opens dialogs from triggers", async () => {
+    const user = userEvent.setup();
 
-    expect(markup).toContain("Choose intent");
-    expect(markup).toContain("Raw / Near Mint");
-    expect(markup).toContain("Make offer");
-  });
-
-  it("renders commerce drawers with form footer actions", () => {
     render(
-      <ChaseRoot>
-        <CommerceDrawer
-          open
-          title="Buy selected product"
-          description="Raw / Near Mint"
-          footer={<Button form="commerce-form" type="submit">Buy now</Button>}
-        >
-          <form id="commerce-form">Quantity</form>
-        </CommerceDrawer>
-      </ChaseRoot>
+      <Dialog
+        trigger={<Button>Open review</Button>}
+        title="Review listing"
+        description="Check pricing before publishing."
+      >
+        Dialog content
+      </Dialog>
     );
 
-    const drawer = screen.getByRole("dialog", { name: "Buy selected product" });
-    expect(within(drawer).getByText("Quantity")).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Buy now" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open review" }));
+
+    expect(await screen.findByRole("dialog", { name: "Review listing" })).toBeTruthy();
+    expect(screen.getByText("Dialog content")).toBeTruthy();
   });
 
-  it("resolves responsive classes from maps", () => {
-    const result = resolveResponsiveClass(
-      { base: "row", md: "column" },
-      {
-        row: {
-          base: "flex-row",
-          sm: "sm:flex-row",
-          md: "md:flex-row",
-          lg: "lg:flex-row",
-          xl: "xl:flex-row",
-          "2xl": "2xl:flex-row"
-        },
-        column: {
-          base: "flex-col",
-          sm: "sm:flex-col",
-          md: "md:flex-col",
-          lg: "lg:flex-col",
-          xl: "xl:flex-col",
-          "2xl": "2xl:flex-col"
-        }
-      }
-    );
-
-    expect(result).toContain("flex-row");
-    expect(result).toContain("md:flex-col");
-  });
-
-  it("resolves spacing classes from static maps", () => {
-    expect(resolveSpaceClass("gap", 5)).toBe("gap-5");
-    expect(resolveSpaceClass("p", 6)).toBe("p-6");
-    expect(resolveSpaceClass("px", 12)).toBe("px-12");
-  });
-
-  it("renders Rating with correct number of stars", () => {
-    const markup = renderToString(<Rating value={3} max={5} label="Product rating" />);
-
-    expect(markup).toContain("aria-label=\"Product rating\"");
-    // 3 filled stars have fill="currentColor", 2 empty stars do not
-    const filledCount = (markup.match(/fill="currentColor"/g) || []).length;
-    expect(filledCount).toBe(3);
-  });
-
-  it("renders interactive Rating with radio role", () => {
+  it("shows tooltips from focus", async () => {
     render(
-      <ChaseRoot>
-        <Rating value={3} max={5} interactive label="Rate this" />
-      </ChaseRoot>
+      <Tooltip content="Margin includes shipping credit.">
+        <button type="button">Margin help</button>
+      </Tooltip>
     );
 
-    expect(screen.getByRole("radiogroup")).toBeTruthy();
-  });
+    fireEvent.focus(screen.getByRole("button", { name: "Margin help" }));
 
-  it("renders Accordion items", () => {
-    render(
-      <ChaseRoot>
-        <Accordion
-          type="single"
-          collapsible
-          items={[
-            { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
-            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> }
-          ]}
-        />
-      </ChaseRoot>
-    );
-
-    expect(screen.getByText("Section 1")).toBeTruthy();
-    expect(screen.getByText("Section 2")).toBeTruthy();
-  });
-
-  it("renders ImageGallery with thumbnails", () => {
-    const markup = renderToString(
-      <ImageGallery
-        images={[
-          { src: "/img1.jpg", alt: "Front" },
-          { src: "/img2.jpg", alt: "Back" }
-        ]}
-      />
-    );
-
-    expect(markup).toContain("Front");
-    expect(markup).toContain("Back");
-  });
-
-  it("renders ImageGallery empty states inside the gallery frame", () => {
-    const markup = renderToString(
-      <ImageGallery
-        images={[]}
-        emptyState={<div>Gallery placeholder</div>}
-      />
-    );
-
-    expect(markup).toContain("Gallery placeholder");
-  });
-
-  it("renders ImageGallery fallback imagery when no images are provided", () => {
-    const markup = renderToString(
-      <ImageGallery
-        images={[]}
-        fallbackImage={{ src: "/fallback-card-back.png", alt: "Card back" }}
-        emptyState={<div>Gallery placeholder</div>}
-      />
-    );
-
-    expect(markup).toContain('src="/fallback-card-back.png"');
-    expect(markup).toContain('alt="Card back"');
-  });
-
-  it("renders CopyButton with label", () => {
-    render(
-      <ChaseRoot>
-        <CopyButton value="test-value" label="Copy ID" />
-      </ChaseRoot>
-    );
-
-    expect(screen.getByText("Copy ID")).toBeTruthy();
-  });
-
-  it("renders TagInput with tag values", () => {
-    render(
-      <ChaseRoot>
-        <TagInput values={["Pokemon", "Charizard"]} placeholder="Add tag" />
-      </ChaseRoot>
-    );
-
-    expect(screen.getByText("Pokemon")).toBeTruthy();
-    expect(screen.getByText("Charizard")).toBeTruthy();
-  });
-
-  it("renders PasswordInput with visibility toggle", () => {
-    render(
-      <ChaseRoot>
-        <PasswordInput label="Password" />
-      </ChaseRoot>
-    );
-
-    expect(screen.getByLabelText("Password")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Show password" })).toBeTruthy();
-  });
-
-  it("renders SkipLink with target and label", () => {
-    const markup = renderToString(<SkipLink targetId="main" label="Skip navigation" />);
-
-    expect(markup).toContain('href="#main"');
-    expect(markup).toContain("Skip navigation");
-  });
-
-  it("renders Card with media slot", () => {
-    const markup = renderToString(
-      <Card media={<img src="/card.jpg" alt="Card" />}>
-        <div>Card content</div>
-      </Card>
-    );
-
-    expect(markup).toContain("Card content");
-    expect(markup).toContain('alt="Card"');
-  });
-
-  it("renders ProductCard with contained image fit", () => {
-    const markup = renderToString(
-      <ProductCard
-        title="2020 Pikachu VMAX"
-        subtitle="PSA 10"
-        price="$1,250"
-        imageSrc="/demo-assets/pikachu-card.svg"
-        imageAlt="Pikachu card"
-        imageFit="contain"
-      />
-    );
-
-    expect(markup).toContain("2020 Pikachu VMAX");
-    expect(markup).toContain('alt="Pikachu card"');
-  });
-
-  it("swaps ProductCard to the fallback image when the primary image fails", () => {
-    render(
-      <ChaseRoot>
-        <ProductCard
-          title="2020 Pikachu VMAX"
-          imageSrc="/missing-card.png"
-          imageAlt="Pikachu card"
-          fallbackImageSrc="/pokemon-card-back.png"
-          fallbackImageAlt="Pokemon card back"
-        />
-      </ChaseRoot>
-    );
-
-    fireEvent.error(screen.getByAltText("Pikachu card"));
-
-    const fallbackImage = screen.getByAltText("Pokemon card back");
-    expect(fallbackImage.getAttribute("src")).toBe("/pokemon-card-back.png");
-  });
-
-  it("renders ProductCard as a link when href is provided", () => {
-    const markup = renderToString(
-      <ProductCard
-        href="/items/pikachu"
-        title="2020 Pikachu VMAX"
-        price="$1,250"
-      />
-    );
-
-    expect(markup).toContain("<a");
-    expect(markup).toContain('href="/items/pikachu"');
-    expect(markup).toContain("2020 Pikachu VMAX");
-  });
-
-  it("renders ProductCard as a button when onSelect is provided", () => {
-    render(
-      <ChaseRoot>
-        <ProductCard
-          title="Selectable card"
-          selectLabel="Open selectable card"
-          onSelect={() => {}}
-        />
-      </ChaseRoot>
-    );
-
-    expect(screen.getByRole("button", { name: "Open selectable card" })).toBeTruthy();
-  });
-
-  it("renders marketplace product cards with canonical status and action language", () => {
-    const markup = renderToString(
-      <MarketplaceProductCard
-        href="/items/pikachu"
-        title="Pikachu"
-        subtitle="Jungle 60/64"
-        description="Classic electric single"
-        status="available"
-        price="From $21.50"
-        meta="3 listings • 5 available"
-        actionLabel="View listings"
-        categoryTags={["Pokemon TCG", "Singles"]}
-        metadataTags={["jungle", "pikachu"]}
-      />
-    );
-
-    expect(markup).toContain("Available now");
-    expect(markup).toContain("From $21.50");
-    expect(markup).toContain("View listings");
-    expect(markup).toContain("Pokemon TCG");
-  });
-
-  it("renders marketplace facet rails and landing heroes from design-system patterns", () => {
-    const facetMarkup = renderToString(
-      <MarketplaceFacetRail
-        items={[{ id: "pokemon", label: "Pokemon TCG", count: 7 }]}
-        selectedId="pokemon"
-        onSelect={() => {}}
-      />
-    );
-    const heroMarkup = renderToString(
-      <MarketplaceLandingHero
-        badges={[{ label: "Verified supply", tone: "success" }]}
-        title="Find collectibles worth chasing."
-        description="Search live supply and compare active markets."
-        search={<SearchInput hideLabel label="Search" />}
-        filters={[{ id: "", label: "All", selected: true, onSelect: () => {} }]}
-        metrics={[{ label: "Available Now", value: 3, detail: "With active listings" }]}
-      />
-    );
-    const statusMarkup = renderToString(<MarketStatusBadge status="marketOnly" />);
-
-    expect(facetMarkup).toContain("Browse Categories");
-    expect(facetMarkup).toContain("Pokemon TCG (7)");
-    expect(heroMarkup).toContain("Find collectibles worth chasing.");
-    expect(heroMarkup).toContain("Available Now");
-    expect(statusMarkup).toContain("Market only");
-  });
-
-  it("renders token swatches for the spec board", () => {
-    const markup = renderToString(
-      <TokenSwatch label="Primary Blue" value="#3882F6" color="brandPrimary" />
-    );
-
-    expect(markup).toContain("Primary Blue");
-    expect(markup).toContain("#3882F6");
-  });
-
-  it("renders NativeSelect with accessible label and placeholder", () => {
-    render(
-      <ChaseRoot>
-        <NativeSelect
-          label="Condition"
-          placeholder="Choose condition"
-          items={[{ value: "nm", label: "Near Mint" }]}
-        />
-      </ChaseRoot>
-    );
-
-    expect(screen.getByLabelText("Condition")).toBeTruthy();
-    expect(screen.getByText("Choose condition")).toBeTruthy();
-  });
-
-  it("renders DataTable with sortable column headers", () => {
-    const markup = renderToString(
-      <DataTable
-        rows={[{ name: "Alpha", price: 10 }]}
-        columns={[
-          { key: "name", header: "Name", cell: (r: { name: string }) => r.name, sortable: true },
-          { key: "price", header: "Price", cell: (r: { price: number }) => r.price }
-        ]}
-        sortKey="name"
-        sortDirection="asc"
-        onSortChange={() => {}}
-      />
-    );
-
-    expect(markup).toContain("Alpha");
-    // Sortable header renders as a button
-    expect(markup).toContain("<button");
-    expect(markup).toContain("Name");
-  });
-
-  it("renders ColorModeToggle with current mode label", () => {
-    render(
-      <ChaseRoot>
-        <ColorModeToggle value="dark" onValueChange={() => {}} />
-      </ChaseRoot>
-    );
-
-    expect(screen.getByText("Dark")).toBeTruthy();
-  });
-
-  it("renders Wizard with step content", () => {
-    const markup = renderToString(
-      <Wizard
-        steps={[
-          { key: "step1", label: "First", content: <div>Step 1 content</div> },
-          { key: "step2", label: "Second", content: <div>Step 2 content</div> }
-        ]}
-        activeStep="step1"
-        onStepChange={() => {}}
-      />
-    );
-
-    expect(markup).toContain("Step 1 content");
-    expect(markup).toContain("First");
-    expect(markup).toContain("Second");
-  });
-
-  it("renders marketplace shells with a main landmark and skip link target", () => {
-    render(
-      <ChaseRoot>
-        <MarketplaceShell
-          brand={<div>Brand</div>}
-          topNavItems={marketplaceNav}
-          bottomNavItems={marketplaceNav}
-          activeKey="browse"
-        >
-          <div>Body</div>
-        </MarketplaceShell>
-      </ChaseRoot>
-    );
-
-    expect(screen.getByRole("main").getAttribute("id")).toBe("main-content");
-    expect(
-      screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")
-    ).toBe("#main-content");
-  });
-
-  it("renders admin shells with a main landmark and skip link target", () => {
-    render(
-      <ChaseRoot>
-        <AdminShell
-          brand={<div>Brand</div>}
-          navItems={marketplaceNav}
-          activeKey="browse"
-        >
-          <div>Body</div>
-        </AdminShell>
-      </ChaseRoot>
-    );
-
-    expect(screen.getByRole("main").getAttribute("id")).toBe("main-content");
-    expect(
-      screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")
-    ).toBe("#main-content");
-  });
-
-  it("renders i18n props with custom labels", () => {
-    const markup = renderToString(
-      <OrderSummary
-        lines={[{ label: "Subtotal", value: "$10" }]}
-        total="$10"
-        totalLabel="Grand Total"
-      />
-    );
-
-    expect(markup).toContain("Grand Total");
-    expect(markup).not.toContain(">Total<");
+    expect(await screen.findByText("Margin includes shipping credit.")).toBeTruthy();
   });
 });

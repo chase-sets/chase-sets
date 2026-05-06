@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./styles.css": "./src/styles/tailwind.css"
+    "./styles.css": "./src/styles/styles.css"
   },
   "types": "./src/index.ts",
   "peerDependencies": {
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
-    "@fontsource/space-grotesk": "^5.2.10",
+    "@fontsource/ibm-plex-sans": "^5.2.8",
     "lucide-react": "^1.11.0",
     "motion": "^12.38.0"
   },

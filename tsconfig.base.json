@@ -112,7 +112,7 @@
         "./packages/design-system/src/index.ts"
       ],
       "@chase-sets/design-system/styles.css": [
-        "./packages/design-system/src/styles/tailwind.css"
+        "./packages/design-system/src/styles/styles.css"
       ],
       "@chase-sets/discovery": [
         "./bounded-contexts/discovery/index.ts"

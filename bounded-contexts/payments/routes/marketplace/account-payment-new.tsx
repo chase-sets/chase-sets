@@ -20,18 +20,21 @@ import {
 } from "@chase-sets/platform-runtime/http";
 import {
   Badge,
+  BuyerProtectionModule,
   Button,
   CheckoutLayout,
-  CheckoutTrustPanel,
   Divider,
   Grid,
   LinkButton,
+  MarketplaceNotice,
   NativeSelect,
-  OrderSummary,
   Page,
   PageHeader,
   PageSection,
+  PriceBreakdown,
+  SecurePaymentIndicator,
   Stack,
+  StickyCtaBar,
   Surface,
   Text,
   TextInput,
@@ -248,8 +251,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
       <CheckoutLayout
         summary={
           <Stack gap={3}>
-            <OrderSummary
-              title={t("payments.routes.marketplace.accountPaymentNew.checkout.summary")}
+            <PriceBreakdown
               lines={[
                 { label: t("payments.routes.marketplace.accountPaymentNew.purchases"), value: data.orders.length },
                 { label: t("payments.routes.marketplace.accountPaymentNew.marketplace.sales.fee"), value: formatMoney(marketplaceSalesFeeAmount) },
@@ -275,21 +277,21 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 },
               ]}
               total={formatMoney(selectedCheckoutFee.total_amount)}
+              totalLabel={t("payments.routes.marketplace.accountPaymentNew.total.due")}
+              reassurance={<SecurePaymentIndicator label={t("payments.routes.marketplace.accountPaymentNew.secure.payment")} />}
             />
-            <CheckoutTrustPanel
+            <BuyerProtectionModule
+              title={t("payments.routes.marketplace.accountPaymentNew.checkout.confidence")}
               items={[
                 {
-                  icon: "lock",
                   title: t("payments.routes.marketplace.accountPaymentNew.secure.payment"),
                   description: t("payments.routes.marketplace.accountPaymentNew.payment.details.are.collected.by.the"),
                 },
                 {
-                  icon: "shield",
                   title: t("payments.routes.marketplace.accountPaymentNew.buyer.protection"),
                   description: t("payments.routes.marketplace.accountPaymentNew.the.secure.form.can.use.wallets"),
                 },
                 {
-                  icon: "creditCard",
                   title: t("payments.routes.marketplace.accountPaymentNew.payment.setup"),
                   description: t("payments.routes.marketplace.accountPaymentNew.the.next.step.initializes.a.managed"),
                 },
@@ -299,6 +301,11 @@ export default function MarketplaceAccountPaymentNewRoute() {
         }
       >
         <Stack gap={4}>
+          <MarketplaceNotice
+            tone="info"
+            title={t("payments.routes.marketplace.accountPaymentNew.transparent.totals")}
+            description={t("payments.routes.marketplace.accountPaymentNew.transparent.totals.description")}
+          />
           <Surface elevated glow>
             <Stack gap={4}>
               <Stack gap={2}>
@@ -319,7 +326,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                   <Text>{actionData.error}</Text>
                 </Surface>
               ) : null}
-              <Form method="post" ref={formRef}>
+              <Form id="payment-start-form" method="post" ref={formRef}>
                 <Stack gap={3}>
                   <input type="hidden" name="orderIds" value={data.orderIds.join(",")} />
                   <input type="hidden" name="totalAmount" value={totalAmount} />
@@ -446,6 +453,28 @@ export default function MarketplaceAccountPaymentNewRoute() {
               ))}
             </Stack>
           </PageSection>
+
+          <StickyCtaBar
+            price={formatMoney(selectedCheckoutFee.total_amount)}
+            context={t("payments.routes.marketplace.accountPaymentNew.final.totals.before.payment")}
+            primaryAction={
+              <Button
+                type="submit"
+                form="payment-start-form"
+                leadingIcon="lock"
+                loading={navigation.state === "submitting"}
+              >
+                {navigation.state === "submitting"
+                  ? t("payments.routes.marketplace.accountPaymentNew.starting.payment")
+                  : t("payments.routes.marketplace.accountPaymentNew.continue.to.payment")}
+              </Button>
+            }
+            secondaryAction={
+              <LinkButton href="/account/purchases" tone="secondary">
+                {t("payments.routes.marketplace.accountPaymentNew.back.to.purchases")}
+              </LinkButton>
+            }
+          />
         </Stack>
       </CheckoutLayout>
     </Page>

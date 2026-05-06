@@ -1,13 +1,13 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
-  Card,
-  EmptyState,
+  MarketplaceEmptyState,
   Page,
   PageHeader,
   PageSection,
+  RatingDistribution,
+  ReviewCard,
   Stack,
-  Text,
 } from "@chase-sets/design-system";
 import type {
   ReviewSummary,
@@ -16,6 +16,15 @@ import type {
 
 function formatAverage(summary: ReviewSummary) {
   return summary.average_rating ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.not.yet.rated");
+}
+
+function numericAverage(summary: ReviewSummary) {
+  const average = Number.parseFloat(summary.average_rating ?? "0");
+  return Number.isFinite(average) ? average : 0;
+}
+
+function ratingPercent(count: number, total: number) {
+  return total > 0 ? Math.round((count / total) * 100) : 0;
 }
 
 export function ReviewSummaryPage({
@@ -39,38 +48,36 @@ export function ReviewSummaryPage({
       />
 
       <PageSection title={t("reputation.features.reviews.ui.accountReviewSummaryPage.summary")}>
-        <Card>
-          <Stack gap={1}>
-            <Text weight="semibold">{t("reputation.features.reviews.ui.accountReviewSummaryPage.average.rating")}{formatAverage(summary)}</Text>
-            <Text size="sm" tone="secondary">
-              {summary.review_count} review{summary.review_count === 1 ? "" : "s"}
-            </Text>
-            <Text size="sm" tone="secondary">
-              {t("reputation.features.reviews.ui.accountReviewSummaryPage.5.star")}{summary.rating_5_count} {t("reputation.features.reviews.ui.accountReviewSummaryPage.4.star")}{summary.rating_4_count} {t("reputation.features.reviews.ui.accountReviewSummaryPage.3.star")}{summary.rating_3_count} {t("reputation.features.reviews.ui.accountReviewSummaryPage.2.star")}{summary.rating_2_count} {t("reputation.features.reviews.ui.accountReviewSummaryPage.1.star")}{summary.rating_1_count}
-            </Text>
-          </Stack>
-        </Card>
+        <RatingDistribution
+          average={numericAverage(summary)}
+          count={summary.review_count || formatAverage(summary)}
+          rows={[
+            { stars: 5, value: ratingPercent(summary.rating_5_count, summary.review_count) },
+            { stars: 4, value: ratingPercent(summary.rating_4_count, summary.review_count) },
+            { stars: 3, value: ratingPercent(summary.rating_3_count, summary.review_count) },
+            { stars: 2, value: ratingPercent(summary.rating_2_count, summary.review_count) },
+            { stars: 1, value: ratingPercent(summary.rating_1_count, summary.review_count) },
+          ]}
+        />
       </PageSection>
 
       <PageSection title={t("reputation.features.reviews.ui.accountReviewSummaryPage.recent.reviews")}>
         <Stack gap={3}>
           {reviews.length === 0 ? (
-            <EmptyState
+            <MarketplaceEmptyState
               title={t("reputation.features.reviews.ui.accountReviewSummaryPage.no.reviews.yet")}
               description={t("reputation.features.reviews.ui.accountReviewSummaryPage.completed.transactions.will.surface.here.once")}
-              icon="star"
             />
           ) : (
             reviews.map((review) => (
-              <Card key={review.review_id}>
-                <Stack gap={1}>
-                  <Text weight="semibold">{review.rating} / 5</Text>
-                  <Text size="sm" tone="secondary">
-                    {t("reputation.features.reviews.ui.accountReviewSummaryPage.order")}{review.order_id}
-                  </Text>
-                  {review.feedback ? <Text>{review.feedback}</Text> : null}
-                </Stack>
-              </Card>
+              <ReviewCard
+                key={review.review_id}
+                author={review.author_display_name ?? review.author_account_id}
+                rating={review.rating}
+                body={review.feedback ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.no.written.feedback")}
+                meta="Verified order"
+                verified
+              />
             ))
           )}
         </Stack>

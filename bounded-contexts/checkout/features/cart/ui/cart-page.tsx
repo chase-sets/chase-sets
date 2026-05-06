@@ -3,27 +3,92 @@ import {
   Badge,
   Banner,
   Button,
+  BuyerProtectionModule,
   CheckoutLayout,
-  CheckoutTrustPanel,
-  Divider,
-  EmptyState,
-  Grid,
   LinkButton,
+  MarketplaceCartLineItem,
+  MarketplaceEmptyState,
   NumberInput,
-  OrderSummary,
   Page,
   PageHeader,
   PageSection,
+  PlatformCredibilityCue,
+  PriceBreakdown,
+  ProductSelectionSummary,
+  SecurePaymentIndicator,
   Stack,
+  StickyCtaBar,
   Surface,
   Text,
 } from "@chase-sets/design-system";
 import type { CheckoutCartLine } from "./contracts";
 
-function formatLineLabel(line: CheckoutCartLine) {
-  return [line.item_title, line.item_subtitle, line.product_summary]
-    .filter(Boolean)
-    .join(" | ");
+type CheckoutCartLineGroup = CheckoutCartLine & {
+  lineIds: readonly string[];
+};
+
+const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
+
+function cartLineGroupKey(line: CheckoutCartLine) {
+  return `${line.catalog_catalog_item_id}:${line.product_id}`;
+}
+
+function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLineGroup[] {
+  const grouped = new Map<string, CheckoutCartLineGroup>();
+
+  for (const line of cartLines) {
+    const key = cartLineGroupKey(line);
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        ...line,
+        lineIds: [line.line_id],
+      });
+      continue;
+    }
+
+    grouped.set(key, {
+      ...existing,
+      quantity: existing.quantity + line.quantity,
+      lineIds: [...existing.lineIds, line.line_id],
+      updated_at:
+        new Date(line.updated_at).getTime() > new Date(existing.updated_at).getTime()
+          ? line.updated_at
+          : existing.updated_at,
+    });
+  }
+
+  return [...grouped.values()].sort(
+    (left, right) =>
+      new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime() ||
+      left.line_id.localeCompare(right.line_id),
+  );
+}
+
+function productSelectionDetails(summary: string | null) {
+  const normalized = summary?.trim() ?? "";
+  if (!normalized) {
+    return [];
+  }
+
+  const parts = normalized
+    .split(/\s*\|\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const labeledParts = parts
+    .map((part) => {
+      const [label, ...valueParts] = part.split(":");
+      const value = valueParts.join(":").trim();
+
+      return label.trim() && value
+        ? { label: label.trim(), value }
+        : null;
+    })
+    .filter((part): part is { label: string; value: string } => part !== null);
+
+  return labeledParts.length === parts.length ? labeledParts : [];
 }
 
 export function CheckoutCartPage({
@@ -33,7 +98,8 @@ export function CheckoutCartPage({
   cartLines: readonly CheckoutCartLine[];
   errorMessage?: string | null;
 }) {
-  const cartLineCount = cartLines.reduce((sum, line) => sum + line.quantity, 0);
+  const cartLineGroups = groupCartLines(cartLines);
+  const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
   const cartContent = (
     <Stack gap={4}>
       {errorMessage ? (
@@ -50,58 +116,77 @@ export function CheckoutCartPage({
         description={t("checkout.features.cart.ui.cartPage.review.quantities.before.checkout.snapshots.these")}
       >
         <Stack gap={3}>
-          {cartLines.length === 0 ? (
-            <EmptyState
+          {cartLineGroups.length === 0 ? (
+            <MarketplaceEmptyState
               title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}
               description={t("checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a")}
-              icon="cart"
+              trustCue={
+                <PlatformCredibilityCue
+                  title={t("checkout.features.cart.ui.cartPage.empty.cart.protection.title")}
+                  description={t("checkout.features.cart.ui.cartPage.empty.cart.protection.description")}
+                />
+              }
+              recoveryActions={
+                <LinkButton href="/search">
+                  {t("checkout.features.cart.ui.cartPage.keep.shopping")}
+                </LinkButton>
+              }
             />
           ) : (
-            cartLines.map((line) => (
-              <Surface key={line.line_id} elevated>
-                <Stack gap={4}>
-                  <Grid columns={{ base: 1, md: 3 }} gap={4}>
-                    <Stack gap={1}>
-                      <Text weight="semibold">{formatLineLabel(line)}</Text>
-                      <Text size="sm" tone="secondary">
-                        {t("checkout.features.cart.ui.cartPage.catalog.item")}{line.catalog_catalog_item_id}
-                      </Text>
-                    </Stack>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("checkout.features.cart.ui.cartPage.product")}</Text>
-                      <Text weight="medium">{line.product_summary ?? t("checkout.features.cart.ui.cartPage.standard")}</Text>
-                    </Stack>
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("checkout.features.cart.ui.cartPage.quantity")}</Text>
-                      <Badge tone="accent">{line.quantity}</Badge>
-                    </Stack>
-                  </Grid>
-                  <Divider />
-                  <form method="post">
-                    <Grid columns={{ base: 1, md: 3 }} gap={3} align="end">
-                      <input type="hidden" name="intent" value="update-cart-line" />
-                      <input type="hidden" name="lineId" value={line.line_id} />
-                      <NumberInput
-                        label={t("checkout.features.cart.ui.cartPage.quantity.2")}
-                        name="quantity"
-                        min="1"
-                        defaultValue={String(line.quantity)}
-                        required
-                      />
-                      <Button type="submit" leadingIcon="check">
-                        {t("checkout.features.cart.ui.cartPage.update.quantity")}</Button>
+            cartLineGroups.map((line) => (
+              <form key={line.line_id} method="post">
+                <input type="hidden" name="intent" value="update-cart-line" />
+                {line.lineIds.map((lineId) => (
+                  <input key={lineId} type="hidden" name="lineId" value={lineId} />
+                ))}
+                <MarketplaceCartLineItem
+                  imageSrc={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
+                  imageAlt={t("checkout.features.cart.ui.cartPage.product.image.alt", {
+                    title: line.item_title,
+                  })}
+                  title={line.item_title}
+                  subtitle={line.item_subtitle}
+                  productLabel={t("checkout.features.cart.ui.cartPage.product")}
+                  productSummary={
+                    <ProductSelectionSummary
+                      selections={productSelectionDetails(line.product_summary)}
+                      summary={line.product_summary ?? t("checkout.features.cart.ui.cartPage.standard")}
+                      summaryAsChip
+                      className="justify-start"
+                    />
+                  }
+                  quantityControl={
+                    <NumberInput
+                      label={t("checkout.features.cart.ui.cartPage.quantity.2")}
+                      name="quantity"
+                      min="1"
+                      defaultValue={String(line.quantity)}
+                      required
+                    />
+                  }
+                  actions={
+                    <>
+                      <Button type="submit" size="md" tone="secondary" leadingIcon="check" block>
+                        <span className="sm:hidden">{t("checkout.features.cart.ui.cartPage.update")}</span>
+                        <span className="hidden sm:inline">
+                          {t("checkout.features.cart.ui.cartPage.update.quantity")}
+                        </span>
+                      </Button>
                       <Button
-                        type="submit"
+                          type="submit"
+                          size="md"
                         name="intent"
                         value="remove-cart-line"
                         tone="danger"
                         leadingIcon="trash"
+                        block
                       >
-                        {t("checkout.features.cart.ui.cartPage.remove")}</Button>
-                    </Grid>
-                  </form>
-                </Stack>
-              </Surface>
+                        {t("checkout.features.cart.ui.cartPage.remove")}
+                      </Button>
+                    </>
+                  }
+                />
+              </form>
             ))
           )}
         </Stack>
@@ -117,34 +202,32 @@ export function CheckoutCartPage({
         description={t("checkout.features.cart.ui.cartPage.review.product.level.purchase.intent.before")}
       />
 
-      {cartLines.length > 0 ? (
+      {cartLineGroups.length > 0 ? (
         <CheckoutLayout
+          summaryMobile="hidden"
           summary={
             <Stack gap={4}>
-              <OrderSummary
-                title={t("checkout.features.cart.ui.cartPage.cart.summary")}
+              <PriceBreakdown
                 lines={[
                   { label: t("checkout.features.cart.ui.cartPage.items"), value: cartLineCount },
-                  { label: t("checkout.features.cart.ui.cartPage.cart.lines"), value: cartLines.length },
+                  { label: t("checkout.features.cart.ui.cartPage.cart.lines"), value: cartLineGroups.length },
                   { label: t("checkout.features.cart.ui.cartPage.pricing"), value: t("checkout.features.cart.ui.cartPage.calculated.during.checkout") },
                 ]}
                 total={t("checkout.features.cart.ui.cartPage.ready.for.checkout")}
                 totalLabel={t("checkout.features.cart.ui.cartPage.cart.status")}
+                reassurance={<SecurePaymentIndicator label={t("checkout.features.cart.ui.cartPage.secure.payment")} />}
               />
-              <CheckoutTrustPanel
+              <BuyerProtectionModule
                 items={[
                   {
-                    icon: "shield",
                     title: t("checkout.features.cart.ui.cartPage.buyer.protection"),
                     description: t("checkout.features.cart.ui.cartPage.eligible.orders.are.protected.through.payment"),
                   },
                   {
-                    icon: "lock",
                     title: t("checkout.features.cart.ui.cartPage.secure.payment"),
                     description: t("checkout.features.cart.ui.cartPage.payment.starts.only.after.orders.are"),
                   },
                   {
-                    icon: "truck",
                     title: t("checkout.features.cart.ui.cartPage.fulfillment.ready"),
                     description: t("checkout.features.cart.ui.cartPage.shipping.preference.is.captured.before.order"),
                   },
@@ -159,19 +242,22 @@ export function CheckoutCartPage({
               description={t("checkout.features.cart.ui.cartPage.listings.earn.five.percent.of.item.value.toward.shipping")}
             />
             {cartContent}
-            <PageSection id="checkout" title={t("checkout.features.cart.ui.cartPage.checkout")}>
-              <Surface elevated glow>
-                <Stack gap={3}>
-                  <Text size="sm" tone="secondary">
-                    {t("checkout.features.cart.ui.cartPage.continue.to.choose.shipping.and.create")}</Text>
-                  <form method="post" action="/checkout/start">
-                    <input type="hidden" name="source" value="cart" />
-                    <Button type="submit" size="lg" leadingIcon="lock">
-                      {t("checkout.features.cart.ui.cartPage.start.checkout")}</Button>
-                  </form>
-                </Stack>
-              </Surface>
-            </PageSection>
+            <StickyCtaBar
+              context={t("checkout.features.cart.ui.cartPage.no.payment.until.totals")}
+              primaryAction={
+                <form method="post" action="/checkout/start">
+                  <input type="hidden" name="source" value="cart" />
+                  <Button type="submit" leadingIcon="lock" block>
+                    {t("checkout.features.cart.ui.cartPage.start.checkout")}
+                  </Button>
+                </form>
+              }
+              secondaryAction={
+                <LinkButton href="/search" tone="secondary" block>
+                  {t("checkout.features.cart.ui.cartPage.keep.shopping")}
+                </LinkButton>
+              }
+            />
           </Stack>
         </CheckoutLayout>
       ) : (

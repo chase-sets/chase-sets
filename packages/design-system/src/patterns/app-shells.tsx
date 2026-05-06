@@ -314,16 +314,25 @@ export function SearchResultsLayout({
 export interface CheckoutLayoutProps {
   summary: ReactNode;
   children?: ReactNode;
+  summaryMobile?: "after" | "hidden";
 }
 
 export function CheckoutLayout({
   summary,
-  children
+  children,
+  summaryMobile = "after"
 }: CheckoutLayoutProps) {
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div>{children}</div>
-      <div className="lg:sticky lg:top-24 lg:self-start">{summary}</div>
+      <div
+        className={cx(
+          "lg:sticky lg:top-24 lg:self-start",
+          summaryMobile === "hidden" && "hidden lg:block"
+        )}
+      >
+        {summary}
+      </div>
     </div>
   );
 }
@@ -847,7 +856,7 @@ export function MarketplaceLandingHero({
                 ))}
               </div>
             ) : null}
-            <h1 className="font-display text-4xl font-semibold leading-tight text-foreground md:text-5xl">
+            <h1 className="font-display text-3xl font-semibold leading-tight text-foreground md:text-5xl">
               {title}
             </h1>
             {description ? <div className="text-base text-secondary">{description}</div> : null}
@@ -870,16 +879,18 @@ export function MarketplaceLandingHero({
           ) : null}
         </div>
         {metrics.length > 0 ? (
-          <StatGrid columns={{ base: 1 }}>
-            {metrics.map((metric, index) => (
-              <Stat
-                key={index}
-                label={metric.label}
-                value={metric.value}
-                trend={metric.detail}
-              />
-            ))}
-          </StatGrid>
+          <div className="hidden md:block">
+            <StatGrid columns={{ base: 1 }}>
+              {metrics.map((metric, index) => (
+                <Stat
+                  key={index}
+                  label={metric.label}
+                  value={metric.value}
+                  trend={metric.detail}
+                />
+              ))}
+            </StatGrid>
+          </div>
         ) : null}
       </div>
     </Card>
@@ -1162,12 +1173,12 @@ export function MarketplaceProductDetailLayout({
     <>
       <div className="grid gap-6 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)_24rem] xl:items-start 2xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)_26rem]">
         <div className="order-2 xl:order-1 xl:sticky xl:top-24">{media}</div>
-        <div className="order-1 min-w-0 xl:order-2">
-          <div className="space-y-6">
+        <div className="contents min-w-0 xl:order-2 xl:block">
+          <div className="order-1 min-w-0">
             {summary}
-            {market}
-            {children}
           </div>
+          <div className="order-3 min-w-0 xl:mt-6">{market}</div>
+          <div className="order-4 min-w-0 xl:mt-6">{children}</div>
         </div>
         <aside className="order-4 hidden min-w-0 xl:order-3 xl:block xl:sticky xl:top-24">
           {commerce}

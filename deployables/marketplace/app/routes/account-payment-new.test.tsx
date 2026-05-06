@@ -194,7 +194,7 @@ describe("marketplace account payment start route", () => {
     );
 
     expect(screen.getByText("Start payment")).toBeTruthy();
-    expect(screen.getByText("$22.60")).toBeTruthy();
+    expect(screen.getAllByText("$22.60")).toHaveLength(2);
     expect(screen.getByText("Ready to initialize payment")).toBeTruthy();
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));

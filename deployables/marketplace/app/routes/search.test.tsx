@@ -93,7 +93,8 @@ describe("marketplace search route", () => {
     expect(setSearchParams).toHaveBeenCalledTimes(1);
     const [updater, options] = setSearchParams.mock.calls[0];
     const next = updater(new URLSearchParams("page=2"));
-    expect(next.get("search")).toBe("charizard");
+    expect(next.get("q")).toBe("charizard");
+    expect(next.has("search")).toBe(false);
     expect(next.has("page")).toBe(false);
     expect(options).toMatchObject({ preventScrollReset: true, replace: true });
   });
@@ -145,14 +146,15 @@ describe("marketplace search route", () => {
     mockUseLoaderData.mockReturnValue(searchData("pikachu"));
     mockUseNavigate.mockReturnValue(vi.fn());
     mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams("search=pikachu&page=3"), setSearchParams]);
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&page=3"), setSearchParams]);
 
     render(<SearchRoute />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
     act(() => vi.advanceTimersByTime(300));
 
     const [updater] = setSearchParams.mock.calls[0];
-    const next = updater(new URLSearchParams("search=pikachu&page=3"));
+    const next = updater(new URLSearchParams("q=pikachu&page=3"));
+    expect(next.has("q")).toBe(false);
     expect(next.has("search")).toBe(false);
     expect(next.has("page")).toBe(false);
   });
@@ -162,12 +164,12 @@ describe("marketplace search route", () => {
     mockUseLoaderData.mockReturnValue(searchData("pikachu"));
     mockUseNavigate.mockReturnValue(navigate);
     mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams("search=pikachu&page=3"), vi.fn()]);
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&page=3"), vi.fn()]);
 
     render(<SearchRoute />);
     fireEvent.click(screen.getByRole("button", { name: "Cards (2)" }));
 
-    expect(navigate).toHaveBeenCalledWith("/categories/cards?search=pikachu", {
+    expect(navigate).toHaveBeenCalledWith("/categories/cards?q=pikachu", {
       preventScrollReset: true,
     });
   });
