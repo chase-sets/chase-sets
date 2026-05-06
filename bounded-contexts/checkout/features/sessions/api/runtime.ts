@@ -33,6 +33,7 @@ import {
   type CheckoutSessionEvent,
   type CheckoutSessionLine,
   type CheckoutShippingAddress,
+  type CheckoutOptimizationGoal,
   type CheckoutSessionState,
 } from "../domain/domain";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
@@ -55,6 +56,7 @@ export type CheckoutSessionServices = Readonly<{
     params: Readonly<{
       accountId: AccountId;
       shippingOption?: string;
+      optimizationGoal?: CheckoutOptimizationGoal;
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
@@ -70,6 +72,10 @@ export type CheckoutSessionServices = Readonly<{
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       quantity: number;
+      fulfillmentMode?: "optimize" | "locked-listing";
+      lockedListingId?: string | null;
+      sellerPreferenceId?: string | null;
+      optimizationGoal?: CheckoutOptimizationGoal;
       shippingOption?: string;
       sessionIdOverride?: CheckoutSessionId;
     }>,
@@ -80,6 +86,22 @@ export type CheckoutSessionServices = Readonly<{
       sessionId: string;
       accountId: AccountId;
       shippingOption: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ sessionId: string }>;
+  selectOptimizationGoal: (
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+      optimizationGoal: CheckoutOptimizationGoal;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ sessionId: string }>;
+  recordFulfillmentPreview: (
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+      fulfillmentPreviewRevision: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ sessionId: string }>;
@@ -96,6 +118,7 @@ export type CheckoutSessionServices = Readonly<{
       sessionId: string;
       accountId: AccountId;
       orderIds: readonly string[];
+      fulfilledLineKeys?: readonly string[];
     }>,
     context: EventStoreContext,
   ) => Promise<{ sessionId: string }>;
@@ -116,7 +139,7 @@ export type CheckoutSessionServices = Readonly<{
 
 function cartLineToSessionLine(line: CheckoutCartLineRow): CheckoutSessionLine {
   return {
-    listingId: null,
+    listingId: line.locked_listing_id,
     cartLineId: line.line_id,
     catalogItemId: line.catalog_catalog_item_id,
     productId: line.product_id,
@@ -125,6 +148,10 @@ function cartLineToSessionLine(line: CheckoutCartLineRow): CheckoutSessionLine {
     selectedOptions: [...line.selected_options],
     productSummary: line.product_summary,
     quantity: line.quantity,
+    fulfillmentMode: line.fulfillment_mode,
+    lockedListingId: line.locked_listing_id,
+    sellerPreferenceId: line.seller_preference_id,
+    availabilityState: line.availability_state,
   };
 }
 
@@ -187,6 +214,8 @@ export function createCheckoutSessionRuntime(
   async function startSession(params: Readonly<{
     accountId: AccountId;
     sourceType: "cart" | "buy-now";
+    optimizationGoal?: CheckoutOptimizationGoal;
+    fulfillmentPreviewRevision?: string | null;
     shippingOption: ShippingOption;
     lines: readonly CheckoutSessionLine[];
     sessionIdOverride?: CheckoutSessionId;
@@ -199,6 +228,8 @@ export function createCheckoutSessionRuntime(
         sessionId,
         buyerAccountId: params.accountId,
         sourceType: params.sourceType,
+        optimizationGoal: params.optimizationGoal,
+        fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
         shippingOption: params.shippingOption,
         lines: params.lines,
         createdAt: new Date().toISOString(),
@@ -221,6 +252,7 @@ export function createCheckoutSessionRuntime(
           accountId: params.accountId,
           sourceType: "cart",
           shippingOption: normalizeShippingOption(params.shippingOption ?? "standard"),
+          optimizationGoal: params.optimizationGoal,
           lines: cartLines.map(cartLineToSessionLine),
           sessionIdOverride: params.sessionIdOverride,
         },
@@ -229,15 +261,21 @@ export function createCheckoutSessionRuntime(
     },
     createBuyNow: async (params, context) => {
       const descriptor = await validateCatalogSelection(params);
+      const lockedListingId = params.lockedListingId?.trim() || params.listingId.trim() || null;
+      const fulfillmentMode =
+        params.fulfillmentMode === "locked-listing" || lockedListingId
+          ? "locked-listing"
+          : "optimize";
       return startSession(
         {
           accountId: params.accountId,
           sourceType: "buy-now",
           shippingOption: normalizeShippingOption(params.shippingOption ?? "standard"),
+          optimizationGoal: params.optimizationGoal,
           sessionIdOverride: params.sessionIdOverride,
           lines: [
             {
-              listingId: params.listingId,
+              listingId: lockedListingId,
               cartLineId: null,
               catalogItemId: params.catalogItemId,
               productId: descriptor.productId,
@@ -246,6 +284,10 @@ export function createCheckoutSessionRuntime(
               selectedOptions: descriptor.selection,
               productSummary: params.productSummary,
               quantity: params.quantity,
+              fulfillmentMode,
+              lockedListingId,
+              sellerPreferenceId: params.sellerPreferenceId?.trim() || null,
+              availabilityState: "available",
             },
           ],
         },
@@ -268,6 +310,48 @@ export function createCheckoutSessionRuntime(
           type: "SelectShippingOption",
           shippingOption: normalizeShippingOption(params.shippingOption),
           selectedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      return { sessionId: params.sessionId };
+    },
+    selectOptimizationGoal: async (params, context) => {
+      const session = await getCheckoutSession(
+        deps.db,
+        params.sessionId,
+        params.accountId,
+      );
+      if (!session) {
+        throw new CheckoutDomainError("Checkout session not found.");
+      }
+
+      await commandHandler({
+        streamId: `checkout.session-${params.sessionId}`,
+        command: {
+          type: "SelectOptimizationGoal",
+          optimizationGoal: params.optimizationGoal,
+          selectedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      return { sessionId: params.sessionId };
+    },
+    recordFulfillmentPreview: async (params, context) => {
+      const session = await getCheckoutSession(
+        deps.db,
+        params.sessionId,
+        params.accountId,
+      );
+      if (!session) {
+        throw new CheckoutDomainError("Checkout session not found.");
+      }
+
+      await commandHandler({
+        streamId: `checkout.session-${params.sessionId}`,
+        command: {
+          type: "RecordFulfillmentPreview",
+          fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+          recordedAt: new Date().toISOString(),
         },
         context,
       });
@@ -315,7 +399,26 @@ export function createCheckoutSessionRuntime(
       });
 
       if (session.source_type === "cart") {
-        await deps.cart.checkout(params.accountId, context);
+        const fulfilledLineKeys = new Set(params.fulfilledLineKeys ?? []);
+        const fulfilledCartLineIds = session.lines
+          .map((line) => line.cartLineId)
+          .filter((lineId): lineId is string =>
+            Boolean(lineId && (fulfilledLineKeys.size === 0 || fulfilledLineKeys.has(lineId))),
+          );
+
+        if (fulfilledCartLineIds.length > 0) {
+          for (const lineId of fulfilledCartLineIds) {
+            await deps.cart.removeLine(
+              {
+                accountId: params.accountId,
+                lineId: lineId as never,
+              },
+              context,
+            );
+          }
+        } else if (fulfilledLineKeys.size === 0) {
+          await deps.cart.checkout(params.accountId, context);
+        }
       }
 
       return { sessionId: params.sessionId };

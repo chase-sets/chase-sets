@@ -25,6 +25,10 @@ export type CheckoutCartLine = Readonly<{
   selectedOptions: readonly VersionSelectedOptionEntry[];
   productSummary: string | null;
   quantity: number;
+  fulfillmentMode: "optimize" | "locked-listing";
+  lockedListingId: string | null;
+  sellerPreferenceId: string | null;
+  availabilityState: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
 export type CheckoutCartState = Readonly<{
@@ -51,6 +55,10 @@ export type AddCartLineCommand = Readonly<{
   selectedOptions: readonly VersionSelectedOptionEntry[];
   productSummary: string | null;
   quantity: number;
+  fulfillmentMode?: "optimize" | "locked-listing";
+  lockedListingId?: string | null;
+  sellerPreferenceId?: string | null;
+  availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
 export type SetCartLineQuantityCommand = Readonly<{
@@ -88,6 +96,10 @@ export type CartLineAddedEvent = DomainEvent<
     selectedOptions: VersionSelectedOptionEntry[];
     productSummary: string | null;
     quantity: number;
+    fulfillmentMode?: "optimize" | "locked-listing";
+    lockedListingId?: string | null;
+    sellerPreferenceId?: string | null;
+    availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
   }>
 >;
 
@@ -124,6 +136,28 @@ function requireCartLine(state: CheckoutCartState, lineId: CartLineId) {
   const line = state.lines.find((entry) => entry.lineId === lineId);
   assert(line, "Cart line not found.");
   return line;
+}
+
+function normalizeFulfillmentMode(
+  value: "optimize" | "locked-listing" | undefined,
+  lockedListingId: string | null | undefined,
+) {
+  return value === "locked-listing" || normalizeOptionalText(lockedListingId)
+    ? "locked-listing"
+    : "optimize";
+}
+
+function normalizeAvailabilityState(
+  value: "available" | "unavailable" | "changed" | "waiting-for-supply" | undefined,
+) {
+  switch (value) {
+    case "unavailable":
+    case "changed":
+    case "waiting-for-supply":
+      return value;
+    default:
+      return "available";
+  }
 }
 
 export const decideCheckoutCart: AggregateDecider<
@@ -167,6 +201,13 @@ export const decideCheckoutCart: AggregateDecider<
               command.quantity,
               "Cart quantity must be a positive whole number.",
             ),
+            fulfillmentMode: normalizeFulfillmentMode(
+              command.fulfillmentMode,
+              command.lockedListingId,
+            ),
+            lockedListingId: normalizeOptionalText(command.lockedListingId),
+            sellerPreferenceId: normalizeOptionalText(command.sellerPreferenceId),
+            availabilityState: normalizeAvailabilityState(command.availabilityState),
           },
         },
       ];
@@ -234,6 +275,13 @@ export const evolveCheckoutCart: AggregateEvolver<
             selectedOptions: event.data.selectedOptions,
             productSummary: event.data.productSummary,
             quantity: event.data.quantity,
+            fulfillmentMode: normalizeFulfillmentMode(
+              event.data.fulfillmentMode,
+              event.data.lockedListingId,
+            ),
+            lockedListingId: normalizeOptionalText(event.data.lockedListingId),
+            sellerPreferenceId: normalizeOptionalText(event.data.sellerPreferenceId),
+            availabilityState: normalizeAvailabilityState(event.data.availabilityState),
           },
         ],
         lastCheckedOutAt: state.lastCheckedOutAt,

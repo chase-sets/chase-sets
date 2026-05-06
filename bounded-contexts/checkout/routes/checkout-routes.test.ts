@@ -223,6 +223,8 @@ describe("checkout web routes", () => {
         sellerName: null,
         availability: null,
         fulfillment: null,
+        fulfillmentMode: "optimize",
+        lockedListingId: null,
         quantity: 2,
       },
     });
@@ -359,6 +361,8 @@ describe("checkout web routes", () => {
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", {
       requestedBalanceCreditAmount: null,
       paymentMethodCategory: "bank-account",
+      fulfillmentPreviewRevision: null,
+      acknowledgedMaterialChanges: false,
       shippingAddress: {
         name: "Jane Smith",
         line1: "100 Market Street",

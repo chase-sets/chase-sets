@@ -12,6 +12,10 @@ export type CheckoutCartLineRow = Readonly<{
   selected_options: readonly VersionSelectedOptionEntry[];
   product_summary: string | null;
   quantity: number;
+  fulfillment_mode: "optimize" | "locked-listing";
+  locked_listing_id: string | null;
+  seller_preference_id: string | null;
+  availability_state: "available" | "unavailable" | "changed" | "waiting-for-supply";
   created_at: string;
   updated_at: string;
 }>;
@@ -27,6 +31,10 @@ type CartLinePageRow = Readonly<{
   selected_options: unknown;
   product_summary: string | null;
   quantity: number;
+  fulfillment_mode: string;
+  locked_listing_id: string | null;
+  seller_preference_id: string | null;
+  availability_state: string;
   created_at: string;
   updated_at: string;
 }>;
@@ -34,6 +42,14 @@ type CartLinePageRow = Readonly<{
 function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
   return {
     ...row,
+    fulfillment_mode:
+      row.fulfillment_mode === "locked-listing" ? "locked-listing" : "optimize",
+    availability_state:
+      row.availability_state === "unavailable" ||
+      row.availability_state === "changed" ||
+      row.availability_state === "waiting-for-supply"
+        ? row.availability_state
+        : "available",
     selected_options: Array.isArray(row.selected_options)
       ? (row.selected_options as VersionSelectedOptionEntry[])
       : [],
@@ -56,6 +72,10 @@ export async function listCartLines(
        line.selected_options,
        line.product_summary,
        line.quantity,
+       line.fulfillment_mode,
+       line.locked_listing_id,
+       line.seller_preference_id,
+       line.availability_state,
        line.created_at,
        line.updated_at
      FROM checkout_cart_line_pages line

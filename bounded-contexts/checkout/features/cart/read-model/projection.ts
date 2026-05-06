@@ -17,6 +17,10 @@ export function buildCheckoutCartProjectionHandlers(
         selectedOptions: unknown;
         productSummary: string | null;
         quantity: number;
+        fulfillmentMode?: string;
+        lockedListingId?: string | null;
+        sellerPreferenceId?: string | null;
+        availabilityState?: string;
       };
 
       await db.query(
@@ -31,9 +35,13 @@ export function buildCheckoutCartProjectionHandlers(
            selected_options,
            product_summary,
            quantity,
+           fulfillment_mode,
+           locked_listing_id,
+           seller_preference_id,
+           availability_state,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
          ON CONFLICT (buyer_account_id, line_id) DO UPDATE
          SET catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
@@ -43,6 +51,10 @@ export function buildCheckoutCartProjectionHandlers(
              selected_options = EXCLUDED.selected_options,
              product_summary = EXCLUDED.product_summary,
              quantity = EXCLUDED.quantity,
+             fulfillment_mode = EXCLUDED.fulfillment_mode,
+             locked_listing_id = EXCLUDED.locked_listing_id,
+             seller_preference_id = EXCLUDED.seller_preference_id,
+             availability_state = EXCLUDED.availability_state,
              updated_at = EXCLUDED.updated_at`,
         [
           data.buyerAccountId,
@@ -55,6 +67,10 @@ export function buildCheckoutCartProjectionHandlers(
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
           data.quantity,
+          data.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
+          data.lockedListingId ?? null,
+          data.sellerPreferenceId ?? null,
+          data.availabilityState ?? "available",
           event.timing.recordedAt,
         ],
       );

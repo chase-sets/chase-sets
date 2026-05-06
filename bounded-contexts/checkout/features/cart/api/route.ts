@@ -75,6 +75,24 @@ function parseVersionSelection(value: unknown) {
     : [];
 }
 
+function parseFulfillmentMode(body: Record<string, unknown>) {
+  const lockedListingId =
+    body.lockedListingId === null || body.lockedListingId === undefined
+      ? null
+      : String(body.lockedListingId).trim() || null;
+  return {
+    fulfillmentMode:
+      body.fulfillmentMode === "locked-listing" || lockedListingId
+        ? "locked-listing" as const
+        : "optimize" as const,
+    lockedListingId,
+    sellerPreferenceId:
+      body.sellerPreferenceId === null || body.sellerPreferenceId === undefined
+        ? null
+        : String(body.sellerPreferenceId).trim() || null,
+  };
+}
+
 function countCartItems(items: readonly { quantity: number }[]) {
   return items.reduce((sum, item) => sum + item.quantity, 0);
 }
@@ -107,6 +125,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     }
 
     const body = await c.req.json();
+    const fulfillment = parseFulfillmentMode(body);
 
     try {
       const result = await services.addLine(
@@ -124,11 +143,12 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
                 ? null
                 : String(body.itemImageUrl),
             selectedOptions: parseVersionSelection(body.selectedOptions),
-            productSummary:
-              body.productSummary === null || body.productSummary === undefined
+          productSummary:
+            body.productSummary === null || body.productSummary === undefined
               ? null
               : String(body.productSummary),
           quantity: Number(body.quantity ?? 0),
+          ...fulfillment,
         },
         context,
       );
@@ -228,6 +248,7 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
     const context = c.get("context") ?? createGuestCheckoutContext();
 
     const body = await c.req.json();
+    const fulfillment = parseFulfillmentMode(body);
 
     try {
       const result = await services.addLine(
@@ -245,11 +266,12 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
                 ? null
                 : String(body.itemImageUrl),
             selectedOptions: parseVersionSelection(body.selectedOptions),
-            productSummary:
-              body.productSummary === null || body.productSummary === undefined
+          productSummary:
+            body.productSummary === null || body.productSummary === undefined
               ? null
               : String(body.productSummary),
           quantity: Number(body.quantity ?? 0),
+          ...fulfillment,
         },
         context,
       );

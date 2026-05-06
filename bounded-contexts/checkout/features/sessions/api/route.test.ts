@@ -211,7 +211,10 @@ describe("checkout session routes", () => {
   });
 
   it("confirms a new checkout session by recording orders and payment", async () => {
-    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue(["ord_1"]);
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
@@ -287,7 +290,10 @@ describe("checkout session routes", () => {
   });
 
   it("passes requested balance credit when confirming checkout", async () => {
-    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue(["ord_1"]);
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
@@ -320,7 +326,10 @@ describe("checkout session routes", () => {
   });
 
   it("uses the guest payment return path when confirming guest checkout", async () => {
-    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue(["ord_1"]);
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
     const services = createServices({
       getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),

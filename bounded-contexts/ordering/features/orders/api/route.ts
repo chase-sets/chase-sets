@@ -71,6 +71,75 @@ function parseShippingAddress(value: unknown) {
 export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices) {
   const app = new Hono<OrderingApiEnv>();
 
+  app.post("/purchases/checkout/preview", async (c) => {
+    const access = requireOrderAccess(c, "orders.manage", {
+      allowGuestCheckout: true,
+    });
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = await c.req.json();
+
+    try {
+      const result = await services.previewCheckoutFulfillment({
+        buyerAccountId: access.actor.accountId as never,
+        checkoutSessionId: String(body.checkoutSessionId ?? ""),
+        sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
+        shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
+        shippingAddress:
+          body.shippingAddress && typeof body.shippingAddress === "object"
+            ? parseShippingAddress(body.shippingAddress)
+            : null,
+        optimizationGoal:
+          body.optimizationGoal === "fewest-shipments"
+            ? "fewest-shipments"
+            : "lowest-total",
+        lines: Array.isArray(body.lines)
+          ? body.lines.map((line: Record<string, unknown>) => ({
+              listingId:
+                line.listingId === null || line.listingId === undefined
+                  ? null
+                  : String(line.listingId),
+              cartLineId:
+                line.cartLineId === null || line.cartLineId === undefined
+                  ? null
+                  : String(line.cartLineId),
+              catalogItemId: String(line.catalogItemId ?? ""),
+              productId: String(line.productId ?? ""),
+              itemTitle: String(line.itemTitle ?? ""),
+              itemSubtitle:
+                line.itemSubtitle === null || line.itemSubtitle === undefined
+                  ? null
+                  : String(line.itemSubtitle),
+              selectedOptions: Array.isArray(line.selectedOptions)
+                ? line.selectedOptions
+                : [],
+              productSummary:
+                line.productSummary === null || line.productSummary === undefined
+                  ? null
+                  : String(line.productSummary),
+              quantity: Number(line.quantity ?? 0),
+              fulfillmentMode:
+                line.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
+              lockedListingId:
+                line.lockedListingId === null || line.lockedListingId === undefined
+                  ? null
+                  : String(line.lockedListingId),
+              sellerPreferenceId:
+                line.sellerPreferenceId === null || line.sellerPreferenceId === undefined
+                  ? null
+                  : String(line.sellerPreferenceId),
+            }))
+          : [],
+      });
+
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/purchases/checkout", async (c) => {
     const access = requireOrderAccess(c, "orders.manage", {
       allowGuestCheckout: true,
@@ -94,6 +163,15 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
           sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
           shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
           shippingAddress: parseShippingAddress(body.shippingAddress),
+          optimizationGoal:
+            body.optimizationGoal === "fewest-shipments"
+              ? "fewest-shipments"
+              : "lowest-total",
+          fulfillmentPreviewRevision:
+            typeof body.fulfillmentPreviewRevision === "string"
+              ? body.fulfillmentPreviewRevision
+              : null,
+          acknowledgedMaterialChanges: body.acknowledgedMaterialChanges === true,
           lines: Array.isArray(body.lines)
             ? body.lines.map((line: Record<string, unknown>) => ({
                 listingId:
@@ -119,6 +197,16 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
                     ? null
                     : String(line.productSummary),
                 quantity: Number(line.quantity ?? 0),
+                fulfillmentMode:
+                  line.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
+                lockedListingId:
+                  line.lockedListingId === null || line.lockedListingId === undefined
+                    ? null
+                    : String(line.lockedListingId),
+                sellerPreferenceId:
+                  line.sellerPreferenceId === null || line.sellerPreferenceId === undefined
+                    ? null
+                    : String(line.sellerPreferenceId),
               }))
             : [],
         },

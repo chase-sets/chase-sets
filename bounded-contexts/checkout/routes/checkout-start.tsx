@@ -69,6 +69,11 @@ function buyNowSourceFromUrl(url: URL) {
   return {
     type: "buy-now" as const,
     listingId: url.searchParams.get("listingId") ?? "",
+    fulfillmentMode:
+      url.searchParams.get("fulfillmentMode") === "locked-listing"
+        ? "locked-listing" as const
+        : "optimize" as const,
+    lockedListingId: url.searchParams.get("lockedListingId") || null,
     catalogItemId: url.searchParams.get("catalogItemId") ?? "",
     productId: url.searchParams.get("productId") ?? "",
     itemTitle: url.searchParams.get("itemTitle") ?? "",
@@ -87,6 +92,11 @@ function buyNowSourceFromForm(formData: FormData) {
   return {
     type: "buy-now" as const,
     listingId: String(formData.get("listingId") ?? ""),
+    fulfillmentMode:
+      formData.get("fulfillmentMode") === "locked-listing"
+        ? "locked-listing" as const
+        : "optimize" as const,
+    lockedListingId: String(formData.get("lockedListingId") ?? "") || null,
     catalogItemId: String(formData.get("catalogItemId") ?? ""),
     productId: String(formData.get("productId") ?? ""),
     itemTitle: String(formData.get("itemTitle") ?? ""),
@@ -233,6 +243,8 @@ export default function CheckoutStartRoute() {
     <>
       <input type="hidden" name="source" value="buy-now" />
       <input type="hidden" name="listingId" value={source.listingId} />
+      <input type="hidden" name="fulfillmentMode" value={source.fulfillmentMode} />
+      <input type="hidden" name="lockedListingId" value={source.lockedListingId ?? ""} />
       <input type="hidden" name="catalogItemId" value={source.catalogItemId} />
       <input type="hidden" name="productId" value={source.productId} />
       <input type="hidden" name="itemTitle" value={source.itemTitle} />

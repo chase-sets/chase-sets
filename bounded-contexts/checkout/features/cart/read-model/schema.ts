@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   quantity integer NOT NULL CHECK (quantity > 0),
+  fulfillment_mode text NOT NULL DEFAULT 'optimize',
+  locked_listing_id text NULL,
+  seller_preference_id text NULL,
+  availability_state text NOT NULL DEFAULT 'available',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (buyer_account_id, line_id)
@@ -17,6 +21,12 @@ CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
 
 ALTER TABLE checkout_cart_line_pages
   ADD COLUMN IF NOT EXISTS item_image_url text NULL;
+
+ALTER TABLE checkout_cart_line_pages
+  ADD COLUMN IF NOT EXISTS fulfillment_mode text NOT NULL DEFAULT 'optimize',
+  ADD COLUMN IF NOT EXISTS locked_listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS seller_preference_id text NULL,
+  ADD COLUMN IF NOT EXISTS availability_state text NOT NULL DEFAULT 'available';
 
 CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_buyer_idx
   ON checkout_cart_line_pages (buyer_account_id, updated_at DESC, line_id ASC);

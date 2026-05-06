@@ -165,13 +165,15 @@ describe("item detail buy now action", () => {
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
       source: {
         type: "buy-now",
-        listingId: "lst_charizard",
+        listingId: "",
         catalogItemId: "cat_charizard",
         productId: "cat_charizard::form:raw",
         itemTitle: "Charizard",
         itemSubtitle: "Base Set 4/102 Holo Rare",
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         productSummary: "Raw",
+        fulfillmentMode: "optimize",
+        lockedListingId: null,
         quantity: 2,
       },
     });
@@ -227,6 +229,8 @@ describe("item detail buy now action", () => {
       itemImageUrl: null,
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Raw",
+      fulfillmentMode: "optimize",
+      lockedListingId: null,
       quantity: 2,
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
@@ -281,7 +285,9 @@ describe("item detail buy now action", () => {
     expect(response.status).toBe(302);
     expect(redirectUrl.pathname).toBe("/checkout/start");
     expect(redirectUrl.searchParams.get("source")).toBe("buy-now");
-    expect(redirectUrl.searchParams.get("listingId")).toBe("lst_charizard");
+    expect(redirectUrl.searchParams.get("listingId")).toBe("");
+    expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("optimize");
+    expect(redirectUrl.searchParams.get("lockedListingId")).toBe("");
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
@@ -329,6 +335,8 @@ describe("item detail buy now action", () => {
       itemImageUrl: null,
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Raw",
+      fulfillmentMode: "optimize",
+      lockedListingId: null,
       quantity: 2,
     });
     expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(

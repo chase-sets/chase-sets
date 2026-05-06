@@ -7,6 +7,7 @@ import {
   CheckoutLayout,
   Divider,
   Grid,
+  Inline,
   LinkButton,
   MarketplaceEmptyState,
   MarketplaceNotice,
@@ -23,6 +24,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
+import type { CheckoutFulfillmentPreview } from "@chase-sets/ordering/server";
 
 function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
   return [line.itemTitle, line.itemSubtitle, line.productSummary]
@@ -33,23 +35,31 @@ function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
 export function CheckoutSessionPage({
   session,
   wallet,
+  fulfillmentPreview,
   errorMessage,
   isSubmitting = false,
 }: {
   session: CheckoutSessionRow;
   wallet?: { available_balance_amount: string; currency_code: string } | null;
+  fulfillmentPreview?: CheckoutFulfillmentPreview | null;
   errorMessage?: string | null;
   isSubmitting?: boolean;
 }) {
   const lines = session.lines;
   const lineCount = lines.reduce((sum, line) => sum + line.quantity, 0);
   const hasPayment = Boolean(session.payment_id);
+  const preview = fulfillmentPreview ?? null;
+  const readyCount = preview?.readyLineKeys.length ?? lines.length;
+  const unavailableCount = preview?.unavailableLineKeys.length ?? 0;
+  const canConfirm = readyCount > 0;
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
         lines={[
           { label: t("checkout.features.sessions.ui.checkoutPage.items"), value: lineCount },
           { label: t("checkout.features.sessions.ui.checkoutPage.lines"), value: lines.length },
+          { label: "Ready now", value: readyCount },
+          { label: "Needs supply", value: unavailableCount },
           { label: t("checkout.features.sessions.ui.checkoutPage.source"), value: session.source_type === "buy-now" ? t("checkout.features.sessions.ui.checkoutPage.buy.now") : t("checkout.features.sessions.ui.checkoutPage.cart") },
           {
             label: t("checkout.features.sessions.ui.checkoutPage.pricing"),
@@ -120,9 +130,109 @@ export function CheckoutSessionPage({
             ) : null}
 
             <Banner
-              title={t("checkout.features.sessions.ui.checkoutPage.same.seller.shipping.credit")}
-              description={t("checkout.features.sessions.ui.checkoutPage.each.seller.grouped.purchase.applies.the.listing.credit")}
+              title="Live fulfillment preview"
+              description="Prices and sellers are market signals until you confirm this preview. Unavailable product intents stay in your cart so you can make offers or wait for supply."
             />
+
+            <PageSection
+              title="Fulfillment"
+              description="Review the current seller allocation before payment starts."
+            >
+              <Stack gap={3}>
+                <Surface elevated>
+                  <form method="post">
+                    <Stack gap={3}>
+                      <input type="hidden" name="intent" value="select-optimization-goal" />
+                      <NativeSelect
+                        label="Optimization"
+                        name="optimizationGoal"
+                        defaultValue={session.optimization_goal}
+                        items={[
+                          { value: "lowest-total", label: "Lowest delivered total" },
+                          { value: "fewest-shipments", label: "Fewest shipments" },
+                        ]}
+                      />
+                      <Button type="submit" tone="secondary">
+                        Recalculate fulfillment
+                      </Button>
+                    </Stack>
+                  </form>
+                </Surface>
+
+                {preview ? (
+                  <>
+                    <PriceBreakdown
+                      lines={[
+                        { label: "Items", value: `$${preview.totals.itemSubtotalAmount}` },
+                        { label: "Shipping", value: `$${preview.totals.shippingAmount}` },
+                        { label: "Estimated tax", value: `$${preview.totals.salesTaxAmount}` },
+                        { label: "Packages", value: preview.totals.packageCount },
+                      ]}
+                      total={`$${preview.totals.totalAmount}`}
+                      totalLabel="Estimated total"
+                      reassurance={<SecurePaymentIndicator label="Current preview" />}
+                    />
+                    {preview.sellerGroups.map((group) => (
+                      <Surface key={group.sellerAccountId} elevated>
+                        <Stack gap={3}>
+                          <Inline gap={2}>
+                            <Badge tone="accent">Seller group</Badge>
+                            <Text weight="semibold">{group.sellerAccountId}</Text>
+                            <Text tone="secondary">${group.totalAmount}</Text>
+                          </Inline>
+                          {group.lines.map((line) => (
+                            <Grid key={`${group.sellerAccountId}:${line.lineKey}:${line.listingId}`} columns={{ base: 1, md: 4 }} gap={3}>
+                              <Stack gap={1}>
+                                <Text weight="semibold">{line.itemTitle}</Text>
+                                <Text size="sm" tone="secondary">{line.productSummary ?? "Standard"}</Text>
+                              </Stack>
+                              <Stack gap={1}>
+                                <Text size="sm" tone="secondary">Listing</Text>
+                                <Text>{line.listingId}</Text>
+                              </Stack>
+                              <Stack gap={1}>
+                                <Text size="sm" tone="secondary">Quantity</Text>
+                                <Badge tone="accent">{line.quantity}</Badge>
+                              </Stack>
+                              <Stack gap={1}>
+                                <Text size="sm" tone="secondary">Estimate</Text>
+                                <Text>${line.estimatedLineTotalAmount}</Text>
+                                <Badge tone={line.priceState === "locked" ? "success" : "neutral"}>
+                                  {line.priceState === "locked" ? "Locked listing" : "Optimized"}
+                                </Badge>
+                              </Stack>
+                            </Grid>
+                          ))}
+                        </Stack>
+                      </Surface>
+                    ))}
+                    {preview.unavailableLines.length > 0 ? (
+                      <Surface tone="subtle" elevated>
+                        <Stack gap={3}>
+                          <Badge tone="warning">Needs supply</Badge>
+                          {preview.unavailableLines.map((line) => (
+                            <Grid key={line.lineKey} columns={{ base: 1, md: 3 }} gap={3}>
+                              <Stack gap={1}>
+                                <Text weight="semibold">{line.itemTitle}</Text>
+                                <Text size="sm" tone="secondary">{line.productSummary ?? "Standard"}</Text>
+                              </Stack>
+                              <Text>{line.reason}</Text>
+                              <LinkButton
+                                href={`/items/${line.catalogItemId}#make-offer`}
+                                tone="secondary"
+                                size="sm"
+                              >
+                                Make offer
+                              </LinkButton>
+                            </Grid>
+                          ))}
+                        </Stack>
+                      </Surface>
+                    ) : null}
+                  </>
+                ) : null}
+              </Stack>
+            </PageSection>
 
             <PageSection
               title={t("checkout.features.sessions.ui.checkoutPage.review.items")}
@@ -173,6 +283,16 @@ export function CheckoutSessionPage({
                   <form id="checkout-confirmation-form" method="post">
                     <Stack gap={3}>
                       <input type="hidden" name="intent" value="confirm-checkout" />
+                      <input
+                        type="hidden"
+                        name="fulfillmentPreviewRevision"
+                        value={preview?.revision ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="acknowledgedMaterialChanges"
+                        value={preview?.materialChangeReasons.length ? "true" : ""}
+                      />
                       <MarketplaceNotice
                         tone="info"
                         title={t("checkout.features.sessions.ui.checkoutPage.transparent.totals")}
@@ -261,9 +381,9 @@ export function CheckoutSessionPage({
                         size="lg"
                         leadingIcon="lock"
                         loading={isSubmitting}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canConfirm}
                       >
-                        {isSubmitting ? t("checkout.features.sessions.ui.checkoutPage.creating.purchases") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}
+                        {isSubmitting ? t("checkout.features.sessions.ui.checkoutPage.creating.purchases") : canConfirm ? t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2") : "No available supply"}
                       </Button>
                     </Stack>
                   </form>
@@ -283,7 +403,7 @@ export function CheckoutSessionPage({
                     type="submit"
                     form="checkout-confirmation-form"
                     leadingIcon="lock"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !canConfirm}
                     loading={isSubmitting}
                   >
                     {isSubmitting ? t("checkout.features.sessions.ui.checkoutPage.creating.purchases") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}

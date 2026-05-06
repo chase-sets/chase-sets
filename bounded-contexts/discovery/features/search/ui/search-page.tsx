@@ -62,7 +62,7 @@ function formatPrice(item: DiscoverySearchItem): string {
 
   return lowestPrice
     ? t("discovery.features.search.ui.searchPage.from.price", { price: `$${lowestPrice}` })
-    : t("discovery.features.search.ui.searchPage.market.only");
+    : t("discovery.features.search.ui.searchPage.market.open");
 }
 
 function formatAvailability(item: DiscoverySearchItem): string {
@@ -72,7 +72,7 @@ function formatAvailability(item: DiscoverySearchItem): string {
     ? t("discovery.features.search.ui.searchPage.available.quantity", {
         visibleQuantity,
       })
-    : t("discovery.features.search.ui.searchPage.market.watch");
+    : t("discovery.features.search.ui.searchPage.offer.or.list.yours");
 }
 
 function formatSellerSignal(item: DiscoverySearchItem): string {
@@ -80,15 +80,15 @@ function formatSellerSignal(item: DiscoverySearchItem): string {
 
   return listingCount > 0
     ? t("discovery.features.search.ui.searchPage.verified.marketplace.sellers")
-    : t("discovery.features.search.ui.searchPage.no.active.sellers.yet");
+    : t("discovery.features.search.ui.searchPage.supply.wanted");
 }
 
-function formatValueCue(item: DiscoverySearchItem): string {
+function formatValueCue(item: DiscoverySearchItem): string | undefined {
   const listingCount = item.market_summary?.active_listing_count ?? 0;
 
   return listingCount > 0
-    ? t("discovery.features.search.ui.searchPage.compare.price.seller.and.fulfillment")
-    : t("discovery.features.search.ui.searchPage.save.search.to.watch.new.supply");
+    ? undefined
+    : t("discovery.features.search.ui.searchPage.make.an.offer.or.list.yours");
 }
 
 export interface SearchPageProps {
@@ -321,6 +321,7 @@ export function SearchPage({
                 return (
                   <ListingCard
                     key={item.catalog_item_id}
+                    href={`/items/${item.slug}`}
                     title={item.title}
                     imageSrc={item.image_urls[0] ?? discoveryAssetUrls.defaultProductImage}
                     imageAlt={item.title}
@@ -330,26 +331,26 @@ export function SearchPage({
                     sellerTrustLabel={
                       hasActiveListings
                         ? t("discovery.features.search.ui.searchPage.verified.supply")
-                        : t("discovery.features.search.ui.searchPage.market.data")
+                        : t("discovery.features.search.ui.searchPage.offers.open")
                     }
                     sellerVerified={hasActiveListings}
                     fulfillment={formatAvailability(item)}
                     availability={item.blueprint_name ?? item.subtitle}
                     condition={uniqueDisplayValues(item.category_names)[0] ?? t("discovery.features.search.ui.searchPage.marketplace")}
                     valueCue={formatValueCue(item)}
-                    promotion={hasActiveListings ? t("discovery.features.search.ui.searchPage.available.now") : undefined}
+                    promotion={
+                      hasActiveListings
+                        ? t("discovery.features.search.ui.searchPage.available.now")
+                        : t("discovery.features.search.ui.searchPage.supply.wanted")
+                    }
                     primaryAction={
                       <LinkButton href={`/items/${item.slug}`} size="sm">
                         {hasActiveListings
-                          ? t("discovery.features.search.ui.searchPage.view.listings")
-                          : t("discovery.features.search.ui.searchPage.watch.market")}
+                          ? t("discovery.features.search.ui.searchPage.view.details")
+                          : t("discovery.features.search.ui.searchPage.view.market")}
                       </LinkButton>
                     }
-                    secondaryAction={
-                      <LinkButton href={`/items/${item.slug}`} tone="secondary" size="sm">
-                        {t("discovery.features.search.ui.searchPage.compare")}
-                      </LinkButton>
-                    }
+                    secondaryAction={false}
                   />
                 );
               })}

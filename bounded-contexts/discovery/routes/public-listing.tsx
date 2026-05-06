@@ -83,6 +83,8 @@ function checkoutStartHref(listing: DiscoveryPublicListing) {
   const params = new URLSearchParams({
     source: "buy-now",
     listingId: listing.listing_id,
+    fulfillmentMode: "locked-listing",
+    lockedListingId: listing.listing_id,
     catalogItemId: listing.catalog_catalog_item_id,
     productId: listing.product_id,
     itemTitle: listing.item_title ?? t("discovery.routes.publicListing.marketplace.listing"),
@@ -230,7 +232,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               reassurance={t("discovery.routes.publicListing.secure.checkout.reassurance")}
               primaryAction={
                 <LinkButton href={checkoutHref} size="lg" leadingIcon="lock">
-                  {t("discovery.routes.publicListing.buy.now")}
+                  Buy this listing
                 </LinkButton>
               }
               secondaryAction={

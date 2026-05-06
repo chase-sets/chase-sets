@@ -120,6 +120,10 @@ export type CheckoutOrderLineSnapshot = Readonly<{
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
   quantity: number;
+  fulfillmentMode?: "optimize" | "locked-listing";
+  lockedListingId?: string | null;
+  sellerPreferenceId?: string | null;
+  availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
 export type CheckoutShippingAddressSnapshot = TaxDestinationAddress;
@@ -185,6 +189,50 @@ type CheckoutPlan = Readonly<{
   orderCount: number;
 }>;
 
+export type CheckoutFulfillmentPreview = Readonly<{
+  revision: string;
+  optimizationGoal: "lowest-total" | "fewest-shipments";
+  readyLineKeys: readonly string[];
+  unavailableLineKeys: readonly string[];
+  sellerGroups: readonly Readonly<{
+    sellerAccountId: string;
+    itemSubtotalAmount: string;
+    shippingChargeAmount: string;
+    salesTaxAmount: string;
+    totalAmount: string;
+    lines: readonly Readonly<{
+      lineKey: string;
+      listingId: string;
+      catalogItemId: string;
+      productId: string;
+      itemTitle: string;
+      productSummary: string | null;
+      quantity: number;
+      estimatedUnitPriceAmount: string;
+      estimatedLineTotalAmount: string;
+      priceState: "available" | "changed" | "unavailable" | "locked";
+      materialChangeReasons: readonly string[];
+    }>[];
+  }>[];
+  totals: Readonly<{
+    itemSubtotalAmount: string;
+    shippingAmount: string;
+    salesTaxAmount: string;
+    totalAmount: string;
+    packageCount: number;
+  }>;
+  unavailableLines: readonly Readonly<{
+    lineKey: string;
+    catalogItemId: string;
+    productId: string;
+    itemTitle: string;
+    productSummary: string | null;
+    quantity: number;
+    reason: string;
+  }>[];
+  materialChangeReasons: readonly string[];
+}>;
+
 export type OrderingOrderServices = Readonly<{
   commandHandler: CommandHandler<
     OrderingOrderCommand,
@@ -199,10 +247,24 @@ export type OrderingOrderServices = Readonly<{
       shippingOption: ShippingOption;
       shippingAddress: CheckoutShippingAddressSnapshot;
       lines: readonly CheckoutOrderLineSnapshot[];
+      optimizationGoal?: "lowest-total" | "fewest-shipments";
+      fulfillmentPreviewRevision?: string | null;
+      acknowledgedMaterialChanges?: boolean;
       orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
   ) => Promise<{ orderIds: readonly OrderId[] }>;
+  previewCheckoutFulfillment: (
+    params: Readonly<{
+      buyerAccountId: AccountId;
+      checkoutSessionId: string;
+      sourceType: "cart-checkout" | "buy-now";
+      shippingOption: ShippingOption;
+      shippingAddress?: CheckoutShippingAddressSnapshot | null;
+      lines: readonly CheckoutOrderLineSnapshot[];
+      optimizationGoal?: "lowest-total" | "fewest-shipments";
+    }>,
+  ) => Promise<CheckoutFulfillmentPreview>;
   createOrdersFromAcceptedOffer: (
     params: Readonly<{
       offerId: string;
@@ -300,6 +362,17 @@ function groupDemands(cartLines: readonly CheckoutOrderLineSnapshot[]) {
   }
 
   return [...grouped.values()];
+}
+
+function checkoutLineKey(line: CheckoutOrderLineSnapshot, index: number) {
+  return line.cartLineId ?? line.lockedListingId ?? line.listingId ?? `${line.productId}:${index}`;
+}
+
+function isLockedCheckoutLine(line: CheckoutOrderLineSnapshot) {
+  return (
+    line.fulfillmentMode === "locked-listing" ||
+    Boolean((line.lockedListingId ?? line.listingId)?.trim())
+  );
 }
 
 function enumerateDemandAllocations(
@@ -616,6 +689,7 @@ function chooseBestPlan(
   }>,
   sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
+  optimizationGoal: "lowest-total" | "fewest-shipments" = "lowest-total",
 ) {
   let bestPlan: CheckoutPlan | null = null;
   const search = (index: number, chosen: DemandPlan[]) => {
@@ -629,15 +703,20 @@ function chooseBestPlan(
         sourceType,
         sourceReferenceId,
       );
-      if (
-        !bestPlan ||
-        plan.totalAmount < bestPlan.totalAmount ||
-        (plan.totalAmount === bestPlan.totalAmount &&
-          plan.itemSubtotalAmount < bestPlan.itemSubtotalAmount) ||
-        (plan.totalAmount === bestPlan.totalAmount &&
-          plan.itemSubtotalAmount === bestPlan.itemSubtotalAmount &&
-          plan.orderCount < bestPlan.orderCount)
-      ) {
+      const isBetter =
+        optimizationGoal === "fewest-shipments"
+          ? !bestPlan ||
+            plan.orderCount < bestPlan.orderCount ||
+            (plan.orderCount === bestPlan.orderCount &&
+              plan.totalAmount < bestPlan.totalAmount)
+          : !bestPlan ||
+            plan.totalAmount < bestPlan.totalAmount ||
+            (plan.totalAmount === bestPlan.totalAmount &&
+              plan.itemSubtotalAmount < bestPlan.itemSubtotalAmount) ||
+            (plan.totalAmount === bestPlan.totalAmount &&
+              plan.itemSubtotalAmount === bestPlan.itemSubtotalAmount &&
+              plan.orderCount < bestPlan.orderCount);
+      if (isBetter) {
         bestPlan = plan;
       }
       return;
@@ -681,6 +760,161 @@ async function buildDemandOptions(
   }
 
   return options;
+}
+
+async function buildCheckoutDemandOptions(
+  db: PgQueryable,
+  lines: readonly CheckoutOrderLineSnapshot[],
+) {
+  const optimizedLines = lines.filter((line) => !isLockedCheckoutLine(line));
+  const options: DemandPlan[][] = [];
+
+  for (const line of lines.filter(isLockedCheckoutLine)) {
+    const lockedListingId = (line.lockedListingId ?? line.listingId ?? "").trim();
+    if (!lockedListingId) {
+      throw new OrderingDomainError("Locked checkout line must reference a listing.");
+    }
+    const candidate = await getOrderingSupplyCandidateByListingId(db, lockedListingId);
+    if (!candidate) {
+      throw new OrderingDomainError(`Locked listing is not available for ${line.itemTitle}.`);
+    }
+    if (candidate.productId !== line.productId.trim()) {
+      throw new OrderingDomainError("Locked listing does not match the selected product.");
+    }
+    assertSupplyAvailable(
+      [candidate],
+      line.quantity,
+      `Not enough active supply is available for ${candidate.itemTitle}.`,
+    );
+    options.push([
+      {
+        demand: {
+          catalogItemId: candidate.catalogItemId,
+          productId: candidate.productId,
+          itemTitle: candidate.itemTitle,
+          itemSubtitle: candidate.itemSubtitle,
+          selectedOptions: candidate.selectedOptions,
+          productSummary: candidate.productSummary,
+          quantity: line.quantity,
+        },
+        allocations: [{ candidate, quantity: line.quantity }],
+      },
+    ]);
+  }
+
+  if (optimizedLines.length > 0) {
+    options.push(...await buildDemandOptions(db, groupDemands(optimizedLines)));
+  }
+
+  return options;
+}
+
+function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) {
+  return [
+    preview.optimizationGoal,
+    preview.readyLineKeys.join(","),
+    preview.unavailableLineKeys.join(","),
+    preview.sellerGroups
+      .map((group) =>
+        [
+          group.sellerAccountId,
+          group.totalAmount,
+          group.lines
+            .map((line) =>
+              [
+                line.lineKey,
+                line.listingId,
+                line.quantity,
+                line.estimatedUnitPriceAmount,
+                line.priceState,
+                line.materialChangeReasons.join("+"),
+              ].join(":"),
+            )
+            .join("|"),
+        ].join("="),
+      )
+      .join(";"),
+    preview.totals.totalAmount,
+  ].join("#");
+}
+
+function planToPreview(params: Readonly<{
+  plan: CheckoutPlan;
+  sourceLines: readonly CheckoutOrderLineSnapshot[];
+  optimizationGoal: "lowest-total" | "fewest-shipments";
+  unavailableLines: CheckoutFulfillmentPreview["unavailableLines"];
+}>): CheckoutFulfillmentPreview {
+  const lineKeysByDemand = new Map<string, string[]>();
+  params.sourceLines.forEach((line, index) => {
+    const key = buildDemandSignature(line.productId);
+    lineKeysByDemand.set(key, [
+      ...(lineKeysByDemand.get(key) ?? []),
+      checkoutLineKey(line, index),
+    ]);
+  });
+
+  const readyLineKeys = params.sourceLines
+    .map(checkoutLineKey)
+    .filter((key) => !params.unavailableLines.some((line) => line.lineKey === key));
+  const sellerGroups = params.plan.orderDrafts.map((draft) => ({
+    sellerAccountId: draft.sellerAccountId,
+    itemSubtotalAmount: draft.itemSubtotalAmount,
+    shippingChargeAmount: draft.shippingChargeAmount,
+    salesTaxAmount: draft.salesTaxAmount,
+    totalAmount: draft.totalAmount,
+    lines: draft.lines.map((line) => {
+      const demandKey = buildDemandSignature(line.productId);
+      const lineKey = lineKeysByDemand.get(demandKey)?.shift() ?? line.listingId;
+      const sourceLine = params.sourceLines.find((source, index) =>
+        checkoutLineKey(source, index) === lineKey,
+      );
+      const locked = sourceLine ? isLockedCheckoutLine(sourceLine) : false;
+      return {
+        lineKey,
+        listingId: line.listingId,
+        catalogItemId: line.catalogItemId,
+        productId: line.productId,
+        itemTitle: line.itemTitle,
+        productSummary: line.productSummary,
+        quantity: line.quantity,
+        estimatedUnitPriceAmount: line.unitPriceAmount,
+        estimatedLineTotalAmount: line.lineTotalAmount,
+        priceState: locked ? "locked" as const : "available" as const,
+        materialChangeReasons: [] as string[],
+      };
+    }),
+  }));
+  const shippingAmount = params.plan.orderDrafts.reduce(
+    (sum, draft) => sum + moneyToNumber(draft.shippingChargeAmount),
+    0,
+  );
+  const salesTaxAmount = params.plan.orderDrafts.reduce(
+    (sum, draft) => sum + moneyToNumber(draft.salesTaxAmount),
+    0,
+  );
+  const materialChangeReasons = sellerGroups.flatMap((group) =>
+    group.lines.flatMap((line) => line.materialChangeReasons),
+  );
+  const withoutRevision = {
+    optimizationGoal: params.optimizationGoal,
+    readyLineKeys,
+    unavailableLineKeys: params.unavailableLines.map((line) => line.lineKey),
+    sellerGroups,
+    totals: {
+      itemSubtotalAmount: numberToMoneyAmount(params.plan.itemSubtotalAmount),
+      shippingAmount: numberToMoneyAmount(shippingAmount),
+      salesTaxAmount: numberToMoneyAmount(salesTaxAmount),
+      totalAmount: numberToMoneyAmount(params.plan.totalAmount),
+      packageCount: params.plan.orderCount,
+    },
+    unavailableLines: params.unavailableLines,
+    materialChangeReasons,
+  };
+
+  return {
+    ...withoutRevision,
+    revision: previewRevision(withoutRevision),
+  };
 }
 
 export function createOrderingOrderRuntime(
@@ -1009,6 +1243,151 @@ export function createOrderingOrderRuntime(
 
   return {
     commandHandler,
+    previewCheckoutFulfillment: async (params) => {
+      const optimizationGoal = params.optimizationGoal ?? "lowest-total";
+      const unavailableLines: Array<CheckoutFulfillmentPreview["unavailableLines"][number]> = [];
+      const readyLines: CheckoutOrderLineSnapshot[] = [];
+
+      for (const [index, line] of params.lines.entries()) {
+        const lineKey = checkoutLineKey(line, index);
+        try {
+          if (isLockedCheckoutLine(line)) {
+            const lockedListingId = (line.lockedListingId ?? line.listingId ?? "").trim();
+            const candidate = lockedListingId
+              ? await getOrderingSupplyCandidateByListingId(deps.db, lockedListingId)
+              : null;
+            if (!candidate) {
+              unavailableLines.push({
+                lineKey,
+                catalogItemId: line.catalogItemId,
+                productId: line.productId,
+                itemTitle: line.itemTitle,
+                productSummary: line.productSummary,
+                quantity: line.quantity,
+                reason: "Locked listing is unavailable.",
+              });
+              continue;
+            }
+            if (candidate.productId !== line.productId.trim()) {
+              unavailableLines.push({
+                lineKey,
+                catalogItemId: line.catalogItemId,
+                productId: line.productId,
+                itemTitle: line.itemTitle,
+                productSummary: line.productSummary,
+                quantity: line.quantity,
+                reason: "Locked listing does not match this product.",
+              });
+              continue;
+            }
+            if (candidate.availableQuantity < line.quantity) {
+              unavailableLines.push({
+                lineKey,
+                catalogItemId: line.catalogItemId,
+                productId: line.productId,
+                itemTitle: line.itemTitle,
+                productSummary: line.productSummary,
+                quantity: line.quantity,
+                reason: "Locked listing has insufficient quantity.",
+              });
+              continue;
+            }
+          } else {
+            const candidates = await listOrderingSupplyCandidates(deps.db, {
+              catalogItemId: line.catalogItemId,
+              productId: line.productId,
+              itemTitle: line.itemTitle,
+              itemSubtitle: line.itemSubtitle,
+              selectedOptions: line.selectedOptions,
+              productSummary: line.productSummary,
+              quantity: line.quantity,
+            });
+            const availableQuantity = candidates.reduce(
+              (sum, candidate) => sum + candidate.availableQuantity,
+              0,
+            );
+            if (availableQuantity < line.quantity) {
+              unavailableLines.push({
+                lineKey,
+                catalogItemId: line.catalogItemId,
+                productId: line.productId,
+                itemTitle: line.itemTitle,
+                productSummary: line.productSummary,
+                quantity: line.quantity,
+                reason: "No active supply can fulfill this product.",
+              });
+              continue;
+            }
+          }
+          readyLines.push(line);
+        } catch (error) {
+          unavailableLines.push({
+            lineKey,
+            catalogItemId: line.catalogItemId,
+            productId: line.productId,
+            itemTitle: line.itemTitle,
+            productSummary: line.productSummary,
+            quantity: line.quantity,
+            reason: error instanceof Error ? error.message : "This line cannot be fulfilled.",
+          });
+        }
+      }
+
+      if (readyLines.length === 0) {
+        const withoutRevision = {
+          optimizationGoal,
+          readyLineKeys: [],
+          unavailableLineKeys: unavailableLines.map((line) => line.lineKey),
+          sellerGroups: [],
+          totals: {
+            itemSubtotalAmount: "0.00",
+            shippingAmount: "0.00",
+            salesTaxAmount: "0.00",
+            totalAmount: "0.00",
+            packageCount: 0,
+          },
+          unavailableLines,
+          materialChangeReasons: ["unavailable-lines"],
+        };
+        return {
+          ...withoutRevision,
+          revision: previewRevision(withoutRevision),
+        };
+      }
+
+      const demandOptions = await buildCheckoutDemandOptions(deps.db, readyLines);
+      const plan = chooseBestPlan(
+        demandOptions,
+        params.shippingOption,
+        deps.shippingQuotePolicy,
+        undefined,
+        undefined,
+        params.sourceType,
+        params.checkoutSessionId,
+        optimizationGoal,
+      );
+      const taxAdjustedPlan = await applyTaxToPlan(
+        plan,
+        params.buyerAccountId,
+        params.shippingAddress ?? {
+          name: null,
+          line1: "Checkout preview destination pending",
+          line2: null,
+          city: "Unknown",
+          state: "ZZ",
+          postalCode: "00000",
+          country: "US",
+        },
+        taxQuoteResolver,
+      );
+
+      return planToPreview({
+        plan: taxAdjustedPlan,
+        sourceLines: readyLines,
+        optimizationGoal,
+        unavailableLines,
+      });
+    },
     createOrdersFromCheckout: async (params, context) => {
       const existingOrderIds = await listOrderIdsForSource(
         deps.db,
@@ -1023,79 +1402,30 @@ export function createOrderingOrderRuntime(
         throw new OrderingDomainError("Checkout must contain at least one line.");
       }
 
-      if (params.sourceType === "buy-now") {
-        const line = params.lines[0]!;
-        if (!line.listingId) {
-          throw new OrderingDomainError("Buy now checkout must reference a listing.");
-        }
-
-        const candidate = await getOrderingSupplyCandidateByListingId(
-          deps.db,
-          line.listingId,
-        );
-        if (!candidate) {
-          throw new OrderingDomainError("Listing is not available for buy now.");
-        }
-        if (candidate.productId !== line.productId.trim()) {
-          throw new OrderingDomainError(
-            "Buy now listing does not match the selected product.",
-          );
-        }
-        assertSupplyAvailable(
-          [candidate],
-          line.quantity,
-          `Not enough active supply is available for ${candidate.itemTitle}.`,
-        );
-
-        const demand: MarketplaceDemand & Readonly<{ quantity: number }> = {
-          catalogItemId: candidate.catalogItemId,
-          productId: candidate.productId,
-          itemTitle: candidate.itemTitle,
-          itemSubtitle: candidate.itemSubtitle,
-          selectedOptions: candidate.selectedOptions,
-          productSummary: candidate.productSummary,
-          quantity: line.quantity,
-        };
-        const plan = quotePlan(
-          [
-            {
-              demand,
-              allocations: [{ candidate, quantity: line.quantity }],
-            },
-          ],
-          params.shippingOption,
-          deps.shippingQuotePolicy,
-          undefined,
-          undefined,
-          "buy-now",
-          params.checkoutSessionId,
-        );
-        const taxAdjustedPlan = await applyTaxToPlan(
-          plan,
-          params.buyerAccountId,
-          params.shippingAddress,
-          taxQuoteResolver,
-        );
-        const orderIds = await createOrdersFromPlan(
-          params.buyerAccountId,
-          taxAdjustedPlan,
-          context,
-          params.orderIdsOverride,
-        );
-
-        return { orderIds };
+      const preview = await createOrderingOrderRuntime(deps).previewCheckoutFulfillment(params);
+      if (preview.readyLineKeys.length === 0) {
+        throw new OrderingDomainError("No checkout lines are currently fulfillable.");
       }
-
-      const demandGroups = groupDemands(params.lines);
-      const demandOptions = await buildDemandOptions(deps.db, demandGroups);
+      if (
+        params.fulfillmentPreviewRevision &&
+        params.fulfillmentPreviewRevision !== preview.revision &&
+        !params.acknowledgedMaterialChanges
+      ) {
+        throw new OrderingDomainError("Fulfillment changed. Review the latest checkout preview before continuing.");
+      }
+      const readyLines = params.lines.filter((line, index) =>
+        preview.readyLineKeys.includes(checkoutLineKey(line, index)),
+      );
+      const demandOptions = await buildCheckoutDemandOptions(deps.db, readyLines);
       const plan = chooseBestPlan(
         demandOptions,
         params.shippingOption,
         deps.shippingQuotePolicy,
         undefined,
         undefined,
-        "cart-checkout",
+        params.sourceType,
         params.checkoutSessionId,
+        params.optimizationGoal ?? "lowest-total",
       );
       const taxAdjustedPlan = await applyTaxToPlan(
         plan,

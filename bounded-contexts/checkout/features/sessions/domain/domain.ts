@@ -22,6 +22,7 @@ import {
 } from "../../../support/runtime-support/common";
 
 export type CheckoutSourceType = "cart" | "buy-now";
+export type CheckoutOptimizationGoal = "lowest-total" | "fewest-shipments";
 
 export type CheckoutSessionLine = Readonly<{
   listingId: string | null;
@@ -33,6 +34,10 @@ export type CheckoutSessionLine = Readonly<{
   selectedOptions: VersionSelectedOptionEntry[];
   productSummary: string | null;
   quantity: number;
+  fulfillmentMode?: "optimize" | "locked-listing";
+  lockedListingId?: string | null;
+  sellerPreferenceId?: string | null;
+  availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
 export type CheckoutShippingAddress = Readonly<{
@@ -49,6 +54,8 @@ export type CheckoutSessionState = Readonly<{
   sessionId: CheckoutSessionId | null;
   buyerAccountId: AccountId | null;
   sourceType: CheckoutSourceType | null;
+  optimizationGoal: CheckoutOptimizationGoal;
+  fulfillmentPreviewRevision: string | null;
   shippingOption: ShippingOption;
   shippingAddress: CheckoutShippingAddress | null;
   lines: CheckoutSessionLine[];
@@ -62,6 +69,8 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   sessionId: null,
   buyerAccountId: null,
   sourceType: null,
+  optimizationGoal: "lowest-total",
+  fulfillmentPreviewRevision: null,
   shippingOption: "standard",
   shippingAddress: null,
   lines: [],
@@ -76,6 +85,8 @@ export type StartCheckoutSessionCommand = Readonly<{
   sessionId: CheckoutSessionId;
   buyerAccountId: AccountId;
   sourceType: CheckoutSourceType;
+  optimizationGoal?: CheckoutOptimizationGoal;
+  fulfillmentPreviewRevision?: string | null;
   shippingOption: ShippingOption;
   lines: readonly CheckoutSessionLine[];
   createdAt: string;
@@ -85,6 +96,18 @@ export type SelectShippingOptionCommand = Readonly<{
   type: "SelectShippingOption";
   shippingOption: ShippingOption;
   selectedAt: string;
+}>;
+
+export type SelectOptimizationGoalCommand = Readonly<{
+  type: "SelectOptimizationGoal";
+  optimizationGoal: CheckoutOptimizationGoal;
+  selectedAt: string;
+}>;
+
+export type RecordFulfillmentPreviewCommand = Readonly<{
+  type: "RecordFulfillmentPreview";
+  fulfillmentPreviewRevision: string;
+  recordedAt: string;
 }>;
 
 export type SetShippingAddressCommand = Readonly<{
@@ -108,6 +131,8 @@ export type RecordPaymentStartedCommand = Readonly<{
 export type CheckoutSessionCommand =
   | StartCheckoutSessionCommand
   | SelectShippingOptionCommand
+  | SelectOptimizationGoalCommand
+  | RecordFulfillmentPreviewCommand
   | SetShippingAddressCommand
   | RecordOrdersCreatedCommand
   | RecordPaymentStartedCommand;
@@ -118,9 +143,29 @@ export type CheckoutSessionStartedEvent = DomainEvent<
     sessionId: CheckoutSessionId;
     buyerAccountId: AccountId;
     sourceType: CheckoutSourceType;
+    optimizationGoal: CheckoutOptimizationGoal;
+    fulfillmentPreviewRevision: string | null;
     shippingOption: ShippingOption;
     lines: CheckoutSessionLine[];
     createdAt: string;
+  }>
+>;
+
+export type CheckoutOptimizationGoalSelectedEvent = DomainEvent<
+  "checkout.session.optimization-goal-selected",
+  Readonly<{
+    sessionId: CheckoutSessionId;
+    optimizationGoal: CheckoutOptimizationGoal;
+    selectedAt: string;
+  }>
+>;
+
+export type CheckoutFulfillmentPreviewRecordedEvent = DomainEvent<
+  "checkout.session.fulfillment-preview-recorded",
+  Readonly<{
+    sessionId: CheckoutSessionId;
+    fulfillmentPreviewRevision: string;
+    recordedAt: string;
   }>
 >;
 
@@ -163,13 +208,21 @@ export type CheckoutPaymentStartedEvent = DomainEvent<
 export type CheckoutSessionEvent =
   | CheckoutSessionStartedEvent
   | CheckoutShippingOptionSelectedEvent
+  | CheckoutOptimizationGoalSelectedEvent
+  | CheckoutFulfillmentPreviewRecordedEvent
   | CheckoutShippingAddressSetEvent
   | CheckoutOrdersCreatedEvent
   | CheckoutPaymentStartedEvent;
 
 function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
+  const lockedListingId =
+    normalizeOptionalText(line.lockedListingId ?? line.listingId);
+  const fulfillmentMode =
+    line.fulfillmentMode === "locked-listing" || lockedListingId
+      ? "locked-listing"
+      : "optimize";
   return {
-    listingId: normalizeOptionalText(line.listingId),
+    listingId: lockedListingId,
     cartLineId: normalizeOptionalText(line.cartLineId),
     catalogItemId: normalizeRequiredText(
       line.catalogItemId,
@@ -190,7 +243,28 @@ function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
       line.quantity,
       "Checkout quantity must be a positive whole number.",
     ),
+    fulfillmentMode,
+    lockedListingId,
+    sellerPreferenceId: normalizeOptionalText(line.sellerPreferenceId),
+    availabilityState: normalizeAvailabilityState(line.availabilityState),
   };
+}
+
+function normalizeOptimizationGoal(value: CheckoutOptimizationGoal | undefined) {
+  return value === "fewest-shipments" ? "fewest-shipments" : "lowest-total";
+}
+
+function normalizeAvailabilityState(
+  value: "available" | "unavailable" | "changed" | "waiting-for-supply" | undefined,
+) {
+  switch (value) {
+    case "unavailable":
+    case "changed":
+    case "waiting-for-supply":
+      return value;
+    default:
+      return "available";
+  }
 }
 
 function normalizeShippingAddress(
@@ -238,6 +312,10 @@ export const decideCheckoutSession: AggregateDecider<
             sessionId: command.sessionId,
             buyerAccountId: command.buyerAccountId,
             sourceType: command.sourceType,
+            optimizationGoal: normalizeOptimizationGoal(command.optimizationGoal),
+            fulfillmentPreviewRevision: normalizeOptionalText(
+              command.fulfillmentPreviewRevision,
+            ),
             shippingOption: normalizeShippingOption(command.shippingOption),
             lines,
             createdAt: normalizeRequiredText(
@@ -248,6 +326,41 @@ export const decideCheckoutSession: AggregateDecider<
         },
       ];
     }
+    case "SelectOptimizationGoal":
+      assert(state.sessionId !== null, "Checkout session must be started first.");
+      assert(state.orderIds.length === 0, "Optimization cannot change after orders are created.");
+      return [
+        {
+          type: "checkout.session.optimization-goal-selected",
+          data: {
+            sessionId: state.sessionId,
+            optimizationGoal: normalizeOptimizationGoal(command.optimizationGoal),
+            selectedAt: normalizeRequiredText(
+              command.selectedAt,
+              "Optimization selection must record a timestamp.",
+            ),
+          },
+        },
+      ];
+    case "RecordFulfillmentPreview":
+      assert(state.sessionId !== null, "Checkout session must be started first.");
+      assert(state.orderIds.length === 0, "Fulfillment preview cannot change after orders are created.");
+      return [
+        {
+          type: "checkout.session.fulfillment-preview-recorded",
+          data: {
+            sessionId: state.sessionId,
+            fulfillmentPreviewRevision: normalizeRequiredText(
+              command.fulfillmentPreviewRevision,
+              "Fulfillment preview must include a revision.",
+            ),
+            recordedAt: normalizeRequiredText(
+              command.recordedAt,
+              "Fulfillment preview recording must include a timestamp.",
+            ),
+          },
+        },
+      ];
     case "SelectShippingOption":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assert(state.orderIds.length === 0, "Shipping cannot change after orders are created.");
@@ -336,6 +449,8 @@ export const evolveCheckoutSession: AggregateEvolver<
         sessionId: event.data.sessionId,
         buyerAccountId: event.data.buyerAccountId,
         sourceType: event.data.sourceType,
+        optimizationGoal: event.data.optimizationGoal ?? "lowest-total",
+        fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision ?? null,
         shippingOption: event.data.shippingOption,
         shippingAddress: null,
         lines: event.data.lines,
@@ -343,6 +458,19 @@ export const evolveCheckoutSession: AggregateEvolver<
         paymentId: null,
         createdAt: event.data.createdAt,
         updatedAt: event.data.createdAt,
+      };
+    case "checkout.session.optimization-goal-selected":
+      return {
+        ...state,
+        optimizationGoal: event.data.optimizationGoal,
+        fulfillmentPreviewRevision: null,
+        updatedAt: event.data.selectedAt,
+      };
+    case "checkout.session.fulfillment-preview-recorded":
+      return {
+        ...state,
+        fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision,
+        updatedAt: event.data.recordedAt,
       };
     case "checkout.session.shipping-option-selected":
       return {

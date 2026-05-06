@@ -87,6 +87,10 @@ function parseShippingAddress(value: unknown) {
   };
 }
 
+function parseOptimizationGoal(value: unknown) {
+  return value === "fewest-shipments" ? "fewest-shipments" as const : "lowest-total" as const;
+}
+
 export function createAccountCheckoutSessionRoutes(
   services: CheckoutSessionServices,
 ) {
@@ -111,6 +115,7 @@ export function createAccountCheckoutSessionRoutes(
           {
             accountId: access.actor.accountId as never,
             shippingOption: String(body.shippingOption ?? "standard"),
+            optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
           },
           context,
         );
@@ -137,6 +142,19 @@ export function createAccountCheckoutSessionRoutes(
               ? null
               : String(source.productSummary),
           quantity: Number(source.quantity ?? 0),
+          fulfillmentMode:
+            source.fulfillmentMode === "locked-listing" || String(source.lockedListingId ?? source.listingId ?? "").trim()
+              ? "locked-listing"
+              : "optimize",
+          lockedListingId:
+            source.lockedListingId === null || source.lockedListingId === undefined
+              ? String(source.listingId ?? "") || null
+              : String(source.lockedListingId || "") || null,
+          sellerPreferenceId:
+            source.sellerPreferenceId === null || source.sellerPreferenceId === undefined
+              ? null
+              : String(source.sellerPreferenceId || "") || null,
+          optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
           shippingOption: String(body.shippingOption ?? "standard"),
         },
         context,
@@ -195,6 +213,37 @@ export function createAccountCheckoutSessionRoutes(
     }
   });
 
+  app.post("/checkout-sessions/:sessionId/optimization-goal", async (c) => {
+    const access = requireCheckoutAccess(c, "orders.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.sessions.api.route.authentication.context.missing.2") } }, 401);
+    }
+
+    const body = await c.req.json();
+
+    try {
+      await services.selectOptimizationGoal(
+        {
+          sessionId: c.req.param("sessionId"),
+          accountId: access.actor.accountId as never,
+          optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
+        },
+        context,
+      );
+      return c.json({
+        session_id: c.req.param("sessionId"),
+        status: "optimization-goal-selected",
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/checkout-sessions/:sessionId/confirm", async (c) => {
     const access = requireCheckoutAccess(c, "orders.manage");
     if (access.response) {
@@ -216,6 +265,11 @@ export function createAccountCheckoutSessionRoutes(
         typeof body.marketplaceCheckoutFeeQuoteFingerprint === "string"
           ? body.marketplaceCheckoutFeeQuoteFingerprint
           : null;
+      const fulfillmentPreviewRevision =
+        typeof body.fulfillmentPreviewRevision === "string"
+          ? body.fulfillmentPreviewRevision
+          : null;
+      const acknowledgedMaterialChanges = body.acknowledgedMaterialChanges === true;
 
     try {
       let session = await services.getSession(sessionId, access.actor.accountId);
@@ -229,6 +283,22 @@ export function createAccountCheckoutSessionRoutes(
           order_ids: session.order_ids,
           status: "confirmed",
         });
+      }
+
+      if (
+        session.fulfillment_preview_revision &&
+        fulfillmentPreviewRevision !== session.fulfillment_preview_revision &&
+        !acknowledgedMaterialChanges
+      ) {
+        return c.json(
+          {
+            error: {
+              code: "fulfillment_preview_stale",
+              message: "Fulfillment changed. Review the latest checkout preview before continuing.",
+            },
+          },
+          409,
+        );
       }
 
       await services.setShippingAddress(
@@ -246,15 +316,21 @@ export function createAccountCheckoutSessionRoutes(
 
       let orderIds = [...session.order_ids];
       if (orderIds.length === 0) {
-        orderIds = await createCheckoutOrdersThroughOrdering(
+        const checkoutOrders = await createCheckoutOrdersThroughOrdering(
           c.req.raw,
           session,
+          {
+            fulfillmentPreviewRevision,
+            acknowledgedMaterialChanges,
+          },
         );
+        orderIds = checkoutOrders.orderIds;
         await services.recordOrdersCreated(
           {
             sessionId,
             accountId: access.actor.accountId as never,
             orderIds,
+            fulfilledLineKeys: checkoutOrders.readyLineKeys,
           },
           context,
         );

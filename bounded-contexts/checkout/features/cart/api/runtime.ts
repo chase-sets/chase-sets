@@ -61,6 +61,9 @@ export type CheckoutCartServices = Readonly<{
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       quantity: number;
+      fulfillmentMode?: "optimize" | "locked-listing";
+      lockedListingId?: string | null;
+      sellerPreferenceId?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ lineId: CartLineId; version: number }>;
@@ -153,10 +156,20 @@ export function createCheckoutCartRuntime(
         );
       }
 
+      const fulfillmentMode =
+        params.fulfillmentMode === "locked-listing" || params.lockedListingId?.trim()
+          ? "locked-listing"
+          : "optimize";
+      const lockedListingId = params.lockedListingId?.trim() || null;
+      const sellerPreferenceId = params.sellerPreferenceId?.trim() || null;
+
       const existingLine = (await listCartLines(deps.db, params.accountId))
         .find((line) =>
           line.catalog_catalog_item_id === params.catalogItemId &&
-          line.product_id === catalogVersion.productId,
+          line.product_id === catalogVersion.productId &&
+          line.fulfillment_mode === fulfillmentMode &&
+          (line.locked_listing_id ?? null) === lockedListingId &&
+          (line.seller_preference_id ?? null) === sellerPreferenceId,
         );
 
       if (existingLine) {
@@ -188,6 +201,10 @@ export function createCheckoutCartRuntime(
           selectedOptions: catalogVersion.selection,
           productSummary: params.productSummary,
           quantity: params.quantity,
+          fulfillmentMode,
+          lockedListingId,
+          sellerPreferenceId,
+          availabilityState: "available",
         },
         context,
       });
@@ -258,6 +275,10 @@ export function createCheckoutCartRuntime(
               selectedOptions: line.selected_options,
               productSummary: line.product_summary,
               quantity: line.quantity,
+              fulfillmentMode: line.fulfillment_mode,
+              lockedListingId: line.locked_listing_id,
+              sellerPreferenceId: line.seller_preference_id,
+              availabilityState: line.availability_state,
             },
             context,
           });

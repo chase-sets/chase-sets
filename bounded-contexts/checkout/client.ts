@@ -21,6 +21,9 @@ export type AddCheckoutCartLineRequest = Readonly<{
   selectedOptions: readonly CheckoutSelectedOptionInput[];
   productSummary?: string | null;
   quantity: number;
+  fulfillmentMode?: "optimize" | "locked-listing";
+  lockedListingId?: string | null;
+  sellerPreferenceId?: string | null;
 }>;
 
 export type UpdateCheckoutCartLineQuantityRequest = Readonly<{
@@ -43,6 +46,9 @@ export type CreateBuyNowCheckoutSessionRequest = Readonly<{
     selectedOptions: readonly CheckoutSelectedOptionInput[];
     productSummary?: string | null;
     quantity: number;
+    fulfillmentMode?: "optimize" | "locked-listing";
+    lockedListingId?: string | null;
+    sellerPreferenceId?: string | null;
   }>;
   shippingOption?: string;
 }>;
@@ -53,6 +59,10 @@ export type CreateCheckoutSessionRequest =
 
 export type SelectCheckoutShippingOptionRequest = Readonly<{
   shippingOption: string;
+}>;
+
+export type SelectCheckoutOptimizationGoalRequest = Readonly<{
+  optimizationGoal: "lowest-total" | "fewest-shipments";
 }>;
 
 export type CheckoutShippingAddressInput = Readonly<{
@@ -268,12 +278,26 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async selectOptimizationGoal(
+      sessionId: string,
+      body: SelectCheckoutOptimizationGoalRequest,
+    ) {
+      return parseJsonResponse(
+        await client.account["checkout-sessions"][":sessionId"]["optimization-goal"].$post({
+          param: { sessionId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async confirmCheckoutSession(
       sessionId: string,
       body: Readonly<{
         requestedBalanceCreditAmount?: string | null;
         paymentMethodCategory?: string;
         marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+        fulfillmentPreviewRevision?: string | null;
+        acknowledgedMaterialChanges?: boolean;
         shippingAddress?: CheckoutShippingAddressInput | null;
       }> = {},
     ): Promise<{ payment_id: string; order_ids: readonly string[] }> {

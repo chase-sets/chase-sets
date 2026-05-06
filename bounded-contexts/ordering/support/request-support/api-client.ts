@@ -8,6 +8,7 @@ export {
   OrderingApiError,
 } from "../../client";
 export type {
+  CheckoutFulfillmentPreview,
   OrderingApiClientOptions,
   PurchaseDetail,
   PurchaseListItem,

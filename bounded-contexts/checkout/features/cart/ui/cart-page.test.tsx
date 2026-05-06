@@ -14,6 +14,10 @@ const cartLine: CheckoutCartLine = {
   selected_options: [{ dimensionId: "condition", optionId: "raw" }],
   product_summary: "Form: Raw | Condition: Near Mint",
   quantity: 2,
+  fulfillment_mode: "optimize",
+  locked_listing_id: null,
+  seller_preference_id: null,
+  availability_state: "available",
   created_at: "2026-04-28T00:00:00.000Z",
   updated_at: "2026-04-28T00:00:00.000Z",
 };

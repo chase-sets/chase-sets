@@ -9,6 +9,10 @@ export interface CheckoutCartLine {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   quantity: number;
+  fulfillment_mode: "optimize" | "locked-listing";
+  locked_listing_id: string | null;
+  seller_preference_id: string | null;
+  availability_state: "available" | "unavailable" | "changed" | "waiting-for-supply";
   created_at: string;
   updated_at: string;
 }

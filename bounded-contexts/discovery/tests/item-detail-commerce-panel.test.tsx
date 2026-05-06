@@ -242,6 +242,22 @@ describe("item detail commerce panel", () => {
       .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
   });
 
+  it("keeps item media constrained on narrow item-detail screens", () => {
+    renderWithDataRouter(
+      <ItemDetailPage
+        data={createItem({
+          image_urls: ["/demo-assets/pokemon-card-back.png"],
+        })}
+      />,
+    );
+
+    const imageFrame = screen.getByAltText("Charizard image 1").parentElement;
+
+    expect(imageFrame?.className).toContain("max-w-[min(100%,22rem)]");
+    expect(imageFrame?.className).toContain("md:max-w-[min(100%,24rem)]");
+    expect(imageFrame?.className).toContain("[--gallery-max-height:32rem]");
+  });
+
   it("opens the selected mobile commerce section in a drawer", () => {
     render(
       <ItemDetailPage

@@ -88,6 +88,25 @@ function searchDataWithResults(search = "") {
   };
 }
 
+function searchDataWithMarketOnlyResult(search = "") {
+  const data = searchDataWithResults(search);
+
+  return {
+    ...data,
+    data: {
+      ...data.data,
+      items: data.data.items.map((item) => ({
+        ...item,
+        market_summary: {
+          lowest_price_amount: null,
+          active_listing_count: 0,
+          total_visible_quantity: 0,
+        },
+      })),
+    },
+  };
+}
+
 describe("marketplace search route", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -207,5 +226,43 @@ describe("marketplace search route", () => {
     expect(navigate).toHaveBeenCalledWith("/categories/cards?q=pikachu", {
       preventScrollReset: true,
     });
+  });
+
+  it("makes product result cards direct item-detail links without compare copy", () => {
+    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    render(<SearchRoute />);
+
+    expect(screen.getByRole("link", { name: "View details for Pikachu" }).getAttribute("href")).toBe(
+      "/items/pikachu",
+    );
+    expect(screen.getByRole("link", { name: "View details" }).getAttribute("href")).toBe(
+      "/items/pikachu",
+    );
+    expect(screen.queryByText("Compare")).toBeNull();
+    expect(
+      screen.queryByText("Compare price, seller trust, and fulfillment before choosing."),
+    ).toBeNull();
+  });
+
+  it("frames market-only result cards as offer and supply opportunities", () => {
+    mockUseLoaderData.mockReturnValue(searchDataWithMarketOnlyResult("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    render(<SearchRoute />);
+
+    expect(screen.getByText("Market open")).toBeTruthy();
+    expect(screen.getAllByText("Supply wanted").length).toBeGreaterThan(0);
+    expect(screen.getByText("Offer or list yours")).toBeTruthy();
+    expect(screen.getByText("Make an offer or list yours to help this market form.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View market" }).getAttribute("href")).toBe(
+      "/items/pikachu",
+    );
+    expect(screen.queryByText("Watch market")).toBeNull();
   });
 });

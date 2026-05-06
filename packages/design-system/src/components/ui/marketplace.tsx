@@ -373,6 +373,7 @@ export function RatingSummary({ value, count, label, compact = false }: RatingSu
 }
 
 export interface ListingCardProps {
+  href?: string;
   title: string;
   model?: ListingModel;
   imageSrc?: string;
@@ -409,6 +410,7 @@ export interface ListingCardProps {
 }
 
 export function ListingCard({
+  href,
   title,
   model = "product",
   imageSrc,
@@ -444,6 +446,7 @@ export function ListingCard({
   className
 }: ListingCardProps) {
   const hasMediaFrame = Boolean(imageSrc || showMediaPlaceholder);
+  const isLinked = Boolean(href);
   const resolvedSellerTrust = sellerTrust ?? (
     sellerVerified
       ? <VerifiedSellerBadge label={sellerTrustLabel} />
@@ -454,17 +457,30 @@ export function ListingCard({
   return (
     <article
       className={cn(
-        "group grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
+        "group relative grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
         hasMediaFrame
           ? density === "compact"
-            ? "grid-cols-[112px_1fr]"
-            : "sm:grid-cols-[160px_1fr]"
+            ? "grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
+            : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
           : "grid-cols-1",
+        isLinked && "cursor-pointer",
         className
       )}
     >
+      {href ? (
+        <a
+          href={href}
+          aria-label={`View details for ${title}`}
+          className="focus-ring absolute inset-0 z-10 rounded-[var(--radius)]"
+        />
+      ) : null}
       {hasMediaFrame ? (
-        <div className="relative min-h-36 bg-[var(--surface-2)]">
+        <div
+          className={cn(
+            "relative min-h-36 bg-[var(--surface-2)]",
+            isLinked && "z-20 pointer-events-none"
+          )}
+        >
           {imageSrc ? (
             <img
               src={imageSrc}
@@ -490,7 +506,7 @@ export function ListingCard({
         </div>
       ) : null}
 
-      <div className={cn("grid gap-3", densityClasses[density])}>
+      <div className={cn("grid gap-3", densityClasses[density], isLinked && "z-20 pointer-events-none")}>
         <div className="grid gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
             {condition ? <Badge variant="outline">{condition}</Badge> : null}
@@ -533,7 +549,10 @@ export function ListingCard({
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-2 pt-1" data-primary-action-count="1">
+        <div
+          className={cn("flex flex-wrap items-center gap-2 pt-1", isLinked && "pointer-events-auto relative z-30")}
+          data-primary-action-count="1"
+        >
           {primaryAction}
           {secondaryAction ?? (
             <Button variant="outline" size="icon" aria-label={`${saved ? savedLabel : saveLabel} ${title}`} aria-pressed={saved}>

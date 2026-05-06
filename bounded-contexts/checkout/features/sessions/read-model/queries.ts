@@ -5,6 +5,8 @@ export type CheckoutSessionRow = Readonly<{
   session_id: string;
   buyer_account_id: string;
   source_type: "cart" | "buy-now";
+  optimization_goal: "lowest-total" | "fewest-shipments";
+  fulfillment_preview_revision: string | null;
   shipping_option: "standard" | "expedited" | "priority";
   shipping_address: CheckoutShippingAddress | null;
   lines: readonly CheckoutSessionLine[];
@@ -16,10 +18,11 @@ export type CheckoutSessionRow = Readonly<{
 
 type CheckoutSessionPageRow = Omit<
   CheckoutSessionRow,
-  "lines" | "order_ids" | "source_type" | "shipping_option"
+  "lines" | "order_ids" | "source_type" | "shipping_option" | "optimization_goal"
 > &
   Readonly<{
     source_type: string;
+    optimization_goal: string;
     shipping_option: string;
     shipping_address: unknown;
     lines: unknown;
@@ -30,6 +33,10 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
   return {
     ...row,
     source_type: row.source_type === "buy-now" ? "buy-now" : "cart",
+    optimization_goal:
+      row.optimization_goal === "fewest-shipments"
+        ? "fewest-shipments"
+        : "lowest-total",
     shipping_option:
       row.shipping_option === "expedited" || row.shipping_option === "priority"
         ? row.shipping_option
@@ -57,6 +64,8 @@ export async function getCheckoutSession(
        session_id,
        buyer_account_id,
        source_type,
+       optimization_goal,
+       fulfillment_preview_revision,
        shipping_option,
        shipping_address,
        lines,

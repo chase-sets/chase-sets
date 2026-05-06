@@ -4,14 +4,17 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
+import { useEffect } from "react";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
 import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 
@@ -59,6 +62,30 @@ function paymentPathForActor(
     : `/checkout/payments/${paymentId}`;
 }
 
+function checkoutPreviewRealtimeTopics(
+  lines: readonly Readonly<{
+    catalogItemId: string;
+    listingId?: string | null;
+    lockedListingId?: string | null;
+  }>[],
+) {
+  return [
+    ...new Set(
+      lines.flatMap((line) => [
+        `item:${line.catalogItemId}`,
+        ...(line.lockedListingId ? [`listing:${line.lockedListingId}`] : []),
+        ...(line.listingId ? [`listing:${line.listingId}`] : []),
+      ]),
+    ),
+  ];
+}
+
+function reloadForRealtimeSync() {
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   if (!params.sessionId) {
@@ -73,10 +100,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const wallet = actor && actor.roleKey !== "guest-buyer"
     ? await loadWalletBalance(request)
     : null;
+  const orderingApi = createOrderingRequestApiClient(request);
+  const fulfillmentPreview = await orderingApi.previewCheckoutFulfillment({
+    checkoutSessionId: session.session_id,
+    sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
+    shippingOption: session.shipping_option,
+    optimizationGoal: session.optimization_goal,
+    lines: session.lines,
+  });
 
   return {
     session,
     wallet,
+    fulfillmentPreview,
   };
 }
 
@@ -90,6 +126,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
 
   try {
+    if (intent === "select-optimization-goal") {
+      await api.selectOptimizationGoal(params.sessionId, {
+        optimizationGoal:
+          formData.get("optimizationGoal") === "fewest-shipments"
+            ? "fewest-shipments"
+            : "lowest-total",
+      });
+      return redirect(`/checkout/${params.sessionId}`);
+    }
+
     if (intent === "confirm-checkout") {
       await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
@@ -99,6 +145,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
           formData.get("requestedBalanceCreditAmount"),
         ),
         paymentMethodCategory: String(formData.get("paymentMethodCategory") ?? "card"),
+        fulfillmentPreviewRevision:
+          String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
+        acknowledgedMaterialChanges:
+          String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
         shippingAddress: shippingAddressFromForm(formData),
       });
       return redirect(paymentPathForActor(actor, result.payment_id));
@@ -122,11 +172,24 @@ export default function CheckoutSessionRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+  const realtimeTopics = checkoutPreviewRealtimeTopics(data.session.lines);
+  const realtimeSubscriptionKey = realtimeTopics.join("\n");
+
+  useEffect(() => {
+    const subscription = subscribeRealtimePatches({
+      topics: realtimeTopics,
+      onPatch: reloadForRealtimeSync,
+      onSyncRequired: reloadForRealtimeSync,
+    });
+
+    return () => subscription.close();
+  }, [realtimeSubscriptionKey]);
 
   return (
     <CheckoutSessionPage
       session={data.session}
       wallet={data.wallet}
+      fulfillmentPreview={data.fulfillmentPreview}
       errorMessage={actionData?.error ?? null}
       isSubmitting={navigation.state === "submitting"}
     />

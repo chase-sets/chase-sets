@@ -1090,6 +1090,7 @@ function LoadedItemDetailPage({
                 <ImageGallery
                   images={images}
                   aspectRatio="5/7"
+                  maxHeightClassName="mx-auto max-w-[min(100%,22rem)] md:max-w-[min(100%,24rem)] [--gallery-max-height:32rem]"
                   fallbackImage={{
                     src: discoveryAssetUrls.defaultProductImage,
                     alt: t("discovery.features.itemDetail.ui.itemDetailPage.pokemon.card.back"),

@@ -161,7 +161,7 @@ function createSupplyDb(
 }
 
 describe("ordering order runtime", () => {
-  it("rejects checkout when active supply is insufficient", async () => {
+  it("blocks checkout and previews unavailable lines when active supply is insufficient", async () => {
     const { eventStore } = createInMemoryEventStore();
     const carts = {
       listCartLines: vi.fn(async () => [
@@ -215,31 +215,40 @@ describe("ordering order runtime", () => {
       },
     });
 
-    await expect(
-      services.createOrdersFromCheckout(
+    const checkoutParams = {
+      buyerAccountId: "acc_buyer" as never,
+      checkoutSessionId: "chk_insufficient",
+      sourceType: "cart-checkout" as const,
+      shippingOption: "standard" as const,
+      shippingAddress,
+      lines: [
         {
-          buyerAccountId: "acc_buyer" as never,
-          checkoutSessionId: "chk_insufficient",
-          sourceType: "cart-checkout",
-          shippingOption: "standard",
-          shippingAddress,
-          lines: [
-            {
-              listingId: null,
-              cartLineId: "cli_1",
-              catalogItemId: "cat_1",
-              productId: "cat_1::",
-              itemTitle: "Charizard",
-              itemSubtitle: null,
-              selectedOptions: [],
-              productSummary: null,
-              quantity: 2,
-            },
-          ],
+          listingId: null,
+          cartLineId: "cli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 2,
         },
-        context,
-      ),
-    ).rejects.toThrow("Not enough active supply is available for Charizard.");
+      ],
+    };
+
+    const preview = await services.previewCheckoutFulfillment(checkoutParams);
+
+    expect(preview.readyLineKeys).toEqual([]);
+    expect(preview.unavailableLines).toEqual([
+      expect.objectContaining({
+        lineKey: "cli_1",
+        itemTitle: "Charizard",
+        reason: "No active supply can fulfill this product.",
+      }),
+    ]);
+    await expect(
+      services.createOrdersFromCheckout(checkoutParams, context),
+    ).rejects.toThrow("No checkout lines are currently fulfillable.");
   });
 
   it("keeps buyer cost lowest by rewarding same-seller checkout grouping", async () => {

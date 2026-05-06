@@ -12,21 +12,39 @@ function parseOrderIds(value: unknown) {
 export async function createCheckoutOrdersThroughOrdering(
   request: Request,
   session: CheckoutSessionRow,
+  options: Readonly<{
+    fulfillmentPreviewRevision?: string | null;
+    acknowledgedMaterialChanges?: boolean;
+  }> = {},
 ) {
   if (!session.shipping_address) {
     throw new Error("Shipping destination is required before checkout can create purchases.");
   }
 
   const orderingApi = createOrderingRequestApiClient(request);
+  const preview = await orderingApi.previewCheckoutFulfillment({
+    checkoutSessionId: session.session_id,
+    sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
+    shippingOption: session.shipping_option,
+    shippingAddress: session.shipping_address,
+    optimizationGoal: session.optimization_goal,
+    lines: session.lines,
+  });
   const result = await orderingApi.createCheckoutOrders({
     checkoutSessionId: session.session_id,
     sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
     shippingOption: session.shipping_option,
     shippingAddress: session.shipping_address,
+    optimizationGoal: session.optimization_goal,
+    fulfillmentPreviewRevision: options.fulfillmentPreviewRevision,
+    acknowledgedMaterialChanges: options.acknowledgedMaterialChanges,
     lines: session.lines,
   });
 
-  return parseOrderIds((result as { orderIds?: unknown }).orderIds);
+  return {
+    orderIds: parseOrderIds((result as { orderIds?: unknown }).orderIds),
+    readyLineKeys: preview.readyLineKeys,
+  };
 }
 
 export async function createCheckoutPaymentThroughPayments(

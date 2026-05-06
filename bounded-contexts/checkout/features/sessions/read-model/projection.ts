@@ -10,6 +10,8 @@ export function buildCheckoutSessionProjectionHandlers(
         sessionId: string;
         buyerAccountId: string;
         sourceType: string;
+        optimizationGoal?: string;
+        fulfillmentPreviewRevision?: string | null;
         shippingOption: string;
         lines: unknown;
         createdAt: string;
@@ -20,6 +22,8 @@ export function buildCheckoutSessionProjectionHandlers(
            session_id,
            buyer_account_id,
            source_type,
+           optimization_goal,
+           fulfillment_preview_revision,
            shipping_option,
            shipping_address,
            lines,
@@ -27,10 +31,12 @@ export function buildCheckoutSessionProjectionHandlers(
            payment_id,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, NULL, $5, '[]'::jsonb, NULL, $6, $6)
+         ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, '[]'::jsonb, NULL, $8, $8)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
+             optimization_goal = EXCLUDED.optimization_goal,
+             fulfillment_preview_revision = EXCLUDED.fulfillment_preview_revision,
              shipping_option = EXCLUDED.shipping_option,
              shipping_address = EXCLUDED.shipping_address,
              lines = EXCLUDED.lines,
@@ -39,10 +45,47 @@ export function buildCheckoutSessionProjectionHandlers(
           data.sessionId,
           data.buyerAccountId,
           data.sourceType,
+          data.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
+          data.fulfillmentPreviewRevision ?? null,
           data.shippingOption,
           JSON.stringify(Array.isArray(data.lines) ? data.lines : []),
           data.createdAt,
         ],
+      );
+    },
+    "checkout.session.optimization-goal-selected": async (event) => {
+      const data = event.data as {
+        sessionId: string;
+        optimizationGoal: string;
+        selectedAt: string;
+      };
+
+      await db.query(
+        `UPDATE checkout_session_pages
+         SET optimization_goal = $2,
+             fulfillment_preview_revision = NULL,
+             updated_at = $3
+         WHERE session_id = $1`,
+        [
+          data.sessionId,
+          data.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
+          data.selectedAt,
+        ],
+      );
+    },
+    "checkout.session.fulfillment-preview-recorded": async (event) => {
+      const data = event.data as {
+        sessionId: string;
+        fulfillmentPreviewRevision: string;
+        recordedAt: string;
+      };
+
+      await db.query(
+        `UPDATE checkout_session_pages
+         SET fulfillment_preview_revision = $2,
+             updated_at = $3
+         WHERE session_id = $1`,
+        [data.sessionId, data.fulfillmentPreviewRevision, data.recordedAt],
       );
     },
     "checkout.session.shipping-option-selected": async (event) => {

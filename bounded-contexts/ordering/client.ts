@@ -37,6 +37,9 @@ export type OrderingCheckoutLineSnapshot = Readonly<{
   }>[];
   productSummary: string | null;
   quantity: number;
+  fulfillmentMode?: "optimize" | "locked-listing";
+  lockedListingId?: string | null;
+  sellerPreferenceId?: string | null;
 }>;
 
 export type CreateCheckoutOrdersRequest = Readonly<{
@@ -53,6 +56,61 @@ export type CreateCheckoutOrdersRequest = Readonly<{
     country: string;
   }>;
   lines: readonly OrderingCheckoutLineSnapshot[];
+  optimizationGoal?: "lowest-total" | "fewest-shipments";
+  fulfillmentPreviewRevision?: string | null;
+  acknowledgedMaterialChanges?: boolean;
+}>;
+
+export type PreviewCheckoutFulfillmentRequest = Omit<
+  CreateCheckoutOrdersRequest,
+  "shippingAddress"
+> &
+  Readonly<{
+    shippingAddress?: CreateCheckoutOrdersRequest["shippingAddress"] | null;
+  }>;
+
+export type CheckoutFulfillmentPreview = Readonly<{
+  revision: string;
+  optimizationGoal: "lowest-total" | "fewest-shipments";
+  readyLineKeys: readonly string[];
+  unavailableLineKeys: readonly string[];
+  sellerGroups: readonly Readonly<{
+    sellerAccountId: string;
+    itemSubtotalAmount: string;
+    shippingChargeAmount: string;
+    salesTaxAmount: string;
+    totalAmount: string;
+    lines: readonly Readonly<{
+      lineKey: string;
+      listingId: string;
+      catalogItemId: string;
+      productId: string;
+      itemTitle: string;
+      productSummary: string | null;
+      quantity: number;
+      estimatedUnitPriceAmount: string;
+      estimatedLineTotalAmount: string;
+      priceState: "available" | "changed" | "unavailable" | "locked";
+      materialChangeReasons: readonly string[];
+    }>[];
+  }>[];
+  totals: Readonly<{
+    itemSubtotalAmount: string;
+    shippingAmount: string;
+    salesTaxAmount: string;
+    totalAmount: string;
+    packageCount: number;
+  }>;
+  unavailableLines: readonly Readonly<{
+    lineKey: string;
+    catalogItemId: string;
+    productId: string;
+    itemTitle: string;
+    productSummary: string | null;
+    quantity: number;
+    reason: string;
+  }>[];
+  materialChangeReasons: readonly string[];
 }>;
 
 export class OrderingApiError extends Error {
@@ -110,6 +168,16 @@ export function createOrderingApiClient({
     ): Promise<{ orderIds: string[] }> {
       return parseJsonResponse(
         await client.account.purchases.checkout.$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async previewCheckoutFulfillment(
+      body: PreviewCheckoutFulfillmentRequest,
+    ): Promise<CheckoutFulfillmentPreview> {
+      return parseJsonResponse(
+        await client.account.purchases.checkout.preview.$post({
           json: body,
           header: headers,
         }),

@@ -5,6 +5,7 @@ import {
   Button,
   BuyerProtectionModule,
   CheckoutLayout,
+  Inline,
   LinkButton,
   MarketplaceCartLineItem,
   MarketplaceEmptyState,
@@ -30,7 +31,13 @@ type CheckoutCartLineGroup = CheckoutCartLine & {
 const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
 
 function cartLineGroupKey(line: CheckoutCartLine) {
-  return `${line.catalog_catalog_item_id}:${line.product_id}`;
+  return [
+    line.catalog_catalog_item_id,
+    line.product_id,
+    line.fulfillment_mode,
+    line.locked_listing_id ?? "",
+    line.seller_preference_id ?? "",
+  ].join(":");
 }
 
 function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLineGroup[] {
@@ -91,6 +98,23 @@ function productSelectionDetails(summary: string | null) {
   return labeledParts.length === parts.length ? labeledParts : [];
 }
 
+function fulfillmentLabel(line: CheckoutCartLine) {
+  if (line.fulfillment_mode === "locked-listing") {
+    return line.availability_state === "available"
+      ? "Locked to seller - not reserved yet"
+      : "Locked seller needs review";
+  }
+
+  if (
+    line.availability_state === "waiting-for-supply" ||
+    line.availability_state === "unavailable"
+  ) {
+    return "Waiting for supply";
+  }
+
+  return "Optimized at checkout";
+}
+
 export function CheckoutCartPage({
   cartLines,
   errorMessage,
@@ -148,11 +172,21 @@ export function CheckoutCartPage({
                   subtitle={line.item_subtitle}
                   productLabel={t("checkout.features.cart.ui.cartPage.product")}
                   productSummary={
-                    <ProductSelectionSummary
-                      selections={productSelectionDetails(line.product_summary)}
-                      summary={line.product_summary ?? t("checkout.features.cart.ui.cartPage.standard")}
-                      summaryAsChip
-                    />
+                    <Stack gap={2}>
+                      <ProductSelectionSummary
+                        selections={productSelectionDetails(line.product_summary)}
+                        summary={line.product_summary ?? t("checkout.features.cart.ui.cartPage.standard")}
+                        summaryAsChip
+                      />
+                      <Inline gap={2}>
+                        <Badge tone={line.fulfillment_mode === "locked-listing" ? "success" : "accent"}>
+                          {fulfillmentLabel(line)}
+                        </Badge>
+                        <Badge tone={line.availability_state === "available" ? "neutral" : "warning"}>
+                          {line.availability_state === "available" ? "Estimated at checkout" : "Needs supply"}
+                        </Badge>
+                      </Inline>
+                    </Stack>
                   }
                   quantityControl={
                     <NumberInput
@@ -179,6 +213,16 @@ export function CheckoutCartPage({
                       >
                         {t("checkout.features.cart.ui.cartPage.remove")}
                       </Button>
+                      {line.availability_state !== "available" ? (
+                        <LinkButton
+                          href={`/items/${line.catalog_catalog_item_id}#make-offer`}
+                          tone="secondary"
+                          size="md"
+                          block
+                        >
+                          Make offer
+                        </LinkButton>
+                      ) : null}
                     </>
                   }
                 />
@@ -208,6 +252,7 @@ export function CheckoutCartPage({
                   { label: t("checkout.features.cart.ui.cartPage.items"), value: cartLineCount },
                   { label: t("checkout.features.cart.ui.cartPage.cart.lines"), value: cartLineGroups.length },
                   { label: t("checkout.features.cart.ui.cartPage.pricing"), value: t("checkout.features.cart.ui.cartPage.calculated.during.checkout") },
+                  { label: "Fulfillment", value: "Live preview before payment" },
                 ]}
                 total={t("checkout.features.cart.ui.cartPage.ready.for.checkout")}
                 totalLabel={t("checkout.features.cart.ui.cartPage.cart.status")}

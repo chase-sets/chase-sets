@@ -487,10 +487,20 @@ export function CheckoutPurchaseIntentSection({
         type="submit"
         name="intent"
         value="buy-now"
-        disabled={!productId || !selectedListing}
+        disabled={!productId}
         block
       >
         {t("discovery.routes.itemDetail.buy.now")}</Button>
+      <Button
+        type="submit"
+        name="intent"
+        value="buy-this-listing"
+        tone="secondary"
+        disabled={!productId || !selectedListing}
+        block
+      >
+        Buy this seller
+      </Button>
       <Button
         type="button"
         tone="secondary"
@@ -509,7 +519,8 @@ export function CheckoutPurchaseIntentSection({
     <form id={formId} method="post" ref={formRef}>
       <Stack gap={3}>
         <input type="hidden" name="catalogItemId" value={catalogItemId} />
-        <input type="hidden" name="listingId" value={selectedListing?.listing_id ?? ""} />
+        <input type="hidden" name="listingId" value="" />
+        <input type="hidden" name="lockedListingId" value={selectedListing?.listing_id ?? ""} />
         <input type="hidden" name="productId" value={productId ?? ""} />
         <input
           type="hidden"
@@ -570,6 +581,9 @@ export function CheckoutPurchaseIntentSection({
               <Text size="sm" tone="secondary">
                 {t("discovery.routes.itemDetail.add.to.cart.saves.buyer.intent")}</Text>
             ) : null}
+            <Text size="sm" tone="secondary">
+              Buy now optimizes fulfillment at checkout. Use Buy this seller to lock the selected seller listing.
+            </Text>
             <Inline gap={2}>
               <BuyerProtectionBadge label={t("discovery.routes.itemDetail.buyer.protection.included")} />
               <SecurePaymentCue label={t("discovery.routes.itemDetail.secure.checkout")} />
@@ -1358,6 +1372,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity: Number(formData.get("quantity") ?? 0),
+        fulfillmentMode: "optimize" as const,
+        lockedListingId: null,
       };
 
       if (!actor) {
@@ -1381,12 +1397,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
       } satisfies AddToCartActionData);
     }
 
-    if (intent === "buy-now") {
+    if (intent === "buy-now" || intent === "buy-this-listing") {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
+      const lockedListingId =
+        intent === "buy-this-listing"
+          ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "")
+          : "";
       const source = {
         type: "buy-now",
-        listingId: String(formData.get("listingId") ?? ""),
+        listingId: lockedListingId,
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
@@ -1394,12 +1414,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity: Number(formData.get("quantity") ?? 0),
+        fulfillmentMode: lockedListingId ? "locked-listing" as const : "optimize" as const,
+        lockedListingId: lockedListingId || null,
       } as const;
 
       if (!actor) {
         const query = new URLSearchParams({
           source: "buy-now",
           listingId: source.listingId,
+          fulfillmentMode: source.fulfillmentMode,
+          lockedListingId: source.lockedListingId ?? "",
           catalogItemId: source.catalogItemId,
           productId: source.productId,
           itemTitle: source.itemTitle,
@@ -1407,9 +1431,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
           selectedOptions: JSON.stringify(source.selectedOptions),
           productSummary: source.productSummary ?? "",
           quantity: String(source.quantity),
-          priceAmount: String(formData.get("priceAmount") ?? ""),
-          sellerName: String(formData.get("sellerName") ?? ""),
-          availability: String(formData.get("availability") ?? ""),
+          priceAmount: source.fulfillmentMode === "locked-listing" ? String(formData.get("priceAmount") ?? "") : "",
+          sellerName: source.fulfillmentMode === "locked-listing" ? String(formData.get("sellerName") ?? "") : "",
+          availability: source.fulfillmentMode === "locked-listing" ? String(formData.get("availability") ?? "") : "",
           fulfillment: t("discovery.routes.itemDetail.confirmed.at.checkout"),
         });
         return redirect(`/checkout/start?${query.toString()}`);
