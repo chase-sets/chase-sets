@@ -53,6 +53,7 @@ const workflowItems = [
   { value: "all", label: t("experience.platformFeedbackAdmin.allWorkflows") },
   { value: "checkout-payment", label: t("experience.platformFeedback.workflow.checkoutPayment") },
   { value: "listing-publish", label: t("experience.platformFeedback.workflow.listingPublish") },
+  { value: "listing-update", label: t("experience.platformFeedback.workflow.listingUpdate") },
   { value: "offer-submit", label: t("experience.platformFeedback.workflow.offerSubmit") },
   { value: "offer-accept", label: t("experience.platformFeedback.workflow.offerAccept") },
   { value: "inventory-create", label: t("experience.platformFeedback.workflow.inventoryCreate") },

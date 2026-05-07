@@ -10,6 +10,7 @@ export type PlatformFeedbackTopic =
 export type PlatformFeedbackWorkflow =
   | "checkout-payment"
   | "listing-publish"
+  | "listing-update"
   | "offer-submit"
   | "offer-accept"
   | "inventory-create"
@@ -35,6 +36,7 @@ export const platformFeedbackTopics = [
 export const platformFeedbackWorkflows = [
   "checkout-payment",
   "listing-publish",
+  "listing-update",
   "offer-submit",
   "offer-accept",
   "inventory-create",

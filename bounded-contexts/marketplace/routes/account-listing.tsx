@@ -8,6 +8,7 @@ import { redirect, useActionData, useLoaderData, useSearchParams } from "react-r
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
+import type { PlatformFeedbackWorkflow } from "@chase-sets/experience/server";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -80,13 +81,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
           priceAmount: priceDraftAmount,
           feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
         });
-        return redirect(`${pathname}?feedbackWorkflow=listing-publish`);
+        return redirect(`${pathname}?feedbackWorkflow=listing-update`);
       case "update-quantity-cap":
         await api.updateListingQuantityCap(params.listingId!, {
           quantityCap: Number(formData.get("quantityCap") ?? 0),
           feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
         });
-        return redirect(`${pathname}?feedbackWorkflow=listing-publish`);
+        return redirect(`${pathname}?feedbackWorkflow=listing-update`);
       case "publish":
         await api.publishListing(params.listingId!, {
           feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
@@ -129,7 +130,11 @@ export default function MarketplaceAccountListingRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
-  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "listing-publish";
+  const feedbackWorkflow = searchParams.get("feedbackWorkflow");
+  const listingFeedbackWorkflow: PlatformFeedbackWorkflow | null =
+    feedbackWorkflow === "listing-publish" || feedbackWorkflow === "listing-update"
+      ? feedbackWorkflow
+      : null;
 
   return (
     <MarketplaceListingDetailPage
@@ -139,9 +144,9 @@ export default function MarketplaceAccountListingRoute() {
       pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
       feedbackPrompt={
-        shouldShowFeedback ? (
+        listingFeedbackWorkflow ? (
           <PlatformFeedbackPrompt
-            workflow="listing-publish"
+            workflow={listingFeedbackWorkflow}
             sourceRoutePath={`/account/listings/${data.listing.listing_id}`}
             relatedEntities={[
               { type: "listing", id: data.listing.listing_id },

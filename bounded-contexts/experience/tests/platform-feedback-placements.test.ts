@@ -36,6 +36,7 @@ describe("platform feedback prompt placements", () => {
 
     for (const workflow of [
       "listing-publish",
+      "listing-update",
       "offer-submit",
       "offer-accept",
       "inventory-create",

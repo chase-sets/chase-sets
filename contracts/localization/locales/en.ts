@@ -2886,6 +2886,7 @@ export const englishTranslations = {
   "experience.platformFeedback.workflow.inventoryAdjust": "Inventory adjustment",
   "experience.platformFeedback.workflow.inventoryCreate": "Inventory creation",
   "experience.platformFeedback.workflow.listingPublish": "Listing publish",
+  "experience.platformFeedback.workflow.listingUpdate": "Listing update",
   "experience.platformFeedback.workflow.offerAccept": "Offer acceptance",
   "experience.platformFeedback.workflow.offerSubmit": "Offer submission",
   "experience.platformFeedbackAdmin.action": "Action",
