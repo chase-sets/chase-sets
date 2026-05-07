@@ -53,6 +53,10 @@ export default defineConfig({
         target: "http://localhost:6182",
         changeOrigin: true,
       },
+      "/api/public-presence": {
+        target: "http://localhost:6182",
+        changeOrigin: true,
+      },
       "/api/identity": {
         target: "http://localhost:6182",
         changeOrigin: true,

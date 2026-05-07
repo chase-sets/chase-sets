@@ -23,7 +23,20 @@ export async function requireIdentityAdminActor(request: Request) {
 
 export async function requireExperienceAdminActor(
   request: Request,
-  permission = "platform-feedback.view",
+  permission: string | readonly string[] = "platform-feedback.view",
 ) {
-  return identityAdminPolicy.requireActor(request, permission);
+  if (typeof permission === "string") {
+    return identityAdminPolicy.requireActor(request, permission);
+  }
+
+  const actor = await identityAdminPolicy.resolveActor(request);
+  if (!actor) {
+    return identityAdminPolicy.requireActor(request, permission[0]);
+  }
+
+  if (!permission.some((entry) => actor.permissions.includes(entry))) {
+    throw new Response("Forbidden.", { status: 403 });
+  }
+
+  return actor;
 }

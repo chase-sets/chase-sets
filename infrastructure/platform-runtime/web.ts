@@ -7,7 +7,7 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { NavigationItem } from "@chase-sets/design-system";
 
-export type WebHostName = "admin-web" | "marketplace-web";
+export type WebHostName = "admin-web" | "marketplace-web" | "public-web";
 export type WebHostSection = "catalog" | "identity" | "experience";
 
 export type WebContextManifest = Readonly<{
@@ -61,6 +61,10 @@ function resolveAdminWebSection(
   }
 
   if (contextName === "experience") {
+    return "experience";
+  }
+
+  if (contextName === "public-presence") {
     return "experience";
   }
 

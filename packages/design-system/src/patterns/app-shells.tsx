@@ -901,6 +901,87 @@ export function MarketplaceLandingHero({
   );
 }
 
+export interface MarketingHeroHighlight {
+  label: ReactNode;
+  value: ReactNode;
+}
+
+export interface MarketingImageHeroProps {
+  imageSrc: string;
+  imageAlt: string;
+  eyebrow?: ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  conversionPanel?: ReactNode;
+  highlights?: MarketingHeroHighlight[];
+}
+
+export function MarketingImageHero({
+  imageSrc,
+  imageAlt,
+  eyebrow,
+  title,
+  description,
+  actions,
+  conversionPanel,
+  highlights = []
+}: MarketingImageHeroProps) {
+  return (
+    <section className="relative min-h-[28rem] overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg">
+      <img
+        src={imageSrc}
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_90%,transparent)_0%,color-mix(in_srgb,var(--background)_72%,transparent)_44%,color-mix(in_srgb,var(--background)_8%,transparent)_100%)]" />
+      <div className="relative grid min-h-[28rem] gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(0,0.9fr)_minmax(20rem,0.55fr)] lg:p-8">
+        <div className="flex max-w-3xl flex-col justify-start gap-5 lg:justify-center">
+          <span className="sr-only">{imageAlt}</span>
+          <div className="grid gap-3">
+            {eyebrow ? (
+              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">
+                {eyebrow}
+              </div>
+            ) : null}
+            <h1 className="font-display text-4xl font-semibold leading-tight text-[var(--foreground)] md:text-5xl md:leading-[1.08]">
+              {title}
+            </h1>
+            {description ? (
+              <p className="max-w-2xl text-base leading-7 text-[var(--text-secondary)] md:text-lg">
+                {description}
+              </p>
+            ) : null}
+          </div>
+          {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+        </div>
+        {conversionPanel ? (
+          <div className="grid w-full content-center lg:justify-self-end">
+            {conversionPanel}
+          </div>
+        ) : highlights.length > 0 ? (
+          <div className="grid content-end gap-3 lg:justify-self-end">
+            {highlights.map((highlight, index) => (
+              <div
+                key={index}
+                className="max-w-sm rounded-tokenLg border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_88%,transparent)] p-4 shadow-tokenSm backdrop-blur"
+              >
+                <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                  {highlight.label}
+                </div>
+                <div className="mt-1 font-heading text-lg font-semibold text-[var(--foreground)]">
+                  {highlight.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export interface MarketplaceProductCardProps {
   href?: string;
   title: ReactNode;

@@ -144,12 +144,19 @@ const processes = [
     env: {},
     port: 6173,
   },
+  {
+    name: "public-web",
+    workspace: "@chase-sets/app-public-web",
+    env: {},
+    port: 6174,
+  },
 ];
 
 const devTargets = {
   all: processes.map(({ name }) => name),
   "admin-web": ["platform-api", "platform-worker", "admin-web"],
   "marketplace-full": ["platform-api", "platform-worker", "marketplace"],
+  "public-web": ["platform-api", "platform-worker", "public-web"],
 };
 
 function resolveProcessesForTarget(targetName) {

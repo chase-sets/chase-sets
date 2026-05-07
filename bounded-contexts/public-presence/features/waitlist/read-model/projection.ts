@@ -1,0 +1,82 @@
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { WaitlistSource } from "../domain/common";
+
+type WaitlistEventData = Readonly<{
+  signupId: string;
+  email: string;
+  role: string;
+  interests: readonly string[];
+  emailConsentAcceptedAt: string;
+  source: WaitlistSource;
+  recordedAt?: string;
+  updatedAt?: string;
+}>;
+
+async function upsertWaitlistSignup(
+  db: PgQueryable,
+  data: WaitlistEventData,
+  timestamp: string,
+) {
+  await db.query(
+    `INSERT INTO public_presence_waitlist_signups (
+       signup_id,
+       email,
+       role,
+       interests,
+       email_consent_accepted_at,
+       page_path,
+       referrer,
+       utm_source,
+       utm_medium,
+       utm_campaign,
+       utm_content,
+       utm_term,
+       submitted_at,
+       updated_at
+     ) VALUES (
+       $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13
+     )
+     ON CONFLICT (signup_id) DO UPDATE
+     SET email = EXCLUDED.email,
+         role = EXCLUDED.role,
+         interests = EXCLUDED.interests,
+         email_consent_accepted_at = EXCLUDED.email_consent_accepted_at,
+         page_path = EXCLUDED.page_path,
+         referrer = EXCLUDED.referrer,
+         utm_source = EXCLUDED.utm_source,
+         utm_medium = EXCLUDED.utm_medium,
+         utm_campaign = EXCLUDED.utm_campaign,
+         utm_content = EXCLUDED.utm_content,
+         utm_term = EXCLUDED.utm_term,
+         updated_at = EXCLUDED.updated_at`,
+    [
+      data.signupId,
+      data.email,
+      data.role,
+      JSON.stringify(data.interests),
+      data.emailConsentAcceptedAt,
+      data.source.pagePath,
+      data.source.referrer,
+      data.source.utmSource,
+      data.source.utmMedium,
+      data.source.utmCampaign,
+      data.source.utmContent,
+      data.source.utmTerm,
+      timestamp,
+    ],
+  );
+}
+
+export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
+    "public-presence.waitlist-signup.recorded": async (event) => {
+      const data = event.data as unknown as WaitlistEventData;
+      await upsertWaitlistSignup(db, data, data.recordedAt ?? new Date().toISOString());
+    },
+    "public-presence.waitlist-signup.updated": async (event) => {
+      const data = event.data as unknown as WaitlistEventData;
+      await upsertWaitlistSignup(db, data, data.updatedAt ?? new Date().toISOString());
+    },
+  };
+}

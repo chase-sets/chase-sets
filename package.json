@@ -38,6 +38,7 @@
         "dev:admin-web": "node ./scripts/dev-system.mjs dev admin-web",
         "dev:reseed": "npm run dev:db:refresh",
         "dev:marketplace": "npm run dev --workspace @chase-sets/app-marketplace-web",
+        "dev:public-web": "node ./scripts/dev-system.mjs dev public-web",
         "dev:marketplace-full": "node ./scripts/dev-system.mjs dev marketplace-full",
         "dev:observability": "node ./scripts/observability-stack.mjs up",
         "dev:observability:down": "node ./scripts/observability-stack.mjs down",

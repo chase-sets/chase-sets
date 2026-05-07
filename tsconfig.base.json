@@ -351,6 +351,21 @@
       "@chase-sets/provider-webhook-inbox": [
         "./infrastructure/provider-webhook-inbox/index.ts"
       ],
+      "@chase-sets/public-presence": [
+        "./bounded-contexts/public-presence/index.ts"
+      ],
+      "@chase-sets/public-presence/context": [
+        "./bounded-contexts/public-presence/context.json"
+      ],
+      "@chase-sets/public-presence/routes/*": [
+        "./bounded-contexts/public-presence/routes/*.tsx"
+      ],
+      "@chase-sets/public-presence/server": [
+        "./bounded-contexts/public-presence/server.ts"
+      ],
+      "@chase-sets/public-presence/web": [
+        "./bounded-contexts/public-presence/web.ts"
+      ],
       "@chase-sets/realtime": [
         "./contracts/realtime/index.ts"
       ],

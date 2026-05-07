@@ -1,0 +1,231 @@
+{
+  "contextName": "public-presence",
+  "packageName": "@chase-sets/public-presence",
+  "ownedNouns": [
+    "public-presence",
+    "waitlist-signup"
+  ],
+  "streamPrefix": "public-presence.",
+  "apiBasePath": "/api/public-presence",
+  "slices": [
+    "waitlist"
+  ],
+  "allowedSupportDirectories": [
+    "request-support",
+    "runtime-support",
+    "shell-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./server",
+    "./web"
+  ],
+  "allowedContextDependencies": [],
+  "seedRequirements": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "public-presence",
+      "projectionName": "public-presence-waitlist-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "public-presence-waitlist-projection"
+      ],
+      "eventTypes": [
+        "public-presence.waitlist-signup.recorded",
+        "public-presence.waitlist-signup.updated"
+      ],
+      "streamPrefixes": [
+        "public-presence.waitlist-signup-"
+      ],
+      "order": 10
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "public-presence-waitlist-projection",
+      "sourceContextNames": [
+        "public-presence"
+      ],
+      "ownedTables": [
+        "public_presence_waitlist_signups"
+      ],
+      "requiredDuringBootstrap": true
+    }
+  ],
+  "hostPorts": [],
+  "apiDeployables": [
+    "platform-api"
+  ],
+  "apiMounts": [
+    {
+      "mountPath": "/api/public-presence",
+      "kind": "primary",
+      "requiresAuth": false,
+      "drainProjectorsOnWrite": true
+    },
+    {
+      "mountPath": "/api/public-presence/admin",
+      "kind": "additional",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": true
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "public-web",
+      "routes": [
+        {
+          "routeId": "home",
+          "routePath": "",
+          "fileExport": "./routes/marketplace/home",
+          "routeType": "index",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "faq",
+          "routePath": "faq",
+          "fileExport": "./routes/marketplace/faq",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "contact",
+          "routePath": "contact",
+          "fileExport": "./routes/marketplace/contact",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "terms",
+          "routePath": "terms",
+          "fileExport": "./routes/marketplace/terms",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "privacy",
+          "routePath": "privacy",
+          "fileExport": "./routes/marketplace/privacy",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "refunds-and-returns",
+          "routePath": "refunds-and-returns",
+          "fileExport": "./routes/marketplace/refunds-and-returns",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "buyer-protection",
+          "routePath": "buyer-protection",
+          "fileExport": "./routes/marketplace/buyer-protection",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        },
+        {
+          "routeId": "seller-fees",
+          "routePath": "seller-fees",
+          "fileExport": "./routes/marketplace/seller-fees",
+          "routeType": "route",
+          "sourceContext": "public-presence",
+          "placement": "root"
+        }
+      ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "waitlist",
+          "routePath": "waitlist",
+          "fileExport": "./routes/admin/waitlist",
+          "routeType": "route",
+          "sourceContext": "public-presence"
+        }
+      ]
+    }
+  ],
+  "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "waitlist",
+      "label": "Waitlist",
+      "icon": "message",
+      "href": "/waitlist",
+      "order": 20,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "public-presence.view"
+      ]
+    }
+  ],
+  "directoryIntent": {
+    "waitlist": {
+      "classification": "slice",
+      "purpose": "Own prelaunch waitlist behavior, read models, and admin review surfaces.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal public-presence module composition",
+        "Public web routes",
+        "Admin review routes"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide public-presence API clients shared by route modules.",
+      "allowedWhen": "Allowed only for context-local request composition.",
+      "expectedConsumers": [
+        "Public web routes",
+        "Admin waitlist route"
+      ],
+      "justification": "request-support centralizes the Public Presence API client for route modules.",
+      "createdFor": "Waitlist submission and review routes.",
+      "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide event-store, schema, and projector composition for the Public Presence context.",
+      "allowedWhen": "Allowed only for context runtime composition.",
+      "expectedConsumers": [
+        "waitlist"
+      ],
+      "justification": "runtime-support centralizes event-store composition for the waitlist slice.",
+      "createdFor": "Public Presence API and worker runtime.",
+      "sunsetWhen": "Remove when public presence no longer needs runtime composition."
+    },
+    "shell-support": {
+      "classification": "support",
+      "purpose": "Provide deployable-facing public-presence page shell exports.",
+      "allowedWhen": "Allowed only for shell composition consumed by context web exports.",
+      "expectedConsumers": [
+        "waitlist"
+      ],
+      "justification": "shell-support keeps deployable-facing page shell exports out of feature internals.",
+      "createdFor": "Public Presence public page shell composition.",
+      "sunsetWhen": "Remove when public presence no longer exports deployable-facing shell modules."
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose public-presence-owned route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
+      "expectedConsumers": [
+        "Generated deployable route adapters"
+      ]
+    }
+  },
+  "runtimeDeployables": [
+    "platform-worker"
+  ]
+}

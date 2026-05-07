@@ -113,7 +113,9 @@ describe("marketplace listing routes", () => {
 
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).status).toBe(302);
-    expect((result as Response).headers.get("Location")).toBe("/account/listings/lst_1");
+    expect((result as Response).headers.get("Location")).toBe(
+      "/account/listings/lst_1?feedbackWorkflow=listing-publish",
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/marketplace/account/listings/lst_1/publish"),
       expect.any(Object),

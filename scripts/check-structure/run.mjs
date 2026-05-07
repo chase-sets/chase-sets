@@ -96,7 +96,7 @@ const manifestRequiredFields = [
   "shellContributions",
   "directoryIntent",
 ];
-const knownDeployables = new Set(["admin-web", "marketplace-web"]);
+const knownDeployables = new Set(["admin-web", "marketplace-web", "public-web"]);
 const knownApiDeployables = new Set(["platform-api"]);
 const knownLifecycleDeployables = new Set(["platform-api", "platform-worker"]);
 const knownRuntimeDeployables = new Set(["platform-worker"]);

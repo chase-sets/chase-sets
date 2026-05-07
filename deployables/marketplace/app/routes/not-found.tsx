@@ -7,7 +7,7 @@ import {
 } from "@chase-sets/design-system";
 
 export function meta() {
-  return [{ title: `${t("marketplace.app.root.page.not.found")} | Chase Sets` }];
+  return [{ title: [t("marketplace.app.root.page.not.found"), "Chase Sets"].join(" | ") }];
 }
 
 export default function MarketplaceNotFoundRoute() {

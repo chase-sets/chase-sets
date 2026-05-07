@@ -39,6 +39,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     ...PERMISSION_PRESETS.payoutsOperator,
     "platform-feedback.manage",
     "platform-feedback.view",
+    "public-presence.manage",
+    "public-presence.view",
     "reputation.manage",
     "reputation.view",
     "security.manage",
@@ -64,6 +66,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     ...PERMISSION_PRESETS.payoutsOperator,
     "platform-feedback.manage",
     "platform-feedback.view",
+    "public-presence.manage",
+    "public-presence.view",
     "reputation.manage",
     "reputation.view",
   ],
@@ -77,6 +81,7 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "offers.view",
     "orders.view",
     "platform-feedback.view",
+    "public-presence.view",
     "reputation.view",
   ],
   viewer: [
@@ -89,6 +94,7 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "orders.view",
     ...PERMISSION_PRESETS.payoutsViewer,
     "platform-feedback.view",
+    "public-presence.view",
     "reputation.view",
   ],
 };

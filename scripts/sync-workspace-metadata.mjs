@@ -63,6 +63,18 @@ const generatedRegistryOutputs = [
       "web-context-registry.ts",
     ),
   },
+  {
+    kind: "web",
+    hostName: "public-web",
+    outputPath: path.join(
+      repoRoot,
+      "deployables",
+      "public-web",
+      "app",
+      "generated",
+      "web-context-registry.ts",
+    ),
+  },
 ];
 
 function sortObjectKeys(value) {

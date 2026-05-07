@@ -7,6 +7,7 @@ import catalogManifest from "@chase-sets/catalog/context";
 import commercialTermsManifest from "@chase-sets/commercial-terms/context";
 import experienceManifest from "@chase-sets/experience/context";
 import identityManifest from "@chase-sets/identity/context";
+import publicPresenceManifest from "@chase-sets/public-presence/context";
 
 export const webContextRegistry = [
   {
@@ -33,5 +34,10 @@ export const webContextRegistry = [
     contextName: "identity",
     packageName: "@chase-sets/identity",
     manifest: identityManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "public-presence",
+    packageName: "@chase-sets/public-presence",
+    manifest: publicPresenceManifest as WebContextRegistry[number]["manifest"],
   },
 ] as const satisfies WebContextRegistry;

@@ -312,7 +312,7 @@ describe("marketplace offer routes", () => {
     const response = result as Response;
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
-      "/items/item-1?market=sell&offerSubmitted=1",
+      "/account/offers/submitted/off_1?feedbackWorkflow=offer-submit",
     );
   });
 });

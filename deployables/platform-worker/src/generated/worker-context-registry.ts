@@ -14,6 +14,7 @@ import { contextManifest as marketplaceManifest, module as marketplaceModule } f
 import { contextManifest as orderingManifest, module as orderingModule } from "@chase-sets/ordering";
 import { contextManifest as paymentsManifest, module as paymentsModule } from "@chase-sets/payments";
 import { contextManifest as pricingManifest, module as pricingModule } from "@chase-sets/pricing";
+import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
 import { contextManifest as reputationManifest, module as reputationModule } from "@chase-sets/reputation";
 import { contextManifest as settlementManifest, module as settlementModule } from "@chase-sets/settlement";
 
@@ -101,6 +102,12 @@ export const workerContextRegistry = [
     packageName: "@chase-sets/pricing",
     manifest: pricingManifest,
     module: pricingModule,
+  },
+  {
+    contextName: "public-presence",
+    packageName: "@chase-sets/public-presence",
+    manifest: publicPresenceManifest,
+    module: publicPresenceModule,
   },
   {
     contextName: "reputation",
