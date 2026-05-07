@@ -4,9 +4,10 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -65,6 +66,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const priceDraftAmount = String(formData.get("priceAmount") ?? "");
 
   try {
+    const pathname = new URL(request.url).pathname;
     switch (intent) {
       case "preview-price":
         return {
@@ -78,18 +80,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
           priceAmount: priceDraftAmount,
           feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
         });
-        break;
+        return redirect(`${pathname}?feedbackWorkflow=listing-publish`);
       case "update-quantity-cap":
         await api.updateListingQuantityCap(params.listingId!, {
           quantityCap: Number(formData.get("quantityCap") ?? 0),
           feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
         });
-        break;
+        return redirect(`${pathname}?feedbackWorkflow=listing-publish`);
       case "publish":
         await api.publishListing(params.listingId!, {
           feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
         });
-        break;
+        return redirect(`${pathname}?feedbackWorkflow=listing-publish`);
       case "pause":
         await api.pauseListing(params.listingId!);
         break;
@@ -100,7 +102,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         break;
     }
 
-    return redirect(new URL(request.url).pathname);
+    return redirect(pathname);
   } catch (error) {
     if (error instanceof MarketplaceApiError) {
       const currentQuote = staleQuoteFromError(error);
@@ -126,6 +128,8 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountListingRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const [searchParams] = useSearchParams();
+  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "listing-publish";
 
   return (
     <MarketplaceListingDetailPage
@@ -134,6 +138,20 @@ export default function MarketplaceAccountListingRoute() {
       priceDraftAmount={actionData?.priceDraftAmount ?? null}
       pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
+      feedbackPrompt={
+        shouldShowFeedback ? (
+          <PlatformFeedbackPrompt
+            workflow="listing-publish"
+            sourceRoutePath={`/account/listings/${data.listing.listing_id}`}
+            relatedEntities={[
+              { type: "listing", id: data.listing.listing_id },
+              { type: "inventory-item", id: data.listing.inventory_item_id },
+            ]}
+            title={t("marketplace.routes.accountListing.feedback.title")}
+            description={t("marketplace.routes.accountListing.feedback.description")}
+          />
+        ) : null
+      }
     />
   );
 }

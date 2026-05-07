@@ -1371,7 +1371,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       const item = await discoveryApi.getItemDetail(params.id!);
 
-      await marketplaceApi.createSubmittedOffer({
+      const offerResult = await marketplaceApi.createSubmittedOffer({
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
@@ -1380,13 +1380,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
         productSummary: String(formData.get("productSummary") ?? "") || null,
         priceAmount: formData.get("priceAmount"),
         quantityRequested: Number(formData.get("quantityRequested") ?? 0),
-      });
+      }) as { id?: string };
 
-      const next = new URLSearchParams({
-        market: "sell",
-        offerSubmitted: "1",
-      });
-      return redirect(`/items/${item.slug || item.catalog_item_id}?${next}`);
+      return redirect(
+        offerResult.id
+          ? `/account/offers/submitted/${offerResult.id}?feedbackWorkflow=offer-submit`
+          : `/items/${item.slug || item.catalog_item_id}?market=sell&offerSubmitted=1`,
+      );
     }
 
     if (intent === "add-to-cart") {

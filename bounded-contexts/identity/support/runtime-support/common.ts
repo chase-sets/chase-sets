@@ -46,6 +46,8 @@ export type PermissionKey =
   | "payouts.request"
   | "payouts.setup"
   | "payouts.view"
+  | "platform-feedback.manage"
+  | "platform-feedback.view"
   | "reputation.manage"
   | "reputation.view"
   | "security.manage";

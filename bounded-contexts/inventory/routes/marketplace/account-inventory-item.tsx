@@ -4,9 +4,10 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
 import {
   InventoryApiError,
   type InventoryItemDetail,
@@ -50,7 +51,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           quantityDelta: Number(formData.get("quantityDelta") ?? 0),
           reason: formData.get("reason"),
         });
-        break;
+        return redirect(`${new URL(request.url).pathname}?feedbackWorkflow=inventory-adjust`);
       case "create-hold":
         await api.createHold(params.itemId!, {
           quantity: Number(formData.get("quantity") ?? 0),
@@ -86,11 +87,24 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceInventoryItemRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const [searchParams] = useSearchParams();
+  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "inventory-adjust";
 
   return (
     <InventoryItemDetailPage
       item={data.item as InventoryItemDetail}
       errorMessage={actionData?.error ?? null}
+      feedbackPrompt={
+        shouldShowFeedback ? (
+          <PlatformFeedbackPrompt
+            workflow="inventory-adjust"
+            sourceRoutePath={`/account/inventory/items/${data.item.item_id}`}
+            relatedEntities={[{ type: "inventory-item", id: data.item.item_id }]}
+            title={t("inventory.routes.marketplace.accountInventoryItem.feedback.title")}
+            description={t("inventory.routes.marketplace.accountInventoryItem.feedback.description")}
+          />
+        ) : null
+      }
     />
   );
 }

@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Button,
   Card,
@@ -53,11 +53,13 @@ export function InventoryItemListPage({
   locations,
   errorMessage,
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
+  feedbackPrompt,
 }: {
   data: { items: readonly InventoryItemListItem[] };
   locations: readonly InventoryStorageLocation[];
   errorMessage?: string | null;
   catalogItemApiBaseUrl?: string;
+  feedbackPrompt?: ReactNode;
 }) {
   const [catalogItemId, setCatalogItemId] = useState("");
   const [catalogItem, setCatalogItem] = useState<InventoryCatalogItemSnapshot | null>(null);
@@ -154,6 +156,8 @@ export function InventoryItemListPage({
             {t("inventory.features.inventoryItems.ui.inventoryItemListPage.manage.locations")}</LinkButton>
         }
       />
+
+      {feedbackPrompt}
 
       {errorMessage ? (
         <Card>

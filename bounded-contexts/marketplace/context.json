@@ -27,6 +27,7 @@
   "allowedContextDependencies": [
     "@chase-sets/catalog",
     "@chase-sets/commercial-terms",
+    "@chase-sets/experience",
     "@chase-sets/identity",
     "@chase-sets/inventory"
   ],

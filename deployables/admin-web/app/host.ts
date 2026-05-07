@@ -8,7 +8,7 @@ export function resolveAdminWebRouteConfigRecords() {
 
 export function resolveAdminWebNavItems(
   actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
-  options: Readonly<{ section: "catalog" | "identity" }>,
+  options: Readonly<{ section: "catalog" | "identity" | "experience" }>,
 ) {
   return resolveWebHostNavItems(
     webContextRegistry,

@@ -20,3 +20,10 @@ export async function requireCatalogAdminActor(
 export async function requireIdentityAdminActor(request: Request) {
   return identityAdminPolicy.requireActor(request, "security.manage");
 }
+
+export async function requireExperienceAdminActor(
+  request: Request,
+  permission = "platform-feedback.view",
+) {
+  return identityAdminPolicy.requireActor(request, permission);
+}

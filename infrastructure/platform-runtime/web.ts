@@ -8,7 +8,7 @@ import type {
 import type { NavigationItem } from "@chase-sets/design-system";
 
 export type WebHostName = "admin-web" | "marketplace-web";
-export type WebHostSection = "catalog" | "identity";
+export type WebHostSection = "catalog" | "identity" | "experience";
 
 export type WebContextManifest = Readonly<{
   contextName: string;
@@ -45,7 +45,7 @@ type ShellContributionRecord = Readonly<
   }
 >;
 
-const ADMIN_WEB_SECTIONS = ["catalog", "identity"] as const satisfies readonly WebHostSection[];
+const ADMIN_WEB_SECTIONS = ["catalog", "identity", "experience"] as const satisfies readonly WebHostSection[];
 const catalogAdminMarker = ["catalog", "admin"].join("-");
 
 function resolveAdminWebSection(
@@ -58,6 +58,10 @@ function resolveAdminWebSection(
 
   if (contextName === "identity") {
     return "identity";
+  }
+
+  if (contextName === "experience") {
+    return "experience";
   }
 
   return fileExportOrKey?.includes(catalogAdminMarker) ? "catalog" : "identity";

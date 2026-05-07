@@ -28,7 +28,8 @@
     "./server"
   ],
   "allowedContextDependencies": [
-    "@chase-sets/catalog"
+    "@chase-sets/catalog",
+    "@chase-sets/experience"
   ],
   "seedRequirements": [
     "catalog",

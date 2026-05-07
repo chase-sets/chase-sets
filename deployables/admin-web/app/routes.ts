@@ -32,6 +32,18 @@ const identityRootRoutes = contextRoutes
       route,
     }),
   );
+const experienceRootRoutes = contextRoutes
+  .filter(
+    (routeRecord) =>
+      routeRecord.section === "experience" &&
+      (routeRecord.placement ?? "layout") === "root",
+  )
+  .map((routeRecord) =>
+    toRouteConfigEntry(routeRecord, {
+      index,
+      route,
+    }),
+  );
 const catalogLayoutRoutes = contextRoutes
   .filter(
     (routeRecord) =>
@@ -56,6 +68,18 @@ const identityLayoutRoutes = contextRoutes
       route,
     }),
   );
+const experienceLayoutRoutes = contextRoutes
+  .filter(
+    (routeRecord) =>
+      routeRecord.section === "experience" &&
+      (routeRecord.placement ?? "layout") === "layout",
+  )
+  .map((routeRecord) =>
+    toRouteConfigEntry(routeRecord, {
+      index,
+      route,
+    }),
+  );
 
 export default [
   route("favicon.svg", "routes/favicon-svg.ts"),
@@ -63,6 +87,7 @@ export default [
   route("/", "routes/index.tsx"),
   ...catalogRootRoutes,
   ...identityRootRoutes,
+  ...experienceRootRoutes,
   layout("routes/catalog-layout.tsx", [
     route("catalog", "routes/catalog-home.tsx"),
     ...catalogLayoutRoutes,
@@ -70,5 +95,9 @@ export default [
   layout("routes/identity-layout.tsx", [
     route("identity", "routes/identity-home.tsx"),
     ...identityLayoutRoutes,
+  ]),
+  layout("routes/experience-layout.tsx", [
+    route("experience", "routes/experience-home.tsx"),
+    ...experienceLayoutRoutes,
   ]),
 ] satisfies RouteConfig;

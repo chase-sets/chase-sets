@@ -4,10 +4,11 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
 import {
   InventoryApiError,
   type InventoryItemListItem,
@@ -42,14 +43,21 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "create-item") {
-      await api.createItem({
+      const result = await api.createItem({
         catalogItemId: formData.get("catalogItemId"),
         selectedOptions: formData.get("selectedOptions"),
         storageLocationId: formData.get("storageLocationId"),
         totalQuantity: Number(formData.get("totalQuantity") ?? 0),
         acquisitionCostAmount:
           String(formData.get("acquisitionCostAmount") ?? "").trim() || null,
+      }) as { id?: string };
+      const feedback = new URLSearchParams({
+        feedbackWorkflow: "inventory-create",
       });
+      if (result.id) {
+        feedback.set("feedbackEntityId", result.id);
+      }
+      return redirect(`/account/inventory?${feedback}`);
     }
 
     return redirect("/account/inventory");
@@ -73,12 +81,30 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceInventoryRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const [searchParams] = useSearchParams();
+  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "inventory-create";
+  const feedbackEntityId = searchParams.get("feedbackEntityId");
 
   return (
     <InventoryItemListPage
       data={data.items as ListResponse<InventoryItemListItem>}
       locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
       errorMessage={actionData?.error ?? null}
+      feedbackPrompt={
+        shouldShowFeedback ? (
+          <PlatformFeedbackPrompt
+            workflow="inventory-create"
+            sourceRoutePath="/account/inventory"
+            relatedEntities={
+              feedbackEntityId
+                ? [{ type: "inventory-item", id: feedbackEntityId }]
+                : []
+            }
+            title={t("inventory.routes.marketplace.accountInventory.feedback.title")}
+            description={t("inventory.routes.marketplace.accountInventory.feedback.description")}
+          />
+        ) : null
+      }
     />
   );
 }

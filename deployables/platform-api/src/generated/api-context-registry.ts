@@ -5,6 +5,7 @@ import { contextManifest as catalogManifest, module as catalogModule } from "@ch
 import { contextManifest as checkoutManifest, module as checkoutModule } from "@chase-sets/checkout";
 import { contextManifest as commercialTermsManifest, module as commercialTermsModule } from "@chase-sets/commercial-terms";
 import { contextManifest as discoveryManifest, module as discoveryModule } from "@chase-sets/discovery";
+import { contextManifest as experienceManifest, module as experienceModule } from "@chase-sets/experience";
 import { contextManifest as fulfillmentManifest, module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
 import { contextManifest as inventoryManifest, module as inventoryModule } from "@chase-sets/inventory";
@@ -45,6 +46,12 @@ export const apiContextRegistry = [
     packageName: "@chase-sets/discovery",
     manifest: discoveryManifest,
     module: discoveryModule,
+  },
+  {
+    contextName: "experience",
+    packageName: "@chase-sets/experience",
+    manifest: experienceManifest,
+    module: experienceModule,
   },
   {
     contextName: "fulfillment",

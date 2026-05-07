@@ -48,6 +48,7 @@ import {
   type Tone,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
 import {
   createPaymentsApiClient,
   createPaymentsRequestApiClient,
@@ -754,6 +755,23 @@ export default function MarketplaceAccountPaymentRoute() {
     actionData && "error" in actionData && actionData.scope === "retry"
       ? actionData.error
       : null;
+  const feedbackPrompt =
+    data.payment.status === "captured" || data.payment.processor_amount === "0.00" ? (
+      <PlatformFeedbackPrompt
+        workflow="checkout-payment"
+        sourceRoutePath={
+          data.isGuestCheckoutPayment
+            ? `/checkout/payments/${data.payment.payment_id}`
+            : `/account/payments/${data.payment.payment_id}`
+        }
+        relatedEntities={[
+          { type: "payment", id: data.payment.payment_id },
+          ...data.payment.order_ids.map((orderId) => ({ type: "order", id: orderId })),
+        ]}
+        title={t("payments.routes.marketplace.accountPayment.feedback.title")}
+        description={t("payments.routes.marketplace.accountPayment.feedback.description")}
+      />
+    ) : null;
 
   return (
     <Page>
@@ -861,6 +879,8 @@ export default function MarketplaceAccountPaymentRoute() {
               </Stack>
             </Surface>
           ) : null}
+
+          {feedbackPrompt}
 
           <PageSection title={t("payments.routes.marketplace.accountPayment.payment.status")}>
             <Surface elevated>

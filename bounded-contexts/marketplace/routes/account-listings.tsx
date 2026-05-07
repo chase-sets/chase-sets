@@ -116,7 +116,11 @@ export async function action({ request }: ActionFunctionArgs) {
         });
       }
 
-      return redirect(`/account/listings/${result.id}`);
+      return redirect(
+        intent === "create-and-publish-listing"
+          ? `/account/listings/${result.id}?feedbackWorkflow=listing-publish`
+          : `/account/listings/${result.id}`,
+      );
     }
 
     return redirect("/account/listings");

@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { ReactNode } from "react";
 import {
   Badge,
   Button,
@@ -60,11 +61,13 @@ export function MarketplaceOfferMatchDetailPage({
   acceptanceTerms,
   canAccept = false,
   errorMessage,
+  feedbackPrompt,
 }: {
   offer: OfferMatchDetail;
   acceptanceTerms?: MarketplaceListingTermsPreview | null;
   canAccept?: boolean;
   errorMessage?: string | null;
+  feedbackPrompt?: ReactNode;
 }) {
   const canAcceptSubmitted = canAccept && offer.status === "submitted";
   const fulfillmentLabel = offer.can_fulfill
@@ -103,6 +106,8 @@ export function MarketplaceOfferMatchDetailPage({
       {errorMessage ? (
         <MarketplaceNotice tone="error" title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")} description={errorMessage} />
       ) : null}
+
+      {feedbackPrompt}
 
       <PageSection title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}>
         <Stack gap={4}>

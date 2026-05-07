@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { ReactNode } from "react";
 import {
   Badge,
   Button,
@@ -113,12 +114,14 @@ export function MarketplaceListingDetailPage({
   priceDraftAmount,
   pricePreview,
   errorMessage,
+  feedbackPrompt,
 }: {
   listing: MarketplaceListingDetail;
   feeHistory?: readonly MarketplaceListingFeeHistoryEntry[];
   priceDraftAmount?: string | null;
   pricePreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
+  feedbackPrompt?: ReactNode;
 }) {
   return (
     <Page>
@@ -135,6 +138,8 @@ export function MarketplaceListingDetailPage({
       {errorMessage ? (
         <MarketplaceNotice tone="error" title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")} description={errorMessage} />
       ) : null}
+
+      {feedbackPrompt}
 
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}>
         <Stack gap={4}>

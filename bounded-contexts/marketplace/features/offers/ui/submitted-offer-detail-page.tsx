@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { ReactNode } from "react";
 import {
   Badge,
   BuyerProtectionModule,
@@ -43,9 +44,11 @@ function ProductSummaryChips({ summary }: { summary: string }) {
 export function MarketplaceSubmittedOfferDetailPage({
   offer,
   errorMessage,
+  feedbackPrompt,
 }: {
   offer: SubmittedOfferDetail;
   errorMessage?: string | null;
+  feedbackPrompt?: ReactNode;
 }) {
   return (
     <Page>
@@ -62,6 +65,8 @@ export function MarketplaceSubmittedOfferDetailPage({
       {errorMessage ? (
         <MarketplaceNotice tone="error" title={t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview")} description={errorMessage} />
       ) : null}
+
+      {feedbackPrompt}
 
       <PageSection title={t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview")}>
         <Stack gap={4}>

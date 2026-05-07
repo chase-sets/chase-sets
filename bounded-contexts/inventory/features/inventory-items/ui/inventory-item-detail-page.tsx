@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { ReactNode } from "react";
 import {
   Button,
   Card,
@@ -25,9 +26,11 @@ function listingHref(item: InventoryItemDetail) {
 export function InventoryItemDetailPage({
   item,
   errorMessage,
+  feedbackPrompt,
 }: {
   item: InventoryItemDetail;
   errorMessage?: string | null;
+  feedbackPrompt?: ReactNode;
 }) {
   return (
     <Page>
@@ -46,6 +49,8 @@ export function InventoryItemDetailPage({
           </Stack>
         }
       />
+
+      {feedbackPrompt}
 
       {errorMessage ? (
         <Card>

@@ -24,6 +24,7 @@
     "./server"
   ],
   "allowedContextDependencies": [
+    "@chase-sets/experience",
     "@chase-sets/ordering"
   ],
   "seedRequirements": [

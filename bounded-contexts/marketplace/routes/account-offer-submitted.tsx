@@ -1,8 +1,9 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useSearchParams } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
 import {
   MarketplaceApiError,
   type SubmittedOfferDetail,
@@ -38,10 +39,26 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountSubmittedOfferRoute() {
   const data = useLoaderData<typeof loader>();
+  const [searchParams] = useSearchParams();
+  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "offer-submit";
 
   return (
     <MarketplaceSubmittedOfferDetailPage
       offer={data.submittedOffer as SubmittedOfferDetail}
+      feedbackPrompt={
+        shouldShowFeedback ? (
+          <PlatformFeedbackPrompt
+            workflow="offer-submit"
+            sourceRoutePath={`/account/offers/submitted/${data.submittedOffer.offer_id}`}
+            relatedEntities={[
+              { type: "offer", id: data.submittedOffer.offer_id },
+              { type: "catalog-item", id: data.submittedOffer.catalog_catalog_item_id },
+            ]}
+            title={t("marketplace.routes.accountOfferSubmitted.feedback.title")}
+            description={t("marketplace.routes.accountOfferSubmitted.feedback.description")}
+          />
+        ) : null
+      }
     />
   );
 }

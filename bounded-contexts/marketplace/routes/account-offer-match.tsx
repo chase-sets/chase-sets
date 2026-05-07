@@ -4,9 +4,10 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -65,7 +66,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       await api.acceptOfferMatch(params.offerId!, {
         feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
-      return redirect("/account/sales");
+      return redirect(`/account/offers/matches/${params.offerId}?feedbackWorkflow=offer-accept`);
     }
 
     return null;
@@ -103,6 +104,8 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountOfferMatchRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const [searchParams] = useSearchParams();
+  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "offer-accept";
 
   return (
     <MarketplaceOfferMatchDetailPage
@@ -113,6 +116,20 @@ export default function MarketplaceAccountOfferMatchRoute() {
       }
       canAccept
       errorMessage={actionData?.error ?? null}
+      feedbackPrompt={
+        shouldShowFeedback ? (
+          <PlatformFeedbackPrompt
+            workflow="offer-accept"
+            sourceRoutePath={`/account/offers/matches/${data.offerMatch.offer_id}`}
+            relatedEntities={[
+              { type: "offer", id: data.offerMatch.offer_id },
+              { type: "catalog-item", id: data.offerMatch.catalog_catalog_item_id },
+            ]}
+            title={t("marketplace.routes.accountOfferMatch.feedback.title")}
+            description={t("marketplace.routes.accountOfferMatch.feedback.description")}
+          />
+        ) : null
+      }
     />
   );
 }
