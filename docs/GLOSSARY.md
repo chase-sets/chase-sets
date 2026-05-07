@@ -2,13 +2,17 @@
 
 Aggregate language and projection language may differ. When they do, each model name must be used exactly within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
 
-For naming guidance across docs, code, and UI copy, see [Chase Sets Language Standard](./LANGUAGE-STANDARD.md).
+This glossary also owns cross-cutting naming guidance for docs, code, and UI copy.
 
 ## Account Role Language
 
 Use **Account** for identity, permissions, setup, wallet, inventory ownership, listings, navigation, and account settings.
 
 Use **Buyer** and **Seller** only when naming transaction endpoints: the buyer account pays and receives products, while the seller account provides products and receives settlement. When both meanings could be confused, use phrases such as "buyer account in this order" or "seller account for this sale."
+
+Preferred account-language examples include account cart, account inventory, listing owner, inventory owner, purchasing account, selling account, and payout-ready account. Avoid language that implies separate buyer-capable or seller-capable account classes.
+
+Do not rename durable event fields, persisted columns, provider metadata, or transaction projections merely to remove buyer or seller. Rename only when the term describes account identity or account capability rather than the endpoint role inside a commerce transaction.
 
 ## Buyer
 
@@ -126,7 +130,7 @@ Notes:
 - Listing snapshots are permanent for listed units until those units are sold.
 - Active price edits and quantity-cap edits require a fresh confirmed quote and replace the locked snapshot.
 - Partial sales, pause, resume, and sold-out availability changes do not refresh the snapshot.
-- See [Permanent Listing Fees](./PERMANENT-LISTING-FEES.md).
+- See [Seller Fee Confirmation](../bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md).
 
 ## Payment
 

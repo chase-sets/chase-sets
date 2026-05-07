@@ -37,11 +37,9 @@ The current implementation also uses four supporting authoring concepts:
 
 These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
 
-## Product-Existence Model
+## Product Resolution Model
 
-The target glossary treats the set of existing Products as the source of truth for valid option combinations.
-
-In this migration pass, the codebase is hard-cut over to the new language, but the stronger product-existence semantics are not yet implemented. Valid combinations continue to be resolved through the current blueprint-driven rules, now described as product resolution.
+The current implementation resolves valid Product combinations through blueprint-driven rules. Catalog remains the owner of Product identity and selection validity; downstream contexts consume resolved Product data instead of deciding whether option combinations are valid.
 
 ## Relationships
 

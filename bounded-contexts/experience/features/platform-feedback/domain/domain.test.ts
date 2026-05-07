@@ -3,24 +3,30 @@ import {
   decidePlatformFeedback,
   evolvePlatformFeedback,
   initialPlatformFeedbackState,
+  type SubmitPlatformFeedbackCommand,
 } from "./domain";
+
+const submitCommand = {
+  type: "SubmitPlatformFeedback",
+  feedbackId: "pfb_test",
+  userId: "usr_test",
+  accountId: "acc_test",
+  rating: 4,
+  topic: "ease-of-use",
+  comment: "Smooth flow.",
+  followUpConsent: true,
+  workflow: "checkout-payment",
+  sourceRoutePath: "/account/payments/pay_test",
+  relatedEntities: [{ type: "payment", id: "pay_test" }],
+  submittedAt: "2026-05-07T12:00:00.000Z",
+} satisfies SubmitPlatformFeedbackCommand;
 
 describe("platform feedback domain", () => {
   it("submits valid platform feedback", async () => {
-    const events = await Promise.resolve(decidePlatformFeedback(initialPlatformFeedbackState, {
-      type: "SubmitPlatformFeedback",
-      feedbackId: "pfb_test",
-      userId: "usr_test",
-      accountId: "acc_test",
-      rating: 4,
-      topic: "ease-of-use",
-      comment: "Smooth flow.",
-      followUpConsent: true,
-      workflow: "checkout-payment",
-      sourceRoutePath: "/account/payments/pay_test",
-      relatedEntities: [{ type: "payment", id: "pay_test" }],
-      submittedAt: "2026-05-07T12:00:00.000Z",
-    }));
+    const events = await Promise.resolve(decidePlatformFeedback(
+      initialPlatformFeedbackState,
+      submitCommand,
+    ));
 
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe("experience.platform-feedback.submitted");
@@ -29,6 +35,19 @@ describe("platform feedback domain", () => {
       throw new Error("Expected submitted event.");
     }
     expect(submitted.data.relatedEntityKey).toBe("payment:pay_test");
+  });
+
+  it("keeps user submissions immutable after the first submit", async () => {
+    const [submitted] = await Promise.resolve(decidePlatformFeedback(
+      initialPlatformFeedbackState,
+      submitCommand,
+    ));
+    const state = evolvePlatformFeedback(initialPlatformFeedbackState, submitted!);
+
+    expect(() => decidePlatformFeedback(state, {
+      ...submitCommand,
+      feedbackId: "pfb_second",
+    })).toThrow("Platform feedback has already been submitted.");
   });
 
   it("rejects invalid ratings and long comments", () => {
@@ -65,6 +84,28 @@ describe("platform feedback domain", () => {
     ).toThrow("Comment must be 1000 characters or fewer.");
   });
 
+  it("records prompt dismissal snooze windows", async () => {
+    const [dismissed] = await Promise.resolve(decidePlatformFeedback(
+      initialPlatformFeedbackState,
+      {
+        type: "DismissPlatformFeedbackPrompt",
+        promptId: "pfp_test",
+        userId: "usr_test",
+        accountId: "acc_test",
+        workflow: "inventory-adjust",
+        sourceRoutePath: "/account/inventory/inv_test",
+        relatedEntities: [{ type: "inventoryItem", id: "inv_test" }],
+        dismissedAt: "2026-05-07T12:00:00.000Z",
+        snoozedUntil: "2026-05-14T12:00:00.000Z",
+      },
+    ));
+
+    expect(dismissed?.type).toBe("experience.platform-feedback.prompt-dismissed");
+    const state = evolvePlatformFeedback(initialPlatformFeedbackState, dismissed!);
+    expect(state.dismissedAt).toBe("2026-05-07T12:00:00.000Z");
+    expect(state.relatedEntityKey).toBe("inventoryItem:inv_test");
+  });
+
   it("allows reviewed and archived admin lifecycle", async () => {
     const [submitted] = await Promise.resolve(decidePlatformFeedback(initialPlatformFeedbackState, {
       type: "SubmitPlatformFeedback",
@@ -89,13 +130,51 @@ describe("platform feedback domain", () => {
     expect(reviewedState.status).toBe("reviewed");
     const archivedEvents = await Promise.resolve(
       decidePlatformFeedback(reviewedState, {
-          type: "ArchivePlatformFeedback",
-          archivedByUserId: "usr_admin",
-          archivedAt: "2026-05-07T14:00:00.000Z",
-        }),
+        type: "ArchivePlatformFeedback",
+        archivedByUserId: "usr_admin",
+        archivedAt: "2026-05-07T14:00:00.000Z",
+      }),
     );
     expect(
       archivedEvents[0]?.type,
     ).toBe("experience.platform-feedback.archived");
+  });
+
+  it("makes reviewed and archived admin transitions idempotent", async () => {
+    const [submitted] = await Promise.resolve(decidePlatformFeedback(
+      initialPlatformFeedbackState,
+      submitCommand,
+    ));
+    const submittedState = evolvePlatformFeedback(initialPlatformFeedbackState, submitted!);
+    const [reviewed] = await Promise.resolve(decidePlatformFeedback(submittedState, {
+      type: "MarkPlatformFeedbackReviewed",
+      reviewedByUserId: "usr_admin",
+      reviewedAt: "2026-05-07T13:00:00.000Z",
+    }));
+    const reviewedState = evolvePlatformFeedback(submittedState, reviewed!);
+
+    expect(decidePlatformFeedback(reviewedState, {
+      type: "MarkPlatformFeedbackReviewed",
+      reviewedByUserId: "usr_admin",
+      reviewedAt: "2026-05-07T13:10:00.000Z",
+    })).toEqual([]);
+
+    const [archived] = await Promise.resolve(decidePlatformFeedback(reviewedState, {
+      type: "ArchivePlatformFeedback",
+      archivedByUserId: "usr_admin",
+      archivedAt: "2026-05-07T14:00:00.000Z",
+    }));
+    const archivedState = evolvePlatformFeedback(reviewedState, archived!);
+
+    expect(decidePlatformFeedback(archivedState, {
+      type: "ArchivePlatformFeedback",
+      archivedByUserId: "usr_admin",
+      archivedAt: "2026-05-07T14:10:00.000Z",
+    })).toEqual([]);
+    expect(() => decidePlatformFeedback(archivedState, {
+      type: "MarkPlatformFeedbackReviewed",
+      reviewedByUserId: "usr_admin",
+      reviewedAt: "2026-05-07T14:20:00.000Z",
+    })).toThrow("Archived platform feedback cannot be reviewed.");
   });
 });

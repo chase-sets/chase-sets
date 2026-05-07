@@ -13,11 +13,9 @@ These terms must be used consistently across:
 
 Avoid introducing synonyms. Each concept has exactly one canonical term.
 
----
+## Core Concepts
 
-# Core Concepts
-
-## Discovery Query
+### Discovery Query
 
 A **Discovery Query** is the normalized set of search text, filters, sort order, and pagination inputs used to request catalog-item browse results.
 
@@ -26,7 +24,7 @@ Notes:
 - Discovery Query is owned by Discovery.
 - It shapes read behavior only; it does not mutate upstream state.
 
-## Search Index
+### Search Index
 
 A **Search Index** is the projection-backed structure used to match and rank catalog items for discovery use cases.
 
@@ -35,7 +33,7 @@ Notes:
 - Search Index is owned by Discovery.
 - It is derived from upstream catalog facts.
 
-## Search Result
+### Search Result
 
 A **Search Result** is a single projected catalog item returned for a Discovery Query.
 
@@ -44,11 +42,11 @@ Notes:
 - Search Result is presentation-oriented.
 - It may include denormalized names, tags, and images for browse speed.
 
-## Result Set
+### Result Set
 
 A **Result Set** is the paginated collection of Search Results returned for a Discovery Query, including total-match metadata.
 
-## Facet
+### Facet
 
 A **Facet** is a discovery-oriented dimension of navigation used to summarize or refine a Result Set.
 
@@ -58,7 +56,7 @@ Examples:
 - Tag
 - Blueprint
 
-## Filter
+### Filter
 
 A **Filter** is a single browse constraint applied to a Discovery Query.
 
@@ -68,11 +66,11 @@ Examples:
 - Tag filter
 - Status filter
 
-## Filter State
+### Filter State
 
 **Filter State** is the currently selected set of Filters that shapes the active Result Set.
 
-## Sort Order
+### Sort Order
 
 A **Sort Order** is the ranking mode used to order a Result Set.
 
@@ -83,10 +81,10 @@ Examples:
 - Title descending
 - Newest
 
-## Relevance
+### Relevance
 
 **Relevance** is the ranking policy that orders Search Results by how well a catalog item matches the active Discovery Query.
 
-## Detail Page
+### Detail Page
 
 A **Detail Page** is the discovery-owned presentation model used to render a single catalog item for browse and evaluation.

@@ -1,44 +1,12 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import ts from "typescript";
+import { collectFiles, defaultSkippedDirectories } from "./lib/files.mjs";
+import { repoRoot } from "./lib/repo.mjs";
 
-const repoRoot = process.cwd();
-const excludedDirectoryNames = new Set([
-  ".git",
-  ".react-router",
-  "build",
-  "coverage",
-  "dist",
-  "node_modules",
-]);
 const checkedExtensions = new Set([".ts", ".tsx", ".mts", ".cts"]);
 const violations = [];
-
-function shouldSkipDirectory(directoryPath) {
-  return directoryPath
-    .split(path.sep)
-    .some((segment) => excludedDirectoryNames.has(segment));
-}
-
-function listTypeScriptFiles(directoryPath) {
-  if (shouldSkipDirectory(path.relative(repoRoot, directoryPath))) {
-    return [];
-  }
-
-  return readdirSync(directoryPath, { withFileTypes: true }).flatMap((entry) => {
-    const entryPath = path.join(directoryPath, entry.name);
-    if (entry.isDirectory()) {
-      return listTypeScriptFiles(entryPath);
-    }
-
-    if (!entry.isFile()) {
-      return [];
-    }
-
-    return checkedExtensions.has(path.extname(entry.name)) ? [entryPath] : [];
-  });
-}
 
 function sourceKindFor(filePath) {
   return filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
@@ -57,11 +25,10 @@ function visitNode(sourceFile, node) {
   ts.forEachChild(node, (child) => visitNode(sourceFile, child));
 }
 
-for (const filePath of listTypeScriptFiles(repoRoot)) {
-  if (!statSync(filePath).isFile()) {
-    continue;
-  }
-
+for (const filePath of await collectFiles(repoRoot, {
+  extensions: checkedExtensions,
+  skippedDirectories: defaultSkippedDirectories,
+})) {
   const sourceText = readFileSync(filePath, "utf8");
   const sourceFile = ts.createSourceFile(
     filePath,

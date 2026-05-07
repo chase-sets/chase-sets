@@ -41,18 +41,9 @@ Application code should not introduce:
 - Admin navigation uses bottom navigation on smaller screens and persistent side navigation at larger breakpoints.
 - `DataTable` defaults to stacked cards on mobile.
 
-## Marketplace System Rules
+## Marketplace Direction
 
-Marketplace UI follows this hierarchy: Trust -> Clarity -> Speed -> Comparison -> Polish -> Delight.
-
-- Listing cards must show price, seller name, seller trust, availability, fulfillment, and one dominant primary action.
-- Save, compare, and watchlist actions are secondary affordances.
-- Checkout must make subtotal, shipping, fees, tax, discounts, wallet credit, final total, secure payment, policy, and support paths visible before commitment.
-- Search and filtering must show selected state, counts when available, clear-all, and reversible recovery paths.
-- Trust signals must use text and semantic icons, not color alone.
-- Brand expression belongs in hero, category, story, onboarding, featured collection, and confirmation moments. Transactional screens stay task-first.
-
-Avoid decorative gradients, glow-heavy surfaces, video backgrounds, ambient animation, sparse cards that hide decision facts, hidden pricing, and competing CTAs in marketplace flows.
+Marketplace-specific conversion rules, signal hierarchy, component coverage, and roadmap live in [Marketplace Design System Direction](./MARKETPLACE_SYSTEM.md). Keep this README focused on package-wide design-system contracts.
 
 ## Boundaries
 
@@ -77,6 +68,8 @@ The design system does not own:
 ## Validation
 
 Use the real marketplace and admin applications as the default visual validation surfaces, and use `npm run test:design-system` for component-level regression checks.
+
+Use `packages/design-system/src/` as the canonical component inventory. Avoid maintaining hand-written component lists that can drift from exports.
 
 ## Motion
 

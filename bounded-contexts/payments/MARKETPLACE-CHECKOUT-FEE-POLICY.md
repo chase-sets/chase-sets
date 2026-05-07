@@ -20,6 +20,6 @@ Payments owns the buyer-side Marketplace Checkout Fee. The fee is quoted before 
 - Unsupported or unknown methods normalize to the card quote in the current US-only V1 policy.
 - Positive fractional cents round up; exact zero remains zero.
 
-## Follow-Up
+## Launch Review
 
 Before launch, counsel/provider review should approve final buyer-facing copy and any state-specific disclosure requirements.

@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import process from "node:process";
+import { repoRoot } from "./lib/repo.mjs";
 
-const repoRoot = process.cwd();
 const metricsPath = process.env.STRUCTURE_METRICS_OUTPUT_PATH ?? "artifacts/structure-metrics.json";
 const dashboardPath = process.env.STRUCTURE_METRICS_DASHBOARD_PATH ?? "artifacts/structure-metrics-dashboard.md";
 const budgetMode = process.env.STRUCTURE_BUDGET_MODE === "error" ? "error" : "warn";
@@ -17,6 +18,10 @@ const budget = {
     10,
   ),
 };
+
+process.env.STRUCTURE_METRICS_WRITE = "1";
+const { runStructureCheck } = await import("./check-structure/run.mjs");
+const structureCheckResult = await runStructureCheck({ exit: false });
 
 const absoluteMetricsPath = path.resolve(repoRoot, metricsPath);
 const metrics = JSON.parse(readFileSync(absoluteMetricsPath, "utf8"));
@@ -88,6 +93,10 @@ if (breaches.length > 0) {
   if (budgetMode === "error") {
     process.exit(1);
   }
+}
+
+if (!structureCheckResult.ok) {
+  process.exitCode = 1;
 }
 
 console.log(`Structure metrics dashboard written to ${dashboardPath}`);

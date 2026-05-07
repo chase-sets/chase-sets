@@ -1,14 +1,12 @@
-# Permanent Listing Fees
+# Seller Fee Confirmation
 
 Marketplace listing fees are seller-confirmed, per-unit snapshots. A listing keeps the fee snapshot that was confirmed when it was first published. Partial sales, pause, resume, and sold-out availability changes do not recalculate fees.
 
 ## Fee Ownership
 
-Commercial Terms owns seller-side marketplace sales fee policy only. Buyer marketplace checkout fees are deferred to Payments work and are represented as a zero-value marketplace checkout fee until that policy exists.
+Commercial Terms owns seller-side marketplace sales fee policy only. Buyer marketplace checkout fees are owned by Payments and documented in [Marketplace Checkout Fee Policy](../payments/MARKETPLACE-CHECKOUT-FEE-POLICY.md).
 
 Marketplace owns seller confirmation. Ordering consumes Marketplace snapshots and does not call Commercial Terms for normal listing purchases.
-
-Buyer marketplace checkout fee policy is tracked as separate future work in [Buyer Marketplace Checkout Fee Policy Future Work](./BUYER-PAYMENT-FEE-POLICY-FUTURE-WORK.md).
 
 ## Listing Flow
 

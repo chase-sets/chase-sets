@@ -1,81 +1,6 @@
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
 import process from "node:process";
-import { spawn } from "node:child_process";
-
-const repoRoot = process.cwd();
-const workspaceRoots = ["bounded-contexts", "contracts", "infrastructure", "packages", "deployables"];
-
-function readJson(filePath) {
-  return JSON.parse(readFileSync(filePath, "utf8"));
-}
-
-function buildNpmInvocation(args) {
-  if (process.platform === "win32") {
-    return {
-      command: "cmd.exe",
-      args: ["/d", "/s", "/c", `npm.cmd ${args.join(" ")}`],
-    };
-  }
-
-  return {
-    command: "npm",
-    args,
-  };
-}
-
-function runCommand(command, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        FORCE_COLOR: process.env.FORCE_COLOR ?? "1",
-      },
-      stdio: "inherit",
-      windowsHide: true,
-    });
-
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`${command} ${args.join(" ")} exited with code ${code ?? "unknown"}.`));
-    });
-  });
-}
-
-function listWorkspacePackages() {
-  const packages = [];
-
-  for (const workspaceRoot of workspaceRoots) {
-    const rootPath = path.join(repoRoot, workspaceRoot);
-
-    for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-
-      const packageJsonPath = path.join(rootPath, entry.name, "package.json");
-
-      try {
-        const packageJson = readJson(packageJsonPath);
-        packages.push({
-          name: packageJson.name,
-          scripts: packageJson.scripts ?? {},
-          chaseSets: packageJson.chaseSets ?? {},
-        });
-      } catch {
-        // Ignore non-package directories.
-      }
-    }
-  }
-
-  return packages.sort((left, right) => left.name.localeCompare(right.name));
-}
+import { buildNpmInvocation, runCommand } from "./lib/process.mjs";
+import { listWorkspacePackages } from "./lib/repo.mjs";
 
 async function main() {
   const [scriptName, ...rawArgs] = process.argv.slice(2);
@@ -98,11 +23,11 @@ async function main() {
     ?.split("=")[1];
 
   const workspaces = listWorkspacePackages().filter((workspace) => {
-    if (typeof workspace.scripts[scriptName] !== "string") {
+    if (typeof workspace.packageJson.scripts?.[scriptName] !== "string") {
       return false;
     }
 
-    const testProfile = workspace.chaseSets?.testProfile;
+    const testProfile = workspace.packageJson.chaseSets?.testProfile;
     if (includeTestProfile && testProfile !== includeTestProfile) {
       return false;
     }
@@ -123,7 +48,7 @@ async function main() {
       workspace.name,
       ...(passthroughArgs.length > 0 ? ["--", ...passthroughArgs] : []),
     ]);
-    await runCommand(invocation.command, invocation.args);
+    await runCommand(invocation.command, invocation.args, { stdio: "inherit" });
   }
 }
 

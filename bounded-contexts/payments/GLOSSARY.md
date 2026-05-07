@@ -24,7 +24,7 @@ A **Payment Processor Reference** is the external identifier returned by the pay
 
 ## Marketplace Checkout Fee
 
-A **Marketplace Checkout Fee** is the zero-value marketplace checkout fee amount Payments carries until buyer marketplace checkout fee policy is introduced.
+A **Marketplace Checkout Fee** is the buyer-side payment-level marketplace fee quoted and confirmed by Payments before payment creation.
 
 ## Shipping Rebate Calculation
 

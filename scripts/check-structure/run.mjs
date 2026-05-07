@@ -11,12 +11,13 @@ import {
   findAccountCapabilityLanguageViolations,
   isAccountCapabilityLanguageGuardedFile,
 } from "./account-capability-language.mjs";
+import { repoRoot, workspaceRoots } from "../lib/repo.mjs";
+import { defaultSkippedDirectories } from "../lib/files.mjs";
 
-const repoRoot = process.cwd();
-const roots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"];
+const roots = workspaceRoots;
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const moduleFileExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"];
-const ignoredDirectories = new Set(["node_modules", ".git", "dist", "build", ".react-router"]);
+const ignoredDirectories = defaultSkippedDirectories;
 const allowedTopLevelDirectories = new Set([
   "artifacts",
   "bounded-contexts",
@@ -953,7 +954,12 @@ function buildManifestHostRouteIdentity(deployable, sourceContext, route) {
   };
 }
 
-export async function runStructureCheck() {
+export async function runStructureCheck(options = {}) {
+violations.length = 0;
+warnings.length = 0;
+clientSurfaceConsumers.clear();
+supportFileConsumers.clear();
+
 const contextManifests = await loadContextManifests();
 const boundedContextPackages = [...contextManifests.values()].map(({ packageName }) => packageName);
 const contextMetricsByRoot = new Map(
@@ -2655,7 +2661,17 @@ writeStructureMetricsReport({
   metrics: structureMetrics,
 });
 
-if (!reportStructureCheckResults({ violations, warnings })) {
+const ok = reportStructureCheckResults({ violations, warnings });
+const result = {
+  ok,
+  metrics: structureMetrics,
+  violations: [...violations],
+  warnings: [...warnings],
+};
+
+if (!ok && options.exit !== false) {
   process.exit(1);
 }
+
+return result;
 }

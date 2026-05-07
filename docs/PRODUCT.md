@@ -1,10 +1,8 @@
-# Chase Sets Marketplace — Product Brief
+# Chase Sets Marketplace Product Brief
 
----
+## Product Overview
 
-# 1. Product Overview
-
-## 1.1 Vision
+### Vision
 
 Chase Sets is a marketplace designed to make buying and selling trading cards and collectibles **fair, efficient, and transparent**, while optimizing both **purchase experience** and **selling profitability**.
 
@@ -16,30 +14,26 @@ The platform prioritizes:
 - Scalable catalog and listing architecture
 - Data-driven decision making
 
----
-
-## 1.2 Problem Statement
+### Problem Statement
 
 Existing marketplaces present several inefficiencies:
 
-### Buying Accounts
+Buying accounts:
 
 - Fragmented listings across sellers
 - Inconsistent condition definitions
 - Poor visibility into fair market pricing
 
-### Selling Accounts
+Selling accounts:
 
 - High marketplace sales fees
 - Inefficient pricing tools
 - Shipping losses on low-value cards
 - Limited automation and analytics
 
----
+### Goals
 
-## 1.3 Goals
-
-### Primary Goals
+Primary goals:
 
 - Create a marketplace optimized for **high-volume, low-value cards**
 - Reduce shipping inefficiencies
@@ -47,46 +41,38 @@ Existing marketplaces present several inefficiencies:
 - Enable scalable listing and catalog management
 - Support automation and intelligent repricing
 
-### Secondary Goals
+Secondary goals:
 
 - Enable advanced analytics and forecasting
 - Support bulk inventory ingestion
 - Provide strong APIs and automation tooling
 
----
+## Target Users
 
-# 2. Target Users
-
-## 2.1 Accounts Selling Products
+Accounts selling products:
 
 - High-volume trading card sellers
 - Hobbyists selling duplicates
 - Storefront operators
 - Bulk sellers of low-value cards
 
----
-
-## 2.2 Accounts Buying Products
+Accounts buying products:
 
 - Collectors completing sets
 - Competitive players
 - Bulk buyers
 - Resellers
 
----
+## Core Value Propositions
 
-# 3. Core Value Propositions
-
-## 3.1 Buying Experience
+Buying experience:
 
 - Competitive pricing
 - Accurate and standardized condition definitions
 - Efficient cart building and checkout
 - Stable shipping costs
 
----
-
-## 3.2 Selling Experience
+Selling experience:
 
 - Lower fee structure than competitors
 - Automated pricing assistance
@@ -94,11 +80,9 @@ Existing marketplaces present several inefficiencies:
 - Bulk listing capabilities
 - Better margins on low-value cards
 
----
+## Marketplace Economics
 
-# 4. Marketplace Economics
-
-## 4.1 Fee Model
+### Fee Model
 
 Seller fees:
 
@@ -108,7 +92,7 @@ Seller fees:
 - Price edits and quantity-cap edits require a new confirmed quote and replace the locked snapshot
 - Partial sales, pause, resume, and sold-out availability changes do not recalculate fees
 
-See [Permanent Listing Fees](./PERMANENT-LISTING-FEES.md) for the listing, offer, ordering, and visibility rules.
+See [Seller Fee Confirmation](../bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md) for the listing, offer, ordering, and visibility rules.
 
 Buyer responsibilities:
 
@@ -121,9 +105,7 @@ Shipping model:
 - Shipping rebate applied to reduce effective cost
 - Rebate capped at approximately 5% of order value
 
----
-
-## 4.2 Economic Design Goals
+### Economic Design Goals
 
 The marketplace is designed to incentivize:
 
@@ -138,13 +120,9 @@ The marketplace aims to minimize:
 - Shipping losses on low-value cards
 - Excessive payment processing overhead
 
----
-
-## 4.3 Guiding Principles
+### Guiding Principles
 
 - Marketplace economics must remain **sustainable for sellers at scale**
 - Fees should be **predictable and transparent**
 - Buying accounts should experience **lower total landed cost** compared to competing platforms
 - The system should naturally reward **efficient behavior**, not rely solely on rules or penalties
-
----

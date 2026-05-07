@@ -12,6 +12,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Identity](./identity/README.md) | Own users, accounts, memberships, invitations, API keys, consents, and identity-management surfaces. |
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
+| [Experience](./experience/README.md) | Own internal platform feedback and feedback review surfaces. |
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
 | [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace sales fee policy and account-specific commercial agreements. |
@@ -23,6 +24,7 @@ The goal is to keep ownership, language, and invariants explicit before implemen
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
 | [Insights](./insights/README.md) | Own cross-context reporting, analytics, and forecasting views. |
+| [Tax](./tax/README.md) | Own provider-agnostic sales tax quote contracts and local quote behavior. |
 
 Implemented contexts are the directories that contain both `package.json` and `context.json`.
 
@@ -177,6 +179,7 @@ Shared IDs in [`contracts/primitives/typed-ids.ts`](../contracts/primitives/type
 - `CredentialId`
 - `AuthenticationMethodId`
 - `SessionId`
+- `CheckoutSessionId`
 - `ApiKeyId`
 - `InventoryItemId`
 - `ListingId`
@@ -217,6 +220,7 @@ Catalog also owns the `SelectedOptionEntry` shape used to describe resolved prod
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
 - Settlement depends on Payments and Ordering.
+- Tax provides provider-agnostic quote contracts consumed by Ordering.
 - Pricing consumes history from Catalog, Inventory, Marketplace, Ordering, and Fulfillment.
 - Insights consumes integration events from every context.
 
@@ -238,5 +242,6 @@ These scenarios should map cleanly to one owner per decision:
 6. Reputation owns post-transaction ratings, written feedback, and aggregate review summaries.
 7. Payments owns charge and refund execution.
 8. Settlement owns ledger adjustments and payout eligibility.
-9. Pricing owns recommendations but never directly mutates listings or inventory.
-10. Insights owns reporting and forecasting without owning source transactions.
+9. Tax owns tax quote contracts; Ordering owns order tax snapshots.
+10. Pricing owns recommendations but never directly mutates listings or inventory.
+11. Insights owns reporting and forecasting without owning source transactions.

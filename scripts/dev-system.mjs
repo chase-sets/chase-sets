@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -6,6 +6,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { readEnvFile } from "./lib/env.mjs";
+import { buildNpmInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
 
 const mode = process.argv[2] ?? "dev";
 const target = process.argv[3] ?? "all";
@@ -172,93 +174,6 @@ function prefixedConsole(prefix, message) {
 
     console.log(`[${prefix}] ${line}`);
   }
-}
-
-function wirePrefixedStream(stream, prefix) {
-  let buffer = "";
-
-  stream.on("data", (chunk) => {
-    buffer += chunk.toString();
-    const parts = buffer.split(/\r?\n/);
-    buffer = parts.pop() ?? "";
-
-    for (const part of parts) {
-      if (part.length > 0) {
-        console.log(`[${prefix}] ${part}`);
-      }
-    }
-  });
-
-  stream.on("end", () => {
-    if (buffer.length > 0) {
-      console.log(`[${prefix}] ${buffer}`);
-    }
-  });
-}
-
-function spawnCommand(command, args, options = {}) {
-  const child = spawn(command, args, {
-    cwd: options.cwd ?? rootDir,
-    env: {
-      ...process.env,
-      FORCE_COLOR: process.env.FORCE_COLOR ?? "1",
-      ...options.env,
-    },
-    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
-
-  if (options.prefix && child.stdout && child.stderr) {
-    wirePrefixedStream(child.stdout, options.prefix);
-    wirePrefixedStream(child.stderr, options.prefix);
-  }
-
-  return child;
-}
-
-function buildNpmInvocation(args) {
-  if (process.platform === "win32") {
-    return {
-      command: "cmd.exe",
-      args: ["/d", "/s", "/c", `npm.cmd ${args.join(" ")}`],
-    };
-  }
-
-  return {
-    command: "npm",
-    args,
-  };
-}
-
-function parseEnvFile(content) {
-  const values = {};
-
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex === -1) {
-      continue;
-    }
-
-    const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
-    values[key] = value;
-  }
-
-  return values;
-}
-
-function readEnvFile(filePath) {
-  if (!existsSync(filePath)) {
-    return {};
-  }
-
-  return parseEnvFile(readFileSync(filePath, "utf8"));
 }
 
 function resolveMarketplaceStripeConfig() {
@@ -537,26 +452,6 @@ async function restartExistingListener(port, label) {
   }
 
   throw new Error(`Unable to restart ${label}: port ${port} is still in use.`);
-}
-
-function runCommand(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawnCommand(command, args, options);
-
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(
-        new Error(
-          `${command} ${args.join(" ")} exited with code ${code ?? "unknown"}.`,
-        ),
-      );
-    });
-  });
 }
 
 async function ensureDevDatabase() {

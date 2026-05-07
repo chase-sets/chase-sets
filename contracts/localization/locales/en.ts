@@ -2889,6 +2889,7 @@ export const englishTranslations = {
   "experience.platformFeedback.workflow.offerAccept": "Offer acceptance",
   "experience.platformFeedback.workflow.offerSubmit": "Offer submission",
   "experience.platformFeedbackAdmin.action": "Action",
+  "experience.platformFeedbackAdmin.account": "Account",
   "experience.platformFeedbackAdmin.allStatuses": "All statuses",
   "experience.platformFeedbackAdmin.allTopics": "All topics",
   "experience.platformFeedbackAdmin.allWorkflows": "All workflows",

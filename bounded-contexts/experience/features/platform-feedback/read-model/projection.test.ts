@@ -1,0 +1,136 @@
+import { describe, expect, it, vi } from "vitest";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { buildPlatformFeedbackProjectionHandlers } from "./projection";
+
+function transportEvent(
+  type: string,
+  data: Record<string, unknown>,
+): TransportEvent {
+  return {
+    id: "evt_test" as never,
+    type,
+    streamId: "experience.platform-feedback-pfb_test",
+    streamVersion: 1,
+    globalPosition: "1" as never,
+    tenantId: "tnt_test" as never,
+    data: data as never,
+    metadata: {},
+    audit: {
+      performedByUserId: "usr_test" as never,
+      forAccountId: "acc_test" as never,
+    },
+    trace: {},
+    timing: {
+      occurredAt: "2026-05-07T12:00:00.000Z" as never,
+      recordedAt: "2026-05-07T12:00:00.000Z" as never,
+    },
+  };
+}
+
+describe("platform feedback projections", () => {
+  it("projects submitted feedback into the review queue read model", async () => {
+    const queries: (readonly unknown[])[] = [];
+    const db = {
+      query: vi.fn(async (_sql: string, params?: readonly unknown[]) => {
+        queries.push(params ?? []);
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPlatformFeedbackProjectionHandlers(db as never);
+    const handler = handlers["experience.platform-feedback.submitted"];
+    if (!handler) {
+      throw new Error("Expected submitted projection handler.");
+    }
+
+    await handler(transportEvent("experience.platform-feedback.submitted", {
+      feedbackId: "pfb_test",
+      userId: "usr_test",
+      accountId: "acc_test",
+      rating: 5,
+      topic: "checkout-payment",
+      comment: "Fast checkout.",
+      followUpConsent: true,
+      workflow: "checkout-payment",
+      sourceRoutePath: "/account/payments/pay_test",
+      relatedEntities: [{ type: "payment", id: "pay_test" }],
+      relatedEntityKey: "payment:pay_test",
+      submittedAt: "2026-05-07T12:00:00.000Z",
+    }));
+
+    expect(queries[0]).toEqual([
+      "pfb_test",
+      "usr_test",
+      "acc_test",
+      5,
+      "checkout-payment",
+      "Fast checkout.",
+      true,
+      "checkout-payment",
+      "/account/payments/pay_test",
+      JSON.stringify([{ type: "payment", id: "pay_test" }]),
+      "payment:pay_test",
+      "2026-05-07T12:00:00.000Z",
+    ]);
+  });
+
+  it("projects dismissal snoozes and admin status changes", async () => {
+    const queries: (readonly unknown[])[] = [];
+    const db = {
+      query: vi.fn(async (_sql: string, params?: readonly unknown[]) => {
+        queries.push(params ?? []);
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPlatformFeedbackProjectionHandlers(db as never);
+    const dismissed = handlers["experience.platform-feedback.prompt-dismissed"];
+    const reviewed = handlers["experience.platform-feedback.reviewed"];
+    const archived = handlers["experience.platform-feedback.archived"];
+    if (!dismissed || !reviewed || !archived) {
+      throw new Error("Expected projection handlers.");
+    }
+
+    await dismissed(transportEvent("experience.platform-feedback.prompt-dismissed", {
+      promptId: "pfp_test",
+      userId: "usr_test",
+      accountId: "acc_test",
+      workflow: "inventory-adjust",
+      sourceRoutePath: "/account/inventory/inv_test",
+      relatedEntities: [{ type: "inventoryItem", id: "inv_test" }],
+      relatedEntityKey: "inventoryItem:inv_test",
+      dismissedAt: "2026-05-07T12:00:00.000Z",
+      snoozedUntil: "2026-05-14T12:00:00.000Z",
+    }));
+    await reviewed(transportEvent("experience.platform-feedback.reviewed", {
+      feedbackId: "pfb_test",
+      reviewedByUserId: "usr_admin",
+      reviewedAt: "2026-05-07T13:00:00.000Z",
+    }));
+    await archived(transportEvent("experience.platform-feedback.archived", {
+      feedbackId: "pfb_test",
+      archivedByUserId: "usr_admin",
+      archivedAt: "2026-05-07T14:00:00.000Z",
+    }));
+
+    expect(queries[0]).toEqual([
+      "pfp_test",
+      "usr_test",
+      "acc_test",
+      "inventory-adjust",
+      "/account/inventory/inv_test",
+      JSON.stringify([{ type: "inventoryItem", id: "inv_test" }]),
+      "inventoryItem:inv_test",
+      "2026-05-07T12:00:00.000Z",
+      "2026-05-14T12:00:00.000Z",
+    ]);
+    expect(queries[1]).toEqual([
+      "pfb_test",
+      "usr_admin",
+      "2026-05-07T13:00:00.000Z",
+    ]);
+    expect(queries[2]).toEqual([
+      "pfb_test",
+      "usr_admin",
+      "2026-05-07T14:00:00.000Z",
+    ]);
+  });
+});

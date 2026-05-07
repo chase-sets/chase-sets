@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { detectLineEnding, readEnvFile } from "./lib/env.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const platformApiEnvExamplePath = path.join(
@@ -43,37 +44,6 @@ function printUsage() {
   );
 }
 
-function parseEnvFile(content) {
-  const values = {};
-
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex === -1) {
-      continue;
-    }
-
-    const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
-    values[key] = value;
-  }
-
-  return values;
-}
-
-function readEnvFile(filePath) {
-  if (!existsSync(filePath)) {
-    return {};
-  }
-
-  return parseEnvFile(readFileSync(filePath, "utf8"));
-}
-
 function resolveStripeApiKey() {
   const envLocal = readEnvFile(platformApiEnvLocalPath);
   const envExample = readEnvFile(platformApiEnvExamplePath);
@@ -84,10 +54,6 @@ function resolveStripeApiKey() {
     envExample.STRIPE_SECRET_KEY ??
     null
   );
-}
-
-function detectLineEnding(content) {
-  return content.includes("\r\n") ? "\r\n" : "\n";
 }
 
 function persistWebhookSecret(webhookSecret) {

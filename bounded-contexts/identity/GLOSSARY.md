@@ -1,6 +1,6 @@
 # Identity Domain Glossary
 
-This glossary defines the canonical terminology for the Identity domain.  
+This glossary defines the canonical terminology for the Identity domain.
 These terms must be used consistently across:
 
 - Database schema
@@ -12,11 +12,9 @@ These terms must be used consistently across:
 
 Avoid introducing synonyms. Each concept has exactly one canonical term.
 
----
+## Core Concepts
 
-# Core Concepts
-
-## User
+### User
 
 A **User** represents a person or system that can perform actions in the marketplace.
 
@@ -41,9 +39,7 @@ Examples of usage:
 - UserCreated event
 - User Settings (UI)
 
----
-
-## Account
+### Account
 
 An **Account** is the root entity that owns commercial activity within the marketplace.
 
@@ -73,9 +69,7 @@ Notes:
 - Even guest checkout users have an associated account for their orders and payments (even if it's not visible to them).
 - Buying and selling are not account capability classes; accounts may play buyer or seller roles only inside transaction-specific contexts.
 
----
-
-## Membership
+### Membership
 
 A **Membership** links a User to an Account and defines what the user can do on behalf of that account.
 
@@ -97,11 +91,9 @@ Examples:
 - memberships table
 - MembershipCreated event
 
----
+## Authorization
 
-# Authorization
-
-## Role
+### Role
 
 A **Role** defines a set of permissions assigned to a membership.
 
@@ -117,9 +109,7 @@ Notes:
 - Roles are scoped to an account.
 - Roles should be human-readable and stable.
 
----
-
-## Permission
+### Permission
 
 A **Permission** is an authorization to perform a specific action.
 
@@ -135,11 +125,9 @@ Notes:
 - Permissions are assigned to roles.
 - Permissions should be stable identifiers.
 
----
+## Authentication
 
-# Authentication
-
-## Credential
+### Credential
 
 A **Credential** is a secret or authentication factor used to verify a user.
 
@@ -156,9 +144,7 @@ Notes:
 - Interactive credential verification and challenge handling are owned by Auth.
 - Identity keeps only the user-level references needed for account and membership management.
 
----
-
-## Authentication Method
+### Authentication Method
 
 An **Authentication Method** is a configured way a user can sign in.
 
@@ -175,9 +161,7 @@ Notes:
 - A user may have multiple authentication methods.
 - Auth owns the sign-in and registration journey that uses these methods.
 
----
-
-## API Key
+### API Key
 
 An **API Key** is a credential used by software or integrations to access the system without interactive login.
 
@@ -186,11 +170,9 @@ Notes:
 - API keys belong to users.
 - API keys should support rotation and revocation.
 
----
+## Representation and Communication
 
-# Representation and Communication
-
-## Profile
+### Profile
 
 A **Profile** is the collection of display and contact information associated with a user or account.
 
@@ -206,9 +188,7 @@ Notes:
 - Profiles are representational only.
 - Profiles must not contain permissions or credentials.
 
----
-
-## Contact Method
+### Contact Method
 
 A **Contact Method** is a way to reach or verify a user.
 
@@ -222,9 +202,7 @@ Notes:
 - A user may have multiple contact methods.
 - Contact methods may require verification.
 
----
-
-## Verification
+### Verification
 
 A **Verification** records whether a contact method or identity attribute has been confirmed.
 
@@ -238,11 +216,9 @@ Notes:
 
 - Verification records should include timestamp and method.
 
----
+## Account Lifecycle
 
-# Account Lifecycle
-
-## Invitation
+### Invitation
 
 An **Invitation** is a request for a user or email address to join an account with a specific role.
 
@@ -256,9 +232,7 @@ Notes:
 - Invitations may expire.
 - Invitations may be accepted or declined.
 
----
-
-## Consent
+### Consent
 
 A **Consent** records that a user or account agreed to a policy, contract, or terms.
 
@@ -273,9 +247,7 @@ Notes:
 - Consents should be versioned.
 - Consents must be auditable.
 
----
-
-# Auditing and Events
+## Auditing and Events
 
 All stored/transmitted events (not domain) and audit records must include:
 
@@ -292,9 +264,7 @@ Notes:
 - These are audit fields, not domain entities.
 - Automation and system processes use automation users.
 
----
-
-# Domain Invariants
+## Domain Invariants
 
 The following rules must always hold:
 
@@ -302,9 +272,7 @@ The following rules must always hold:
 2. Accounts are the root of all commerce activity.
 3. Users never directly own listings, offers, wallets, or orders.
 
----
-
-# Language Rules
+## Language Rules
 
 To maintain consistency:
 
@@ -317,5 +285,3 @@ To maintain consistency:
    - API routes
    - UI labels
    - Documentation
-
----

@@ -34,7 +34,7 @@ Breaking changes are welcome when they reduce entropy and make the model clearer
 bounded-contexts/      Domain contexts with features, routes, read models, UI, tests, and local support code.
 contracts/             Stable cross-context contracts and primitives.
 deployables/           Thin runnable applications and services.
-docs/                  Product, language, runbooks, ADRs, and API documentation.
+docs/                  Cross-cutting product, language, runbooks, ADRs, and API documentation.
 infrastructure/        Runtime adapters, persistence, observability, provider integrations, and test providers.
 packages/design-system Canonical React UI system, tokens, primitives, shells, and shared patterns.
 scripts/               Workspace automation, verification, dev system, replay, structure, and provider tooling.
@@ -135,7 +135,7 @@ The main verification path is:
 npm run verify
 ```
 
-It syncs workspace metadata, checks architectural boundaries and rollout rules, typechecks, runs fast tests, and builds all workspaces. DB-backed verification is separate:
+It syncs workspace metadata, checks architectural boundaries, typechecks, runs fast tests, and builds all workspaces. DB-backed verification is separate:
 
 ```bash
 npm run verify:db
@@ -154,8 +154,8 @@ When adding or changing behavior:
 
 For UI work, start with:
 
-- [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md)
-- [docs/DESIGN-SYSTEM-COMPONENTS.md](docs/DESIGN-SYSTEM-COMPONENTS.md)
+- [packages/design-system/README.md](packages/design-system/README.md)
+- [packages/design-system/MARKETPLACE_SYSTEM.md](packages/design-system/MARKETPLACE_SYSTEM.md)
 - `packages/design-system/src/`
 
 ## Event-Sourced Shape
@@ -174,14 +174,15 @@ Favor explicit events, deterministic projection behavior, and small context-owne
 
 Key references:
 
+- [docs/README.md](docs/README.md): documentation map and ownership rules.
 - [docs/PRODUCT.md](docs/PRODUCT.md): product vision, users, and marketplace economics.
-- [docs/GLOSSARY.md](docs/GLOSSARY.md): canonical marketplace language.
-- [docs/LANGUAGE-STANDARD.md](docs/LANGUAGE-STANDARD.md): naming guidance across code, docs, and UI copy.
-- [docs/PERMANENT-LISTING-FEES.md](docs/PERMANENT-LISTING-FEES.md): listing fee snapshot rules.
-- [docs/MONEY-OPERATIONS-RUNBOOK.md](docs/MONEY-OPERATIONS-RUNBOOK.md): money operations guidance.
-- [docs/OBSERVABILITY-RUNBOOK.md](docs/OBSERVABILITY-RUNBOOK.md): local observability stack.
-- [docs/REALTIME-SSE-RUNBOOK.md](docs/REALTIME-SSE-RUNBOOK.md): realtime SSE behavior.
-- [docs/REMOTE-DEV.md](docs/REMOTE-DEV.md): remote development workflow.
+- [docs/GLOSSARY.md](docs/GLOSSARY.md): canonical marketplace language and account-role naming rules.
+- [bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md](bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md): seller fee snapshot rules.
+- [bounded-contexts/payments/MARKETPLACE-CHECKOUT-FEE-POLICY.md](bounded-contexts/payments/MARKETPLACE-CHECKOUT-FEE-POLICY.md): buyer-side marketplace checkout fee policy.
+- [docs/runbooks/money-operations.md](docs/runbooks/money-operations.md): money operations guidance, launch checks, and Stripe smoke tests.
+- [docs/runbooks/observability.md](docs/runbooks/observability.md): local observability stack.
+- [docs/runbooks/realtime-sse.md](docs/runbooks/realtime-sse.md): realtime SSE behavior.
+- [docs/runbooks/remote-dev.md](docs/runbooks/remote-dev.md): remote development workflow.
 - [docs/api/marketplace-api.md](docs/api/marketplace-api.md): marketplace API documentation.
 - [docs/adr/0001-platform-api-observability.md](docs/adr/0001-platform-api-observability.md): platform API observability ADR.
 
@@ -195,18 +196,15 @@ npm run dev:observability:open
 npm run dev:observability:down
 ```
 
-See [docs/OBSERVABILITY-RUNBOOK.md](docs/OBSERVABILITY-RUNBOOK.md) for the full workflow.
+See [docs/runbooks/observability.md](docs/runbooks/observability.md) for the full workflow.
 
 ## Structure Guardrails
 
-The repo includes automated checks for boundaries, language, localization, money rollout safety, design-system migration, and permanent listing fee behavior. Run these directly when working near those concerns:
+The repo includes automated checks for architecture boundaries and localization. Run these directly when working near those concerns:
 
 ```bash
 npm run check:structure
 npm run check:localization
-npm run check:ui-migration
-npm run check:money-rollout
-npm run check:permanent-listing-fees
 ```
 
 CI enforces structure with stricter single-slice support rules. If a change wants new shared code, make the ownership explicit before moving it out of the slice.

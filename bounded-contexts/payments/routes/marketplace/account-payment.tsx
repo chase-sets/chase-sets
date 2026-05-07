@@ -755,8 +755,13 @@ export default function MarketplaceAccountPaymentRoute() {
     actionData && "error" in actionData && actionData.scope === "retry"
       ? actionData.error
       : null;
+  const zeroDollarBalanceCovered =
+    data.payment.processor_amount === "0.00" &&
+    data.payment.status !== "pending-confirmation" &&
+    data.payment.status !== "failed" &&
+    data.payment.status !== "cancelled";
   const feedbackPrompt =
-    data.payment.status === "captured" || data.payment.processor_amount === "0.00" ? (
+    data.payment.status === "captured" || zeroDollarBalanceCovered ? (
       <PlatformFeedbackPrompt
         workflow="checkout-payment"
         sourceRoutePath={
