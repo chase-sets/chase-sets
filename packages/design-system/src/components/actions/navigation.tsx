@@ -322,9 +322,11 @@ export function BottomNav({
   ...rest
 }: BottomNavProps) {
   const groupId = useId();
-  const visibleItems = items.slice(0, 5);
+  const visibleItems = items;
   const gridColumnsClass =
-    visibleItems.length >= 5
+    visibleItems.length > 5
+      ? "grid-flow-col auto-cols-[minmax(4.75rem,1fr)] overflow-x-auto"
+      : visibleItems.length === 5
       ? "grid-cols-5"
       : visibleItems.length === 4
         ? "grid-cols-4"

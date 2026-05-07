@@ -21,6 +21,7 @@ export function InvitationListPage({
       items={initialData.items}
       columns={columns}
       emptyMessage={t("identity.features.invitations.ui.invitationListPage.no.invitations.yet")}
+      getHref={(row) => `/identity/invitations/${row.invitation_id}`}
     />
   );
 }

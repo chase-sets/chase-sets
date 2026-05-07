@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
-import { Outlet, useLocation } from "react-router";
-import { Button } from "@chase-sets/design-system";
+import { Outlet, useLoaderData, useLocation } from "react-router";
+import { Button, Inline, LinkButton } from "@chase-sets/design-system";
 import { CatalogAdminLayout } from "@chase-sets/catalog/web";
 import { requireCatalogAdminActor } from "../auth.server";
 import { resolveAdminWebNavItems } from "../host";
@@ -19,17 +19,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function CatalogAdminLayoutRoute() {
   const location = useLocation();
-  const navItems = resolveAdminWebNavItems(undefined, { section: "catalog" });
+  const { actor } = useLoaderData<typeof loader>();
+  const navItems = resolveAdminWebNavItems(actor, { section: "catalog" });
 
   return (
     <CatalogAdminLayout
       activeKey={resolveActiveKey(location.pathname)}
       navItems={navItems}
       actions={
-        <form action="/catalog/sign-out" method="post">
-          <Button type="submit" tone="secondary">
-            {t("adminWeb.app.routes.catalogLayout.sign.out")}</Button>
-        </form>
+        <Inline gap={2}>
+          <LinkButton href="/identity/accounts" tone="secondary">
+            {t("adminWeb.app.routes.catalogLayout.identity")}
+          </LinkButton>
+          <form action="/catalog/sign-out" method="post">
+            <Button type="submit" tone="secondary">
+              {t("adminWeb.app.routes.catalogLayout.sign.out")}</Button>
+          </form>
+        </Inline>
       }
     >
       <Outlet />

@@ -26,6 +26,7 @@ export function SessionListPage({
       items={initialData.items}
       columns={columns}
       emptyMessage={t("auth.features.sessions.ui.sessionListPage.no.sessions.yet")}
+      getHref={(row) => `/identity/sessions/${row.session_id}`}
     />
   );
 }

@@ -4,6 +4,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   AppliedFilterChips,
+  BottomNav,
   BuyerProtectionBadge,
   UiBadge as Badge,
   UiButton as Button,
@@ -486,6 +487,24 @@ describe("design-system", () => {
     expect(markup).toContain("Chase Sets");
     expect(markup).toContain("Seller tools");
     expect(markup).toContain('aria-current="page"');
+  });
+
+  it("keeps every bottom navigation item reachable", () => {
+    render(
+      <BottomNav
+        activeKey="catalog-items"
+        items={[
+          { key: "dimensions", label: "Dimensions", href: "/dimensions" },
+          { key: "fields", label: "Fields", href: "/fields" },
+          { key: "components", label: "Components", href: "/components" },
+          { key: "blueprints", label: "Blueprints", href: "/blueprints" },
+          { key: "categories", label: "Categories", href: "/categories" },
+          { key: "catalog-items", label: "Catalog Items", href: "/catalog-items" }
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "Catalog Items" })).toBeTruthy();
   });
 
   it("syncs theme toggle choices to the document theme", async () => {

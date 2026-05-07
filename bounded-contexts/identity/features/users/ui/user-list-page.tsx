@@ -21,6 +21,7 @@ export function UserListPage({ initialData }: { initialData: { items: User[] } }
       items={initialData.items}
       columns={columns}
       emptyMessage={t("identity.features.users.ui.userListPage.no.users.yet")}
+      getHref={(row) => `/identity/users/${row.user_id}`}
     />
   );
 }

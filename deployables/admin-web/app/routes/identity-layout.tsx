@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLoaderData, useLocation } from "react-router";
-import { Button } from "@chase-sets/design-system";
+import { Button, Inline, LinkButton } from "@chase-sets/design-system";
 import { IdentityAdminLayout } from "@chase-sets/identity/web";
 import { requireIdentityAdminActor } from "../auth.server";
 import { resolveAdminWebNavItems } from "../host";
@@ -22,14 +22,19 @@ export default function IdentityAdminLayoutRoute() {
   const { actor } = useLoaderData<typeof loader>();
 
   return (
-      <IdentityAdminLayout
+    <IdentityAdminLayout
       activeKey={resolveActiveKey(location.pathname)}
       navItems={resolveAdminWebNavItems(actor, { section: "identity" })}
       actions={
-        <form action="/identity/sign-out" method="post">
-          <Button type="submit" tone="secondary">
-            {t("adminWeb.app.routes.identityLayout.sign.out")}</Button>
-        </form>
+        <Inline gap={2}>
+          <LinkButton href="/catalog/dimensions" tone="secondary">
+            {t("adminWeb.app.routes.identityLayout.catalog")}
+          </LinkButton>
+          <form action="/identity/sign-out" method="post">
+            <Button type="submit" tone="secondary">
+              {t("adminWeb.app.routes.identityLayout.sign.out")}</Button>
+          </form>
+        </Inline>
       }
     >
       <Outlet />

@@ -21,6 +21,7 @@ export function ApiKeyListPage({
       items={initialData.items}
       columns={columns}
       emptyMessage={t("identity.features.apiKeys.ui.apiKeyListPage.no.api.keys.yet")}
+      getHref={(row) => `/identity/api-keys/${row.api_key_id}`}
     />
   );
 }

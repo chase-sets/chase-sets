@@ -17,6 +17,22 @@ import {
 } from "@chase-sets/design-system";
 
 const ALL_STATUSES = "__all__";
+const CATALOG_ADMIN_BASE_PATH = "/catalog";
+
+function toCatalogAdminHref(href: string) {
+  if (!href.startsWith("/")) {
+    return href;
+  }
+
+  if (
+    href === CATALOG_ADMIN_BASE_PATH ||
+    href.startsWith(`${CATALOG_ADMIN_BASE_PATH}/`)
+  ) {
+    return href;
+  }
+
+  return `${CATALOG_ADMIN_BASE_PATH}${href}`;
+}
 
 interface EntityListPageProps<T> {
   title: string;
@@ -68,7 +84,7 @@ export function EntityListPage<T>({
       key: "__view__",
       header: "",
       cell: (row) => (
-        <LinkButton href={getHref(row)} size="sm" tone="secondary">
+        <LinkButton href={toCatalogAdminHref(getHref(row))} size="sm" tone="secondary">
           {t("catalog.support.shellSupport.ui.entityListPage.view")}</LinkButton>
       ),
     },

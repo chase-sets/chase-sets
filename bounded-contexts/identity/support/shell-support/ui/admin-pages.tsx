@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import {
   Card,
   DataTable,
+  LinkButton,
   Stack,
   StatusPill,
   Text,
@@ -13,12 +14,28 @@ export function AdminListPage<T>({
   items,
   columns,
   emptyMessage,
+  getHref,
 }: {
   title: string;
   items: readonly T[];
   columns: readonly DataColumn<T>[];
   emptyMessage: string;
+  getHref?: (row: T) => string;
 }) {
+  const columnsWithView: readonly DataColumn<T>[] = getHref
+    ? [
+        ...columns,
+        {
+          key: "__view__",
+          header: "",
+          cell: (row) => (
+            <LinkButton href={getHref(row)} size="sm" tone="secondary">
+              {t("identity.support.shellSupport.ui.adminPages.view")}</LinkButton>
+          ),
+        },
+      ]
+    : columns;
+
   return (
     <Stack gap={4}>
       <Text size="lg" weight="semibold">
@@ -30,7 +47,7 @@ export function AdminListPage<T>({
         {items.length === 0 ? (
           <Text tone="secondary">{emptyMessage}</Text>
         ) : (
-          <DataTable columns={[...columns]} rows={[...items]} />
+          <DataTable columns={[...columnsWithView]} rows={[...items]} />
         )}
       </Card>
     </Stack>

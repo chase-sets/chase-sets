@@ -21,6 +21,7 @@ export function AccountListPage({
       items={initialData.items}
       columns={columns}
       emptyMessage={t("identity.features.accounts.ui.accountListPage.no.accounts.yet")}
+      getHref={(row) => `/identity/accounts/${row.account_id}`}
     />
   );
 }
