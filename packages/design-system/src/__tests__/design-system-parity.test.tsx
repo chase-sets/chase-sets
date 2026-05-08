@@ -328,7 +328,8 @@ describe("design system", () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
-  it("updates checkbox and switch state through Base UI callbacks", () => {
+  it("updates checkbox and switch state through user interaction", async () => {
+    const user = userEvent.setup();
     const onCheckedChange = vi.fn();
     const onSwitchChange = vi.fn();
 
@@ -339,8 +340,8 @@ describe("design system", () => {
       </ChaseRoot>
     );
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Accept terms" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Auto price" }));
+    await user.click(screen.getByRole("checkbox", { name: "Accept terms" }));
+    await user.click(screen.getByRole("switch", { name: "Auto price" }));
 
     expect(onCheckedChange).toHaveBeenCalledWith(true);
     expect(onSwitchChange).toHaveBeenCalledWith(true);

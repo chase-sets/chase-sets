@@ -79,6 +79,21 @@ const policyLinks = [
   { href: "/seller-fees", label: t("publicPresence.nav.sellerFees") },
 ];
 
+function DiscordInviteLink({ href }: { href: string }) {
+  return (
+    <LinkButton
+      href={href}
+      tone="secondary"
+      size="lg"
+      leadingIcon="message"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {t("publicPresence.home.discordCta")}
+    </LinkButton>
+  );
+}
+
 export function PublicPresencePageShell({
   children,
 }: {
@@ -157,9 +172,7 @@ export function PublicPresenceHomePage({
                 {t("publicPresence.home.primaryCta")}
               </LinkButton>
               {discordInviteUrl ? (
-                <LinkButton href={discordInviteUrl} tone="secondary" size="lg" leadingIcon="message">
-                  {t("publicPresence.home.discordCta")}
-                </LinkButton>
+                <DiscordInviteLink href={discordInviteUrl} />
               ) : null}
             </Inline>
           }
@@ -421,9 +434,7 @@ function FinalCtaSection({
             {t("publicPresence.home.primaryCta")}
           </LinkButton>
           {discordInviteUrl ? (
-            <LinkButton href={discordInviteUrl} tone="secondary" size="lg" leadingIcon="message">
-              {t("publicPresence.home.discordCta")}
-            </LinkButton>
+            <DiscordInviteLink href={discordInviteUrl} />
           ) : null}
         </Inline>
       </Stack>
