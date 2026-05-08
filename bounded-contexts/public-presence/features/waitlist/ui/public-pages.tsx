@@ -471,7 +471,7 @@ function WaitlistSignupPanel({
               description={actionData.message}
             />
           ) : null}
-          <form method="post">
+          <form method="post" action="?index">
             <Stack gap={4}>
               <TextInput
                 label={t("publicPresence.waitlist.email")}

@@ -31,6 +31,20 @@ describe("public presence homepage", () => {
     expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
   });
 
+  it("renders an index-route-aware waitlist form target", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <PublicPresenceHomePage
+          actionData={null}
+          discordInviteUrl={null}
+          source={source}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(container.querySelector("form")?.getAttribute("action")).toBe("?index");
+  });
+
   it("shows Discord and inline success when configured", () => {
     render(
       <MemoryRouter>
