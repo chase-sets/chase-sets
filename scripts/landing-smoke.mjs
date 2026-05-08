@@ -7,11 +7,18 @@ const adminUrl = trimTrailingSlash(
   process.env.ADMIN_WEB_URL ?? process.argv[3] ?? "",
 );
 const syntheticEmail =
-  process.env.SMOKE_WAITLIST_EMAIL ?? "ops+smoke@chasesets.com";
+  process.env.SMOKE_WAITLIST_EMAIL ??
+  process.env.SMOKE_EMAIL ??
+  "ops+smoke@chasesets.com";
 const adminEmail = process.env.PLATFORM_ADMIN_EMAIL ?? "";
 const adminPassword = process.env.PLATFORM_ADMIN_PASSWORD ?? "";
 const writeWaitlist =
   (process.env.SMOKE_WRITE_WAITLIST ?? "true").toLowerCase() !== "false";
+const smokeUtmSource = process.env.SMOKE_UTM_SOURCE ?? process.env.SMOKE_SOURCE ?? "smoke";
+const smokeUtmMedium = process.env.SMOKE_UTM_MEDIUM ?? "automation";
+const smokeUtmCampaign = process.env.SMOKE_UTM_CAMPAIGN ?? "landing-smoke";
+const smokeUtmContent = process.env.SMOKE_UTM_CONTENT ?? null;
+const smokeUtmTerm = process.env.SMOKE_UTM_TERM ?? null;
 
 if (!publicUrl || !adminUrl) {
   throw new Error(
@@ -21,6 +28,24 @@ if (!publicUrl || !adminUrl) {
 
 function trimTrailingSlash(value) {
   return value.replace(/\/+$/, "");
+}
+
+function createSmokePagePath() {
+  const params = new URLSearchParams({
+    utm_source: smokeUtmSource,
+    utm_medium: smokeUtmMedium,
+    utm_campaign: smokeUtmCampaign,
+  });
+
+  if (smokeUtmContent) {
+    params.set("utm_content", smokeUtmContent);
+  }
+
+  if (smokeUtmTerm) {
+    params.set("utm_term", smokeUtmTerm);
+  }
+
+  return `/?${params.toString()}`;
 }
 
 async function expectOk(label, input, init) {
@@ -37,6 +62,8 @@ async function main() {
   await expectOk("admin home", `${adminUrl}/`);
 
   if (writeWaitlist) {
+    const smokePagePath = createSmokePagePath();
+
     await expectOk("waitlist signup", `${publicUrl}/api/public-presence/waitlist`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -47,13 +74,13 @@ async function main() {
         emailConsent: true,
         website: "",
         source: {
-          pagePath: "/?utm_source=smoke&utm_medium=automation&utm_campaign=landing-smoke",
+          pagePath: smokePagePath,
           referrer: null,
-          utmSource: "smoke",
-          utmMedium: "automation",
-          utmCampaign: "landing-smoke",
-          utmContent: null,
-          utmTerm: null,
+          utmSource: smokeUtmSource,
+          utmMedium: smokeUtmMedium,
+          utmCampaign: smokeUtmCampaign,
+          utmContent: smokeUtmContent,
+          utmTerm: smokeUtmTerm,
         },
       }),
     });

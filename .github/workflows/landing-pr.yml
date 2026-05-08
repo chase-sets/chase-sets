@@ -46,14 +46,30 @@ jobs:
         working-directory: infrastructure/digitalocean/landing
         run: terraform init -backend=false
 
-      - name: Terraform format
+      - name: Terraform format landing
         working-directory: infrastructure/digitalocean/landing
         run: terraform fmt -check -recursive
 
-      - name: Terraform validate
+      - name: Terraform validate landing
         working-directory: infrastructure/digitalocean/landing
         run: terraform validate
 
-      - name: Terraform plan
+      - name: Terraform plan landing
         working-directory: infrastructure/digitalocean/landing
+        run: terraform plan -refresh=false -lock=false -out=tfplan
+
+      - name: Terraform init state bootstrap
+        working-directory: infrastructure/digitalocean/state-bootstrap
+        run: terraform init
+
+      - name: Terraform format state bootstrap
+        working-directory: infrastructure/digitalocean/state-bootstrap
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate state bootstrap
+        working-directory: infrastructure/digitalocean/state-bootstrap
+        run: terraform validate
+
+      - name: Terraform plan state bootstrap
+        working-directory: infrastructure/digitalocean/state-bootstrap
         run: terraform plan -refresh=false -lock=false -out=tfplan

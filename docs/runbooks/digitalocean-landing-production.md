@@ -66,7 +66,7 @@ Production deploys through `.github/workflows/landing-production.yml` with a rel
 
 The workflow:
 
-1. Verifies the tag resolves to a commit reachable from `origin/main`.
+1. Creates the release tag from the requested release ref when it is missing, or verifies the existing tag.
 2. Fast-forwards the protected `production` branch to that tag.
 3. Runs `npm run verify`.
 4. Runs Terraform fmt, plan, and apply for `environment=production`.
