@@ -294,12 +294,13 @@ function WhyJoinNow() {
 
 function LaunchPriorityPanel() {
   return (
-    <Surface tone="muted">
+    <PageSection
+      title={t("publicPresence.home.launchPriority.title")}
+      description={t("publicPresence.home.launchPriority.description")}
+    >
       <Grid columns={{ base: 1, lg: 2 }} gap={5}>
-        <Stack gap={2}>
+        <Stack gap={3}>
           <Badge tone="info">{t("publicPresence.home.launchPriority.badge")}</Badge>
-          <Heading level={2}>{t("publicPresence.home.launchPriority.title")}</Heading>
-          <Text tone="secondary">{t("publicPresence.home.launchPriority.description")}</Text>
           <List
             items={[
               t("publicPresence.home.promise.lowValue"),
@@ -308,28 +309,30 @@ function LaunchPriorityPanel() {
             ]}
           />
         </Stack>
-        <Stack gap={3}>
-          <Inline gap={2}>
-            <Badge tone="success">{t("publicPresence.home.betaFee.badge")}</Badge>
-            <Text size="sm" weight="semibold">{t("publicPresence.home.stat.status.value")}</Text>
-          </Inline>
-          <Heading level={3}>{t("publicPresence.home.betaFee.title")}</Heading>
-          <Text tone="secondary">{t("publicPresence.home.betaFee.description")}</Text>
-          <Grid columns={{ base: 1, md: 3 }} gap={3}>
-            {[
-              ["publicPresence.home.betaFee.rate", "publicPresence.home.betaFee.rateLabel"],
-              ["publicPresence.home.betaFee.scope", "publicPresence.home.betaFee.scopeLabel"],
-              ["publicPresence.home.betaFee.lock", "publicPresence.home.betaFee.lockLabel"],
-            ].map(([value, label]) => (
-              <Stack key={value} gap={1}>
-                <Text weight="bold">{t(value)}</Text>
-                <Text size="sm" tone="secondary">{t(label)}</Text>
-              </Stack>
-            ))}
-          </Grid>
-        </Stack>
+        <Surface tone="subtle">
+          <Stack gap={3}>
+            <Inline gap={2}>
+              <Badge tone="success">{t("publicPresence.home.betaFee.badge")}</Badge>
+              <Text size="sm" weight="semibold">{t("publicPresence.home.stat.status.value")}</Text>
+            </Inline>
+            <Heading level={3}>{t("publicPresence.home.betaFee.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.betaFee.description")}</Text>
+            <Grid columns={{ base: 1, md: 3 }} gap={3}>
+              {[
+                ["publicPresence.home.betaFee.rate", "publicPresence.home.betaFee.rateLabel"],
+                ["publicPresence.home.betaFee.scope", "publicPresence.home.betaFee.scopeLabel"],
+                ["publicPresence.home.betaFee.lock", "publicPresence.home.betaFee.lockLabel"],
+              ].map(([value, label]) => (
+                <Stack key={value} gap={1}>
+                  <Text weight="bold">{t(value)}</Text>
+                  <Text size="sm" tone="secondary">{t(label)}</Text>
+                </Stack>
+              ))}
+            </Grid>
+          </Stack>
+        </Surface>
       </Grid>
-    </Surface>
+    </PageSection>
   );
 }
 
@@ -410,6 +413,7 @@ function ProductSignalPreview() {
           model="product"
           imageSrc={pikachuIllustrationRareUrl}
           imageAlt={t("publicPresence.preview.listing.imageAlt")}
+          promotion={t("publicPresence.preview.listing.badge")}
           price={t("publicPresence.preview.listing.price.value")}
           priceDetail={t("publicPresence.preview.listing.price.detail")}
           priceExplanation={t("publicPresence.preview.listing.price.explanation")}
@@ -417,7 +421,6 @@ function ProductSignalPreview() {
           reviewCount="126"
           sellerName={t("publicPresence.preview.listing.seller.value")}
           sellerTrustLabel={t("publicPresence.preview.listing.seller.trust")}
-          sellerVerified
           sellerMeta={t("publicPresence.preview.listing.seller.meta")}
           fulfillment={t("publicPresence.preview.listing.fulfillment.value")}
           availability={t("publicPresence.preview.listing.availability.value")}
@@ -576,7 +579,7 @@ function WaitlistSignupPanel({
                 <NativeSelect
                   label={t("publicPresence.waitlist.interests")}
                   name="interests"
-                  defaultValue="low-seller-fees"
+                  defaultValue="set-completion"
                   items={interestSelectItems}
                   required
                 />
@@ -593,7 +596,7 @@ function WaitlistSignupPanel({
                 <NativeSelect
                   label={t("publicPresence.waitlist.interests")}
                   name="interests"
-                  defaultValue="low-seller-fees"
+                  defaultValue="set-completion"
                   description={t("publicPresence.waitlist.interests.description")}
                   items={interestSelectItems}
                   required

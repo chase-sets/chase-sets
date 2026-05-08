@@ -462,7 +462,7 @@ export function ListingCard({
         "group relative grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
         hasMediaFrame
           ? density === "compact"
-            ? "grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
+            ? "grid-cols-1 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
             : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
           : "grid-cols-1",
         isLinked && "cursor-pointer",
@@ -479,7 +479,7 @@ export function ListingCard({
       {hasMediaFrame ? (
         <div
           className={cn(
-            "relative min-h-36 bg-[var(--surface-2)]",
+            "relative grid min-h-44 place-items-center bg-[var(--surface-2)] sm:min-h-36 sm:items-start sm:justify-items-center",
             isLinked && "z-20 pointer-events-none"
           )}
         >
@@ -487,7 +487,7 @@ export function ListingCard({
             <img
               src={imageSrc}
               alt={imageAlt ?? title}
-              className="h-full min-h-36 w-full object-contain p-3"
+              className="h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
             />
           ) : (
             <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">

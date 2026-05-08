@@ -60,8 +60,10 @@ describe("public presence homepage", () => {
     expect(container.querySelectorAll("form")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Join beta waitlist" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Tell us whether you plan to buy, sell, or do both, then pick the tool you want prioritized.").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Beta seller-fee waiver terms" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Seller costs shown before listing" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Locked while unchanged").length).toBeGreaterThan(0);
+    const priority = container.querySelector('form select[name="interests"]') as HTMLSelectElement;
+    expect(priority.value).toBe("set-completion");
     expect(container.querySelector('[id="final-waitlist"]')).toBeTruthy();
   });
 
