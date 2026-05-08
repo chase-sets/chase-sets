@@ -20,7 +20,7 @@ Catalog authoring uses these supporting concepts:
 
 Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity and product resolution. `Blueprint`, `Field`, `Component`, and `Category` define how that catalog truth is authored, described, composed, and organized.
 
-Graded card product modeling is documented in [Graded Card Data Model](./GRADED-CARD-DATA-MODEL.md).
+Graded card product modeling is documented in [Graded Card Data Model](../../docs/bounded-contexts/catalog/graded-card-data-model.md).
 
 ## Owns
 

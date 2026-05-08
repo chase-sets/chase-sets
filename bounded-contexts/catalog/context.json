@@ -40,9 +40,11 @@
   "seedRequirements": [],
   "hostPorts": [],
   "apiDeployables": [
+    "admin-support-api",
     "platform-api"
   ],
   "runtimeDeployables": [
+    "admin-support-worker",
     "platform-worker"
   ],
   "apiMounts": [

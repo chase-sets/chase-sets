@@ -23,8 +23,10 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
-import type { CheckoutFulfillmentPreview } from "@chase-sets/ordering/server";
+import type {
+  CheckoutFulfillmentPreview,
+  CheckoutSessionRow,
+} from "../../../support/request-support/api-client";
 
 function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
   return [line.itemTitle, line.itemSubtitle, line.productSummary]
@@ -70,8 +72,8 @@ export function CheckoutSessionPage({
         lines={[
           { label: t("checkout.features.sessions.ui.checkoutPage.items"), value: lineCount },
           { label: t("checkout.features.sessions.ui.checkoutPage.lines"), value: lines.length },
-          { label: "Ready now", value: readyCount },
-          { label: "Needs supply", value: unavailableCount },
+          { label: t("checkout.features.sessions.ui.checkoutPage.ready.now"), value: readyCount },
+          { label: t("checkout.features.sessions.ui.checkoutPage.needs.supply"), value: unavailableCount },
           { label: t("checkout.features.sessions.ui.checkoutPage.source"), value: session.source_type === "buy-now" ? t("checkout.features.sessions.ui.checkoutPage.buy.now") : t("checkout.features.sessions.ui.checkoutPage.cart") },
           {
             label: t("checkout.features.sessions.ui.checkoutPage.pricing"),
@@ -142,24 +144,24 @@ export function CheckoutSessionPage({
             ) : null}
 
             <Banner
-              title="Live fulfillment preview"
-              description="Prices and sellers are market signals until you confirm this preview. Unavailable product intents stay in your cart so you can make offers or wait for supply."
+              title={t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview")}
+              description={t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview.description")}
             />
 
             <PageSection
-              title="Fulfillment"
-              description="Review the current seller allocation before payment starts."
+              title={t("checkout.features.sessions.ui.checkoutPage.fulfillment")}
+              description={t("checkout.features.sessions.ui.checkoutPage.fulfillment.description")}
             >
               <Stack gap={3}>
                 <Surface elevated>
                   {hasOnlyLockedAllocations ? (
                     <Stack gap={2}>
                       <Inline gap={2}>
-                        <Badge tone="success">Locked seller</Badge>
-                        <Text weight="semibold">Optimization is locked for this checkout</Text>
+                        <Badge tone="success">{t("checkout.features.sessions.ui.checkoutPage.locked.seller")}</Badge>
+                        <Text weight="semibold">{t("checkout.features.sessions.ui.checkoutPage.optimization.locked")}</Text>
                       </Inline>
                       <Text size="sm" tone="secondary">
-                        Every ready line is constrained to a selected seller listing. Unlock lines from the cart to let checkout optimize fulfillment.
+                        {t("checkout.features.sessions.ui.checkoutPage.locked.optimization.description")}
                       </Text>
                     </Stack>
                   ) : (
@@ -167,16 +169,16 @@ export function CheckoutSessionPage({
                       <Stack gap={3}>
                         <input type="hidden" name="intent" value="select-optimization-goal" />
                         <NativeSelect
-                          label="Optimization"
+                          label={t("checkout.features.sessions.ui.checkoutPage.optimization")}
                           name="optimizationGoal"
                           defaultValue={session.optimization_goal}
                           items={[
-                            { value: "lowest-total", label: "Lowest delivered total" },
-                            { value: "fewest-shipments", label: "Fewest shipments" },
+                            { value: "lowest-total", label: t("checkout.features.sessions.ui.checkoutPage.lowest.delivered.total") },
+                            { value: "fewest-shipments", label: t("checkout.features.sessions.ui.checkoutPage.fewest.shipments") },
                           ]}
                         />
                         <Button type="submit" tone="secondary">
-                          Recalculate fulfillment
+                          {t("checkout.features.sessions.ui.checkoutPage.recalculate.fulfillment")}
                         </Button>
                       </Stack>
                     </form>
@@ -187,20 +189,20 @@ export function CheckoutSessionPage({
                   <>
                     <PriceBreakdown
                       lines={[
-                        { label: "Items", value: `$${preview.totals.itemSubtotalAmount}` },
-                        { label: "Shipping", value: `$${preview.totals.shippingAmount}` },
-                        { label: "Estimated tax", value: `$${preview.totals.salesTaxAmount}` },
-                        { label: "Packages", value: preview.totals.packageCount },
+                        { label: t("checkout.features.sessions.ui.checkoutPage.items.2"), value: `$${preview.totals.itemSubtotalAmount}` },
+                        { label: t("checkout.features.sessions.ui.checkoutPage.shipping.2"), value: `$${preview.totals.shippingAmount}` },
+                        { label: t("checkout.features.sessions.ui.checkoutPage.estimated.tax"), value: `$${preview.totals.salesTaxAmount}` },
+                        { label: t("checkout.features.sessions.ui.checkoutPage.packages"), value: preview.totals.packageCount },
                       ]}
                       total={`$${preview.totals.totalAmount}`}
-                      totalLabel="Estimated total"
-                      reassurance={<SecurePaymentIndicator label="Current preview" />}
+                      totalLabel={t("checkout.features.sessions.ui.checkoutPage.estimated.total")}
+                      reassurance={<SecurePaymentIndicator label={t("checkout.features.sessions.ui.checkoutPage.current.preview")} />}
                     />
                     {preview.sellerGroups.map((group) => (
                       <Surface key={group.sellerAccountId} elevated>
                         <Stack gap={3}>
                           <Inline gap={2}>
-                            <Badge tone="accent">Seller group</Badge>
+                            <Badge tone="accent">{t("checkout.features.sessions.ui.checkoutPage.seller.group")}</Badge>
                             <Text weight="semibold">{sellerGroupLabel(group)}</Text>
                             <Text tone="secondary">${group.totalAmount}</Text>
                           </Inline>
@@ -211,18 +213,20 @@ export function CheckoutSessionPage({
                                 <Text size="sm" tone="secondary">{line.productSummary ?? "Standard"}</Text>
                               </Stack>
                               <Stack gap={1}>
-                                <Text size="sm" tone="secondary">Allocation</Text>
-                                <Text>{line.priceState === "locked" ? "Selected seller listing" : "Optimized seller listing"}</Text>
+                                <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.allocation")}</Text>
+                                <Text>{line.priceState === "locked" ? t("checkout.features.sessions.ui.checkoutPage.selected.seller.listing") : t("checkout.features.sessions.ui.checkoutPage.optimized.seller.listing")}</Text>
                               </Stack>
                               <Stack gap={1}>
-                                <Text size="sm" tone="secondary">Quantity</Text>
+                                <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.quantity.2")}</Text>
                                 <Text>{line.quantity}</Text>
                               </Stack>
                               <Stack gap={1}>
-                                <Text size="sm" tone="secondary">Estimate</Text>
+                                <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.estimate")}</Text>
                                 <Text>${line.estimatedLineTotalAmount}</Text>
                                 <Badge tone={line.priceState === "locked" ? "success" : "neutral"}>
-                                  {line.priceState === "locked" ? "Locked listing" : "Optimized"}
+                                  {line.priceState === "locked"
+                                    ? t("checkout.features.sessions.ui.checkoutPage.locked.listing")
+                                    : t("checkout.features.sessions.ui.checkoutPage.optimized")}
                                 </Badge>
                               </Stack>
                             </Grid>
@@ -233,7 +237,7 @@ export function CheckoutSessionPage({
                     {preview.unavailableLines.length > 0 ? (
                       <Surface tone="subtle" elevated>
                         <Stack gap={3}>
-                          <Badge tone="warning">Needs supply</Badge>
+                          <Badge tone="warning">{t("checkout.features.sessions.ui.checkoutPage.needs.supply")}</Badge>
                           {preview.unavailableLines.map((line) => (
                             <Grid key={line.lineKey} columns={{ base: 1, md: 3 }} gap={3}>
                               <Stack gap={1}>
@@ -246,7 +250,7 @@ export function CheckoutSessionPage({
                                 tone="secondary"
                                 size="sm"
                               >
-                                Make offer
+                                {t("checkout.features.sessions.ui.checkoutPage.make.offer")}
                               </LinkButton>
                             </Grid>
                           ))}
@@ -269,7 +273,7 @@ export function CheckoutSessionPage({
                       <Stack gap={1}>
                         <Text weight="semibold">{formatLineLabel(line)}</Text>
                         <Text size="sm" tone="secondary">
-                          Product intent saved for live fulfillment preview
+                          {t("checkout.features.sessions.ui.checkoutPage.product.intent.saved")}
                         </Text>
                       </Stack>
                       <Stack gap={1}>

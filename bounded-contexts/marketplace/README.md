@@ -34,7 +34,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 ## Ubiquitous Language
 
 Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
-Seller fee confirmation rules are documented in [Seller Fee Confirmation](./SELLER-FEE-CONFIRMATION.md).
+Seller fee confirmation rules are documented in [Seller Fee Confirmation](../../docs/bounded-contexts/marketplace/seller-fee-confirmation.md).
 
 ## Core Aggregates and Process Managers
 

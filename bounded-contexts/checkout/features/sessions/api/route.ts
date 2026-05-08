@@ -294,7 +294,7 @@ export function createAccountCheckoutSessionRoutes(
           {
             error: {
               code: "fulfillment_preview_stale",
-              message: "Fulfillment changed. Review the latest checkout preview before continuing.",
+              message: t("checkout.features.sessions.api.route.fulfillment.preview.stale"),
             },
           },
           409,

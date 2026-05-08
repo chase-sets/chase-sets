@@ -208,16 +208,18 @@ export function CheckoutCartPage({
                           {fulfillmentLabel(line)}
                         </Badge>
                         <Badge tone={line.availability_state === "available" ? "neutral" : "warning"}>
-                          {line.availability_state === "available" ? "Estimated at checkout" : "Needs supply"}
+                          {line.availability_state === "available"
+                            ? t("checkout.features.cart.ui.cartPage.estimated.at.checkout")
+                            : t("checkout.features.cart.ui.cartPage.needs.supply")}
                         </Badge>
                       </Inline>
                       {line.fulfillment_mode === "optimize" ? (
                         <Text size="sm" tone="secondary">
-                          Lock a preferred seller here or let checkout optimize fulfillment.
+                          {t("checkout.features.cart.ui.cartPage.lock.preferred.seller.or.optimize")}
                         </Text>
                       ) : (
                         <Text size="sm" tone="secondary">
-                          Unlock to let checkout re-optimize this product intent.
+                          {t("checkout.features.cart.ui.cartPage.unlock.to.reoptimize")}
                         </Text>
                       )}
                     </Stack>
@@ -246,16 +248,19 @@ export function CheckoutCartPage({
                           leadingIcon="lock"
                           block
                         >
-                          Unlock seller
+                          {t("checkout.features.cart.ui.cartPage.unlock.seller")}
                         </Button>
                       ) : line.seller_options.length > 0 ? (
                         <>
                           <NativeSelect
-                            label="Seller option"
+                            label={t("checkout.features.cart.ui.cartPage.seller.option")}
                             name="lockedListingId"
                             defaultValue=""
                             items={[
-                              { value: "", label: "Let checkout optimize" },
+                              {
+                                value: "",
+                                label: t("checkout.features.cart.ui.cartPage.let.checkout.optimize"),
+                              },
                               ...line.seller_options.map((option) => ({
                                 value: option.listing_id,
                                 label: sellerOptionLabel(option),
@@ -271,7 +276,7 @@ export function CheckoutCartPage({
                             leadingIcon="lock"
                             block
                           >
-                            Lock seller
+                            {t("checkout.features.cart.ui.cartPage.lock.seller")}
                           </Button>
                         </>
                       ) : null}
@@ -293,7 +298,7 @@ export function CheckoutCartPage({
                           size="md"
                           block
                         >
-                          Make offer
+                          {t("checkout.features.cart.ui.cartPage.make.offer")}
                         </LinkButton>
                       ) : null}
                     </>
@@ -325,7 +330,10 @@ export function CheckoutCartPage({
                   { label: t("checkout.features.cart.ui.cartPage.items"), value: cartLineCount },
                   { label: t("checkout.features.cart.ui.cartPage.cart.lines"), value: cartLineGroups.length },
                   { label: t("checkout.features.cart.ui.cartPage.pricing"), value: t("checkout.features.cart.ui.cartPage.calculated.during.checkout") },
-                  { label: "Fulfillment", value: "Live preview before payment" },
+                  {
+                    label: t("checkout.features.cart.ui.cartPage.fulfillment"),
+                    value: t("checkout.features.cart.ui.cartPage.live.preview.before.payment"),
+                  },
                 ]}
                 total={t("checkout.features.cart.ui.cartPage.ready.for.checkout")}
                 totalLabel={t("checkout.features.cart.ui.cartPage.cart.status")}

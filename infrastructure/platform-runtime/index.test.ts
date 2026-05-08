@@ -198,7 +198,11 @@ describe("platform host web registry", () => {
         label: "Dimensions",
       }),
     ]);
-    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity"]);
+    expect(getWebHostSections("admin-web")).toEqual([
+      "catalog",
+      "identity",
+      "experience",
+    ]);
   });
 
   it("filters marketplace nav items by actor visibility and permissions", () => {

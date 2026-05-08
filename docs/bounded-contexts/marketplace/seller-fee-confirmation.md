@@ -4,7 +4,7 @@ Marketplace listing fees are seller-confirmed, per-unit snapshots. A listing kee
 
 ## Fee Ownership
 
-Commercial Terms owns seller-side marketplace sales fee policy only. Buyer marketplace checkout fees are owned by Payments and documented in [Marketplace Checkout Fee Policy](../payments/MARKETPLACE-CHECKOUT-FEE-POLICY.md).
+Commercial Terms owns seller-side marketplace sales fee policy only. Buyer marketplace checkout fees are owned by Payments and documented in [Marketplace Checkout Fee Policy](../payments/marketplace-checkout-fee-policy.md).
 
 Marketplace owns seller confirmation. Ordering consumes Marketplace snapshots and does not call Commercial Terms for normal listing purchases.
 

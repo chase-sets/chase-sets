@@ -232,7 +232,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               reassurance={t("discovery.routes.publicListing.secure.checkout.reassurance")}
               primaryAction={
                 <LinkButton href={checkoutHref} size="lg" leadingIcon="lock">
-                  Buy this listing
+                  {t("discovery.routes.publicListing.buy.this.listing")}
                 </LinkButton>
               }
               secondaryAction={

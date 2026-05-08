@@ -24,6 +24,8 @@
     "./server"
   ],
   "allowedContextDependencies": [
+    "@chase-sets/auth",
+    "@chase-sets/checkout",
     "@chase-sets/experience",
     "@chase-sets/ordering"
   ],

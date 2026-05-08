@@ -17,7 +17,7 @@ import type {
   PlatformLease,
 } from "./control-plane";
 
-export type WorkerHostName = "platform-worker";
+export type WorkerHostName = "platform-worker" | "admin-support-worker";
 
 export type WorkerContextManifest = Readonly<{
   contextName: string;

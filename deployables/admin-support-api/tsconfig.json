@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "__tests__/**/*.ts",
+    "../../contracts/**/*.ts",
+    "../../bounded-contexts/**/*.ts",
+    "../../infrastructure/**/*.ts"
+  ],
+  "exclude": [
+    "../../bounded-contexts/**/*.test.ts",
+    "../../bounded-contexts/**/*.test.tsx",
+    "../../bounded-contexts/**/*.tmp.*",
+    "../../infrastructure/**/*.test.ts",
+    "../../infrastructure/**/*.test.tsx"
+  ]
+}

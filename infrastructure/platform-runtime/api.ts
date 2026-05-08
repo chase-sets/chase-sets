@@ -16,7 +16,7 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
-export type ApiHostName = "platform-api";
+export type ApiHostName = "platform-api" | "admin-support-api";
 
 export type ApiContextManifest = Readonly<{
   contextName: string;

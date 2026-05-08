@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { CheckoutFulfillmentPreview } from "@chase-sets/ordering/server";
+import type { CheckoutFulfillmentPreview } from "../../../support/request-support/api-client";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 import { CheckoutSessionPage } from "./checkout-page";
 

@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { ROLE_PERMISSIONS } from "./constants";
 
 describe("identity role permissions", () => {
+  it("grants platform admins the explicit admin-web surface permissions", () => {
+    expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
+      expect.arrayContaining([
+        "accounts.manage",
+        "accounts.view",
+        "catalog.manage",
+        "catalog.view",
+        "memberships.manage",
+        "memberships.view",
+        "platform-feedback.manage",
+        "platform-feedback.view",
+        "public-presence.manage",
+        "public-presence.view",
+        "security.manage",
+      ]),
+    );
+  });
+
   it("grants owner authority for buying and selling workflows by default", () => {
     expect(ROLE_PERMISSIONS.owner).toEqual(
       expect.arrayContaining([

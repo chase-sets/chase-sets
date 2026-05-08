@@ -40,9 +40,11 @@
   "seedRequirements": [],
   "hostPorts": [],
   "apiDeployables": [
+    "admin-support-api",
     "platform-api"
   ],
   "runtimeDeployables": [
+    "admin-support-worker",
     "platform-worker"
   ],
   "apiMounts": [
@@ -378,8 +380,6 @@
       "purpose": "Provide reusable ui-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "accounts",
-        "api-keys",
         "consents",
         "memberships"
       ],

@@ -1,0 +1,123 @@
+name: Landing Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to promote to production.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: landing-production
+  cancel-in-progress: false
+
+jobs:
+  promote-and-deploy:
+    name: Promote and Deploy Production
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+      TF_VAR_environment: production
+      TF_VAR_branch: production
+      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag and fast-forward production
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.release_tag }}"
+          git fetch origin main production --tags
+          tag_commit="$(git rev-parse "${tag}^{commit}")"
+          git merge-base --is-ancestor "$tag_commit" origin/main
+
+          if git show-ref --verify --quiet refs/remotes/origin/production; then
+            git checkout -B production origin/production
+            git merge --ff-only "$tag_commit"
+          else
+            git checkout -B production "$tag_commit"
+          fi
+
+          git push origin production
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify repository
+        run: npm run verify
+
+      - name: Terraform init
+        working-directory: infrastructure/digitalocean/landing
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/production.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Terraform format
+        working-directory: infrastructure/digitalocean/landing
+        run: terraform fmt -check -recursive
+
+      - name: Terraform plan
+        working-directory: infrastructure/digitalocean/landing
+        run: terraform plan -out=tfplan
+
+      - name: Terraform apply
+        working-directory: infrastructure/digitalocean/landing
+        run: terraform apply -auto-approve tfplan
+
+      - name: Deploy App Platform app
+        working-directory: infrastructure/digitalocean/landing
+        run: |
+          app_id="$(terraform output -raw app_id)"
+          doctl apps create-deployment "$app_id" --wait --force-rebuild
+
+      - name: Smoke check
+        working-directory: infrastructure/digitalocean/landing
+        env:
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_EMAIL: ops+smoke@chasesets.com
+          SMOKE_SOURCE: production-smoke
+          SMOKE_UTM_CAMPAIGN: production-release
+        run: |
+          public_domain="$(terraform output -json public_domains | jq -r '.[0]')"
+          admin_domain="$(terraform output -raw admin_domain)"
+          cd ../../..
+          npm run smoke:landing -- "https://${public_domain}" "https://${admin_domain}"

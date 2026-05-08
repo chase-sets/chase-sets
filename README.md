@@ -177,8 +177,8 @@ Key references:
 - [docs/README.md](docs/README.md): documentation map and ownership rules.
 - [docs/PRODUCT.md](docs/PRODUCT.md): product vision, users, and marketplace economics.
 - [docs/GLOSSARY.md](docs/GLOSSARY.md): canonical marketplace language and account-role naming rules.
-- [bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md](bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md): seller fee snapshot rules.
-- [bounded-contexts/payments/MARKETPLACE-CHECKOUT-FEE-POLICY.md](bounded-contexts/payments/MARKETPLACE-CHECKOUT-FEE-POLICY.md): buyer-side marketplace checkout fee policy.
+- [docs/bounded-contexts/marketplace/seller-fee-confirmation.md](docs/bounded-contexts/marketplace/seller-fee-confirmation.md): seller fee snapshot rules.
+- [docs/bounded-contexts/payments/marketplace-checkout-fee-policy.md](docs/bounded-contexts/payments/marketplace-checkout-fee-policy.md): buyer-side marketplace checkout fee policy.
 - [docs/runbooks/money-operations.md](docs/runbooks/money-operations.md): money operations guidance, launch checks, and Stripe smoke tests.
 - [docs/runbooks/observability.md](docs/runbooks/observability.md): local observability stack.
 - [docs/runbooks/realtime-sse.md](docs/runbooks/realtime-sse.md): realtime SSE behavior.

@@ -157,50 +157,6 @@ async function getSeedOrderForSource(
     : null;
 }
 
-async function getSeedOrderForSharedOrderingSource(
-  pool: PgTransactionalPool,
-  sourceType: "cart-checkout" | "offer-acceptance" | "buy-now",
-  sourceReferenceId: string,
-  buyerAccountId: string,
-): Promise<OrderRow | null> {
-  const tableResult = await pool.query<{ table_name: string | null }>(
-    "SELECT to_regclass('public.ordering_order_pages')::text AS table_name",
-  );
-  if (!tableResult.rows[0]?.table_name) {
-    return null;
-  }
-
-  const result = await pool.query<OrderRow & Readonly<{ status: string }>>(
-    `SELECT
-       input.order_id,
-       input.buyer_account_id,
-       input.seller_account_id,
-       input.total_amount::text AS total_amount,
-       input.marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,
-       input.marketplace_checkout_fee_amount::text AS marketplace_checkout_fee_amount,
-       input.seller_net_amount::text AS seller_net_amount,
-       input.seller_item_net_amount::text AS seller_item_net_amount,
-       input.shipping_allowance_amount::text AS shipping_allowance_amount,
-       input.seller_shipping_payout_amount::text AS seller_shipping_payout_amount,
-       input.seller_payout_amount::text AS seller_payout_amount,
-       input.status
-     FROM payments_order_inputs AS input
-     INNER JOIN ordering_order_pages AS page
-       ON page.order_id = input.order_id
-     WHERE page.source_type = $1
-       AND page.source_reference_id = $2
-       AND input.buyer_account_id = $3
-     ORDER BY input.order_id ASC
-     LIMIT 1`,
-    [sourceType, sourceReferenceId, buyerAccountId],
-  );
-  const order = result.rows[0];
-
-  return order
-    ? requirePendingPaymentOrder(order, `${sourceType} ${sourceReferenceId}`)
-    : null;
-}
-
 async function getAcceptedOfferSeedOrder(
   pool: PgTransactionalPool,
 ): Promise<OrderRow> {
@@ -218,19 +174,12 @@ async function getAcceptedOfferSeedOrder(
     const sourceType = "offer-acceptance";
     const sourceReferenceId =
       marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted;
-    const sourceOrder =
-      (await getSeedOrderForSource(
-        pool,
-        sourceType,
-        sourceReferenceId,
-        identitySeedIds.collector.accountId,
-      )) ??
-      (await getSeedOrderForSharedOrderingSource(
-        pool,
-        sourceType,
-        sourceReferenceId,
-        identitySeedIds.collector.accountId,
-      ));
+    const sourceOrder = await getSeedOrderForSource(
+      pool,
+      sourceType,
+      sourceReferenceId,
+      identitySeedIds.collector.accountId,
+    );
 
     if (!sourceOrder) {
       throw error;

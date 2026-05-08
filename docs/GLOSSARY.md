@@ -130,7 +130,7 @@ Notes:
 - Listing snapshots are permanent for listed units until those units are sold.
 - Active price edits and quantity-cap edits require a fresh confirmed quote and replace the locked snapshot.
 - Partial sales, pause, resume, and sold-out availability changes do not refresh the snapshot.
-- See [Seller Fee Confirmation](../bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md).
+- See [Seller Fee Confirmation](./bounded-contexts/marketplace/seller-fee-confirmation.md).
 
 ## Payment
 

@@ -15,6 +15,19 @@ export const AUTH_PERMISSION_PRESETS = {
 } satisfies Readonly<Record<string, readonly string[]>>;
 
 export const AUTH_ROLE_PERMISSIONS = {
+  "platform-admin": [
+    "accounts.manage",
+    "accounts.view",
+    "catalog.manage",
+    "catalog.view",
+    "memberships.manage",
+    "memberships.view",
+    "platform-feedback.manage",
+    "platform-feedback.view",
+    "public-presence.manage",
+    "public-presence.view",
+    "security.manage",
+  ],
   owner: [
     "accounts.manage",
     "accounts.view",

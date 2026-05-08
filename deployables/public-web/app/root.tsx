@@ -21,11 +21,16 @@ import {
   Page,
   Stack,
 } from "@chase-sets/design-system";
-import { buildCanonicalUrl, resolvePublicOrigin } from "./seo";
+import {
+  buildCanonicalUrl,
+  resolvePublicOrigin,
+  shouldIndexPublicWeb,
+} from "./seo";
 
 export function loader(_args: LoaderFunctionArgs) {
   return {
     origin: resolvePublicOrigin(),
+    shouldIndex: shouldIndexPublicWeb(),
   };
 }
 
@@ -35,6 +40,7 @@ export function Layout({ children }: { children: ReactNode }) {
     | undefined;
   const location = useLocation();
   const origin = data?.origin ?? resolvePublicOrigin();
+  const shouldIndex = data?.shouldIndex ?? shouldIndexPublicWeb();
   const canonicalUrl = buildCanonicalUrl({
     origin,
     pathname: location.pathname,
@@ -47,6 +53,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
+        {!shouldIndex ? <meta name="robots" content="noindex,nofollow" /> : null}
         <link rel="canonical" href={canonicalUrl} />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />

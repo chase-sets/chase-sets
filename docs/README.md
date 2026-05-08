@@ -24,9 +24,9 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Marketplace Design Direction](../packages/design-system/MARKETPLACE_SYSTEM.md)
 - [Localization Contract](../contracts/localization/README.md)
 - [MCP Contract](../contracts/mcp/README.md)
-- [Catalog Graded Card Data Model](../bounded-contexts/catalog/GRADED-CARD-DATA-MODEL.md)
-- [Marketplace Seller Fee Confirmation](../bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md)
-- [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/MARKETPLACE-CHECKOUT-FEE-POLICY.md)
+- [Catalog Graded Card Data Model](./bounded-contexts/catalog/graded-card-data-model.md)
+- [Marketplace Seller Fee Confirmation](./bounded-contexts/marketplace/seller-fee-confirmation.md)
+- [Payments Marketplace Checkout Fee Policy](./bounded-contexts/payments/marketplace-checkout-fee-policy.md)
 
 ## ADRs
 

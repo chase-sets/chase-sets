@@ -17,6 +17,19 @@ export const PERMISSION_PRESETS = {
 } satisfies Readonly<Record<string, readonly PermissionKey[]>>;
 
 export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
+  "platform-admin": [
+    "accounts.manage",
+    "accounts.view",
+    "catalog.manage",
+    "catalog.view",
+    "memberships.manage",
+    "memberships.view",
+    "platform-feedback.manage",
+    "platform-feedback.view",
+    "public-presence.manage",
+    "public-presence.view",
+    "security.manage",
+  ],
   owner: [
     "accounts.manage",
     "accounts.view",

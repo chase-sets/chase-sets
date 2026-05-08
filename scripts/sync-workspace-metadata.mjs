@@ -28,12 +28,36 @@ const generatedRegistryOutputs = [
     ),
   },
   {
+    kind: "api",
+    hostName: "admin-support-api",
+    outputPath: path.join(
+      repoRoot,
+      "deployables",
+      "admin-support-api",
+      "src",
+      "generated",
+      "api-context-registry.ts",
+    ),
+  },
+  {
     kind: "worker",
     hostName: "platform-worker",
     outputPath: path.join(
       repoRoot,
       "deployables",
       "platform-worker",
+      "src",
+      "generated",
+      "worker-context-registry.ts",
+    ),
+  },
+  {
+    kind: "worker",
+    hostName: "admin-support-worker",
+    outputPath: path.join(
+      repoRoot,
+      "deployables",
+      "admin-support-worker",
       "src",
       "generated",
       "worker-context-registry.ts",

@@ -1,5 +1,5 @@
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolvePublicRouteConfigRecords } from "../host";
 import { buildCanonicalUrl } from "../seo";
 import PublicNotFoundRoute from "./not-found";
@@ -38,6 +38,7 @@ describe("public web deployable", () => {
   });
 
   it("serves a prelaunch-only sitemap and robots file", async () => {
+    vi.stubEnv("CHASE_SETS_PUBLIC_INDEXING", "true");
     const sitemap = sitemapLoader({
       request: new Request("https://example.test/sitemap.xml"),
       params: {},
@@ -61,6 +62,19 @@ describe("public web deployable", () => {
     await expect(robots.text()).resolves.toContain(
       "Sitemap: https://chasesets.com/sitemap.xml",
     );
+    vi.unstubAllEnvs();
+  });
+
+  it("can noindex staging through environment configuration", async () => {
+    vi.stubEnv("CHASE_SETS_PUBLIC_INDEXING", "false");
+    const robots = robotsLoader({
+      request: new Request("https://staging.chasesets.com/robots.txt"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    await expect(robots.text()).resolves.toContain("Disallow: /");
+    vi.unstubAllEnvs();
   });
 
   it("does not offer marketplace browse recovery on not found pages", () => {

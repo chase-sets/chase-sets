@@ -399,9 +399,14 @@ function MarketplaceOfferRegistrationSection({
             />
             <Text size="sm" tone="secondary">
               {productId && isAuthenticated
-                ? `${visibleListingCount} ${
-                    visibleListingCount === 1 ? "listing matches" : "listings match"
-                  } this product. Product-wide offers become available once buyer access is enabled.`
+                ? t("discovery.routes.itemDetail.product.wide.offers.available", {
+                    count: visibleListingCount,
+                    listingLabel: t(
+                      visibleListingCount === 1
+                        ? "discovery.routes.itemDetail.listing.matches.singular"
+                        : "discovery.routes.itemDetail.listing.matches.plural",
+                    ),
+                  })
                 : productId
                 ? t("discovery.routes.itemDetail.offer.registration.context", {
                     count: visibleListingCount,
@@ -490,9 +495,9 @@ export function CheckoutPurchaseIntentSection({
   const addToCartPending = addToCartFetcher.state !== "idle";
   const productIntentGuidance = productId
     ? visibleListingCount === 0
-      ? "This saves product demand. Checkout can continue only when active supply appears, and you can make an offer meanwhile."
-      : "Buy optimized lets checkout pick fulfillment. Buy locked to this seller keeps the selected seller as a hard constraint."
-    : "Choose every required product option before buying, saving demand, or making an offer.";
+        ? t("discovery.routes.itemDetail.product.intent.no.supply.guidance")
+        : t("discovery.routes.itemDetail.product.intent.buy.guidance")
+      : t("discovery.routes.itemDetail.product.intent.choose.options.guidance");
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {
       notifyCartCountChanged(addToCartFetcher.data.quantity);
@@ -518,7 +523,7 @@ export function CheckoutPurchaseIntentSection({
         disabled={!productId}
         block
       >
-        Buy optimized
+        {t("discovery.routes.itemDetail.buy.optimized")}
       </Button>
       <Button
         type="submit"
@@ -528,7 +533,7 @@ export function CheckoutPurchaseIntentSection({
         disabled={!productId || !selectedListing}
         block
       >
-        Buy locked to this seller
+        {t("discovery.routes.itemDetail.buy.locked.to.this.seller")}
       </Button>
       <Button
         type="button"
@@ -540,8 +545,8 @@ export function CheckoutPurchaseIntentSection({
         block
       >
         {addToCartPending
-          ? t("discovery.routes.itemDetail.adding.to.cart")
-          : "Add product to cart"}</Button>
+            ? t("discovery.routes.itemDetail.adding.to.cart")
+            : t("discovery.routes.itemDetail.add.product.to.cart")}</Button>
     </>
   );
   const form = (
@@ -573,17 +578,21 @@ export function CheckoutPurchaseIntentSection({
         />
         {showSummary ? (
           <Stack gap={2}>
-            <Text weight="semibold">Selected product intent</Text>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.selected.product.intent")}</Text>
             <KeyValueList
               density="compact"
               variant="plain"
               items={[
                 {
-                  key: selectedListing ? "Selected seller signal" : "Market signal",
+                  key: selectedListing
+                    ? t("discovery.routes.itemDetail.selected.seller.signal")
+                    : t("discovery.routes.itemDetail.market.signal"),
                   value: selectedListingPrice,
                 },
                 {
-                  key: selectedListing ? "Selected seller" : "Seller options",
+                  key: selectedListing
+                    ? t("discovery.routes.itemDetail.selected.seller")
+                    : t("discovery.routes.itemDetail.seller.options"),
                   value: selectedListingSeller,
                 },
                 {

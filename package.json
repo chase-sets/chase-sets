@@ -16,6 +16,7 @@
         "dev:down": "node ./scripts/dev-system.mjs down",
         "dev:db:refresh": "node ./scripts/dev-system.mjs refresh",
         "remote-dev": "node ./scripts/remote-dev.mjs",
+        "smoke:landing": "node ./scripts/landing-smoke.mjs",
         "replay:projection": "node ./scripts/replay-projection.mjs",
         "stripe:listen": "node ./scripts/stripe-cli.mjs listen",
         "stripe:money-smoke": "node ./scripts/stripe-money-smoke-test.mjs",

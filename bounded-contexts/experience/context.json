@@ -32,6 +32,7 @@
   "projectionGroups": [],
   "hostPorts": [],
   "apiDeployables": [
+    "admin-support-api",
     "platform-api"
   ],
   "apiMounts": [
@@ -145,6 +146,7 @@
     }
   },
   "runtimeDeployables": [
+    "admin-support-worker",
     "platform-worker"
   ]
 }

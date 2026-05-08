@@ -14,7 +14,7 @@ Payments owns money movement with external payment rails and buyer-facing charge
 - Marketplace sales fee snapshots supplied by Ordering
 - Shipping rebate calculation inputs at checkout and refund time
 
-Buyer marketplace checkout fee policy is documented in [Marketplace Checkout Fee Policy](./MARKETPLACE-CHECKOUT-FEE-POLICY.md).
+Buyer marketplace checkout fee policy is documented in [Marketplace Checkout Fee Policy](../../docs/bounded-contexts/payments/marketplace-checkout-fee-policy.md).
 
 ## Does Not Own
 

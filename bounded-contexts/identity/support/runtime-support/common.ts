@@ -21,7 +21,12 @@ export type ContactMethod = Readonly<{
   verifiedAt: string | null;
 }>;
 export type ConsentSubjectType = "user" | "account";
-export type RoleKey = "owner" | "manager" | "fulfillment" | "viewer";
+export type RoleKey =
+  | "platform-admin"
+  | "owner"
+  | "manager"
+  | "fulfillment"
+  | "viewer";
 export type PermissionKey =
   | "accounts.manage"
   | "accounts.view"

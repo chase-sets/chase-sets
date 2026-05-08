@@ -12,6 +12,7 @@ export type {
   CheckoutCartLine,
   CheckoutSessionRow,
 } from "../../client";
+export type { CheckoutFulfillmentPreview } from "@chase-sets/ordering/server";
 import { createCheckoutApiClient } from "../../client";
 
 export function createCheckoutRequestApiClient(

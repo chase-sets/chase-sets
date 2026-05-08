@@ -18,6 +18,11 @@ import {
 import { hasPermission } from "./support/request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+export {
+  bootstrapPlatformAdminIdentity,
+  type PlatformAdminBootstrapConfig,
+  type PlatformAdminBootstrapResult,
+} from "./support/runtime-support/production-bootstrap";
 
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));

@@ -92,7 +92,7 @@ Seller fees:
 - Price edits and quantity-cap edits require a new confirmed quote and replace the locked snapshot
 - Partial sales, pause, resume, and sold-out availability changes do not recalculate fees
 
-See [Seller Fee Confirmation](../bounded-contexts/marketplace/SELLER-FEE-CONFIRMATION.md) for the listing, offer, ordering, and visibility rules.
+See [Seller Fee Confirmation](./bounded-contexts/marketplace/seller-fee-confirmation.md) for the listing, offer, ordering, and visibility rules.
 
 Buyer responsibilities:
 

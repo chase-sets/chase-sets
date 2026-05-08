@@ -97,9 +97,14 @@ const manifestRequiredFields = [
   "directoryIntent",
 ];
 const knownDeployables = new Set(["admin-web", "marketplace-web", "public-web"]);
-const knownApiDeployables = new Set(["platform-api"]);
-const knownLifecycleDeployables = new Set(["platform-api", "platform-worker"]);
-const knownRuntimeDeployables = new Set(["platform-worker"]);
+const knownApiDeployables = new Set(["platform-api", "admin-support-api"]);
+const knownLifecycleDeployables = new Set([
+  "platform-api",
+  "platform-worker",
+  "admin-support-api",
+  "admin-support-worker",
+]);
+const knownRuntimeDeployables = new Set(["platform-worker", "admin-support-worker"]);
 const knownShellDeployables = new Set(["admin-web", "marketplace-web"]);
 const knownShellDeployableSlots = new Map([
   ["admin-web", new Set(["primary-nav"])],
@@ -2022,8 +2027,12 @@ function checkImport(file, specifier) {
         normalized === `${dependency.packageName}/server` &&
         isAllowedServerSurfaceConsumer(relativeFile) &&
         (importerContext?.manifest.allowedContextDependencies ?? []).includes(dependency.packageName);
+      const isAllowedWebImport =
+        normalized === `${dependency.packageName}/web` &&
+        relativeFile.startsWith(`${importerContextRoot}/routes/`) &&
+        (importerContext?.manifest.allowedContextDependencies ?? []).includes(dependency.packageName);
 
-      if (!isAllowedIntegrationImport && !isAllowedServerImport) {
+      if (!isAllowedIntegrationImport && !isAllowedServerImport && !isAllowedWebImport) {
         addViolation(file, `bounded contexts must use explicit integration exports only (${specifier})`);
       }
     }
@@ -2276,9 +2285,15 @@ await runImportBoundaryValidation({
         normalizedFile === "deployables/platform-api/src/config.ts" ||
         normalizedFile === "deployables/platform-api/__tests__/config.test.ts" ||
         normalizedFile === "deployables/platform-api/__tests__/database-pools.test.ts" ||
+        normalizedFile === "deployables/admin-support-api/src/config.ts" ||
+        normalizedFile === "deployables/admin-support-api/__tests__/config.test.ts" ||
+        normalizedFile === "deployables/admin-support-api/__tests__/database-pools.test.ts" ||
         normalizedFile === "deployables/platform-worker/src/config.ts" ||
         normalizedFile === "deployables/platform-worker/__tests__/config.test.ts" ||
         normalizedFile === "deployables/platform-worker/__tests__/database-pools.test.ts" ||
+        normalizedFile === "deployables/admin-support-worker/src/config.ts" ||
+        normalizedFile === "deployables/admin-support-worker/__tests__/config.test.ts" ||
+        normalizedFile === "deployables/admin-support-worker/__tests__/database-pools.test.ts" ||
         normalizedFile === "scripts/dev-system.mjs";
 
       if (!databaseUrlAllowed) {
@@ -2419,6 +2434,7 @@ await runImportBoundaryValidation({
           specifier.startsWith("./shell") ||
           specifier.startsWith("./shell-support") ||
           specifier.startsWith("./support/shell-support") ||
+          specifier.startsWith("./support/ui-support") ||
           specifier.startsWith("./browser") ||
           specifier.startsWith("./providers")
         ),
