@@ -2,7 +2,7 @@
 
 The headless marketplace API is the REST surface used by `marketplace-web` and external clients. Most buyer, seller, order, payment, fulfillment, and review flows are mounted at `/api/marketplace`. Identity, inventory, and settlement keep their canonical context-owned base paths (`/api/identity`, `/api/inventory`, and `/api/settlement`) because those contexts already own the behavior and route clients.
 
-The canonical machine-readable contract is [`marketplace.openapi.json`](./marketplace.openapi.json). The parity inventory is [`marketplace-api-parity.md`](./marketplace-api-parity.md).
+The canonical machine-readable contract is [`marketplace.openapi.json`](./marketplace.openapi.json). Keep endpoint coverage in the OpenAPI contract and generated route manifests rather than maintaining a separate manual parity matrix.
 
 ## Authentication
 
@@ -138,13 +138,15 @@ Publish, active price edits, active quantity-cap edits, and offer acceptance mus
 
 `GET /api/marketplace/account/listings/fee-lock-report` returns the seller-visible management report of current per-unit marketplace sales fee locks across the account's listings, including source schedule/agreement ids, resolved time, fee quote fingerprint, locked fee, and seller net.
 
+The full policy and confirmation flow lives in [Marketplace Seller Fee Confirmation](../../bounded-contexts/marketplace/docs/seller-fee-confirmation.md).
+
 ## Marketplace Checkout Fee Confirmation
 
 Payments quotes the buyer-side Marketplace Checkout Fee at payment level after wallet or platform credit and after order totals include shipping and sales tax. `GET /api/marketplace/account/checkout/status` returns the selected `marketplace_checkout_fee`, payment method quotes, and wallet credit amounts before payment.
 
 Payment creation must submit the confirmed `marketplaceCheckoutFeeQuoteFingerprint`. Stale payment quotes return `409 fee_quote_stale` with the current `marketplace_checkout_fee`; clients should show the returned quote and retry with the new fingerprint.
 
-`GET /api/marketplace/account/marketplace-checkout-fee-policy` exposes the active policy version, base rate, method adjustments, enabled jurisdictions, and quote audit fields for payment operations. The seeded V1 policy charges card payments at `2.9% + $0.30`, reduces bank payments to `0.5%`, and charges `0.00` when platform credit covers the payment.
+`GET /api/marketplace/account/marketplace-checkout-fee-policy` exposes the active policy version, method adjustments, enabled jurisdictions, and quote audit fields for payment operations. The current fee policy lives in [Payments Marketplace Checkout Fee Policy](../../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md).
 
 Seller payout setup:
 

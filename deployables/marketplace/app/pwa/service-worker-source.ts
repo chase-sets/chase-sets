@@ -1,28 +1,63 @@
+export const marketplaceServiceWorkerPolicy = {
+  cacheName: "chase-sets-marketplace-pwa-v1",
+  offlineUrl: "/offline",
+  coreAssets: [
+    "/offline",
+    "/icons/chase-sets-192.png",
+    "/icons/chase-sets-512.png",
+    "/icons/chase-sets-maskable-192.png",
+    "/icons/chase-sets-maskable-512.png",
+  ],
+  excludedExactPaths: ["/sign-in", "/sign-out", "/register"],
+  excludedPathPrefixes: [
+    "/api/",
+    "/account",
+    "/checkout",
+    "/payment",
+    "/payments",
+    "/orders",
+  ],
+  staticAssetExactPaths: ["/favicon.svg", "/favicon.ico"],
+  staticAssetPathPrefixes: ["/assets/", "/icons/"],
+  staticAssetExtensions: [".woff", ".woff2"],
+} as const;
+
+export function isMarketplaceServiceWorkerExcludedPath(pathname: string) {
+  return (
+    marketplaceServiceWorkerPolicy.excludedExactPaths.includes(pathname as never) ||
+    marketplaceServiceWorkerPolicy.excludedPathPrefixes.some((prefix) =>
+      pathname.startsWith(prefix),
+    )
+  );
+}
+
+export function isMarketplaceServiceWorkerStaticAssetPath(pathname: string) {
+  return (
+    marketplaceServiceWorkerPolicy.staticAssetPathPrefixes.some((prefix) =>
+      pathname.startsWith(prefix),
+    ) ||
+    marketplaceServiceWorkerPolicy.staticAssetExactPaths.includes(pathname as never) ||
+    marketplaceServiceWorkerPolicy.staticAssetExtensions.some((extension) =>
+      pathname.endsWith(extension),
+    )
+  );
+}
+
+const sourcePolicy = JSON.stringify(marketplaceServiceWorkerPolicy);
+
 export const marketplaceServiceWorkerSource = String.raw`
-const CACHE_NAME = "chase-sets-marketplace-pwa-v1";
-const OFFLINE_URL = "/offline";
-const CORE_ASSETS = [
-  OFFLINE_URL,
-  "/icons/chase-sets-192.png",
-  "/icons/chase-sets-512.png",
-  "/icons/chase-sets-maskable-192.png",
-  "/icons/chase-sets-maskable-512.png"
-];
+const SERVICE_WORKER_POLICY = ${sourcePolicy};
+const CACHE_NAME = SERVICE_WORKER_POLICY.cacheName;
+const OFFLINE_URL = SERVICE_WORKER_POLICY.offlineUrl;
+const CORE_ASSETS = SERVICE_WORKER_POLICY.coreAssets;
 
 function isCredentialedRequest(request) {
   return request.headers.has("authorization") || request.headers.has("cookie");
 }
 
 function isExcludedPath(pathname) {
-  return pathname.startsWith("/api/") ||
-    pathname === "/sign-in" ||
-    pathname === "/sign-out" ||
-    pathname === "/register" ||
-    pathname.startsWith("/account") ||
-    pathname.startsWith("/checkout") ||
-    pathname.startsWith("/payment") ||
-    pathname.startsWith("/payments") ||
-    pathname.startsWith("/orders");
+  return SERVICE_WORKER_POLICY.excludedExactPaths.includes(pathname) ||
+    SERVICE_WORKER_POLICY.excludedPathPrefixes.some((prefix) => pathname.startsWith(prefix));
 }
 
 function shouldHandleFetch(event) {
@@ -54,12 +89,13 @@ function shouldHandleStaticAsset(event) {
     return false;
   }
 
-  return url.pathname.startsWith("/assets/") ||
-    url.pathname.startsWith("/icons/") ||
-    url.pathname === "/favicon.svg" ||
-    url.pathname === "/favicon.ico" ||
-    url.pathname.endsWith(".woff") ||
-    url.pathname.endsWith(".woff2");
+  return SERVICE_WORKER_POLICY.staticAssetPathPrefixes.some((prefix) =>
+      url.pathname.startsWith(prefix)
+    ) ||
+    SERVICE_WORKER_POLICY.staticAssetExactPaths.includes(url.pathname) ||
+    SERVICE_WORKER_POLICY.staticAssetExtensions.some((extension) =>
+      url.pathname.endsWith(extension)
+    );
 }
 
 self.addEventListener("install", (event) => {

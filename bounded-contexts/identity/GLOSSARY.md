@@ -12,7 +12,7 @@ These terms must be used consistently across:
 
 Avoid introducing synonyms. Each concept has exactly one canonical term.
 
-## Core Concepts
+## Identity Concepts
 
 ### User
 
@@ -91,7 +91,7 @@ Examples:
 - memberships table
 - MembershipCreated event
 
-## Authorization
+## Permission Model
 
 ### Role
 
@@ -125,7 +125,7 @@ Notes:
 - Permissions are assigned to roles.
 - Permissions should be stable identifiers.
 
-## Authentication
+## Credential Model
 
 ### Credential
 

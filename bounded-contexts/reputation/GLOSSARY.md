@@ -11,11 +11,11 @@ A **Review** is the full post-transaction evaluation record one account records 
 Notes:
 
 - Reviews are transactional and require an `OrderId`.
-- A Review contains both a Rating and optional Feedback.
+- A Review contains both a Review Rating and optional Feedback.
 
-## Rating
+## Review Rating
 
-A **Rating** is the numeric score inside a review.
+A **Review Rating** is the numeric score inside a review.
 
 Notes:
 
@@ -27,7 +27,7 @@ A **Feedback** is the written narrative attached to a review.
 
 Notes:
 
-- Feedback captures qualitative context for a Rating.
+- Feedback captures qualitative context for a Review Rating.
 
 ## Review Author
 

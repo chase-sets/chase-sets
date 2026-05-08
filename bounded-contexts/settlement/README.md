@@ -53,23 +53,9 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 3. Payouts are issued only after eligibility rules are satisfied.
 4. Settlement reconciles against Payments but does not own payment processor state.
 
-## Stripe Connect Rollout Notes
+## Operations
 
-- Configure platform API with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` for Stripe Connect money movement; production startup fails without both.
-- Optional onboarding URLs are `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`; seller routes can also pass request-specific return and refresh URLs when creating setup sessions.
-- Seller setup and account management use hosted provider sessions. Settlement never collects or stores payout destination account numbers, tax identity details, or hosted-dashboard credentials.
-- Stripe-connected accounts are configured for manual payout schedules by the Stripe adapter so marketplace payouts remain seller-requested and settlement-triggered.
-- Public seller APIs can start onboarding, open hosted account management, refresh readiness, and request payouts. Provider readiness cannot be manually overwritten through public seller routes.
-- Payout requests use a preview/confirmation step, enforce USD-only amount policy, and keep payout destination details in hosted account management.
-- Internal reconciliation can list stale requested payouts and in-transit payouts through the payout runtime before retrieving provider status. The operator page exposes only provider-neutral references and statuses needed for support review.
-- Hosted setup redirects must stay on the marketplace origin, and provider webhook signatures are verified with a timestamp tolerance to reduce replay risk.
-- Processed provider webhook event ids are stored so duplicate provider events are ignored and auditable.
-- Stripe stays behind the money movement adapter. Settlement owns wallet debits, payout requests, failure reversals, read models, and reconciliation decisions; Stripe owns hosted onboarding, external payout destination collection, transfer execution, connected-account payout execution, and webhook signing.
-- Register provider webhooks for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`. Settlement consumes them through the unauthenticated provider webhook mount and maps them into provider-neutral payout/readiness events.
-- Smoke test in Stripe test mode by starting payout setup for a seller, completing hosted onboarding, refreshing payout setup, requesting a small payout from an available wallet balance, and replaying payout paid/failed webhooks.
-- Existing payout readiness and payout read models backfill provider fields with nullable references and conservative setup defaults, so old rows remain readable.
-- Operator refund/dispute wallet commands are idempotent through deterministic ledger entry ids derived from caller-supplied idempotency keys. No separate idempotency table is required; duplicate retries resolve against the existing wallet aggregate and ledger read model.
-- Production schema rollout is covered by the context schema bootstrap using `CREATE TABLE IF NOT EXISTS` plus `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for payment provider events, payment idempotency keys, payment reconciliation runs, payout provider fields, payout idempotency keys, payout reconciliation runs, and provider webhook inboxes. Existing rows keep nullable provider references and zero-count reconciliation defaults until replay/reconciliation updates them.
+Stripe Connect configuration, payout smoke tests, reconciliation, and incident workflows live in [Money Operations](../../docs/runbooks/money-operations.md).
 
 ## Open Extraction Candidates
 

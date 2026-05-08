@@ -1,8 +1,8 @@
 # Marketplace Glossary
 
-Aggregate language and projection language may differ. When they do, each model name must be used exactly within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
+This file is the cross-context index for marketplace language. Detailed definitions live in the owning bounded context glossary; use those local glossaries as the source of truth when changing behavior, events, schemas, APIs, or UI copy.
 
-This glossary also owns cross-cutting naming guidance for docs, code, and UI copy.
+Aggregate language and projection language may differ. When they do, each model name must stay within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
 
 ## Account Role Language
 
@@ -14,145 +14,36 @@ Preferred account-language examples include account cart, account inventory, lis
 
 Do not rename durable event fields, persisted columns, provider metadata, or transaction projections merely to remove buyer or seller. Rename only when the term describes account identity or account capability rather than the endpoint role inside a commerce transaction.
 
-## Buyer
+## Term Ownership
 
-A **Buyer** is an account acting in the buyer role when it purchases products as part of an order.
+| Term | Owning source | Notes |
+| --- | --- | --- |
+| Account | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Root identity for marketplace participation. |
+| Buyer | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Transaction role played by an Account. |
+| Seller | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Transaction role played by an Account. |
+| Catalog Item | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Canonical parent definition of a thing. |
+| Product | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Valid sellable option combination under a Catalog Item. |
+| Inventory Item | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Account-owned stock for one resolved product and storage location. |
+| Listing | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Seller-published ask before an order exists. |
+| Offer | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-submitted purchase proposal before an order exists. |
+| Cart | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Mutable saved purchase intent. |
+| Checkout Session | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Active purchase workflow before orders and payment. |
+| Order | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Commercial commitment between buyer and seller accounts. |
+| Purchase | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Buyer-facing order projection. |
+| Sale | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Seller-facing order projection. |
+| Shipment | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Physical delivery execution for an order. |
+| Review | [Reputation](../bounded-contexts/reputation/GLOSSARY.md) | Post-transaction account evaluation. |
+| Payment | [Payments](../bounded-contexts/payments/GLOSSARY.md) | External charge or refund workflow. |
+| Wallet | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Marketplace ledger balance container. |
+| Payout | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Transfer of eligible funds to an account. |
+| Commercial Terms Resolution | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Deterministic seller-side fee policy resolution. |
+| Marketplace Sales Fee | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Seller-side marketplace fee policy. Confirmation rules live in [Marketplace Seller Fee Confirmation](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md). |
+| Marketplace Sales Fee Snapshot | [Marketplace](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md) | Seller-confirmed per-unit fee snapshot consumed by Ordering. |
+| Marketplace Checkout Fee | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Buyer-side payment-level fee policy. Current policy lives in [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md). |
+| Tax Quote | [Tax](../bounded-contexts/tax/GLOSSARY.md) | Provider-agnostic sales tax calculation. |
+| Price Signal | [Pricing](../bounded-contexts/pricing/GLOSSARY.md) | Observed input for product-scoped price estimation. |
+| Platform Feedback | [Experience](../bounded-contexts/experience/GLOSSARY.md) | Internal product feedback, not public account reputation. |
 
-Notes:
+## Local Glossaries
 
-- Buyer is a role played by an Account, not a separate root entity.
-- Buyer behavior is modeled primarily in Discovery, Marketplace, Ordering, Payments, and Settlement.
-
-## Seller
-
-A **Seller** is an account acting in the seller role when it lists, sells, and ships products.
-
-Notes:
-
-- Seller is a role played by an Account, not a separate root entity.
-- Seller behavior is modeled primarily in Inventory, Commercial Terms, Marketplace, Fulfillment, Settlement, Pricing, and Insights.
-
-## Listing
-
-A **Listing** is a seller-published ask to sell a specific resolved product at a defined price and quantity.
-
-Notes:
-
-- Listing is owned by the Marketplace bounded context.
-
-## Offer
-
-An **Offer** is an account-submitted purchase proposal for a specific resolved product at a defined price and quantity.
-
-Notes:
-
-- Offer is owned by the Marketplace bounded context.
-- The submitting account sees its projection as a **Submitted Offer**.
-- Accounts with matching supply see the demand as an **Offer Match**.
-
-## Order
-
-An **Order** is the commercial commitment between a buyer account and a seller account created when a listing is purchased or an offer is accepted.
-
-Notes:
-
-- Order is owned by the Ordering bounded context.
-- A buyer-facing order projection is a **Purchase**.
-- A seller-facing order projection is a **Sale**.
-
-## Inventory Item
-
-An **Inventory Item** is account-owned stock for one specific product and storage location.
-
-Notes:
-
-- Inventory Item is owned by the Inventory bounded context.
-
-## Shipment
-
-A **Shipment** is the physical delivery of products from a seller account to a buyer account to fulfill an order.
-
-Notes:
-
-- Shipment is owned by the Fulfillment bounded context.
-
-## Review
-
-A **Review** is a post-transaction evaluation one account records about another, scoped to a completed order.
-
-Notes:
-
-- Review is owned by the Reputation bounded context.
-
-## Account
-
-An **Account** is the root entity that owns commercial activity in the marketplace.
-
-Notes:
-
-- Account is owned by the Identity bounded context.
-- Buyer and Seller are roles an Account plays in downstream commerce contexts.
-
-## Catalog Item
-
-A **Catalog Item** is the canonical parent definition of a thing that can have one or more resolved products.
-
-Notes:
-
-- Catalog Item is owned by the Catalog bounded context.
-- Downstream commerce should reference resolved products rather than bare catalog items.
-
-## Product
-
-A **Product** is a valid sellable combination of selected options under a Catalog Item.
-
-Notes:
-
-- Product identity is derived by Catalog from the Catalog Item, canonical dimension order, and selected options.
-- Inventory, Marketplace, Ordering, Pricing, and downstream commerce use product-scoped references.
-
-## Commercial Terms Resolution
-
-A **Commercial Terms Resolution** is the deterministic result of selecting the applicable fee schedule and account-specific agreement for an account at a point in time.
-
-Notes:
-
-- Commercial Terms owns the policy and resolution.
-- Marketplace uses the resolution to create seller-confirmed listing and offer fee snapshots.
-- Ordering consumes Marketplace sales fee snapshots and does not resolve Commercial Terms for normal listing purchases.
-
-## Marketplace Sales Fee Snapshot
-
-A **Marketplace Sales Fee Snapshot** is the seller-confirmed per-unit marketplace sales fee, seller net, source schedule or agreement, and quote timestamp locked by Marketplace for a listing or accepted offer.
-
-Notes:
-
-- Listing snapshots are permanent for listed units until those units are sold.
-- Active price edits and quantity-cap edits require a fresh confirmed quote and replace the locked snapshot.
-- Partial sales, pause, resume, and sold-out availability changes do not refresh the snapshot.
-- See [Seller Fee Confirmation](./bounded-contexts/marketplace/seller-fee-confirmation.md).
-
-## Payment
-
-A **Payment** is the external charge workflow associated with one or more orders.
-
-Notes:
-
-- Payment is owned by the Payments bounded context.
-- Settlement owns internal ledger truth after payment and refund outcomes are known.
-
-## Wallet
-
-A **Wallet** is the balance container for an account within the marketplace ledger.
-
-Notes:
-
-- Wallet is owned by the Settlement bounded context.
-
-## Payout
-
-A **Payout** is the transfer of eligible marketplace funds to an account.
-
-Notes:
-
-- Payout is owned by the Settlement bounded context.
+Each bounded context keeps its own `GLOSSARY.md` beside its `README.md`. Add terms there first, then add or update this index only when the term crosses context boundaries or appears in product/API docs.

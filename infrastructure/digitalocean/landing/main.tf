@@ -143,6 +143,12 @@ resource "digitalocean_app" "landing" {
         scope = "RUN_TIME"
       }
 
+      env {
+        key   = "CHASE_SETS_INTERNAL_API_ORIGIN"
+        value = "$${admin-support-api.PRIVATE_URL}"
+        scope = "RUN_TIME"
+      }
+
       health_check {
         http_path = "/"
       }
@@ -176,8 +182,14 @@ resource "digitalocean_app" "landing" {
         scope = "RUN_TIME"
       }
 
+      env {
+        key   = "CHASE_SETS_INTERNAL_API_ORIGIN"
+        value = "$${admin-support-api.PRIVATE_URL}"
+        scope = "RUN_TIME"
+      }
+
       health_check {
-        http_path = "/"
+        http_path = "/health/ready"
       }
     }
 

@@ -58,6 +58,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `ordering`: buyer and seller commercial commitments after checkout creates orders.
 - `payments`: external charge, authorization, capture, refund, and payment processor references.
 - `pricing`: product-scoped value estimation, repricing intelligence, and liquidity modeling.
+- `public-presence`: public product pages, prelaunch policy surfaces, waitlist behavior, and internal waitlist review.
 - `reputation`: post-transaction reviews, ratings, feedback, and account review summaries.
 - `settlement`: ledger truth, balances, wallets, payouts, fees, and rebates.
 - `tax`: provider-agnostic tax quotes and order tax snapshots.
@@ -177,12 +178,15 @@ Key references:
 - [docs/README.md](docs/README.md): documentation map and ownership rules.
 - [docs/PRODUCT.md](docs/PRODUCT.md): product vision, users, and marketplace economics.
 - [docs/GLOSSARY.md](docs/GLOSSARY.md): canonical marketplace language and account-role naming rules.
-- [docs/bounded-contexts/marketplace/seller-fee-confirmation.md](docs/bounded-contexts/marketplace/seller-fee-confirmation.md): seller fee snapshot rules.
-- [docs/bounded-contexts/payments/marketplace-checkout-fee-policy.md](docs/bounded-contexts/payments/marketplace-checkout-fee-policy.md): buyer-side marketplace checkout fee policy.
+- [docs/architecture/bounded-context-structure.md](docs/architecture/bounded-context-structure.md): bounded-context directory, export, and composition rules.
+- [bounded-contexts/marketplace/docs/seller-fee-confirmation.md](bounded-contexts/marketplace/docs/seller-fee-confirmation.md): seller fee snapshot rules.
+- [bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md](bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md): buyer-side marketplace checkout fee policy.
 - [docs/runbooks/money-operations.md](docs/runbooks/money-operations.md): money operations guidance, launch checks, and Stripe smoke tests.
 - [docs/runbooks/observability.md](docs/runbooks/observability.md): local observability stack.
+- [docs/runbooks/postage-operations.md](docs/runbooks/postage-operations.md): postage provider configuration and label smoke checks.
 - [docs/runbooks/realtime-sse.md](docs/runbooks/realtime-sse.md): realtime SSE behavior.
 - [docs/runbooks/remote-dev.md](docs/runbooks/remote-dev.md): remote development workflow.
+- [docs/runbooks/digitalocean-landing-production.md](docs/runbooks/digitalocean-landing-production.md): landing staging and production deployment workflow.
 - [docs/api/marketplace-api.md](docs/api/marketplace-api.md): marketplace API documentation.
 - [docs/adr/0001-platform-api-observability.md](docs/adr/0001-platform-api-observability.md): platform API observability ADR.
 

@@ -1,8 +1,8 @@
 # DigitalOcean Terraform State Bootstrap
 
-This root creates the DigitalOcean Spaces bucket used by the landing Terraform S3 backend.
+This Terraform root creates the DigitalOcean Spaces bucket used by the landing Terraform S3 backend. It intentionally uses local state because the remote backend bucket cannot exist before the first apply.
 
-It intentionally uses Terraform's local backend because the remote backend bucket cannot exist until this root has run once.
+Run this once before initializing [landing](../landing/README.md):
 
 ```bash
 terraform init
@@ -12,4 +12,4 @@ terraform apply \
   -var=spaces_secret_key="$SPACES_SECRET_KEY"
 ```
 
-After this succeeds, initialize `infrastructure/digitalocean/landing` with the S3 backend settings documented there.
+The production deployment workflow is documented in [DigitalOcean Landing Deployment Runbook](../../../docs/runbooks/digitalocean-landing-production.md).

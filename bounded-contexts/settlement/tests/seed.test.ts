@@ -3,7 +3,7 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import {
   describeWithMarketplaceSeedDatabase,
   useMarketplaceSeedRuntime,
-} from "../../payments/tests/support/marketplace-seed-test-runtime";
+} from "@chase-sets/marketplace-seed-testing";
 
 describeWithMarketplaceSeedDatabase("settlement seed", () => {
   const seedRuntime = useMarketplaceSeedRuntime("settlement");

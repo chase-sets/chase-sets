@@ -26,18 +26,16 @@ Avoid decorative gradients, ornamental animation, hidden fees, hidden policies, 
 
 Brand expression is allowed in homepage heroes, category campaigns, seller stories, onboarding, featured collections, and confirmation moments. Search results, listing cards, detail pages, checkout, payment, support recovery, and policy comprehension should stay calm and task-first.
 
-## Component Coverage
+## Coverage Areas
 
-- Listing comparison: `ListingCard`, `CategoryNavigation`, `SearchFilterPanel`, `FilterRail`, `AppliedFilterChips`, `SortSelector`, `MarketplaceFilterDrawer`, `ComparisonCard`, `ComparisonModule`.
-- Detail confidence: `ProductMediaModule`, `DetailConfidenceModule`, `SpecificationList`, `PriceBreakdown`, `BuyerProtectionModule`, `PolicySummary`, `DeliveryEstimate`, `AvailabilityState`, `ConditionLabel`, `WhyThisPrice`, `StickyCtaBar`.
-- Seller trust: `SellerTrustCard`, `SellerProfileHeader`, `TrustBadge`, `VerifiedSellerBadge`, `BuyerProtectionBadge`, `SecurePaymentCue`, `ReturnPolicySnippet`, `DisputeResolutionNotice`, `SellerQualityIndicator`, `PlatformCredibilityCue`.
-- Reviews and social proof: `RatingSummary`, `RatingDistribution`, `ReviewCard`.
-- Checkout and payment: `PriceBreakdown`, `SecurePaymentIndicator`, `CheckoutConfidencePanel`, `EditableOrderSection`, `GuestCheckoutCue`, `PostPurchaseSupportPanel`, `MarketplaceNotice`, `StickyCtaBar`.
-- Search and recovery: `SavedSearchPrompt`, `SavedSearchCard`, `NoResultsRecovery`, `RecommendationModule`.
-- Messaging and negotiation: `MessageThreadPreview`, `OfferCard`.
-- Feedback and recovery: `MarketplaceNotice`, `MarketplaceEmptyState`, `MarketplaceStatusTimeline`, `ListingGridSkeleton`, `DetailModuleSkeleton`, `CheckoutSummarySkeleton`, `SellerProfileSkeleton`.
-- Dashboards and post-purchase: `MarketplaceDashboardPanel`, `MarketplaceStatusTimeline`.
-- Template coverage: `MarketplaceTemplateGallery`, `marketplacePageTemplates`, `marketplaceDesignPrinciples`.
+Use `packages/design-system/src/` as the canonical component inventory. Marketplace coverage should remain focused on these reusable decision areas:
+
+- Listing comparison, filtering, sorting, and saved-search recovery.
+- Product detail confidence, media, specifications, pricing context, and policy disclosure.
+- Seller trust, reviews, account reputation, and buyer-protection cues.
+- Checkout, payment confidence, cost breakdowns, editable order sections, and post-purchase support.
+- Negotiation, offer management, status timelines, empty states, loading states, and recovery paths.
+- Marketplace dashboards and route templates that compose the same primitives without local overrides.
 
 ## Listing Card Contract
 

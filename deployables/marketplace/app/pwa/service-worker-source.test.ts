@@ -1,23 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { marketplaceServiceWorkerSource } from "./service-worker-source";
+import {
+  isMarketplaceServiceWorkerExcludedPath,
+  isMarketplaceServiceWorkerStaticAssetPath,
+  marketplaceServiceWorkerPolicy,
+  marketplaceServiceWorkerSource,
+} from "./service-worker-source";
 
 describe("marketplace service worker source", () => {
   it("keeps authenticated and transactional requests out of the offline cache", () => {
-    expect(marketplaceServiceWorkerSource).toContain('request.method !== "GET"');
-    expect(marketplaceServiceWorkerSource).toContain('request.headers.has("authorization")');
-    expect(marketplaceServiceWorkerSource).toContain('request.headers.has("cookie")');
-    expect(marketplaceServiceWorkerSource).toContain('pathname.startsWith("/api/")');
-    expect(marketplaceServiceWorkerSource).toContain('pathname.startsWith("/account")');
-    expect(marketplaceServiceWorkerSource).toContain('pathname.startsWith("/checkout")');
-    expect(marketplaceServiceWorkerSource).toContain('pathname.startsWith("/payment")');
-    expect(marketplaceServiceWorkerSource).toContain('pathname.startsWith("/orders")');
+    expect(marketplaceServiceWorkerPolicy.excludedPathPrefixes).toEqual(
+      expect.arrayContaining(["/api/", "/account", "/checkout", "/payment", "/orders"]),
+    );
+    expect(isMarketplaceServiceWorkerExcludedPath("/api/payments")).toBe(true);
+    expect(isMarketplaceServiceWorkerExcludedPath("/checkout/payments/pay_1")).toBe(true);
+    expect(isMarketplaceServiceWorkerExcludedPath("/search")).toBe(false);
   });
 
   it("uses network-first document navigation with the offline fallback", () => {
-    expect(marketplaceServiceWorkerSource).toContain('request.mode === "navigate"');
-    expect(marketplaceServiceWorkerSource).toContain('const OFFLINE_URL = "/offline"');
-    expect(marketplaceServiceWorkerSource).toContain('url.pathname.startsWith("/assets/")');
-    expect(marketplaceServiceWorkerSource).toContain('url.pathname.startsWith("/icons/")');
+    expect(marketplaceServiceWorkerPolicy.offlineUrl).toBe("/offline");
+    expect(marketplaceServiceWorkerPolicy.coreAssets).toContain("/offline");
+    expect(isMarketplaceServiceWorkerStaticAssetPath("/assets/app.css")).toBe(true);
+    expect(isMarketplaceServiceWorkerStaticAssetPath("/icons/chase-sets-192.png")).toBe(true);
+    expect(isMarketplaceServiceWorkerStaticAssetPath("/account/payments/pay_1")).toBe(false);
     expect(marketplaceServiceWorkerSource).toContain(
       "fetch(event.request).catch(() => caches.match(OFFLINE_URL))",
     );

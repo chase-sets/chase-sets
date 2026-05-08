@@ -27,7 +27,7 @@
         "check:no-any": "node ./scripts/check-no-any.mjs",
         "typecheck": "npm run check:no-any && tsc -p ./tsconfig.json --noEmit && node ./scripts/run-workspaces.mjs typecheck",
         "test": "npm run test:fast",
-        "test:fast": "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db",
+        "test:fast": "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db && node ./scripts/run-workspaces.mjs test:fast --test-profile=db",
         "test:db": "node ./scripts/run-workspaces.mjs test --test-profile=db",
         "coverage": "npm run coverage:fast",
         "coverage:fast": "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db -- --coverage --coverage.reporter=text",

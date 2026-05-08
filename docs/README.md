@@ -6,17 +6,19 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language and account-role naming rules.
-- [Bounded Context Map](../bounded-contexts/README.md): strategic ownership, integration, and structure rules.
+- [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
+- [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, export, deployable-composition, and typed-ID rules.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
 - [Marketplace OpenAPI](./api/marketplace.openapi.json): machine-readable API contract.
-- [Marketplace API Parity Matrix](./api/marketplace-api-parity.md): marketplace-web API coverage inventory.
 
 ## Runbooks
 
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
 - [Observability](./runbooks/observability.md): local OpenTelemetry and LGTM stack.
+- [Postage Operations](./runbooks/postage-operations.md): postage label provider configuration and label smoke checks.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
+- [DigitalOcean Landing Deployment](./runbooks/digitalocean-landing-production.md): staging and production landing deployment workflow.
 
 ## Owner-Owned Documentation
 
@@ -24,13 +26,17 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Marketplace Design Direction](../packages/design-system/MARKETPLACE_SYSTEM.md)
 - [Localization Contract](../contracts/localization/README.md)
 - [MCP Contract](../contracts/mcp/README.md)
-- [Catalog Graded Card Data Model](./bounded-contexts/catalog/graded-card-data-model.md)
-- [Marketplace Seller Fee Confirmation](./bounded-contexts/marketplace/seller-fee-confirmation.md)
-- [Payments Marketplace Checkout Fee Policy](./bounded-contexts/payments/marketplace-checkout-fee-policy.md)
+- [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
+- [Marketplace Seller Fee Confirmation](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md)
+- [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md)
 
 ## ADRs
 
 - [ADR 0001: Platform API Observability](./adr/0001-platform-api-observability.md)
+
+## Maintenance
+
+- [Documentation Cleanup Tasks](./documentation-cleanup-tasks.md): completed cleanup checklist from the Markdown documentation review.
 
 ## Generated Markdown
 

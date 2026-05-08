@@ -8,11 +8,11 @@ Notes:
 
 - Platform Feedback evaluates the platform, not another account.
 - Platform Feedback is visible to internal users only.
-- Platform Feedback contains a Rating, Topic, optional Comment, source workflow, and source context.
+- Platform Feedback contains a Platform Feedback Rating, Topic, optional Comment, source workflow, and source context.
 
-## Rating
+## Platform Feedback Rating
 
-A **Rating** is the numeric experience score inside Platform Feedback.
+A **Platform Feedback Rating** is the numeric experience score inside Platform Feedback.
 
 Notes:
 

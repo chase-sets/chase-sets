@@ -36,29 +36,9 @@ Fulfillment terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - Ordering for order readiness
 - Identity for transaction-party account references
 
-## USPS Postage Integration
+## Operations
 
-Chase Sets uses EasyPost as the first USPS-compatible postage integration path,
-but Fulfillment only depends on the `@chase-sets/postage-labels` port. The
-platform API composes either the EasyPost adapter or the sandbox adapter into
-Fulfillment through the `postageLabelProvider` host port.
-
-The EasyPost adapter creates shipments from sender and recipient addresses plus
-package dimensions and weight, returns USPS rates, buys the selected rate, and
-provides the tracking number and label document URL. Local development and tests
-use the sandbox adapter unless `EASYPOST_API_KEY` is configured on the platform
-API.
-
-Platform API settings:
-
-- `EASYPOST_API_KEY`: server-side EasyPost key. Use a test key for sandbox label
-  purchase flow testing.
-- `EASYPOST_MODE`: `test` or `production`; defaults to `test`.
-- `EASYPOST_API_BASE_URL`: optional override for non-default environments.
-
-USPS label refunds are modeled as label void requests. A voided label moves the
-shipment back to awaiting a label while preserving provider refund metadata on
-the shipment read model.
+Postage provider configuration and label smoke checks live in [Postage Operations](../../docs/runbooks/postage-operations.md).
 
 ## Outgoing Integration Events
 

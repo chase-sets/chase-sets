@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import {
   describeWithMarketplaceSeedDatabase,
   useMarketplaceSeedRuntime,
-} from "./support/marketplace-seed-test-runtime";
+} from "@chase-sets/marketplace-seed-testing";
 
 describeWithMarketplaceSeedDatabase("payments seed", () => {
   const seedRuntime = useMarketplaceSeedRuntime("payments");

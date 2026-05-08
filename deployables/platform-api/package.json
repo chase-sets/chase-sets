@@ -12,6 +12,7 @@
     "start": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
+    "test:fast": "vitest run --config ./vitest.config.ts --exclude __tests__/bootstrap-integration.test.ts",
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {

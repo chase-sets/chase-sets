@@ -228,6 +228,9 @@
       "@chase-sets/marketplace": [
         "./bounded-contexts/marketplace/index.ts"
       ],
+      "@chase-sets/marketplace-seed-testing": [
+        "./infrastructure/marketplace-seed-testing/index.ts"
+      ],
       "@chase-sets/marketplace/context": [
         "./bounded-contexts/marketplace/context.json"
       ],

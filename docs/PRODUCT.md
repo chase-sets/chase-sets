@@ -84,19 +84,18 @@ Selling experience:
 
 ### Fee Model
 
-Seller fees:
+Seller-side marketplace economics:
 
-- Seller-confirmed per-unit marketplace sales fee snapshot
-- Permanent for each listed unit until that unit is sold
-- Positive fractional-cent fees round up to the next cent
-- Price edits and quantity-cap edits require a new confirmed quote and replace the locked snapshot
-- Partial sales, pause, resume, and sold-out availability changes do not recalculate fees
+- Commercial Terms owns seller-side marketplace fee policy.
+- Marketplace owns seller confirmation before listing publication or offer acceptance.
+- Ordering consumes confirmed Marketplace snapshots when creating orders.
+- Fees should be predictable, transparent, and sustainable for low-value-card sellers.
 
-See [Seller Fee Confirmation](./bounded-contexts/marketplace/seller-fee-confirmation.md) for the listing, offer, ordering, and visibility rules.
+See [Seller Fee Confirmation](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md) for implementation rules.
 
 Buyer responsibilities:
 
-- Buyer payment processing fees, owned by separate Payments policy
+- Buyer marketplace checkout fees, owned by Payments policy
 - Shipping costs (adjusted by rebate model)
 
 Shipping model:

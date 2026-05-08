@@ -8,7 +8,7 @@ import { apiContextRegistry } from "../src/generated/api-context-registry";
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, "../../..");
 const openApiPath = join(repoRoot, "docs/api/marketplace.openapi.json");
-const parityDocPath = join(repoRoot, "docs/api/marketplace-api-parity.md");
+const apiDocPath = join(repoRoot, "docs/api/marketplace-api.md");
 
 type OpenApiDocument = Readonly<{
   paths: Record<string, Record<string, unknown>>;
@@ -26,17 +26,6 @@ type RouteInventoryRuntime = Parameters<typeof buildPlatformApiApp>[0];
 
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
-}
-
-function readMarkdownEndpointKeys(): readonly string[] {
-  const content = readFileSync(parityDocPath, "utf8");
-  const endpointMatches = content.matchAll(
-    /`(GET|POST|PUT|PATCH|DELETE) ([^`]+)`/g,
-  );
-
-  return [...endpointMatches].map(
-    ([, method, path]) => `${method.toLowerCase()} ${path}`,
-  );
 }
 
 function readOpenApiEndpointKeys(openApi: OpenApiDocument): readonly string[] {
@@ -172,15 +161,13 @@ function readMarketplaceWebApiMounts(): readonly string[] {
 }
 
 describe("marketplace OpenAPI parity", () => {
-  it("documents every endpoint in the marketplace-web parity matrix", () => {
-    const openApi = readJson<OpenApiDocument>(openApiPath);
-    const openApiEndpoints = new Set(readOpenApiEndpointKeys(openApi));
-    const parityEndpoints = readMarkdownEndpointKeys();
+  it("keeps endpoint coverage in the machine-readable OpenAPI contract", () => {
+    const content = readFileSync(apiDocPath, "utf8");
 
-    expect(parityEndpoints.length).toBeGreaterThan(70);
-    expect(
-      parityEndpoints.filter((endpoint) => !openApiEndpoints.has(endpoint)),
-    ).toEqual([]);
+    expect(readOpenApiEndpointKeys(readJson<OpenApiDocument>(openApiPath)).length)
+      .toBeGreaterThan(70);
+    expect(content).toContain("marketplace.openapi.json");
+    expect(content).toContain("rather than maintaining a separate manual parity matrix");
   });
 
   it("keeps documented marketplace endpoints mounted by platform-api", () => {

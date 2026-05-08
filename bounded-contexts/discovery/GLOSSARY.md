@@ -13,7 +13,7 @@ These terms must be used consistently across:
 
 Avoid introducing synonyms. Each concept has exactly one canonical term.
 
-## Core Concepts
+## Discovery Concepts
 
 ### Discovery Query
 

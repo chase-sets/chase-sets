@@ -19,11 +19,11 @@ import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as orderingModule } from "@chase-sets/ordering";
+import { module as paymentsModule } from "@chase-sets/payments";
 import { module as pricingModule } from "@chase-sets/pricing";
 import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
-import { module as paymentsModule } from "../..";
 
 export const marketplaceSeedContextNames = [
   "catalog",

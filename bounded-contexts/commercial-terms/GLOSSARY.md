@@ -18,10 +18,6 @@ A **Commercial Terms Resolution** is the deterministic result of selecting the a
 
 A **Marketplace Sales Fee** is the seller-side fee charged by the marketplace for listing and transaction participation.
 
-## Marketplace Checkout Fee
-
-A **Marketplace Checkout Fee** is a buyer payment-processing concern owned outside Commercial Terms.
-
 ## Seller Net
 
 A **Seller Net** is the amount remaining from the resolved basis amount after the marketplace sales fee amount is applied.

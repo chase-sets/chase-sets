@@ -30,6 +30,37 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 - Connect webhooks must cover account/readiness updates, `payout.paid`, and `payout.failed`.
 - Run `npm run verify` before deployment. DB-backed rollout checks belong in `npm run verify:db` when database compatibility is in scope.
 
+## Local Stripe Runtime
+
+The platform API can run with either the real Stripe gateway or the fake local payment gateway.
+
+Stripe mode uses:
+
+- `STRIPE_SECRET_KEY`: server-side Stripe API key used to create and update payment intents.
+- `STRIPE_PUBLISHABLE_KEY`: buyer-facing Stripe key returned with payment intent client data.
+- `STRIPE_WEBHOOK_SECRET`: signing secret used to verify inbound Stripe webhook payloads.
+- `STRIPE_API_BASE_URL`: optional override for Stripe API calls in non-default environments or tests.
+
+For local development, keep real Stripe values in `deployables/platform-api/.env.local` when you want to exercise real Stripe flows. If any required Stripe value is missing, the platform API falls back to the fake payment gateway so local startup works without webhook forwarding.
+
+Webhook callbacks are mounted by the platform API at `/api/payments/stripe/webhooks`. The account payment routes stay under `/api/marketplace/account/payments`.
+
+When the dev stack includes `platform-api`, `npm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` into `deployables/platform-api/.env.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `npm run stripe:listen` manually if you want the listener in a separate terminal.
+
+## Stripe Connect Notes
+
+- Configure platform API with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` for Stripe Connect money movement; production startup fails without both.
+- Optional onboarding URLs are `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`; seller routes can also pass request-specific return and refresh URLs when creating setup sessions.
+- Seller setup and account management use hosted provider sessions. Settlement never collects or stores payout destination account numbers, tax identity details, or hosted-dashboard credentials.
+- Stripe-connected accounts are configured for manual payout schedules by the Stripe adapter so marketplace payouts remain seller-requested and settlement-triggered.
+- Public seller APIs can start onboarding, open hosted account management, refresh readiness, and request payouts. Provider readiness cannot be manually overwritten through public seller routes.
+- Payout requests use a preview/confirmation step, enforce USD-only amount policy, and keep payout destination details in hosted account management.
+- Hosted setup redirects must stay on the marketplace origin, and provider webhook signatures are verified with a timestamp tolerance to reduce replay risk.
+- Processed provider webhook event ids are stored so duplicate provider events are ignored and auditable.
+- Stripe stays behind the money movement adapter. Settlement owns wallet debits, payout requests, failure reversals, read models, and reconciliation decisions; Stripe owns hosted onboarding, external payout destination collection, transfer execution, connected-account payout execution, and webhook signing.
+- Register provider webhooks for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`. Settlement consumes them through the unauthenticated provider webhook mount and maps them into provider-neutral payout/readiness events.
+- Existing payout readiness and payout read models backfill provider fields with nullable references and conservative setup defaults, so old rows remain readable.
+
 ## Stripe Test-Mode Smoke Test
 
 Use the executable smoke test before enabling Stripe money movement in a shared or production-like environment.
