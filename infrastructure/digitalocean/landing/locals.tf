@@ -5,18 +5,18 @@ locals {
   public_domains = local.is_production ? [
     var.root_domain,
     "www.${var.root_domain}",
-  ] : [
+    ] : [
     "${var.environment}.${var.root_domain}",
   ]
 
   admin_domain = local.is_production ? "admin.${var.root_domain}" : "admin-${var.environment}.${var.root_domain}"
 
   context_databases = {
-    auth             = "chase_sets_${var.environment}_auth"
-    catalog          = "chase_sets_${var.environment}_catalog"
-    control          = "chase_sets_${var.environment}_control"
-    experience       = "chase_sets_${var.environment}_experience"
-    identity         = "chase_sets_${var.environment}_identity"
+    auth            = "chase_sets_${var.environment}_auth"
+    catalog         = "chase_sets_${var.environment}_catalog"
+    control         = "chase_sets_${var.environment}_control"
+    experience      = "chase_sets_${var.environment}_experience"
+    identity        = "chase_sets_${var.environment}_identity"
     public-presence = "chase_sets_${var.environment}_public_presence"
   }
 
