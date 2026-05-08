@@ -17,7 +17,16 @@ locals {
     control          = "chase_sets_${var.environment}_control"
     experience       = "chase_sets_${var.environment}_experience"
     identity         = "chase_sets_${var.environment}_identity"
-    public-presence  = "chase_sets_${var.environment}_public_presence"
+    public-presence = "chase_sets_${var.environment}_public_presence"
+  }
+
+  context_database_users = {
+    auth            = "cs_${var.environment}_auth"
+    catalog         = "cs_${var.environment}_catalog"
+    control         = "cs_${var.environment}_control"
+    experience      = "cs_${var.environment}_experience"
+    identity        = "cs_${var.environment}_identity"
+    public-presence = "cs_${var.environment}_public_presence"
   }
 
   context_database_env = {

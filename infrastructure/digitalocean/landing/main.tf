@@ -18,6 +18,42 @@ resource "digitalocean_database_db" "contexts" {
   name       = each.value
 }
 
+resource "digitalocean_database_user" "contexts" {
+  for_each   = local.context_database_users
+  cluster_id = digitalocean_database_cluster.postgres.id
+  name       = each.value
+}
+
+resource "terraform_data" "context_database_grants" {
+  for_each = local.context_databases
+
+  triggers_replace = [
+    digitalocean_database_db.contexts[each.key].name,
+    digitalocean_database_user.contexts[each.key].name,
+  ]
+
+  provisioner "local-exec" {
+    working_dir = "${path.module}/../../.."
+    command     = "node scripts/apply-digitalocean-database-grant.mjs"
+
+    environment = {
+      DATABASE_GRANT_NAME = digitalocean_database_db.contexts[each.key].name
+      DATABASE_GRANT_USER = digitalocean_database_user.contexts[each.key].name
+      PGDATABASE          = digitalocean_database_db.contexts[each.key].name
+      PGHOST              = digitalocean_database_cluster.postgres.host
+      PGPASSWORD          = digitalocean_database_cluster.postgres.password
+      PGPORT              = tostring(digitalocean_database_cluster.postgres.port)
+      PGSSLMODE           = "require"
+      PGUSER              = digitalocean_database_cluster.postgres.user
+    }
+  }
+
+  depends_on = [
+    digitalocean_database_db.contexts,
+    digitalocean_database_user.contexts,
+  ]
+}
+
 resource "digitalocean_app" "landing" {
   spec {
     name   = "${local.name_prefix}-landing"
@@ -56,7 +92,7 @@ resource "digitalocean_app" "landing" {
         production   = true
         cluster_name = digitalocean_database_cluster.postgres.name
         db_name      = database.value
-        db_user      = digitalocean_database_cluster.postgres.user
+        db_user      = digitalocean_database_user.contexts[database.key].name
       }
     }
 
@@ -383,5 +419,9 @@ resource "digitalocean_app" "landing" {
     }
   }
 
-  depends_on = [digitalocean_database_db.contexts]
+  depends_on = [
+    digitalocean_database_db.contexts,
+    digitalocean_database_user.contexts,
+    terraform_data.context_database_grants,
+  ]
 }

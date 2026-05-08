@@ -1,0 +1,46 @@
+import pg from "pg";
+
+const { Client } = pg;
+
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
+function quoteIdentifier(value) {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+const database = requireEnv("DATABASE_GRANT_NAME");
+const user = requireEnv("DATABASE_GRANT_USER");
+
+const client = new Client({
+  host: requireEnv("PGHOST"),
+  port: Number(process.env.PGPORT ?? "5432"),
+  database,
+  user: requireEnv("PGUSER"),
+  password: requireEnv("PGPASSWORD"),
+  ssl:
+    process.env.PGSSLMODE === "require"
+      ? { rejectUnauthorized: false }
+      : undefined,
+});
+
+await client.connect();
+
+try {
+  const databaseIdentifier = quoteIdentifier(database);
+  const userIdentifier = quoteIdentifier(user);
+
+  await client.query(
+    `GRANT CONNECT, CREATE, TEMPORARY ON DATABASE ${databaseIdentifier} TO ${userIdentifier}`,
+  );
+  await client.query(
+    `GRANT USAGE, CREATE ON SCHEMA public TO ${userIdentifier}`,
+  );
+} finally {
+  await client.end();
+}

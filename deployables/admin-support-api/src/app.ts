@@ -62,13 +62,13 @@ export function buildAdminSupportApiApp(
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
-  app.route(
-    "/health",
+  const createAdminSupportHealthRoutes = () =>
     createHealthRoutes({
       getProjectionReplay: options.getProjectionReplay,
       readinessChecks: options.readinessChecks,
-    }),
-  );
+    });
+  app.route("/health", createAdminSupportHealthRoutes());
+  app.route("/api/health", createAdminSupportHealthRoutes());
 
   if (!options.adminRegistrationEnabled) {
     app.post("/api/auth/register", (c) =>

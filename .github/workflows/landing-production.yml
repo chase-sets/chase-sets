@@ -45,7 +45,8 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ inputs.release_tag }}"
-          git fetch origin main production --tags
+          git fetch origin main --tags
+          git fetch origin production || true
           tag_commit="$(git rev-parse "${tag}^{commit}")"
           git merge-base --is-ancestor "$tag_commit" origin/main
 

@@ -8,13 +8,15 @@ This Terraform root manages staging and production landing infrastructure:
 
 ## State Bootstrap
 
-Create the Spaces bucket once outside this root. One common option is the AWS CLI against the Spaces endpoint:
+Create the Spaces bucket once with the Terraform bootstrap root before initializing this remote backend:
 
 ```bash
-AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
-aws --endpoint-url https://nyc3.digitaloceanspaces.com \
-  s3 mb s3://chase-sets-terraform-state
+cd ../state-bootstrap
+terraform init
+terraform apply
 ```
+
+That root uses local state because this backend bucket cannot exist before the first apply.
 
 Initialize with partial S3 backend config:
 
@@ -33,3 +35,5 @@ terraform init \
 ```
 
 Use `landing/production.tfstate` for production.
+
+Run `npm ci` from the repo root before applying this Terraform root. Terraform runs the repo-local DigitalOcean database grant script after creating per-context database users so each App Platform database component can connect with its own non-admin user.

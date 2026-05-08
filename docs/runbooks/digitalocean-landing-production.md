@@ -35,15 +35,17 @@ The bootstrap job creates or reconciles only the configured platform admin accou
 
 ## One-Time State Bootstrap
 
-Create the Spaces bucket before the first Terraform init. One common path is the AWS CLI against the Spaces endpoint:
+Create the Spaces bucket before the first landing Terraform init:
 
 ```bash
-AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
-aws --endpoint-url https://nyc3.digitaloceanspaces.com \
-  s3 mb s3://chase-sets-terraform-state
+cd infrastructure/digitalocean/state-bootstrap
+terraform init
+terraform apply
 ```
 
 Then run `terraform init` in `infrastructure/digitalocean/landing` using `landing/staging.tfstate` or `landing/production.tfstate` as the backend key. The CI workflows use the same backend settings.
+
+Run `npm ci` before Terraform apply. The landing Terraform root creates per-context database users and then runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys.
 
 ## Staging Deployment
 
