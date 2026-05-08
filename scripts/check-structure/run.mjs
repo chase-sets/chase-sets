@@ -1396,7 +1396,7 @@ async function validateContextManifest(context) {
     }
   }
 
-  const expectedTopLevelDirectories = new Set(["features", "support", "routes", "tests"]);
+  const expectedTopLevelDirectories = new Set(["features", "support", "routes", "tests", "docs"]);
   const declaredDirectoryIntent = manifest.directoryIntent ?? {};
   const declaredDirectoryIntentNames = new Set(Object.keys(declaredDirectoryIntent));
 
@@ -2251,6 +2251,10 @@ await runImportBoundaryValidation({
 
     const extension = path.extname(file);
     let content = null;
+
+    if (/^bounded-contexts\/[^/]+\/docs\//.test(normalizedFile) && sourceExtensions.has(extension)) {
+      addViolation(file, "bounded-context docs must remain documentation-only and must not contain runtime source files");
+    }
 
     if (isAccountCapabilityLanguageGuardedFile(normalizedFile, extension)) {
       content = await readFile(file, "utf8");

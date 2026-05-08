@@ -42,8 +42,9 @@ Bounded contexts should read as feature-first by default.
 
 Top-level directory intent:
 
-- Implemented contexts use explicit root buckets: `features/`, `support/`, `routes/`, and optional `tests/`.
+- Implemented contexts use explicit root buckets: `features/`, `support/`, `routes/`, optional `tests/`, and optional `docs/`.
 - Implemented context roots keep only canonical entrypoints and docs: `context.json`, `package.json`, `index.ts`, `api.ts`, `client.ts`, `server.ts`, `web.ts`, `README.md`, `GLOSSARY.md`, and `ids.ts` when the context owns typed IDs.
+- `docs/` is allowed only for context-owned decision records, policy notes, or modeling deep dives that are too specific for the context README. It must not contain runtime code.
 - `slices` entries in `context.json` are logical feature slices and must resolve to `features/<slice>/`.
 - `allowedSupportDirectories` entries in `context.json` are logical support modules and must resolve to `support/<name>/`.
 - Feature roots are directory-only seams. Keep slice code under `api/`, `domain/`, `read-model/`, `ui/`, `integrations/`, and slice-local `tests/` when needed.
@@ -57,7 +58,8 @@ Top-level directory intent:
 Naming standard for support directories:
 
 - Keep reusable technical helpers in `*-support` folders, for example `request-support`, `route-support`, `shell-support`, `seed-support`, or `projection-support`.
-- `tests/` is the only non-`*-support` root bucket exception for acceptance or structure tests that span multiple slices.
+- `tests/` is the non-`*-support` root bucket exception for acceptance or structure tests that span multiple slices.
+- `docs/` is the non-runtime documentation bucket for context-owned supporting notes.
 - Do not place ambiguous folders like `shell`, `helpers`, or `utils` directly at the bounded-context root; keep them under `features/` or `support/`.
 
 When structure shifts away from slice locality, such as shared route wiring or shell composition, encode the shift by creating or extending a purpose-specific `*-support` directory and declaring it in `allowedSupportDirectories`.
