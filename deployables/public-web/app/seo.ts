@@ -12,11 +12,11 @@ export function shouldIndexPublicWeb() {
 export function buildCanonicalUrl({
   origin,
   pathname,
-  search = "",
+  search: _search = "",
 }: {
   origin: string;
   pathname: string;
   search?: string;
 }) {
-  return new URL(`${pathname}${search}`, origin).toString();
+  return new URL(pathname, origin).toString();
 }

@@ -6,6 +6,7 @@ import {
   createPublicPresenceRequestApiClient,
 } from "../../support/request-support/api-client";
 import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
+import heroImageUrl from "../../support/shell-support/assets/chase-sets-prelaunch-hero.webp?url";
 
 function optional(value: FormDataEntryValue | null) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -71,6 +72,9 @@ export const meta: MetaFunction = () => [
   { property: "og:title", content: t("publicPresence.routes.home.meta.title") },
   { property: "og:description", content: t("publicPresence.routes.home.meta.description") },
   { property: "og:type", content: "website" },
+  { property: "og:image", content: `https://chasesets.com${heroImageUrl}` },
+  { name: "twitter:card", content: "summary_large_image" },
+  { name: "twitter:image", content: `https://chasesets.com${heroImageUrl}` },
 ];
 
 export default function PublicPresenceHomeRoute() {

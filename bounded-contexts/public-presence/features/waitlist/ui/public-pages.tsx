@@ -13,21 +13,24 @@ import {
   Inline,
   LinkButton,
   LinkText,
+  ListingCard,
   List,
   MarketingImageHero,
+  MarketingVisualCard,
   NativeSelect,
   Page,
   PageHeader,
   PageSection,
+  SkipLink,
   Stack,
-  Stat,
-  StatGrid,
   Surface,
+  PriceBreakdown,
   Text,
   TextInput,
-  VisuallyHidden,
 } from "@chase-sets/design-system";
 import heroImageUrl from "../../../support/shell-support/assets/chase-sets-prelaunch-hero.webp?url";
+import pikachuIllustrationRareUrl from "../../../support/shell-support/assets/pikachu-illustration-rare.png?url";
+import waitlistCardPanelsUrl from "../../../support/shell-support/assets/chase-sets-waitlist-card-panels.webp?url";
 
 export type WaitlistActionData =
   | Readonly<{ status: "joined" }>
@@ -101,23 +104,30 @@ export function PublicPresencePageShell({
 }) {
   return (
     <ChaseRoot colorMode="system">
+      <SkipLink />
       <Container width="wide">
-        <Stack gap={6}>
-          <Surface element="nav" tone="subtle" padding={3}>
-            <Inline gap={3} align="center">
+        <Stack gap={4}>
+          <Surface element="nav" tone="subtle" padding={2}>
+            <Stack
+              direction={{ base: "column", md: "row" }}
+              gap={2}
+              align={{ base: "start", md: "center" }}
+            >
               <BrandLink label={t("publicPresence.brand")} />
-              <LinkButton href="/" tone="secondary" size="sm">
-                {t("publicPresence.nav.product")}
-              </LinkButton>
-              <LinkButton href="/faq" tone="secondary" size="sm">
-                {t("publicPresence.nav.faq")}
-              </LinkButton>
-              <LinkButton href="/terms" tone="secondary" size="sm">
-                {t("publicPresence.nav.policies")}
-              </LinkButton>
-            </Inline>
+              <Inline gap={2}>
+                <LinkText href="#product-preview" tone="subtle">
+                  {t("publicPresence.nav.product")}
+                </LinkText>
+                <LinkText href="/faq" tone="subtle">
+                  {t("publicPresence.nav.faq")}
+                </LinkText>
+                <LinkText href="/terms" tone="subtle">
+                  {t("publicPresence.nav.policies")}
+                </LinkText>
+              </Inline>
+            </Stack>
           </Surface>
-          {children}
+          <main id="main-content">{children}</main>
           <Surface element="footer" tone="subtle">
             <Stack gap={3}>
               <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
@@ -161,15 +171,16 @@ export function PublicPresenceHomePage({
     <PublicPresencePageShell>
       <Page>
         <MarketingImageHero
-          imageSrc={heroImageUrl}
+          imageSrc={waitlistCardPanelsUrl}
           imageAlt={t("publicPresence.home.heroImageAlt")}
+          imagePosition="left"
           eyebrow={t("publicPresence.home.eyebrow")}
           title={t("publicPresence.home.title")}
           description={t("publicPresence.home.description")}
           actions={
             <Inline gap={2}>
-              <LinkButton href="#waitlist" size="lg" leadingIcon="rocket">
-                {t("publicPresence.home.primaryCta")}
+              <LinkButton href="#product-preview" size="md" leadingIcon="search">
+                {t("publicPresence.home.heroCta")}
               </LinkButton>
               {discordInviteUrl ? (
                 <DiscordInviteLink href={discordInviteUrl} />
@@ -179,21 +190,9 @@ export function PublicPresenceHomePage({
           conversionPanel={
             <WaitlistSignupPanel actionData={actionData} source={source} compact />
           }
-          highlights={[
-            {
-              label: t("publicPresence.home.heroHighlight.lowValue.label"),
-              value: t("publicPresence.home.heroHighlight.lowValue.value"),
-            },
-            {
-              label: t("publicPresence.home.heroHighlight.workflow.label"),
-              value: t("publicPresence.home.heroHighlight.workflow.value"),
-            },
-            {
-              label: t("publicPresence.home.heroHighlight.launch.label"),
-              value: t("publicPresence.home.heroHighlight.launch.value"),
-            },
-          ]}
         />
+
+        <HeroSignalStrip />
 
         <LaunchPriorityPanel />
 
@@ -203,49 +202,11 @@ export function PublicPresenceHomePage({
 
         <ProductSignalPreview />
 
-        <PageSection
-          title={t("publicPresence.home.howItWorks.title")}
-          description={t("publicPresence.home.howItWorks.description")}
-        >
-          <Grid columns={{ base: 1, md: 3 }} gap={4}>
-            {[
-              ["publicPresence.home.step.resolve.title", "publicPresence.home.step.resolve.description"],
-              ["publicPresence.home.step.trade.title", "publicPresence.home.step.trade.description"],
-              ["publicPresence.home.step.settle.title", "publicPresence.home.step.settle.description"],
-            ].map(([title, description]) => (
-              <Surface key={title} elevated>
-                <Stack gap={2}>
-                  <Heading level={3}>{t(title)}</Heading>
-                  <Text tone="secondary">{t(description)}</Text>
-                </Stack>
-              </Surface>
-            ))}
-          </Grid>
-        </PageSection>
+        <MarketplaceModelSection />
 
-        <EconomicsSignalSection />
-
-        <PageSection
-          title={t("publicPresence.home.trust.title")}
-          description={t("publicPresence.home.trust.description")}
-        >
-          <Grid columns={{ base: 1, md: 3 }} gap={4}>
-            {[
-              ["publicPresence.home.trust.payment.title", "publicPresence.home.trust.payment.description"],
-              ["publicPresence.home.trust.policies.title", "publicPresence.home.trust.policies.description"],
-              ["publicPresence.home.trust.support.title", "publicPresence.home.trust.support.description"],
-            ].map(([title, description]) => (
-              <Surface key={title} tone="subtle">
-                <Stack gap={2}>
-                  <Heading level={3}>{t(title)}</Heading>
-                  <Text tone="secondary">{t(description)}</Text>
-                </Stack>
-              </Surface>
-            ))}
-          </Grid>
-        </PageSection>
-
-        <FinalCtaSection discordInviteUrl={discordInviteUrl} />
+        <FinalCtaSection
+          discordInviteUrl={discordInviteUrl}
+        />
 
         <FaqPreview />
       </Page>
@@ -253,25 +214,78 @@ export function PublicPresenceHomePage({
   );
 }
 
+function HeroSignalStrip() {
+  return (
+    <Grid columns={{ base: 1, md: 3 }} gap={3}>
+      {[
+        {
+          label: t("publicPresence.home.heroHighlight.lowValue.label"),
+          value: t("publicPresence.home.heroHighlight.lowValue.value"),
+        },
+        {
+          label: t("publicPresence.home.heroHighlight.workflow.label"),
+          value: t("publicPresence.home.heroHighlight.workflow.value"),
+        },
+        {
+          label: t("publicPresence.home.heroHighlight.launch.label"),
+          value: t("publicPresence.home.heroHighlight.launch.value"),
+        },
+      ].map((highlight) => (
+        <Surface key={highlight.label} tone="subtle" padding={3}>
+          <Stack gap={1}>
+            <Text size="sm" tone="secondary" weight="semibold">
+              {highlight.label}
+            </Text>
+            <Text weight="semibold">{highlight.value}</Text>
+          </Stack>
+        </Surface>
+      ))}
+    </Grid>
+  );
+}
+
 function WhyJoinNow() {
+  const cards = [
+    {
+      imageSrc: heroImageUrl,
+      titleKey: "publicPresence.home.whyJoin.lowValue.title",
+      descriptionKey: "publicPresence.home.whyJoin.lowValue.description",
+      visualAltKey: "publicPresence.home.whyJoin.lowValue.visualAlt",
+      imagePosition: "left" as const,
+    },
+    {
+      imageSrc: waitlistCardPanelsUrl,
+      titleKey: "publicPresence.home.whyJoin.sellers.title",
+      descriptionKey: "publicPresence.home.whyJoin.sellers.description",
+      visualAltKey: "publicPresence.home.whyJoin.sellers.visualAlt",
+      imagePosition: "center" as const,
+    },
+    {
+      imageSrc: pikachuIllustrationRareUrl,
+      titleKey: "publicPresence.home.whyJoin.access.title",
+      descriptionKey: "publicPresence.home.whyJoin.access.description",
+      visualAltKey: "publicPresence.home.whyJoin.access.visualAlt",
+      imagePosition: "right" as const,
+    },
+  ];
+
   return (
     <PageSection
       title={t("publicPresence.home.whyJoin.title")}
       description={t("publicPresence.home.whyJoin.description")}
     >
       <Grid columns={{ base: 1, md: 3 }} gap={4}>
-        {[
-          ["publicPresence.home.whyJoin.lowValue.title", "publicPresence.home.whyJoin.lowValue.description"],
-          ["publicPresence.home.whyJoin.sellers.title", "publicPresence.home.whyJoin.sellers.description"],
-          ["publicPresence.home.whyJoin.access.title", "publicPresence.home.whyJoin.access.description"],
-        ].map(([title, description]) => (
-          <Surface key={title} elevated glow>
-            <Stack gap={2}>
-              <Badge tone="info">{t("publicPresence.home.whyJoin.badge")}</Badge>
-              <Heading level={3}>{t(title)}</Heading>
-              <Text tone="secondary">{t(description)}</Text>
-            </Stack>
-          </Surface>
+        {cards.map((card) => (
+          <MarketingVisualCard
+            key={card.titleKey}
+            imageSrc={card.imageSrc}
+            imageAlt={t(card.visualAltKey)}
+            imagePosition={card.imagePosition}
+            badge={t("publicPresence.home.whyJoin.badge")}
+            badgeTone="info"
+            title={t(card.titleKey)}
+            description={t(card.descriptionKey)}
+          />
         ))}
       </Grid>
     </PageSection>
@@ -280,45 +294,56 @@ function WhyJoinNow() {
 
 function LaunchPriorityPanel() {
   return (
-    <Surface elevated>
-      <Stack gap={4}>
+    <Surface tone="muted">
+      <Grid columns={{ base: 1, lg: 2 }} gap={5}>
         <Stack gap={2}>
           <Badge tone="info">{t("publicPresence.home.launchPriority.badge")}</Badge>
           <Heading level={2}>{t("publicPresence.home.launchPriority.title")}</Heading>
           <Text tone="secondary">{t("publicPresence.home.launchPriority.description")}</Text>
+          <List
+            items={[
+              t("publicPresence.home.promise.lowValue"),
+              t("publicPresence.home.promise.sellerTools"),
+              t("publicPresence.home.promise.earlyAccess"),
+            ]}
+          />
         </Stack>
-        <StatGrid columns={{ base: 1, md: 3 }}>
-          <Stat label={t("publicPresence.home.stat.marketplace")} value={t("publicPresence.home.stat.marketplace.value")} />
-          <Stat label={t("publicPresence.home.stat.cards")} value={t("publicPresence.home.stat.cards.value")} />
-          <Stat label={t("publicPresence.home.stat.status")} value={t("publicPresence.home.stat.status.value")} />
-        </StatGrid>
-        <List
-          items={[
-            t("publicPresence.home.promise.lowValue"),
-            t("publicPresence.home.promise.sellerTools"),
-            t("publicPresence.home.promise.earlyAccess"),
-          ]}
-        />
-        <Grid columns={{ base: 1, md: 2 }} gap={4}>
-          <WaitlistAfterSignupCues />
-          <WaitlistTrustStrip />
-        </Grid>
-      </Stack>
+        <Stack gap={3}>
+          <Inline gap={2}>
+            <Badge tone="success">{t("publicPresence.home.betaFee.badge")}</Badge>
+            <Text size="sm" weight="semibold">{t("publicPresence.home.stat.status.value")}</Text>
+          </Inline>
+          <Heading level={3}>{t("publicPresence.home.betaFee.title")}</Heading>
+          <Text tone="secondary">{t("publicPresence.home.betaFee.description")}</Text>
+          <Grid columns={{ base: 1, md: 3 }} gap={3}>
+            {[
+              ["publicPresence.home.betaFee.rate", "publicPresence.home.betaFee.rateLabel"],
+              ["publicPresence.home.betaFee.scope", "publicPresence.home.betaFee.scopeLabel"],
+              ["publicPresence.home.betaFee.lock", "publicPresence.home.betaFee.lockLabel"],
+            ].map(([value, label]) => (
+              <Stack key={value} gap={1}>
+                <Text weight="bold">{t(value)}</Text>
+                <Text size="sm" tone="secondary">{t(label)}</Text>
+              </Stack>
+            ))}
+          </Grid>
+        </Stack>
+      </Grid>
     </Surface>
   );
 }
 
-function EconomicsSignalSection() {
+function MarketplaceModelSection() {
   return (
     <PageSection
-      title={t("publicPresence.home.economics.title")}
-      description={t("publicPresence.home.economics.description")}
+      title={t("publicPresence.home.howItWorks.title")}
+      description={t("publicPresence.home.howItWorks.description")}
     >
       <Grid columns={{ base: 1, md: 3 }} gap={4}>
         {[
-          ["publicPresence.home.economics.lowValue.title", "publicPresence.home.economics.lowValue.description"],
-          ["publicPresence.home.economics.fees.title", "publicPresence.home.economics.fees.description"],
-          ["publicPresence.home.economics.shipping.title", "publicPresence.home.economics.shipping.description"],
+          ["publicPresence.home.model.supply.title", "publicPresence.home.model.supply.description"],
+          ["publicPresence.home.model.economics.title", "publicPresence.home.model.economics.description"],
+          ["publicPresence.home.model.trust.title", "publicPresence.home.model.trust.description"],
         ].map(([title, description]) => (
           <Surface key={title} elevated>
             <Stack gap={2}>
@@ -339,7 +364,7 @@ function BuyerSellerLandingSection() {
       description={t("publicPresence.home.audience.description")}
     >
       <Grid columns={{ base: 1, md: 2 }} gap={4}>
-        <Surface elevated glow>
+        <Surface tone="subtle">
           <Stack gap={3}>
             <Badge tone="success">{t("publicPresence.home.audience.buyer.badge")}</Badge>
             <Heading level={3}>{t("publicPresence.home.buying.title")}</Heading>
@@ -353,7 +378,7 @@ function BuyerSellerLandingSection() {
             />
           </Stack>
         </Surface>
-        <Surface elevated glow>
+        <Surface tone="subtle">
           <Stack gap={3}>
             <Badge tone="warning">{t("publicPresence.home.audience.seller.badge")}</Badge>
             <Heading level={3}>{t("publicPresence.home.selling.title")}</Heading>
@@ -375,43 +400,73 @@ function BuyerSellerLandingSection() {
 function ProductSignalPreview() {
   return (
     <PageSection
+      id="product-preview"
       title={t("publicPresence.preview.section.title")}
       description={t("publicPresence.preview.section.description")}
     >
-    <Surface elevated>
-      <Stack gap={4}>
-        <Inline gap={2}>
-          <Text weight="semibold">{t("publicPresence.preview.title")}</Text>
-          <Text size="sm" tone="secondary">{t("publicPresence.preview.status")}</Text>
-        </Inline>
-        <Surface tone="subtle">
-          <Grid columns={{ base: 1, md: 2 }} gap={3}>
-            <Stack gap={1}>
-              <Text weight="semibold">{t("publicPresence.preview.card.name")}</Text>
-              <Text size="sm" tone="secondary">{t("publicPresence.preview.card.details")}</Text>
+      <Grid columns={{ base: 1, lg: 2 }} gap={4}>
+        <ListingCard
+          title={t("publicPresence.preview.listing.title")}
+          model="product"
+          imageSrc={pikachuIllustrationRareUrl}
+          imageAlt={t("publicPresence.preview.listing.imageAlt")}
+          price={t("publicPresence.preview.listing.price.value")}
+          priceDetail={t("publicPresence.preview.listing.price.detail")}
+          priceExplanation={t("publicPresence.preview.listing.price.explanation")}
+          rating={4.9}
+          reviewCount="126"
+          sellerName={t("publicPresence.preview.listing.seller.value")}
+          sellerTrustLabel={t("publicPresence.preview.listing.seller.trust")}
+          sellerVerified
+          sellerMeta={t("publicPresence.preview.listing.seller.meta")}
+          fulfillment={t("publicPresence.preview.listing.fulfillment.value")}
+          availability={t("publicPresence.preview.listing.availability.value")}
+          condition={t("publicPresence.preview.listing.condition.value")}
+          valueCue={t("publicPresence.preview.listing.description")}
+          truncateValueCue={false}
+          protection={t("publicPresence.preview.listing.protection.value")}
+          returnPolicy={t("publicPresence.preview.listing.returnPolicy.value")}
+          primaryAction={(
+            <LinkButton href="#waitlist" size="sm">
+              {t("publicPresence.preview.listing.action")}
+            </LinkButton>
+          )}
+          secondaryAction={(
+            <LinkButton href="/buyer-protection" tone="secondary" size="sm">
+              {t("publicPresence.preview.listing.secondaryAction")}
+            </LinkButton>
+          )}
+        />
+        <Stack gap={4}>
+          <PriceBreakdown
+            title={t("publicPresence.preview.total.title")}
+            description={t("publicPresence.preview.total.description")}
+            lines={[
+              { label: t("publicPresence.preview.total.item"), value: t("publicPresence.preview.total.item.value") },
+              { label: t("publicPresence.preview.total.shipping"), value: t("publicPresence.preview.total.shipping.value") },
+              { label: t("publicPresence.preview.total.protection"), value: t("publicPresence.preview.total.protection.value") },
+            ]}
+            totalLabel={t("publicPresence.preview.total.due")}
+            total={t("publicPresence.preview.total.due.value")}
+            reassurance={t("publicPresence.preview.total.reassurance")}
+          />
+          <Surface tone="subtle">
+            <Stack gap={4}>
+              <Heading level={3}>{t("publicPresence.preview.trust.title")}</Heading>
+              {[
+                ["publicPresence.preview.trust.payment.title", "publicPresence.preview.trust.payment.description"],
+                ["publicPresence.preview.trust.shipping.title", "publicPresence.preview.trust.shipping.description"],
+                ["publicPresence.preview.trust.support.title", "publicPresence.preview.trust.support.description"],
+              ].map(([title, description]) => (
+                <Stack key={title} gap={1}>
+                  <Text weight="semibold">{t(title)}</Text>
+                  <Text size="sm" tone="secondary">{t(description)}</Text>
+                </Stack>
+              ))}
             </Stack>
-            <Stack gap={1}>
-              <Text weight="semibold">{t("publicPresence.preview.price")}</Text>
-              <Text size="sm" tone="secondary">{t("publicPresence.preview.price.detail")}</Text>
-            </Stack>
-          </Grid>
-        </Surface>
-        <Grid columns={{ base: 1, md: 3 }} gap={3}>
-          <Surface tone="subtle">
-            <Text weight="semibold">{t("publicPresence.preview.signal.fees")}</Text>
-            <Text size="sm" tone="secondary">{t("publicPresence.preview.signal.fees.detail")}</Text>
           </Surface>
-          <Surface tone="subtle">
-            <Text weight="semibold">{t("publicPresence.preview.signal.shipping")}</Text>
-            <Text size="sm" tone="secondary">{t("publicPresence.preview.signal.shipping.detail")}</Text>
-          </Surface>
-          <Surface tone="subtle">
-            <Text weight="semibold">{t("publicPresence.preview.signal.trust")}</Text>
-            <Text size="sm" tone="secondary">{t("publicPresence.preview.signal.trust.detail")}</Text>
-          </Surface>
-        </Grid>
-      </Stack>
-    </Surface>
+        </Stack>
+      </Grid>
     </PageSection>
   );
 }
@@ -422,173 +477,166 @@ function FinalCtaSection({
   discordInviteUrl?: string | null;
 }) {
   return (
-    <Surface tone="accent" elevated glow padding={6}>
-      <Stack gap={4}>
+    <Surface tone="muted" padding={5}>
+      <Grid columns={{ base: 1, lg: 2 }} gap={5}>
         <Stack gap={2}>
-          <Badge tone="neutral">{t("publicPresence.home.finalCta.badge")}</Badge>
+          <Badge tone="success">{t("publicPresence.home.finalCta.badge")}</Badge>
           <Heading level={2}>{t("publicPresence.home.finalCta.title")}</Heading>
-          <Text tone="inverse">{t("publicPresence.home.finalCta.description")}</Text>
+          <Text tone="secondary">{t("publicPresence.home.finalCta.description")}</Text>
         </Stack>
-        <Inline gap={2}>
-          <LinkButton href="#waitlist" size="lg" leadingIcon="rocket">
-            {t("publicPresence.home.primaryCta")}
-          </LinkButton>
-          {discordInviteUrl ? (
-            <DiscordInviteLink href={discordInviteUrl} />
-          ) : null}
-        </Inline>
-      </Stack>
+        <Stack gap={3}>
+          <List
+            items={[
+              t("publicPresence.home.finalCta.point.buyers"),
+              t("publicPresence.home.finalCta.point.sellers"),
+              t("publicPresence.home.finalCta.point.terms"),
+            ]}
+          />
+          <Inline gap={2}>
+            <LinkButton href="#waitlist" size="lg" leadingIcon="rocket">
+              {t("publicPresence.home.finalCta.action")}
+            </LinkButton>
+            {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} /> : null}
+          </Inline>
+        </Stack>
+      </Grid>
     </Surface>
   );
 }
 
 function WaitlistSignupPanel({
   actionData,
+  panelId = "waitlist",
   source,
   compact = false,
 }: {
   actionData: WaitlistActionData;
+  panelId?: string;
   source: Parameters<typeof PublicPresenceHomePage>[0]["source"];
   compact?: boolean;
 }) {
   const [emailConsent, setEmailConsent] = useState(false);
 
-  return (
-      <Surface id="waitlist" elevated glow>
-        <Stack gap={4}>
-          <Stack gap={2}>
-            <Badge tone="success">{t("publicPresence.waitlist.badge")}</Badge>
-            <Heading level={compact ? 3 : 2}>
-              {t(compact ? "publicPresence.waitlist.heroTitle" : "publicPresence.waitlist.title")}
-            </Heading>
-            <Text tone="secondary">
-              {t(compact ? "publicPresence.waitlist.heroDescription" : "publicPresence.waitlist.description")}
-            </Text>
-            {!compact ? (
-              <Text size="sm" tone="secondary">{t("publicPresence.waitlist.promise")}</Text>
-            ) : null}
-          </Stack>
-          {actionData?.status === "joined" ? (
-            <Banner
-              tone="success"
-              title={t("publicPresence.waitlist.success.title")}
-              description={t("publicPresence.waitlist.success.description")}
-            />
+  const panel = (
+    <Surface id={panelId} elevated glow padding={compact ? 3 : 4}>
+      <Stack gap={compact ? 3 : 4}>
+        <Stack gap={2}>
+          <Badge tone="success">{t("publicPresence.waitlist.badge")}</Badge>
+          <Heading level={compact ? 3 : 2}>
+            {t(
+              compact
+                ? "publicPresence.waitlist.heroTitle"
+                : "publicPresence.waitlist.title",
+            )}
+          </Heading>
+          <Text tone="secondary">
+            {t(
+              compact
+                ? "publicPresence.waitlist.heroDescription"
+                : "publicPresence.waitlist.description",
+            )}
+          </Text>
+          {!compact ? (
+            <Text size="sm" tone="secondary">{t("publicPresence.waitlist.promise")}</Text>
           ) : null}
-          {actionData?.status === "error" ? (
-            <Banner
-              tone="danger"
-              title={t("publicPresence.waitlist.error.title")}
-              description={actionData.message}
-            />
-          ) : null}
-          <form method="post" action="?index">
-            <Stack gap={4}>
-              <TextInput
-                label={t("publicPresence.waitlist.email")}
-                name="email"
-                type="email"
-                required
-                autoComplete="email"
-                placeholder={t("publicPresence.waitlist.email.placeholder")}
-              />
-              {compact ? (
-                <>
-                  <input type="hidden" name="role" value="both" readOnly />
-                  <NativeSelect
-                    label={t("publicPresence.waitlist.interests")}
-                    name="interests"
-                    defaultValue="low-seller-fees"
-                    items={interestSelectItems}
-                    required
-                  />
-                </>
-              ) : (
-                <>
-                  <NativeSelect
-                    label={t("publicPresence.waitlist.role")}
-                    name="role"
-                    defaultValue="both"
-                    items={roleItems}
-                    required
-                  />
-                  <NativeSelect
-                    label={t("publicPresence.waitlist.interests")}
-                    name="interests"
-                    defaultValue="low-seller-fees"
-                    description={t("publicPresence.waitlist.interests.description")}
-                    items={interestSelectItems}
-                    required
-                  />
-                </>
-              )}
-              <Checkbox
-                label={t("publicPresence.waitlist.consent")}
-                checked={emailConsent}
-                onCheckedChange={(checked) => setEmailConsent(checked === true)}
-                required
-              />
-              {emailConsent ? (
-                <input type="hidden" name="emailConsent" value="yes" readOnly />
-              ) : null}
-              <VisuallyHidden>
-                <label>
-                  {t("publicPresence.waitlist.website")}
-                  <input name="website" tabIndex={-1} autoComplete="off" />
-                </label>
-              </VisuallyHidden>
-              <input type="hidden" name="pagePath" value={source.pagePath} readOnly />
-              <input type="hidden" name="referrer" value={source.referrer ?? ""} readOnly />
-              <input type="hidden" name="utmSource" value={source.utmSource ?? ""} readOnly />
-              <input type="hidden" name="utmMedium" value={source.utmMedium ?? ""} readOnly />
-              <input type="hidden" name="utmCampaign" value={source.utmCampaign ?? ""} readOnly />
-              <input type="hidden" name="utmContent" value={source.utmContent ?? ""} readOnly />
-              <input type="hidden" name="utmTerm" value={source.utmTerm ?? ""} readOnly />
-              <Button type="submit" size="lg" block leadingIcon="rocket">
-                {t("publicPresence.waitlist.submit")}
-              </Button>
-            </Stack>
-          </form>
         </Stack>
-      </Surface>
-  );
-}
-
-function WaitlistAfterSignupCues() {
-  return (
-    <Surface tone="subtle" padding={3}>
-      <Stack gap={2}>
-        <Text size="sm" weight="semibold">{t("publicPresence.waitlist.afterSignup.title")}</Text>
-        <List
-          items={[
-            t("publicPresence.waitlist.afterSignup.join"),
-            t("publicPresence.waitlist.afterSignup.signal"),
-            t("publicPresence.waitlist.afterSignup.updates"),
-          ]}
-        />
+        {actionData?.status === "joined" ? (
+          <Banner
+            tone="success"
+            title={t("publicPresence.waitlist.success.title")}
+            description={t("publicPresence.waitlist.success.description")}
+          />
+        ) : null}
+        {actionData?.status === "error" ? (
+          <Banner
+            tone="danger"
+            title={t("publicPresence.waitlist.error.title")}
+            description={actionData.message}
+          />
+        ) : null}
+        <form method="post" action="?index">
+          <Stack gap={compact ? 3 : 4}>
+            <TextInput
+              label={t("publicPresence.waitlist.email")}
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              placeholder={t("publicPresence.waitlist.email.placeholder")}
+            />
+            {compact ? (
+              <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                <NativeSelect
+                  label={t("publicPresence.waitlist.role")}
+                  name="role"
+                  defaultValue="both"
+                  items={roleItems}
+                  required
+                />
+                <NativeSelect
+                  label={t("publicPresence.waitlist.interests")}
+                  name="interests"
+                  defaultValue="low-seller-fees"
+                  items={interestSelectItems}
+                  required
+                />
+              </Grid>
+            ) : (
+              <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                <NativeSelect
+                  label={t("publicPresence.waitlist.role")}
+                  name="role"
+                  defaultValue="both"
+                  items={roleItems}
+                  required
+                />
+                <NativeSelect
+                  label={t("publicPresence.waitlist.interests")}
+                  name="interests"
+                  defaultValue="low-seller-fees"
+                  description={t("publicPresence.waitlist.interests.description")}
+                  items={interestSelectItems}
+                  required
+                />
+              </Grid>
+            )}
+            <Checkbox
+              label={t("publicPresence.waitlist.consent")}
+              description={t("publicPresence.waitlist.consent.description")}
+              checked={emailConsent}
+              onCheckedChange={(checked) => setEmailConsent(checked === true)}
+              required
+            />
+            {emailConsent ? (
+              <input type="hidden" name="emailConsent" value="yes" readOnly />
+            ) : null}
+            <input
+              type="text"
+              name="website"
+              tabIndex={-1}
+              autoComplete="off"
+              aria-hidden="true"
+              hidden
+            />
+            <input type="hidden" name="pagePath" value={source.pagePath} readOnly />
+            <input type="hidden" name="referrer" value={source.referrer ?? ""} readOnly />
+            <input type="hidden" name="utmSource" value={source.utmSource ?? ""} readOnly />
+            <input type="hidden" name="utmMedium" value={source.utmMedium ?? ""} readOnly />
+            <input type="hidden" name="utmCampaign" value={source.utmCampaign ?? ""} readOnly />
+            <input type="hidden" name="utmContent" value={source.utmContent ?? ""} readOnly />
+            <input type="hidden" name="utmTerm" value={source.utmTerm ?? ""} readOnly />
+            <Button type="submit" size="lg" block leadingIcon="rocket">
+              {t("publicPresence.waitlist.submit")}
+            </Button>
+          </Stack>
+        </form>
       </Stack>
     </Surface>
   );
-}
 
-function WaitlistTrustStrip() {
-  return (
-    <Surface tone="subtle" padding={3}>
-      <Stack gap={2}>
-        <Text size="sm" weight="semibold">{t("publicPresence.waitlist.trust.title")}</Text>
-        <Inline gap={2}>
-          {[
-            "publicPresence.waitlist.trust.policies",
-            "publicPresence.waitlist.trust.review",
-            "publicPresence.waitlist.trust.noTransactions",
-            "publicPresence.waitlist.trust.support",
-          ].map((key) => (
-            <Badge key={key} tone="neutral">{t(key)}</Badge>
-          ))}
-        </Inline>
-      </Stack>
-    </Surface>
-  );
+  return panelId === "waitlist" ? (
+    <div id="final-waitlist">{panel}</div>
+  ) : panel;
 }
 
 function FaqPreview() {

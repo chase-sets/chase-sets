@@ -393,6 +393,7 @@ export interface ListingCardProps {
   availability: ReactNode;
   condition?: ReactNode;
   valueCue?: ReactNode;
+  truncateValueCue?: boolean;
   recommendationReason?: ReactNode;
   promotion?: ReactNode;
   protection?: ReactNode;
@@ -430,6 +431,7 @@ export function ListingCard({
   availability,
   condition,
   valueCue,
+  truncateValueCue = true,
   recommendationReason,
   promotion,
   protection,
@@ -515,7 +517,11 @@ export function ListingCard({
           <h3 className="m-0 line-clamp-2 text-base font-semibold leading-6 text-[var(--foreground)]">
             {title}
           </h3>
-          {valueCue ? <p className="m-0 line-clamp-2 text-sm leading-5 text-[var(--text-secondary)]">{valueCue}</p> : null}
+          {valueCue ? (
+            <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
+              {valueCue}
+            </p>
+          ) : null}
         </div>
 
         <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">

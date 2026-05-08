@@ -27,7 +27,7 @@ describe("public presence homepage", () => {
     );
 
     expect(screen.getByRole("heading", {
-      name: "Buy and sell trading cards with better incentives",
+      name: "Buy smarter. Sell cards faster.",
     })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
   });
@@ -44,6 +44,25 @@ describe("public presence homepage", () => {
     );
 
     expect(container.querySelector("form")?.getAttribute("action")).toBe("?index");
+  });
+
+  it("sets beta notification expectations and seller fee lock terms", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <PublicPresenceHomePage
+          actionData={null}
+          discordInviteUrl={null}
+          source={source}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(container.querySelectorAll("form")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Join beta waitlist" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tell us whether you plan to buy, sell, or do both, then pick the tool you want prioritized.").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Beta seller-fee waiver terms" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Locked while unchanged").length).toBeGreaterThan(0);
+    expect(container.querySelector('[id="final-waitlist"]')).toBeTruthy();
   });
 
   it("checks email consent and includes consent in the waitlist submission", async () => {
@@ -97,6 +116,6 @@ describe("public presence homepage", () => {
       "noopener noreferrer",
       "noopener noreferrer",
     ]);
-    expect(screen.getByText("You are on the waitlist")).toBeTruthy();
+    expect(screen.getAllByText("You are on the waitlist").length).toBeGreaterThan(0);
   });
 });

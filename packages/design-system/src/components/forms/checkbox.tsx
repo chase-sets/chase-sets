@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, Minus } from "lucide-react";
 import { cx } from "../../utils/cx";
-import { FieldChrome, type BaseInputProps } from "./shared";
+import { FieldChrome, fieldHintId, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
 type CheckedState = boolean | "indeterminate";
@@ -33,6 +33,7 @@ export function Checkbox({
   const visualChecked = controlled ? checked === true : uncontrolledChecked;
   const indeterminate = controlled ? checked === "indeterminate" : uncontrolledIndeterminate;
   const IndicatorIcon = indeterminate ? Minus : Check;
+  const descriptionId = description && !error ? fieldHintId(inputId) : undefined;
 
   useEffect(() => {
     if (inputRef.current) {
@@ -47,6 +48,7 @@ export function Checkbox({
       error={error}
       required={required}
       hideLabel={hideLabel}
+      htmlFor={inputId}
     >
       <label
         htmlFor={inputId}
@@ -59,6 +61,7 @@ export function Checkbox({
           className="peer sr-only"
           disabled={disabled}
           required={required}
+          aria-describedby={descriptionId}
           {...(controlled
             ? { checked: checked === true }
             : { defaultChecked: defaultChecked === true })}
@@ -94,7 +97,6 @@ export function Checkbox({
               {required ? <span aria-hidden="true" className="ml-1 text-accent">*</span> : null}
             </div>
           ) : null}
-          {description ? <div className="text-xs text-secondary">{description}</div> : null}
         </div>
       </label>
     </FieldChrome>

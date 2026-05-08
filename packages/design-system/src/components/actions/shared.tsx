@@ -28,7 +28,7 @@ export const buttonCompactSizeClasses: Record<ButtonSize, string> = {
 };
 
 export const buttonBaseClass =
-  "focus-ring relative inline-flex items-center justify-center gap-2 overflow-hidden whitespace-nowrap rounded-tokenMd border font-semibold shadow-tokenSm transition duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none";
+  "focus-ring relative inline-flex min-w-0 max-w-full items-center justify-center gap-2 overflow-hidden whitespace-normal text-center rounded-tokenMd border font-semibold leading-snug shadow-tokenSm transition duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none";
 
 export function resolveInteractiveMotion(reducedMotion: boolean, scale: number, lift: number) {
   if (reducedMotion) {

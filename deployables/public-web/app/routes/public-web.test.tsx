@@ -33,6 +33,7 @@ describe("public web deployable", () => {
       buildCanonicalUrl({
         origin: "https://chasesets.com",
         pathname: "/terms",
+        search: "?utm_source=launch&utm_campaign=beta",
       }),
     ).toBe("https://chasesets.com/terms");
   });

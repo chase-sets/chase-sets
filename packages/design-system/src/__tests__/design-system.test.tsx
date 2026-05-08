@@ -33,6 +33,7 @@ import {
   MarketplaceTemplateGallery,
   MessageThreadPreview,
   ListingPurchasePanel,
+  MarketingVisualCard,
   OrderIntentSummary,
   OfferCard,
   PaymentRecoveryPanel,
@@ -74,6 +75,22 @@ describe("design-system", () => {
     expect(markup).toContain("Listing tools");
     expect(markup).toContain("Ready");
     expect(markup).toContain("Charizard");
+  });
+
+  it("renders marketing visual cards with accessible image context", () => {
+    const markup = renderToString(
+      <MarketingVisualCard
+        imageSrc="/assets/waitlist-panels.png"
+        imageAlt="Sorted collectible inventory"
+        badge="Beta signal"
+        title="Move more inventory"
+        description="Bulk, raw, graded, and chase cards stay practical to list."
+      />,
+    );
+
+    expect(markup).toContain("Sorted collectible inventory");
+    expect(markup).toContain("Beta signal");
+    expect(markup).toContain("Move more inventory");
   });
 
   it("renders conversion-first marketplace listing signals", () => {

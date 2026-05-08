@@ -108,10 +108,10 @@ export function PageSection({
   return (
     <section {...rest} className="space-y-4">
       {title ? (
-        <div className="space-y-1">
-          <h2 className="font-heading text-xl font-semibold text-foreground">{title}</h2>
+        <div className="max-w-4xl space-y-2">
+          <h2 className="font-heading text-2xl font-semibold leading-tight text-foreground md:text-3xl">{title}</h2>
           {description ? (
-            <div className="text-sm text-secondary">{description}</div>
+            <div className="max-w-3xl text-base leading-7 text-secondary">{description}</div>
           ) : null}
         </div>
       ) : null}
@@ -909,6 +909,7 @@ export interface MarketingHeroHighlight {
 export interface MarketingImageHeroProps {
   imageSrc: string;
   imageAlt: string;
+  imagePosition?: "left" | "center" | "right";
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
@@ -920,6 +921,7 @@ export interface MarketingImageHeroProps {
 export function MarketingImageHero({
   imageSrc,
   imageAlt,
+  imagePosition = "center",
   eyebrow,
   title,
   description,
@@ -927,25 +929,30 @@ export function MarketingImageHero({
   conversionPanel,
   highlights = []
 }: MarketingImageHeroProps) {
+  const imagePositionClass =
+    imagePosition === "left"
+      ? "object-left"
+      : imagePosition === "right"
+        ? "object-right"
+        : "object-[18%_72%]";
+
   return (
-    <section className="relative min-h-[28rem] overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg">
+    <section className="relative min-h-[22rem] overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg">
       <img
         src={imageSrc}
-        alt=""
-        aria-hidden="true"
-        className="absolute inset-0 h-full w-full object-cover"
+        alt={imageAlt}
+        className={cx("absolute inset-0 h-full w-full object-cover", imagePositionClass)}
       />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_90%,transparent)_0%,color-mix(in_srgb,var(--background)_72%,transparent)_44%,color-mix(in_srgb,var(--background)_8%,transparent)_100%)]" />
-      <div className="relative grid min-h-[28rem] gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(0,0.9fr)_minmax(20rem,0.55fr)] lg:p-8">
-        <div className="flex max-w-3xl flex-col justify-start gap-5 lg:justify-center">
-          <span className="sr-only">{imageAlt}</span>
+      <div className="relative grid min-h-[22rem] gap-4 p-4 sm:gap-5 sm:p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.55fr)] lg:p-6">
+        <div className="flex max-w-3xl flex-col justify-start gap-4 lg:justify-center">
           <div className="grid gap-3">
             {eyebrow ? (
               <div className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">
                 {eyebrow}
               </div>
             ) : null}
-            <h1 className="font-display text-4xl font-semibold leading-tight text-[var(--foreground)] md:text-5xl md:leading-[1.08]">
+            <h1 className="max-w-2xl font-display text-3xl font-semibold leading-tight text-[var(--foreground)] sm:text-4xl md:text-5xl md:leading-[1.08]">
               {title}
             </h1>
             {description ? (
@@ -957,7 +964,7 @@ export function MarketingImageHero({
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
         </div>
         {conversionPanel ? (
-          <div className="grid w-full content-center lg:justify-self-end">
+          <div className="grid w-full min-w-0 content-center lg:justify-self-end">
             {conversionPanel}
           </div>
         ) : highlights.length > 0 ? (
@@ -979,6 +986,65 @@ export function MarketingImageHero({
         ) : null}
       </div>
     </section>
+  );
+}
+
+export interface MarketingVisualCardProps
+  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
+  imageSrc: string;
+  imageAlt: string;
+  imagePosition?: "left" | "center" | "right";
+  badge?: ReactNode;
+  badgeTone?: BadgeProps["tone"];
+  title: ReactNode;
+  description?: ReactNode;
+}
+
+const marketingVisualCardImagePositionClasses: Record<
+  NonNullable<MarketingVisualCardProps["imagePosition"]>,
+  string
+> = {
+  left: "object-left",
+  center: "object-center",
+  right: "object-right"
+};
+
+export function MarketingVisualCard({
+  imageSrc,
+  imageAlt,
+  imagePosition = "center",
+  badge,
+  badgeTone = "neutral",
+  title,
+  description,
+  ...rest
+}: MarketingVisualCardProps) {
+  return (
+    <article
+      {...rest}
+      className="relative min-h-[22rem] overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg"
+    >
+      <img
+        src={imageSrc}
+        alt={imageAlt}
+        className={cx(
+          "absolute inset-0 h-full w-full object-cover",
+          marketingVisualCardImagePositionClasses[imagePosition]
+        )}
+      />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_16%,transparent)_0%,color-mix(in_srgb,var(--card)_78%,transparent)_54%,var(--card)_100%)]" />
+      <div className="relative flex min-h-[22rem] flex-col justify-end gap-3 p-5">
+        {badge ? <Badge tone={badgeTone}>{badge}</Badge> : null}
+        <div className="space-y-2">
+          <h3 className="font-heading text-2xl font-semibold leading-snug text-foreground">
+            {title}
+          </h3>
+          {description ? (
+            <p className="text-sm leading-6 text-secondary">{description}</p>
+          ) : null}
+        </div>
+      </div>
+    </article>
   );
 }
 
