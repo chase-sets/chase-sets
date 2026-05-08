@@ -11,6 +11,7 @@
     "build": "tsc -p ./tsconfig.json --noEmit",
     "dev": "tsx watch --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
     "start": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
+    "start:production": "tsx src/main.ts",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts"

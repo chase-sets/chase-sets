@@ -185,7 +185,7 @@ resource "digitalocean_app" "landing" {
       name               = "admin-support-api"
       source_dir         = "/"
       build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-support-api"
-      run_command        = "npm run start --workspace @chase-sets/app-admin-support-api"
+      run_command        = "npm run start:production --workspace @chase-sets/app-admin-support-api"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = local.api_instances
@@ -248,7 +248,7 @@ resource "digitalocean_app" "landing" {
       name               = "admin-support-worker"
       source_dir         = "/"
       build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-support-worker"
-      run_command        = "npm run start --workspace @chase-sets/app-admin-support-worker"
+      run_command        = "npm run start:production --workspace @chase-sets/app-admin-support-worker"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = local.worker_instances
@@ -288,7 +288,7 @@ resource "digitalocean_app" "landing" {
       kind               = "PRE_DEPLOY"
       source_dir         = "/"
       build_command      = "npm ci --include=dev && npm run sync:workspace-metadata"
-      run_command        = "npm run bootstrap --workspace @chase-sets/app-admin-support-api"
+      run_command        = "npm run bootstrap:production --workspace @chase-sets/app-admin-support-api"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = 1
