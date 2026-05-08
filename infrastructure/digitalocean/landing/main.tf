@@ -1,4 +1,4 @@
-resource "digitalocean_domain" "root" {
+data "digitalocean_domain" "root" {
   name = var.root_domain
 }
 
@@ -99,7 +99,7 @@ resource "digitalocean_app" "landing" {
     service {
       name               = "public-web"
       source_dir         = "/"
-      build_command      = "npm ci && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-public-web"
+      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-public-web"
       run_command        = "npm run start --workspace @chase-sets/app-public-web"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
@@ -151,7 +151,7 @@ resource "digitalocean_app" "landing" {
     service {
       name               = "admin-web"
       source_dir         = "/"
-      build_command      = "npm ci && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-web"
+      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-web"
       run_command        = "npm run start --workspace @chase-sets/app-admin-web"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
@@ -184,7 +184,7 @@ resource "digitalocean_app" "landing" {
     service {
       name               = "admin-support-api"
       source_dir         = "/"
-      build_command      = "npm ci && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-support-api"
+      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-support-api"
       run_command        = "npm run start --workspace @chase-sets/app-admin-support-api"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
@@ -247,7 +247,7 @@ resource "digitalocean_app" "landing" {
     worker {
       name               = "admin-support-worker"
       source_dir         = "/"
-      build_command      = "npm ci && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-support-worker"
+      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-support-worker"
       run_command        = "npm run start --workspace @chase-sets/app-admin-support-worker"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
@@ -287,7 +287,7 @@ resource "digitalocean_app" "landing" {
       name               = "admin-support-bootstrap"
       kind               = "PRE_DEPLOY"
       source_dir         = "/"
-      build_command      = "npm ci && npm run sync:workspace-metadata"
+      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata"
       run_command        = "npm run bootstrap --workspace @chase-sets/app-admin-support-api"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug

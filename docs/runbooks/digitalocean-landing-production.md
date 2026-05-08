@@ -7,6 +7,7 @@ This runbook covers the staging and production landing deployment on DigitalOcea
 - Region: `nyc3`.
 - Infrastructure: Terraform root at `infrastructure/digitalocean/landing`.
 - State: DigitalOcean Spaces bucket through Terraform's S3 backend with `use_lockfile=true`.
+- DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before the landing root runs; staging and production share the same zone.
 - Apps:
   - `public-web`: `chasesets.com`, `www.chasesets.com`, and staging public host.
   - `admin-web`: `admin.chasesets.com` and staging admin host.

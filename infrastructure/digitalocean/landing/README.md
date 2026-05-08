@@ -4,7 +4,7 @@ This Terraform root manages staging and production landing infrastructure:
 
 - DigitalOcean App Platform app with public web, admin web, admin-support API, admin-support worker, and a `PRE_DEPLOY` bootstrap job.
 - DigitalOcean managed PostgreSQL with per-context databases plus a control database.
-- DigitalOcean DNS domain attachment through App Platform domains.
+- DigitalOcean DNS domain attachment through App Platform domains. The root DNS zone must already exist in the DigitalOcean account because staging and production share it.
 
 ## State Bootstrap
 
