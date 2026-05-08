@@ -19,13 +19,32 @@ export function resolvePgPoolSslConfig(
   return undefined;
 }
 
+export function normalizePgPoolConnectionString(connectionString: string): string {
+  try {
+    const url = new URL(connectionString);
+    if (
+      url.searchParams.get("sslmode") === "require" &&
+      !url.searchParams.has("uselibpqcompat")
+    ) {
+      url.searchParams.set("uselibpqcompat", "true");
+      return url.toString();
+    }
+  } catch {
+    return connectionString;
+  }
+
+  return connectionString;
+}
+
 export function createPgPool(
   connectionString: string,
   options: PgPoolOptions = {},
 ): PgTransactionalPool {
+  const normalizedConnectionString = normalizePgPoolConnectionString(connectionString);
+
   return new pg.Pool({
-    connectionString,
-    ssl: resolvePgPoolSslConfig(connectionString),
+    connectionString: normalizedConnectionString,
+    ssl: resolvePgPoolSslConfig(normalizedConnectionString),
     max: options.max,
     idleTimeoutMillis: options.idleTimeoutMillis,
     connectionTimeoutMillis: options.connectionTimeoutMillis,
