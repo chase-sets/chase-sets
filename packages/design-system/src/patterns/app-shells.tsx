@@ -943,7 +943,7 @@ export function MarketingImageHero({
         alt={imageAlt}
         className={cx("absolute inset-0 h-full w-full object-cover", imagePositionClass)}
       />
-      <div className="absolute inset-0 bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_90%,transparent)_0%,color-mix(in_srgb,var(--background)_72%,transparent)_44%,color-mix(in_srgb,var(--background)_8%,transparent)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,transparent)_0%,color-mix(in_srgb,var(--background)_78%,transparent)_48%,color-mix(in_srgb,var(--background)_46%,transparent)_100%)] lg:bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_94%,transparent)_0%,color-mix(in_srgb,var(--background)_76%,transparent)_44%,color-mix(in_srgb,var(--background)_14%,transparent)_100%)]" />
       <div className="relative grid min-h-[22rem] gap-4 p-4 sm:gap-5 sm:p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.55fr)] lg:p-6">
         <div className="flex max-w-3xl flex-col justify-start gap-4 lg:justify-center">
           <div className="grid gap-3">
@@ -1032,9 +1032,13 @@ export function MarketingVisualCard({
           marketingVisualCardImagePositionClasses[imagePosition]
         )}
       />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_16%,transparent)_0%,color-mix(in_srgb,var(--card)_78%,transparent)_54%,var(--card)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_34%,transparent)_0%,color-mix(in_srgb,var(--card)_88%,transparent)_58%,var(--card)_100%)]" />
       <div className="relative flex min-h-[22rem] flex-col justify-end gap-3 p-5">
-        {badge ? <Badge tone={badgeTone}>{badge}</Badge> : null}
+        {badge ? (
+          <div className="flex">
+            <Badge tone={badgeTone}>{badge}</Badge>
+          </div>
+        ) : null}
         <div className="space-y-2">
           <h3 className="font-heading text-2xl font-semibold leading-snug text-foreground">
             {title}

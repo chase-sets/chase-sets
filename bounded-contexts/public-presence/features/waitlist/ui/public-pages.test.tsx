@@ -27,7 +27,7 @@ describe("public presence homepage", () => {
     );
 
     expect(screen.getByRole("heading", {
-      name: "Buy smarter. Sell cards faster.",
+      name: "Buy cards clearly. Sell inventory faster.",
     })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
   });
@@ -58,13 +58,13 @@ describe("public presence homepage", () => {
     );
 
     expect(container.querySelectorAll("form")).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Join beta waitlist" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Tell us whether you plan to buy, sell, or do both, then pick the tool you want prioritized.").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Seller costs shown before listing" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Join early access" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Answer three quick questions so the first invites go to real collector and seller workflows.").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Know seller costs before listing" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Locked while unchanged").length).toBeGreaterThan(0);
     const priority = container.querySelector('form select[name="interests"]') as HTMLSelectElement;
     expect(priority.value).toBe("set-completion");
-    expect(container.querySelector('[id="final-waitlist"]')).toBeTruthy();
+    expect(container.querySelector('[id="waitlist-form"]')).toBeTruthy();
   });
 
   it("checks email consent and includes consent in the waitlist submission", async () => {
@@ -83,7 +83,7 @@ describe("public presence homepage", () => {
     expect(form).toBeTruthy();
 
     const consent = within(form as HTMLElement).getByRole("checkbox", {
-      name: "Email me Chase Sets updates and early access information.",
+      name: "Send early access updates.",
     }) as HTMLInputElement;
 
     expect(consent.checked).toBe(false);
@@ -106,18 +106,16 @@ describe("public presence homepage", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getAllByRole("link", { name: "Join Discord" }).map((link) => link.getAttribute("href"))).toEqual([
-      "https://discord.example/invite",
+    const discordLinks = screen.getAllByRole("link", { name: "Join Discord" });
+    expect(discordLinks.map((link) => link.getAttribute("href"))).toEqual([
       "https://discord.example/invite",
     ]);
-    expect(screen.getAllByRole("link", { name: "Join Discord" }).map((link) => link.getAttribute("target"))).toEqual([
-      "_blank",
+    expect(discordLinks.map((link) => link.getAttribute("target"))).toEqual([
       "_blank",
     ]);
-    expect(screen.getAllByRole("link", { name: "Join Discord" }).map((link) => link.getAttribute("rel"))).toEqual([
-      "noopener noreferrer",
+    expect(discordLinks.map((link) => link.getAttribute("rel"))).toEqual([
       "noopener noreferrer",
     ]);
-    expect(screen.getAllByText("You are on the waitlist").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("You are on the list").length).toBeGreaterThan(0);
   });
 });

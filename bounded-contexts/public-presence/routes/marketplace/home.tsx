@@ -74,7 +74,6 @@ export const meta: MetaFunction = () => [
   { property: "og:type", content: "website" },
   { property: "og:image", content: `https://chasesets.com${heroImageUrl}` },
   { name: "twitter:card", content: "summary_large_image" },
-  { name: "twitter:image", content: `https://chasesets.com${heroImageUrl}` },
 ];
 
 export default function PublicPresenceHomeRoute() {

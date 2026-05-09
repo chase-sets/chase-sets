@@ -508,7 +508,7 @@ export function ListingCard({
         </div>
       ) : null}
 
-      <div className={cn("grid gap-3", densityClasses[density], isLinked && "z-20 pointer-events-none")}>
+      <div className={cn("grid content-start gap-3", densityClasses[density], isLinked && "z-20 pointer-events-none")}>
         <div className="grid gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
             {condition ? <Badge variant="outline">{condition}</Badge> : null}
@@ -1079,9 +1079,9 @@ export function PriceBreakdown({ title, description, lines, total, totalLabel, r
             </div>
           ))}
         </div>
-        <div className="mt-4 flex items-center justify-between gap-4 border-t border-[var(--border)] pt-4">
+        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t border-[var(--border)] pt-4">
           {totalLabel ? <span className="font-semibold text-[var(--foreground)]">{totalLabel}</span> : null}
-          <span className="text-2xl font-bold tabular-nums text-[var(--foreground)]">{total}</span>
+          <span className="max-w-[12rem] text-right text-xl font-bold leading-tight tabular-nums text-[var(--foreground)] sm:max-w-none sm:text-2xl">{total}</span>
         </div>
         {reassurance ? (
           <div className="mt-4 rounded-[var(--radius)] bg-[var(--trust-soft)] p-3 text-sm font-medium text-[var(--trust)]">
