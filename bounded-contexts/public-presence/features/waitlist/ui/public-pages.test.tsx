@@ -59,8 +59,13 @@ describe("public presence homepage", () => {
 
     expect(container.querySelectorAll("form")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Join the waitlist" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Answer three quick questions so invites go to the collectors and sellers most likely to use the beta.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Answer three quick questions so early invites reach the collectors and sellers most likely to use the beta.").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Know seller costs before listing" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Buyers earn 5% of item value toward shipping on every order").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Accepting offers earns a 5% shipping rebate").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$0.48 tracked shipping").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("-$4.17 applied").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$83.88").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Locked while unchanged").length).toBeGreaterThan(0);
     const priority = container.querySelector('form select[name="interests"]') as HTMLSelectElement;
     expect(priority.value).toBe("set-completion");
@@ -83,7 +88,7 @@ describe("public presence homepage", () => {
     expect(form).toBeTruthy();
 
     const consent = within(form as HTMLElement).getByRole("checkbox", {
-      name: "Send early access updates.",
+      name: "Email me early access updates.",
     }) as HTMLInputElement;
 
     expect(consent.checked).toBe(false);
