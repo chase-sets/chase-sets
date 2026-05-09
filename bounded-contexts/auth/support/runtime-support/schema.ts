@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { transactionalEmailOutboxSchemaSql } from "@chase-sets/transactional-email-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
 
 const authSessionSchemaSql = `
@@ -55,10 +56,14 @@ CREATE TABLE IF NOT EXISTS identity_magic_link_tokens (
   user_id text NULL,
   email text NOT NULL,
   token_hash text NOT NULL UNIQUE,
+  delivery_token text NULL,
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE identity_magic_link_tokens
+  ADD COLUMN IF NOT EXISTS delivery_token text NULL;
 
 CREATE TABLE IF NOT EXISTS identity_auth_challenges (
   challenge_id text PRIMARY KEY,
@@ -114,6 +119,7 @@ CREATE TABLE IF NOT EXISTS identity_guest_checkout_claim_tokens (
 
 export const authSchemaSql = [
   eventCorePostgresSchemaSql,
+  transactionalEmailOutboxSchemaSql,
   authIdentityProjectionSchemaSql,
   authSessionSchemaSql,
   authCredentialSchemaSql,

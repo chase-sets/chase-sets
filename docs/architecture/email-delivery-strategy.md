@@ -69,13 +69,25 @@ Keep provider details in `infrastructure/` and keep behavior in bounded contexts
 
 Create `contracts/communications-email` with:
 
-- `sendTransactionalEmail(command)`
+- `sendTransactionalEmail(command)` for provider adapters
+- `enqueueTransactionalEmail(command)` for event projectors
 - provider-agnostic payload shape:
   - `messageType` (ubiquitous language, e.g. `auth.magic-link.requested`)
   - `to`, `subject`, `templateId`, `templateData`
   - idempotency key and correlation metadata
 
-### 2) Add SES adapter in infrastructure
+### 2) Add durable transactional outbox infrastructure
+
+Add `infrastructure/transactional-email-outbox` implementing durable enqueue, claim, sent, retry, and failed states.
+
+Responsibilities:
+
+- idempotent event-projector writes keyed by message idempotency key
+- worker-safe claiming with lease expiry
+- provider failure retry scheduling
+- terminal failed state after retries are exhausted
+
+### 3) Add SES adapter in infrastructure
 
 Add `infrastructure/ses-email` implementing the contract.
 
@@ -83,10 +95,10 @@ Responsibilities:
 
 - SES API delivery
 - provider error mapping
-- retry-safe idempotency behavior
+- provider-level retry behavior
 - event logging hooks for observability
 
-### 3) Emit email intents from owning bounded contexts
+### 4) Emit email intents from owning bounded contexts
 
 Each context emits explicit application events, for example:
 
@@ -94,9 +106,9 @@ Each context emits explicit application events, for example:
 - `ordering` or `checkout`: `ordering.order.created`
 - `settlement`: `settlement.payout.completed`
 
-A context-owned projector/handler maps those events to contract calls.
+A context-owned projector maps those events to outbox entries. A deployable worker dispatches outbox entries through the provider gateway.
 
-### 4) Add provider webhook ingestion
+### 5) Add provider webhook ingestion
 
 Use `infrastructure/provider-webhook-inbox` to normalize bounce/complaint/delivery events.
 
@@ -106,7 +118,7 @@ Project those events back into context-owned read models for:
 - deliverability health
 - notification audit trails
 
-### 5) Add marketing only when needed
+### 6) Add marketing only when needed
 
 When campaigns start, add `infrastructure/mailchimp-marketing` (or chosen equivalent) with isolated contracts:
 

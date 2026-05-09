@@ -1,7 +1,10 @@
-import type { TransactionalEmailGateway } from "@chase-sets/communications-email";
+import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapPayoutCompletedToTransactionalEmail } from "./transactional-email-intents";
+
+export const SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION =
+  "settlement-payout-transactional-email-projection";
 
 export type SettlementPayoutCompletedEmailEvent = Readonly<
   TransportEvent & {
@@ -19,29 +22,37 @@ function correlationIdFromEvent(event: TransportEvent) {
 }
 
 export async function projectSettlementPayoutEventToTransactionalEmail(
-  gateway: TransactionalEmailGateway,
+  outbox: TransactionalEmailOutbox,
   event: TransportEvent,
+  projectionName = SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
 ) {
   if (event.type !== "settlement.payout.completed") return;
   const data = event.data as SettlementPayoutCompletedEmailEvent["data"];
   const sellerEmail = data.notificationEmail?.trim();
   if (!sellerEmail) return;
 
-  await gateway.sendTransactionalEmail(
-    mapPayoutCompletedToTransactionalEmail({
+  await outbox.enqueueTransactionalEmail({
+    message: mapPayoutCompletedToTransactionalEmail({
       sellerEmail,
       payoutId: data.payoutId,
       amount: data.amount,
       correlationId: correlationIdFromEvent(event),
     }),
-  );
+    source: {
+      sourceEventId: event.id,
+      sourceGlobalPosition: event.globalPosition,
+      projectionName,
+      occurredAt: event.timing.occurredAt,
+    },
+  });
 }
 
 export function buildSettlementPayoutTransactionalEmailProjectionHandlers(
-  gateway: TransactionalEmailGateway,
+  outbox: TransactionalEmailOutbox,
+  projectionName = SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
 ): ProjectorHandlerMap {
   return {
     "settlement.payout.completed": (event) =>
-      projectSettlementPayoutEventToTransactionalEmail(gateway, event),
+      projectSettlementPayoutEventToTransactionalEmail(outbox, event, projectionName),
   };
 }

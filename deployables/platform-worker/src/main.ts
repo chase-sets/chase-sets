@@ -1,6 +1,7 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { createNoopTransactionalEmailGateway } from "@chase-sets/communications-email";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
@@ -15,8 +16,13 @@ import {
   collectWorkerRunners,
   createWorkerHost,
   createWorkerRunnerLoop,
+  type WorkerHostRuntime,
   type WorkerRunner,
 } from "@chase-sets/platform-runtime/worker";
+import {
+  createPostgresTransactionalEmailOutbox,
+  createTransactionalEmailOutboxDispatcher,
+} from "@chase-sets/transactional-email-outbox";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -93,6 +99,7 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
 
 const runners = [
   ...collectWorkerRunners(runtime),
+  ...createTransactionalEmailDispatchRunners(runtime, config.workerId),
   ...createScheduledJobRunners(runtime.services, config),
 ];
 const runnerLoop = createWorkerRunnerLoop({
@@ -244,6 +251,38 @@ function createScheduledJobRunners(
   }
 
   return runners;
+}
+
+function createTransactionalEmailDispatchRunners(
+  runtime: WorkerHostRuntime,
+  workerId: string,
+): readonly WorkerRunner[] {
+  const gateway = createNoopTransactionalEmailGateway();
+  const emailOutboxContextNames = new Set<string>(
+    workerContextRegistry
+      .filter((entry) =>
+        entry.manifest.hostPorts?.some(
+          (port) => port.portName === "transactionalEmailOutbox",
+        ),
+      )
+      .map((entry) => entry.contextName),
+  );
+
+  return runtime.mountedContexts
+    .filter((context) => emailOutboxContextNames.has(context.contextName))
+    .map((context) => {
+      const dispatcher = createTransactionalEmailOutboxDispatcher({
+        outbox: createPostgresTransactionalEmailOutbox({ db: context.pool }),
+        gateway,
+        claimOwnerId: `${workerId}:${context.contextName}:transactional-email`,
+      });
+
+      return {
+        name: `${context.contextName}.transactional-email-dispatcher`,
+        kind: "job",
+        runOnce: dispatcher.runOnce,
+      };
+    });
 }
 
 function createScheduledJobRunner(

@@ -2,7 +2,8 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
-import type { TransactionalEmailGateway } from "@chase-sets/communications-email";
+import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
 import type {
   PgQueryable,
   PgTransactionalPool,
@@ -28,6 +29,8 @@ import {
   normalizeAuthEmail,
 } from "../auth-support/identity-projection";
 import {
+  clearMagicLinkDeliveryToken,
+  getMagicLinkDeliveryToken,
   insertAccountSelectionToken,
   upsertSessionToken,
 } from "../auth-support/store";
@@ -61,7 +64,7 @@ export type AuthServices = Readonly<{
 }>;
 
 export type AuthHostPorts = Readonly<{
-  transactionalEmailGateway?: TransactionalEmailGateway;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export function createAuthServices(
@@ -71,11 +74,20 @@ export function createAuthServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const transactionalEmailOutbox =
+    ports.transactionalEmailOutbox ??
+    createPostgresTransactionalEmailOutbox({ db });
   const sessions = createSessionRuntime({
     eventStore,
     checkpointStore,
     db,
-    transactionalEmailGateway: ports.transactionalEmailGateway,
+    transactionalEmailOutbox,
+    magicLinkDeliveryTokens: {
+      getMagicLinkDeliveryToken: (tokenId) =>
+        getMagicLinkDeliveryToken(db, tokenId),
+      clearMagicLinkDeliveryToken: (tokenId) =>
+        clearMagicLinkDeliveryToken(db, tokenId),
+    },
   });
 
   return {

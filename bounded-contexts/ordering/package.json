@@ -29,6 +29,7 @@
     "@chase-sets/platform-runtime": "0.1.0",
     "@chase-sets/primitives": "0.1.0",
     "@chase-sets/reputation": "0.1.0",
+    "@chase-sets/transactional-email-outbox": "0.1.0",
     "hono": "^4.12.12"
   },
   "devDependencies": {

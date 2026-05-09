@@ -128,6 +128,7 @@ export async function insertMagicLinkToken(
     userId: string | null;
     email: string;
     tokenHash: string;
+    deliveryToken: string;
     expiresAt: string;
   }>,
 ) {
@@ -137,11 +138,47 @@ export async function insertMagicLinkToken(
        user_id,
        email,
        token_hash,
+       delivery_token,
        expires_at,
        created_at
      )
-     VALUES ($1, $2, $3, $4, $5, now())`,
-    [params.tokenId, params.userId, params.email, params.tokenHash, params.expiresAt],
+     VALUES ($1, $2, $3, $4, $5, $6, now())`,
+    [
+      params.tokenId,
+      params.userId,
+      params.email,
+      params.tokenHash,
+      params.deliveryToken,
+      params.expiresAt,
+    ],
+  );
+}
+
+export async function getMagicLinkDeliveryToken(
+  db: PgQueryable,
+  tokenId: string,
+) {
+  const result = await db.query<{ delivery_token: string | null }>(
+    `SELECT delivery_token
+     FROM identity_magic_link_tokens
+     WHERE token_id = $1
+       AND consumed_at IS NULL
+       AND expires_at > now()`,
+    [tokenId],
+  );
+
+  return result.rows[0]?.delivery_token ?? null;
+}
+
+export async function clearMagicLinkDeliveryToken(
+  db: PgQueryable,
+  tokenId: string,
+) {
+  await db.query(
+    `UPDATE identity_magic_link_tokens
+     SET delivery_token = NULL
+     WHERE token_id = $1`,
+    [tokenId],
   );
 }
 

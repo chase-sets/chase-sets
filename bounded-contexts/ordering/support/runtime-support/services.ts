@@ -5,7 +5,8 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import type { TransactionalEmailGateway } from "@chase-sets/communications-email";
+import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
@@ -17,7 +18,7 @@ import {
 export type OrderingServiceOptions = Readonly<{
   shippingQuotePolicy?: ShippingQuotePolicy;
   taxQuoteResolver?: TaxQuoteResolver;
-  transactionalEmailGateway?: TransactionalEmailGateway;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export type OrderingServices = Readonly<{
@@ -34,6 +35,9 @@ export function createOrderingServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const transactionalEmailOutbox =
+    options.transactionalEmailOutbox ??
+    createPostgresTransactionalEmailOutbox({ db });
   const accounts = createOrderingAccountRuntime({ eventStore, checkpointStore, db });
   const orders = createOrderingOrderRuntime({
     eventStore,
@@ -42,7 +46,7 @@ export function createOrderingServices(
     shippingQuotePolicy:
       options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
     taxQuoteResolver: options.taxQuoteResolver,
-    transactionalEmailGateway: options.transactionalEmailGateway,
+    transactionalEmailOutbox,
   });
 
   return {

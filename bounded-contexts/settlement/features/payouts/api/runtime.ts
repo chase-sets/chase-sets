@@ -10,8 +10,8 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
-  createNoopTransactionalEmailGateway,
-  type TransactionalEmailGateway,
+  createNoopTransactionalEmailOutbox,
+  type TransactionalEmailOutbox,
 } from "@chase-sets/communications-email";
 import { recordProviderWebhookEvent as recordProviderWebhookInboxEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -36,7 +36,10 @@ import {
   payoutAmountPolicy,
 } from "../domain/payout-policy";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
-import { buildSettlementPayoutTransactionalEmailProjectionHandlers } from "../application/transactional-email-projector";
+import {
+  SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
+  buildSettlementPayoutTransactionalEmailProjectionHandlers,
+} from "../application/transactional-email-projector";
 import {
   getPayout,
   getAccountPayoutRiskSummary,
@@ -70,7 +73,7 @@ type PayoutRuntimeDeps = Readonly<{
   payoutReadiness: PayoutReadinessServices;
   moneyMovementGateway: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
-  transactionalEmailGateway?: TransactionalEmailGateway;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export type PayoutServices = Readonly<{
@@ -224,8 +227,8 @@ function subtractMoney(left: string, right: string) {
 export function createPayoutRuntime(
   deps: PayoutRuntimeDeps,
 ): PayoutServices {
-  const transactionalEmailGateway =
-    deps.transactionalEmailGateway ?? createNoopTransactionalEmailGateway();
+  const transactionalEmailOutbox =
+    deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const operationsRecorder =
     deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const commandHandler = createCommandHandler({
@@ -1030,11 +1033,12 @@ export function createPayoutRuntime(
         handlers: buildPayoutProjectionHandlers(deps.db),
       }),
       createProjector({
-        projectorName: "settlement-payout-transactional-email-projection",
+        projectorName: SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildSettlementPayoutTransactionalEmailProjectionHandlers(
-          transactionalEmailGateway,
+          transactionalEmailOutbox,
+          SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
       }),
     ],

@@ -46,10 +46,75 @@ export type SentTransactionalEmailReceipt = Readonly<{
   attemptCount: number;
 }>;
 
+export type TransactionalEmailOutboxStatus =
+  | "pending"
+  | "sending"
+  | "sent"
+  | "failed";
+
+export type TransactionalEmailOutboxSource = Readonly<{
+  sourceEventId: string;
+  sourceGlobalPosition: string;
+  projectionName: string;
+  occurredAt: string;
+}>;
+
+export type EnqueueTransactionalEmailInput = Readonly<{
+  message: TransactionalEmailMessage;
+  source: TransactionalEmailOutboxSource;
+  maxAttempts?: number;
+  availableAt?: string;
+}>;
+
+export type ClaimedTransactionalEmail = Readonly<{
+  outboxId: string;
+  message: TransactionalEmailMessage;
+  source: TransactionalEmailOutboxSource;
+  status: TransactionalEmailOutboxStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  createdAt: string;
+  updatedAt: string;
+  nextAttemptAt: string;
+  lastError: string | null;
+}>;
+
 export interface TransactionalEmailGateway {
   sendTransactionalEmail(
     message: TransactionalEmailMessage,
   ): Promise<SentTransactionalEmailReceipt>;
+}
+
+export interface TransactionalEmailOutbox {
+  enqueueTransactionalEmail(input: EnqueueTransactionalEmailInput): Promise<void>;
+}
+
+export type ClaimTransactionalEmailsInput = Readonly<{
+  limit: number;
+  claimOwnerId: string;
+  claimTtlMs: number;
+  now?: string;
+}>;
+
+export type MarkTransactionalEmailSentInput = Readonly<{
+  idempotencyKey: string;
+  receipt: SentTransactionalEmailReceipt;
+  now?: string;
+}>;
+
+export type MarkTransactionalEmailFailedInput = Readonly<{
+  idempotencyKey: string;
+  error: string;
+  retryAt?: string | null;
+  now?: string;
+}>;
+
+export interface TransactionalEmailOutboxStore extends TransactionalEmailOutbox {
+  claimPendingTransactionalEmails(
+    input: ClaimTransactionalEmailsInput,
+  ): Promise<readonly ClaimedTransactionalEmail[]>;
+  markTransactionalEmailSent(input: MarkTransactionalEmailSentInput): Promise<void>;
+  markTransactionalEmailFailed(input: MarkTransactionalEmailFailedInput): Promise<void>;
 }
 
 export function createNoopTransactionalEmailGateway(): TransactionalEmailGateway {
@@ -61,6 +126,23 @@ export function createNoopTransactionalEmailGateway(): TransactionalEmailGateway
         acceptedAt: new Date().toISOString(),
         attemptCount: 0,
       };
+    },
+  };
+}
+
+export function createNoopTransactionalEmailOutbox(): TransactionalEmailOutboxStore {
+  return {
+    async enqueueTransactionalEmail() {
+      return undefined;
+    },
+    async claimPendingTransactionalEmails() {
+      return [];
+    },
+    async markTransactionalEmailSent() {
+      return undefined;
+    },
+    async markTransactionalEmailFailed() {
+      return undefined;
     },
   };
 }

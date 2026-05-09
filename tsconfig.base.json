@@ -425,6 +425,9 @@
       ],
       "@chase-sets/tax/server": [
         "./bounded-contexts/tax/server.ts"
+      ],
+      "@chase-sets/transactional-email-outbox": [
+        "./infrastructure/transactional-email-outbox/index.ts"
       ]
     }
   }

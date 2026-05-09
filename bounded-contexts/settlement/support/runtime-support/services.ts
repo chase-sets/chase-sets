@@ -5,7 +5,8 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import type { TransactionalEmailGateway } from "@chase-sets/communications-email";
+import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
@@ -19,7 +20,7 @@ import {
 export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
-  transactionalEmailGateway?: TransactionalEmailGateway;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -38,6 +39,9 @@ export function createSettlementServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const transactionalEmailOutbox =
+    ports.transactionalEmailOutbox ??
+    createPostgresTransactionalEmailOutbox({ db });
   const moneyMovementGateway =
     ports.moneyMovementGateway ?? createFakeMoneyMovementGateway();
   const operationsRecorder =
@@ -61,7 +65,7 @@ export function createSettlementServices(
     payoutReadiness,
     moneyMovementGateway,
     operationsRecorder,
-    transactionalEmailGateway: ports.transactionalEmailGateway,
+    transactionalEmailOutbox,
   });
 
   return {

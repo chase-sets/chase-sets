@@ -1,7 +1,10 @@
-import type { TransactionalEmailGateway } from "@chase-sets/communications-email";
+import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapShipmentDeliveredToTransactionalEmail } from "./transactional-email-intents";
+
+export const FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION =
+  "fulfillment-shipment-transactional-email-projection";
 
 export type FulfillmentShipmentDeliveredEmailEvent = Readonly<
   TransportEvent & {
@@ -20,29 +23,37 @@ function correlationIdFromEvent(event: TransportEvent) {
 }
 
 export async function projectFulfillmentEventToTransactionalEmail(
-  gateway: TransactionalEmailGateway,
+  outbox: TransactionalEmailOutbox,
   event: TransportEvent,
+  projectionName = FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 ) {
   if (event.type !== "fulfillment.shipment.delivered") return;
   const data = event.data as FulfillmentShipmentDeliveredEmailEvent["data"];
   const buyerEmail = data.shippingDestinationSnapshot.email?.trim();
   if (!buyerEmail) return;
 
-  await gateway.sendTransactionalEmail(
-    mapShipmentDeliveredToTransactionalEmail({
+  await outbox.enqueueTransactionalEmail({
+    message: mapShipmentDeliveredToTransactionalEmail({
       buyerEmail,
       orderId: data.orderId,
       trackingNumber: data.trackingIdentifier ?? data.shipmentId,
       correlationId: correlationIdFromEvent(event),
     }),
-  );
+    source: {
+      sourceEventId: event.id,
+      sourceGlobalPosition: event.globalPosition,
+      projectionName,
+      occurredAt: event.timing.occurredAt,
+    },
+  });
 }
 
 export function buildFulfillmentTransactionalEmailProjectionHandlers(
-  gateway: TransactionalEmailGateway,
+  outbox: TransactionalEmailOutbox,
+  projectionName = FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 ): ProjectorHandlerMap {
   return {
     "fulfillment.shipment.delivered": (event) =>
-      projectFulfillmentEventToTransactionalEmail(gateway, event),
+      projectFulfillmentEventToTransactionalEmail(outbox, event, projectionName),
   };
 }

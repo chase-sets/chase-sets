@@ -2,22 +2,33 @@ import { describe, expect, it, vi } from "vitest";
 import { projectAuthSessionEventToTransactionalEmail } from "./transactional-email-projector";
 
 describe("auth transactional email projector", () => {
-  it("triggers email send from auth.magic-link.requested transport events", async () => {
-    const gateway = { sendTransactionalEmail: vi.fn(async () => ({ providerName: "amazon-ses", providerMessageId: "msg_1", acceptedAt: new Date().toISOString(), attemptCount: 1 })) };
+  it("enqueues email from auth.magic-link.requested transport events without storing the secret on the event", async () => {
+    const outbox = { enqueueTransactionalEmail: vi.fn(async () => undefined) };
+    const deliveryTokens = {
+      getMagicLinkDeliveryToken: vi.fn(async () => "https://chasesets.com/magic"),
+      clearMagicLinkDeliveryToken: vi.fn(async () => undefined),
+    };
 
-    await projectAuthSessionEventToTransactionalEmail(gateway as never, {
+    await projectAuthSessionEventToTransactionalEmail(outbox, deliveryTokens, {
       id: "evt_1",
       type: "auth.magic-link.requested",
+      globalPosition: "1",
       trace: { traceId: "req_1" },
+      timing: {
+        occurredAt: "2026-04-02T00:00:00.000Z",
+        recordedAt: "2026-04-02T00:00:01.000Z",
+      },
       data: {
         tokenId: "cmd_1",
         userId: null,
         email: "buyer@example.com",
-        magicLink: "https://chasesets.com/magic",
         expiresAt: "2026-04-02T00:10:00.000Z",
       },
     } as never);
 
-    expect(gateway.sendTransactionalEmail).toHaveBeenCalledOnce();
+    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+    expect(deliveryTokens.clearMagicLinkDeliveryToken).toHaveBeenCalledWith("cmd_1");
+    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0].message.templateData)
+      .toEqual({ magicLink: "https://chasesets.com/magic" });
   });
 });

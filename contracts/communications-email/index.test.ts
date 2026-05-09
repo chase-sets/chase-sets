@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { TransactionalEmailMessage, TransactionalEmailMessageType } from ".";
+import {
+  createNoopTransactionalEmailOutbox,
+  type TransactionalEmailMessage,
+  type TransactionalEmailMessageType,
+} from ".";
 
 describe("communications-email contract", () => {
   it("supports typed transactional email payloads", () => {
@@ -22,5 +26,15 @@ describe("communications-email contract", () => {
     };
 
     expect(message.to[0].email).toBe("buyer@example.com");
+  });
+
+  it("supports a no-op transactional email outbox for unconfigured composition roots", async () => {
+    const outbox = createNoopTransactionalEmailOutbox();
+
+    await expect(outbox.claimPendingTransactionalEmails({
+      limit: 10,
+      claimOwnerId: "test",
+      claimTtlMs: 1_000,
+    })).resolves.toEqual([]);
   });
 });

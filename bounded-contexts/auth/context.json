@@ -128,9 +128,9 @@
   ],
   "hostPorts": [
     {
-      "portName": "transactionalEmailGateway",
+      "portName": "transactionalEmailOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Provider-neutral transactional email gateway consumed only by event projectors."
+      "purpose": "Durable transactional email outbox consumed only by event projectors."
     }
   ],
   "apiDeployables": [

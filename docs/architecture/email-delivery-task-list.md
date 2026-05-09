@@ -21,4 +21,9 @@ This checklist tracks closure of the seven implementation findings.
 
 ## Event-triggered wiring status
 
-Each wired intent now has a registered runtime projector that triggers gateway sends from canonical event payloads (no inline send calls in route/runtime handlers).
+Each wired intent now has a registered runtime projector that records a durable transactional email outbox entry from canonical event payloads (no inline send calls in route/runtime handlers). A platform-worker dispatcher claims pending outbox entries, sends through the provider gateway, and records sent/retry/failed delivery state.
+
+
+## Secret handling status
+
+Magic-link events no longer carry the raw delivery token in immutable event history. The short-lived token is stored in mutable auth token storage, read by the auth email projector when it records the outbox message, and cleared after the outbox entry is created.

@@ -10,8 +10,8 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
-  createNoopTransactionalEmailGateway,
-  type TransactionalEmailGateway,
+  createNoopTransactionalEmailOutbox,
+  type TransactionalEmailOutbox,
 } from "@chase-sets/communications-email";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -45,7 +45,10 @@ import {
   listSales,
 } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
-import { buildOrderingTransactionalEmailProjectionHandlers } from "../application/transactional-email-projector";
+import {
+  ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
+  buildOrderingTransactionalEmailProjectionHandlers,
+} from "../application/transactional-email-projector";
 import { listOrderingSupplyCandidates } from "../integrations/supply/supply-queries";
 import { getOrderingSupplyCandidateByListingId } from "../integrations/supply/supply-queries";
 import {
@@ -109,7 +112,7 @@ type OrderRuntimeDeps = Readonly<{
   db: PgQueryable;
   shippingQuotePolicy: ShippingQuotePolicy;
   taxQuoteResolver?: TaxQuoteResolver;
-  transactionalEmailGateway?: TransactionalEmailGateway;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export type CheckoutOrderLineSnapshot = Readonly<{
@@ -947,8 +950,8 @@ function planToPreview(params: Readonly<{
 export function createOrderingOrderRuntime(
   deps: OrderRuntimeDeps,
 ): OrderingOrderServices {
-  const transactionalEmailGateway =
-    deps.transactionalEmailGateway ?? createNoopTransactionalEmailGateway();
+  const transactionalEmailOutbox =
+    deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -1555,11 +1558,12 @@ export function createOrderingOrderRuntime(
         handlers: buildOrderingOrderProjectionHandlers(deps.db),
       }),
       createProjector({
-        projectorName: "ordering-order-transactional-email-projection",
+        projectorName: ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildOrderingTransactionalEmailProjectionHandlers(
-          transactionalEmailGateway,
+          transactionalEmailOutbox,
+          ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
       }),
     ],

@@ -18,6 +18,7 @@
   "dependencies": {
     "@chase-sets/auth": "0.1.0",
     "@chase-sets/bounded-context-runtime": "0.1.0",
+    "@chase-sets/communications-email": "0.1.0",
     "@chase-sets/easypost-postage": "0.1.0",
     "@chase-sets/event-core-postgres": "0.1.0",
     "@chase-sets/fulfillment": "0.1.0",
@@ -31,6 +32,7 @@
     "@chase-sets/settlement": "0.1.0",
     "@chase-sets/stripe-connect": "0.1.0",
     "@chase-sets/stripe-payments": "0.1.0",
+    "@chase-sets/transactional-email-outbox": "0.1.0",
     "@hono/node-server": "^1.19.13",
     "hono": "^4.12.12",
     "pg": "^8.20.0"

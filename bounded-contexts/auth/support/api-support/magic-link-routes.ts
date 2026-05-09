@@ -33,6 +33,7 @@ export function registerMagicLinkRoutes(
       userId: user?.user_id ?? null,
       email,
       tokenHash: services.auth.hashSecret(token),
+      deliveryToken: token,
       expiresAt,
     });
 
@@ -46,7 +47,6 @@ export function registerMagicLinkRoutes(
             tokenId,
             userId: user?.user_id ?? null,
             email,
-            magicLink: token,
             expiresAt,
           },
         },
