@@ -18,6 +18,48 @@ function formatDescription(location: InventoryStorageLocation) {
   return location.description ?? t("inventory.features.storageLocations.ui.storageLocationPage.no.description");
 }
 
+function ShipFromAddressFields({
+  address,
+}: {
+  address?: InventoryStorageLocation["ship_from_address"];
+}) {
+  return (
+    <>
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.name")} name="shipFromName" defaultValue={address?.name ?? ""} required />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.company")} name="shipFromCompany" defaultValue={address?.company ?? ""} />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.line1")} name="shipFromLine1" defaultValue={address?.line1 ?? ""} required />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.line2")} name="shipFromLine2" defaultValue={address?.line2 ?? ""} />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.city")} name="shipFromCity" defaultValue={address?.city ?? ""} required />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.state")} name="shipFromState" defaultValue={address?.state ?? ""} required />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.postal.code")} name="shipFromPostalCode" defaultValue={address?.postalCode ?? ""} required />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.country")} name="shipFromCountry" defaultValue={address?.country ?? "US"} required />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.phone")} name="shipFromPhone" defaultValue={address?.phone ?? ""} />
+      <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.email")} name="shipFromEmail" defaultValue={address?.email ?? ""} type="email" />
+    </>
+  );
+}
+
+function ShipFromAddressHiddenFields({
+  address,
+}: {
+  address: InventoryStorageLocation["ship_from_address"];
+}) {
+  return (
+    <>
+      <input type="hidden" name="shipFromName" value={address.name} />
+      <input type="hidden" name="shipFromCompany" value={address.company ?? ""} />
+      <input type="hidden" name="shipFromLine1" value={address.line1} />
+      <input type="hidden" name="shipFromLine2" value={address.line2 ?? ""} />
+      <input type="hidden" name="shipFromCity" value={address.city} />
+      <input type="hidden" name="shipFromState" value={address.state} />
+      <input type="hidden" name="shipFromPostalCode" value={address.postalCode} />
+      <input type="hidden" name="shipFromCountry" value={address.country} />
+      <input type="hidden" name="shipFromPhone" value={address.phone ?? ""} />
+      <input type="hidden" name="shipFromEmail" value={address.email ?? ""} />
+    </>
+  );
+}
+
 export function StorageLocationPage({
   locations,
   errorMessage,
@@ -51,6 +93,7 @@ export function StorageLocationPage({
               <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.name")} name="name" required />
               <Textarea label={t("inventory.features.storageLocations.ui.storageLocationPage.description")} name="description" rows={3} />
               <TextInput label={t("inventory.features.storageLocations.ui.storageLocationPage.ship.from.code")} name="shipFromCode" required />
+              <ShipFromAddressFields />
               <Button type="submit">{t("inventory.features.storageLocations.ui.storageLocationPage.create.location.2")}</Button>
             </Stack>
           </form>
@@ -99,6 +142,7 @@ export function StorageLocationPage({
                       defaultValue={location.ship_from_code}
                       required
                     />
+                    <ShipFromAddressFields address={location.ship_from_address} />
                     <Button type="submit" tone="secondary">
                       {t("inventory.features.storageLocations.ui.storageLocationPage.save.location")}</Button>
                   </Stack>
@@ -126,6 +170,7 @@ export function StorageLocationPage({
                       name="shipFromCode"
                       value={location.ship_from_code}
                     />
+                    <ShipFromAddressHiddenFields address={location.ship_from_address} />
                     <Button type="submit" tone="danger">
                       {t("inventory.features.storageLocations.ui.storageLocationPage.archive.location")}</Button>
                   </form>

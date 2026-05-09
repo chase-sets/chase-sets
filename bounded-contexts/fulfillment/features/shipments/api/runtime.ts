@@ -14,6 +14,12 @@ import type {
   PostageLabelProvider,
   PostagePackage,
 } from "@chase-sets/postage-labels";
+import {
+  addressSnapshotsEqual,
+  changedAddressSnapshotSide,
+  normalizeAddressSnapshot,
+  type AddressSnapshot,
+} from "@chase-sets/primitives/address-snapshot";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type {
   AccountId,
@@ -59,6 +65,8 @@ type ReadyOrderSnapshot = Readonly<{
   buyer_account_id: string;
   seller_account_id: string;
   shipping_option: string;
+  shipping_destination_snapshot: AddressSnapshot;
+  shipping_origin_snapshot: AddressSnapshot;
   lines: readonly ReadyOrderLineSnapshot[];
 }>;
 
@@ -92,8 +100,9 @@ export type FulfillmentShipmentServices = Readonly<{
       shipmentId: string;
       sellerAccountId: string;
       serviceLevel: string;
-      sender: PostageAddress;
-      recipient: PostageAddress;
+      sender?: PostageAddress | null;
+      recipient?: PostageAddress | null;
+      overrideReason?: string | null;
       package: PostagePackage;
     }>,
     context: EventStoreContext,
@@ -174,14 +183,18 @@ async function loadReadyOrderSnapshot(
     buyer_account_id: string;
     seller_account_id: string;
     shipping_option: string;
+    shipping_destination_snapshot: AddressSnapshot;
+    shipping_origin_snapshot: AddressSnapshot;
     status: string;
   }>(
     `SELECT
        order_id,
        buyer_account_id,
        seller_account_id,
-     shipping_option,
-     status
+       shipping_option,
+       shipping_destination_snapshot,
+       shipping_origin_snapshot,
+       status
      FROM fulfillment_order_sources
      WHERE order_id = $1`,
     [orderId],
@@ -212,8 +225,40 @@ async function loadReadyOrderSnapshot(
     buyer_account_id: order.buyer_account_id,
     seller_account_id: order.seller_account_id,
     shipping_option: order.shipping_option,
+    shipping_destination_snapshot: order.shipping_destination_snapshot,
+    shipping_origin_snapshot: order.shipping_origin_snapshot,
     lines: linesResult.rows,
   };
+}
+
+function postageAddressFromSnapshot(address: AddressSnapshot): PostageAddress {
+  return {
+    name: address.name,
+    company: address.company ?? null,
+    street1: address.line1,
+    street2: address.line2 ?? null,
+    city: address.city,
+    state: address.state,
+    postalCode: address.postalCode,
+    country: address.country,
+    phone: address.phone ?? null,
+    email: address.email ?? null,
+  };
+}
+
+function addressSnapshotFromPostage(address: PostageAddress): AddressSnapshot {
+  return normalizeAddressSnapshot({
+    name: address.name,
+    company: address.company ?? null,
+    line1: address.street1,
+    line2: address.street2 ?? null,
+    city: address.city,
+    state: address.state,
+    postalCode: address.postalCode,
+    country: address.country,
+    phone: address.phone ?? null,
+    email: address.email ?? null,
+  });
 }
 
 export function createFulfillmentShipmentRuntime(
@@ -269,6 +314,8 @@ export function createFulfillmentShipmentRuntime(
           buyerAccountId: order.buyer_account_id as AccountId,
           sellerAccountId: order.seller_account_id as AccountId,
           shippingOption: order.shipping_option,
+          shippingDestinationSnapshot: order.shipping_destination_snapshot,
+          shippingOriginSnapshot: order.shipping_origin_snapshot,
           lines: order.lines.map((line) => ({
             lineId: createId("spl"),
             orderLineId: line.order_line_id,
@@ -329,6 +376,57 @@ export function createFulfillmentShipmentRuntime(
           "Shipment must be packed and awaiting a label before postage can be purchased.",
         );
       }
+      const senderSnapshot = normalizeAddressSnapshot(
+        shipment.shipping_origin_snapshot ?? {
+          name: "",
+          line1: "",
+          city: "",
+          state: "",
+          postalCode: "",
+          country: "US",
+        },
+        "Shipping origin",
+      );
+      const recipientSnapshot = normalizeAddressSnapshot(
+        shipment.shipping_destination_snapshot,
+        "Shipping destination",
+      );
+      const submittedSender = params.sender
+        ? addressSnapshotFromPostage(params.sender)
+        : senderSnapshot;
+      const submittedRecipient = params.recipient
+        ? addressSnapshotFromPostage(params.recipient)
+        : recipientSnapshot;
+      const senderChanged = !addressSnapshotsEqual(senderSnapshot, submittedSender);
+      const recipientChanged = !addressSnapshotsEqual(
+        recipientSnapshot,
+        submittedRecipient,
+      );
+      const changedSide = changedAddressSnapshotSide(
+        senderChanged,
+        recipientChanged,
+      );
+      const overrideReason = params.overrideReason?.trim() ?? "";
+      if (changedSide && overrideReason.length === 0) {
+        throw new FulfillmentDomainError(
+          "Address override reason is required when label addresses differ from shipment snapshots.",
+        );
+      }
+      const purchasedAt = new Date().toISOString();
+      const addressOverrideAudit = changedSide
+        ? {
+            originalSenderSnapshot: senderSnapshot,
+            submittedSenderAddress: submittedSender,
+            originalRecipientSnapshot: recipientSnapshot,
+            submittedRecipientAddress: submittedRecipient,
+            changedSide,
+            reason: overrideReason,
+            actor: context.audit.performedByUserId,
+            timestamp: purchasedAt,
+          }
+        : null;
+      const sender = postageAddressFromSnapshot(submittedSender);
+      const recipient = postageAddressFromSnapshot(submittedRecipient);
 
       let purchasedLabel;
       try {
@@ -336,8 +434,8 @@ export function createFulfillmentShipmentRuntime(
           shipmentId: params.shipmentId,
           orderId: shipment.order_id,
           serviceLevel: params.serviceLevel,
-          sender: params.sender,
-          recipient: params.recipient,
+          sender,
+          recipient,
           package: params.package,
         });
       } catch (error) {
@@ -375,6 +473,7 @@ export function createFulfillmentShipmentRuntime(
           postageServiceLevel: purchasedLabel.serviceLevel,
           postageAmountCents: purchasedLabel.postageAmountCents,
           postageCurrency: purchasedLabel.postageCurrency,
+          addressOverrideAudit,
           attachedAt: purchasedLabel.purchasedAt,
         },
         context,

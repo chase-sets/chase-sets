@@ -3,6 +3,10 @@ import type {
   AggregateEvolver,
   DomainEvent,
 } from "@chase-sets/event-core";
+import {
+  normalizeAddressSnapshot,
+  type AddressSnapshot,
+} from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -95,6 +99,7 @@ export type MarketplaceOfferState = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
+  shippingDestinationSnapshot: AddressSnapshot | null;
   priceAmount: string | null;
   quantityRequested: number;
   status: OfferStatus;
@@ -120,6 +125,7 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   itemSubtitle: null,
   selectedOptions: [],
   productSummary: null,
+  shippingDestinationSnapshot: null,
   priceAmount: null,
   quantityRequested: 0,
   status: "draft",
@@ -146,6 +152,7 @@ export type SubmitOfferCommand = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
+  shippingDestinationSnapshot: AddressSnapshot;
   priceAmount: string;
   quantityRequested: number;
 }>;
@@ -178,6 +185,7 @@ export type OfferSubmittedEvent = DomainEvent<
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
     productSummary: string | null;
+    shippingDestinationSnapshot: AddressSnapshot;
     priceAmount: string;
     quantityRequested: number;
   }>
@@ -195,6 +203,7 @@ export type OfferAcceptedEvent = DomainEvent<
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
     productSummary: string | null;
+    shippingDestinationSnapshot: AddressSnapshot;
     priceAmount: string;
     quantityRequested: number;
     acceptedAt: string;
@@ -239,6 +248,10 @@ export const decideMarketplaceOffer: AggregateDecider<
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
             selectedOptions: normalizeVersionSelection(command.selectedOptions),
             productSummary: normalizeOptionalText(command.productSummary),
+            shippingDestinationSnapshot: normalizeAddressSnapshot(
+              command.shippingDestinationSnapshot,
+              "Shipping destination",
+            ),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
             quantityRequested: ensurePositiveInteger(
               command.quantityRequested,
@@ -264,6 +277,7 @@ export const decideMarketplaceOffer: AggregateDecider<
             itemSubtitle: state.itemSubtitle,
             selectedOptions: [...state.selectedOptions],
             productSummary: state.productSummary,
+            shippingDestinationSnapshot: state.shippingDestinationSnapshot!,
             priceAmount: state.priceAmount!,
             quantityRequested: state.quantityRequested,
             acceptedAt: normalizeRequiredText(
@@ -322,6 +336,7 @@ export const evolveMarketplaceOffer: AggregateEvolver<
       itemSubtitle: event.data.itemSubtitle,
       selectedOptions: event.data.selectedOptions,
       productSummary: event.data.productSummary,
+      shippingDestinationSnapshot: event.data.shippingDestinationSnapshot,
       priceAmount: event.data.priceAmount,
       quantityRequested: event.data.quantityRequested,
       status: "submitted",

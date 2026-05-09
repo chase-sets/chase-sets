@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { MarketplaceGradedCardDetails } from "../domain/domain";
 
 export type MarketplaceListingListRow = Readonly<{
@@ -14,6 +15,7 @@ export type MarketplaceListingListRow = Readonly<{
   graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
+  ship_from_address: AddressSnapshot;
   price_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
@@ -72,6 +74,7 @@ type MarketplaceListingPageRow = Readonly<{
   graded_card: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
+  ship_from_address: unknown;
   price_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
@@ -98,12 +101,24 @@ export type MarketplaceInventoryItemSupply = Readonly<{
   graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string;
   ship_from_code: string;
+  ship_from_address: AddressSnapshot;
   available_quantity: number;
 }>;
 
 function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRow {
   return {
     ...row,
+    ship_from_address:
+      typeof row.ship_from_address === "object" && row.ship_from_address !== null
+        ? (row.ship_from_address as AddressSnapshot)
+        : {
+            name: "",
+            line1: "",
+            city: "",
+            state: "",
+            postalCode: "",
+            country: "US",
+          },
     selected_options: Array.isArray(row.selected_options)
       ? (row.selected_options as MarketplaceListingListRow["selected_options"])
       : [],
@@ -137,6 +152,7 @@ export async function getInventoryItemSupply(
     graded_card: unknown;
     storage_location_name: string;
     ship_from_code: string;
+    ship_from_address: unknown;
     available_quantity: number;
   }>(
     `SELECT
@@ -179,6 +195,7 @@ export async function getInventoryItemSupply(
        ) AS product_summary,
        location.name AS storage_location_name,
        location.ship_from_code,
+       location.ship_from_address,
        item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
      FROM marketplace_supply_items AS item
      INNER JOIN marketplace_supply_locations AS location
@@ -211,6 +228,17 @@ export async function getInventoryItemSupply(
       typeof row.graded_card === "object" && row.graded_card !== null
         ? (row.graded_card as MarketplaceGradedCardDetails)
         : null,
+    ship_from_address:
+      typeof row.ship_from_address === "object" && row.ship_from_address !== null
+        ? (row.ship_from_address as AddressSnapshot)
+        : {
+            name: "",
+            line1: "",
+            city: "",
+            state: "",
+            postalCode: "",
+            country: "US",
+          },
   };
 }
 
@@ -271,6 +299,7 @@ export async function listSellerInventoryItemSupply(
       ) AS product_summary,
       location.name AS storage_location_name,
       location.ship_from_code,
+      location.ship_from_address,
       item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
     FROM marketplace_supply_items AS item
     INNER JOIN marketplace_supply_locations AS location
@@ -316,6 +345,7 @@ export async function listSellerInventoryItemSupply(
       graded_card: unknown;
       storage_location_name: string;
       ship_from_code: string;
+      ship_from_address: unknown;
       available_quantity: number;
     }>(
       `${selectSql}
@@ -335,6 +365,17 @@ export async function listSellerInventoryItemSupply(
         typeof row.graded_card === "object" && row.graded_card !== null
           ? (row.graded_card as MarketplaceGradedCardDetails)
           : null,
+      ship_from_address:
+        typeof row.ship_from_address === "object" && row.ship_from_address !== null
+          ? (row.ship_from_address as AddressSnapshot)
+          : {
+              name: "",
+              line1: "",
+              city: "",
+              state: "",
+              postalCode: "",
+              country: "US",
+            },
     })),
     total: Number(countResult.rows[0]?.count ?? 0),
   };

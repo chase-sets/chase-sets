@@ -18,6 +18,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     graded_card: unknown;
     storage_location_name: string | null;
     ship_from_code: string | null;
+    ship_from_address: unknown;
     price_amount: string;
     marketplace_sales_fee_unit_amount: string;
     seller_net_unit_amount: string;
@@ -85,6 +86,7 @@ export function buildMarketplaceListingProjectionHandlers(
         gradedCard: unknown;
         storageLocationName: string | null;
         shipFromCode: string | null;
+        shipFromAddress: unknown;
         priceAmount: string;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
@@ -110,6 +112,7 @@ export function buildMarketplaceListingProjectionHandlers(
           graded_card,
           storage_location_name,
           ship_from_code,
+          ship_from_address,
           price_amount,
           marketplace_sales_fee_unit_amount,
           seller_net_unit_amount,
@@ -123,7 +126,7 @@ export function buildMarketplaceListingProjectionHandlers(
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'draft', $22, $22
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 'draft', $23, $23
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
@@ -137,6 +140,7 @@ export function buildMarketplaceListingProjectionHandlers(
           graded_card = EXCLUDED.graded_card,
           storage_location_name = EXCLUDED.storage_location_name,
           ship_from_code = EXCLUDED.ship_from_code,
+          ship_from_address = EXCLUDED.ship_from_address,
           price_amount = EXCLUDED.price_amount,
           marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
           seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
@@ -162,6 +166,7 @@ export function buildMarketplaceListingProjectionHandlers(
             : JSON.stringify(data.gradedCard),
           data.storageLocationName,
           data.shipFromCode,
+          JSON.stringify(data.shipFromAddress),
           data.priceAmount,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,

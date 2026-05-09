@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_pages (
   item_subtitle text NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
+  shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   price_amount numeric(12,2) NOT NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   status text NOT NULL DEFAULT 'submitted',
@@ -39,4 +40,7 @@ CREATE TABLE IF NOT EXISTS marketplace_buyer_offer_match_sell_list_pages (
 
 CREATE INDEX IF NOT EXISTS marketplace_buyer_offer_match_sell_list_pages_seller_idx
   ON marketplace_buyer_offer_match_sell_list_pages (seller_account_id, updated_at DESC);
+
+ALTER TABLE marketplace_offer_pages
+  ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
 `;

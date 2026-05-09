@@ -3,6 +3,10 @@ import type {
   AggregateEvolver,
   DomainEvent,
 } from "@chase-sets/event-core";
+import {
+  normalizeAddressSnapshot,
+  type AddressSnapshot,
+} from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -70,6 +74,7 @@ export type MarketplaceListingState = Readonly<{
   gradedCard: MarketplaceGradedCardDetails | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
+  shipFromAddress: AddressSnapshot | null;
   priceAmount: string | null;
   marketplaceSalesFeeUnitAmount: string | null;
   sellerNetUnitAmount: string | null;
@@ -95,6 +100,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   gradedCard: null,
   storageLocationName: null,
   shipFromCode: null,
+  shipFromAddress: null,
   priceAmount: null,
   marketplaceSalesFeeUnitAmount: null,
   sellerNetUnitAmount: null,
@@ -121,6 +127,7 @@ export type CreateListingCommand = Readonly<{
   gradedCard?: MarketplaceGradedCardDetails | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
+  shipFromAddress: AddressSnapshot;
   priceAmount: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
@@ -192,6 +199,7 @@ export type ListingCreatedEvent = DomainEvent<
     gradedCard: MarketplaceGradedCardDetails | null;
     storageLocationName: string | null;
     shipFromCode: string | null;
+    shipFromAddress: AddressSnapshot;
     priceAmount: string;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
@@ -285,6 +293,10 @@ export const decideMarketplaceListing: AggregateDecider<
             gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
+            shipFromAddress: normalizeAddressSnapshot(
+              command.shipFromAddress,
+              "Ship-from address",
+            ),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
             marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
               fieldName: "Marketplace sales fee unit amount",
@@ -440,6 +452,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         gradedCard: event.data.gradedCard,
         storageLocationName: event.data.storageLocationName,
         shipFromCode: event.data.shipFromCode,
+        shipFromAddress: event.data.shipFromAddress,
         priceAmount: event.data.priceAmount,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,

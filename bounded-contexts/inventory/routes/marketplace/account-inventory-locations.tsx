@@ -15,6 +15,21 @@ import {
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { StorageLocationPage } from "../../features/storage-locations/ui/storage-location-page";
 
+function shipFromAddressFromForm(formData: FormData) {
+  return {
+    name: String(formData.get("shipFromName") ?? ""),
+    company: String(formData.get("shipFromCompany") ?? "").trim() || null,
+    line1: String(formData.get("shipFromLine1") ?? ""),
+    line2: String(formData.get("shipFromLine2") ?? "").trim() || null,
+    city: String(formData.get("shipFromCity") ?? ""),
+    state: String(formData.get("shipFromState") ?? ""),
+    postalCode: String(formData.get("shipFromPostalCode") ?? ""),
+    country: String(formData.get("shipFromCountry") ?? "US") || "US",
+    phone: String(formData.get("shipFromPhone") ?? "").trim() || null,
+    email: String(formData.get("shipFromEmail") ?? "").trim() || null,
+  };
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
     request,
@@ -40,6 +55,7 @@ export async function action({ request }: ActionFunctionArgs) {
           name: formData.get("name"),
           description: String(formData.get("description") ?? "").trim() || null,
           shipFromCode: formData.get("shipFromCode"),
+          shipFromAddress: shipFromAddressFromForm(formData),
         });
         break;
       case "update-location":
@@ -47,6 +63,7 @@ export async function action({ request }: ActionFunctionArgs) {
           name: formData.get("name"),
           description: String(formData.get("description") ?? "").trim() || null,
           shipFromCode: formData.get("shipFromCode"),
+          shipFromAddress: shipFromAddressFromForm(formData),
           isArchived: false,
         });
         break;
@@ -55,6 +72,7 @@ export async function action({ request }: ActionFunctionArgs) {
           name: formData.get("name"),
           description: String(formData.get("description") ?? "").trim() || null,
           shipFromCode: formData.get("shipFromCode"),
+          shipFromAddress: shipFromAddressFromForm(formData),
           isArchived: true,
         });
         break;

@@ -14,6 +14,14 @@ describe("storage location domain", () => {
       name: "North shelf",
       description: "Singles",
       shipFromCode: "CHI-WH-1",
+      shipFromAddress: {
+        name: "North shelf shipping",
+        line1: "100 Test Lane",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
     });
     const createdState = created.reduce(evolveStorageLocation, initialStorageLocationState);
     const archived = await decideStorageLocation(createdState, {
@@ -22,6 +30,7 @@ describe("storage location domain", () => {
     const archivedState = archived.reduce(evolveStorageLocation, createdState);
 
     expect(createdState.name).toBe("North shelf");
+    expect(createdState.shipFromAddress?.line1).toBe("100 Test Lane");
     expect(archivedState.isArchived).toBe(true);
   });
 });

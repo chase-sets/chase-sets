@@ -1,5 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, InventoryItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryCatalogItemServices } from "../../inventory-items/integrations/catalog/runtime";
@@ -32,6 +33,7 @@ export type InventoryDraftListingCreator = (
     storageLocationId: string;
     storageLocationName: string;
     shipFromCode: string;
+    shipFromAddress: AddressSnapshot;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
     priceAmount: string;
@@ -416,6 +418,7 @@ export function createInventoryImportBatchRuntime(
               storageLocationId: row.storage_location_id,
               storageLocationName: location.name,
               shipFromCode: location.ship_from_code,
+              shipFromAddress: location.ship_from_address,
               totalQuantity: row.total_quantity,
               acquisitionCostAmount: row.acquisition_cost_amount,
               priceAmount: row.listing_price_amount,

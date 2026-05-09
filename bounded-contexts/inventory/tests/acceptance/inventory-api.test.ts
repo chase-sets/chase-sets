@@ -55,6 +55,18 @@ const inventoryContext: EventStoreContext = {
   },
 };
 
+const shipFromAddress = {
+  name: "Test Inventory",
+  line1: "100 Test Lane",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: "3125550100",
+  email: "inventory@example.test",
+};
+
 async function countEvents(pool: PgTransactionalPool, prefix: string) {
   const result = await pool.query(
     "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
@@ -177,6 +189,7 @@ describeWithDatabase("inventory api", () => {
         name: "North shelf",
         description: "Singles",
         shipFromCode: "CHI-WH-1",
+        shipFromAddress,
       }),
     });
     expect(locationResponse.status).toBe(201);
@@ -268,6 +281,7 @@ describeWithDatabase("inventory api", () => {
       body: JSON.stringify({
         name: "Overflow",
         shipFromCode: "DFW-2",
+        shipFromAddress,
       }),
     });
     const locationBody = await location.json();
@@ -368,6 +382,7 @@ describeWithDatabase("inventory api", () => {
       body: JSON.stringify({
         name: "Blocked",
         shipFromCode: "MSP-1",
+        shipFromAddress,
       }),
     });
     expect(writeResponse.status).toBe(403);
@@ -387,6 +402,7 @@ describeWithDatabase("inventory api", () => {
         accountId: "acc_other" as never,
         name: "Other location",
         shipFromCode: "NYC-1",
+        shipFromAddress,
       },
       otherContext,
     );

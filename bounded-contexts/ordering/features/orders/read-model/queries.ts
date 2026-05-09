@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { VersionSelectedOptionEntry } from "../domain/common";
 
 export type OrderingOrderLineRow = Readonly<{
@@ -62,6 +63,8 @@ export type OrderingOrderListRow = Readonly<{
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
+  shipping_destination_snapshot: AddressSnapshot;
+  shipping_origin_snapshot: AddressSnapshot;
   status: string;
   created_at: string;
   updated_at: string;
@@ -110,6 +113,8 @@ type BaseOrderPageRow = Readonly<{
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
+  shipping_destination_snapshot: AddressSnapshot;
+  shipping_origin_snapshot: AddressSnapshot;
   status: string;
   created_at: string;
   updated_at: string;
@@ -172,6 +177,8 @@ const baseOrderSelect = `
     page.terms_schedule_id,
     page.terms_agreement_id,
     page.terms_resolved_at,
+    page.shipping_destination_snapshot,
+    page.shipping_origin_snapshot,
     page.status,
     page.created_at,
     page.updated_at,

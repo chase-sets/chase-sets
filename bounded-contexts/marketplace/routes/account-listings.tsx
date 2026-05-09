@@ -46,6 +46,14 @@ function toInventoryOption(
     graded_card: inventoryItem.graded_card,
     storage_location_name: inventoryItem.storage_location_name,
     ship_from_code: inventoryItem.ship_from_code,
+    ship_from_address: {
+      name: "",
+      line1: "",
+      city: "",
+      state: "",
+      postalCode: "",
+      country: "US",
+    },
     available_quantity: inventoryItem.available_quantity,
   };
 }

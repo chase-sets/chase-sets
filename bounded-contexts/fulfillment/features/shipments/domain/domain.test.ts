@@ -5,6 +5,33 @@ import {
   initialFulfillmentShipmentState,
 } from "./domain";
 
+const shipmentAddressSnapshots = {
+  shippingDestinationSnapshot: {
+    name: "Buyer",
+    company: null,
+    line1: "2 Market St",
+    line2: null,
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+    phone: null,
+    email: null,
+  },
+  shippingOriginSnapshot: {
+    name: "Seller",
+    company: null,
+    line1: "1 Main St",
+    line2: null,
+    city: "Austin",
+    state: "TX",
+    postalCode: "78701",
+    country: "US",
+    phone: null,
+    email: null,
+  },
+} as const;
+
 describe("fulfillment shipment domain", () => {
   it("moves a shipment through packing, labeling, dispatch, and delivery", () => {
     const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
@@ -14,6 +41,7 @@ describe("fulfillment shipment domain", () => {
       buyerAccountId: "acc_buyer" as never,
       sellerAccountId: "acc_seller" as never,
       shippingOption: "standard",
+      ...shipmentAddressSnapshots,
       lines: [
         {
           lineId: "spl_1" as never,
@@ -80,6 +108,7 @@ describe("fulfillment shipment domain", () => {
       buyerAccountId: "acc_buyer" as never,
       sellerAccountId: "acc_seller" as never,
       shippingOption: "standard",
+      ...shipmentAddressSnapshots,
       lines: [
         {
           lineId: "spl_1" as never,
@@ -124,6 +153,7 @@ describe("fulfillment shipment domain", () => {
       buyerAccountId: "acc_buyer" as never,
       sellerAccountId: "acc_seller" as never,
       shippingOption: "standard",
+      ...shipmentAddressSnapshots,
       lines: [
         {
           lineId: "spl_1" as never,

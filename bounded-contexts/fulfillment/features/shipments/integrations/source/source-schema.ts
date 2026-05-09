@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS fulfillment_order_sources (
   buyer_account_id text NOT NULL,
   seller_account_id text NOT NULL,
   shipping_option text NOT NULL,
+  shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   status text NOT NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
@@ -23,6 +25,10 @@ CREATE TABLE IF NOT EXISTS fulfillment_order_sources (
 
 CREATE INDEX IF NOT EXISTS fulfillment_order_sources_status_idx
   ON fulfillment_order_sources (status, updated_at DESC, order_id DESC);
+
+ALTER TABLE fulfillment_order_sources
+  ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS fulfillment_order_source_lines (
   order_id text NOT NULL REFERENCES fulfillment_order_sources (order_id) ON DELETE CASCADE,

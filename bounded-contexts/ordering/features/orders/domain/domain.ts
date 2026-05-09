@@ -3,6 +3,10 @@ import type {
   AggregateEvolver,
   DomainEvent,
 } from "@chase-sets/event-core";
+import {
+  normalizeAddressSnapshot,
+  type AddressSnapshot,
+} from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -91,6 +95,8 @@ export type OrderingOrderState = Readonly<{
   totalAmount: string | null;
   taxSnapshot: OrderingTaxSnapshot | null;
   commercialTermsSnapshot: OrderingCommercialTermsSnapshot | null;
+  shippingDestinationSnapshot: AddressSnapshot | null;
+  shippingOriginSnapshot: AddressSnapshot | null;
   lines: OrderingOrderLine[];
   reservationRequests: OrderingReservationRequest[];
   status: OrderStatus | null;
@@ -116,6 +122,8 @@ export const initialOrderingOrderState: OrderingOrderState = {
   totalAmount: null,
   taxSnapshot: null,
   commercialTermsSnapshot: null,
+  shippingDestinationSnapshot: null,
+  shippingOriginSnapshot: null,
   lines: [],
   reservationRequests: [],
   status: null,
@@ -142,6 +150,8 @@ export type CreateOrderCommand = Readonly<{
   totalAmount: string;
   taxSnapshot: OrderingTaxSnapshot;
   commercialTermsSnapshot: OrderingCommercialTermsSnapshot;
+  shippingDestinationSnapshot: AddressSnapshot;
+  shippingOriginSnapshot: AddressSnapshot;
   lines: OrderingOrderLine[];
   reservationRequests: Array<
     Readonly<{
@@ -212,6 +222,8 @@ export type OrderCreatedEvent = DomainEvent<
     totalAmount: string;
     taxSnapshot: OrderingTaxSnapshot;
     commercialTermsSnapshot: OrderingCommercialTermsSnapshot;
+    shippingDestinationSnapshot: AddressSnapshot;
+    shippingOriginSnapshot: AddressSnapshot;
     lines: OrderingOrderLine[];
     reservationRequests: Array<
       Readonly<{
@@ -543,6 +555,14 @@ export const decideOrderingOrder: AggregateDecider<
             commercialTermsSnapshot: normalizeCommercialTermsSnapshot(
               command.commercialTermsSnapshot,
             ),
+            shippingDestinationSnapshot: normalizeAddressSnapshot(
+              command.shippingDestinationSnapshot,
+              "Shipping destination",
+            ),
+            shippingOriginSnapshot: normalizeAddressSnapshot(
+              command.shippingOriginSnapshot,
+              "Shipping origin",
+            ),
             lines: normalizedLines,
             reservationRequests: normalizeReservationRequests(
               command.reservationRequests,
@@ -836,6 +856,8 @@ export const evolveOrderingOrder: AggregateEvolver<
         totalAmount: event.data.totalAmount,
         taxSnapshot: event.data.taxSnapshot,
         commercialTermsSnapshot: event.data.commercialTermsSnapshot,
+        shippingDestinationSnapshot: event.data.shippingDestinationSnapshot,
+        shippingOriginSnapshot: event.data.shippingOriginSnapshot,
         lines: event.data.lines,
         reservationRequests: event.data.reservationRequests.map((request) => ({
           reservationRequestId: request.reservationRequestId,

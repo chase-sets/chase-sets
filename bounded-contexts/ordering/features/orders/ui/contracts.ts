@@ -1,3 +1,5 @@
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+
 export interface OrderingOrderProjection {
   order_id: string;
   source_type: string;
@@ -30,6 +32,8 @@ export interface OrderingOrderProjection {
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
+  shipping_destination_snapshot: AddressSnapshot;
+  shipping_origin_snapshot: AddressSnapshot;
   status: string;
   created_at: string;
   updated_at: string;

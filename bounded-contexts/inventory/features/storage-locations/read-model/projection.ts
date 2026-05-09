@@ -12,12 +12,14 @@ export function buildStorageLocationProjectionHandlers(
         name,
         description,
         shipFromCode,
+        shipFromAddress,
       } = event.data as {
         storageLocationId: string;
         accountId: string;
         name: string;
         description: string | null;
         shipFromCode: string;
+        shipFromAddress: unknown;
       };
 
       await db.query(
@@ -27,23 +29,26 @@ export function buildStorageLocationProjectionHandlers(
            name,
            description,
            ship_from_code,
+           ship_from_address,
            is_archived,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, false, $6)
+         VALUES ($1, $2, $3, $4, $5, $6, false, $7)
          ON CONFLICT (storage_location_id) DO UPDATE
          SET account_id = $2,
              name = $3,
              description = $4,
              ship_from_code = $5,
+             ship_from_address = $6,
              is_archived = false,
-             updated_at = $6`,
+             updated_at = $7`,
         [
           storageLocationId,
           accountId,
           name,
           description,
           shipFromCode,
+          JSON.stringify(shipFromAddress),
           event.timing.recordedAt,
         ],
       );
@@ -54,11 +59,13 @@ export function buildStorageLocationProjectionHandlers(
         name,
         description,
         shipFromCode,
+        shipFromAddress,
       } = event.data as {
         storageLocationId: string;
         name: string;
         description: string | null;
         shipFromCode: string;
+        shipFromAddress: unknown;
       };
 
       await db.query(
@@ -66,9 +73,17 @@ export function buildStorageLocationProjectionHandlers(
          SET name = $2,
              description = $3,
              ship_from_code = $4,
-             updated_at = $5
+             ship_from_address = $5,
+             updated_at = $6
          WHERE storage_location_id = $1`,
-        [storageLocationId, name, description, shipFromCode, event.timing.recordedAt],
+        [
+          storageLocationId,
+          name,
+          description,
+          shipFromCode,
+          JSON.stringify(shipFromAddress),
+          event.timing.recordedAt,
+        ],
       );
     },
     "inventory.storage-location.archived": async (event) => {

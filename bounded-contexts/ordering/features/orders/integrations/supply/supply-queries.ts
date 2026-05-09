@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceDemand, MarketplaceSupplyCandidate } from "../../domain/policies";
 
@@ -20,6 +21,7 @@ type OrderingSupplyCandidateRow = Readonly<{
   product_summary: string | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
+  ship_from_address: unknown;
   price_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
@@ -72,6 +74,7 @@ export async function listOrderingSupplyCandidates(
        listing.product_summary,
        listing.storage_location_name,
        listing.ship_from_code,
+       listing.ship_from_address,
        listing.price_amount::text AS price_amount,
        listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount::text AS seller_net_unit_amount,
@@ -125,6 +128,17 @@ export async function listOrderingSupplyCandidates(
       productSummary: normalizeOptionalText(row.product_summary ?? demand.productSummary),
       storageLocationName: row.storage_location_name,
       shipFromCode: row.ship_from_code,
+      shipFromAddress:
+        typeof row.ship_from_address === "object" && row.ship_from_address !== null
+          ? (row.ship_from_address as AddressSnapshot)
+          : {
+              name: "",
+              line1: "",
+              city: "",
+              state: "",
+              postalCode: "",
+              country: "US",
+            },
       priceAmount: row.price_amount,
       marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
       sellerNetUnitAmount: row.seller_net_unit_amount,
@@ -156,6 +170,7 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.product_summary,
        listing.storage_location_name,
        listing.ship_from_code,
+       listing.ship_from_address,
        listing.price_amount::text AS price_amount,
        listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount::text AS seller_net_unit_amount,
@@ -208,6 +223,17 @@ export async function getOrderingSupplyCandidateByListingId(
     productSummary: normalizeOptionalText(row.product_summary),
     storageLocationName: row.storage_location_name,
     shipFromCode: row.ship_from_code,
+    shipFromAddress:
+      typeof row.ship_from_address === "object" && row.ship_from_address !== null
+        ? (row.ship_from_address as AddressSnapshot)
+        : {
+            name: "",
+            line1: "",
+            city: "",
+            state: "",
+            postalCode: "",
+            country: "US",
+          },
     priceAmount: row.price_amount,
     marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
     sellerNetUnitAmount: row.seller_net_unit_amount,
@@ -234,6 +260,7 @@ export type OrderingAcceptedOfferBatchInputRow = Readonly<{
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
+  shipping_destination_snapshot: AddressSnapshot;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string;
@@ -265,6 +292,7 @@ export async function listAcceptedOfferBatchInputs(
        marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        seller_net_unit_amount::text AS seller_net_unit_amount,
        shipping_allowance_percentage_bps,
+       shipping_destination_snapshot,
        terms_schedule_id,
        terms_agreement_id,
        terms_resolved_at::text AS terms_resolved_at,

@@ -581,6 +581,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
         accountId: string;
         name: string;
         shipFromCode: string;
+        shipFromAddress: unknown;
       };
 
       await db.query(
@@ -589,13 +590,15 @@ export function buildMarketplaceInventoryProjectionHandlers(
            account_id,
            name,
            ship_from_code,
+           ship_from_address,
            is_archived,
            updated_at
-         ) VALUES ($1, $2, $3, $4, false, $5)
+         ) VALUES ($1, $2, $3, $4, $5, false, $6)
          ON CONFLICT (storage_location_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
            name = EXCLUDED.name,
            ship_from_code = EXCLUDED.ship_from_code,
+           ship_from_address = EXCLUDED.ship_from_address,
            is_archived = false,
            updated_at = EXCLUDED.updated_at`,
         [
@@ -603,6 +606,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
           data.accountId,
           data.name,
           data.shipFromCode,
+          JSON.stringify(data.shipFromAddress),
           event.timing.recordedAt,
         ],
       );
@@ -612,18 +616,21 @@ export function buildMarketplaceInventoryProjectionHandlers(
         storageLocationId: string;
         name: string;
         shipFromCode: string;
+        shipFromAddress: unknown;
       };
 
       await db.query(
         `UPDATE marketplace_supply_locations
          SET name = $2,
              ship_from_code = $3,
-             updated_at = $4
+             ship_from_address = $4,
+             updated_at = $5
          WHERE storage_location_id = $1`,
         [
           data.storageLocationId,
           data.name,
           data.shipFromCode,
+          JSON.stringify(data.shipFromAddress),
           event.timing.recordedAt,
         ],
       );

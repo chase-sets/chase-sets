@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   product_summary text NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
+  ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
   price_amount numeric(12, 2) NOT NULL,
   marketplace_sales_fee_unit_amount numeric(12, 2) NOT NULL,
   seller_net_unit_amount numeric(12, 2) NOT NULL,
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
+  shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   accepted_at timestamptz NOT NULL,
   acceptance_batch_id text NULL,
   acceptance_batch_size integer NULL,
@@ -81,7 +83,8 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
 );
 
 ALTER TABLE ordering_market_listing_inputs
-  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
+  ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
@@ -91,6 +94,9 @@ ALTER TABLE ordering_offer_acceptance_inputs
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS acceptance_batch_size integer NULL;
+
+ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS ordering_payment_capture_inputs (
   payment_id text PRIMARY KEY,

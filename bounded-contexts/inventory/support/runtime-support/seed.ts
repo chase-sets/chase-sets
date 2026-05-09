@@ -1,4 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import {
   catalogSeedIds,
   type SeedCatalogItemId,
@@ -26,6 +27,7 @@ type StorageLocationSeed = Readonly<{
   name: string;
   description?: string;
   shipFromCode: string;
+  shipFromAddress: AddressSnapshot;
 }>;
 
 type InventoryItemSeed = Readonly<{
@@ -96,18 +98,52 @@ const storageLocations: readonly StorageLocationSeed[] = [
     name: "North shelf",
     description: "Singles and fast-moving modern inventory",
     shipFromCode: "CHI-WH-1",
+    shipFromAddress: {
+      name: "Chase Sets Shipping",
+      company: "Chase Sets Demo",
+      line1: "221 N LaSalle St",
+      line2: "Suite 1200",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: "3125550101",
+      email: "shipping@chasesets.test",
+    },
   },
   {
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     name: "Vault annex",
     description: "Vintage singles and sealed reserve stock",
     shipFromCode: "CHI-ANNEX-2",
+    shipFromAddress: {
+      name: "Chase Sets Vault",
+      company: "Chase Sets Demo",
+      line1: "600 W Chicago Ave",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60654",
+      country: "US",
+      phone: "3125550102",
+      email: "vault@chasesets.test",
+    },
   },
   {
     storageLocationId: inventorySeedIds.storageLocations.archivedOverflow,
     name: "Archived overflow",
     description: "Retired overflow storage kept for audit history",
     shipFromCode: "CHI-OLD-9",
+    shipFromAddress: {
+      name: "Chase Sets Overflow",
+      company: "Chase Sets Demo",
+      line1: "1900 S Clark St",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60616",
+      country: "US",
+      phone: "3125550103",
+      email: "overflow@chasesets.test",
+    },
   },
   {
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
@@ -115,6 +151,17 @@ const storageLocations: readonly StorageLocationSeed[] = [
     name: "Card Vault back room",
     description: "Vintage singles and curated binder inventory",
     shipFromCode: "STL-VAULT-4",
+    shipFromAddress: {
+      name: "Card Vault Fulfillment",
+      company: "Card Vault",
+      line1: "720 Olive St",
+      city: "Saint Louis",
+      state: "MO",
+      postalCode: "63101",
+      country: "US",
+      phone: "3145550104",
+      email: "ship@cardvault.test",
+    },
   },
   {
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
@@ -122,6 +169,17 @@ const storageLocations: readonly StorageLocationSeed[] = [
     name: "Sealed case wall",
     description: "Fast-pick sealed product cases",
     shipFromCode: "IND-CASE-2",
+    shipFromAddress: {
+      name: "Sealed Stockroom Fulfillment",
+      company: "Sealed Stockroom",
+      line1: "200 S Meridian St",
+      city: "Indianapolis",
+      state: "IN",
+      postalCode: "46225",
+      country: "US",
+      phone: "3175550105",
+      email: "ship@sealedstockroom.test",
+    },
   },
 ];
 
@@ -478,6 +536,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       name: location.name,
       description: location.description,
       shipFromCode: location.shipFromCode,
+      shipFromAddress: location.shipFromAddress,
     });
 
     if (location.storageLocationId === inventorySeedIds.storageLocations.archivedOverflow) {
@@ -486,6 +545,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
         name: location.name,
         description: location.description,
         shipFromCode: location.shipFromCode,
+        shipFromAddress: location.shipFromAddress,
       });
       await sendSeedCommand(services.storageLocations.commandHandler, streamId, {
         type: "ArchiveStorageLocation",

@@ -389,12 +389,15 @@ describe("checkout web routes", () => {
       acknowledgedMaterialChanges: false,
       shippingAddress: {
         name: "Jane Smith",
+        company: null,
         line1: "100 Market Street",
         line2: null,
         city: "Chicago",
         state: "IL",
         postalCode: "60601",
         country: "US",
+        phone: null,
+        email: null,
       },
     });
     expect(response.status).toBe(302);

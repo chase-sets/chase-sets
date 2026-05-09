@@ -10,6 +10,10 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import {
+  normalizeAddressSnapshot,
+  type AddressSnapshot,
+} from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 import {
   OrderingDomainError,
@@ -48,15 +52,7 @@ import {
   type OrderingOrderState,
 } from "../domain/domain";
 
-export type TaxDestinationAddress = Readonly<{
-  name: string | null;
-  line1: string;
-  line2: string | null;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-}>;
+export type TaxDestinationAddress = AddressSnapshot;
 
 export type TaxQuote = Readonly<{
   taxableAmount: string;
@@ -154,6 +150,7 @@ type SellerOrderDraft = Readonly<{
   salesTaxAmount: string;
   totalAmount: string;
   taxQuote: TaxQuote;
+  shippingOriginSnapshot: AddressSnapshot;
   lines: ReadonlyArray<{
     lineId: OrderLineId;
     listingId: string;
@@ -285,6 +282,7 @@ export type OrderingOrderServices = Readonly<{
       termsAgreementId: string | null;
       termsResolvedAt: string;
       shippingAllowancePercentageBps?: number;
+      shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
       orderIdsOverride?: readonly OrderId[];
     }>,
@@ -307,6 +305,7 @@ export type OrderingOrderServices = Readonly<{
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         shippingAllowancePercentageBps?: number;
+        shippingDestinationSnapshot: AddressSnapshot;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
         termsResolvedAt: string;
@@ -495,12 +494,14 @@ function quotePlan(
   sourceType: OrderSourceType = "cart-checkout",
   sourceReferenceId: string | null = null,
 ): CheckoutPlan {
-  const groupedBySeller = new Map<
+  const groupedBySellerAndOrigin = new Map<
     string,
     {
+      sellerAccountId: string;
       lines: Array<SellerOrderDraft["lines"][number]>;
       reservations: Array<SellerOrderDraft["reservations"][number]>;
       sellerDisplayName: string | null;
+      shippingOriginSnapshot: AddressSnapshot;
       subtotal: number;
       listingIds: Set<string>;
       quantity: number;
@@ -509,12 +510,22 @@ function quotePlan(
 
   for (const demandPlan of demandPlans) {
     for (const allocation of demandPlan.allocations) {
+      const shippingOriginSnapshot = normalizeAddressSnapshot(
+        allocation.candidate.shipFromAddress,
+        "Shipping origin",
+      );
+      const sellerGroupKey = [
+        allocation.candidate.sellerAccountId,
+        JSON.stringify(shippingOriginSnapshot),
+      ].join("|");
       const sellerDraft =
-        groupedBySeller.get(allocation.candidate.sellerAccountId) ??
+        groupedBySellerAndOrigin.get(sellerGroupKey) ??
         {
+          sellerAccountId: allocation.candidate.sellerAccountId,
           lines: [],
           reservations: [],
           sellerDisplayName: allocation.candidate.sellerDisplayName,
+          shippingOriginSnapshot,
           subtotal: 0,
           listingIds: new Set<string>(),
           quantity: 0,
@@ -568,7 +579,7 @@ function quotePlan(
       sellerDraft.subtotal += moneyToNumber(lineTotalAmount);
       sellerDraft.listingIds.add(allocation.candidate.listingId);
       sellerDraft.quantity += allocation.quantity;
-      groupedBySeller.set(allocation.candidate.sellerAccountId, sellerDraft);
+      groupedBySellerAndOrigin.set(sellerGroupKey, sellerDraft);
     }
   }
 
@@ -576,10 +587,10 @@ function quotePlan(
   let totalAmount = 0;
   let itemSubtotalAmount = 0;
 
-  for (const [sellerAccountId, draft] of groupedBySeller.entries()) {
+  for (const draft of groupedBySellerAndOrigin.values()) {
     const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
     const quote = shippingQuotePolicy.quote({
-      sellerAccountId,
+      sellerAccountId: draft.sellerAccountId,
       shippingOption,
       itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
       quantity: draft.quantity,
@@ -596,7 +607,7 @@ function quotePlan(
     itemSubtotalAmount += draft.subtotal;
 
     orderDrafts.push({
-      sellerAccountId,
+      sellerAccountId: draft.sellerAccountId,
       sellerDisplayName: draft.sellerDisplayName,
       sourceType,
       sourceReferenceId,
@@ -623,6 +634,7 @@ function quotePlan(
         providerQuoteReference: null,
         quotedAt: new Date().toISOString(),
       },
+      shippingOriginSnapshot: draft.shippingOriginSnapshot,
       lines: draft.lines,
       reservations: draft.reservations,
     });
@@ -944,6 +956,7 @@ export function createOrderingOrderRuntime(
   const createOrdersFromPlan = async (
     buyerAccountId: AccountId,
     plan: CheckoutPlan,
+    shippingDestinationSnapshot: AddressSnapshot,
     context: EventStoreContext,
     orderIdsOverride?: readonly OrderId[],
   ) => {
@@ -1021,6 +1034,8 @@ export function createOrderingOrderRuntime(
             termsAgreementId,
             termsResolvedAt,
           },
+          shippingDestinationSnapshot,
+          shippingOriginSnapshot: draft.shippingOriginSnapshot,
           lines: [...draft.lines],
           reservationRequests: draft.reservations.map((reservation) => ({
             reservationRequestId: reservation.reservationRequestId,
@@ -1056,6 +1071,7 @@ export function createOrderingOrderRuntime(
       termsAgreementId: string | null;
       termsResolvedAt: string;
       shippingAllowancePercentageBps?: number;
+      shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
     }>,
   ) => {
@@ -1103,15 +1119,10 @@ export function createOrderingOrderRuntime(
     const taxAdjustedPlan = await applyTaxToPlan(
       plan,
       params.buyerAccountId,
-      {
-        name: null,
-        line1: "Accepted offer destination pending",
-        line2: null,
-        city: "Unknown",
-        state: "ZZ",
-        postalCode: "00000",
-        country: "US",
-      },
+      normalizeAddressSnapshot(
+        params.shippingDestinationSnapshot,
+        "Shipping destination",
+      ),
       taxQuoteResolver,
     );
     return taxAdjustedPlan;
@@ -1135,6 +1146,7 @@ export function createOrderingOrderRuntime(
       termsAgreementId: string | null;
       termsResolvedAt: string;
       shippingAllowancePercentageBps?: number;
+      shippingDestinationSnapshot: AddressSnapshot;
       quantityRequested: number;
       orderIdsOverride?: readonly OrderId[];
     }>,
@@ -1144,6 +1156,10 @@ export function createOrderingOrderRuntime(
     const orderIds = await createOrdersFromPlan(
       params.buyerAccountId,
       taxAdjustedPlan,
+      normalizeAddressSnapshot(
+        params.shippingDestinationSnapshot,
+        "Shipping destination",
+      ),
       context,
       params.orderIdsOverride,
     );
@@ -1152,31 +1168,59 @@ export function createOrderingOrderRuntime(
 
   const createOrdersFromAcceptedOfferBatch: OrderingOrderServices["createOrdersFromAcceptedOfferBatch"] =
     async (params, context) => {
-      const groupedByBuyer = new Map<string, SellerOrderDraft[]>();
+      const groupedByBuyerAndDestination = new Map<
+        string,
+        {
+          buyerAccountId: AccountId;
+          shippingDestinationSnapshot: AddressSnapshot;
+          drafts: SellerOrderDraft[];
+        }
+      >();
 
       for (const offer of params.offers) {
+        const shippingDestinationSnapshot = normalizeAddressSnapshot(
+          offer.shippingDestinationSnapshot,
+          "Shipping destination",
+        );
         const plan = await buildAcceptedOfferPlan({
           ...offer,
           offerId: params.acceptanceBatchId,
         });
         for (const draft of plan.orderDrafts) {
-          const drafts = groupedByBuyer.get(offer.buyerAccountId) ?? [];
+          const groupKey = [
+            offer.buyerAccountId,
+            JSON.stringify(shippingDestinationSnapshot),
+          ].join("|");
+          const group =
+            groupedByBuyerAndDestination.get(groupKey) ?? {
+              buyerAccountId: offer.buyerAccountId,
+              shippingDestinationSnapshot,
+              drafts: [],
+            };
+          const drafts = group.drafts;
           drafts.push({
             ...draft,
             sourceReferenceId: params.acceptanceBatchId,
           });
-          groupedByBuyer.set(offer.buyerAccountId, drafts);
+          groupedByBuyerAndDestination.set(groupKey, {
+            ...group,
+            drafts,
+          });
         }
       }
 
       const orderIds: OrderId[] = [];
-      for (const [buyerAccountId, drafts] of groupedByBuyer.entries()) {
+      for (const group of groupedByBuyerAndDestination.values()) {
         const mergedBySeller = new Map<string, SellerOrderDraft>();
 
-        for (const draft of drafts) {
-          const existing = mergedBySeller.get(draft.sellerAccountId);
+        for (const draft of group.drafts) {
+          const sellerOriginKey = [
+            draft.sellerAccountId,
+            JSON.stringify(draft.shippingOriginSnapshot),
+          ].join("|");
+          const existing = mergedBySeller.get(sellerOriginKey);
           if (!existing) {
-            mergedBySeller.set(draft.sellerAccountId, draft);
+            mergedBySeller.set(sellerOriginKey, draft);
             continue;
           }
 
@@ -1201,7 +1245,7 @@ export function createOrderingOrderRuntime(
             shippingBaseAmount: quote.baseAmount,
             shippingAllowancePercentageBps,
           });
-          mergedBySeller.set(draft.sellerAccountId, {
+          mergedBySeller.set(sellerOriginKey, {
             ...existing,
             itemSubtotalAmount,
             shippingBaseAmount: shippingEconomics.shippingBaseAmount,
@@ -1227,21 +1271,14 @@ export function createOrderingOrderRuntime(
             itemSubtotalAmount: 0,
             orderCount: mergedBySeller.size,
           },
-          buyerAccountId as AccountId,
-          {
-            name: null,
-            line1: "Accepted offer destination pending",
-            line2: null,
-            city: "Unknown",
-            state: "ZZ",
-            postalCode: "00000",
-            country: "US",
-          },
+          group.buyerAccountId,
+          group.shippingDestinationSnapshot,
           taxQuoteResolver,
         );
         const buyerOrderIds = await createOrdersFromPlan(
-          buyerAccountId as AccountId,
+          group.buyerAccountId,
           taxAdjustedPlan,
+          group.shippingDestinationSnapshot,
           context,
         );
         orderIds.push(...buyerOrderIds);
@@ -1379,7 +1416,7 @@ export function createOrderingOrderRuntime(
         plan,
         params.buyerAccountId,
         params.shippingAddress ?? {
-          name: null,
+          name: "Checkout destination pending",
           line1: "Checkout preview destination pending",
           line2: null,
           city: "Unknown",
@@ -1439,12 +1476,13 @@ export function createOrderingOrderRuntime(
       const taxAdjustedPlan = await applyTaxToPlan(
         plan,
         params.buyerAccountId,
-        params.shippingAddress,
+        normalizeAddressSnapshot(params.shippingAddress, "Shipping destination"),
         taxQuoteResolver,
       );
       const orderIds = await createOrdersFromPlan(
         params.buyerAccountId,
         taxAdjustedPlan,
+        normalizeAddressSnapshot(params.shippingAddress, "Shipping destination"),
         context,
         params.orderIdsOverride,
       );

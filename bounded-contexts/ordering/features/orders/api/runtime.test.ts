@@ -81,12 +81,28 @@ const context = {
 
 const shippingAddress = {
   name: "Jane Smith",
+  company: null,
   line1: "100 Market Street",
   line2: null,
   city: "Chicago",
   state: "IL",
   postalCode: "60601",
   country: "US",
+  phone: null,
+  email: "jane@example.com",
+} as const;
+
+const shipFromAddress = {
+  name: "Seller Shipping",
+  company: "Chase Sets",
+  line1: "1 Warehouse Way",
+  line2: null,
+  city: "Austin",
+  state: "TX",
+  postalCode: "78701",
+  country: "US",
+  phone: "5125550100",
+  email: "shipping@example.com",
 } as const;
 
 const taxSnapshot = {
@@ -112,6 +128,7 @@ type SupplyCandidate = Readonly<{
   productSummary: string | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
+  shipFromAddress?: typeof shipFromAddress;
   priceAmount: string;
   marketplaceSalesFeeUnitAmount?: string;
   sellerNetUnitAmount?: string;
@@ -145,6 +162,7 @@ function createSupplyDb(
         product_summary: candidate.productSummary,
         storage_location_name: candidate.storageLocationName,
         ship_from_code: candidate.shipFromCode,
+        ship_from_address: candidate.shipFromAddress ?? shipFromAddress,
         price_amount: candidate.priceAmount,
         marketplace_sales_fee_unit_amount: candidate.marketplaceSalesFeeUnitAmount ?? "1.00",
         seller_net_unit_amount: candidate.sellerNetUnitAmount ?? "19.00",
@@ -612,6 +630,7 @@ describe("ordering order runtime", () => {
         termsAgreementId: null,
         termsResolvedAt: "2026-03-31T00:00:00.000Z",
         quantityRequested: 1,
+        shippingDestinationSnapshot: shippingAddress,
       },
       context,
     );
@@ -703,6 +722,7 @@ describe("ordering order runtime", () => {
             termsAgreementId: null,
             termsResolvedAt: "2026-03-31T00:00:00.000Z",
             quantityRequested: 1,
+            shippingDestinationSnapshot: shippingAddress,
           },
           {
             offerId: "off_2",
@@ -722,6 +742,7 @@ describe("ordering order runtime", () => {
             termsAgreementId: null,
             termsResolvedAt: "2026-03-31T00:00:00.000Z",
             quantityRequested: 1,
+            shippingDestinationSnapshot: shippingAddress,
           },
         ],
       },
@@ -999,6 +1020,8 @@ describe("ordering order runtime", () => {
         salesTaxAmount: "0.00",
         taxSnapshot,
         totalAmount: "24.99",
+        shippingDestinationSnapshot: shippingAddress,
+        shippingOriginSnapshot: shipFromAddress,
         commercialTermsSnapshot: {
           marketplaceSalesFeeAmount: "1.00",
           sellerNetAmount: "19.00",

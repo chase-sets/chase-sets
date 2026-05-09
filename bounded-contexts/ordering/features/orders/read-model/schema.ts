@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS ordering_order_pages (
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
+  shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   status text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -69,6 +71,10 @@ ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12,2) NOT NULL DEFAULT 0;
 ALTER TABLE ordering_order_pages
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE ordering_order_pages
+  ADD COLUMN IF NOT EXISTS shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS ordering_order_line_pages (
   order_id text NOT NULL,

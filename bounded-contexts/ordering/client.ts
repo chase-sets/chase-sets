@@ -47,13 +47,16 @@ export type CreateCheckoutOrdersRequest = Readonly<{
   sourceType: "cart-checkout" | "buy-now";
   shippingOption: "standard" | "expedited" | "priority";
   shippingAddress: Readonly<{
-    name?: string | null;
+    name: string;
+    company?: string | null;
     line1: string;
     line2?: string | null;
     city: string;
     state: string;
     postalCode: string;
     country: string;
+    phone?: string | null;
+    email?: string | null;
   }>;
   lines: readonly OrderingCheckoutLineSnapshot[];
   optimizationGoal?: "lowest-total" | "fewest-shipments";

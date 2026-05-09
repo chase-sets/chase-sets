@@ -43,6 +43,31 @@ function ProductSummaryChips({ summary }: { summary: string }) {
   );
 }
 
+function AddressFields({
+  prefix,
+  address,
+  labelPrefix,
+}: {
+  prefix: "sender" | "recipient";
+  address: NonNullable<FulfillmentShipmentDetail["shipping_origin_snapshot"]>;
+  labelPrefix: "sender" | "recipient";
+}) {
+  return (
+    <>
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.name`)} name={`${prefix}Name`} required defaultValue={address.name} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.company`)} name={`${prefix}Company`} defaultValue={address.company ?? ""} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.street`)} name={`${prefix}Street1`} required defaultValue={address.line1} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.street.2`)} name={`${prefix}Street2`} defaultValue={address.line2 ?? ""} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.city`)} name={`${prefix}City`} required defaultValue={address.city} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.state`)} name={`${prefix}State`} required defaultValue={address.state} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.zip`)} name={`${prefix}PostalCode`} required defaultValue={address.postalCode} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.country`)} name={`${prefix}Country`} required defaultValue={address.country} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.phone`)} name={`${prefix}Phone`} defaultValue={address.phone ?? ""} />
+      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.email`)} name={`${prefix}Email`} type="email" defaultValue={address.email ?? ""} />
+    </>
+  );
+}
+
 export function FulfillmentShipmentDetailPage({
   role,
   backHref,
@@ -58,6 +83,8 @@ export function FulfillmentShipmentDetailPage({
     role === "buyer"
       ? shipment.seller_display_name ?? shipment.seller_account_id
       : shipment.buyer_display_name ?? shipment.buyer_account_id;
+  const recipientSnapshot = shipment.shipping_destination_snapshot;
+  const senderSnapshot = shipment.shipping_origin_snapshot;
 
   return (
     <Page>
@@ -251,34 +278,15 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue={shipment.postage_service_level ?? "USPS_GROUND_ADVANTAGE"}
                       items={uspsServiceLevels}
                     />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.name")} name="senderName" required />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.company")} name="senderCompany" />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.street")} name="senderStreet1" required />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.street.2")} name="senderStreet2" />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.city")} name="senderCity" required />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.state")} name="senderState" required />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.zip")} name="senderPostalCode" required />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.country")} name="senderCountry" required defaultValue="US" />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.phone")} name="senderPhone" />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.sender.email")} name="senderEmail" type="email" />
-                    <TextInput
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.name")}
-                      name="recipientName"
-                      required
+                    {senderSnapshot ? (
+                      <AddressFields prefix="sender" address={senderSnapshot} labelPrefix="sender" />
+                    ) : null}
+                    <AddressFields prefix="recipient" address={recipientSnapshot} labelPrefix="recipient" />
+                    <Textarea
+                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.override.reason")}
+                      name="overrideReason"
+                      rows={3}
                     />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.company")} name="recipientCompany" />
-                    <TextInput
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.street")}
-                      name="recipientStreet1"
-                      required
-                    />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.street.2")} name="recipientStreet2" />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.city")} name="recipientCity" required />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.state")} name="recipientState" required />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.zip")} name="recipientPostalCode" required />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.country")} name="recipientCountry" required defaultValue="US" />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.phone")} name="recipientPhone" />
-                    <TextInput label={t("fulfillment.features.shipments.ui.shipmentDetailPage.recipient.email")} name="recipientEmail" type="email" />
                     <NumberInput
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.length.in")}
                       name="packageLengthInches"

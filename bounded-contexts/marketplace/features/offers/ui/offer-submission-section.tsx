@@ -86,6 +86,15 @@ export function MarketplaceOfferSubmissionSection({
                 min="1"
                 required
               />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.recipient.name")} name="shippingName" required />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.address.line1")} name="shippingLine1" required />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.address.line2")} name="shippingLine2" />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.city")} name="shippingCity" required />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.state")} name="shippingState" required />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.postal.code")} name="shippingPostalCode" required />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.country")} name="shippingCountry" defaultValue="US" required />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.phone")} name="shippingPhone" />
+              <TextInput label={t("marketplace.features.offers.ui.offerSubmissionSection.email")} name="shippingEmail" type="email" />
               <Button type="submit">{t("marketplace.features.offers.ui.offerSubmissionSection.submit.offer")}</Button>
             </Stack>
           </form>

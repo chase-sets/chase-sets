@@ -5,12 +5,15 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createFulfillmentServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 type OrderSnapshot = Readonly<{
   order_id: string;
   buyer_account_id: string;
   seller_account_id: string;
   shipping_option: string;
+  shipping_destination_snapshot: AddressSnapshot;
+  shipping_origin_snapshot: AddressSnapshot;
   lines: ReadonlyArray<{
     line_id: string;
     catalog_catalog_item_id: string;
@@ -64,8 +67,16 @@ async function loadReferenceOrder(pool: PgTransactionalPool): Promise<OrderSnaps
     buyer_account_id: string;
     seller_account_id: string;
     shipping_option: string;
+    shipping_destination_snapshot: AddressSnapshot;
+    shipping_origin_snapshot: AddressSnapshot;
   }>(
-    `SELECT order_id, buyer_account_id, seller_account_id, shipping_option
+    `SELECT
+       order_id,
+       buyer_account_id,
+       seller_account_id,
+       shipping_option,
+       shipping_destination_snapshot,
+       shipping_origin_snapshot
      FROM fulfillment_order_sources
      WHERE status = 'ready-for-fulfillment'
      ORDER BY updated_at ASC, order_id ASC
@@ -134,6 +145,8 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
         buyerAccountId: order.buyer_account_id as never,
         sellerAccountId: order.seller_account_id as never,
         shippingOption: order.shipping_option,
+        shippingDestinationSnapshot: order.shipping_destination_snapshot,
+        shippingOriginSnapshot: order.shipping_origin_snapshot,
         lines: order.lines.map((line, index) => ({
           lineId: `spl_seed_${shipmentId}_${index}` as never,
           orderLineId: line.line_id,

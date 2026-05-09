@@ -43,13 +43,16 @@ function normalizeText(value: FormDataEntryValue | null) {
 
 function shippingAddressFromForm(formData: FormData) {
   return {
-    name: normalizeText(formData.get("shippingName")),
+    name: String(formData.get("shippingName") ?? "").trim(),
+    company: normalizeText(formData.get("shippingCompany")),
     line1: String(formData.get("shippingLine1") ?? "").trim(),
     line2: normalizeText(formData.get("shippingLine2")),
     city: String(formData.get("shippingCity") ?? "").trim(),
     state: String(formData.get("shippingState") ?? "").trim().toUpperCase(),
     postalCode: String(formData.get("shippingPostalCode") ?? "").trim(),
     country: String(formData.get("shippingCountry") ?? "US").trim().toUpperCase(),
+    phone: normalizeText(formData.get("shippingPhone")),
+    email: normalizeText(formData.get("shippingEmail")),
   };
 }
 

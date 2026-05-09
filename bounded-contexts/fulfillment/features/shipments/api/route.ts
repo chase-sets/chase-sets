@@ -64,6 +64,21 @@ function readAddress(body: Record<string, unknown>, prefix: string) {
   };
 }
 
+function hasAddressInput(body: Record<string, unknown>, prefix: string) {
+  return [
+    "Name",
+    "Company",
+    "Street1",
+    "Street2",
+    "City",
+    "State",
+    "PostalCode",
+    "Country",
+    "Phone",
+    "Email",
+  ].some((field) => typeof body[`${prefix}${field}`] === "string");
+}
+
 export function createAccountShipmentRoutes(services: FulfillmentShipmentServices) {
   const app = new Hono<FulfillmentApiEnv>();
 
@@ -227,8 +242,16 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
           serviceLevel: String(body.serviceLevel ?? "USPS_GROUND_ADVANTAGE"),
-          sender: readAddress(body, "sender"),
-          recipient: readAddress(body, "recipient"),
+          sender: hasAddressInput(body, "sender")
+            ? readAddress(body, "sender")
+            : null,
+          recipient: hasAddressInput(body, "recipient")
+            ? readAddress(body, "recipient")
+            : null,
+          overrideReason:
+            typeof body.overrideReason === "string"
+              ? body.overrideReason
+              : null,
           package: {
             lengthInches: Number(body.packageLengthInches ?? 7),
             widthInches: Number(body.packageWidthInches ?? 5),

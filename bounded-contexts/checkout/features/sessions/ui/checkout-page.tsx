@@ -331,6 +331,12 @@ export function CheckoutSessionPage({
                           label={t("checkout.features.sessions.ui.checkoutPage.recipient.name")}
                           name="shippingName"
                           placeholder={t("checkout.features.sessions.ui.checkoutPage.recipient.placeholder")}
+                          required
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.company")}
+                          name="shippingCompany"
+                          autoComplete="shipping organization"
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.country")}
@@ -366,6 +372,17 @@ export function CheckoutSessionPage({
                           name="shippingPostalCode"
                           autoComplete="shipping postal-code"
                           required
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.phone")}
+                          name="shippingPhone"
+                          autoComplete="shipping tel"
+                        />
+                        <TextInput
+                          label={t("checkout.features.sessions.ui.checkoutPage.email")}
+                          name="shippingEmail"
+                          type="email"
+                          autoComplete="shipping email"
                         />
                       </Grid>
                       <NativeSelect

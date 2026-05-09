@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError, type InventoryStorageLocationId } from "../../../support/runtime-support/common";
@@ -33,6 +34,7 @@ export type StorageLocationServices = Readonly<{
       name: string;
       description?: string | null;
       shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
     }>,
     context: EventStoreContext,
   ) => Promise<{ storageLocationId: InventoryStorageLocationId; version: number }>;
@@ -43,6 +45,7 @@ export type StorageLocationServices = Readonly<{
       name: string;
       description?: string | null;
       shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
       isArchived?: boolean;
     }>,
     context: EventStoreContext,
@@ -84,6 +87,7 @@ export function createStorageLocationRuntime(
           name: params.name,
           description: params.description,
           shipFromCode: params.shipFromCode,
+          shipFromAddress: params.shipFromAddress,
         },
         context,
       });
@@ -108,6 +112,7 @@ export function createStorageLocationRuntime(
           name: params.name,
           description: params.description,
           shipFromCode: params.shipFromCode,
+          shipFromAddress: params.shipFromAddress,
         },
         context,
       });

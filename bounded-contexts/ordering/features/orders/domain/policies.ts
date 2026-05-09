@@ -1,4 +1,5 @@
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import {
   assert,
   buildDemandSignature,
@@ -31,6 +32,7 @@ export type MarketplaceSupplyCandidate = Readonly<{
   productSummary: string | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
+  shipFromAddress: AddressSnapshot;
   priceAmount: string;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;

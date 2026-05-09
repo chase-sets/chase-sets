@@ -285,6 +285,7 @@ describe("fulfillment shipment routes", () => {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
         serviceLevel: "USPS_GROUND_ADVANTAGE",
+        overrideReason: null,
         sender: expect.objectContaining({
           name: "Seller",
           postalCode: "78701",

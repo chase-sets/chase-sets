@@ -36,6 +36,33 @@ const orderTaxFields = {
   taxSnapshot,
 } as const;
 
+const orderAddressSnapshots = {
+  shippingDestinationSnapshot: {
+    name: "Jane Smith",
+    company: null,
+    line1: "100 Market Street",
+    line2: null,
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+    phone: null,
+    email: "jane@example.com",
+  },
+  shippingOriginSnapshot: {
+    name: "Seller Shipping",
+    company: "Chase Sets",
+    line1: "1 Warehouse Way",
+    line2: null,
+    city: "Austin",
+    state: "TX",
+    postalCode: "78701",
+    country: "US",
+    phone: "5125550100",
+    email: "shipping@example.com",
+  },
+} as const;
+
 describe("ordering order domain", () => {
   it("creates and cancels a pending order", () => {
     const created = decideOrderingOrder(initialOrderingOrderState, {
@@ -52,6 +79,7 @@ describe("ordering order domain", () => {
       shippingChargeAmount: "4.99",
       ...orderTaxFields,
       totalAmount: "24.99",
+      ...orderAddressSnapshots,
       commercialTermsSnapshot,
       lines: [
         {
@@ -105,6 +133,7 @@ describe("ordering order domain", () => {
       shippingChargeAmount: "4.99",
       ...orderTaxFields,
       totalAmount: "24.99",
+      ...orderAddressSnapshots,
       commercialTermsSnapshot,
       lines: [
         {
@@ -165,6 +194,7 @@ describe("ordering order domain", () => {
         shippingChargeAmount: "4.99",
         ...orderTaxFields,
         totalAmount: "4.99",
+        ...orderAddressSnapshots,
         commercialTermsSnapshot,
         lines: [],
         reservationRequests: [],

@@ -72,6 +72,32 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   };
 }
 
+const shippingDestinationSnapshot = {
+  name: "Buyer",
+  company: null,
+  line1: "2 Market St",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: null,
+  email: null,
+} as const;
+
+const shippingOriginSnapshot = {
+  name: "Seller",
+  company: null,
+  line1: "1 Main St",
+  line2: null,
+  city: "Austin",
+  state: "TX",
+  postalCode: "78701",
+  country: "US",
+  phone: null,
+  email: null,
+} as const;
+
 describe("fulfillment shipment runtime", () => {
   it("creates a shipment from a ready local order source", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
@@ -89,6 +115,8 @@ describe("fulfillment shipment runtime", () => {
                 buyer_account_id: "acc_buyer",
                 seller_account_id: "acc_seller",
                 shipping_option: "standard",
+                shipping_destination_snapshot: shippingDestinationSnapshot,
+                shipping_origin_snapshot: shippingOriginSnapshot,
                 status: "ready-for-fulfillment",
               },
             ],
@@ -184,6 +212,8 @@ describe("fulfillment shipment runtime", () => {
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 package_status: "packed",
+                shipping_destination_snapshot: shippingDestinationSnapshot,
+                shipping_origin_snapshot: shippingOriginSnapshot,
               },
             ],
           };
@@ -215,6 +245,8 @@ describe("fulfillment shipment runtime", () => {
         buyerAccountId: "acc_buyer" as never,
         sellerAccountId: "acc_seller" as never,
         shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
         lines: [
           {
             lineId: "spl_1" as never,
@@ -246,22 +278,233 @@ describe("fulfillment shipment runtime", () => {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
         serviceLevel: "USPS_GROUND_ADVANTAGE",
-        sender: {
+        package: {
+          lengthInches: 7,
+          widthInches: 5,
+          heightInches: 1,
+          weightOunces: 4,
+        },
+      },
+      context,
+    );
+
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sender: expect.objectContaining({
           name: "Seller",
           street1: "1 Main St",
-          city: "Austin",
-          state: "TX",
           postalCode: "78701",
-          country: "US",
-        },
-        recipient: {
+        }),
+        recipient: expect.objectContaining({
           name: "Buyer",
           street1: "2 Market St",
+          postalCode: "60601",
+        }),
+      }),
+    );
+    const attachedEvent = readAllEvents().find(
+      (event) => event.eventType === "fulfillment.shipment.label-attached",
+    );
+    expect(attachedEvent?.payload).toMatchObject({
+      carrierName: "USPS",
+      labelDocumentUrl: "https://sandbox.test/label.pdf",
+      trackingIdentifier: "940000000000000000",
+      postageProviderName: "sandbox-usps",
+      postageProviderMode: "test",
+    });
+  });
+
+  it("rejects label address overrides without an override reason", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test",
+      purchaseUspsLabel: vi.fn(),
+      voidLabel: vi.fn(async () => ({
+        providerName: "sandbox-usps",
+        providerMode: "test",
+        refundReference: "sandbox_refund_1",
+        refundStatus: "submitted",
+        voidedAt: "2026-04-02T00:15:00.000Z",
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_1",
+                order_id: "ord_1",
+                seller_account_id: "acc_seller",
+                status: "awaiting-label",
+                package_status: "packed",
+                shipping_destination_snapshot: shippingDestinationSnapshot,
+                shipping_origin_snapshot: shippingOriginSnapshot,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+
+    await expect(
+      services.purchaseUspsLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          serviceLevel: "USPS_GROUND_ADVANTAGE",
+          sender: {
+            name: "Seller",
+            street1: "9 Override St",
+            city: "Austin",
+            state: "TX",
+            postalCode: "78701",
+            country: "US",
+          },
+          package: {
+            lengthInches: 7,
+            widthInches: 5,
+            heightInches: 1,
+            weightOunces: 4,
+          },
+        },
+        {
+          tenantId: "tnt_test" as never,
+          audit: {
+            performedByUserId: "usr_test" as never,
+            forAccountId: "acc_seller" as never,
+          },
+        },
+      ),
+    ).rejects.toThrow(
+      "Address override reason is required when label addresses differ from shipment snapshots.",
+    );
+    expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
+  });
+
+  it("records audit metadata when label address overrides include a reason", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test",
+      purchaseUspsLabel: vi.fn(async () => ({
+        providerName: "sandbox-usps",
+        providerMode: "test",
+        providerShipmentId: "sandbox_shipment_1",
+        providerLabelId: "sandbox_label_1",
+        providerRateId: "sandbox_rate_1",
+        carrierName: "USPS",
+        serviceLevel: "USPS_GROUND_ADVANTAGE",
+        labelReference: "sandbox_label_1",
+        labelDocumentUrl: "https://sandbox.test/label.pdf",
+        trackingIdentifier: "940000000000000000",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        purchasedAt: "2026-04-02T00:10:00.000Z",
+      })),
+      voidLabel: vi.fn(async () => ({
+        providerName: "sandbox-usps",
+        providerMode: "test",
+        refundReference: "sandbox_refund_1",
+        refundStatus: "submitted",
+        voidedAt: "2026-04-02T00:15:00.000Z",
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_1",
+                order_id: "ord_1",
+                seller_account_id: "acc_seller",
+                status: "awaiting-label",
+                package_status: "packed",
+                shipping_destination_snapshot: shippingDestinationSnapshot,
+                shipping_origin_snapshot: shippingOriginSnapshot,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-04-02T00:00:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "PrepareShipmentPackage",
+        packageCount: 1,
+        preparedAt: "2026-04-02T00:05:00.000Z",
+      },
+      context,
+    });
+
+    await services.purchaseUspsLabel(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
+        serviceLevel: "USPS_GROUND_ADVANTAGE",
+        recipient: {
+          name: "Buyer",
+          street1: "22 Market St",
           city: "Chicago",
           state: "IL",
           postalCode: "60601",
           country: "US",
         },
+        overrideReason: "Buyer confirmed apartment correction.",
         package: {
           lengthInches: 7,
           widthInches: 5,
@@ -276,11 +519,15 @@ describe("fulfillment shipment runtime", () => {
       (event) => event.eventType === "fulfillment.shipment.label-attached",
     );
     expect(attachedEvent?.payload).toMatchObject({
-      carrierName: "USPS",
-      labelDocumentUrl: "https://sandbox.test/label.pdf",
-      trackingIdentifier: "940000000000000000",
-      postageProviderName: "sandbox-usps",
-      postageProviderMode: "test",
+      addressOverrideAudit: {
+        changedSide: "recipient",
+        reason: "Buyer confirmed apartment correction.",
+        actor: "usr_test",
+        originalRecipientSnapshot: shippingDestinationSnapshot,
+        submittedRecipientAddress: expect.objectContaining({
+          line1: "22 Market St",
+        }),
+      },
     });
   });
 });

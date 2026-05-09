@@ -78,6 +78,25 @@ function parseVersionSelection(value: unknown) {
     : [];
 }
 
+function parseShippingDestination(value: unknown) {
+  const source =
+    value && typeof value === "object"
+      ? value as Record<string, unknown>
+      : {};
+  return {
+    name: String(source.name ?? ""),
+    company: source.company == null ? null : String(source.company),
+    line1: String(source.line1 ?? ""),
+    line2: source.line2 == null ? null : String(source.line2),
+    city: String(source.city ?? ""),
+    state: String(source.state ?? ""),
+    postalCode: String(source.postalCode ?? ""),
+    country: String(source.country ?? "US"),
+    phone: source.phone == null ? null : String(source.phone),
+    email: source.email == null ? null : String(source.email),
+  };
+}
+
 export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
@@ -149,6 +168,9 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
             body.productSummary === null || body.productSummary === undefined
               ? null
               : String(body.productSummary),
+          shippingDestinationSnapshot: parseShippingDestination(
+            body.shippingDestinationSnapshot,
+          ),
           priceAmount: String(body.priceAmount ?? ""),
           quantityRequested: Number(body.quantityRequested ?? 0),
         },

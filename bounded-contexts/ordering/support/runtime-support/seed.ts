@@ -63,6 +63,8 @@ const seedShippingAddress = {
   state: "IL",
   postalCode: "60601",
   country: "US",
+  phone: "3125550199",
+  email: "buyer@chasesets.test",
 } as const;
 
 function createSeedContextFor(accountId: AccountId, userId: string) {
@@ -323,6 +325,7 @@ export async function seedOrderingDatabase(
           termsAgreementId: acceptedOfferInput?.terms_agreement_id ?? null,
           termsResolvedAt:
             acceptedOfferInput?.terms_resolved_at ?? new Date().toISOString(),
+          shippingDestinationSnapshot: seedShippingAddress,
           quantityRequested: acceptedOfferSeed.quantityRequested,
           orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
         },

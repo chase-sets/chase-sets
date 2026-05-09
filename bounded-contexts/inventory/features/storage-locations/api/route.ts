@@ -2,6 +2,25 @@ import { Hono } from "hono";
 import type { InventoryApiEnv } from "../../../api";
 import type { StorageLocationServices } from "./runtime";
 
+function parseShipFromAddress(value: unknown) {
+  const source = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+
+  return {
+    name: String(source.name ?? ""),
+    company: source.company == null ? null : String(source.company),
+    line1: String(source.line1 ?? ""),
+    line2: source.line2 == null ? null : String(source.line2),
+    city: String(source.city ?? ""),
+    state: String(source.state ?? ""),
+    postalCode: String(source.postalCode ?? ""),
+    country: String(source.country ?? "US"),
+    phone: source.phone == null ? null : String(source.phone),
+    email: source.email == null ? null : String(source.email),
+  };
+}
+
 export function inventoryStorageLocationRoutes(
   services: StorageLocationServices,
 ) {
@@ -31,6 +50,7 @@ export function inventoryStorageLocationRoutes(
         description:
           typeof body.description === "string" ? body.description : null,
         shipFromCode: String(body.shipFromCode ?? ""),
+        shipFromAddress: parseShipFromAddress(body.shipFromAddress),
       },
       c.get("context"),
     );
@@ -55,6 +75,7 @@ export function inventoryStorageLocationRoutes(
         description:
           typeof body.description === "string" ? body.description : null,
         shipFromCode: String(body.shipFromCode ?? ""),
+        shipFromAddress: parseShipFromAddress(body.shipFromAddress),
         isArchived: Boolean(body.isArchived),
       },
       c.get("context"),

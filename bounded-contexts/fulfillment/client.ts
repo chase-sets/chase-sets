@@ -6,6 +6,7 @@ import type { buildFulfillmentApi } from "./api";
 export type {
   FulfillmentShipmentDetail,
   FulfillmentShipmentException,
+  FulfillmentLabelAddressOverrideAudit,
   FulfillmentShipmentLine,
   FulfillmentShipmentListItem,
 } from "./features/shipments/api/contracts";

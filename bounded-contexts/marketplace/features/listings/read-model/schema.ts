@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   graded_card jsonb NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
+  ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
   price_amount numeric(12,2) NOT NULL,
   marketplace_sales_fee_unit_amount numeric(12,2) NOT NULL,
   seller_net_unit_amount numeric(12,2) NOT NULL,
@@ -39,5 +40,6 @@ CREATE INDEX IF NOT EXISTS marketplace_listing_pages_inventory_item_idx
   ON marketplace_listing_pages (inventory_item_id, status, updated_at DESC);
 
 ALTER TABLE marketplace_listing_pages
-  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+  ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
+  ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
 `;

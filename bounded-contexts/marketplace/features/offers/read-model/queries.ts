@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 export type MarketplaceOfferListRow = Readonly<{
   offer_id: string;
@@ -9,6 +10,7 @@ export type MarketplaceOfferListRow = Readonly<{
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  shipping_destination_snapshot: AddressSnapshot;
   price_amount: string;
   quantity_requested: number;
   status: string;
@@ -35,6 +37,7 @@ type MarketplaceOfferPageRow = Readonly<{
   item_subtitle: string | null;
   selected_options: unknown;
   product_summary: string | null;
+  shipping_destination_snapshot: unknown;
   price_amount: string;
   quantity_requested: number;
   status: string;
@@ -47,6 +50,18 @@ type MarketplaceOfferPageRow = Readonly<{
 function mapOfferRow(row: MarketplaceOfferPageRow): MarketplaceOfferListRow {
   return {
     ...row,
+    shipping_destination_snapshot:
+      typeof row.shipping_destination_snapshot === "object" &&
+      row.shipping_destination_snapshot !== null
+        ? (row.shipping_destination_snapshot as AddressSnapshot)
+        : {
+            name: "",
+            line1: "",
+            city: "",
+            state: "",
+            postalCode: "",
+            country: "US",
+          },
     selected_options: Array.isArray(row.selected_options)
       ? (row.selected_options as MarketplaceOfferListRow["selected_options"])
       : [],

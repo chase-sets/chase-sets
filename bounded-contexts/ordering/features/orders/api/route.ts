@@ -54,8 +54,12 @@ function parseShippingAddress(value: unknown) {
   return {
     name:
       source.name === null || source.name === undefined
-        ? null
+        ? ""
         : String(source.name),
+    company:
+      source.company === null || source.company === undefined
+        ? null
+        : String(source.company),
     line1: String(source.line1 ?? ""),
     line2:
       source.line2 === null || source.line2 === undefined
@@ -65,6 +69,14 @@ function parseShippingAddress(value: unknown) {
     state: String(source.state ?? ""),
     postalCode: String(source.postalCode ?? ""),
     country: String(source.country ?? "US"),
+    phone:
+      source.phone === null || source.phone === undefined
+        ? null
+        : String(source.phone),
+    email:
+      source.email === null || source.email === undefined
+        ? null
+        : String(source.email),
   };
 }
 

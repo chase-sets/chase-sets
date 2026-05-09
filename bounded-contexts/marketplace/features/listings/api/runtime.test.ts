@@ -76,6 +76,19 @@ const context = {
   },
 };
 
+const shipFromAddress = {
+  name: "Seller Shipping",
+  company: "Chase Sets",
+  line1: "1 Warehouse Way",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: "3125550100",
+  email: "shipping@example.com",
+} as const;
+
 describe("marketplace listing runtime", () => {
   it("publishes a newly created listing before projections catch up", async () => {
     const { eventStore } = createInMemoryEventStore();
@@ -95,6 +108,7 @@ describe("marketplace listing runtime", () => {
                 product_summary: null,
                 storage_location_name: "North shelf",
                 ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
                 available_quantity: 2,
               },
             ],
@@ -178,6 +192,7 @@ describe("marketplace listing runtime", () => {
                 product_summary: null,
                 storage_location_name: "North shelf",
                 ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
                 available_quantity: 2,
               },
             ],
@@ -277,6 +292,7 @@ describe("marketplace listing runtime", () => {
                 product_summary: null,
                 storage_location_name: "North shelf",
                 ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
                 available_quantity: 4,
               },
             ],
@@ -399,6 +415,7 @@ describe("marketplace listing runtime", () => {
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       storageLocationName: string;
       shipFromCode: string;
+      shipFromAddress: typeof shipFromAddress;
       totalQuantity: number;
     }>();
     const resolveListingTerms = vi.fn(async ({ amount, accountId }) => ({
@@ -429,6 +446,7 @@ describe("marketplace listing runtime", () => {
             }[],
             storageLocationName: "Batch shelf",
             shipFromCode: "CHI",
+            shipFromAddress: shipFromAddress,
             totalQuantity: Number(values[6]),
           });
           return { rows: [] };
@@ -451,6 +469,7 @@ describe("marketplace listing runtime", () => {
                     graded_card: null,
                     storage_location_name: supply.storageLocationName,
                     ship_from_code: supply.shipFromCode,
+                    ship_from_address: supply.shipFromAddress,
                     available_quantity: supply.totalQuantity,
                   },
                 ]
@@ -487,6 +506,7 @@ describe("marketplace listing runtime", () => {
         storageLocationId: "loc_1",
         storageLocationName: "Batch shelf",
         shipFromCode: "CHI",
+        shipFromAddress: shipFromAddress,
         totalQuantity: 3,
         acquisitionCostAmount: "1.00",
         priceAmount: "5.00",
@@ -543,6 +563,7 @@ describe("marketplace listing runtime", () => {
           storageLocationId: "loc_1",
           storageLocationName: "Batch shelf",
           shipFromCode: "CHI",
+          shipFromAddress: shipFromAddress,
           totalQuantity: 1,
           acquisitionCostAmount: null,
           priceAmount: "5.00",

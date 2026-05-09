@@ -7,6 +7,7 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
@@ -92,6 +93,7 @@ export type MarketplaceListingServices = Readonly<{
       storageLocationId: string;
       storageLocationName: string;
       shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
       totalQuantity: number;
       acquisitionCostAmount: string | null;
       priceAmount: string;
@@ -264,6 +266,7 @@ export function createMarketplaceListingRuntime(
     storageLocationId: string;
     storageLocationName: string;
     shipFromCode: string;
+    shipFromAddress: AddressSnapshot;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
   }>) {
@@ -273,13 +276,15 @@ export function createMarketplaceListingRuntime(
          account_id,
          name,
          ship_from_code,
+         ship_from_address,
          is_archived,
          updated_at
-       ) VALUES ($1, $2, $3, $4, false, now())
+       ) VALUES ($1, $2, $3, $4, $5, false, now())
        ON CONFLICT (storage_location_id) DO UPDATE SET
          account_id = EXCLUDED.account_id,
          name = EXCLUDED.name,
          ship_from_code = EXCLUDED.ship_from_code,
+         ship_from_address = EXCLUDED.ship_from_address,
          is_archived = false,
          updated_at = EXCLUDED.updated_at`,
       [
@@ -287,6 +292,7 @@ export function createMarketplaceListingRuntime(
         params.accountId,
         params.storageLocationName,
         params.shipFromCode,
+        JSON.stringify(params.shipFromAddress),
       ],
     );
     await deps.db.query(
@@ -417,6 +423,7 @@ export function createMarketplaceListingRuntime(
         gradedCard: supply.graded_card,
         storageLocationName: supply.storage_location_name,
         shipFromCode: supply.ship_from_code,
+        shipFromAddress: supply.ship_from_address,
         priceAmount: params.priceAmount,
         marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
         sellerNetUnitAmount: quote.seller_net_unit_amount,

@@ -3,6 +3,10 @@ import type {
   AggregateEvolver,
   DomainEvent,
 } from "@chase-sets/event-core";
+import {
+  normalizeAddressSnapshot,
+  type AddressSnapshot,
+} from "@chase-sets/primitives/address-snapshot";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -18,6 +22,7 @@ export type StorageLocationState = Readonly<{
   name: string;
   description: string | null;
   shipFromCode: string | null;
+  shipFromAddress: AddressSnapshot | null;
   isArchived: boolean;
 }>;
 
@@ -27,6 +32,7 @@ export const initialStorageLocationState: StorageLocationState = {
   name: "",
   description: null,
   shipFromCode: null,
+  shipFromAddress: null,
   isArchived: false,
 };
 
@@ -37,6 +43,7 @@ export type CreateStorageLocationCommand = Readonly<{
   name: string;
   description?: string | null;
   shipFromCode: string;
+  shipFromAddress: AddressSnapshot;
 }>;
 
 export type UpdateStorageLocationCommand = Readonly<{
@@ -44,6 +51,7 @@ export type UpdateStorageLocationCommand = Readonly<{
   name: string;
   description?: string | null;
   shipFromCode: string;
+  shipFromAddress: AddressSnapshot;
 }>;
 
 export type ArchiveStorageLocationCommand = Readonly<{
@@ -63,6 +71,7 @@ export type StorageLocationCreatedEvent = DomainEvent<
     name: string;
     description: string | null;
     shipFromCode: string;
+    shipFromAddress: AddressSnapshot;
   }>
 >;
 
@@ -73,6 +82,7 @@ export type StorageLocationUpdatedEvent = DomainEvent<
     name: string;
     description: string | null;
     shipFromCode: string;
+    shipFromAddress: AddressSnapshot;
   }>
 >;
 
@@ -105,6 +115,10 @@ export const decideStorageLocation: AggregateDecider<
             name: normalizeLabel(command.name),
             description: normalizeOptionalText(command.description),
             shipFromCode: normalizeLabel(command.shipFromCode),
+            shipFromAddress: normalizeAddressSnapshot(
+              command.shipFromAddress,
+              "Ship-from address",
+            ),
           },
         },
       ];
@@ -119,6 +133,10 @@ export const decideStorageLocation: AggregateDecider<
             name: normalizeLabel(command.name),
             description: normalizeOptionalText(command.description),
             shipFromCode: normalizeLabel(command.shipFromCode),
+            shipFromAddress: normalizeAddressSnapshot(
+              command.shipFromAddress,
+              "Ship-from address",
+            ),
           },
         },
       ];
@@ -148,6 +166,7 @@ export const evolveStorageLocation: AggregateEvolver<
         name: event.data.name,
         description: event.data.description,
         shipFromCode: event.data.shipFromCode,
+        shipFromAddress: event.data.shipFromAddress,
         isArchived: false,
       };
     case "inventory.storage-location.updated":
@@ -156,6 +175,7 @@ export const evolveStorageLocation: AggregateEvolver<
         name: event.data.name,
         description: event.data.description,
         shipFromCode: event.data.shipFromCode,
+        shipFromAddress: event.data.shipFromAddress,
       };
     case "inventory.storage-location.archived":
       return {

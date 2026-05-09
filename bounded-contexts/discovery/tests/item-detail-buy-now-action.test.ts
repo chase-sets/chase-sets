@@ -92,6 +92,12 @@ describe("item detail buy now action", () => {
     form.set("productSummary", "Raw");
     form.set("priceAmount", "350.00");
     form.set("quantityRequested", "1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
 
     const response = await action({
       request: new Request("http://localhost/items/charizard-base-set", {
@@ -114,6 +120,18 @@ describe("item detail buy now action", () => {
       productSummary: "Raw",
       priceAmount: "350.00",
       quantityRequested: 1,
+      shippingDestinationSnapshot: {
+        name: "Jane Smith",
+        company: null,
+        line1: "100 Market Street",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        phone: null,
+        email: null,
+      },
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(

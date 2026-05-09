@@ -41,13 +41,16 @@ export type CheckoutSessionLine = Readonly<{
 }>;
 
 export type CheckoutShippingAddress = Readonly<{
-  name: string | null;
+  name: string;
+  company?: string | null;
   line1: string;
   line2: string | null;
   city: string;
   state: string;
   postalCode: string;
   country: string;
+  phone?: string | null;
+  email?: string | null;
 }>;
 
 export type CheckoutSessionState = Readonly<{
@@ -271,7 +274,8 @@ function normalizeShippingAddress(
   address: CheckoutShippingAddress,
 ): CheckoutShippingAddress {
   return {
-    name: normalizeOptionalText(address.name),
+    name: normalizeRequiredText(address.name, "Shipping name is required."),
+    company: normalizeOptionalText(address.company),
     line1: normalizeRequiredText(address.line1, "Shipping address line 1 is required."),
     line2: normalizeOptionalText(address.line2),
     city: normalizeRequiredText(address.city, "Shipping city is required."),
@@ -284,6 +288,8 @@ function normalizeShippingAddress(
       address.country,
       "Shipping country is required.",
     ).toUpperCase(),
+    phone: normalizeOptionalText(address.phone),
+    email: normalizeOptionalText(address.email),
   };
 }
 

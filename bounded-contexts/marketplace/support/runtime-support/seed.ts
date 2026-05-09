@@ -3,6 +3,7 @@ import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type {
   AccountId,
   ListingId,
@@ -38,6 +39,7 @@ type OfferSeed = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
+  shippingDestinationSnapshot?: AddressSnapshot;
   priceAmount: string;
   quantityRequested: number;
 }>;
@@ -560,6 +562,18 @@ const offers: readonly OfferSeed[] = [
   },
 ];
 
+const defaultOfferDestination: AddressSnapshot = {
+  name: "Chase Sets Offer Buyer",
+  line1: "100 Market Street",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: "3125550199",
+  email: "buyer@chasesets.test",
+};
+
 async function drainProjectors(projectors: ReturnType<typeof createMarketplaceServices>["projectors"]) {
   let processed = 0;
 
@@ -711,6 +725,8 @@ export async function seedMarketplaceDatabase(
         itemSubtitle: offer.itemSubtitle,
         selectedOptions: offer.selectedOptions,
         productSummary: offer.productSummary,
+        shippingDestinationSnapshot:
+          offer.shippingDestinationSnapshot ?? defaultOfferDestination,
         priceAmount: offer.priceAmount,
         quantityRequested: offer.quantityRequested,
       },

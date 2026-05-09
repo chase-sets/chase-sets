@@ -14,6 +14,7 @@ import {
   CurrencyInput,
   FormPanel,
   type FormPanelVariant,
+  Grid,
   Inline,
   KeyValueList,
   LinkButton,
@@ -24,6 +25,7 @@ import {
   Stack,
   SecurePaymentCue,
   Text,
+  TextInput,
 } from "@chase-sets/design-system";
 import {
   requireActorFromAuthApi,
@@ -271,6 +273,33 @@ function parseSelectedOptions(value: FormDataEntryValue | null) {
   }
 }
 
+function requiredShippingField(formData: FormData, key: string, label: string) {
+  const value = String(formData.get(key) ?? "").trim();
+  if (value.length === 0) {
+    throw new Error(`${label} is required.`);
+  }
+  return value;
+}
+
+function optionalShippingField(formData: FormData, key: string) {
+  return String(formData.get(key) ?? "").trim() || null;
+}
+
+function shippingDestinationFromForm(formData: FormData) {
+  return {
+    name: requiredShippingField(formData, "shippingName", "Shipping name"),
+    company: optionalShippingField(formData, "shippingCompany"),
+    line1: requiredShippingField(formData, "shippingLine1", "Shipping address line 1"),
+    line2: optionalShippingField(formData, "shippingLine2"),
+    city: requiredShippingField(formData, "shippingCity", "Shipping city"),
+    state: requiredShippingField(formData, "shippingState", "Shipping state"),
+    postalCode: requiredShippingField(formData, "shippingPostalCode", "Shipping postal code"),
+    country: requiredShippingField(formData, "shippingCountry", "Shipping country").toUpperCase(),
+    phone: optionalShippingField(formData, "shippingPhone"),
+    email: optionalShippingField(formData, "shippingEmail"),
+  };
+}
+
 function MarketplaceOfferSubmissionSection({
   formId = "make-offer",
   panelVariant = "card",
@@ -353,6 +382,69 @@ function MarketplaceOfferSubmissionSection({
           required
         />
         <NumberInput label={t("discovery.routes.itemDetail.quantity.requested")} name="quantityRequested" min="1" required />
+        <Stack gap={2}>
+          <Text weight="semibold">{t("discovery.routes.itemDetail.offer.shipping.destination")}</Text>
+          <Grid columns={{ base: 1, md: 2 }} gap={3}>
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.recipient.name")}
+              name="shippingName"
+              autoComplete="shipping name"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.company")}
+              name="shippingCompany"
+              autoComplete="shipping organization"
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.address.line1")}
+              name="shippingLine1"
+              autoComplete="shipping address-line1"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.address.line2")}
+              name="shippingLine2"
+              autoComplete="shipping address-line2"
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.city")}
+              name="shippingCity"
+              autoComplete="shipping address-level2"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.state")}
+              name="shippingState"
+              autoComplete="shipping address-level1"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.postal.code")}
+              name="shippingPostalCode"
+              autoComplete="shipping postal-code"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.country")}
+              name="shippingCountry"
+              defaultValue="US"
+              autoComplete="shipping country"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.phone")}
+              name="shippingPhone"
+              autoComplete="shipping tel"
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.shipping.email")}
+              name="shippingEmail"
+              type="email"
+              autoComplete="shipping email"
+            />
+          </Grid>
+        </Stack>
         {actions !== undefined ? actions : defaultActions}
       </Stack>
     </form>
@@ -1387,6 +1479,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemSubtitle: item.subtitle,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
+        shippingDestinationSnapshot: shippingDestinationFromForm(formData),
         priceAmount: formData.get("priceAmount"),
         quantityRequested: Number(formData.get("quantityRequested") ?? 0),
       }) as { id?: string };

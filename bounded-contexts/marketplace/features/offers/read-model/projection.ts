@@ -21,6 +21,7 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     item_subtitle: string | null;
     selected_options: unknown;
     product_summary: string | null;
+    shipping_destination_snapshot: unknown;
     price_amount: string;
     quantity_requested: number;
     status: string;
@@ -113,6 +114,7 @@ export function buildMarketplaceOfferProjectionHandlers(
         itemSubtitle: string | null;
         selectedOptions: unknown;
         productSummary: string | null;
+        shippingDestinationSnapshot: unknown;
         priceAmount: string;
         quantityRequested: number;
       };
@@ -127,6 +129,7 @@ export function buildMarketplaceOfferProjectionHandlers(
           item_subtitle,
           selected_options,
           product_summary,
+          shipping_destination_snapshot,
           price_amount,
           quantity_requested,
           status,
@@ -135,7 +138,7 @@ export function buildMarketplaceOfferProjectionHandlers(
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'submitted', NULL, NULL, $11, $11
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'submitted', NULL, NULL, $12, $12
         )
         ON CONFLICT (offer_id) DO UPDATE SET
           buyer_account_id = EXCLUDED.buyer_account_id,
@@ -145,6 +148,7 @@ export function buildMarketplaceOfferProjectionHandlers(
           item_subtitle = EXCLUDED.item_subtitle,
           selected_options = EXCLUDED.selected_options,
           product_summary = EXCLUDED.product_summary,
+          shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
           price_amount = EXCLUDED.price_amount,
           quantity_requested = EXCLUDED.quantity_requested,
           status = EXCLUDED.status,
@@ -160,6 +164,7 @@ export function buildMarketplaceOfferProjectionHandlers(
           data.itemSubtitle,
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
+          JSON.stringify(data.shippingDestinationSnapshot),
           data.priceAmount,
           data.quantityRequested,
           event.timing.recordedAt,

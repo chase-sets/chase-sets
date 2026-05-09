@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   buyer_account_id text NOT NULL,
   seller_account_id text NOT NULL,
   shipping_option text NOT NULL,
+  shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   shipping_method text NULL,
   carrier_name text NULL,
   label_reference text NULL,
@@ -71,6 +73,8 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_exception_pages (
 );
 
 ALTER TABLE IF EXISTS fulfillment_shipment_pages
+  ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS label_document_url text NULL,
   ADD COLUMN IF NOT EXISTS postage_provider_name text NULL,
   ADD COLUMN IF NOT EXISTS postage_provider_mode text NULL,
@@ -86,4 +90,17 @@ ALTER TABLE IF EXISTS fulfillment_shipment_pages
   ADD COLUMN IF NOT EXISTS label_refund_status text NULL,
   ADD COLUMN IF NOT EXISTS label_refund_reference text NULL,
   ADD COLUMN IF NOT EXISTS label_voided_at timestamptz NULL;
+
+CREATE TABLE IF NOT EXISTS fulfillment_label_address_override_audit_pages (
+  shipment_id text NOT NULL REFERENCES fulfillment_shipment_pages (shipment_id) ON DELETE CASCADE,
+  recorded_at timestamptz NOT NULL,
+  changed_side text NOT NULL,
+  reason text NOT NULL,
+  actor text NOT NULL,
+  original_sender_snapshot jsonb NOT NULL,
+  submitted_sender_address jsonb NOT NULL,
+  original_recipient_snapshot jsonb NOT NULL,
+  submitted_recipient_address jsonb NOT NULL,
+  PRIMARY KEY (shipment_id, recorded_at)
+);
 `;

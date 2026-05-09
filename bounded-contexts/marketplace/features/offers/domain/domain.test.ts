@@ -5,6 +5,19 @@ import {
   initialMarketplaceOfferState,
 } from "./domain";
 
+const shippingDestinationSnapshot = {
+  name: "Jane Smith",
+  company: null,
+  line1: "100 Market Street",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: null,
+  email: "jane@example.com",
+} as const;
+
 describe("marketplace offer domain", () => {
   it("submits an offer with a normalized buyer intent snapshot", () => {
     const events = decideMarketplaceOffer(initialMarketplaceOfferState, {
@@ -19,6 +32,7 @@ describe("marketplace offer domain", () => {
       productSummary: "Form: Raw",
       priceAmount: "350.00",
       quantityRequested: 1,
+      shippingDestinationSnapshot,
     });
     const state = events.reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
 
@@ -45,6 +59,7 @@ describe("marketplace offer domain", () => {
         productSummary: null,
         priceAmount: "0",
         quantityRequested: 1,
+        shippingDestinationSnapshot,
       }),
     ).toThrow("Offer price amount must be greater than zero.");
 
@@ -61,6 +76,7 @@ describe("marketplace offer domain", () => {
         productSummary: null,
         priceAmount: "10.00",
         quantityRequested: 0,
+        shippingDestinationSnapshot,
       }),
     ).toThrow("Offer quantity requested must be a positive whole number.");
   });
@@ -77,6 +93,7 @@ describe("marketplace offer domain", () => {
       productSummary: null,
       priceAmount: "10.00",
       quantityRequested: 1,
+      shippingDestinationSnapshot,
     }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
 
     expect(() =>
@@ -92,6 +109,7 @@ describe("marketplace offer domain", () => {
         productSummary: null,
         priceAmount: "10.00",
         quantityRequested: 1,
+        shippingDestinationSnapshot,
       }),
     ).toThrow("Offer has already been submitted.");
   });
@@ -109,6 +127,7 @@ describe("marketplace offer domain", () => {
       productSummary: null,
       priceAmount: "10.00",
       quantityRequested: 1,
+      shippingDestinationSnapshot,
     }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
 
     const acceptedState = decideMarketplaceOffer(submittedState, {

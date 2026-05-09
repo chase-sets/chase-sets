@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 export type InventoryStorageLocationRow = Readonly<{
   storage_location_id: string;
@@ -6,6 +7,7 @@ export type InventoryStorageLocationRow = Readonly<{
   name: string;
   description: string | null;
   ship_from_code: string;
+  ship_from_address: AddressSnapshot;
   is_archived: boolean;
   updated_at: string;
 }>;

@@ -1,3 +1,5 @@
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+
 export interface MarketplaceListingListItem {
   listing_id: string;
   account_id: string;
@@ -11,6 +13,7 @@ export interface MarketplaceListingListItem {
   graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
+  ship_from_address: AddressSnapshot;
   price_amount: string;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
@@ -81,6 +84,7 @@ export interface MarketplaceListingInventoryItemOption {
   graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string;
   ship_from_code: string;
+  ship_from_address: AddressSnapshot;
   available_quantity: number;
 }
 

@@ -1,3 +1,16 @@
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+
+export interface FulfillmentLabelAddressOverrideAudit {
+  recorded_at: string;
+  changed_side: string;
+  reason: string;
+  actor: string;
+  original_sender_snapshot: AddressSnapshot;
+  submitted_sender_address: AddressSnapshot;
+  original_recipient_snapshot: AddressSnapshot;
+  submitted_recipient_address: AddressSnapshot;
+}
+
 export interface FulfillmentShipmentListItem {
   shipment_id: string;
   order_id: string;
@@ -6,6 +19,8 @@ export interface FulfillmentShipmentListItem {
   seller_account_id: string;
   seller_display_name: string | null;
   shipping_option: string;
+  shipping_destination_snapshot: AddressSnapshot;
+  shipping_origin_snapshot: AddressSnapshot | null;
   shipping_method: string | null;
   carrier_name: string | null;
   label_reference: string | null;
@@ -62,4 +77,5 @@ export interface FulfillmentShipmentException {
 export interface FulfillmentShipmentDetail extends FulfillmentShipmentListItem {
   lines: readonly FulfillmentShipmentLine[];
   exceptions: readonly FulfillmentShipmentException[];
+  address_override_audits: readonly FulfillmentLabelAddressOverrideAudit[];
 }

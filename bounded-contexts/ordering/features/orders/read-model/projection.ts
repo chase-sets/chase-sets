@@ -42,6 +42,8 @@ export function buildOrderingOrderProjectionHandlers(
           termsAgreementId: string | null;
           termsResolvedAt: string;
         };
+        shippingDestinationSnapshot: unknown;
+        shippingOriginSnapshot: unknown;
         lines: Array<{
           lineId: string;
           listingId: string;
@@ -99,6 +101,8 @@ export function buildOrderingOrderProjectionHandlers(
            terms_schedule_id,
            terms_agreement_id,
            terms_resolved_at,
+           shipping_destination_snapshot,
+           shipping_origin_snapshot,
            status,
            created_at,
            updated_at,
@@ -106,7 +110,7 @@ export function buildOrderingOrderProjectionHandlers(
            cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, 'pending-reservation', $30, $30, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, 'pending-reservation', $32, $32, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
@@ -137,6 +141,8 @@ export function buildOrderingOrderProjectionHandlers(
              terms_schedule_id = EXCLUDED.terms_schedule_id,
              terms_agreement_id = EXCLUDED.terms_agreement_id,
              terms_resolved_at = EXCLUDED.terms_resolved_at,
+             shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
+             shipping_origin_snapshot = EXCLUDED.shipping_origin_snapshot,
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at,
              cancellation_reason = EXCLUDED.cancellation_reason,
@@ -180,6 +186,8 @@ export function buildOrderingOrderProjectionHandlers(
           data.commercialTermsSnapshot.termsScheduleId,
           data.commercialTermsSnapshot.termsAgreementId,
           data.commercialTermsSnapshot.termsResolvedAt,
+          JSON.stringify(data.shippingDestinationSnapshot),
+          JSON.stringify(data.shippingOriginSnapshot),
           event.timing.recordedAt,
         ],
       );

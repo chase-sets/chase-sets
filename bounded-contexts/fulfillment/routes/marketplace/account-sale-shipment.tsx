@@ -74,6 +74,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         serviceLevel: formValue(formData, "serviceLevel"),
         ...addressBody(formData, "sender"),
         ...addressBody(formData, "recipient"),
+        overrideReason: formValue(formData, "overrideReason"),
         packageLengthInches: Number(formValue(formData, "packageLengthInches") || 7),
         packageWidthInches: Number(formValue(formData, "packageWidthInches") || 5),
         packageHeightInches: Number(formValue(formData, "packageHeightInches") || 1),

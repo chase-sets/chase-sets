@@ -3,6 +3,10 @@ import type {
   AggregateEvolver,
   DomainEvent,
 } from "@chase-sets/event-core";
+import {
+  normalizeAddressSnapshot,
+  type AddressSnapshot,
+} from "@chase-sets/primitives/address-snapshot";
 import type {
   AccountId,
   OrderId,
@@ -43,12 +47,25 @@ export type FulfillmentShipmentException = Readonly<{
   raisedAt: string;
 }>;
 
+export type FulfillmentAddressOverrideAudit = Readonly<{
+  originalSenderSnapshot: AddressSnapshot;
+  submittedSenderAddress: AddressSnapshot;
+  originalRecipientSnapshot: AddressSnapshot;
+  submittedRecipientAddress: AddressSnapshot;
+  changedSide: "sender" | "recipient" | "both";
+  reason: string;
+  actor: string;
+  timestamp: string;
+}>;
+
 export type FulfillmentShipmentState = Readonly<{
   shipmentId: ShipmentId | null;
   orderId: OrderId | null;
   buyerAccountId: AccountId | null;
   sellerAccountId: AccountId | null;
   shippingOption: string | null;
+  shippingDestinationSnapshot: AddressSnapshot | null;
+  shippingOriginSnapshot: AddressSnapshot | null;
   shippingMethod: ShippingMethod | null;
   carrierName: string | null;
   labelReference: string | null;
@@ -72,6 +89,7 @@ export type FulfillmentShipmentState = Readonly<{
   packageCount: number | null;
   lines: FulfillmentShipmentLine[];
   exceptions: FulfillmentShipmentException[];
+  addressOverrideAudits: FulfillmentAddressOverrideAudit[];
   createdAt: string | null;
   packagePreparedAt: string | null;
   labelAttachedAt: string | null;
@@ -90,6 +108,8 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   buyerAccountId: null,
   sellerAccountId: null,
   shippingOption: null,
+  shippingDestinationSnapshot: null,
+  shippingOriginSnapshot: null,
   shippingMethod: null,
   carrierName: null,
   labelReference: null,
@@ -113,6 +133,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   packageCount: null,
   lines: [],
   exceptions: [],
+  addressOverrideAudits: [],
   createdAt: null,
   packagePreparedAt: null,
   labelAttachedAt: null,
@@ -132,6 +153,8 @@ export type CreateShipmentCommand = Readonly<{
   buyerAccountId: AccountId;
   sellerAccountId: AccountId;
   shippingOption: string;
+  shippingDestinationSnapshot: AddressSnapshot;
+  shippingOriginSnapshot: AddressSnapshot;
   lines: readonly FulfillmentShipmentLine[];
   createdAt: string;
 }>;
@@ -157,6 +180,7 @@ export type AttachShipmentLabelCommand = Readonly<{
   postageServiceLevel?: string | null;
   postageAmountCents?: number | null;
   postageCurrency?: string | null;
+  addressOverrideAudit?: FulfillmentAddressOverrideAudit | null;
   attachedAt: string;
 }>;
 
@@ -218,6 +242,8 @@ export type ShipmentCreatedEvent = DomainEvent<
     buyerAccountId: AccountId;
     sellerAccountId: AccountId;
     shippingOption: string;
+    shippingDestinationSnapshot: AddressSnapshot;
+    shippingOriginSnapshot: AddressSnapshot;
     lines: FulfillmentShipmentLine[];
     createdAt: string;
   }>
@@ -249,6 +275,7 @@ export type ShipmentLabelAttachedEvent = DomainEvent<
     postageServiceLevel: string | null;
     postageAmountCents: number | null;
     postageCurrency: string | null;
+    addressOverrideAudit: FulfillmentAddressOverrideAudit | null;
     attachedAt: string;
   }>
 >;
@@ -370,6 +397,14 @@ export const decideFulfillmentShipment: AggregateDecider<
               command.shippingOption,
               "Shipment must include a shipping option.",
             ),
+            shippingDestinationSnapshot: normalizeAddressSnapshot(
+              command.shippingDestinationSnapshot,
+              "Shipping destination",
+            ),
+            shippingOriginSnapshot: normalizeAddressSnapshot(
+              command.shippingOriginSnapshot,
+              "Shipping origin",
+            ),
             lines: normalizeShipmentLines(command.lines),
             createdAt: ensureIsoTimestamp(
               command.createdAt,
@@ -448,6 +483,39 @@ export const decideFulfillmentShipment: AggregateDecider<
                     "Postage amount must be a non-negative whole number of cents.",
                   ),
             postageCurrency: normalizeOptionalText(command.postageCurrency),
+            addressOverrideAudit: command.addressOverrideAudit
+              ? {
+                  originalSenderSnapshot: normalizeAddressSnapshot(
+                    command.addressOverrideAudit.originalSenderSnapshot,
+                    "Original sender snapshot",
+                  ),
+                  submittedSenderAddress: normalizeAddressSnapshot(
+                    command.addressOverrideAudit.submittedSenderAddress,
+                    "Submitted sender address",
+                  ),
+                  originalRecipientSnapshot: normalizeAddressSnapshot(
+                    command.addressOverrideAudit.originalRecipientSnapshot,
+                    "Original recipient snapshot",
+                  ),
+                  submittedRecipientAddress: normalizeAddressSnapshot(
+                    command.addressOverrideAudit.submittedRecipientAddress,
+                    "Submitted recipient address",
+                  ),
+                  changedSide: command.addressOverrideAudit.changedSide,
+                  reason: normalizeRequiredText(
+                    command.addressOverrideAudit.reason,
+                    "Address override reason is required.",
+                  ),
+                  actor: normalizeRequiredText(
+                    command.addressOverrideAudit.actor,
+                    "Address override actor is required.",
+                  ),
+                  timestamp: ensureIsoTimestamp(
+                    command.addressOverrideAudit.timestamp,
+                    "Address override timestamp is required.",
+                  ),
+                }
+              : null,
             attachedAt: ensureIsoTimestamp(
               command.attachedAt,
               "Label attachment must record a timestamp.",
@@ -618,6 +686,8 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         buyerAccountId: event.data.buyerAccountId,
         sellerAccountId: event.data.sellerAccountId,
         shippingOption: event.data.shippingOption,
+        shippingDestinationSnapshot: event.data.shippingDestinationSnapshot,
+        shippingOriginSnapshot: event.data.shippingOriginSnapshot,
         shippingMethod: null,
         carrierName: null,
         labelReference: null,
@@ -641,6 +711,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         packageCount: null,
         lines: event.data.lines,
         exceptions: [],
+        addressOverrideAudits: [],
         createdAt: event.data.createdAt,
         packagePreparedAt: null,
         labelAttachedAt: null,
@@ -684,6 +755,9 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         labelRefundReference: null,
         labelAttachedAt: event.data.attachedAt,
         labelVoidedAt: null,
+        addressOverrideAudits: event.data.addressOverrideAudit
+          ? [...state.addressOverrideAudits, event.data.addressOverrideAudit]
+          : state.addressOverrideAudits,
       };
     case "fulfillment.shipment.label-purchase-failed":
       return {

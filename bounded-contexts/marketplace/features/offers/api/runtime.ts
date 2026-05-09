@@ -7,6 +7,7 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import { quoteMarketplaceTerms } from "../../../support/runtime-support/fee-quotes";
@@ -57,6 +58,7 @@ export type MarketplaceOfferServices = Readonly<{
       itemSubtitle: string | null;
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary: string | null;
+      shippingDestinationSnapshot: AddressSnapshot;
       priceAmount: string;
       quantityRequested: number;
     }>,
@@ -206,6 +208,7 @@ export function createMarketplaceOfferRuntime(
           itemSubtitle: params.itemSubtitle,
           selectedOptions: catalogVersion.selection,
           productSummary: params.productSummary,
+          shippingDestinationSnapshot: params.shippingDestinationSnapshot,
           priceAmount: params.priceAmount,
           quantityRequested: params.quantityRequested,
         },

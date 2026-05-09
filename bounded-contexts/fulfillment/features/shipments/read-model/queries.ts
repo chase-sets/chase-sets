@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 export type FulfillmentShipmentLineRow = Readonly<{
   line_id: string;
@@ -17,6 +18,17 @@ export type FulfillmentShipmentExceptionRow = Readonly<{
   notes: string | null;
 }>;
 
+export type FulfillmentLabelAddressOverrideAuditRow = Readonly<{
+  recorded_at: string;
+  changed_side: string;
+  reason: string;
+  actor: string;
+  original_sender_snapshot: AddressSnapshot;
+  submitted_sender_address: AddressSnapshot;
+  original_recipient_snapshot: AddressSnapshot;
+  submitted_recipient_address: AddressSnapshot;
+}>;
+
 export type FulfillmentShipmentListRow = Readonly<{
   shipment_id: string;
   order_id: string;
@@ -25,6 +37,8 @@ export type FulfillmentShipmentListRow = Readonly<{
   seller_account_id: string;
   seller_display_name: string | null;
   shipping_option: string;
+  shipping_destination_snapshot: AddressSnapshot;
+  shipping_origin_snapshot: AddressSnapshot | null;
   shipping_method: string | null;
   carrier_name: string | null;
   label_reference: string | null;
@@ -65,6 +79,7 @@ export type FulfillmentShipmentDetailRow = FulfillmentShipmentListRow &
   Readonly<{
     lines: readonly FulfillmentShipmentLineRow[];
     exceptions: readonly FulfillmentShipmentExceptionRow[];
+    address_override_audits: readonly FulfillmentLabelAddressOverrideAuditRow[];
   }>;
 
 type BaseShipmentPageRow = FulfillmentShipmentListRow;
@@ -78,6 +93,8 @@ const baseShipmentSelect = `
     page.seller_account_id,
     seller.display_name AS seller_display_name,
     page.shipping_option,
+    page.shipping_destination_snapshot,
+    page.shipping_origin_snapshot,
     page.shipping_method,
     page.carrier_name,
     page.label_reference,
@@ -152,7 +169,10 @@ export async function listBuyerShipments(
   ]);
 
   return {
-    items: itemsResult.rows,
+    items: itemsResult.rows.map((row) => ({
+      ...row,
+      shipping_origin_snapshot: null,
+    })),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -173,7 +193,7 @@ export async function getBuyerShipment(
     return null;
   }
 
-  const [linesResult, exceptionsResult] = await Promise.all([
+  const [linesResult, exceptionsResult, addressOverrideAuditsResult] = await Promise.all([
     db.query<FulfillmentShipmentLineRow>(
       `SELECT
          line_id,
@@ -199,12 +219,29 @@ export async function getBuyerShipment(
        ORDER BY raised_at DESC`,
       [shipmentId],
     ),
+    db.query<FulfillmentLabelAddressOverrideAuditRow>(
+      `SELECT
+         recorded_at,
+         changed_side,
+         reason,
+         actor,
+         original_sender_snapshot,
+         submitted_sender_address,
+         original_recipient_snapshot,
+         submitted_recipient_address
+       FROM fulfillment_label_address_override_audit_pages
+       WHERE shipment_id = $1
+       ORDER BY recorded_at DESC`,
+      [shipmentId],
+    ),
   ]);
 
   return {
     ...row,
+    shipping_origin_snapshot: null,
     lines: linesResult.rows,
     exceptions: exceptionsResult.rows,
+    address_override_audits: addressOverrideAuditsResult.rows,
   };
 }
 
@@ -253,7 +290,7 @@ export async function getSellerShipment(
     return null;
   }
 
-  const [linesResult, exceptionsResult] = await Promise.all([
+  const [linesResult, exceptionsResult, addressOverrideAuditsResult] = await Promise.all([
     db.query<FulfillmentShipmentLineRow>(
       `SELECT
          line_id,
@@ -279,11 +316,27 @@ export async function getSellerShipment(
        ORDER BY raised_at DESC`,
       [shipmentId],
     ),
+    db.query<FulfillmentLabelAddressOverrideAuditRow>(
+      `SELECT
+         recorded_at,
+         changed_side,
+         reason,
+         actor,
+         original_sender_snapshot,
+         submitted_sender_address,
+         original_recipient_snapshot,
+         submitted_recipient_address
+       FROM fulfillment_label_address_override_audit_pages
+       WHERE shipment_id = $1
+       ORDER BY recorded_at DESC`,
+      [shipmentId],
+    ),
   ]);
 
   return {
     ...row,
     lines: linesResult.rows,
     exceptions: exceptionsResult.rows,
+    address_override_audits: addressOverrideAuditsResult.rows,
   };
 }

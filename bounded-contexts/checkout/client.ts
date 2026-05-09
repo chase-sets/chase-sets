@@ -73,13 +73,16 @@ export type SelectCheckoutOptimizationGoalRequest = Readonly<{
 }>;
 
 export type CheckoutShippingAddressInput = Readonly<{
-  name?: string | null;
+  name: string;
+  company?: string | null;
   line1: string;
   line2?: string | null;
   city: string;
   state: string;
   postalCode: string;
   country: string;
+  phone?: string | null;
+  email?: string | null;
 }>;
 
 export class CheckoutApiError extends Error {

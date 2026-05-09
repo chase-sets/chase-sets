@@ -12,6 +12,8 @@ export function buildFulfillmentShipmentProjectionHandlers(
         buyerAccountId: string;
         sellerAccountId: string;
         shippingOption: string;
+        shippingDestinationSnapshot: unknown;
+        shippingOriginSnapshot: unknown;
         lines: Array<{
           lineId: string;
           orderLineId: string;
@@ -32,6 +34,8 @@ export function buildFulfillmentShipmentProjectionHandlers(
            buyer_account_id,
            seller_account_id,
            shipping_option,
+           shipping_destination_snapshot,
+           shipping_origin_snapshot,
            shipping_method,
            carrier_name,
            label_reference,
@@ -65,13 +69,15 @@ export function buildFulfillmentShipmentProjectionHandlers(
            returned_at,
            exception_raised_at
          ) VALUES (
-           $1, $2, $3, $4, $5, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $6, $6, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $8, $8, NULL, NULL, NULL, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              shipping_option = EXCLUDED.shipping_option,
+             shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
+             shipping_origin_snapshot = EXCLUDED.shipping_origin_snapshot,
              updated_at = EXCLUDED.updated_at`,
         [
           data.shipmentId,
@@ -79,6 +85,8 @@ export function buildFulfillmentShipmentProjectionHandlers(
           data.buyerAccountId,
           data.sellerAccountId,
           data.shippingOption,
+          JSON.stringify(data.shippingDestinationSnapshot),
+          JSON.stringify(data.shippingOriginSnapshot),
           data.createdAt,
         ],
       );
@@ -153,6 +161,16 @@ export function buildFulfillmentShipmentProjectionHandlers(
         postageServiceLevel: string | null;
         postageAmountCents: number | null;
         postageCurrency: string | null;
+        addressOverrideAudit: {
+          originalSenderSnapshot: unknown;
+          submittedSenderAddress: unknown;
+          originalRecipientSnapshot: unknown;
+          submittedRecipientAddress: unknown;
+          changedSide: string;
+          reason: string;
+          actor: string;
+          timestamp: string;
+        } | null;
         attachedAt: string;
       };
 
@@ -199,6 +217,41 @@ export function buildFulfillmentShipmentProjectionHandlers(
           data.attachedAt,
         ],
       );
+
+      if (data.addressOverrideAudit) {
+        await db.query(
+          `INSERT INTO fulfillment_label_address_override_audit_pages (
+             shipment_id,
+             recorded_at,
+             changed_side,
+             reason,
+             actor,
+             original_sender_snapshot,
+             submitted_sender_address,
+             original_recipient_snapshot,
+             submitted_recipient_address
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (shipment_id, recorded_at) DO UPDATE SET
+             changed_side = EXCLUDED.changed_side,
+             reason = EXCLUDED.reason,
+             actor = EXCLUDED.actor,
+             original_sender_snapshot = EXCLUDED.original_sender_snapshot,
+             submitted_sender_address = EXCLUDED.submitted_sender_address,
+             original_recipient_snapshot = EXCLUDED.original_recipient_snapshot,
+             submitted_recipient_address = EXCLUDED.submitted_recipient_address`,
+          [
+            data.shipmentId,
+            data.addressOverrideAudit.timestamp,
+            data.addressOverrideAudit.changedSide,
+            data.addressOverrideAudit.reason,
+            data.addressOverrideAudit.actor,
+            JSON.stringify(data.addressOverrideAudit.originalSenderSnapshot),
+            JSON.stringify(data.addressOverrideAudit.submittedSenderAddress),
+            JSON.stringify(data.addressOverrideAudit.originalRecipientSnapshot),
+            JSON.stringify(data.addressOverrideAudit.submittedRecipientAddress),
+          ],
+        );
+      }
     },
     "fulfillment.shipment.label-purchase-failed": async (event) => {
       const data = event.data as {

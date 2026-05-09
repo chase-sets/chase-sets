@@ -16,6 +16,7 @@ type AcceptedOfferParams = Readonly<{
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps: number;
+  shippingDestinationSnapshot: unknown;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
@@ -45,6 +46,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         productSummary: string | null;
         storageLocationName: string | null;
         shipFromCode: string | null;
+        shipFromAddress: unknown;
         priceAmount: string;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
@@ -68,6 +70,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            product_summary,
            storage_location_name,
            ship_from_code,
+           ship_from_address,
            price_amount,
            marketplace_sales_fee_unit_amount,
            seller_net_unit_amount,
@@ -79,7 +82,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            status,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'draft', $20
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'draft', $21
          )
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
@@ -92,6 +95,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              product_summary = EXCLUDED.product_summary,
              storage_location_name = EXCLUDED.storage_location_name,
              ship_from_code = EXCLUDED.ship_from_code,
+             ship_from_address = EXCLUDED.ship_from_address,
              price_amount = EXCLUDED.price_amount,
              marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
              seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
@@ -114,6 +118,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.productSummary,
           data.storageLocationName,
           data.shipFromCode,
+          JSON.stringify(data.shipFromAddress),
           data.priceAmount,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
@@ -270,12 +275,13 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            terms_agreement_id,
            terms_resolved_at,
            quantity_requested,
+           shipping_destination_snapshot,
            accepted_at,
            acceptance_batch_id,
            acceptance_batch_size,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
          )
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -294,6 +300,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              terms_agreement_id = EXCLUDED.terms_agreement_id,
              terms_resolved_at = EXCLUDED.terms_resolved_at,
              quantity_requested = EXCLUDED.quantity_requested,
+             shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
              accepted_at = EXCLUDED.accepted_at,
              acceptance_batch_id = EXCLUDED.acceptance_batch_id,
              acceptance_batch_size = EXCLUDED.acceptance_batch_size,
@@ -316,6 +323,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.termsAgreementId,
           data.termsResolvedAt,
           data.quantityRequested,
+          JSON.stringify(data.shippingDestinationSnapshot),
           data.acceptedAt,
           data.acceptanceBatchId ?? null,
           data.acceptanceBatchSize ?? null,
