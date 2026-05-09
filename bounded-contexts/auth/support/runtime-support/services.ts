@@ -1,6 +1,8 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import type { TransactionalEmailGateway } from "@chase-sets/communications-email";
 import type {
   PgQueryable,
   PgTransactionalPool,
@@ -51,23 +53,35 @@ type AuthIdentityReadServices = Readonly<{
 export type AuthServices = Readonly<{
   pool: PgTransactionalPool;
   db: PgQueryable;
+  eventStore: EventStore;
   auth: ReturnType<typeof createAuthSecretAdapters>;
   identity: AuthIdentityReadServices;
   sessions: ReturnType<typeof createSessionRuntime>;
   projectors: readonly Projector[];
 }>;
 
+export type AuthHostPorts = Readonly<{
+  transactionalEmailGateway?: TransactionalEmailGateway;
+}>;
+
 export function createAuthServices(
   pool: PgTransactionalPool,
+  ports: AuthHostPorts = {},
 ): AuthServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const sessions = createSessionRuntime({ eventStore, checkpointStore, db });
+  const sessions = createSessionRuntime({
+    eventStore,
+    checkpointStore,
+    db,
+    transactionalEmailGateway: ports.transactionalEmailGateway,
+  });
 
   return {
     pool,
     db,
+    eventStore,
     auth: createAuthSecretAdapters(),
     identity: {
       bootstrapTenantId: AUTH_BOOTSTRAP_TENANT_ID,

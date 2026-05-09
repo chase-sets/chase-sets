@@ -314,6 +314,10 @@ export type ShipmentDeliveredEvent = DomainEvent<
   "fulfillment.shipment.delivered",
   Readonly<{
     shipmentId: ShipmentId;
+    orderId: OrderId;
+    buyerAccountId: AccountId;
+    shippingDestinationSnapshot: AddressSnapshot;
+    trackingIdentifier: string | null;
     deliveredAt: string;
   }>
 >;
@@ -608,6 +612,12 @@ export const decideFulfillmentShipment: AggregateDecider<
       ];
     case "RecordShipmentDelivery":
       assert(state.shipmentId !== null, "Shipment must be created first.");
+      assert(state.orderId !== null, "Shipment must reference an order before delivery.");
+      assert(state.buyerAccountId !== null, "Shipment must reference a buyer before delivery.");
+      assert(
+        state.shippingDestinationSnapshot !== null,
+        "Shipment must include a destination before delivery.",
+      );
       if (state.status === "delivered") {
         return [];
       }
@@ -620,6 +630,10 @@ export const decideFulfillmentShipment: AggregateDecider<
           type: "fulfillment.shipment.delivered",
           data: {
             shipmentId: state.shipmentId,
+            orderId: state.orderId,
+            buyerAccountId: state.buyerAccountId,
+            shippingDestinationSnapshot: state.shippingDestinationSnapshot,
+            trackingIdentifier: state.trackingIdentifier,
             deliveredAt: ensureIsoTimestamp(
               command.deliveredAt,
               "Delivery must record a timestamp.",

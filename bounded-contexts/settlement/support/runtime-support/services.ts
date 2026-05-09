@@ -5,6 +5,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
+import type { TransactionalEmailGateway } from "@chase-sets/communications-email";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
@@ -18,6 +19,7 @@ import {
 export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
+  transactionalEmailGateway?: TransactionalEmailGateway;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -59,6 +61,7 @@ export function createSettlementServices(
     payoutReadiness,
     moneyMovementGateway,
     operationsRecorder,
+    transactionalEmailGateway: ports.transactionalEmailGateway,
   });
 
   return {

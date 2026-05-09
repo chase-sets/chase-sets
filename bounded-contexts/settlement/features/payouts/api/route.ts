@@ -244,21 +244,22 @@ export function createPayoutRoutes(services: PayoutServices) {
     const body = await c.req.json();
 
     try {
-      const result = await services.requestPayout(
-        {
-          accountId: access.actor.accountId as never,
-          amount: String(body.amount ?? ""),
-          destinationReference:
-            typeof body.destinationReference === "string"
-              ? body.destinationReference
-              : null,
-          note:
-            typeof body.note === "string"
-              ? body.note
-              : null,
-        },
-        context,
-      );
+      const request = {
+        accountId: access.actor.accountId as never,
+        amount: String(body.amount ?? ""),
+        destinationReference:
+          typeof body.destinationReference === "string"
+            ? body.destinationReference
+            : null,
+        note:
+          typeof body.note === "string"
+            ? body.note
+            : null,
+        ...(typeof body.notificationEmail === "string"
+          ? { notificationEmail: body.notificationEmail }
+          : {}),
+      };
+      const result = await services.requestPayout(request, context);
 
       return c.json({ id: result.payoutId, version: result.version, status: "requested" }, 201);
     } catch (error) {

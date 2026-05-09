@@ -90,6 +90,11 @@
       "portName": "postageLabelProvider",
       "providedBy": "platform-api",
       "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."
+    },
+    {
+      "portName": "transactionalEmailGateway",
+      "providedBy": "platform-worker",
+      "purpose": "Provider-neutral transactional email gateway consumed only by event projectors."
     }
   ],
   "apiDeployables": [

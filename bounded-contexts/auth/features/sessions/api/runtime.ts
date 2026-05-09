@@ -5,6 +5,10 @@ import {
   type CommandHandler,
 } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import {
+  createNoopTransactionalEmailGateway,
+  type TransactionalEmailGateway,
+} from "@chase-sets/communications-email";
 import type { AuthRuntimeDeps } from "./runtime-deps";
 import {
   decideSession,
@@ -16,6 +20,7 @@ import {
 } from "../domain/domain";
 import { getSession, listSessions } from "../read-model/queries";
 import { buildSessionProjectionHandlers } from "../read-model/projection";
+import { buildAuthSessionTransactionalEmailProjectionHandlers } from "../application/transactional-email-projector";
 
 export type SessionServices = Readonly<{
   commandHandler: CommandHandler<SessionCommand, SessionState, SessionEvent>;
@@ -26,7 +31,12 @@ export type SessionServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createSessionRuntime(deps: AuthRuntimeDeps): SessionServices {
+export function createSessionRuntime(
+  deps: AuthRuntimeDeps &
+    Readonly<{ transactionalEmailGateway?: TransactionalEmailGateway }>,
+): SessionServices {
+  const transactionalEmailGateway =
+    deps.transactionalEmailGateway ?? createNoopTransactionalEmailGateway();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -48,6 +58,14 @@ export function createSessionRuntime(deps: AuthRuntimeDeps): SessionServices {
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildSessionProjectionHandlers(deps.db),
+      }),
+      createProjector({
+        projectorName: "auth-session-transactional-email-projection",
+        eventStore: deps.eventStore,
+        checkpointStore: deps.checkpointStore,
+        handlers: buildAuthSessionTransactionalEmailProjectionHandlers(
+          transactionalEmailGateway,
+        ),
       }),
     ],
   };

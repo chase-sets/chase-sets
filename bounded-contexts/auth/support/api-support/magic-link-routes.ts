@@ -36,6 +36,24 @@ export function registerMagicLinkRoutes(
       expiresAt,
     });
 
+    await services.eventStore.appendToStream({
+      streamId: `auth.magic-link-${tokenId}`,
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "auth.magic-link.requested",
+          payload: {
+            tokenId,
+            userId: user?.user_id ?? null,
+            email,
+            magicLink: token,
+            expiresAt,
+          },
+        },
+      ],
+      context: getBootstrapContext(c),
+    });
+
     return c.json({ tokenId, token, expiresAt });
   });
 

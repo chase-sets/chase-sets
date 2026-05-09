@@ -9,6 +9,10 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  createNoopTransactionalEmailGateway,
+  type TransactionalEmailGateway,
+} from "@chase-sets/communications-email";
 import type {
   PostageAddress,
   PostageLabelProvider,
@@ -34,6 +38,7 @@ import {
   listSellerShipments,
 } from "../read-model/queries";
 import { buildFulfillmentShipmentProjectionHandlers } from "../read-model/projection";
+import { buildFulfillmentTransactionalEmailProjectionHandlers } from "../application/transactional-email-projector";
 import {
   decideFulfillmentShipment,
   evolveFulfillmentShipment,
@@ -48,6 +53,7 @@ type ShipmentRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   postageLabelProvider?: PostageLabelProvider;
+  transactionalEmailGateway?: TransactionalEmailGateway;
 }>;
 
 type ReadyOrderLineSnapshot = Readonly<{
@@ -264,6 +270,8 @@ function addressSnapshotFromPostage(address: PostageAddress): AddressSnapshot {
 export function createFulfillmentShipmentRuntime(
   deps: ShipmentRuntimeDeps,
 ): FulfillmentShipmentServices {
+  const transactionalEmailGateway =
+    deps.transactionalEmailGateway ?? createNoopTransactionalEmailGateway();
   const postageLabelProvider =
     deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const commandHandler = createCommandHandler({
@@ -588,6 +596,14 @@ export function createFulfillmentShipmentRuntime(
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildFulfillmentShipmentProjectionHandlers(deps.db),
+      }),
+      createProjector({
+        projectorName: "fulfillment-shipment-transactional-email-projection",
+        eventStore: deps.eventStore,
+        checkpointStore: deps.checkpointStore,
+        handlers: buildFulfillmentTransactionalEmailProjectionHandlers(
+          transactionalEmailGateway,
+        ),
       }),
     ],
   };

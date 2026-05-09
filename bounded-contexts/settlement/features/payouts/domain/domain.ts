@@ -28,6 +28,7 @@ export type PayoutState = Readonly<{
   providerStatus: string | null;
   providerFailureCode: string | null;
   providerFailureMessage: string | null;
+  notificationEmail: string | null;
   requestedAt: string | null;
   sentAt: string | null;
   completedAt: string | null;
@@ -48,6 +49,7 @@ export const initialPayoutState: PayoutState = {
   providerStatus: null,
   providerFailureCode: null,
   providerFailureMessage: null,
+  notificationEmail: null,
   requestedAt: null,
   sentAt: null,
   completedAt: null,
@@ -63,6 +65,7 @@ export type RequestPayoutCommand = Readonly<{
   currencyCode: CurrencyCode;
   destinationReference?: string | null;
   note?: string | null;
+  notificationEmail?: string | null;
   requestedAt: string;
 }>;
 
@@ -104,6 +107,7 @@ export type PayoutRequestedEvent = DomainEvent<
     currencyCode: CurrencyCode;
     destinationReference: string | null;
     note: string | null;
+    notificationEmail: string | null;
     requestedAt: string;
   }>
 >;
@@ -123,7 +127,10 @@ export type PayoutCompletedEvent = DomainEvent<
   "settlement.payout.completed",
   Readonly<{
     payoutId: PayoutId;
+    accountId: AccountId;
     providerStatus: string | null;
+    amount: string;
+    notificationEmail: string | null;
     completedAt: string;
   }>
 >;
@@ -166,6 +173,7 @@ export const decidePayout: AggregateDecider<
             currencyCode: normalizeCurrencyCode(command.currencyCode),
             destinationReference: normalizeOptionalText(command.destinationReference),
             note: normalizeOptionalText(command.note),
+            notificationEmail: normalizeOptionalText(command.notificationEmail),
             requestedAt: ensureIsoTimestamp(
               command.requestedAt,
               "Payout request must record a timestamp.",
@@ -200,6 +208,8 @@ export const decidePayout: AggregateDecider<
       ];
     case "CompletePayout":
       assert(state.payoutId !== null, "Payout must be requested first.");
+      assert(state.accountId !== null, "Payout must reference an account before completion.");
+      assert(state.amount !== null, "Payout must include an amount before completion.");
       if (state.status === "completed") {
         return [];
       }
@@ -212,7 +222,10 @@ export const decidePayout: AggregateDecider<
           type: "settlement.payout.completed",
           data: {
             payoutId: state.payoutId,
+            accountId: state.accountId,
             providerStatus: normalizeOptionalText(command.providerStatus),
+            amount: state.amount,
+            notificationEmail: state.notificationEmail,
             completedAt: ensureIsoTimestamp(
               command.completedAt,
               "Payout completion must record a timestamp.",
@@ -268,6 +281,7 @@ export const evolvePayout: AggregateEvolver<
         providerStatus: null,
         providerFailureCode: null,
         providerFailureMessage: null,
+        notificationEmail: event.data.notificationEmail,
         requestedAt: event.data.requestedAt,
         sentAt: null,
         completedAt: null,

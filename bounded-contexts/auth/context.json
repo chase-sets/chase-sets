@@ -126,7 +126,13 @@
       "requiredDuringBootstrap": true
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "transactionalEmailGateway",
+      "providedBy": "platform-worker",
+      "purpose": "Provider-neutral transactional email gateway consumed only by event projectors."
+    }
+  ],
   "apiDeployables": [
     "admin-support-api",
     "platform-api"

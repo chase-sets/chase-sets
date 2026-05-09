@@ -15,7 +15,7 @@ import {
 } from "./support/auth-support/identity-projection";
 import { authSchemaSql } from "./support/runtime-support/schema";
 import { seedAuthDatabase } from "./support/runtime-support/seed";
-import type { AuthServices } from "./support/runtime-support/services";
+import type { AuthHostPorts, AuthServices } from "./support/runtime-support/services";
 import { createAuthServices } from "./support/runtime-support/services";
 
 const eventSubscriptions =
@@ -42,14 +42,14 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<AuthServices, PgTransactionalPool, void> = {
+export const module: BcApiModule<AuthServices, PgTransactionalPool, AuthHostPorts> = {
   contextName: "auth",
   routePrefix: "/api/auth",
   streamPrefix: "auth.",
   schemaSql: authSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<AuthServices, PgTransactionalPool, void>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<AuthServices, PgTransactionalPool, AuthHostPorts>["apiMounts"],
   projectionGroups,
-  createServices: (pool) => createAuthServices(pool),
+  createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [buildAuthApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {

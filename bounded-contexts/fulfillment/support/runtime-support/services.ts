@@ -6,6 +6,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
+import type { TransactionalEmailGateway } from "@chase-sets/communications-email";
 import { createFulfillmentShipmentRuntime } from "../../features/shipments/api/runtime";
 
 export type FulfillmentServices = Readonly<{
@@ -17,6 +18,7 @@ export type FulfillmentServices = Readonly<{
 
 export type FulfillmentHostPorts = Readonly<{
   postageLabelProvider?: PostageLabelProvider;
+  transactionalEmailGateway?: TransactionalEmailGateway;
 }>;
 
 export function createFulfillmentServices(
@@ -31,6 +33,7 @@ export function createFulfillmentServices(
     checkpointStore,
     db,
     postageLabelProvider: ports?.postageLabelProvider,
+    transactionalEmailGateway: ports?.transactionalEmailGateway,
   });
 
   return {

@@ -9,6 +9,10 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  createNoopTransactionalEmailGateway,
+  type TransactionalEmailGateway,
+} from "@chase-sets/communications-email";
 import { recordProviderWebhookEvent as recordProviderWebhookInboxEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PayoutId } from "@chase-sets/primitives/typed-ids";
@@ -32,6 +36,7 @@ import {
   payoutAmountPolicy,
 } from "../domain/payout-policy";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
+import { buildSettlementPayoutTransactionalEmailProjectionHandlers } from "../application/transactional-email-projector";
 import {
   getPayout,
   getAccountPayoutRiskSummary,
@@ -65,6 +70,7 @@ type PayoutRuntimeDeps = Readonly<{
   payoutReadiness: PayoutReadinessServices;
   moneyMovementGateway: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
+  transactionalEmailGateway?: TransactionalEmailGateway;
 }>;
 
 export type PayoutServices = Readonly<{
@@ -138,6 +144,7 @@ export type PayoutServices = Readonly<{
       amount: string;
       destinationReference?: string | null;
       note?: string | null;
+      notificationEmail?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ payoutId: PayoutId; version: number }>;
@@ -217,6 +224,8 @@ function subtractMoney(left: string, right: string) {
 export function createPayoutRuntime(
   deps: PayoutRuntimeDeps,
 ): PayoutServices {
+  const transactionalEmailGateway =
+    deps.transactionalEmailGateway ?? createNoopTransactionalEmailGateway();
   const operationsRecorder =
     deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const commandHandler = createCommandHandler({
@@ -767,6 +776,7 @@ export function createPayoutRuntime(
           currencyCode,
           destinationReference: params.destinationReference ?? null,
           note: params.note ?? null,
+          notificationEmail: params.notificationEmail ?? null,
           requestedAt,
         },
         context,
@@ -1018,6 +1028,14 @@ export function createPayoutRuntime(
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildPayoutProjectionHandlers(deps.db),
+      }),
+      createProjector({
+        projectorName: "settlement-payout-transactional-email-projection",
+        eventStore: deps.eventStore,
+        checkpointStore: deps.checkpointStore,
+        handlers: buildSettlementPayoutTransactionalEmailProjectionHandlers(
+          transactionalEmailGateway,
+        ),
       }),
     ],
   };
