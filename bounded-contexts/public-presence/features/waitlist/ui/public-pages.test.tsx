@@ -27,7 +27,7 @@ describe("public presence homepage", () => {
     );
 
     expect(screen.getByRole("heading", {
-      name: "Buy cards clearly. Sell inventory faster.",
+      name: "Finish sets. Sell cards faster.",
     })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
   });
@@ -57,9 +57,9 @@ describe("public presence homepage", () => {
       </MemoryRouter>,
     );
 
-    expect(container.querySelectorAll("form")).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Join early access" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Answer three quick questions so the first invites go to real collector and seller workflows.").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll("form")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Join the waitlist" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Answer three quick questions so invites go to the collectors and sellers most likely to use the beta.").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Know seller costs before listing" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Locked while unchanged").length).toBeGreaterThan(0);
     const priority = container.querySelector('form select[name="interests"]') as HTMLSelectElement;

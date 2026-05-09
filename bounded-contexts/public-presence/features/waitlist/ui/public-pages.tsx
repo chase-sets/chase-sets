@@ -7,6 +7,7 @@ import {
   Button,
   Checkbox,
   ChaseRoot,
+  Cluster,
   Container,
   Grid,
   Heading,
@@ -110,20 +111,25 @@ export function PublicPresencePageShell({
       <Container width="wide">
         <Stack gap={4}>
           <Surface element="nav" tone="subtle" padding={2}>
-            <Inline gap={3} align="center">
-              <BrandLink label={t("publicPresence.brand")} />
-              <Inline gap={2}>
-                <LinkText href="#product-preview" tone="subtle">
-                  {t("publicPresence.nav.product")}
-                </LinkText>
-                <LinkText href="/faq" tone="subtle">
-                  {t("publicPresence.nav.faq")}
-                </LinkText>
-                <LinkText href="/terms" tone="subtle">
-                  {t("publicPresence.nav.policies")}
-                </LinkText>
+            <Cluster gap={2}>
+              <Inline gap={3} align="center">
+                <BrandLink label={t("publicPresence.brand")} />
+                <Inline gap={2}>
+                  <LinkText href="#product-preview" tone="subtle">
+                    {t("publicPresence.nav.product")}
+                  </LinkText>
+                  <LinkText href="/faq" tone="subtle">
+                    {t("publicPresence.nav.faq")}
+                  </LinkText>
+                  <LinkText href="/terms" tone="subtle">
+                    {t("publicPresence.nav.policies")}
+                  </LinkText>
+                </Inline>
               </Inline>
-            </Inline>
+              <LinkButton href="#waitlist-form" tone="primary" size="sm" leadingIcon="rocket">
+                {t("publicPresence.nav.waitlist")}
+              </LinkButton>
+            </Cluster>
           </Surface>
           <main id="main-content">{children}</main>
           <Surface element="footer" tone="subtle">
@@ -187,20 +193,18 @@ export function PublicPresenceHomePage({
 
         <HeroSignalStrip />
 
-        <SignupExpectationSection />
-
         <ProductSignalPreview />
-
-        <WhyJoinNow />
 
         <BuyerSellerLandingSection />
 
         <LaunchPriorityPanel />
 
-        <MarketplaceModelSection />
+        <SignupExpectationSection />
 
         <FinalCtaSection
+          actionData={actionData}
           discordInviteUrl={discordInviteUrl}
+          source={source}
         />
 
         <FaqPreview />
@@ -513,21 +517,25 @@ function ProductSignalPreview() {
 }
 
 function FinalCtaSection({
+  actionData,
   discordInviteUrl,
+  source,
 }: {
+  actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
+  source: Parameters<typeof PublicPresenceHomePage>[0]["source"];
 }) {
   return (
-    <Surface tone="muted" padding={5}>
+    <PageSection>
       <Grid columns={{ base: 1, lg: 2 }} gap={5}>
-        <Stack gap={2}>
-          <BadgeRow>
-            <Badge tone="success">{t("publicPresence.home.finalCta.badge")}</Badge>
-          </BadgeRow>
-          <Heading level={2}>{t("publicPresence.home.finalCta.title")}</Heading>
-          <Text tone="secondary">{t("publicPresence.home.finalCta.description")}</Text>
-        </Stack>
         <Stack gap={3}>
+          <Stack gap={2}>
+            <BadgeRow>
+              <Badge tone="success">{t("publicPresence.home.finalCta.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={2}>{t("publicPresence.home.finalCta.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.finalCta.description")}</Text>
+          </Stack>
           <List
             items={[
               t("publicPresence.home.finalCta.point.buyers"),
@@ -536,14 +544,16 @@ function FinalCtaSection({
             ]}
           />
           <Inline gap={2}>
-            <LinkButton href="#waitlist-form" tone="primary" size="lg" leadingIcon="rocket">
-              {t("publicPresence.home.finalCta.action")}
-            </LinkButton>
             {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} /> : null}
           </Inline>
         </Stack>
+        <WaitlistSignupPanel
+          actionData={actionData}
+          source={source}
+          panelId="waitlist-form-final"
+        />
       </Grid>
-    </Surface>
+    </PageSection>
   );
 }
 
@@ -570,7 +580,9 @@ function WaitlistSignupPanel({
           <Heading level={compact ? 3 : 2}>
             {t(compact ? "publicPresence.waitlist.heroTitle" : "publicPresence.waitlist.formTitle")}
           </Heading>
-          <Text tone="secondary">{t("publicPresence.waitlist.formDescription")}</Text>
+          {!compact ? (
+            <Text tone="secondary">{t("publicPresence.waitlist.formDescription")}</Text>
+          ) : null}
           {!compact ? (
             <Text size="sm" tone="secondary">{t("publicPresence.waitlist.promise")}</Text>
           ) : null}
