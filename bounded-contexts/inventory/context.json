@@ -4,12 +4,14 @@
   "ownedNouns": [
     "inventory-item",
     "inventory-hold",
+    "import-batch",
     "storage-location"
   ],
   "streamPrefix": "inventory.",
   "apiBasePath": "/api/inventory",
   "slices": [
     "inventory-items",
+    "import-batches",
     "holds",
     "reservations",
     "storage-locations"
@@ -101,7 +103,13 @@
       "requiredDuringBootstrap": false
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "draftListingCreator",
+      "providedBy": "platform-api",
+      "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."
+    }
+  ],
   "apiDeployables": [
     "platform-api"
   ],
@@ -128,6 +136,20 @@
           "sourceContext": "inventory"
         },
         {
+          "routeId": "account-inventory-imports",
+          "routePath": "account/inventory/imports",
+          "fileExport": "./routes/marketplace/account-inventory-imports",
+          "routeType": "route",
+          "sourceContext": "inventory"
+        },
+        {
+          "routeId": "account-inventory-import",
+          "routePath": "account/inventory/imports/:batchId",
+          "fileExport": "./routes/marketplace/account-inventory-imports",
+          "routeType": "route",
+          "sourceContext": "inventory"
+        },
+        {
           "routeId": "account-inventory-locations",
           "routePath": "account/inventory/locations",
           "fileExport": "./routes/marketplace/account-inventory-locations",
@@ -148,11 +170,37 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
+      "key": "inventory-imports",
+      "label": "Import",
+      "icon": "package",
+      "href": "/account/inventory/imports",
+      "order": 105,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "inventory.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
       "key": "inventory",
       "label": "Inventory",
       "icon": "package",
       "href": "/account/inventory",
       "order": 100,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "inventory.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "inventory-imports",
+      "label": "Import",
+      "icon": "package",
+      "href": "/account/inventory/imports",
+      "order": 105,
       "visibility": "signed-in",
       "requiredPermissions": [
         "inventory.view"
@@ -176,6 +224,14 @@
     "inventory-items": {
       "classification": "slice",
       "purpose": "Own inventory item feature behavior, read models, and UI contracts for the inventory context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal inventory module composition"
+      ]
+    },
+    "import-batches": {
+      "classification": "slice",
+      "purpose": "Own CSV intake, row validation, commit history, and batch stock intake behavior for the inventory context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal inventory module composition"
@@ -235,6 +291,7 @@
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "holds",
+        "import-batches",
         "inventory-items",
         "reservations",
         "storage-locations"

@@ -6,6 +6,7 @@ import {
   discoveryRealtimeTopicPolicyManifest,
 } from "@chase-sets/discovery/server";
 import { module as identityModule } from "@chase-sets/identity";
+import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import {
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
@@ -79,6 +80,7 @@ export type BuildPlatformApiOptions = Readonly<{
 export function createPlatformApiHost(
   options: Parameters<typeof createApiHost>[2],
 ): ApiHostRuntime {
+  let runtime: ApiHostRuntime | null = null;
   const commercialTermsPool = options.pools["commercial-terms"];
   const settlementPool = options.pools.settlement;
   const commercialTermsResolver = commercialTermsPool
@@ -87,15 +89,36 @@ export function createPlatformApiHost(
   const balanceCreditResolver = settlementPool
     ? createSettlementBalanceCreditResolver(settlementPool)
     : undefined;
+  const draftListingCreator: InventoryDraftListingCreator = async (
+    params,
+    context,
+  ) => {
+    const marketplaceServices = runtime?.services.marketplace as
+      | {
+          listings?: {
+            createBatchDraftListingFromInventorySnapshot?: InventoryDraftListingCreator;
+          };
+        }
+      | undefined;
+    const createDraft =
+      marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
+    if (!createDraft) {
+      throw new Error("Marketplace draft listing service is unavailable.");
+    }
 
-  return createApiHost(apiContextRegistry, "platform-api", {
+    return createDraft(params, context);
+  };
+
+  runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
     hostPorts: {
       ...options.hostPorts,
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+      draftListingCreator,
     },
   });
+  return runtime;
 }
 
 export function buildPlatformApiApp(

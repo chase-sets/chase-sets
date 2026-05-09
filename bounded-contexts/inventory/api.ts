@@ -3,6 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { InventoryServices } from "./support/runtime-support/services";
 import { inventoryCatalogItemRoutes } from "./support/catalog-item-support/route";
 import { inventoryHoldRoutes } from "./features/holds/api/route";
+import { inventoryImportBatchRoutes } from "./features/import-batches/api/route";
 import { inventoryItemRoutes } from "./features/inventory-items/api/route";
 import { inventoryStorageLocationRoutes } from "./features/storage-locations/api/route";
 
@@ -62,6 +63,10 @@ export function buildInventoryApi(services: InventoryServices) {
   app.route(
     "/storage-locations",
     inventoryStorageLocationRoutes(services.storageLocations),
+  );
+  app.route(
+    "/import-batches",
+    inventoryImportBatchRoutes(services.importBatches),
   );
   app.route("/items", inventoryItemRoutes(services.items, services.holds));
   app.route("/holds", inventoryHoldRoutes(services.holds));

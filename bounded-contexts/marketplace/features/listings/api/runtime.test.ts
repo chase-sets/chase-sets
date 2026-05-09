@@ -388,4 +388,168 @@ describe("marketplace listing runtime", () => {
       }),
     ]);
   });
+
+  it("creates batch draft listings from committed inventory snapshots with fee terms", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const supplyByItemId = new Map<string, {
+      itemId: string;
+      accountId: string;
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      storageLocationName: string;
+      shipFromCode: string;
+      totalQuantity: number;
+    }>();
+    const resolveListingTerms = vi.fn(async ({ amount, accountId }) => ({
+      accountId,
+      accountType: "business" as const,
+      basisAmount: amount,
+      marketplaceSalesFeeUnitAmount: "0.75",
+      sellerNetUnitAmount: "4.25",
+      scheduleId: "cts_batch",
+      agreementId: null,
+      resolvedAt: "2026-05-09T00:00:00.000Z",
+    }));
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("INSERT INTO marketplace_supply_locations")) {
+          return { rows: [] };
+        }
+
+        if (sql.includes("INSERT INTO marketplace_supply_items")) {
+          supplyByItemId.set(String(values[0]), {
+            itemId: String(values[0]),
+            accountId: String(values[1]),
+            catalogItemId: String(values[2]),
+            productId: String(values[3]),
+            selectedOptions: JSON.parse(String(values[4])) as readonly {
+              dimensionId: string;
+              optionId: string;
+            }[],
+            storageLocationName: "Batch shelf",
+            shipFromCode: "CHI",
+            totalQuantity: Number(values[6]),
+          });
+          return { rows: [] };
+        }
+
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          const supply = supplyByItemId.get(String(values[0]));
+          return {
+            rows: supply
+              ? [
+                  {
+                    item_id: supply.itemId,
+                    account_id: supply.accountId,
+                    catalog_catalog_item_id: supply.catalogItemId,
+                    product_id: supply.productId,
+                    item_title: "Batch card",
+                    item_subtitle: null,
+                    selected_options: supply.selectedOptions,
+                    product_summary: "Condition: Near Mint",
+                    graded_card: null,
+                    storage_location_name: supply.storageLocationName,
+                    ship_from_code: supply.shipFromCode,
+                    available_quantity: supply.totalQuantity,
+                  },
+                ]
+              : [],
+          };
+        }
+
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms,
+      } as never,
+    });
+
+    const result = await services.createBatchDraftListingFromInventorySnapshot(
+      {
+        accountId: "acc_seller",
+        importBatchId: "imb_1",
+        importRowId: "imr_1",
+        inventoryItemId: "inv_batch",
+        listingIdOverride: "lst_batch" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::condition:near_mint",
+        selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+        storageLocationId: "loc_1",
+        storageLocationName: "Batch shelf",
+        shipFromCode: "CHI",
+        totalQuantity: 3,
+        acquisitionCostAmount: "1.00",
+        priceAmount: "5.00",
+        quantityCap: 2,
+      },
+      context,
+    );
+    const events = await eventStore.readStream({
+      streamId: "marketplace.listing-lst_batch",
+    });
+
+    expect(result).toMatchObject({
+      listingId: "lst_batch",
+      version: 1,
+    });
+    expect(resolveListingTerms).toHaveBeenCalledWith({
+      accountId: "acc_seller",
+      amount: "5.00",
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      eventType: "marketplace.listing.created",
+      payload: expect.objectContaining({
+        listingId: "lst_batch",
+        marketplaceSalesFeeUnitAmount: "0.75",
+        sellerNetUnitAmount: "4.25",
+        termsScheduleId: "cts_batch",
+      }),
+    });
+  });
+
+  it("rejects batch draft listing caps above the committed available inventory", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(),
+      } as never,
+    });
+
+    await expect(
+      services.createBatchDraftListingFromInventorySnapshot(
+        {
+          accountId: "acc_seller",
+          importBatchId: "imb_1",
+          importRowId: "imr_1",
+          inventoryItemId: "inv_batch",
+          listingIdOverride: "lst_batch" as never,
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          selectedOptions: [],
+          storageLocationId: "loc_1",
+          storageLocationName: "Batch shelf",
+          shipFromCode: "CHI",
+          totalQuantity: 1,
+          acquisitionCostAmount: null,
+          priceAmount: "5.00",
+          quantityCap: 2,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Listing quantity caps cannot exceed created available inventory.");
+  });
 });

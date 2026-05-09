@@ -79,6 +79,26 @@ export type MarketplaceListingServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+  createBatchDraftListingFromInventorySnapshot: (
+    params: Readonly<{
+      accountId: string;
+      importBatchId: string;
+      importRowId: string;
+      inventoryItemId: string;
+      listingIdOverride: ListingId;
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      storageLocationId: string;
+      storageLocationName: string;
+      shipFromCode: string;
+      totalQuantity: number;
+      acquisitionCostAmount: string | null;
+      priceAmount: string;
+      quantityCap: number;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
   previewListingTerms: (
     params: Readonly<{ accountId: string; priceAmount: string }>,
   ) => Promise<MarketplaceListingTermsPreview>;
@@ -235,6 +255,76 @@ export function createMarketplaceListingRuntime(
     }
   }
 
+  async function upsertBatchInventorySnapshot(params: Readonly<{
+    accountId: string;
+    inventoryItemId: string;
+    catalogItemId: string;
+    productId: string;
+    selectedOptions: readonly { dimensionId: string; optionId: string }[];
+    storageLocationId: string;
+    storageLocationName: string;
+    shipFromCode: string;
+    totalQuantity: number;
+    acquisitionCostAmount: string | null;
+  }>) {
+    await deps.db.query(
+      `INSERT INTO marketplace_supply_locations (
+         storage_location_id,
+         account_id,
+         name,
+         ship_from_code,
+         is_archived,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, false, now())
+       ON CONFLICT (storage_location_id) DO UPDATE SET
+         account_id = EXCLUDED.account_id,
+         name = EXCLUDED.name,
+         ship_from_code = EXCLUDED.ship_from_code,
+         is_archived = false,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        params.storageLocationId,
+        params.accountId,
+        params.storageLocationName,
+        params.shipFromCode,
+      ],
+    );
+    await deps.db.query(
+      `INSERT INTO marketplace_supply_items (
+         item_id,
+         account_id,
+         catalog_catalog_item_id,
+         product_id,
+         selected_options,
+         graded_card,
+         storage_location_id,
+         total_quantity,
+         acquisition_cost_amount,
+         last_stream_version,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, 0, now())
+       ON CONFLICT (item_id) DO UPDATE SET
+         account_id = EXCLUDED.account_id,
+         catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+         product_id = EXCLUDED.product_id,
+         selected_options = EXCLUDED.selected_options,
+         storage_location_id = EXCLUDED.storage_location_id,
+         total_quantity = EXCLUDED.total_quantity,
+         acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        params.inventoryItemId,
+        params.accountId,
+        params.catalogItemId,
+        params.productId,
+        JSON.stringify(params.selectedOptions),
+        params.storageLocationId,
+        params.totalQuantity,
+        params.acquisitionCostAmount,
+      ],
+    );
+  }
+
   function stringField(data: Readonly<Record<string, unknown>>, key: string) {
     const value = data[key];
     return typeof value === "string" && value.trim().length > 0 ? value : null;
@@ -281,48 +371,87 @@ export function createMarketplaceListingRuntime(
     } satisfies MarketplaceListingFeeHistoryEntry;
   }
 
+  async function createListing(
+    params: Readonly<{
+      accountId: AccountId;
+      inventoryItemId: string;
+      priceAmount: string;
+      quantityCap: number;
+      listingIdOverride?: ListingId;
+    }>,
+    context: EventStoreContext,
+  ) {
+    const supply = await getInventoryItemSupply(
+      deps.db,
+      params.inventoryItemId,
+      params.accountId,
+    );
+    assert(supply, "Inventory item not found.");
+    const quote = await quoteListingTerms(params.accountId, params.priceAmount);
+
+    const listingId = params.listingIdOverride ?? (createId("lst") as ListingId);
+    const streamId = `marketplace.listing-${listingId}`;
+    const existing = await repository.load(streamId);
+    if (existing.state.listingId !== null) {
+      return {
+        listingId,
+        version: existing.version,
+        feeQuoteFingerprint:
+          existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
+      };
+    }
+
+    const result = await commandHandler({
+      streamId,
+      command: {
+        type: "CreateListing",
+        listingId,
+        accountId: params.accountId,
+        inventoryItemId: supply.item_id,
+        catalogItemId: supply.catalog_catalog_item_id,
+        productId: supply.product_id as never,
+        itemTitle: supply.item_title,
+        itemSubtitle: supply.item_subtitle,
+        selectedOptions: supply.selected_options,
+        productSummary: supply.product_summary,
+        gradedCard: supply.graded_card,
+        storageLocationName: supply.storage_location_name,
+        shipFromCode: supply.ship_from_code,
+        priceAmount: params.priceAmount,
+        marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
+        sellerNetUnitAmount: quote.seller_net_unit_amount,
+        shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
+        termsScheduleId: quote.schedule_id,
+        termsAgreementId: quote.agreement_id,
+        termsResolvedAt: quote.resolved_at,
+        feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        quantityCap: params.quantityCap,
+      },
+      context,
+    });
+
+    return { listingId, version: result.version, feeQuoteFingerprint: quote.fee_quote_fingerprint };
+  }
+
   return {
     commandHandler,
-    createListing: async (params, context) => {
-      const supply = await getInventoryItemSupply(
-        deps.db,
-        params.inventoryItemId,
-        params.accountId,
+    createListing,
+    createBatchDraftListingFromInventorySnapshot: async (params, context) => {
+      assert(
+        params.quantityCap <= params.totalQuantity,
+        "Listing quantity caps cannot exceed created available inventory.",
       );
-      assert(supply, "Inventory item not found.");
-      const quote = await quoteListingTerms(params.accountId, params.priceAmount);
-
-      const listingId = params.listingIdOverride ?? (createId("lst") as ListingId);
-      const result = await commandHandler({
-        streamId: `marketplace.listing-${listingId}`,
-        command: {
-          type: "CreateListing",
-          listingId,
-          accountId: params.accountId,
-          inventoryItemId: supply.item_id,
-          catalogItemId: supply.catalog_catalog_item_id,
-          productId: supply.product_id as never,
-          itemTitle: supply.item_title,
-          itemSubtitle: supply.item_subtitle,
-          selectedOptions: supply.selected_options,
-          productSummary: supply.product_summary,
-          gradedCard: supply.graded_card,
-          storageLocationName: supply.storage_location_name,
-          shipFromCode: supply.ship_from_code,
+      await upsertBatchInventorySnapshot(params);
+      return createListing(
+        {
+          accountId: params.accountId as AccountId,
+          inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
-          marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-          sellerNetUnitAmount: quote.seller_net_unit_amount,
-          shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
-          termsScheduleId: quote.schedule_id,
-          termsAgreementId: quote.agreement_id,
-          termsResolvedAt: quote.resolved_at,
-          feeQuoteFingerprint: quote.fee_quote_fingerprint,
           quantityCap: params.quantityCap,
+          listingIdOverride: params.listingIdOverride,
         },
         context,
-      });
-
-      return { listingId, version: result.version, feeQuoteFingerprint: quote.fee_quote_fingerprint };
+      );
     },
     previewListingTerms: async (params) => {
       return quoteListingTerms(params.accountId, params.priceAmount);

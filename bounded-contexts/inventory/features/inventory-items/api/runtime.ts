@@ -45,6 +45,7 @@ export type InventoryItemServices = Readonly<{
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
+      itemIdOverride?: InventoryItemId;
     }>,
     context: EventStoreContext,
   ) => Promise<{ itemId: InventoryItemId; version: number }>;
@@ -71,13 +72,14 @@ export function createInventoryItemRuntime(
   deps: InventoryRuntimeDeps,
   catalogItems: InventoryCatalogItemServices,
 ): InventoryItemServices {
+  const repository = createAggregateRepository({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<InventoryItemEvent>(),
+    initialState: () => initialInventoryItemState,
+    evolve: evolveInventoryItem,
+  });
   const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<InventoryItemEvent>(),
-      initialState: () => initialInventoryItemState,
-      evolve: evolveInventoryItem,
-    }),
+    repository,
     evolve: evolveInventoryItem,
     decide: decideInventoryItem,
   });
@@ -135,9 +137,18 @@ export function createInventoryItemRuntime(
         );
       }
 
-      const itemId = createId("inv") as InventoryItemId;
+      const itemId = params.itemIdOverride ?? (createId("inv") as InventoryItemId);
+      const streamId = `inventory.item-${itemId}`;
+      const existing = await repository.load(streamId);
+      if (existing.state.id !== null) {
+        return {
+          itemId,
+          version: existing.version,
+        };
+      }
+
       const result = await commandHandler({
-        streamId: `inventory.item-${itemId}`,
+        streamId,
         command: {
           type: "CreateInventoryItem",
           itemId,

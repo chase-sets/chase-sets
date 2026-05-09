@@ -345,6 +345,9 @@
       "@chase-sets/pricing/context": [
         "./bounded-contexts/pricing/context.json"
       ],
+      "@chase-sets/pricing/routes/*": [
+        "./bounded-contexts/pricing/routes/*.tsx"
+      ],
       "@chase-sets/pricing/server": [
         "./bounded-contexts/pricing/server.ts"
       ],

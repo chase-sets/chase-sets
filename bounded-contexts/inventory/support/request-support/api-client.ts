@@ -10,6 +10,10 @@ export {
 export type {
   InventoryApiClientOptions,
   InventoryCatalogItemSnapshot,
+  InventoryImportBatch,
+  InventoryImportBatchDetail,
+  InventoryImportBatchRow,
+  ImportCsvRow,
   InventoryHold,
   InventoryItemDetail,
   InventoryItemListItem,

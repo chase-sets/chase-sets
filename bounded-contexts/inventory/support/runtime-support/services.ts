@@ -6,6 +6,10 @@ import type {
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "../../features/inventory-items/integrations/catalog/runtime";
 import { createInventoryHoldRuntime } from "../../features/holds/api/runtime";
+import {
+  createInventoryImportBatchRuntime,
+  type InventoryDraftListingCreator,
+} from "../../features/import-batches/api/runtime";
 import { createInventoryItemRuntime } from "../../features/inventory-items/api/runtime";
 import { createInventoryReservationRuntime } from "../../features/reservations/api/runtime";
 import { createStorageLocationRuntime } from "../../features/storage-locations/api/runtime";
@@ -14,6 +18,7 @@ export type InventoryServices = Readonly<{
   catalogItems: ReturnType<typeof createInventoryCatalogItemRuntime>;
   storageLocations: ReturnType<typeof createStorageLocationRuntime>;
   items: ReturnType<typeof createInventoryItemRuntime>;
+  importBatches: ReturnType<typeof createInventoryImportBatchRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
   projectors: readonly Projector[];
@@ -21,7 +26,14 @@ export type InventoryServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createInventoryServices(pool: PgTransactionalPool): InventoryServices {
+export type InventoryHostPorts = Readonly<{
+  draftListingCreator?: InventoryDraftListingCreator;
+}>;
+
+export function createInventoryServices(
+  pool: PgTransactionalPool,
+  ports: InventoryHostPorts = {},
+): InventoryServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
@@ -30,6 +42,12 @@ export function createInventoryServices(pool: PgTransactionalPool): InventorySer
   const catalogItems = createInventoryCatalogItemRuntime(deps);
   const storageLocations = createStorageLocationRuntime(deps);
   const items = createInventoryItemRuntime(deps, catalogItems);
+  const importBatches = createInventoryImportBatchRuntime({
+    db,
+    items,
+    catalogItems,
+    draftListingCreator: ports.draftListingCreator,
+  });
   const holds = createInventoryHoldRuntime(deps);
   const reservations = createInventoryReservationRuntime(deps);
 
@@ -37,6 +55,7 @@ export function createInventoryServices(pool: PgTransactionalPool): InventorySer
     catalogItems,
     storageLocations,
     items,
+    importBatches,
     holds,
     reservations,
     projectors: [

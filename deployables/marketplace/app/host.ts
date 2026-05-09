@@ -31,6 +31,7 @@ export function resolveMarketplaceNavItems(
 
 const sellingWorkflowKeys = new Set([
   "inventory",
+  "inventory-imports",
   "listings",
   "offer-matches",
   "sales",
@@ -47,6 +48,7 @@ const accountTopNavOrder = ["search", "cart", "purchases", "account", "reviews"]
 const accountChildNavOrder = ["account", "submitted-offers", "reviews"];
 const sellingNavOrder = [
   "inventory",
+  "inventory-imports",
   "listings",
   "offer-matches",
   "sales",
@@ -60,6 +62,10 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   },
   inventory: {
     label: t("marketplace.app.host.inventory"),
+    icon: "package",
+  },
+  "inventory-imports": {
+    label: t("marketplace.app.host.import"),
     icon: "package",
   },
   listings: {

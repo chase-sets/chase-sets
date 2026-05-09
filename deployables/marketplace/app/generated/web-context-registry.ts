@@ -11,6 +11,7 @@ import inventoryManifest from "@chase-sets/inventory/context";
 import marketplaceManifest from "@chase-sets/marketplace/context";
 import orderingManifest from "@chase-sets/ordering/context";
 import paymentsManifest from "@chase-sets/payments/context";
+import pricingManifest from "@chase-sets/pricing/context";
 import reputationManifest from "@chase-sets/reputation/context";
 import settlementManifest from "@chase-sets/settlement/context";
 
@@ -59,6 +60,11 @@ export const webContextRegistry = [
     contextName: "payments",
     packageName: "@chase-sets/payments",
     manifest: paymentsManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "pricing",
+    packageName: "@chase-sets/pricing",
+    manifest: pricingManifest as WebContextRegistry[number]["manifest"],
   },
   {
     contextName: "reputation",

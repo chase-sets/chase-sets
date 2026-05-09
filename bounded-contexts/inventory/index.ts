@@ -7,7 +7,10 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type { InventoryServices } from "./support/runtime-support/services";
+import type {
+  InventoryHostPorts,
+  InventoryServices,
+} from "./support/runtime-support/services";
 import { buildInventoryApi } from "./api";
 import { buildInventoryCatalogItemProjectionHandlers } from "./features/inventory-items/integrations/catalog/projection";
 import { InventoryDomainError } from "./support/runtime-support/common";
@@ -39,14 +42,14 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<InventoryServices, PgTransactionalPool, void> = {
+export const module: BcApiModule<InventoryServices, PgTransactionalPool, InventoryHostPorts> = {
   contextName: "inventory",
   routePrefix: "/api/inventory",
   streamPrefix: "inventory.",
   schemaSql: inventorySchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<InventoryServices, PgTransactionalPool, void>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>["apiMounts"],
   projectionGroups,
-  createServices: (pool) => createInventoryServices(pool),
+  createServices: (pool, ports) => createInventoryServices(pool, ports),
   buildApis: (services) => [buildInventoryApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {

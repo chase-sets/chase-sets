@@ -11,11 +11,13 @@
     "recommendations"
   ],
   "allowedSupportDirectories": [
+    "request-support",
     "runtime-support"
   ],
   "publicExports": [
     ".",
     "./context",
+    "./routes/*",
     "./server"
   ],
   "allowedContextDependencies": [],
@@ -173,8 +175,48 @@
       "drainProjectorsOnWrite": true
     }
   ],
-  "deployableContributions": [],
-  "shellContributions": [],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-repricing",
+          "routePath": "account/repricing",
+          "fileExport": "./routes/marketplace/account-repricing",
+          "routeType": "route",
+          "sourceContext": "pricing"
+        }
+      ]
+    }
+  ],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "repricing",
+      "label": "Pricing",
+      "icon": "chart",
+      "href": "/account/repricing",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "pricing.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "repricing",
+      "label": "Pricing",
+      "icon": "chart",
+      "href": "/account/repricing",
+      "order": 120,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "pricing.view"
+      ]
+    }
+  ],
   "directoryIntent": {
     "recommendations": {
       "classification": "slice",
@@ -194,6 +236,18 @@
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "pricing workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide reusable request-support assets shared by pricing-owned routes and composition seams.",
+      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "expectedConsumers": [
+        "Pricing route modules"
+      ],
+      "justification": "request-support centralizes context-local HTTP client composition for route loaders.",
+      "createdFor": "pricing workflows that span public entrypoints.",
+      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",

@@ -1,10 +1,22 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { ListResponse } from "@chase-sets/http/responses";
+import { readApiErrorMessage } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
+import type {
+  InventoryImportBatch,
+  InventoryImportBatchDetail,
+} from "./features/import-batches/read-model/queries";
+import type { ImportCsvRow } from "./features/import-batches/domain/csv";
 
 export type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
+export type {
+  InventoryImportBatch,
+  InventoryImportBatchDetail,
+  InventoryImportBatchRow,
+} from "./features/import-batches/read-model/queries";
+export type { ImportCsvRow } from "./features/import-batches/domain/csv";
 export type {
   InventoryItemDetail,
   InventoryItemListItem,
@@ -27,11 +39,7 @@ export class InventoryApiError extends Error {
     public readonly status: number,
     public readonly body: unknown,
   ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
+    super(readApiErrorMessage(body, `API error ${status}`));
   }
 }
 
@@ -72,6 +80,39 @@ export function createInventoryApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async listImportBatches(query = ""): Promise<ListResponse<InventoryImportBatch>> {
+      return parseJsonResponse(
+        await client["import-batches"].$get({
+          query: Object.fromEntries(new URLSearchParams(query)),
+          header: headers,
+        }),
+      );
+    },
+    async createImportBatch(body: Readonly<{
+      csvText?: string;
+      parsedRows?: readonly ImportCsvRow[];
+      sourceFilename?: string | null;
+    }>): Promise<InventoryImportBatchDetail> {
+      return parseJsonResponse(
+        await client["import-batches"].$post({ json: body, header: headers }),
+      );
+    },
+    async getImportBatch(id: string): Promise<InventoryImportBatchDetail> {
+      return parseJsonResponse(
+        await client["import-batches"][":id"].$get({
+          param: { id },
+          header: headers,
+        }),
+      );
+    },
+    async commitImportBatch(id: string): Promise<InventoryImportBatchDetail> {
+      return parseJsonResponse(
+        await client["import-batches"][":id"].commit.$post({
+          param: { id },
+          header: headers,
+        }),
+      );
+    },
     async listItems(query = ""): Promise<ListResponse<InventoryItemListItem>> {
       return parseJsonResponse(
         await client.items.$get({

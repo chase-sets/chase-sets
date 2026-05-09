@@ -54,7 +54,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
   const inventoryApi = createInventoryRequestApiClient(request);
-  const selectedInventoryItemId = new URL(request.url).searchParams.get("inventoryItemId");
+  const searchParams = new URL(request.url).searchParams;
+  const selectedInventoryItemId = searchParams.get("inventoryItemId");
+  const selectedCatalogItemId = searchParams.get("catalogItemId");
+  const recommendedPrice = searchParams.get("recommendedPrice") ?? "";
 
   const [listings, feeLockReport, items] = await Promise.all([
     marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
@@ -66,7 +69,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
     .map(toInventoryOption);
   const selectedInventoryItem = selectedInventoryItemId
     ? inventoryItems.find((inventoryItem) => inventoryItem.item_id === selectedInventoryItemId)
-    : null;
+    : selectedCatalogItemId
+      ? inventoryItems.find((inventoryItem) => inventoryItem.catalog_catalog_item_id === selectedCatalogItemId)
+      : null;
 
   return {
     listings,
@@ -75,7 +80,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     createForm: selectedInventoryItem
       ? {
           inventoryItemId: selectedInventoryItem.item_id,
-          priceAmount: "",
+          priceAmount: recommendedPrice,
           quantityCap: "1",
         }
       : null,

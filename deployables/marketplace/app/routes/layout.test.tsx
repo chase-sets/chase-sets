@@ -72,6 +72,7 @@ describe("marketplace route layout", () => {
     ]);
     expect(sellNav?.children?.map((item) => item.label)).toEqual([
       "Inventory",
+      "Import",
       "Listings",
       "Offer Matches",
       "Sales",
@@ -93,6 +94,7 @@ describe("marketplace route layout", () => {
       "Account",
     ]);
     expect(html).toContain('href="/account/inventory"');
+    expect(html).toContain('href="/account/inventory/imports"');
     expect(html).toContain('href="/account/cart"');
     expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account/offers/matches"');

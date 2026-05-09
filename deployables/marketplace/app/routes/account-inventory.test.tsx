@@ -4,6 +4,10 @@ import {
   loader as inventoryLoader,
 } from "@chase-sets/inventory/routes/marketplace/account-inventory";
 import {
+  action as inventoryImportsAction,
+  loader as inventoryImportsLoader,
+} from "@chase-sets/inventory/routes/marketplace/account-inventory-imports";
+import {
   action as inventoryItemAction,
   loader as inventoryItemLoader,
 } from "@chase-sets/inventory/routes/marketplace/account-inventory-item";
@@ -160,6 +164,154 @@ describe("marketplace inventory routes", () => {
     } as never);
 
     expect(result.item.available_quantity).toBe(7);
+  });
+
+  it("loads import batch workbench data through the inventory API", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/inventory/import-batches/imb_1")) {
+          return Promise.resolve(
+            jsonResponse({
+              batch_id: "imb_1",
+              account_id: "acc_1",
+              status: "uploaded",
+              source_filename: "stock.csv",
+              total_count: 1,
+              accepted_count: 1,
+              rejected_count: 0,
+              committed_count: 0,
+              created_at: "2026-05-09T00:00:00.000Z",
+              updated_at: "2026-05-09T00:00:00.000Z",
+              rows: [],
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            items: [
+              {
+                batch_id: "imb_1",
+                account_id: "acc_1",
+                status: "uploaded",
+                source_filename: "stock.csv",
+                total_count: 1,
+                accepted_count: 1,
+                rejected_count: 0,
+                committed_count: 0,
+                created_at: "2026-05-09T00:00:00.000Z",
+                updated_at: "2026-05-09T00:00:00.000Z",
+              },
+            ],
+            total: 1,
+            count: 1,
+          }),
+        );
+      }),
+    );
+
+    const result = await inventoryImportsLoader({
+      request: new Request("http://localhost/account/inventory/imports/imb_1"),
+      params: { batchId: "imb_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.batches.items).toHaveLength(1);
+    expect(result.detail?.batch_id).toBe("imb_1");
+  });
+
+  it("creates and commits import batches through route actions", async () => {
+    const requestedUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        requestedUrls.push(url);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            batch_id: "imb_1",
+            account_id: "acc_1",
+            status: "uploaded",
+            source_filename: "stock.csv",
+            total_count: 1,
+            accepted_count: 1,
+            rejected_count: 0,
+            committed_count: 0,
+            created_at: "2026-05-09T00:00:00.000Z",
+            updated_at: "2026-05-09T00:00:00.000Z",
+            rows: [],
+          }, 201),
+        );
+      }),
+    );
+
+    const createForm = new URLSearchParams();
+    createForm.set("intent", "create-batch");
+    createForm.set("csvText", "catalogItemId,storageLocationId,totalQuantity\ncat_1,loc_1,1");
+    createForm.set("sourceFilename", "stock.csv");
+    const createResponse = await inventoryImportsAction({
+      request: new Request("http://localhost/account/inventory/imports", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: createForm.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    const commitForm = new URLSearchParams();
+    commitForm.set("intent", "commit-batch");
+    commitForm.set("batchId", "imb_1");
+    const commitResponse = await inventoryImportsAction({
+      request: new Request("http://localhost/account/inventory/imports/imb_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: commitForm.toString(),
+      }),
+      params: { batchId: "imb_1" },
+      context: undefined,
+    } as never);
+
+    expect(createResponse).toBeInstanceOf(Response);
+    expect((createResponse as Response).headers.get("Location")).toBe("/account/inventory/imports/imb_1");
+    expect(commitResponse).toBeInstanceOf(Response);
+    expect(requestedUrls.some((url) => url.includes("/api/inventory/import-batches/imb_1/commit"))).toBe(true);
   });
 
   it("surfaces inventory item action validation errors", async () => {
