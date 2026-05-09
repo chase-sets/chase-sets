@@ -13,34 +13,39 @@ export type AddressSnapshot = Readonly<{
 
 export type AddressSnapshotSide = "sender" | "recipient";
 
-function normalizeRequiredText(value: string, fieldName: string) {
-  const normalized = value.trim();
+function normalizeRequiredText(value: unknown, fieldName: string) {
+  const normalized = typeof value === "string" ? value.trim() : "";
   if (normalized.length === 0) {
     throw new Error(`${fieldName} is required.`);
   }
   return normalized;
 }
 
-function normalizeOptionalText(value?: string | null) {
-  const normalized = value?.trim() ?? "";
+function normalizeOptionalText(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
   return normalized.length > 0 ? normalized : null;
 }
 
 export function normalizeAddressSnapshot(
-  address: AddressSnapshot,
+  address: AddressSnapshot | null | undefined,
   fieldPrefix = "Address",
 ): AddressSnapshot {
+  const fields =
+    typeof address === "object" && address !== null
+      ? address
+      : ({} as Partial<AddressSnapshot>);
+
   return {
-    name: normalizeRequiredText(address.name, `${fieldPrefix} name`),
-    company: normalizeOptionalText(address.company),
-    line1: normalizeRequiredText(address.line1, `${fieldPrefix} line 1`),
-    line2: normalizeOptionalText(address.line2),
-    city: normalizeRequiredText(address.city, `${fieldPrefix} city`),
-    state: normalizeRequiredText(address.state, `${fieldPrefix} state`),
-    postalCode: normalizeRequiredText(address.postalCode, `${fieldPrefix} postal code`),
-    country: normalizeRequiredText(address.country, `${fieldPrefix} country`).toUpperCase(),
-    phone: normalizeOptionalText(address.phone),
-    email: normalizeOptionalText(address.email),
+    name: normalizeRequiredText(fields.name, `${fieldPrefix} name`),
+    company: normalizeOptionalText(fields.company),
+    line1: normalizeRequiredText(fields.line1, `${fieldPrefix} line 1`),
+    line2: normalizeOptionalText(fields.line2),
+    city: normalizeRequiredText(fields.city, `${fieldPrefix} city`),
+    state: normalizeRequiredText(fields.state, `${fieldPrefix} state`),
+    postalCode: normalizeRequiredText(fields.postalCode, `${fieldPrefix} postal code`),
+    country: normalizeRequiredText(fields.country, `${fieldPrefix} country`).toUpperCase(),
+    phone: normalizeOptionalText(fields.phone),
+    email: normalizeOptionalText(fields.email),
   };
 }
 
