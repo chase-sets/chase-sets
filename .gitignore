@@ -1,6 +1,8 @@
 .claude/
 .codex/
 node_modules/
+.pnpm-store/
+.chase-sets-pnpm-store/
 dist/
 build/
 artifacts/

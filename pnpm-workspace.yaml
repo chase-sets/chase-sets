@@ -1,0 +1,9 @@
+packages:
+  - "bounded-contexts/*"
+  - "contracts/*"
+  - "infrastructure/*"
+  - "packages/*"
+  - "deployables/*"
+allowBuilds:
+  esbuild: true
+  protobufjs: true

@@ -8,6 +8,6 @@
   },
   "types": "./index.ts",
   "dependencies": {
-    "@chase-sets/event-core": "0.1.0"
+    "@chase-sets/event-core": "workspace:*"
   }
 }

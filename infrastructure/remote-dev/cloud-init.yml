@@ -25,9 +25,9 @@ runcmd:
   - apt-get update
   - apt-get install -y ca-certificates curl gnupg git openssh-client rsync docker.io docker-compose-plugin caddy
   - usermod -aG docker codex
-  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   - apt-get install -y nodejs
-  - npm install -g @openai/codex
+  - npm install -g pnpm@11.0.9 @openai/codex
   - systemctl enable --now docker
   - systemctl enable --now caddy
   - chown -R codex:codex /opt/chase-sets

@@ -7,7 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { readEnvFile } from "./lib/env.mjs";
-import { buildNpmInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
+import { buildPackageManagerInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
 
 const mode = process.argv[2] ?? "dev";
 const target = process.argv[3] ?? "all";
@@ -482,11 +482,11 @@ async function runBootstrap() {
     const processDefinition = processes.find(
       (definition) => definition.workspace === workspace,
     );
-    const invocation = buildNpmInvocation([
+    const invocation = buildPackageManagerInvocation([
+      "--filter",
+      workspace,
       "run",
       "bootstrap",
-      "--workspace",
-      workspace,
     ]);
     await runCommand(invocation.command, invocation.args, {
       env: processDefinition?.env ?? {},
@@ -629,11 +629,11 @@ async function runDev(targetName = "all") {
       await restartExistingListener(definition.port, definition.name);
     }
 
-    const invocation = buildNpmInvocation([
+    const invocation = buildPackageManagerInvocation([
+      "--filter",
+      definition.workspace,
       "run",
       "dev",
-      "--workspace",
-      definition.workspace,
     ]);
     const child = spawnCommand(invocation.command, invocation.args, {
       env: definition.env,

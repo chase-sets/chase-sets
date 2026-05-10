@@ -2,7 +2,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { readEnvFile } from "./lib/env.mjs";
-import { buildNpmInvocation, runCommand } from "./lib/process.mjs";
+import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { syncLocalEnvFiles } from "./local-env.mjs";
 
@@ -67,11 +67,11 @@ async function main() {
 
   for (const workspace of workspaces) {
     console.log(`Running ${scriptName} in ${workspace.name}...`);
-    const invocation = buildNpmInvocation([
+    const invocation = buildPackageManagerInvocation([
+      "--filter",
+      workspace.name,
       "run",
       scriptName,
-      "--workspace",
-      workspace.name,
       ...(passthroughArgs.length > 0 ? ["--", ...passthroughArgs] : []),
     ]);
     await runCommand(invocation.command, invocation.args, { stdio: "inherit" });

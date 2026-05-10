@@ -11,7 +11,7 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
-    "@chase-sets/payment-processing": "0.1.0"
+    "@chase-sets/payment-processing": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

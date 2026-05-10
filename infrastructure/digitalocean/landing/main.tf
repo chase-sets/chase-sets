@@ -99,8 +99,8 @@ resource "digitalocean_app" "landing" {
     service {
       name               = "public-web"
       source_dir         = "/"
-      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-public-web"
-      run_command        = "npm run start --workspace @chase-sets/app-public-web"
+      build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-public-web run build"
+      run_command        = "pnpm --filter @chase-sets/app-public-web run start"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = local.public_web_instances
@@ -157,8 +157,8 @@ resource "digitalocean_app" "landing" {
     service {
       name               = "admin-web"
       source_dir         = "/"
-      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-web"
-      run_command        = "npm run start --workspace @chase-sets/app-admin-web"
+      build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-admin-web run build"
+      run_command        = "pnpm --filter @chase-sets/app-admin-web run start"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = local.admin_web_instances
@@ -196,8 +196,8 @@ resource "digitalocean_app" "landing" {
     service {
       name               = "admin-support-api"
       source_dir         = "/"
-      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-support-api"
-      run_command        = "npm run start:production --workspace @chase-sets/app-admin-support-api"
+      build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-admin-support-api run build"
+      run_command        = "pnpm --filter @chase-sets/app-admin-support-api run start:production"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = local.api_instances
@@ -259,8 +259,8 @@ resource "digitalocean_app" "landing" {
     worker {
       name               = "admin-support-worker"
       source_dir         = "/"
-      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata && npm run build --workspace @chase-sets/app-admin-support-worker"
-      run_command        = "npm run start:production --workspace @chase-sets/app-admin-support-worker"
+      build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-admin-support-worker run build"
+      run_command        = "pnpm --filter @chase-sets/app-admin-support-worker run start:production"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = local.worker_instances
@@ -299,8 +299,8 @@ resource "digitalocean_app" "landing" {
       name               = "admin-support-bootstrap"
       kind               = "PRE_DEPLOY"
       source_dir         = "/"
-      build_command      = "npm ci --include=dev && npm run sync:workspace-metadata"
-      run_command        = "npm run bootstrap:production --workspace @chase-sets/app-admin-support-api"
+      build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata"
+      run_command        = "pnpm --filter @chase-sets/app-admin-support-api run bootstrap:production"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = 1

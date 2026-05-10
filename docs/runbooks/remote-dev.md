@@ -9,7 +9,7 @@ Install these locally:
 - `doctl`
 - `ssh`
 - `git`
-- `npm`
+- `pnpm`
 - `rsync` for `sync` and `sync-from`
 
 Set these environment variables outside the repo:
@@ -44,31 +44,31 @@ If DigitalOcean manages the apex domain, set `REMOTE_DEV_DNS_ZONE` to that apex 
 Preview the DigitalOcean operations without creating resources:
 
 ```bash
-npm run remote-dev -- create --dry-run
+pnpm run remote-dev -- create --dry-run
 ```
 
 Create a session for the current branch:
 
 ```bash
-npm run remote-dev -- create
+pnpm run remote-dev -- create
 ```
 
 Useful commands:
 
 ```bash
-npm run remote-dev -- list
-npm run remote-dev -- status <slug>
-npm run remote-dev -- ssh <slug>
-npm run remote-dev -- open <slug> marketplace
-npm run remote-dev -- sync <slug>
-npm run remote-dev -- sync-from <slug>
-npm run remote-dev -- up <slug>
-npm run remote-dev -- preview <slug>
-npm run remote-dev -- logs <slug>
-npm run remote-dev -- reset-db <slug>
-npm run remote-dev -- renew <slug> --ttl-hours 48
-npm run remote-dev -- destroy <slug> --force
-npm run remote-dev -- prune-expired --force
+pnpm run remote-dev -- list
+pnpm run remote-dev -- status <slug>
+pnpm run remote-dev -- ssh <slug>
+pnpm run remote-dev -- open <slug> marketplace
+pnpm run remote-dev -- sync <slug>
+pnpm run remote-dev -- sync-from <slug>
+pnpm run remote-dev -- up <slug>
+pnpm run remote-dev -- preview <slug>
+pnpm run remote-dev -- logs <slug>
+pnpm run remote-dev -- reset-db <slug>
+pnpm run remote-dev -- renew <slug> --ttl-hours 48
+pnpm run remote-dev -- destroy <slug> --force
+pnpm run remote-dev -- prune-expired --force
 ```
 
 `create` defaults to:
@@ -94,7 +94,7 @@ Caddy terminates HTTPS and routes `/api/*` from the web hostnames to `platform-a
 
 ## Codex And Git
 
-The Droplet installs the latest Codex CLI with npm. Run this after SSHing into a session:
+The Droplet installs pnpm plus the latest Codex CLI during cloud-init. Run this after SSHing into a session:
 
 ```bash
 codex --login
@@ -134,11 +134,11 @@ The tooling warns when more than three active sessions exist. Use `--force` when
 `prune-expired` reads expiration tags from DigitalOcean and destroys expired sessions. Run it regularly:
 
 ```bash
-npm run remote-dev -- prune-expired --force
+pnpm run remote-dev -- prune-expired --force
 ```
 
 Destroy is intentionally explicit:
 
 ```bash
-npm run remote-dev -- destroy <slug> --force
+pnpm run remote-dev -- destroy <slug> --force
 ```

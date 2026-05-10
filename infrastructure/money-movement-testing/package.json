@@ -13,8 +13,8 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
-    "@chase-sets/money-movement": "0.1.0",
-    "@chase-sets/primitives": "0.1.0"
+    "@chase-sets/money-movement": "workspace:*",
+    "@chase-sets/primitives": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

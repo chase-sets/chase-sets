@@ -62,14 +62,14 @@ context pool and merges them into a single route wake signal.
 Use these checks before changing SSE behavior:
 
 ```powershell
-npm run typecheck
-npm run test:fast
-npm run check:structure
+pnpm run typecheck
+pnpm run test:fast
+pnpm run check:structure
 ```
 
 With Postgres available:
 
 ```powershell
 $env:TEST_DATABASE_URL="postgres://..."
-npm run test --workspace @chase-sets/platform-runtime -- realtime.db.test.ts
+pnpm --filter @chase-sets/platform-runtime run test -- realtime.db.test.ts
 ```

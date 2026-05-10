@@ -11,8 +11,8 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
-    "@chase-sets/communications-email": "0.1.0",
-    "@chase-sets/notifications": "0.1.0"
+    "@chase-sets/communications-email": "workspace:*",
+    "@chase-sets/notifications": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

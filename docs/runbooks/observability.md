@@ -7,19 +7,19 @@ Platform API observability uses OpenTelemetry for application signals and a low-
 Start the stack:
 
 ```powershell
-npm run dev:observability
+pnpm run dev:observability
 ```
 
 Open Grafana:
 
 ```powershell
-npm run dev:observability:open
+pnpm run dev:observability:open
 ```
 
 Stop only observability services:
 
 ```powershell
-npm run dev:observability:down
+pnpm run dev:observability:down
 ```
 
 Grafana runs at `http://localhost:3000` with local-only default credentials `admin` / `admin`. Prometheus runs at `http://localhost:9090`, Loki at `http://localhost:3100`, Tempo at `http://localhost:3200`, and the OpenTelemetry Collector accepts OTLP at `http://localhost:4318` and `localhost:4317`.

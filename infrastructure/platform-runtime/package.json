@@ -24,14 +24,14 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
-    "@chase-sets/auth-context": "0.1.0",
-    "@chase-sets/bounded-context-module": "0.1.0",
-    "@chase-sets/bounded-context-runtime": "0.1.0",
-    "@chase-sets/design-system": "0.1.0",
-    "@chase-sets/event-core": "0.1.0",
-    "@chase-sets/event-core-postgres": "0.1.0",
-    "@chase-sets/mcp": "0.1.0",
-    "@chase-sets/realtime": "0.1.0",
+    "@chase-sets/auth-context": "workspace:*",
+    "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/bounded-context-runtime": "workspace:*",
+    "@chase-sets/design-system": "workspace:*",
+    "@chase-sets/event-core": "workspace:*",
+    "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/mcp": "workspace:*",
+    "@chase-sets/realtime": "workspace:*",
     "@react-router/dev": "^7.14.0",
     "hono": "^4.12.12",
     "react": "^19.2.5"

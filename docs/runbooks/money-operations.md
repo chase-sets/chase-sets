@@ -28,7 +28,7 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 - Payout Operations must show recent provider idempotency keys.
 - Payment webhooks must cover checkout completion, async failure, expiration, refunds, and disputes.
 - Connect webhooks must cover account/readiness updates, `payout.paid`, and `payout.failed`.
-- Run `npm run verify` before deployment. DB-backed rollout checks belong in `npm run verify:db` when database compatibility is in scope.
+- Run `pnpm run verify` before deployment. DB-backed rollout checks belong in `pnpm run verify:db` when database compatibility is in scope.
 
 ## Local Stripe Runtime
 
@@ -45,7 +45,7 @@ For local development, keep real Stripe values in `deployables/platform-api/.env
 
 Webhook callbacks are mounted by the platform API at `/api/payments/stripe/webhooks`. The account payment routes stay under `/api/marketplace/account/payments`.
 
-When the dev stack includes `platform-api`, `npm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` into `deployables/platform-api/.env.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `npm run stripe:listen` manually if you want the listener in a separate terminal.
+When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` into `deployables/platform-api/.env.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `pnpm run stripe:listen` manually if you want the listener in a separate terminal.
 
 ## Stripe Connect Notes
 
@@ -82,9 +82,9 @@ For authenticated seller-flow checks, set one of:
 Commands:
 
 ```bash
-npm run stripe:money-smoke -- --check-env
-npm run stripe:money-smoke -- --edge-check
-npm run stripe:money-smoke -- --seller-flow
+pnpm run stripe:money-smoke -- --check-env
+pnpm run stripe:money-smoke -- --edge-check
+pnpm run stripe:money-smoke -- --seller-flow
 ```
 
 Expected results:

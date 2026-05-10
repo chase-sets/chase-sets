@@ -10,4 +10,4 @@ This root owns:
 
 Initialize this root only after the state bucket has been created by [state-bootstrap](../state-bootstrap/README.md). Use `landing/staging.tfstate` for staging and `landing/production.tfstate` for production.
 
-Run `npm ci` from the repo root before applying this Terraform root.
+Run `pnpm install --frozen-lockfile` from the repo root before applying this Terraform root.

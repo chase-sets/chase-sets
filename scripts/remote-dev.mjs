@@ -59,21 +59,21 @@ const persistedEnvKeys = [
 
 function printUsage() {
   console.log(`Usage:
-  npm run remote-dev -- create [--dry-run] [--name <slug>] [--branch <branch>]
-  npm run remote-dev -- list
-  npm run remote-dev -- status <slug>
-  npm run remote-dev -- ssh <slug>
-  npm run remote-dev -- open <slug> [service]
-  npm run remote-dev -- sync <slug>
-  npm run remote-dev -- sync-from <slug>
-  npm run remote-dev -- up <slug> [--observability]
-  npm run remote-dev -- preview <slug> [--observability]
-  npm run remote-dev -- logs <slug> [service]
-  npm run remote-dev -- reset-db <slug>
-  npm run remote-dev -- renew <slug> [--ttl-hours <hours>]
-  npm run remote-dev -- destroy <slug> [--dry-run] [--force]
-  npm run remote-dev -- prune-expired [--dry-run] [--force]
-  npm run remote-dev -- observability <slug> <up|down|open>
+  pnpm run remote-dev -- create [--dry-run] [--name <slug>] [--branch <branch>]
+  pnpm run remote-dev -- list
+  pnpm run remote-dev -- status <slug>
+  pnpm run remote-dev -- ssh <slug>
+  pnpm run remote-dev -- open <slug> [service]
+  pnpm run remote-dev -- sync <slug>
+  pnpm run remote-dev -- sync-from <slug>
+  pnpm run remote-dev -- up <slug> [--observability]
+  pnpm run remote-dev -- preview <slug> [--observability]
+  pnpm run remote-dev -- logs <slug> [service]
+  pnpm run remote-dev -- reset-db <slug>
+  pnpm run remote-dev -- renew <slug> [--ttl-hours <hours>]
+  pnpm run remote-dev -- destroy <slug> [--dry-run] [--force]
+  pnpm run remote-dev -- prune-expired [--dry-run] [--force]
+  pnpm run remote-dev -- observability <slug> <up|down|open>
 
 Required for create:
   DIGITALOCEAN_ACCESS_TOKEN
@@ -648,7 +648,7 @@ async function createSession(flags) {
     return;
   }
 
-  await assertPrerequisites(["doctl", "ssh", "git", "npm"]);
+  await assertPrerequisites(["doctl", "ssh", "git", "pnpm"]);
   await runPlan(plan.slice(0, -2));
   const droplet = await fetchSession(slug);
   const publicIp = droplet?.publicIp;

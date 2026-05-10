@@ -16,15 +16,15 @@
   },
   "types": "./index.ts",
   "dependencies": {
-    "@chase-sets/auth-context": "0.1.0",
-    "@chase-sets/bounded-context-module": "0.1.0",
-    "@chase-sets/design-system": "0.1.0",
-    "@chase-sets/event-core": "0.1.0",
-    "@chase-sets/event-core-postgres": "0.1.0",
-    "@chase-sets/http": "0.1.0",
-    "@chase-sets/localization": "0.0.0",
-    "@chase-sets/platform-runtime": "0.1.0",
-    "@chase-sets/primitives": "0.1.0",
+    "@chase-sets/auth-context": "workspace:*",
+    "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/design-system": "workspace:*",
+    "@chase-sets/event-core": "workspace:*",
+    "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/http": "workspace:*",
+    "@chase-sets/localization": "workspace:*",
+    "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/primitives": "workspace:*",
     "hono": "^4.12.12"
   }
 }

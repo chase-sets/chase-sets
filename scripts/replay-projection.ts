@@ -55,8 +55,8 @@ function printUsage(): void {
   console.log(
     [
       "Usage:",
-      "  npm run replay:projection -- <deployable> status [contextName]",
-      "  npm run replay:projection -- <deployable> rebuild <contextName> <projectionName|--all>",
+      "  pnpm run replay:projection -- <deployable> status [contextName]",
+      "  pnpm run replay:projection -- <deployable> rebuild <contextName> <projectionName|--all>",
       "",
       `Deployables: ${Object.keys(deployableLoaders).join(", ")}`,
     ].join("\n"),

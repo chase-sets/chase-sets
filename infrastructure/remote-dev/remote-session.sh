@@ -45,11 +45,11 @@ bootstrap() {
 
   install_env_and_caddy
   install -d -o codex -g codex "$APP_DIR/artifacts/observability"
-  log "Installing npm dependencies."
-  sudo -u codex npm --prefix "$APP_DIR" ci
+  log "Installing pnpm dependencies."
+  sudo -u codex bash -lc "cd '$APP_DIR' && pnpm install --frozen-lockfile"
   log "Bootstrapping database."
   systemctl enable --now docker
-  sudo -u codex bash -lc "cd '$APP_DIR' && set -a && [ -f '$ENV_FILE' ] && source '$ENV_FILE'; set +a; npm run dev:bootstrap"
+  sudo -u codex bash -lc "cd '$APP_DIR' && set -a && [ -f '$ENV_FILE' ] && source '$ENV_FILE'; set +a; pnpm run dev:bootstrap"
   log "Session $slug is ready. Run: codex --login"
 }
 
@@ -84,7 +84,7 @@ stop_app_services() {
 up_dev() {
   require_app
   stop_app_services
-  write_service "chase-sets-dev" "set -a; [ -f '${ENV_FILE}' ] && source '${ENV_FILE}'; set +a; npm run dev"
+  write_service "chase-sets-dev" "set -a; [ -f '${ENV_FILE}' ] && source '${ENV_FILE}'; set +a; pnpm run dev"
   systemctl daemon-reload
   systemctl enable --now chase-sets-dev.service
 }
@@ -93,11 +93,11 @@ up_preview() {
   require_app
   stop_app_services
   log "Building workspace preview."
-  sudo -u codex npm --prefix "$APP_DIR" run build
-  write_service "chase-sets-platform-api" "cd deployables/platform-api && PORT=6182 npm run start"
-  write_service "chase-sets-platform-worker" "cd deployables/platform-worker && PORT=6183 npm run start"
-  write_service "chase-sets-marketplace" "cd deployables/marketplace && PORT=6173 npm run start"
-  write_service "chase-sets-admin-web" "cd deployables/admin-web && PORT=6172 npm run start"
+  sudo -u codex bash -lc "cd '$APP_DIR' && pnpm run build"
+  write_service "chase-sets-platform-api" "pnpm --dir '${APP_DIR}' --filter @chase-sets/app-platform-api run start"
+  write_service "chase-sets-platform-worker" "pnpm --dir '${APP_DIR}' --filter @chase-sets/app-platform-worker run start"
+  write_service "chase-sets-marketplace" "pnpm --dir '${APP_DIR}' --filter @chase-sets/app-marketplace-web run start"
+  write_service "chase-sets-admin-web" "pnpm --dir '${APP_DIR}' --filter @chase-sets/app-admin-web run start"
   write_service "chase-sets-portal" "PORT=6170 node ./scripts/dev-portal.mjs"
   systemctl daemon-reload
   systemctl enable --now chase-sets-platform-api.service chase-sets-platform-worker.service chase-sets-marketplace.service chase-sets-admin-web.service chase-sets-portal.service
@@ -106,7 +106,7 @@ up_preview() {
 reset_db() {
   require_app
   stop_app_services
-  sudo -u codex bash -lc "cd '$APP_DIR' && set -a && [ -f '$ENV_FILE' ] && source '$ENV_FILE'; set +a; npm run dev:db:refresh"
+  sudo -u codex bash -lc "cd '$APP_DIR' && set -a && [ -f '$ENV_FILE' ] && source '$ENV_FILE'; set +a; pnpm run dev:db:refresh"
 }
 
 logs() {
@@ -122,9 +122,9 @@ observability() {
   local action="${1:-up}"
   require_app
   case "$action" in
-    up) sudo -u codex npm --prefix "$APP_DIR" run dev:observability ;;
-    down) sudo -u codex npm --prefix "$APP_DIR" run dev:observability:down ;;
-    open) sudo -u codex npm --prefix "$APP_DIR" run dev:observability:open ;;
+    up) sudo -u codex bash -lc "cd '$APP_DIR' && pnpm run dev:observability" ;;
+    down) sudo -u codex bash -lc "cd '$APP_DIR' && pnpm run dev:observability:down" ;;
+    open) sudo -u codex bash -lc "cd '$APP_DIR' && pnpm run dev:observability:open" ;;
     *) log "Unknown observability action: $action"; exit 1 ;;
   esac
 }

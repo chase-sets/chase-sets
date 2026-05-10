@@ -4,31 +4,52 @@ import path from "node:path";
 import process from "node:process";
 import { repoRoot } from "./repo.mjs";
 
-function resolveWindowsNpmCliPath() {
+function activePackageManagerExecPath() {
+  const execPath = process.env.npm_execpath;
+  if (!execPath || !/pnpm/i.test(execPath) || !existsSync(execPath)) {
+    return null;
+  }
+
+  return execPath;
+}
+
+function resolveWindowsPnpmCliPath() {
   const candidates = [
-    process.env.npm_execpath,
-    path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"),
+    activePackageManagerExecPath(),
+    process.env.PNPM_HOME ? path.join(process.env.PNPM_HOME, "pnpm.cjs") : null,
+    process.env.PNPM_HOME
+      ? path.join(process.env.PNPM_HOME, "node_modules", "pnpm", "bin", "pnpm.cjs")
+      : null,
+    path.join(path.dirname(process.execPath), "node_modules", "pnpm", "bin", "pnpm.cjs"),
     process.env.APPDATA
-      ? path.join(process.env.APPDATA, "npm", "node_modules", "npm", "bin", "npm-cli.js")
+      ? path.join(process.env.APPDATA, "npm", "node_modules", "pnpm", "bin", "pnpm.cjs")
       : null,
   ].filter(Boolean);
 
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
-export function buildNpmInvocation(args) {
+export function buildPackageManagerInvocation(args) {
   if (process.platform === "win32") {
-    const npmCliPath = resolveWindowsNpmCliPath();
-    if (npmCliPath) {
+    const pnpmCliPath = resolveWindowsPnpmCliPath();
+    if (pnpmCliPath) {
       return {
         command: process.execPath,
-        args: [npmCliPath, ...args],
+        args: [pnpmCliPath, ...args],
       };
     }
   }
 
+  const activeExecPath = activePackageManagerExecPath();
+  if (activeExecPath) {
+    return {
+      command: process.execPath,
+      args: [activeExecPath, ...args],
+    };
+  }
+
   return {
-    command: "npm",
+    command: "pnpm",
     args,
   };
 }

@@ -46,7 +46,7 @@ terraform apply
 
 Then run `terraform init` in `infrastructure/digitalocean/landing` using `landing/staging.tfstate` or `landing/production.tfstate` as the backend key. The CI workflows use the same backend settings.
 
-Run `npm ci` before Terraform apply. The landing Terraform root creates per-context database users and then runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys.
+Run `pnpm install --frozen-lockfile` before Terraform apply. The landing Terraform root creates per-context database users and then runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys.
 
 ## Staging Deployment
 
@@ -54,10 +54,10 @@ Staging deploys from `main` through `.github/workflows/landing-staging.yml`.
 
 The workflow:
 
-1. Runs `npm run verify`.
+1. Runs `pnpm run verify`.
 2. Runs Terraform fmt, plan, and apply for `environment=staging`.
 3. Creates a DigitalOcean App Platform deployment and waits for completion.
-4. Runs `npm run smoke:landing`.
+4. Runs `pnpm run smoke:landing`.
 
 Staging is persistent and intentionally `noindex,nofollow`; production is the only indexed public origin.
 
@@ -69,10 +69,10 @@ The workflow:
 
 1. Creates the release tag from the requested release ref when it is missing, or verifies the existing tag.
 2. Fast-forwards the protected `production` branch to that tag.
-3. Runs `npm run verify`.
+3. Runs `pnpm run verify`.
 4. Runs Terraform fmt, plan, and apply for `environment=production`.
 5. Creates a DigitalOcean App Platform deployment and waits for completion.
-6. Runs `npm run smoke:landing` with `ops+smoke@chasesets.com` and smoke UTM markers.
+6. Runs `pnpm run smoke:landing` with `ops+smoke@chasesets.com` and smoke UTM markers.
 
 ## Smoke Coverage
 

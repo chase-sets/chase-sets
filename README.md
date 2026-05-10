@@ -82,35 +82,35 @@ Default local ports:
 
 ## Prerequisites
 
-- Node.js 22.
-- npm.
+- Node.js 24.
+- pnpm 11.0.9. Run `npm install -g pnpm@11.0.9` if it is not already available.
 - Docker with Docker Compose.
 - Optional: Stripe CLI for webhook-driven payment smoke tests.
 
-CI runs on Node 22 and uses `npm ci`, so local development should do the same when starting from a fresh checkout.
+CI runs on Node 24 and uses `pnpm install --frozen-lockfile`, so local development should do the same when starting from a fresh checkout. Worktrees share a pnpm content store at `../.chase-sets-pnpm-store` by default; set `CHASE_SETS_PNPM_STORE_DIR` to override it.
 
 ## Getting Started
 
 ```bash
-npm ci
-npm run dev:bootstrap
-npm run dev
+pnpm run setup:worktree
+pnpm run dev:bootstrap
+pnpm run dev
 ```
 
-`npm run dev` starts shared Postgres, provisions the local database, bootstraps platform services, and runs the full local system.
+`pnpm run dev` starts shared Postgres, provisions the local database, bootstraps platform services, and runs the full local system.
 
 Focused dev targets are available when you only need part of the system:
 
 ```bash
-npm run dev:admin-web
-npm run dev:marketplace-full
+pnpm run dev:admin-web
+pnpm run dev:marketplace-full
 ```
 
 Useful local lifecycle commands:
 
 ```bash
-npm run dev:down       # stop shared local services
-npm run dev:db:refresh # destroy local Postgres data and bootstrap again
+pnpm run dev:down       # stop shared local services
+pnpm run dev:db:refresh # destroy local Postgres data and bootstrap again
 ```
 
 The default local database is `postgresql://postgres:postgres@localhost:5432/chase_sets`. Platform environment defaults live in:
@@ -138,35 +138,35 @@ The shared directory mirrors repo-relative env paths, such as:
 Useful commands:
 
 ```bash
-npm run env:sync   # two-way sync; newer file wins
-npm run env:pull   # copy shared env into this worktree
-npm run env:push   # copy this worktree env into shared env
-npm run env:check  # report missing or drifted env files
-npm run env:doctor # print detailed local env status
+pnpm run env:sync   # two-way sync; newer file wins
+pnpm run env:pull   # copy shared env into this worktree
+pnpm run env:push   # copy this worktree env into shared env
+pnpm run env:check  # report missing or drifted env files
+pnpm run env:doctor # print detailed local env status
 ```
 
-`npm run dev`, `npm run dev:bootstrap`, and `npm run dev:db:refresh` run `env:sync` before starting the local platform. Test workspace runs hydrate local test env before reading `.env.test.local`, and the Stripe listener pushes the latest local webhook secret back into the shared store.
+`pnpm run dev`, `pnpm run dev:bootstrap`, and `pnpm run dev:db:refresh` run `env:sync` before starting the local platform. Test workspace runs hydrate local test env before reading `.env.test.local`, and the Stripe listener pushes the latest local webhook secret back into the shared store.
 
 ## Common Commands
 
 ```bash
-npm run typecheck
-npm run test
-npm run test:db
-npm run build
-npm run verify
+pnpm run typecheck
+pnpm run test
+pnpm run test:db
+pnpm run build
+pnpm run verify
 ```
 
 The main verification path is:
 
 ```bash
-npm run verify
+pnpm run verify
 ```
 
 It syncs workspace metadata, checks architectural boundaries, typechecks, runs fast tests, and builds all workspaces. DB-backed verification is separate:
 
 ```bash
-npm run verify:db
+pnpm run verify:db
 ```
 
 Local DB-backed tests read `TEST_DATABASE_URL` from root `.env.test.local`
@@ -229,9 +229,9 @@ Key references:
 Local observability is Docker-backed and writes development logs under `artifacts/observability/`.
 
 ```bash
-npm run dev:observability
-npm run dev:observability:open
-npm run dev:observability:down
+pnpm run dev:observability
+pnpm run dev:observability:open
+pnpm run dev:observability:down
 ```
 
 See [docs/runbooks/observability.md](docs/runbooks/observability.md) for the full workflow.
@@ -241,8 +241,8 @@ See [docs/runbooks/observability.md](docs/runbooks/observability.md) for the ful
 The repo includes automated checks for architecture boundaries and localization. Run these directly when working near those concerns:
 
 ```bash
-npm run check:structure
-npm run check:localization
+pnpm run check:structure
+pnpm run check:localization
 ```
 
 CI enforces structure with stricter single-slice support rules. If a change wants new shared code, make the ownership explicit before moving it out of the slice.

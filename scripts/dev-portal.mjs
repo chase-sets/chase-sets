@@ -209,7 +209,7 @@ function renderPage() {
     </section>
 
     <footer>
-      Start the full stack with <kbd>npm run dev</kbd> - stop with <kbd>Ctrl+C</kbd>
+      Start the full stack with <kbd>pnpm run dev</kbd> - stop with <kbd>Ctrl+C</kbd>
     </footer>
   </div>
 </body>
