@@ -1,0 +1,38 @@
+export const supportSourceProjectionSchemaSql = `
+CREATE TABLE IF NOT EXISTS support_order_sources (
+  order_id text PRIMARY KEY,
+  buyer_account_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  status text NOT NULL,
+  total_amount numeric(12,2) NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  cancelled_at timestamptz NULL,
+  ready_for_fulfillment_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS support_order_sources_buyer_idx
+  ON support_order_sources (buyer_account_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS support_order_sources_seller_idx
+  ON support_order_sources (seller_account_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS support_shipment_sources (
+  shipment_id text PRIMARY KEY,
+  order_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  status text NOT NULL,
+  tracking_identifier text NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  dispatched_at timestamptz NULL,
+  delivered_at timestamptz NULL,
+  returned_at timestamptz NULL,
+  exception_type text NULL,
+  exception_notes text NULL
+);
+
+CREATE INDEX IF NOT EXISTS support_shipment_sources_order_idx
+  ON support_shipment_sources (order_id, updated_at DESC);
+`;

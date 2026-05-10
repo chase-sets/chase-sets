@@ -77,6 +77,20 @@
         "fulfillment.shipment.exception-raised"
       ],
       "order": 30
+    },
+    {
+      "sourceContextName": "support",
+      "projectionName": "reputation-support-source-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "reputation-support-source-projection"
+      ],
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
+      ],
+      "order": 90
     }
   ],
   "projectionGroups": [
@@ -109,6 +123,16 @@
         "reputation_shipment_sources"
       ],
       "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "reputation-support-source-projection",
+      "sourceContextNames": [
+        "support"
+      ],
+      "ownedTables": [
+        "reputation_review_eligibility_pages"
+      ],
+      "requiredDuringBootstrap": false
     }
   ],
   "hostPorts": [],

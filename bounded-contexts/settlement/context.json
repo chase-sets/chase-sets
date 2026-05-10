@@ -50,6 +50,22 @@
         "payments.refund-failed"
       ],
       "order": 10
+    },
+    {
+      "sourceContextName": "support",
+      "projectionName": "settlement-support-hold-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "settlement-support-hold-projection"
+      ],
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.escalated",
+        "support.support-request.resolved",
+        "support.support-request.closed",
+        "support.support-request.cancelled"
+      ],
+      "order": 80
     }
   ],
   "projectionGroups": [
@@ -63,6 +79,16 @@
         "settlement_refund_sources"
       ],
       "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "settlement-support-hold-projection",
+      "sourceContextNames": [
+        "support"
+      ],
+      "ownedTables": [
+        "settlement_support_holds"
+      ],
+      "requiredDuringBootstrap": false
     }
   ],
   "hostPorts": [

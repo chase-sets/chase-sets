@@ -264,3 +264,88 @@ export function buildReputationShipmentProjectionHandlers(
     },
   };
 }
+
+async function restoreEligibilityIfDelivered(db: PgQueryable, orderId: string, eligibleAt: string) {
+  const result = await db.query<{
+    buyer_account_id: string;
+    seller_account_id: string;
+    delivered_at: string;
+  }>(
+    `SELECT
+       order_source.buyer_account_id,
+       order_source.seller_account_id,
+       shipment_source.delivered_at::text AS delivered_at
+     FROM reputation_order_sources order_source
+     JOIN reputation_shipment_sources shipment_source
+       ON shipment_source.order_id = order_source.order_id
+      AND shipment_source.status = 'delivered'
+     WHERE order_source.order_id = $1
+     ORDER BY shipment_source.delivered_at ASC
+     LIMIT 1`,
+    [orderId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return;
+  }
+  const restoredAt = row.delivered_at ?? eligibleAt;
+
+  await db.query(
+    `INSERT INTO reputation_review_eligibility_pages (
+       order_id,
+       author_account_id,
+       subject_account_id,
+       author_role,
+       eligible_at,
+       updated_at
+     ) VALUES
+       ($1, $2, $3, 'buyer', $4, $5),
+       ($1, $3, $2, 'seller', $4, $5)
+     ON CONFLICT (order_id, author_account_id, subject_account_id) DO UPDATE
+     SET eligible_at = EXCLUDED.eligible_at,
+         updated_at = EXCLUDED.updated_at`,
+    [
+      orderId,
+      row.buyer_account_id,
+      row.seller_account_id,
+      restoredAt,
+      eligibleAt,
+    ],
+  );
+}
+
+export function buildReputationSupportProjectionHandlers(
+  db: PgQueryable,
+): ProjectorHandlerMap {
+  return {
+    "support.support-request.opened": async (event) => {
+      const data = event.data as { orderId: string };
+
+      await db.query(
+        `DELETE FROM reputation_review_eligibility_pages
+         WHERE order_id = $1`,
+        [data.orderId],
+      );
+    },
+    "support.support-request.cancelled": async (event) => {
+      const data = event.data as { orderId: string; cancelledAt: string };
+      await restoreEligibilityIfDelivered(db, data.orderId, data.cancelledAt);
+    },
+    "support.support-request.resolved": async (event) => {
+      const data = event.data as {
+        orderId: string;
+        resolution: { resolutionType: string; resolvedAt: string };
+      };
+      if (
+        data.resolution.resolutionType === "no-action" ||
+        data.resolution.resolutionType === "support-reviewed"
+      ) {
+        await restoreEligibilityIfDelivered(
+          db,
+          data.orderId,
+          data.resolution.resolvedAt,
+        );
+      }
+    },
+  };
+}

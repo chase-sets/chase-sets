@@ -255,6 +255,12 @@
       "@chase-sets/money-movement-testing": [
         "./infrastructure/money-movement-testing/index.ts"
       ],
+      "@chase-sets/notification-outbox": [
+        "./infrastructure/notification-outbox/index.ts"
+      ],
+      "@chase-sets/notifications": [
+        "./contracts/notifications/index.ts"
+      ],
       "@chase-sets/observability": [
         "./infrastructure/observability/index.ts"
       ],
@@ -417,6 +423,21 @@
       "@chase-sets/stripe-payments": [
         "./infrastructure/stripe-payments/index.ts"
       ],
+      "@chase-sets/support": [
+        "./bounded-contexts/support/index.ts"
+      ],
+      "@chase-sets/support/context": [
+        "./bounded-contexts/support/context.json"
+      ],
+      "@chase-sets/support/routes/*": [
+        "./bounded-contexts/support/routes/*.tsx"
+      ],
+      "@chase-sets/support/seed-support/*": [
+        "./bounded-contexts/support/support/seed-support/*.ts"
+      ],
+      "@chase-sets/support/server": [
+        "./bounded-contexts/support/server.ts"
+      ],
       "@chase-sets/tax": [
         "./bounded-contexts/tax/index.ts"
       ],
@@ -428,6 +449,9 @@
       ],
       "@chase-sets/transactional-email-outbox": [
         "./infrastructure/transactional-email-outbox/index.ts"
+      ],
+      "@chase-sets/web-notifications": [
+        "./infrastructure/web-notifications/index.ts"
       ]
     }
   }

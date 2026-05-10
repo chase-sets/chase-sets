@@ -9,6 +9,8 @@ export {
 } from "../../client";
 export type {
   FulfillmentApiClientOptions,
+  FulfillmentNotificationItem,
+  FulfillmentNotificationListResponse,
   FulfillmentShipmentDetail,
   FulfillmentShipmentListItem,
 } from "../../client";

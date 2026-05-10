@@ -32,6 +32,8 @@ export type ShipmentId = TypedUlid<"shp">;
 
 export type ReviewId = TypedUlid<"rev">;
 
+export type SupportRequestId = TypedUlid<"sup">;
+
 export type PaymentId = TypedUlid<"pay">;
 
 export type LedgerEntryId = TypedUlid<"led">;

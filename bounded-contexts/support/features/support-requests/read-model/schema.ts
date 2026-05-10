@@ -1,0 +1,32 @@
+export const supportRequestSchemaSql = `
+CREATE TABLE IF NOT EXISTS support_request_pages (
+  support_request_id text PRIMARY KEY,
+  order_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  seller_account_id text NOT NULL,
+  flow_type text NOT NULL,
+  status text NOT NULL,
+  priority text NOT NULL,
+  opened_by_account_id text NOT NULL,
+  opened_by_role text NOT NULL,
+  opened_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  seller_response_due_at timestamptz NULL,
+  support_review_due_at timestamptz NULL,
+  checklist jsonb NOT NULL DEFAULT '[]'::jsonb,
+  evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
+  responses jsonb NOT NULL DEFAULT '[]'::jsonb,
+  resolution jsonb NULL,
+  closed_at timestamptz NULL,
+  cancellation_reason text NULL
+);
+
+CREATE INDEX IF NOT EXISTS support_request_pages_buyer_idx
+  ON support_request_pages (buyer_account_id, updated_at DESC, support_request_id DESC);
+
+CREATE INDEX IF NOT EXISTS support_request_pages_seller_idx
+  ON support_request_pages (seller_account_id, updated_at DESC, support_request_id DESC);
+
+CREATE INDEX IF NOT EXISTS support_request_pages_order_idx
+  ON support_request_pages (order_id, updated_at DESC);
+`;

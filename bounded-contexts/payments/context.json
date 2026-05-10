@@ -49,6 +49,18 @@
         "ordering.order.ready-for-fulfillment-recorded"
       ],
       "order": 10
+    },
+    {
+      "sourceContextName": "support",
+      "projectionName": "payments-support-refund-effect",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "payments-support-refund-effect"
+      ],
+      "eventTypes": [
+        "support.support-request.resolved"
+      ],
+      "order": 70
     }
   ],
   "projectionGroups": [
@@ -61,6 +73,16 @@
         "payments_order_inputs"
       ],
       "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "payments-support-refund-effect",
+      "sourceContextNames": [
+        "support"
+      ],
+      "ownedTables": [
+        "payments_support_refund_effects"
+      ],
+      "requiredDuringBootstrap": false
     }
   ],
   "hostPorts": [

@@ -99,6 +99,7 @@ export default function OrderingAccountSaleRoute() {
     <OrderingOrderDetailPage
       role="seller"
       backHref="/account/sales"
+      supportHref={`/account/support?orderId=${encodeURIComponent(data.sale.order_id)}&role=seller`}
       order={data.sale as SaleDetail}
       errorMessage={actionData?.error ?? null}
       supplementarySectionTitle={t("ordering.routes.accountSale.review")}

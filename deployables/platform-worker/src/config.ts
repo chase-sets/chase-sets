@@ -29,6 +29,7 @@ export type PlatformWorkerConfig = Readonly<{
   paymentProcessor: PlatformWorkerPaymentProcessorConfig;
   moneyMovement: PlatformWorkerMoneyMovementConfig;
   postage: PlatformWorkerPostageConfig;
+  notificationEmail: PlatformWorkerNotificationEmailConfig;
 }>;
 
 export type PlatformWorkerPaymentProcessorConfig =
@@ -61,6 +62,16 @@ export type PlatformWorkerPostageConfig =
       apiBaseUrl?: string;
       mode: "test" | "production";
     }>;
+
+export type PlatformWorkerNotificationEmailConfig = Readonly<{
+  provider: "noop" | "amazon-ses";
+  ses: Readonly<{
+    region?: string;
+    fromEmail?: string;
+    configurationSetName?: string;
+    sourceArn?: string;
+  }>;
+}>;
 
 const workerContexts = getWorkerHostContextNames(workerContextRegistry, "platform-worker");
 
@@ -106,6 +117,10 @@ export function loadConfig(): PlatformWorkerConfig {
   const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
   const easyPostMode =
     getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
+  const notificationEmailProvider =
+    getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER") === "amazon-ses"
+      ? "amazon-ses"
+      : "noop";
 
   return {
     sharedDatabaseUrl,
@@ -164,6 +179,16 @@ export function loadConfig(): PlatformWorkerConfig {
           mode: easyPostMode,
         }
       : { kind: "sandbox" },
+    notificationEmail: {
+      provider: notificationEmailProvider,
+      ses: {
+        region: getOptionalEnv("SES_AWS_REGION") ?? undefined,
+        fromEmail: getOptionalEnv("SES_FROM_EMAIL") ?? undefined,
+        configurationSetName:
+          getOptionalEnv("SES_CONFIGURATION_SET_NAME") ?? undefined,
+        sourceArn: getOptionalEnv("SES_SOURCE_ARN") ?? undefined,
+      },
+    },
   };
 }
 

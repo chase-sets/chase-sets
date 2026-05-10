@@ -25,6 +25,7 @@
     "@chase-sets/platform-runtime": "0.1.0",
     "@chase-sets/reputation": "0.1.0",
     "@chase-sets/settlement": "0.1.0",
+    "@chase-sets/support": "0.1.0",
     "@react-router/node": "7.14.0",
     "@react-router/serve": "7.14.0",
     "isbot": "^5",

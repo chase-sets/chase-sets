@@ -185,9 +185,9 @@
   ],
   "hostPorts": [
     {
-      "portName": "transactionalEmailOutbox",
+      "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by event projectors."
+      "purpose": "Durable notification outbox consumed by event projectors and dispatched through channel adapters."
     }
   ],
   "apiDeployables": [
@@ -208,6 +208,13 @@
     {
       "deployable": "marketplace-web",
       "routes": [
+        {
+          "routeId": "account-notifications",
+          "routePath": "account/notifications",
+          "fileExport": "./routes/account-notifications",
+          "routeType": "route",
+          "sourceContext": "ordering"
+        },
         {
           "routeId": "account-purchase",
           "routePath": "account/purchases/:purchaseId",
@@ -243,6 +250,19 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
+      "key": "notifications",
+      "label": "Notifications",
+      "icon": "bell",
+      "href": "/account/notifications",
+      "order": 160,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "accounts.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
       "key": "purchases",
       "label": "Purchases",
       "icon": "bag",
@@ -265,6 +285,19 @@
       "requiredPermissions": [
         "orders.view",
         "listings.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "notifications",
+      "label": "Notifications",
+      "icon": "bell",
+      "href": "/account/notifications",
+      "order": 160,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "accounts.view"
       ]
     },
     {

@@ -56,6 +56,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "public-presence.view",
     "reputation.manage",
     "reputation.view",
+    "support.manage",
+    "support.view",
     "security.manage",
   ],
   manager: [
@@ -83,6 +85,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "public-presence.view",
     "reputation.manage",
     "reputation.view",
+    "support.manage",
+    "support.view",
   ],
   fulfillment: [
     "accounts.view",
@@ -96,6 +100,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "platform-feedback.view",
     "public-presence.view",
     "reputation.view",
+    "support.manage",
+    "support.view",
   ],
   viewer: [
     "accounts.view",
@@ -109,5 +115,6 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "platform-feedback.view",
     "public-presence.view",
     "reputation.view",
+    "support.view",
   ],
 };

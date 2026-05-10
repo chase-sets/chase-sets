@@ -72,6 +72,7 @@ export function OrderingOrderDetailPage({
   role,
   backHref,
   paymentHref,
+  supportHref,
   order,
   errorMessage,
   supplementarySection,
@@ -80,6 +81,7 @@ export function OrderingOrderDetailPage({
   role: "buyer" | "seller";
   backHref: string;
   paymentHref?: string | null;
+  supportHref?: string | null;
   order: PurchaseDetail | SaleDetail;
   errorMessage?: string | null;
   supplementarySection?: ReactNode;
@@ -178,6 +180,11 @@ export function OrderingOrderDetailPage({
               <Divider />
               <Stack gap={3} direction={{ base: "column", sm: "row" }}>
                 {canPay ? <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton> : null}
+                {supportHref ? (
+                  <LinkButton href={supportHref} tone="secondary">
+                    {t("ordering.features.orders.ui.orderDetailPage.open.support")}
+                  </LinkButton>
+                ) : null}
                 {isPendingStatus(order.status) ? (
                   <form method="post">
                     <Button type="submit" name="intent" value={cancelIntent} tone="danger">

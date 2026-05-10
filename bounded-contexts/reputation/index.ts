@@ -16,6 +16,7 @@ import {
   buildReviewAccountProjectionHandlers,
   buildReputationOrderProjectionHandlers,
   buildReputationShipmentProjectionHandlers,
+  buildReputationSupportProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
 
 const eventSubscriptions =
@@ -65,6 +66,10 @@ export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> 
       "fulfillment",
       "reputation-shipment-source-projection",
     );
+    const supportSubscription = getEventSubscription(
+      "support",
+      "reputation-support-source-projection",
+    );
 
     return [
       {
@@ -98,6 +103,16 @@ export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> 
         eventTypes: fulfillmentSubscription.eventTypes,
         streamPrefixes: fulfillmentSubscription.streamPrefixes,
         order: fulfillmentSubscription.order,
+      },
+      {
+        subscriptionName: "reputation.support-source-projection",
+        sourceContextName: "support",
+        projectionName: supportSubscription.projectionName,
+        subscriptionVersion: supportSubscription.subscriptionVersion,
+        handlers: buildReputationSupportProjectionHandlers(services.db),
+        eventTypes: supportSubscription.eventTypes,
+        streamPrefixes: supportSubscription.streamPrefixes,
+        order: supportSubscription.order,
       },
     ];
   },

@@ -5,8 +5,9 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
-import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
+import type { NotificationOutbox } from "@chase-sets/notifications";
+import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
+import { createPostgresWebNotificationFeed } from "@chase-sets/web-notifications";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
@@ -18,11 +19,12 @@ import {
 export type OrderingServiceOptions = Readonly<{
   shippingQuotePolicy?: ShippingQuotePolicy;
   taxQuoteResolver?: TaxQuoteResolver;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type OrderingServices = Readonly<{
   orders: ReturnType<typeof createOrderingOrderRuntime>;
+  notifications: ReturnType<typeof createPostgresWebNotificationFeed>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -35,10 +37,11 @@ export function createOrderingServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const transactionalEmailOutbox =
-    options.transactionalEmailOutbox ??
-    createPostgresTransactionalEmailOutbox({ db });
+  const notificationOutbox =
+    options.notificationOutbox ??
+    createPostgresNotificationOutbox({ db });
   const accounts = createOrderingAccountRuntime({ eventStore, checkpointStore, db });
+  const notifications = createPostgresWebNotificationFeed({ db });
   const orders = createOrderingOrderRuntime({
     eventStore,
     checkpointStore,
@@ -46,11 +49,12 @@ export function createOrderingServices(
     shippingQuotePolicy:
       options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
     taxQuoteResolver: options.taxQuoteResolver,
-    transactionalEmailOutbox,
+    notificationOutbox,
   });
 
   return {
     orders,
+    notifications,
     projectors: [...accounts.projectors, ...orders.projectors],
     pool,
     db,

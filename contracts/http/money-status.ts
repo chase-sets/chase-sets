@@ -15,6 +15,8 @@ export const moneyStatusLabels = {
   "amount-above-maximum": "Enter an amount below the maximum payout.",
   "amount-exceeds-available-balance":
     "Enter an amount within the available wallet balance.",
+  "support-hold-active":
+    "Resolve open support requests before requesting these funds.",
 } as const;
 
 export type MoneyStatusCode = keyof typeof moneyStatusLabels;

@@ -5,6 +5,7 @@ import {
   createAccountShipmentRoutes,
   createAccountSaleShipmentRoutes,
 } from "./features/shipments/api/route";
+import { createAccountShipmentNotificationRoutes } from "./features/shipments/api/notification-routes";
 
 export type FulfillmentApiEnv = AuthenticatedApiEnv;
 
@@ -13,6 +14,7 @@ export function buildFulfillmentApi(services: FulfillmentServices) {
 
   app.route("/account", createAccountShipmentRoutes(services.shipments));
   app.route("/account", createAccountSaleShipmentRoutes(services.shipments));
+  app.route("/account", createAccountShipmentNotificationRoutes(services.notifications));
 
   return app;
 }

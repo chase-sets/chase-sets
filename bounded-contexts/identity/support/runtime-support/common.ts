@@ -57,6 +57,8 @@ export type PermissionKey =
   | "public-presence.view"
   | "reputation.manage"
   | "reputation.view"
+  | "support.manage"
+  | "support.view"
   | "security.manage";
 export type EmptyEventData = Readonly<Record<string, never>>;
 export type IdentityValue = JsonValue;

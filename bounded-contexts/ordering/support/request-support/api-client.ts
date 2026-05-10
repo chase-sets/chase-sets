@@ -9,6 +9,8 @@ export {
 } from "../../client";
 export type {
   CheckoutFulfillmentPreview,
+  AccountNotificationItem,
+  AccountNotificationListResponse,
   OrderingApiClientOptions,
   PurchaseDetail,
   PurchaseListItem,

@@ -5,6 +5,7 @@ import {
   createAccountPurchaseOrderRoutes,
   createAccountSaleOrderRoutes,
 } from "./features/orders/api/route";
+import { createAccountOrderNotificationRoutes } from "./features/orders/api/notification-routes";
 
 export type OrderingApiEnv = AuthenticatedApiEnv;
 
@@ -13,6 +14,7 @@ export function buildOrderingApi(services: OrderingServices) {
 
   app.route("/account", createAccountPurchaseOrderRoutes(services.orders));
   app.route("/account", createAccountSaleOrderRoutes(services.orders));
+  app.route("/account", createAccountOrderNotificationRoutes(services.notifications));
 
   return app;
 }

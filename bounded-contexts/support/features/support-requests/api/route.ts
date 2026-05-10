@@ -1,0 +1,334 @@
+import { t } from "@chase-sets/localization";
+import { Hono } from "hono";
+import type { SupportApiEnv } from "../../../api";
+import type { SupportRequestServices } from "./runtime";
+
+function requireSupportAccess(
+  c: {
+    get(key: "actor"): SupportApiEnv["Variables"]["actor"];
+  },
+  permission: "support.view" | "support.manage",
+) {
+  const actor = c.get("actor");
+  if (!actor) {
+    return {
+      actor: null,
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.required") } }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
+  }
+
+  if (!actor.permissions.includes(permission)) {
+    return {
+      actor: null,
+      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("support.features.support_requests.api.route.forbidden") } }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
+  }
+
+  return { actor, response: null };
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : t("support.features.support_requests.api.route.request.failed");
+}
+
+export function createAccountSupportRequestRoutes(
+  services: SupportRequestServices,
+) {
+  const app = new Hono<SupportApiEnv>();
+
+  app.get("/flows", async (c) => {
+    const access = requireSupportAccess(c, "support.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json({ items: services.listFlowDefinitions() });
+  });
+
+  app.get("/purchases", async (c) => {
+    const access = requireSupportAccess(c, "support.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const result = await services.listBuyerSupportRequests({
+      buyerAccountId: access.actor.accountId,
+      limit: Number(c.req.query("limit") ?? 50),
+      offset: Number(c.req.query("offset") ?? 0),
+    });
+    return c.json({ items: result.items, total: result.total, count: result.items.length });
+  });
+
+  app.get("/sales", async (c) => {
+    const access = requireSupportAccess(c, "support.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const result = await services.listSellerSupportRequests({
+      sellerAccountId: access.actor.accountId,
+      limit: Number(c.req.query("limit") ?? 50),
+      offset: Number(c.req.query("offset") ?? 0),
+    });
+    return c.json({ items: result.items, total: result.total, count: result.items.length });
+  });
+
+  app.get("/ops", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const result = await services.listSupportOperationsQueue({
+      accountId: access.actor.accountId,
+      limit: Number(c.req.query("limit") ?? 50),
+      offset: Number(c.req.query("offset") ?? 0),
+    });
+    return c.json({ items: result.items, total: result.total, count: result.items.length });
+  });
+
+  app.post("/ops/escalate-overdue", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing") } }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.escalateOverdueSupportRequests(
+      {
+        limit: Number(body.limit ?? 100),
+      },
+      context,
+    );
+    return c.json(result);
+  });
+
+  app.get("/:id", async (c) => {
+    const access = requireSupportAccess(c, "support.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const supportRequest = await services.getAccountSupportRequest(
+      c.req.param("id"),
+      access.actor.accountId,
+    );
+    if (!supportRequest) {
+      return c.json({ error: { code: "not_found", message: t("support.features.support_requests.api.route.support_request.not.found") } }, 404);
+    }
+
+    return c.json(supportRequest);
+  });
+
+  app.post("/", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing") } }, 401);
+    }
+
+    const body = await c.req.json();
+    try {
+      const result = await services.openSupportRequest(
+        {
+          orderId: String(body.orderId ?? ""),
+          accountId: access.actor.accountId,
+          flowType: String(body.flowType ?? ""),
+          openedByRole: String(body.openedByRole ?? ""),
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "opened" }, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/evidence", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.2") } }, 401);
+    }
+
+    const body = await c.req.json();
+    const attachments = Array.isArray(body.attachments)
+      ? (body.attachments as readonly unknown[]).map((entry) => String(entry))
+      : [];
+    try {
+      const result = await services.submitEvidence(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          submittedByRole: String(body.submittedByRole ?? ""),
+          evidenceType: String(body.evidenceType ?? ""),
+          summary: String(body.summary ?? ""),
+          occurredAt: typeof body.occurredAt === "string" ? body.occurredAt : null,
+          attachments,
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "evidence-submitted" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/responses", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.3") } }, 401);
+    }
+
+    const body = await c.req.json();
+    try {
+      const result = await services.recordResponse(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          submittedByRole: String(body.submittedByRole ?? ""),
+          responseType: String(body.responseType ?? ""),
+          summary: String(body.summary ?? ""),
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "response-recorded" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/escalate", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.4") } }, 401);
+    }
+
+    const body = await c.req.json();
+    try {
+      const result = await services.escalateSupportRequest(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          reason: String(body.reason ?? ""),
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "escalated" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/resolve", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.5") } }, 401);
+    }
+
+    const body = await c.req.json();
+    try {
+      const result = await services.resolveSupportRequest(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          resolutionType: String(body.resolutionType ?? ""),
+          summary: String(body.summary ?? ""),
+          refundAmount: typeof body.refundAmount === "string" ? body.refundAmount : null,
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "resolved" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/close", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.6") } }, 401);
+    }
+
+    try {
+      const result = await services.closeSupportRequest(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "closed" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/:id/cancel", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.7") } }, 401);
+    }
+
+    const body = await c.req.json();
+    try {
+      const result = await services.cancelSupportRequest(
+        {
+          supportRequestId: c.req.param("id"),
+          accountId: access.actor.accountId,
+          reason: String(body.reason ?? ""),
+        },
+        context,
+      );
+      return c.json({ id: result.supportRequestId, version: result.version, status: "cancelled" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  return app;
+}

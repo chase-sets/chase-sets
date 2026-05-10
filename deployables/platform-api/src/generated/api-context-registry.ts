@@ -16,6 +16,7 @@ import { contextManifest as pricingManifest, module as pricingModule } from "@ch
 import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
 import { contextManifest as reputationManifest, module as reputationModule } from "@chase-sets/reputation";
 import { contextManifest as settlementManifest, module as settlementModule } from "@chase-sets/settlement";
+import { contextManifest as supportManifest, module as supportModule } from "@chase-sets/support";
 
 export const apiContextRegistry = [
   {
@@ -113,5 +114,11 @@ export const apiContextRegistry = [
     packageName: "@chase-sets/settlement",
     manifest: settlementManifest,
     module: settlementModule,
+  },
+  {
+    contextName: "support",
+    packageName: "@chase-sets/support",
+    manifest: supportManifest,
+    module: supportModule,
   },
 ] as const;

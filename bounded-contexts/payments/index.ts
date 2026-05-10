@@ -10,6 +10,7 @@ import contextManifest from "./context.json";
 import type { PaymentsServices, PaymentsServiceOptions } from "./support/runtime-support/services";
 import { buildPaymentsApi } from "./api";
 import { buildPaymentsOrderInputProjectionHandlers } from "./features/payments/integrations/order-input/order-input-projection";
+import { buildPaymentsSupportRefundEffectHandlers } from "./features/refunds/integrations/support/support-refund-effect-projection";
 import { createPaymentProcessorWebhookRoutes } from "./features/payments/api/route";
 import { createPaymentsServices } from "./support/runtime-support/services";
 import { paymentsSchemaSql } from "./support/runtime-support/schema";
@@ -57,6 +58,10 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
       "ordering",
       "payments-order-input-projection",
     );
+    const supportSubscription = getEventSubscription(
+      "support",
+      "payments-support-refund-effect",
+    );
 
     return [
       {
@@ -68,6 +73,19 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
         eventTypes: orderingSubscription.eventTypes,
         streamPrefixes: orderingSubscription.streamPrefixes,
         order: orderingSubscription.order,
+      },
+      {
+        subscriptionName: "payments.support-refund-effect",
+        sourceContextName: "support",
+        projectionName: supportSubscription.projectionName,
+        subscriptionVersion: supportSubscription.subscriptionVersion,
+        handlers: buildPaymentsSupportRefundEffectHandlers(
+          services.db,
+          services.refunds,
+        ),
+        eventTypes: supportSubscription.eventTypes,
+        streamPrefixes: supportSubscription.streamPrefixes,
+        order: supportSubscription.order,
       },
     ];
   },

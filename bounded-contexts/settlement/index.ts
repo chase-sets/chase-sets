@@ -19,6 +19,7 @@ import { createSettlementServices } from "./support/runtime-support/services";
 import { settlementSchemaSql } from "./support/runtime-support/schema";
 import { seedSettlementDatabase } from "./support/runtime-support/seed";
 import { buildSettlementPaymentInputProjectionHandlers } from "./features/wallets/integrations/payment-source/payment-source-projection";
+import { buildSettlementSupportHoldProjectionHandlers } from "./features/wallets/integrations/support-source/support-source-projection";
 
 const eventSubscriptions =
   (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
@@ -70,6 +71,10 @@ export const module: BcApiModule<
       "payments",
       "settlement-payment-input-projection",
     );
+    const supportSubscription = getEventSubscription(
+      "support",
+      "settlement-support-hold-projection",
+    );
 
     return [
       {
@@ -84,6 +89,16 @@ export const module: BcApiModule<
         eventTypes: paymentsSubscription.eventTypes,
         streamPrefixes: paymentsSubscription.streamPrefixes,
         order: paymentsSubscription.order,
+      },
+      {
+        subscriptionName: "settlement.support-hold-projection",
+        sourceContextName: "support",
+        projectionName: supportSubscription.projectionName,
+        subscriptionVersion: supportSubscription.subscriptionVersion,
+        handlers: buildSettlementSupportHoldProjectionHandlers(services.db),
+        eventTypes: supportSubscription.eventTypes,
+        streamPrefixes: supportSubscription.streamPrefixes,
+        order: supportSubscription.order,
       },
     ];
   },

@@ -234,6 +234,68 @@ describe("settlement payout runtime", () => {
     });
   });
 
+  it("blocks payouts while available seller funds are tied to active support holds", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        if (sql.includes("COALESCE(SUM(entry.amount)")) {
+          return { rows: [{ amount: "12.00" }], rowCount: 1 };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+    });
+
+    const preview = await payouts.previewPayoutRequest({
+      accountId: "acc_seller" as never,
+      amount: "10.00",
+    });
+
+    expect(preview.can_request).toBe(false);
+    expect(preview.available_balance_amount).toBe("8.00");
+    expect(preview.unavailable_reasons).toContain("support-hold-active");
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "10.00",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Open support requests must be resolved");
+  });
+
   it("blocks payout requests until payout readiness is ready", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {

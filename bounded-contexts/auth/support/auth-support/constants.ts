@@ -48,6 +48,8 @@ export const AUTH_ROLE_PERMISSIONS = {
     ...AUTH_PERMISSION_PRESETS.payoutsOperator,
     "reputation.manage",
     "reputation.view",
+    "support.manage",
+    "support.view",
     "security.manage",
   ],
   manager: [
@@ -69,6 +71,8 @@ export const AUTH_ROLE_PERMISSIONS = {
     ...AUTH_PERMISSION_PRESETS.payoutsOperator,
     "reputation.manage",
     "reputation.view",
+    "support.manage",
+    "support.view",
   ],
   fulfillment: [
     "accounts.view",
@@ -80,6 +84,8 @@ export const AUTH_ROLE_PERMISSIONS = {
     "offers.view",
     "orders.view",
     "reputation.view",
+    "support.manage",
+    "support.view",
   ],
   viewer: [
     "accounts.view",
@@ -91,5 +97,6 @@ export const AUTH_ROLE_PERMISSIONS = {
     "orders.view",
     ...AUTH_PERMISSION_PRESETS.payoutsViewer,
     "reputation.view",
+    "support.view",
   ],
 } satisfies Readonly<Record<string, readonly string[]>>;

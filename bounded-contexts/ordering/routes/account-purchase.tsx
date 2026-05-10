@@ -100,6 +100,7 @@ export default function OrderingAccountPurchaseRoute() {
           ? `/account/payments/new?orderIds=${encodeURIComponent(data.purchase.order_id)}`
           : null
       }
+      supportHref={`/account/support?orderId=${encodeURIComponent(data.purchase.order_id)}&role=buyer`}
       order={data.purchase as PurchaseDetail}
       errorMessage={actionData?.error ?? null}
       supplementarySectionTitle={t("ordering.routes.accountPurchase.review")}

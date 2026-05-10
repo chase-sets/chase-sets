@@ -1,0 +1,191 @@
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type {
+  SupportChecklistItem,
+  SupportEvidence,
+  SupportResolution,
+  SupportResponse,
+} from "../domain/common";
+
+export function buildSupportRequestProjectionHandlers(
+  db: PgQueryable,
+): ProjectorHandlerMap {
+  return {
+    "support.support-request.opened": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        orderId: string;
+        buyerAccountId: string;
+        sellerAccountId: string;
+        flowType: string;
+        status: string;
+        priority: string;
+        openedByAccountId: string;
+        openedByRole: string;
+        openedAt: string;
+        sellerResponseDueAt: string | null;
+        supportReviewDueAt: string | null;
+        checklist: readonly SupportChecklistItem[];
+      };
+
+      await db.query(
+        `INSERT INTO support_request_pages (
+           support_request_id,
+           order_id,
+           buyer_account_id,
+           seller_account_id,
+           flow_type,
+           status,
+           priority,
+           opened_by_account_id,
+           opened_by_role,
+           opened_at,
+           updated_at,
+           seller_response_due_at,
+           support_review_due_at,
+           checklist,
+           evidence,
+           responses,
+           resolution,
+           closed_at,
+           cancellation_reason
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12,
+           $13::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL
+         )
+         ON CONFLICT (support_request_id) DO UPDATE
+         SET status = EXCLUDED.status,
+             priority = EXCLUDED.priority,
+             updated_at = EXCLUDED.updated_at,
+             seller_response_due_at = EXCLUDED.seller_response_due_at,
+             support_review_due_at = EXCLUDED.support_review_due_at,
+             checklist = EXCLUDED.checklist`,
+        [
+          data.supportRequestId,
+          data.orderId,
+          data.buyerAccountId,
+          data.sellerAccountId,
+          data.flowType,
+          data.status,
+          data.priority,
+          data.openedByAccountId,
+          data.openedByRole,
+          data.openedAt,
+          data.sellerResponseDueAt,
+          data.supportReviewDueAt,
+          JSON.stringify(data.checklist),
+        ],
+      );
+    },
+    "support.support-request.evidence-submitted": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        evidence: SupportEvidence;
+        status: string;
+        updatedChecklist: readonly SupportChecklistItem[];
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET status = $2,
+             updated_at = $3,
+             checklist = $4::jsonb,
+             evidence = evidence || $5::jsonb
+         WHERE support_request_id = $1`,
+        [
+          data.supportRequestId,
+          data.status,
+          data.evidence.submittedAt,
+          JSON.stringify(data.updatedChecklist),
+          JSON.stringify([data.evidence]),
+        ],
+      );
+    },
+    "support.support-request.response-recorded": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        response: SupportResponse;
+        status: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET status = $2,
+             updated_at = $3,
+             responses = responses || $4::jsonb
+         WHERE support_request_id = $1`,
+        [
+          data.supportRequestId,
+          data.status,
+          data.response.submittedAt,
+          JSON.stringify([data.response]),
+        ],
+      );
+    },
+    "support.support-request.escalated": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        escalatedAt: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET status = 'ready-for-support',
+             updated_at = $2
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.escalatedAt],
+      );
+    },
+    "support.support-request.resolved": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        resolution: SupportResolution;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET status = 'resolved',
+             updated_at = $2,
+             resolution = $3::jsonb
+         WHERE support_request_id = $1`,
+        [
+          data.supportRequestId,
+          data.resolution.resolvedAt,
+          JSON.stringify(data.resolution),
+        ],
+      );
+    },
+    "support.support-request.closed": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        closedAt: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET status = 'closed',
+             updated_at = $2,
+             closed_at = $2
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.closedAt],
+      );
+    },
+    "support.support-request.cancelled": async (event) => {
+      const data = event.data as {
+        supportRequestId: string;
+        cancelledAt: string;
+        reason: string;
+      };
+
+      await db.query(
+        `UPDATE support_request_pages
+         SET status = 'cancelled',
+             updated_at = $2,
+             closed_at = $2,
+             cancellation_reason = $3
+         WHERE support_request_id = $1`,
+        [data.supportRequestId, data.cancelledAt, data.reason],
+      );
+    },
+  };
+}

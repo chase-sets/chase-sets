@@ -10,7 +10,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeMoneyAmount,
   normalizeRequiredText,
@@ -80,6 +80,14 @@ export function createRefundRuntime(
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Refund amount",
       });
+      const orderIds = [...new Set(params.orderIds.map((orderId) => orderId.trim()).filter(Boolean))];
+      if (orderIds.length === 0) {
+        throw new PaymentsDomainError("Refund must reference at least one order.");
+      }
+      const invalidOrderId = orderIds.find((orderId) => !payment.order_ids.includes(orderId));
+      if (invalidOrderId) {
+        throw new PaymentsDomainError("Refund order must belong to the payment.");
+      }
 
       const requested = await commandHandler({
         streamId: `payments.refund-${refundId}`,
@@ -87,7 +95,7 @@ export function createRefundRuntime(
           type: "RequestRefund",
           refundId,
           paymentId: params.paymentId,
-          orderIds: payment.order_ids as never,
+          orderIds: orderIds as OrderId[],
           amount,
           currencyCode: payment.currency_code as never,
           reason: normalizeRequiredText(params.reason, "Refund reason is required."),
@@ -101,7 +109,7 @@ export function createRefundRuntime(
         const processorRefund = await deps.processorGateway.createRefund({
           paymentId: params.paymentId,
           processorPaymentReference: payment.processor_payment_reference,
-          orderIds: payment.order_ids as never,
+          orderIds: orderIds as OrderId[],
           amount,
           currencyCode: payment.currency_code as never,
           reason: params.reason,

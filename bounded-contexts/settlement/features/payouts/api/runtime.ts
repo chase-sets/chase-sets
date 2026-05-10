@@ -55,6 +55,7 @@ import {
   type SettlementPayoutRow,
 } from "../read-model/queries";
 import type { WalletServices } from "../../wallets/api/runtime";
+import { getAccountActiveSupportHoldAmount } from "../../wallets/read-model/queries";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 import {
   decidePayout,
@@ -659,11 +660,16 @@ export function createPayoutRuntime(
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Payout amount",
       });
-      const [riskSummary, platformBalance] = await Promise.all([
+      const [riskSummary, platformBalance, activeSupportHoldAmount] = await Promise.all([
         getAccountPayoutRiskSummary(deps.db, params.accountId),
         deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
+        getAccountActiveSupportHoldAmount(deps.db, params.accountId),
       ]);
       const unavailableReasons: string[] = [];
+      const payoutAvailableBalanceAmount = subtractMoney(
+        wallet.available_balance_amount,
+        activeSupportHoldAmount,
+      );
 
       if (readiness.status !== "ready" || !readiness.provider_reference) {
         unavailableReasons.push("payout-setup-incomplete");
@@ -674,7 +680,7 @@ export function createPayoutRuntime(
       if (readiness.missing_requirements.length > 0) {
         unavailableReasons.push("provider-requirements-open");
       }
-      if (compareMoney(wallet.available_balance_amount, "0.00") <= 0) {
+      if (compareMoney(payoutAvailableBalanceAmount, "0.00") <= 0) {
         unavailableReasons.push("no-available-wallet-balance");
       }
       if (compareMoney(amount, payoutAmountPolicy.minimumAmount) < 0) {
@@ -683,8 +689,11 @@ export function createPayoutRuntime(
       if (compareMoney(amount, payoutAmountPolicy.maximumAmount) > 0) {
         unavailableReasons.push("amount-above-maximum");
       }
-      if (compareMoney(wallet.available_balance_amount, amount) < 0) {
+      if (compareMoney(payoutAvailableBalanceAmount, amount) < 0) {
         unavailableReasons.push("amount-exceeds-available-balance");
+      }
+      if (compareMoney(activeSupportHoldAmount, "0.00") > 0) {
+        unavailableReasons.push("support-hold-active");
       }
       if (compareMoney(platformBalance.availableAmount, amount) < 0) {
         unavailableReasons.push("platform-balance-insufficient");
@@ -701,11 +710,11 @@ export function createPayoutRuntime(
         account_id: params.accountId,
         requested_amount: amount,
         currency_code: currencyCode,
-        available_balance_amount: wallet.available_balance_amount,
+        available_balance_amount: payoutAvailableBalanceAmount,
         platform_available_amount: platformBalance.availableAmount,
         estimated_wallet_balance_after:
-          compareMoney(wallet.available_balance_amount, amount) >= 0
-            ? subtractMoney(wallet.available_balance_amount, amount)
+          compareMoney(payoutAvailableBalanceAmount, amount) >= 0
+            ? subtractMoney(payoutAvailableBalanceAmount, amount)
             : "0.00",
         can_request: uniqueReasons.length === 0,
         unavailable_reasons: uniqueReasons,
@@ -750,7 +759,20 @@ export function createPayoutRuntime(
         );
       }
 
-      if (compareMoney(wallet.available_balance_amount, amount) < 0) {
+      const activeSupportHoldAmount = await getAccountActiveSupportHoldAmount(
+        deps.db,
+        params.accountId,
+      );
+      const payoutAvailableBalanceAmount = subtractMoney(
+        wallet.available_balance_amount,
+        activeSupportHoldAmount,
+      );
+      if (compareMoney(activeSupportHoldAmount, "0.00") > 0) {
+        throw new SettlementDomainError(
+          "Open support requests must be resolved before requesting this payout.",
+        );
+      }
+      if (compareMoney(payoutAvailableBalanceAmount, amount) < 0) {
         throw new SettlementDomainError("Available balance is too low for this payout.");
       }
       const platformBalance = await deps.moneyMovementGateway.retrievePlatformBalance({

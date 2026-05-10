@@ -1,0 +1,245 @@
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
+
+export type NotificationChannelName = "email" | "web";
+export type NotificationProviderName =
+  | "amazon-ses"
+  | "web-notification-feed"
+  | "noop";
+export type NotificationCriticality = "security" | "commerce" | "operational";
+export type NotificationMessageType = `${string}.${string}`;
+
+export type NotificationActor = Readonly<{
+  userId?: UserId | null;
+  accountId?: AccountId | null;
+}>;
+
+export type NotificationEmailAddress = Readonly<{
+  email: string;
+  displayName?: string | null;
+}>;
+
+export type EmailNotificationChannel = Readonly<{
+  channel: "email";
+  to: readonly [NotificationEmailAddress, ...NotificationEmailAddress[]];
+  cc?: readonly NotificationEmailAddress[];
+  bcc?: readonly NotificationEmailAddress[];
+  subject?: string | null;
+  templateId?: string | null;
+  templateVersion?: number | null;
+  templateData?: Readonly<Record<string, string | number | boolean | null>>;
+}>;
+
+export type WebNotificationRecipient = Readonly<{
+  userId?: UserId | null;
+  accountId?: AccountId | null;
+}>;
+
+export type WebNotificationChannel = Readonly<{
+  channel: "web";
+  recipient: WebNotificationRecipient;
+  title?: string | null;
+  body?: string | null;
+  actionHref?: string | null;
+}>;
+
+export type NotificationChannel =
+  | EmailNotificationChannel
+  | WebNotificationChannel;
+
+export type NotificationMessage = Readonly<{
+  messageType: NotificationMessageType;
+  criticality: NotificationCriticality;
+  title: string;
+  body: string;
+  actionHref?: string | null;
+  templateId: string;
+  templateVersion: number;
+  locale: string;
+  templateData: Readonly<Record<string, string | number | boolean | null>>;
+  channels: readonly [NotificationChannel, ...NotificationChannel[]];
+  idempotencyKey: string;
+  correlationId: string;
+  actor: NotificationActor;
+}>;
+
+export type NotificationOutboxStatus =
+  | "pending"
+  | "sending"
+  | "sent"
+  | "failed";
+
+export type NotificationOutboxSource = Readonly<{
+  sourceEventId: string;
+  sourceGlobalPosition: string;
+  projectionName: string;
+  occurredAt: string;
+}>;
+
+export type EnqueueNotificationInput = Readonly<{
+  message: NotificationMessage;
+  source: NotificationOutboxSource;
+  maxAttempts?: number;
+  availableAt?: string;
+}>;
+
+export type NotificationDelivery = Readonly<{
+  deliveryId: string;
+  message: NotificationMessage;
+  channel: NotificationChannel;
+}>;
+
+export type ClaimedNotificationDelivery = NotificationDelivery & Readonly<{
+  outboxId: string;
+  source: NotificationOutboxSource;
+  status: NotificationOutboxStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  createdAt: string;
+  updatedAt: string;
+  nextAttemptAt: string;
+  lastError: string | null;
+}>;
+
+export type SentNotificationReceipt = Readonly<{
+  channel: NotificationChannelName;
+  providerName: NotificationProviderName;
+  providerMessageId: string;
+  acceptedAt: string;
+  attemptCount: number;
+}>;
+
+export interface NotificationChannelAdapter {
+  channel: NotificationChannelName;
+  sendNotificationChannel(
+    delivery: NotificationDelivery,
+  ): Promise<SentNotificationReceipt>;
+}
+
+export interface NotificationOutbox {
+  enqueueNotification(input: EnqueueNotificationInput): Promise<void>;
+}
+
+export type ClaimNotificationDeliveriesInput = Readonly<{
+  limit: number;
+  claimOwnerId: string;
+  claimTtlMs: number;
+  now?: string;
+}>;
+
+export type MarkNotificationDeliverySentInput = Readonly<{
+  deliveryId: string;
+  receipt: SentNotificationReceipt;
+  now?: string;
+}>;
+
+export type MarkNotificationDeliveryFailedInput = Readonly<{
+  deliveryId: string;
+  error: string;
+  retryAt?: string | null;
+  now?: string;
+}>;
+
+export interface NotificationOutboxStore extends NotificationOutbox {
+  claimPendingNotificationDeliveries(
+    input: ClaimNotificationDeliveriesInput,
+  ): Promise<readonly ClaimedNotificationDelivery[]>;
+  markNotificationDeliverySent(input: MarkNotificationDeliverySentInput): Promise<void>;
+  markNotificationDeliveryFailed(input: MarkNotificationDeliveryFailedInput): Promise<void>;
+}
+
+export type NotificationChannelPreference = Readonly<{
+  channel: NotificationChannelName;
+  enabled: boolean;
+  messageType?: NotificationMessageType | null;
+}>;
+
+export function applyNotificationChannelPreferences(
+  message: NotificationMessage,
+  preferences: readonly NotificationChannelPreference[],
+): NotificationMessage | null {
+  if (message.criticality === "security") {
+    return message;
+  }
+
+  const channels = message.channels.filter((channel) =>
+    isChannelEnabled(message.messageType, channel.channel, preferences),
+  );
+
+  if (channels.length === 0) {
+    return null;
+  }
+  const firstChannel = channels[0];
+  if (!firstChannel) {
+    return null;
+  }
+
+  return {
+    ...message,
+    channels: [firstChannel, ...channels.slice(1)],
+  };
+}
+
+export function createNotificationDeliveryId(
+  message: Pick<NotificationMessage, "idempotencyKey">,
+  channel: NotificationChannel,
+  index: number,
+) {
+  return `${message.idempotencyKey}:${channel.channel}:${index + 1}`;
+}
+
+function isChannelEnabled(
+  messageType: NotificationMessageType,
+  channel: NotificationChannelName,
+  preferences: readonly NotificationChannelPreference[],
+) {
+  const exact = preferences.find(
+    (preference) =>
+      preference.channel === channel &&
+      preference.messageType === messageType,
+  );
+  if (exact) {
+    return exact.enabled;
+  }
+
+  const channelDefault = preferences.find(
+    (preference) =>
+      preference.channel === channel &&
+      (preference.messageType ?? null) === null,
+  );
+
+  return channelDefault?.enabled ?? true;
+}
+
+export function createNoopNotificationAdapter(
+  channel: NotificationChannelName,
+): NotificationChannelAdapter {
+  return {
+    channel,
+    async sendNotificationChannel(delivery) {
+      return {
+        channel,
+        providerName: "noop",
+        providerMessageId: `noop:${delivery.deliveryId}`,
+        acceptedAt: new Date().toISOString(),
+        attemptCount: 0,
+      };
+    },
+  };
+}
+
+export function createNoopNotificationOutbox(): NotificationOutboxStore {
+  return {
+    async enqueueNotification() {
+      return undefined;
+    },
+    async claimPendingNotificationDeliveries() {
+      return [];
+    },
+    async markNotificationDeliverySent() {
+      return undefined;
+    },
+    async markNotificationDeliveryFailed() {
+      return undefined;
+    },
+  };
+}

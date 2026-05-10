@@ -4,6 +4,12 @@ import type {
   TransactionalEmailMessage,
   TransactionalEmailTemplateRenderer,
 } from "@chase-sets/communications-email";
+import type {
+  EmailNotificationChannel,
+  NotificationChannelAdapter,
+  NotificationDelivery,
+  SentNotificationReceipt,
+} from "@chase-sets/notifications";
 import {
   ProviderAdapterError,
   providerFailureCategoryFromHttpStatus,
@@ -151,4 +157,56 @@ export function createSesTransactionalEmailGateway(options: SesEmailGatewayOptio
       throw lastError ?? mapError(new Error("SES send failed."));
     },
   };
+}
+
+export function createSesEmailNotificationAdapter(
+  options: SesEmailGatewayOptions,
+): NotificationChannelAdapter {
+  const gateway = createSesTransactionalEmailGateway(options);
+
+  return {
+    channel: "email",
+    async sendNotificationChannel(
+      delivery: NotificationDelivery,
+    ): Promise<SentNotificationReceipt> {
+      const channel = assertEmailChannel(delivery.channel);
+      const receipt = await gateway.sendTransactionalEmail({
+        messageType: delivery.message.messageType,
+        criticality: delivery.message.criticality,
+        to: channel.to,
+        cc: channel.cc,
+        bcc: channel.bcc,
+        subject: channel.subject?.trim() || delivery.message.title,
+        templateId: channel.templateId?.trim() || delivery.message.templateId,
+        templateVersion:
+          channel.templateVersion ?? delivery.message.templateVersion,
+        locale: delivery.message.locale,
+        templateData: {
+          ...delivery.message.templateData,
+          ...(channel.templateData ?? {}),
+        },
+        idempotencyKey: delivery.deliveryId,
+        correlationId: delivery.message.correlationId,
+        actor: delivery.message.actor,
+      });
+
+      return {
+        channel: "email",
+        providerName: receipt.providerName,
+        providerMessageId: receipt.providerMessageId,
+        acceptedAt: receipt.acceptedAt,
+        attemptCount: receipt.attemptCount,
+      };
+    },
+  };
+}
+
+function assertEmailChannel(
+  channel: NotificationDelivery["channel"],
+): EmailNotificationChannel {
+  if (channel.channel !== "email") {
+    throw new Error(`SES email adapter cannot send '${channel.channel}'.`);
+  }
+
+  return channel;
 }

@@ -10,9 +10,9 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
-  createNoopTransactionalEmailOutbox,
-  type TransactionalEmailOutbox,
-} from "@chase-sets/communications-email";
+  createNoopNotificationOutbox,
+  type NotificationOutbox,
+} from "@chase-sets/notifications";
 import type {
   PostageAddress,
   PostageLabelProvider,
@@ -39,9 +39,9 @@ import {
 } from "../read-model/queries";
 import { buildFulfillmentShipmentProjectionHandlers } from "../read-model/projection";
 import {
-  FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
-  buildFulfillmentTransactionalEmailProjectionHandlers,
-} from "../application/transactional-email-projector";
+  FULFILLMENT_NOTIFICATION_PROJECTION,
+  buildFulfillmentNotificationProjectionHandlers,
+} from "../integrations/notifications/notification-projector";
 import {
   decideFulfillmentShipment,
   evolveFulfillmentShipment,
@@ -56,7 +56,7 @@ type ShipmentRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   postageLabelProvider?: PostageLabelProvider;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 type ReadyOrderLineSnapshot = Readonly<{
@@ -273,8 +273,8 @@ function addressSnapshotFromPostage(address: PostageAddress): AddressSnapshot {
 export function createFulfillmentShipmentRuntime(
   deps: ShipmentRuntimeDeps,
 ): FulfillmentShipmentServices {
-  const transactionalEmailOutbox =
-    deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const notificationOutbox =
+    deps.notificationOutbox ?? createNoopNotificationOutbox();
   const postageLabelProvider =
     deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const commandHandler = createCommandHandler({
@@ -601,12 +601,12 @@ export function createFulfillmentShipmentRuntime(
         handlers: buildFulfillmentShipmentProjectionHandlers(deps.db),
       }),
       createProjector({
-        projectorName: FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
+        projectorName: FULFILLMENT_NOTIFICATION_PROJECTION,
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
-        handlers: buildFulfillmentTransactionalEmailProjectionHandlers(
-          transactionalEmailOutbox,
-          FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
+        handlers: buildFulfillmentNotificationProjectionHandlers(
+          notificationOutbox,
+          FULFILLMENT_NOTIFICATION_PROJECTION,
         ),
       }),
     ],

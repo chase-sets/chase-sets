@@ -1,6 +1,9 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import {
+  createNoopNotificationAdapter,
+} from "@chase-sets/notifications";
 import { createNoopTransactionalEmailGateway } from "@chase-sets/communications-email";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
@@ -23,6 +26,11 @@ import {
   createPostgresTransactionalEmailOutbox,
   createTransactionalEmailOutboxDispatcher,
 } from "@chase-sets/transactional-email-outbox";
+import {
+  createNotificationOutboxDispatcher,
+  createPostgresNotificationOutbox,
+} from "@chase-sets/notification-outbox";
+import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notifications";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -99,6 +107,7 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
 
 const runners = [
   ...collectWorkerRunners(runtime),
+  ...createNotificationDispatchRunners(runtime, config.workerId),
   ...createTransactionalEmailDispatchRunners(runtime, config.workerId),
   ...createScheduledJobRunners(runtime.services, config),
 ];
@@ -262,7 +271,8 @@ function createTransactionalEmailDispatchRunners(
     workerContextRegistry
       .filter((entry) =>
         entry.manifest.hostPorts?.some(
-          (port) => port.portName === "transactionalEmailOutbox",
+          (port: { portName: string }) =>
+            port.portName === "transactionalEmailOutbox",
         ),
       )
       .map((entry) => entry.contextName),
@@ -279,6 +289,40 @@ function createTransactionalEmailDispatchRunners(
 
       return {
         name: `${context.contextName}.transactional-email-dispatcher`,
+        kind: "job",
+        runOnce: dispatcher.runOnce,
+      };
+    });
+}
+
+function createNotificationDispatchRunners(
+  runtime: WorkerHostRuntime,
+  workerId: string,
+): readonly WorkerRunner[] {
+  const notificationOutboxContextNames = new Set<string>(
+    workerContextRegistry
+      .filter((entry) =>
+        entry.manifest.hostPorts?.some(
+          (port: { portName: string }) => port.portName === "notificationOutbox",
+        ),
+      )
+      .map((entry) => entry.contextName),
+  );
+
+  return runtime.mountedContexts
+    .filter((context) => notificationOutboxContextNames.has(context.contextName))
+    .map((context) => {
+      const dispatcher = createNotificationOutboxDispatcher({
+        outbox: createPostgresNotificationOutbox({ db: context.pool }),
+        adapters: [
+          createNoopNotificationAdapter("email"),
+          createPostgresWebNotificationAdapter({ db: context.pool }),
+        ],
+        claimOwnerId: `${workerId}:${context.contextName}:notifications`,
+      });
+
+      return {
+        name: `${context.contextName}.notification-dispatcher`,
         kind: "job",
         runOnce: dispatcher.runOnce,
       };

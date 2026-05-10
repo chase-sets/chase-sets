@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createSesEmailNotificationAdapter,
   createSesTransactionalEmailGateway,
   parseSesNotificationEvent,
   type SesSendEmailRequest,
@@ -110,6 +111,48 @@ describe("ses email adapter", () => {
       eventType: "Bounce",
       occurredAt: "2026-05-09T00:00:00.000Z",
       recipients: ["buyer@example.com"],
+    });
+  });
+
+  it("adapts notification email channels through transactional SES rendering", async () => {
+    const sendRequest = vi.fn(async () => ({ MessageId: "ses_msg_notify" }));
+    const adapter = createSesEmailNotificationAdapter({
+      fromEmail: "no-reply@chasesets.com",
+      sendRequest,
+      templateRenderer,
+      now: () => new Date("2026-05-09T00:00:00.000Z"),
+    });
+
+    const receipt = await adapter.sendNotificationChannel({
+      deliveryId: "ordering:order_confirmed:ord_123:email:1",
+      message: {
+        messageType: "ordering.order.created",
+        criticality: "commerce",
+        title: "Order confirmed",
+        body: "Order ord_123 is confirmed.",
+        templateId: "order_confirmed",
+        templateVersion: 1,
+        locale: "en",
+        templateData: { magicLink: "ord_123" },
+        channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
+        idempotencyKey: "ordering:order_confirmed:ord_123",
+        correlationId: "req_123",
+        actor: { userId: null, accountId: null },
+      },
+      channel: { channel: "email", to: [{ email: "buyer@example.com" }] },
+    });
+
+    expect(receipt).toEqual({
+      channel: "email",
+      providerName: "amazon-ses",
+      providerMessageId: "ses_msg_notify",
+      acceptedAt: "2026-05-09T00:00:00.000Z",
+      attemptCount: 1,
+    });
+    const [request] = sendRequest.mock.calls[0] as [SesSendEmailRequest];
+    expect(request.Content.Simple.Headers).toContainEqual({
+      Name: "X-ChaseSets-Idempotency-Key",
+      Value: "ordering:order_confirmed:ord_123:email:1",
     });
   });
 });

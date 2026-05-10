@@ -129,10 +129,17 @@ export async function listPendingCreditEntriesMaturedBy(
       `WITH candidates AS (
          SELECT ledger_entry_id
          FROM settlement_ledger_entry_pages
-         WHERE direction = 'credit'
-           AND funds_status = 'pending'
-           AND kind = 'sale'
-           AND posted_at <= ($1::timestamptz - INTERVAL '2 days')
+       WHERE direction = 'credit'
+         AND funds_status = 'pending'
+         AND kind = 'sale'
+         AND posted_at <= ($1::timestamptz - INTERVAL '2 days')
+         AND NOT EXISTS (
+           SELECT 1
+           FROM settlement_support_holds support_hold
+           WHERE support_hold.order_id = settlement_ledger_entry_pages.order_id
+             AND support_hold.seller_account_id = settlement_ledger_entry_pages.account_id
+             AND support_hold.active = TRUE
+         )
          ORDER BY posted_at ASC, ledger_entry_id ASC
          LIMIT $2
        ),
@@ -208,10 +215,41 @@ export async function listPendingCreditEntriesMaturedBy(
        AND funds_status = 'pending'
        AND kind = 'sale'
        AND posted_at <= ($1::timestamptz - INTERVAL '2 days')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM settlement_support_holds support_hold
+         WHERE support_hold.order_id = settlement_ledger_entry_pages.order_id
+           AND support_hold.seller_account_id = settlement_ledger_entry_pages.account_id
+           AND support_hold.active = TRUE
+       )
      ORDER BY posted_at ASC, ledger_entry_id ASC
      LIMIT $2`,
     [params.now, limit],
   );
 
   return result.rows;
+}
+
+export async function getAccountActiveSupportHoldAmount(
+  db: PgQueryable,
+  accountId: string,
+): Promise<string> {
+  const result = await db.query<{ amount: string }>(
+    `SELECT COALESCE(SUM(entry.amount), 0)::text AS amount
+     FROM settlement_ledger_entry_pages entry
+     WHERE entry.account_id = $1
+       AND entry.direction = 'credit'
+       AND entry.funds_status = 'available'
+       AND entry.kind IN ('sale', 'rebate')
+       AND EXISTS (
+         SELECT 1
+         FROM settlement_support_holds support_hold
+         WHERE support_hold.order_id = entry.order_id
+           AND support_hold.seller_account_id = entry.account_id
+           AND support_hold.active = TRUE
+       )`,
+    [accountId],
+  );
+
+  return Number.parseFloat(result.rows[0]?.amount ?? "0").toFixed(2);
 }

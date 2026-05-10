@@ -159,6 +159,37 @@ export async function getPaymentById(
   return row ? mapPaymentRow(row) : null;
 }
 
+export async function getCapturedPaymentByOrderId(
+  db: PgQueryable,
+  orderId: string,
+): Promise<PaymentDetailRow | null> {
+  const result = await db.query<PaymentPageRow>(
+    `${paymentSelect}
+     WHERE status = 'captured'
+       AND order_ids @> $1::jsonb
+     ORDER BY captured_at DESC NULLS LAST, payment_id DESC
+     LIMIT 1`,
+    [JSON.stringify([orderId])],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPaymentRow(row) : null;
+}
+
+export async function getOrderPaymentInput(
+  db: PgQueryable,
+  orderId: string,
+): Promise<Readonly<{ order_id: string; total_amount: string }> | null> {
+  const result = await db.query<{ order_id: string; total_amount: string }>(
+    `SELECT order_id, total_amount::text AS total_amount
+     FROM payments_order_inputs
+     WHERE order_id = $1`,
+    [orderId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 export async function getPaymentByProcessorReference(
   db: PgQueryable,
   processorName: string,

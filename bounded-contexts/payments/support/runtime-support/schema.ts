@@ -1,6 +1,7 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { paymentsOrderInputSchemaSql } from "../../features/payments/integrations/order-input/order-input-schema";
 import { paymentsPaymentSchemaSql } from "../../features/payments/read-model/schema";
+import { paymentsSupportRefundEffectSchemaSql } from "../../features/refunds/integrations/support/support-refund-effect-schema";
 import { paymentsRefundSchemaSql } from "../../features/refunds/read-model/schema";
 
 export const paymentsWorkClaimSchemaSql = `
@@ -26,6 +27,7 @@ CREATE INDEX IF NOT EXISTS payments_work_claims_eligible_idx
 export const paymentsSchemaSql = [
   eventCorePostgresSchemaSql,
   paymentsOrderInputSchemaSql,
+  paymentsSupportRefundEffectSchemaSql,
   paymentsPaymentSchemaSql,
   paymentsRefundSchemaSql,
   paymentsWorkClaimSchemaSql,

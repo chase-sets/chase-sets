@@ -92,9 +92,9 @@
       "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."
     },
     {
-      "portName": "transactionalEmailOutbox",
+      "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by event projectors."
+      "purpose": "Durable notification outbox consumed by event projectors and dispatched through channel adapters."
     }
   ],
   "apiDeployables": [

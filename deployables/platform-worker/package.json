@@ -24,6 +24,8 @@
     "@chase-sets/fulfillment": "0.1.0",
     "@chase-sets/identity": "0.1.0",
     "@chase-sets/money-movement-testing": "0.1.0",
+    "@chase-sets/notification-outbox": "0.1.0",
+    "@chase-sets/notifications": "0.1.0",
     "@chase-sets/observability": "0.1.0",
     "@chase-sets/payment-processing-testing": "0.1.0",
     "@chase-sets/payments": "0.1.0",
@@ -32,7 +34,9 @@
     "@chase-sets/settlement": "0.1.0",
     "@chase-sets/stripe-connect": "0.1.0",
     "@chase-sets/stripe-payments": "0.1.0",
+    "@chase-sets/support": "0.1.0",
     "@chase-sets/transactional-email-outbox": "0.1.0",
+    "@chase-sets/web-notifications": "0.1.0",
     "@hono/node-server": "^1.19.13",
     "hono": "^4.12.12",
     "pg": "^8.20.0"

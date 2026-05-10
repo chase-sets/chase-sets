@@ -14,6 +14,7 @@ import paymentsManifest from "@chase-sets/payments/context";
 import pricingManifest from "@chase-sets/pricing/context";
 import reputationManifest from "@chase-sets/reputation/context";
 import settlementManifest from "@chase-sets/settlement/context";
+import supportManifest from "@chase-sets/support/context";
 
 export const webContextRegistry = [
   {
@@ -75,5 +76,10 @@ export const webContextRegistry = [
     contextName: "settlement",
     packageName: "@chase-sets/settlement",
     manifest: settlementManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "support",
+    packageName: "@chase-sets/support",
+    manifest: supportManifest as WebContextRegistry[number]["manifest"],
   },
 ] as const satisfies WebContextRegistry;
