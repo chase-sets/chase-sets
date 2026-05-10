@@ -296,6 +296,12 @@ describe("marketplace offer routes", () => {
     form.set("productSummary", "");
     form.set("priceAmount", "350.00");
     form.set("quantityRequested", "1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
 
     const result = await itemDetailAction({
       request: new Request("http://localhost/items/item-1", {

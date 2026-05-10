@@ -66,6 +66,7 @@ describe("marketplace route layout", () => {
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
       "Purchases",
+      "Notifications",
       "Sell",
       "Account",
       "Cart",
@@ -96,6 +97,7 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/inventory/imports"');
     expect(html).toContain('href="/account/cart"');
+    expect(html).toContain('href="/account/notifications"');
     expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account/offers/matches"');
     expect(html).toContain('href="/account/offers/submitted"');
@@ -126,6 +128,7 @@ describe("marketplace route layout", () => {
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
       "Purchases",
+      "Notifications",
       "Account",
       "Cart",
     ]);
