@@ -1,0 +1,36 @@
+output "app_id" {
+  value = digitalocean_app.platform.id
+}
+
+output "live_url" {
+  value = digitalocean_app.platform.live_url
+}
+
+output "postgres_cluster_id" {
+  value = digitalocean_database_cluster.postgres.id
+}
+
+output "database_users" {
+  value     = { for key, user in digitalocean_database_user.contexts : key => user.name }
+  sensitive = true
+}
+
+output "public_domains" {
+  value = local.public_domains
+}
+
+output "landing_domain" {
+  value = local.landing_domain
+}
+
+output "legacy_public_redirect_domains" {
+  value = local.legacy_public_redirect_domains
+}
+
+output "marketplace_domains" {
+  value = local.marketplace_domains
+}
+
+output "admin_domain" {
+  value = local.admin_domain
+}

@@ -1,5 +1,8 @@
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
+import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
+import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
+import { syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { createPlatformApiHost } from "./app";
@@ -21,6 +24,29 @@ async function bootstrap() {
       },
     });
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime);
+
+    if (config.platformAdmin) {
+      const identityServices = runtime.services.identity as Parameters<
+        typeof bootstrapPlatformAdminIdentity
+      >[0];
+      const authServices = runtime.services.auth as Parameters<
+        typeof bootstrapPlatformAdminPassword
+      >[0];
+      const admin = await bootstrapPlatformAdminIdentity(identityServices, {
+        email: config.platformAdmin.email,
+        displayName: config.platformAdmin.displayName,
+        accountName: config.platformAdmin.accountName,
+      });
+
+      await syncContextProjectionGroups(runtime, "auth");
+      await bootstrapPlatformAdminPassword(authServices, {
+        userId: admin.userId,
+        credentialId: admin.credentialId,
+        password: config.platformAdmin.password,
+      });
+      console.log("Platform admin bootstrap reconciled.");
+    }
+
     console.log("Platform API bootstrap complete.");
   } finally {
     await closePlatformApiPools(pools);

@@ -13,7 +13,7 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
-import { buildCanonicalUrl } from "./seo";
+import { buildCanonicalUrl, shouldIndexMarketplace } from "./seo";
 import { resolveMarketplaceActor } from "./auth.server";
 import { registerMarketplaceServiceWorker } from "./pwa/register-service-worker";
 import {
@@ -59,6 +59,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     actor,
     cartCount: await resolveCartCount(request, actor),
     origin: new URL(request.url).origin,
+    shouldIndex: shouldIndexMarketplace(),
   };
 }
 
@@ -70,6 +71,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const origin =
     data?.origin ??
     (typeof window === "undefined" ? "http://localhost" : window.location.origin);
+  const shouldIndex = data?.shouldIndex ?? shouldIndexMarketplace();
   const canonicalUrl = buildCanonicalUrl({
     origin,
     pathname: location.pathname,
@@ -86,6 +88,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
+        {!shouldIndex ? <meta name="robots" content="noindex,nofollow" /> : null}
         <link rel="canonical" href={canonicalUrl} />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />

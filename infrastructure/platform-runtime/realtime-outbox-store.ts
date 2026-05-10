@@ -314,83 +314,95 @@ export async function recordRealtimeProjectionPatch(
   const payloadJson = JSON.stringify(patch);
   assertRealtimePatchSizeLimits(input, payloadJson);
 
-  await db.query(
-    `WITH upserted AS (
-       INSERT INTO ${REALTIME_OUTBOX_TABLE} (
-       source_global_position,
-       projection_name,
-       patch_key,
-       topics,
-       payload_json,
-       payload_kind,
-       payload_context,
-       payload_projection,
-       payload_bytes,
-       recorded_at,
-       expires_at
-       ) VALUES ($1::bigint, $2, $3, $4::jsonb, $5, $10, $11, $2, $12, $6, $7)
-       ON CONFLICT (projection_name, source_global_position, patch_key)
-       DO UPDATE SET
-         topics = EXCLUDED.topics,
-         payload_json = EXCLUDED.payload_json,
-         payload_kind = EXCLUDED.payload_kind,
-         payload_context = EXCLUDED.payload_context,
-         payload_projection = EXCLUDED.payload_projection,
-         payload_bytes = EXCLUDED.payload_bytes,
-         recorded_at = EXCLUDED.recorded_at,
-         expires_at = EXCLUDED.expires_at
-       RETURNING outbox_id
-     ),
-     removed_topics AS (
-       DELETE FROM ${REALTIME_OUTBOX_TOPIC_TABLE}
-       WHERE outbox_id IN (SELECT outbox_id FROM upserted)
-       RETURNING 1
-     ),
-     inserted_topics AS (
-       INSERT INTO ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id, topic)
-       SELECT outbox_id, unnest($8::text[])
-       FROM upserted
-       ON CONFLICT DO NOTHING
-       RETURNING 1
-     ),
-     updated_topic_heads AS (
-       INSERT INTO ${REALTIME_TOPIC_HEAD_TABLE} (topic, outbox_id, updated_at)
-       SELECT requested.topic, outbox_id, $6
-       FROM upserted, unnest($8::text[]) AS requested(topic)
-       ON CONFLICT (topic) DO UPDATE SET
-         outbox_id = GREATEST(${REALTIME_TOPIC_HEAD_TABLE}.outbox_id, EXCLUDED.outbox_id),
-         updated_at = EXCLUDED.updated_at
-       RETURNING 1
-     ),
-     notified AS (
-       SELECT pg_notify(
-         $9,
-         json_build_object(
-           'context', $10::text,
-           'projection', $2::text,
-           'topics', $8::text[]
-         )::text
-       )
-     )
-     SELECT
-       (SELECT COUNT(*) FROM inserted_topics)::integer AS inserted_topic_count,
-       (SELECT COUNT(*) FROM removed_topics)::integer AS replaced_topic_count,
-       (SELECT COUNT(*) FROM updated_topic_heads)::integer AS updated_topic_head_count
-     FROM notified`,
-    [
-      input.sourceGlobalPosition,
-      input.projectionName,
-      input.patchKey,
-      JSON.stringify(topics),
-      payloadJson,
-      recordedAt,
-      expiresAt,
-      topics,
-      REALTIME_NOTIFY_CHANNEL,
-      patch.context,
-      payloadJson,
-      byteLengthUtf8(payloadJson),
-    ],
+  await runRealtimeProjectionTransaction(
+    db as PgQueryable | PgTransactionalPool,
+    async (tx) => {
+      const upserted = await tx.query<{ outbox_id: string | number | bigint }>(
+        `INSERT INTO ${REALTIME_OUTBOX_TABLE} (
+           source_global_position,
+           projection_name,
+           patch_key,
+           topics,
+           payload_json,
+           payload_kind,
+           payload_context,
+           payload_projection,
+           payload_bytes,
+           recorded_at,
+           expires_at
+         ) VALUES ($1::bigint, $2, $3, $4::jsonb, $5, $8, $9, $2, $10, $6, $7)
+         ON CONFLICT (projection_name, source_global_position, patch_key)
+         DO UPDATE SET
+           topics = EXCLUDED.topics,
+           payload_json = EXCLUDED.payload_json,
+           payload_kind = EXCLUDED.payload_kind,
+           payload_context = EXCLUDED.payload_context,
+           payload_projection = EXCLUDED.payload_projection,
+           payload_bytes = EXCLUDED.payload_bytes,
+           recorded_at = EXCLUDED.recorded_at,
+           expires_at = EXCLUDED.expires_at
+         RETURNING outbox_id`,
+        [
+          input.sourceGlobalPosition,
+          input.projectionName,
+          input.patchKey,
+          JSON.stringify(topics),
+          payloadJson,
+          recordedAt,
+          expiresAt,
+          patch.kind,
+          patch.context,
+          byteLengthUtf8(payloadJson),
+        ],
+      );
+      const outboxId = upserted.rows[0]?.outbox_id;
+      if (outboxId === undefined) {
+        throw new Error("Realtime projection outbox upsert did not return an outbox id.");
+      }
+
+      await tx.query(
+        `DELETE FROM ${REALTIME_OUTBOX_TOPIC_TABLE}
+         WHERE outbox_id = $1::bigint`,
+        [outboxId],
+      );
+      await tx.query(
+        `DELETE FROM ${REALTIME_TOPIC_HEAD_TABLE}
+         WHERE outbox_id = $1::bigint
+           AND NOT (topic = ANY($2::text[]))`,
+        [outboxId, topics],
+      );
+      await tx.query(
+        `INSERT INTO ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id, topic)
+         SELECT $1::bigint, unnest($2::text[])
+         ON CONFLICT DO NOTHING`,
+        [outboxId, topics],
+      );
+      await tx.query(
+        `INSERT INTO ${REALTIME_TOPIC_HEAD_TABLE} (topic, outbox_id, updated_at)
+         SELECT requested.topic, $1::bigint, $3
+         FROM unnest($2::text[]) AS requested(topic)
+         ON CONFLICT (topic) DO UPDATE SET
+           outbox_id = GREATEST(${REALTIME_TOPIC_HEAD_TABLE}.outbox_id, EXCLUDED.outbox_id),
+           updated_at = EXCLUDED.updated_at`,
+        [outboxId, topics, recordedAt],
+      );
+      await tx.query(
+        `SELECT pg_notify(
+           $1,
+           json_build_object(
+             'context', $2::text,
+             'projection', $3::text,
+             'topics', $4::text[]
+           )::text
+         )`,
+        [
+          REALTIME_NOTIFY_CHANNEL,
+          patch.context,
+          input.projectionName,
+          topics,
+        ],
+      );
+    },
   );
 }
 
@@ -860,7 +872,17 @@ async function withPgTransaction<T>(
 }
 
 function isPgTransactionalPool(db: PgQueryable | PgTransactionalPool): db is PgTransactionalPool {
-  return typeof (db as { connect?: unknown }).connect === "function";
+  const candidate = db as {
+    connect?: unknown;
+    idleCount?: unknown;
+    totalCount?: unknown;
+    waitingCount?: unknown;
+  };
+
+  return typeof candidate.connect === "function"
+    && typeof candidate.idleCount === "number"
+    && typeof candidate.totalCount === "number"
+    && typeof candidate.waitingCount === "number";
 }
 
 function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {

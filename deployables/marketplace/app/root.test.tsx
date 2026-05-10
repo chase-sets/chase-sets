@@ -33,6 +33,7 @@ describe("marketplace root layout", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("falls back to a safe origin when loader data is unavailable", () => {
@@ -57,6 +58,7 @@ describe("marketplace root layout", () => {
     mockUseLoaderData.mockReturnValue({
       actor: null,
       origin: "https://marketplace.example",
+      shouldIndex: true,
     });
 
     const html = renderToString(
@@ -68,5 +70,22 @@ describe("marketplace root layout", () => {
     expect(html).toContain(
       'href="https://marketplace.example/search?search=charizard"',
     );
+  });
+
+  it("can noindex staging through environment configuration", () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "false");
+    mockUseLoaderData.mockReturnValue({
+      actor: null,
+      origin: "https://marketplace-staging.chasesets.com",
+      shouldIndex: false,
+    });
+
+    const html = renderToString(
+      <Layout>
+        <main>Marketplace Search</main>
+      </Layout>,
+    );
+
+    expect(html).toContain('name="robots" content="noindex,nofollow"');
   });
 });

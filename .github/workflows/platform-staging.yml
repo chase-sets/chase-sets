@@ -1,0 +1,129 @@
+name: Platform Staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+      TF_VAR_environment: staging
+      TF_VAR_branch: main
+      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+      TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+      TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      TF_VAR_stripe_connect_return_url: ${{ secrets.STRIPE_CONNECT_RETURN_URL }}
+      TF_VAR_stripe_connect_refresh_url: ${{ secrets.STRIPE_CONNECT_REFRESH_URL }}
+      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.0.9
+
+      - uses: hashicorp/setup-terraform@v4
+
+      - uses: digitalocean/action-doctl@v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify repository
+        run: pnpm run verify
+
+      - name: Terraform init
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Terraform format
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform fmt -check -recursive
+
+      - name: Terraform plan
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform plan -out=tfplan
+
+      - name: Terraform apply
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Deploy App Platform app
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          app_id="$(terraform output -raw app_id)"
+          deployment_id="$(doctl apps create-deployment "$app_id" --wait --force-rebuild --format ID --no-header | tail -n 1 | tr -d '[:space:]')"
+          if [ -z "$deployment_id" ]; then
+            echo "DigitalOcean deployment did not return an ID." >&2
+            exit 1
+          fi
+          phase="$(doctl apps get-deployment "$app_id" "$deployment_id" --format Phase --no-header | tr -d '[:space:]')"
+          if [ "$phase" != "ACTIVE" ]; then
+            echo "DigitalOcean deployment $deployment_id finished with phase '$phase' instead of ACTIVE." >&2
+            exit 1
+          fi
+
+      - name: Smoke check
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
+        run: |
+          landing_domain="$(terraform output -raw landing_domain)"
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          legacy_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$legacy_domain" ]; then
+            echo "Required staging smoke domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          pnpm run smoke:platform -- "https://${landing_domain}" "https://${admin_domain}" "https://${marketplace_domain}" "https://${legacy_domain}"

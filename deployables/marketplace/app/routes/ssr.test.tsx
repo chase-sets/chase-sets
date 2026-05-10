@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildCanonicalUrl } from "../seo";
 import { loader as accountLoader } from "@chase-sets/identity/routes/marketplace/account";
 import { loader as chromeDevtoolsLoader } from "./chrome-devtools";
@@ -18,6 +18,10 @@ import { meta as signInMeta } from "@chase-sets/auth/routes/marketplace/sign-in"
 import { loader as sitemapLoader } from "./sitemap";
 
 describe("marketplace SSR routes", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("loads discovery data through the marketplace API", async () => {
     vi.stubGlobal(
       "fetch",
@@ -225,6 +229,7 @@ describe("marketplace SSR routes", () => {
   });
 
   it("serves marketplace static endpoints", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "true");
     const robots = robotsLoader({
       request: new Request("https://marketplace.example/robots.txt"),
       params: {},
@@ -301,6 +306,19 @@ describe("marketplace SSR routes", () => {
     expect(serviceWorker.headers.get("Content-Type")).toContain("application/javascript");
     expect(serviceWorker.headers.get("Service-Worker-Allowed")).toBe("/");
     await expect(serviceWorker.text()).resolves.toContain("addEventListener(\"fetch\"");
+  });
+
+  it("can noindex marketplace staging through environment configuration", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "false");
+
+    const robots = robotsLoader({
+      request: new Request("https://marketplace-staging.chasesets.com/robots.txt"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(robots.headers.get("Content-Type")).toContain("text/plain");
+    await expect(robots.text()).resolves.toContain("Disallow: /");
   });
 
   it("returns sign-in route SEO metadata", () => {

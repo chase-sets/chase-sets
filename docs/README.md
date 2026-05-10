@@ -20,7 +20,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Postage Operations](./runbooks/postage-operations.md): postage label provider configuration and label smoke checks.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
-- [DigitalOcean Landing Deployment](./runbooks/digitalocean-landing-production.md): staging and production landing deployment workflow.
+- [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
 
 ## Owner-Owned Documentation
 

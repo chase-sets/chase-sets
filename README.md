@@ -82,12 +82,12 @@ Default local ports:
 
 ## Prerequisites
 
-- Node.js 24.
+- Node.js 26.1.0.
 - pnpm 11.0.9. Run `npm install -g pnpm@11.0.9` if it is not already available.
 - Docker with Docker Compose.
 - Optional: Stripe CLI for webhook-driven payment smoke tests.
 
-CI runs on Node 24 and uses `pnpm install --frozen-lockfile`, so local development should do the same when starting from a fresh checkout. Worktrees share a pnpm content store at `../.chase-sets-pnpm-store` by default; set `CHASE_SETS_PNPM_STORE_DIR` to override it.
+CI runs on Node 26.1.0 and uses `pnpm install --frozen-lockfile`, so local development should do the same when starting from a fresh checkout. Worktrees share a pnpm content store at `../.chase-sets-pnpm-store` by default; set `CHASE_SETS_PNPM_STORE_DIR` to override it.
 
 ## Getting Started
 
@@ -220,7 +220,7 @@ Key references:
 - [docs/runbooks/postage-operations.md](docs/runbooks/postage-operations.md): postage provider configuration and label smoke checks.
 - [docs/runbooks/realtime-sse.md](docs/runbooks/realtime-sse.md): realtime SSE behavior.
 - [docs/runbooks/remote-dev.md](docs/runbooks/remote-dev.md): remote development workflow.
-- [docs/runbooks/digitalocean-landing-production.md](docs/runbooks/digitalocean-landing-production.md): landing staging and production deployment workflow.
+- [docs/runbooks/digitalocean-platform-deployment.md](docs/runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
 - [docs/api/marketplace-api.md](docs/api/marketplace-api.md): marketplace API documentation.
 - [docs/adr/0001-platform-api-observability.md](docs/adr/0001-platform-api-observability.md): platform API observability ADR.
 

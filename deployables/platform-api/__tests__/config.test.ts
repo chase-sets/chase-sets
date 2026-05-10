@@ -62,6 +62,10 @@ afterEach(() => {
   delete process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS;
   delete process.env.NODE_ENV;
   delete process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV];
+  delete process.env.PLATFORM_ADMIN_EMAIL;
+  delete process.env.PLATFORM_ADMIN_PASSWORD;
+  delete process.env.PLATFORM_ADMIN_DISPLAY_NAME;
+  delete process.env.PLATFORM_ADMIN_ACCOUNT_NAME;
 });
 
 describe("platform api config", () => {
@@ -115,6 +119,30 @@ describe("platform api config", () => {
 
     expect(config.sharedDatabaseUrl).toBe("postgresql://localhost/shared");
     expect(config.contextDatabaseUrls.payments).toBe("postgresql://localhost/payments");
+  });
+
+  it("loads platform admin bootstrap configuration", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_ADMIN_EMAIL = "ops@chasesets.com";
+    process.env.PLATFORM_ADMIN_PASSWORD = "rotate-me-before-go-live";
+    process.env.PLATFORM_ADMIN_DISPLAY_NAME = "Ops Admin";
+    process.env.PLATFORM_ADMIN_ACCOUNT_NAME = "Chase Sets Ops";
+
+    expect(loadBootstrapConfig().platformAdmin).toEqual({
+      email: "ops@chasesets.com",
+      password: "rotate-me-before-go-live",
+      displayName: "Ops Admin",
+      accountName: "Chase Sets Ops",
+    });
+  });
+
+  it("requires platform admin email and password together", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_ADMIN_EMAIL = "ops@chasesets.com";
+
+    expect(() => loadBootstrapConfig()).toThrow(
+      "PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.",
+    );
   });
 
   it("falls back to the fake payment processor when stripe env vars are missing", () => {

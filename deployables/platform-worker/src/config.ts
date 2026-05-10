@@ -117,10 +117,33 @@ export function loadConfig(): PlatformWorkerConfig {
   const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
   const easyPostMode =
     getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
+  const productionLike = process.env.NODE_ENV === "production";
   const notificationEmailProvider =
     getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER") === "amazon-ses"
       ? "amazon-ses"
       : "noop";
+
+  if (
+    productionLike &&
+    (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret)
+  ) {
+    throw new Error(
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
+    );
+  }
+  if (productionLike && !easyPostApiKey) {
+    throw new Error(
+      "EASYPOST_API_KEY is required for platform worker postage label work in production.",
+    );
+  }
+  if (
+    productionLike &&
+    (!stripeConnectReturnUrl || !stripeConnectRefreshUrl)
+  ) {
+    throw new Error(
+      "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for platform worker hosted payout setup in production.",
+    );
+  }
 
   return {
     sharedDatabaseUrl,

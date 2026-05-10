@@ -91,6 +91,7 @@ maybeDescribe("realtime outbox Postgres integration", () => {
       patchKey: "listing:list_1",
       topics: ["public:market", "listing:list_1"],
       recordedAt: "2026-05-02T00:00:00.000Z",
+      retentionMs: 30 * 24 * 60 * 60 * 1000,
       patch: {
         kind: "projection.patch",
         context: "discovery",
@@ -112,6 +113,7 @@ maybeDescribe("realtime outbox Postgres integration", () => {
       patchKey: "listing:list_1",
       topics: ["listing:list_1"],
       recordedAt: "2026-05-02T00:00:01.000Z",
+      retentionMs: 30 * 24 * 60 * 60 * 1000,
       patch: {
         kind: "projection.patch",
         context: "discovery",
@@ -133,6 +135,7 @@ maybeDescribe("realtime outbox Postgres integration", () => {
       patchKey: "listing:list_2",
       topics: ["listing:list_2"],
       recordedAt: "2026-05-02T00:00:02.000Z",
+      retentionMs: 30 * 24 * 60 * 60 * 1000,
       patch: {
         kind: "projection.patch",
         context: "discovery",

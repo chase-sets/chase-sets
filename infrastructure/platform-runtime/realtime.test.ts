@@ -705,6 +705,10 @@ describe("realtime outbox", () => {
     const db = {
       query: async (sql: string, params?: unknown[]) => {
         calls.push({ sql, params });
+        if (sql.includes("INSERT INTO realtime_projection_outbox")) {
+          return { rows: [{ outbox_id: "42" }] };
+        }
+
         return { rows: [] };
       },
     };
@@ -732,8 +736,7 @@ describe("realtime outbox", () => {
     });
 
     expect(calls[0].sql).toContain("ON CONFLICT");
-    expect(calls[0].sql).toContain("realtime_projection_outbox_topics");
-    expect(calls[0].sql).toContain("realtime_projection_topic_heads");
+    expect(calls[0].sql).toContain("RETURNING outbox_id");
     expect(calls[0].params).toEqual([
       "12",
       "discovery-market",
@@ -754,23 +757,28 @@ describe("realtime outbox", () => {
       }),
       "2026-04-28T00:00:00.000Z",
       "2026-04-28T00:00:01.000Z",
+      "projection.patch",
+      "discovery",
+      expect.any(Number),
+    ]);
+    expect(calls[1].sql).toContain("DELETE FROM realtime_projection_outbox_topics");
+    expect(calls[1].params).toEqual(["42"]);
+    expect(calls[2].sql).toContain("DELETE FROM realtime_projection_topic_heads");
+    expect(calls[2].params).toEqual(["42", ["listing:list_1", "public:market"]]);
+    expect(calls[3].sql).toContain("INSERT INTO realtime_projection_outbox_topics");
+    expect(calls[3].params).toEqual(["42", ["listing:list_1", "public:market"]]);
+    expect(calls[4].sql).toContain("INSERT INTO realtime_projection_topic_heads");
+    expect(calls[4].params).toEqual([
+      "42",
       ["listing:list_1", "public:market"],
+      "2026-04-28T00:00:00.000Z",
+    ]);
+    expect(calls[5].sql).toContain("pg_notify");
+    expect(calls[5].params).toEqual([
       realtimeProjectionNotifyChannel,
       "discovery",
-      JSON.stringify({
-        kind: "projection.patch",
-        context: "discovery",
-        projection: "discovery-market",
-        topics: ["listing:list_1", "public:market"],
-        changes: [
-          {
-            op: "remove",
-            entity: "discovery.listing",
-            id: "list_1",
-          },
-        ],
-      }),
-      expect.any(Number),
+      "discovery-market",
+      ["listing:list_1", "public:market"],
     ]);
   });
 
@@ -1527,6 +1535,9 @@ describe("realtime outbox", () => {
         return { rows: [] };
       },
       connect: async () => client,
+      idleCount: 1,
+      totalCount: 1,
+      waitingCount: 0,
     };
 
     await runRealtimeProjectionTransaction(pool, async (tx) => {
@@ -1545,9 +1556,15 @@ describe("realtime outbox", () => {
 
   it("records a batch of projection patches through one transaction boundary", async () => {
     const statements: string[] = [];
+    let outboxId = 0;
     const client = {
       query: async (sql: string) => {
         statements.push(sql);
+        if (sql.includes("INSERT INTO realtime_projection_outbox")) {
+          outboxId += 1;
+          return { rows: [{ outbox_id: String(outboxId) }] };
+        }
+
         return { rows: [] };
       },
       release: () => {
@@ -1560,6 +1577,9 @@ describe("realtime outbox", () => {
         return { rows: [] };
       },
       connect: async () => client,
+      idleCount: 1,
+      totalCount: 1,
+      waitingCount: 0,
     };
 
     await recordRealtimeProjectionPatches(pool, [
@@ -1604,7 +1624,7 @@ describe("realtime outbox", () => {
     ]);
 
     expect(statements[0]).toBe("BEGIN");
-    expect(statements.filter((sql) => sql.includes("INSERT INTO realtime_projection_outbox")))
+    expect(statements.filter((sql) => sql.includes("INSERT INTO realtime_projection_outbox (")))
       .toHaveLength(2);
     expect(statements.at(-2)).toBe("COMMIT");
     expect(statements.at(-1)).toBe("release");

@@ -60,6 +60,17 @@ export type PlatformApiBaseConfig = Readonly<{
   payoutReconciliationIntervalMs?: number | null;
 }>;
 
+export type PlatformApiBootstrapConfig = PlatformApiBaseConfig & Readonly<{
+  platformAdmin: PlatformApiPlatformAdminConfig | null;
+}>;
+
+export type PlatformApiPlatformAdminConfig = Readonly<{
+  email: string;
+  password: string;
+  displayName: string;
+  accountName: string;
+}>;
+
 export type PlatformApiPoolConfig = Readonly<{
   max: number;
   idleTimeoutMillis: number;
@@ -159,6 +170,28 @@ function getOptionalCsvEnv(name: string): readonly string[] {
     .filter(Boolean);
 }
 
+function loadPlatformAdminConfig(): PlatformApiPlatformAdminConfig | null {
+  const email = getOptionalEnv("PLATFORM_ADMIN_EMAIL");
+  const password = getOptionalEnv("PLATFORM_ADMIN_PASSWORD");
+
+  if (!email && !password) {
+    return null;
+  }
+
+  if (!email || !password) {
+    throw new Error(
+      "PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.",
+    );
+  }
+
+  return {
+    email,
+    password,
+    displayName: getOptionalEnv("PLATFORM_ADMIN_DISPLAY_NAME") ?? "Platform Admin",
+    accountName: getOptionalEnv("PLATFORM_ADMIN_ACCOUNT_NAME") ?? "Chase Sets Platform",
+  };
+}
+
 export function getContextDatabaseEnvName(contextName: PlatformApiContextName) {
   return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
 }
@@ -241,8 +274,11 @@ function loadBaseConfig(): PlatformApiBaseConfig {
   };
 }
 
-export function loadBootstrapConfig(): PlatformApiBaseConfig {
-  return loadBaseConfig();
+export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
+  return {
+    ...loadBaseConfig(),
+    platformAdmin: loadPlatformAdminConfig(),
+  };
 }
 
 export function loadConfig(): PlatformApiConfig {
