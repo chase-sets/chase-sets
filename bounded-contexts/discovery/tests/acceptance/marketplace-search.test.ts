@@ -167,7 +167,7 @@ describeWithDatabase("marketplace search", () => {
       type: "AddOption",
       optionId: itemSeed.optionId as never,
       code: "near-mint",
-      label: "Near Mint",
+      label: l10n("Near Mint"),
       numericValue: null,
     });
 
@@ -279,7 +279,7 @@ describeWithDatabase("marketplace search", () => {
       subscriptionRunners,
     });
 
-    const searchResponse = await app.request("/api/marketplace/items?search=charizard");
+    const searchResponse = await app.request("/api/marketplace/items?search=charizard&includeTotal=true");
     expect(searchResponse.status).toBe(200);
     const searchBody = await searchResponse.json();
     expect(searchBody.total).toBe(1);
@@ -329,7 +329,7 @@ describeWithDatabase("marketplace search", () => {
       subscriptionRunners,
     });
 
-    const japaneseSearchResponse = await app.request("/api/marketplace/items?search=%E3%83%AA%E3%82%B6%E3%83%BC%E3%83%89%E3%83%B3");
+    const japaneseSearchResponse = await app.request("/api/marketplace/items?search=%E3%83%AA%E3%82%B6%E3%83%BC%E3%83%89%E3%83%B3&includeTotal=true");
     expect(japaneseSearchResponse.status).toBe(200);
     const japaneseSearchBody = await japaneseSearchResponse.json();
     expect(japaneseSearchBody.total).toBe(1);
@@ -403,7 +403,7 @@ describeWithDatabase("marketplace search", () => {
       type: "AddOption",
       optionId: ids.formRawOptionId as never,
       code: "raw",
-      label: "Raw",
+      label: l10n("Raw"),
       numericValue: null,
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.formDimensionId}`, {
@@ -422,14 +422,14 @@ describeWithDatabase("marketplace search", () => {
       type: "AddOption",
       optionId: ids.conditionNearMintOptionId as never,
       code: "near-mint",
-      label: "Near Mint",
+      label: l10n("Near Mint"),
       numericValue: 5,
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
       type: "AddOption",
       optionId: ids.conditionExcellentOptionId as never,
       code: "excellent",
-      label: "Excellent",
+      label: l10n("Excellent"),
       numericValue: 4,
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
@@ -499,8 +499,8 @@ describeWithDatabase("marketplace search", () => {
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
       type: "CreateCatalogItem",
       itemId: ids.cardItemId as never,
-      title: "Charizard",
-      subtitle: "Base Set 4/102",
+      title: l10n("Charizard"),
+      subtitle: l10n("Base Set 4/102"),
       description: l10n("Classic single"),
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
@@ -530,8 +530,8 @@ describeWithDatabase("marketplace search", () => {
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
       type: "CreateCatalogItem",
       itemId: ids.sealedItemId as never,
-      title: "Twilight Masquerade ETB",
-      subtitle: "Sealed product",
+      title: l10n("Twilight Masquerade ETB"),
+      subtitle: l10n("Sealed product"),
       description: l10n("Sealed product"),
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {

@@ -641,7 +641,6 @@ export const englishTranslations = {
   "catalog.features.fields.api.seed.the.card.number.within.its.set": "The card number within its set (for example 4/102)",
   "catalog.features.fields.api.seed.the.expansion.set.or.product.line": "The expansion set or product line the item belongs to",
   "catalog.features.fields.api.seed.the.illustrator.of.the.card": "The illustrator of the card",
-  "catalog.features.fields.api.seed.the.language.the.item.is.printed": "The language the item is printed in",
   "catalog.features.fields.api.seed.the.printed.name.of.the.card": "The printed name of the card",
   "catalog.features.fields.api.seed.the.printed.rarity.classification.for.a": "The printed rarity classification for a single card",
   "catalog.features.fields.api.seed.the.year.the.card.or.product": "The year the card or product was released",
