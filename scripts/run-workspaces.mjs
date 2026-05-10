@@ -1,12 +1,35 @@
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { readEnvFile } from "./lib/env.mjs";
 import { buildNpmInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
+
+const rootDir = fileURLToPath(new URL("../", import.meta.url));
+const inheritedEnvKeys = new Set(Object.keys(process.env));
+const testEnvFiles = [".env", ".env.local", ".env.test", ".env.test.local"];
+
+function loadTestEnvironment() {
+  for (const fileName of testEnvFiles) {
+    const values = readEnvFile(path.join(rootDir, fileName));
+
+    for (const [key, value] of Object.entries(values)) {
+      if (!inheritedEnvKeys.has(key)) {
+        process.env[key] = value;
+      }
+    }
+  }
+}
 
 async function main() {
   const [scriptName, ...rawArgs] = process.argv.slice(2);
 
   if (!scriptName) {
     throw new Error("Usage: node ./scripts/run-workspaces.mjs <script-name>");
+  }
+
+  if (scriptName.startsWith("test")) {
+    loadTestEnvironment();
   }
 
   const passthroughSeparatorIndex = rawArgs.indexOf("--");

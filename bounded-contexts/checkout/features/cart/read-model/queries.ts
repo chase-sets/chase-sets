@@ -115,7 +115,7 @@ export async function listCartLines(
        line.item_language_code,
        line.item_title,
        line.item_subtitle,
-       item_page.image_urls->>0 AS item_image_url,
+       line.item_image_url,
        line.selected_options,
        line.product_summary,
        line.quantity,
@@ -123,55 +123,10 @@ export async function listCartLines(
        line.locked_listing_id,
        line.seller_preference_id,
        line.availability_state,
-       COALESCE(seller_options.options, '[]'::jsonb) AS seller_options,
+       '[]'::jsonb AS seller_options,
        line.created_at,
        line.updated_at
      FROM checkout_cart_line_pages line
-     LEFT JOIN discovery_item_detail_pages item_page
-       ON item_page.catalog_item_id = line.catalog_catalog_item_id
-     LEFT JOIN LATERAL (
-       SELECT jsonb_agg(
-         jsonb_build_object(
-           'listing_id', option.listing_id,
-           'seller_display_name', option.seller_display_name,
-           'price_amount', option.price_amount,
-           'available_quantity', option.available_quantity,
-           'product_summary', option.product_summary
-         )
-         ORDER BY option.price_sort ASC, option.updated_at ASC, option.listing_id ASC
-       ) AS options
-       FROM (
-         SELECT
-           listing.listing_id,
-           seller.display_name AS seller_display_name,
-           listing.price_amount::text AS price_amount,
-           listing.price_amount AS price_sort,
-           listing.product_summary,
-           listing.updated_at,
-           LEAST(
-             listing.quantity_cap,
-             GREATEST(
-               item.total_quantity - COALESCE(active_holds.held_quantity, 0),
-               0
-             )
-           ) AS available_quantity
-         FROM ordering_market_listing_inputs AS listing
-         INNER JOIN ordering_inventory_item_inputs AS item
-           ON item.item_id = listing.inventory_item_id
-         LEFT JOIN ordering_account_pages AS seller
-           ON seller.account_id = listing.seller_account_id
-         LEFT JOIN (
-           SELECT item_id, SUM(quantity)::integer AS held_quantity
-           FROM ordering_inventory_hold_inputs
-           WHERE status = 'active'
-           GROUP BY item_id
-         ) AS active_holds
-           ON active_holds.item_id = item.item_id
-         WHERE listing.status = 'active'
-           AND listing.product_id = line.product_id
-       ) AS option
-       WHERE option.available_quantity > 0
-     ) AS seller_options ON true
      WHERE line.buyer_account_id = $1
      ORDER BY line.updated_at DESC, line.line_id ASC`,
     [buyerAccountId],

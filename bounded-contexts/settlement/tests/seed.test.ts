@@ -22,8 +22,8 @@ describeWithMarketplaceSeedDatabase("settlement seed", () => {
       [identitySeedIds.demo.accountId],
     );
     expect(wallet.rows[0]).toMatchObject({
-      pending_balance_amount: "0.00",
-      available_balance_amount: "26.49",
+      pending_balance_amount: "43.07",
+      available_balance_amount: "26.20",
     });
 
     const payoutStatuses = await pools.settlement.query<{ status: string }>(

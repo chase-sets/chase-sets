@@ -40,7 +40,7 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
 
   try {
     const existing = await services.db.query(
-      "SELECT COUNT(*) AS count FROM settlement_wallet_pages",
+      "SELECT COUNT(*) AS count FROM settlement_payout_pages",
     );
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Settlement already contains data. Skipping seed.");

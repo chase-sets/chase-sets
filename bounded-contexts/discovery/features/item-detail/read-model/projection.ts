@@ -389,7 +389,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
           description,
           status,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10)
         ON CONFLICT (catalog_item_id) DO UPDATE SET
           slug = EXCLUDED.slug,
           language_code = EXCLUDED.language_code,

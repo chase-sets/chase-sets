@@ -121,8 +121,10 @@ export function createMultiContextTestPools<TContextName extends string>(
 export async function resetMultiContextTestSchemas(
   pools: Readonly<Record<string, PgTransactionalPool>>,
 ): Promise<void> {
+  const uniquePools = [...new Set(Object.values(pools))];
+
   await Promise.all(
-    Object.values(pools).map((pool) =>
+    uniquePools.map((pool) =>
       (pool as QueryablePool).query(
         "DROP OWNED BY CURRENT_USER CASCADE; GRANT ALL PRIVILEGES ON SCHEMA public TO CURRENT_USER;",
       ),

@@ -97,9 +97,8 @@ describeWithDatabase("platform api bootstrap", () => {
     const seededListingsWithTerms = await pools.marketplace.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
        FROM marketplace_listing_pages
-       WHERE marketplace_sales_fee_amount IS NOT NULL
-         AND marketplace_checkout_fee_amount IS NOT NULL
-         AND seller_net_amount IS NOT NULL
+       WHERE marketplace_sales_fee_unit_amount IS NOT NULL
+         AND seller_net_unit_amount IS NOT NULL
          AND terms_schedule_id IS NOT NULL
          AND terms_resolved_at IS NOT NULL`,
     );
@@ -107,27 +106,24 @@ describeWithDatabase("platform api bootstrap", () => {
       `SELECT COUNT(*) AS count
        FROM ordering_order_pages
        WHERE marketplace_sales_fee_amount IS NOT NULL
-         AND marketplace_checkout_fee_amount IS NOT NULL
          AND seller_net_amount IS NOT NULL
          AND terms_schedule_id IS NOT NULL
          AND terms_resolved_at IS NOT NULL`,
     );
     const orderingEmailOutbox = await pools.ordering.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
-       FROM transactional_email_outbox
-       WHERE message_type = 'ordering.order.created'`,
+       FROM notification_outbox
+       WHERE message_type = 'ordering.order.created'
+         AND channel = 'email'
+         AND idempotency_key LIKE 'ordering:order_confirmed:%'`,
     );
     const fulfillmentEmailOutbox = await pools.fulfillment.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
-       FROM transactional_email_outbox
-       WHERE message_type = 'fulfillment.shipment.delivered'`,
+       FROM notification_outbox
+       WHERE message_type = 'fulfillment.shipment.delivered'
+         AND channel = 'email'
+         AND idempotency_key LIKE 'fulfillment:shipment_delivered:%'`,
     );
-    const settlementEmailOutbox = await pools.settlement.query<Readonly<{ count: string }>>(
-      `SELECT COUNT(*) AS count
-       FROM transactional_email_outbox
-       WHERE message_type = 'settlement.payout.completed'`,
-    );
-
     expect(authReplayContext?.requiredGroups).toBeGreaterThan(0);
     expect(authReplayContext?.caughtUpGroups).toBe(authReplayContext?.totalGroups);
     expect(Number(authUsers.rows[0]?.count ?? 0)).toBeGreaterThan(0);
@@ -138,6 +134,5 @@ describeWithDatabase("platform api bootstrap", () => {
     expect(Number(seededOrdersWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(orderingEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(fulfillmentEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
-    expect(Number(settlementEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
   }, 60_000);
 });

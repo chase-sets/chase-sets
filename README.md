@@ -142,6 +142,13 @@ It syncs workspace metadata, checks architectural boundaries, typechecks, runs f
 npm run verify:db
 ```
 
+Local DB-backed tests read `TEST_DATABASE_URL` from root `.env.test.local`
+when it is not already set in the shell. The default dev value is:
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
+```
+
 ## Development Workflow
 
 When adding or changing behavior:

@@ -172,16 +172,18 @@ async function buildCheckoutLine(
 ) {
   const result = await services.db.query<{
     product_id: string;
+    product_summary: string | null;
     selected_options: unknown;
   }>(
-    `SELECT product_id, selected_options
+    `SELECT product_id, product_summary, selected_options
      FROM ordering_market_listing_inputs
      WHERE catalog_catalog_item_id = $1
-       AND product_summary = $2
+       AND selected_options @> $2::jsonb
+       AND selected_options <@ $2::jsonb
        AND status = 'active'
      ORDER BY price_amount ASC, listing_id ASC
      LIMIT 1`,
-    [line.catalogItemId, line.productSummary],
+    [line.catalogItemId, JSON.stringify(line.selectedOptions)],
   );
   const snapshot = result.rows[0];
   if (!snapshot) {
@@ -201,7 +203,7 @@ async function buildCheckoutLine(
           optionId: string;
         }[])
       : [...line.selectedOptions],
-    productSummary: line.productSummary,
+    productSummary: snapshot.product_summary ?? line.productSummary,
     quantity: line.quantity,
   };
 }

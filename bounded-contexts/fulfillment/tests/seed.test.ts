@@ -28,8 +28,9 @@ describeWithMarketplaceSeedDatabase("fulfillment seed", () => {
     );
     const shipmentEmails = await pools.fulfillment.query<{ count: string }>(
       `SELECT COUNT(*) AS count
-       FROM transactional_email_outbox
+       FROM notification_outbox
        WHERE message_type = 'fulfillment.shipment.delivered'
+         AND channel = 'email'
          AND idempotency_key LIKE 'fulfillment:shipment_delivered:%'`,
     );
     expect(Number(shipmentEmails.rows[0]?.count ?? 0)).toBeGreaterThan(0);
