@@ -23,7 +23,14 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
       ? uploadedFile.name
       : String(formData.get("sourceFilename") ?? "").trim() || null;
 
-    return { csvText, sourceFilename };
+    return {
+      csvText,
+      sourceFilename,
+      sourceKey: String(formData.get("sourceKey") ?? "") || undefined,
+      quantityMode: String(formData.get("quantityMode") ?? "") || undefined,
+      defaultStorageLocationId:
+        String(formData.get("defaultStorageLocationId") ?? "").trim() || null,
+    };
   }
 
   const body = await c.req.json().catch(() => ({})) as Readonly<Record<string, unknown>>;
@@ -60,6 +67,13 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
   return {
     csvText: String(body.csvText ?? ""),
     parsedRows,
+    sourceKey: typeof body.sourceKey === "string" ? body.sourceKey : undefined,
+    quantityMode: typeof body.quantityMode === "string" ? body.quantityMode : undefined,
+    defaultStorageLocationId:
+      typeof body.defaultStorageLocationId === "string" &&
+      body.defaultStorageLocationId.trim()
+        ? body.defaultStorageLocationId.trim()
+        : null,
     sourceFilename:
       typeof body.sourceFilename === "string" && body.sourceFilename.trim()
         ? body.sourceFilename.trim()
@@ -99,6 +113,9 @@ export function inventoryImportBatchRoutes(
           accountId: actor.accountId as never,
           csvText: body.csvText,
           parsedRows: body.parsedRows,
+          sourceKey: body.sourceKey as never,
+          quantityMode: body.quantityMode as never,
+          defaultStorageLocationId: body.defaultStorageLocationId,
           sourceFilename: body.sourceFilename,
         },
         c.get("context"),

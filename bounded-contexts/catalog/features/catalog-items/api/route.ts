@@ -184,6 +184,42 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     return c.json({ id: itemId, version: result.version, status: result.state.status });
   });
 
+  app.put("/:id/external-product-references/:providerKey/:externalKey", async (c) => {
+    const itemId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const context = c.get("context");
+
+    const result = await services.commandHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "LinkExternalProductReference",
+        providerKey: c.req.param("providerKey"),
+        externalKey: c.req.param("externalKey"),
+        selectedOptions: Array.isArray(body.selectedOptions) ? body.selectedOptions : [],
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.delete("/:id/external-product-references/:providerKey/:externalKey", async (c) => {
+    const itemId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.commandHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "UnlinkExternalProductReference",
+        providerKey: c.req.param("providerKey"),
+        externalKey: c.req.param("externalKey"),
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
   app.post("/:id/retire", async (c) => {
     const itemId = c.req.param("id");
     const context = c.get("context");
@@ -228,7 +264,6 @@ export function catalogItemRoutes(services: CatalogItemServices) {
 
   return app;
 }
-
 
 
 

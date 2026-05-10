@@ -17,6 +17,10 @@ type StoredBatch = Readonly<{
   batch_id: string;
   account_id: string;
   status: "uploaded" | "committed";
+  source_key: "native-csv" | "tcgplayer-csv";
+  adapter_version: number;
+  quantity_mode: "add" | "replace";
+  default_storage_location_id: string | null;
   source_filename: string | null;
   total_count: number;
   accepted_count: number;
@@ -32,6 +36,13 @@ type StoredRow = Readonly<{
   row_number: number;
   status: "accepted" | "rejected" | "committed";
   raw_row: Readonly<Record<string, string>>;
+  external_reference: unknown;
+  row_fingerprint: string;
+  quantity_mode: "add" | "replace";
+  quantity_delta: number | null;
+  set_quantity: number | null;
+  source_price_amount: string | null;
+  resolution_status: "native" | "resolved" | "unresolved";
   catalog_item_id: string | null;
   product_id: string | null;
   selected_options: readonly InventorySelectedOptionEntry[];
@@ -97,12 +108,20 @@ class ImportBatchDb implements PgQueryable {
       return this.result(rows as Row[]);
     }
 
+    if (sql.includes("FROM inventory_items AS item")) {
+      return this.result([]);
+    }
+
     if (sql.includes("INSERT INTO inventory_import_batches")) {
       const batch = {
         batch_id: String(values[0]),
         account_id: String(values[1]),
         status: "uploaded",
-        source_filename: typeof values[2] === "string" ? values[2] : null,
+        source_key: values[2] as StoredBatch["source_key"],
+        adapter_version: Number(values[3]),
+        quantity_mode: values[4] as StoredBatch["quantity_mode"],
+        default_storage_location_id: typeof values[5] === "string" ? values[5] : null,
+        source_filename: typeof values[6] === "string" ? values[6] : null,
         total_count: 0,
         accepted_count: 0,
         rejected_count: 0,
@@ -123,17 +142,24 @@ class ImportBatchDb implements PgQueryable {
           row_number: Number(values[2]),
           status: values[3] as StoredRow["status"],
           raw_row: JSON.parse(String(values[4])) as Record<string, string>,
-          catalog_item_id: typeof values[5] === "string" ? values[5] : null,
-          product_id: typeof values[6] === "string" ? values[6] : null,
-          selected_options: JSON.parse(String(values[7])) as InventorySelectedOptionEntry[],
-          storage_location_id: typeof values[8] === "string" ? values[8] : null,
-          total_quantity: typeof values[9] === "number" ? values[9] : null,
-          acquisition_cost_amount: typeof values[10] === "string" ? values[10] : null,
-          seller_sku: typeof values[11] === "string" ? values[11] : null,
-          listing_price_amount: typeof values[12] === "string" ? values[12] : null,
-          listing_quantity_cap: typeof values[13] === "number" ? values[13] : null,
-          row_note: typeof values[14] === "string" ? values[14] : null,
-          validation_errors: JSON.parse(String(values[15])) as string[],
+          external_reference: typeof values[5] === "string" ? JSON.parse(String(values[5])) : null,
+          row_fingerprint: String(values[6]),
+          quantity_mode: values[7] as StoredRow["quantity_mode"],
+          quantity_delta: typeof values[8] === "number" ? values[8] : null,
+          set_quantity: typeof values[9] === "number" ? values[9] : null,
+          source_price_amount: typeof values[10] === "string" ? values[10] : null,
+          resolution_status: values[11] as StoredRow["resolution_status"],
+          catalog_item_id: typeof values[12] === "string" ? values[12] : null,
+          product_id: typeof values[13] === "string" ? values[13] : null,
+          selected_options: JSON.parse(String(values[14])) as InventorySelectedOptionEntry[],
+          storage_location_id: typeof values[15] === "string" ? values[15] : null,
+          total_quantity: typeof values[16] === "number" ? values[16] : null,
+          acquisition_cost_amount: typeof values[17] === "string" ? values[17] : null,
+          seller_sku: typeof values[18] === "string" ? values[18] : null,
+          listing_price_amount: typeof values[19] === "string" ? values[19] : null,
+          listing_quantity_cap: typeof values[20] === "number" ? values[20] : null,
+          row_note: typeof values[21] === "string" ? values[21] : null,
+          validation_errors: JSON.parse(String(values[22])) as string[],
           committed_inventory_item_id: null,
           committed_listing_id: null,
           committed_at: null,
@@ -232,6 +258,19 @@ class ImportBatchDb implements PgQueryable {
 
 function catalogServices(): InventoryCatalogItemServices {
   return {
+    getExternalProductReference: async (providerKey, externalKey) => {
+      if (providerKey === "tcgplayer" && externalKey === "tcg_sku_1") {
+        return {
+          provider_key: providerKey,
+          external_key: externalKey,
+          catalog_item_id: "cat_active",
+          selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+          updated_at: now,
+        };
+      }
+
+      return null;
+    },
     getCatalogItem: async (itemId) => {
       if (itemId === "cat_unknown") {
         return null;
@@ -352,7 +391,7 @@ describe("inventory import batch runtime", () => {
         "Catalog item must be active.",
         "Selected options must use an allowed option for Condition.",
         "Storage location is archived.",
-        "totalQuantity must be a positive whole number.",
+        "add imports require totalQuantity to be a non-zero whole number.",
         "acquisitionCostAmount must be a zero-or-greater decimal amount.",
         "listingQuantityCap is required when listingPriceAmount is set.",
       ]),
@@ -387,5 +426,44 @@ describe("inventory import batch runtime", () => {
     expect(firstCommit.rows[0]?.committed_inventory_item_id).toBe(itemIds[0]);
     expect(firstCommit.rows[0]?.committed_listing_id).toBeDefined();
     expect(secondCommit.rows[0]).toMatchObject(firstCommit.rows[0] ?? {});
+  });
+
+  it("resolves mapped TCGplayer rows and rejects unmapped external references", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey: "tcgplayer-csv",
+        quantityMode: "replace",
+        defaultStorageLocationId: "loc_active",
+        csvText: [
+          "TCGplayer SKU,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price",
+          "tcg_sku_1,Charizard,Base Set,Near Mint,4,12.50",
+          "tcg_unknown,Pikachu,Jungle,Lightly Played,2,1.25",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch).toMatchObject({
+      source_key: "tcgplayer-csv",
+      quantity_mode: "replace",
+      accepted_count: 1,
+      rejected_count: 1,
+    });
+    expect(batch.rows[0]).toMatchObject({
+      status: "accepted",
+      resolution_status: "resolved",
+      external_reference: {
+        providerKey: "tcgplayer",
+        externalKey: "tcg_sku_1",
+      },
+      catalog_item_id: "cat_active",
+      set_quantity: 4,
+      source_price_amount: "12.50",
+    });
+    expect(batch.rows[1]?.validation_errors).toContain(
+      "External product reference is not mapped to a Chase Sets catalog item.",
+    );
   });
 });

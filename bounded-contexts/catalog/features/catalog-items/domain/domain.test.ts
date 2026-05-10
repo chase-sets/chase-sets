@@ -85,6 +85,40 @@ describe("CatalogItem aggregate", () => {
       expect(events[0].type).toBe("catalog.catalog-item.field-value-set");
     });
 
+    it("links and unlinks external product references", () => {
+      const linkedEvents = decide(decideCatalogItem, createdState(), {
+        type: "LinkExternalProductReference" as const,
+        providerKey: "TCGplayer",
+        externalKey: " SKU-1 ",
+        selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+      });
+      const linkedState = givenEvents(
+        createdState(),
+        evolveCatalogItem,
+        linkedEvents as CatalogItemEvent[],
+      );
+      const unlinkedEvents = decide(decideCatalogItem, linkedState, {
+        type: "UnlinkExternalProductReference" as const,
+        providerKey: "tcgplayer",
+        externalKey: "sku-1",
+      });
+
+      expect(linkedEvents[0]).toMatchObject({
+        type: "catalog.catalog-item.external-product-reference-linked",
+        data: {
+          providerKey: "tcgplayer",
+          externalKey: "sku-1",
+        },
+      });
+      expect(unlinkedEvents[0]).toMatchObject({
+        type: "catalog.catalog-item.external-product-reference-unlinked",
+        data: {
+          providerKey: "tcgplayer",
+          externalKey: "sku-1",
+        },
+      });
+    });
+
     it("clears a field value", () => {
       const state = givenEvents(createdState(), evolveCatalogItem, [
         { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },

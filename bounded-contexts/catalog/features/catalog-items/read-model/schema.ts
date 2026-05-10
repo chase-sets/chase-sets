@@ -12,6 +12,15 @@ export const catalogCatalogItemSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_i
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS catalog_external_product_references (
+  provider_key text NOT NULL,
+  external_key text NOT NULL,
+  catalog_item_id text NOT NULL REFERENCES catalog_items(catalog_item_id) ON DELETE CASCADE,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_key, external_key)
+);
+
 CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_list_pages (
   catalog_item_id text PRIMARY KEY REFERENCES catalog_items(catalog_item_id) ON DELETE CASCADE,
   title text NOT NULL DEFAULT '',
@@ -45,5 +54,6 @@ CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_blueprint_idx
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_title_idx
   ON catalog_admin_catalog_item_list_pages USING gin (to_tsvector('simple', title || ' ' || COALESCE(subtitle, '')));
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_tags_idx
-  ON catalog_admin_catalog_item_list_pages USING gin (tags);`;
-
+  ON catalog_admin_catalog_item_list_pages USING gin (tags);
+CREATE INDEX IF NOT EXISTS catalog_external_product_references_catalog_item_idx
+  ON catalog_external_product_references (catalog_item_id);`;

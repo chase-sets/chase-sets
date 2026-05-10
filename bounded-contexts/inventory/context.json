@@ -50,6 +50,8 @@
         "catalog.catalog-item.blueprint-assigned",
         "catalog.catalog-item.published",
         "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.external-product-reference-linked",
+        "catalog.catalog-item.external-product-reference-unlinked",
         "catalog.catalog-item.retired",
         "catalog.catalog-item.archived",
         "catalog.blueprint.created",
@@ -88,7 +90,8 @@
         "inventory_catalog_items",
         "inventory_catalog_blueprints",
         "inventory_catalog_dimensions",
-        "inventory_catalog_dimension_options"
+        "inventory_catalog_dimension_options",
+        "inventory_catalog_external_product_references"
       ],
       "requiredDuringBootstrap": true
     },

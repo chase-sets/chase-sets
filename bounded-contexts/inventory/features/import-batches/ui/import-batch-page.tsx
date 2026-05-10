@@ -8,6 +8,7 @@ import {
   LinkButton,
   MarketplaceDashboardPanel,
   MarketplaceNotice,
+  NativeSelect,
   Page,
   PageHeader,
   PageSection,
@@ -21,6 +22,7 @@ import type {
   InventoryImportBatchDetail,
   InventoryImportBatchRow,
 } from "../read-model/queries";
+import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -59,10 +61,12 @@ function rowOutcome(row: InventoryImportBatchRow) {
 
 export function InventoryImportBatchPage({
   batches,
+  storageLocations,
   detail,
   errorMessage,
 }: {
   batches: readonly InventoryImportBatch[];
+  storageLocations: readonly InventoryStorageLocation[];
   detail: InventoryImportBatchDetail | null;
   errorMessage?: string | null;
 }) {
@@ -119,24 +123,85 @@ export function InventoryImportBatchPage({
             value: detail?.committed_count ?? 0,
             detail: t("inventory.features.importBatches.ui.importBatchPage.items.created"),
           },
+          {
+            label: t("inventory.features.importBatches.ui.importBatchPage.source"),
+            value: detail?.source_key === "tcgplayer-csv"
+              ? t("inventory.features.importBatches.ui.importBatchPage.tcgplayer")
+              : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
+            detail: detail
+              ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
+                  version: detail.adapter_version,
+                })
+              : t("inventory.features.importBatches.ui.importBatchPage.not.set"),
+          },
+          {
+            label: t("inventory.features.importBatches.ui.importBatchPage.mode"),
+            value: detail?.quantity_mode ?? t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
+            detail: detail?.default_storage_location_id ?? t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
+          },
         ]}
       />
 
       <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.upload.csv")}>
         <Card>
-          <form method="post">
+          <form method="post" encType="multipart/form-data">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="create-batch" />
+              <Inline>
+                <NativeSelect
+                  label={t("inventory.features.importBatches.ui.importBatchPage.import.source")}
+                  name="sourceKey"
+                  defaultValue="native-csv"
+                  items={[
+                    {
+                      value: "native-csv",
+                      label: t("inventory.features.importBatches.ui.importBatchPage.chase.sets.csv"),
+                    },
+                    {
+                      value: "tcgplayer-csv",
+                      label: t("inventory.features.importBatches.ui.importBatchPage.tcgplayer.csv"),
+                    },
+                  ]}
+                />
+                <NativeSelect
+                  label={t("inventory.features.importBatches.ui.importBatchPage.quantity.mode")}
+                  name="quantityMode"
+                  defaultValue="add"
+                  items={[
+                    {
+                      value: "add",
+                      label: t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
+                    },
+                    {
+                      value: "replace",
+                      label: t("inventory.features.importBatches.ui.importBatchPage.replace.stock"),
+                    },
+                  ]}
+                />
+              </Inline>
+              <NativeSelect
+                label={t("inventory.features.importBatches.ui.importBatchPage.default.storage.location")}
+                name="defaultStorageLocationId"
+                placeholder={t("inventory.features.importBatches.ui.importBatchPage.choose.location")}
+                items={storageLocations.map((location) => ({
+                  value: location.storage_location_id,
+                  label: location.name,
+                }))}
+              />
               <TextInput
                 label={t("inventory.features.importBatches.ui.importBatchPage.source.filename")}
                 name="sourceFilename"
                 placeholder={t("inventory.features.importBatches.ui.importBatchPage.source.filename.placeholder")}
               />
+              <TextInput
+                label={t("inventory.features.importBatches.ui.importBatchPage.csv.file")}
+                name="file"
+                type="file"
+              />
               <Textarea
                 label={t("inventory.features.importBatches.ui.importBatchPage.csv.rows.input")}
                 name="csvText"
                 rows={8}
-                required
                 placeholder={t("inventory.features.importBatches.ui.importBatchPage.csv.placeholder")}
                 description={t("inventory.features.importBatches.ui.importBatchPage.csv.description")}
               />
@@ -185,7 +250,33 @@ export function InventoryImportBatchPage({
                 {
                   key: "status",
                   header: t("inventory.features.importBatches.ui.importBatchPage.status"),
-                  cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
+                  cell: (row) => (
+                    <Stack gap={1}>
+                      <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                      <Text size="sm" tone="secondary">{row.resolution_status}</Text>
+                    </Stack>
+                  ),
+                },
+                {
+                  key: "source",
+                  header: t("inventory.features.importBatches.ui.importBatchPage.source"),
+                  cell: (row) => (
+                    <Stack gap={1}>
+                      <Text weight="semibold">
+                        {row.external_reference?.displayName ??
+                          row.external_reference?.externalKey ??
+                          t("inventory.features.importBatches.ui.importBatchPage.native.row")}
+                      </Text>
+                      <Text size="sm" tone="secondary">
+                        {row.external_reference
+                          ? t("inventory.features.importBatches.ui.importBatchPage.external.reference", {
+                              provider: row.external_reference.providerKey,
+                              key: row.external_reference.externalKey,
+                            })
+                          : row.row_fingerprint}
+                      </Text>
+                    </Stack>
+                  ),
                 },
                 {
                   key: "catalogItem",
@@ -203,7 +294,12 @@ export function InventoryImportBatchPage({
                   key: "quantity",
                   header: t("inventory.features.importBatches.ui.importBatchPage.quantity"),
                   align: "right",
-                  cell: (row) => row.total_quantity ?? t("inventory.features.importBatches.ui.importBatchPage.not.set"),
+                  cell: (row) => (
+                    <Stack gap={1}>
+                      <Text>{row.set_quantity ?? row.quantity_delta ?? row.total_quantity ?? t("inventory.features.importBatches.ui.importBatchPage.not.set")}</Text>
+                      <Text size="sm" tone="secondary">{row.quantity_mode}</Text>
+                    </Stack>
+                  ),
                 },
                 {
                   key: "listing",

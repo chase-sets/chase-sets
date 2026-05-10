@@ -14,6 +14,10 @@ function batch(overrides: Partial<InventoryImportBatch> = {}): InventoryImportBa
     batch_id: "imb_1",
     account_id: "acc_1",
     status: "uploaded",
+    source_key: "native-csv",
+    adapter_version: 1,
+    quantity_mode: "add",
+    default_storage_location_id: "loc_1",
     source_filename: "stock.csv",
     total_count: 1,
     accepted_count: 1,
@@ -32,6 +36,13 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     row_number: 2,
     status: "accepted",
     raw_row: {},
+    external_reference: null,
+    row_fingerprint: "native-csv|2|cat_1",
+    quantity_mode: "add",
+    quantity_delta: 3,
+    set_quantity: null,
+    source_price_amount: null,
+    resolution_status: "native",
     catalog_item_id: "cat_1",
     product_id: "cat_1::condition:near_mint",
     selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
@@ -72,7 +83,7 @@ function detail(rows: readonly InventoryImportBatchRow[]): InventoryImportBatchD
 describe("InventoryImportBatchPage", () => {
   it("renders the empty upload and recent import state", () => {
     const html = renderToString(
-      <InventoryImportBatchPage batches={[]} detail={null} />,
+      <InventoryImportBatchPage batches={[]} storageLocations={[]} detail={null} />,
     );
 
     expect(html).toContain("Inventory import");
@@ -84,6 +95,7 @@ describe("InventoryImportBatchPage", () => {
     const html = renderToString(
       <InventoryImportBatchPage
         batches={[batch()]}
+        storageLocations={[]}
         detail={detail([
           row(),
           row({
@@ -117,6 +129,7 @@ describe("InventoryImportBatchPage", () => {
     const allRejected = renderToString(
       <InventoryImportBatchPage
         batches={[batch()]}
+        storageLocations={[]}
         detail={detail([
           row({
             status: "rejected",
@@ -128,6 +141,7 @@ describe("InventoryImportBatchPage", () => {
     const committed = renderToString(
       <InventoryImportBatchPage
         batches={[batch({ status: "committed" })]}
+        storageLocations={[]}
         detail={detail([
           row({
             status: "committed",

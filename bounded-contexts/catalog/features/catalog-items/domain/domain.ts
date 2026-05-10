@@ -19,6 +19,17 @@ export type ItemFieldValue = Readonly<{
   value: CatalogValue;
 }>;
 
+export type CatalogSelectedOptionReference = Readonly<{
+  dimensionId: string;
+  optionId: string;
+}>;
+
+export type CatalogExternalProductReference = Readonly<{
+  providerKey: string;
+  externalKey: string;
+  selectedOptions: readonly CatalogSelectedOptionReference[];
+}>;
+
 export type CatalogItemState = Readonly<{
   id: CatalogItemId | null;
   title: string | null;
@@ -30,6 +41,7 @@ export type CatalogItemState = Readonly<{
   categoryIds: readonly CategoryId[];
   tags: readonly string[];
   imageUrls: readonly string[];
+  externalProductReferences: readonly CatalogExternalProductReference[];
 }>;
 
 export const initialCatalogItemState: CatalogItemState = {
@@ -43,6 +55,7 @@ export const initialCatalogItemState: CatalogItemState = {
   categoryIds: [],
   tags: [],
   imageUrls: [],
+  externalProductReferences: [],
 };
 
 export type CreateCatalogItemCommand = Readonly<{
@@ -103,6 +116,19 @@ export type SetCatalogItemImageUrlsCommand = Readonly<{
   imageUrls: readonly string[];
 }>;
 
+export type LinkExternalProductReferenceCommand = Readonly<{
+  type: "LinkExternalProductReference";
+  providerKey: string;
+  externalKey: string;
+  selectedOptions?: readonly CatalogSelectedOptionReference[];
+}>;
+
+export type UnlinkExternalProductReferenceCommand = Readonly<{
+  type: "UnlinkExternalProductReference";
+  providerKey: string;
+  externalKey: string;
+}>;
+
 export type RetireCatalogItemCommand = Readonly<{
   type: "RetireCatalogItem";
 }>;
@@ -122,6 +148,8 @@ export type CatalogItemCommand =
   | ReviseCatalogItemMetadataCommand
   | SetCatalogItemTagsCommand
   | SetCatalogItemImageUrlsCommand
+  | LinkExternalProductReferenceCommand
+  | UnlinkExternalProductReferenceCommand
   | RetireCatalogItemCommand
   | ArchiveCatalogItemCommand;
 
@@ -198,6 +226,19 @@ export type ItemImageUrlsSetEvent = DomainEvent<
   }>
 >;
 
+export type ItemExternalProductReferenceLinkedEvent = DomainEvent<
+  "catalog.catalog-item.external-product-reference-linked",
+  CatalogExternalProductReference
+>;
+
+export type ItemExternalProductReferenceUnlinkedEvent = DomainEvent<
+  "catalog.catalog-item.external-product-reference-unlinked",
+  Readonly<{
+    providerKey: string;
+    externalKey: string;
+  }>
+>;
+
 export type ItemRetiredEvent = DomainEvent<
   "catalog.catalog-item.retired",
   EmptyEventData
@@ -219,6 +260,8 @@ export type CatalogItemEvent =
   | ItemMetadataRevisedEvent
   | ItemTagsSetEvent
   | ItemImageUrlsSetEvent
+  | ItemExternalProductReferenceLinkedEvent
+  | ItemExternalProductReferenceUnlinkedEvent
   | ItemRetiredEvent
   | ItemArchivedEvent;
 
@@ -394,6 +437,45 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
+    case "LinkExternalProductReference": {
+      requireCreatedItem(state);
+      assert(state.status !== "archived", "Archived items cannot be modified.");
+      const reference = normalizeExternalProductReference({
+        providerKey: command.providerKey,
+        externalKey: command.externalKey,
+        selectedOptions: command.selectedOptions ?? [],
+      });
+
+      return [
+        {
+          type: "catalog.catalog-item.external-product-reference-linked",
+          data: reference,
+        },
+      ];
+    }
+    case "UnlinkExternalProductReference": {
+      requireCreatedItem(state);
+      assert(state.status !== "archived", "Archived items cannot be modified.");
+      const providerKey = normalizeExternalKey(command.providerKey);
+      const externalKey = normalizeExternalKey(command.externalKey);
+      assert(providerKey.length > 0, "External product references require a provider.");
+      assert(externalKey.length > 0, "External product references require an external key.");
+      assert(
+        state.externalProductReferences.some(
+          (reference) =>
+            reference.providerKey === providerKey &&
+            reference.externalKey === externalKey,
+        ),
+        "External product reference is not linked to this item.",
+      );
+
+      return [
+        {
+          type: "catalog.catalog-item.external-product-reference-unlinked",
+          data: { providerKey, externalKey },
+        },
+      ];
+    }
     case "RetireCatalogItem":
       requireCreatedItem(state);
       assert(state.status === "active", "Only active items can be retired.");
@@ -492,6 +574,27 @@ export const evolveCatalogItem: AggregateEvolver<
         ...state,
         imageUrls: event.data.imageUrls,
       };
+    case "catalog.catalog-item.external-product-reference-linked":
+      return {
+        ...state,
+        externalProductReferences: normalizeExternalProductReferences([
+          ...state.externalProductReferences.filter(
+            (reference) =>
+              reference.providerKey !== event.data.providerKey ||
+              reference.externalKey !== event.data.externalKey,
+          ),
+          event.data,
+        ]),
+      };
+    case "catalog.catalog-item.external-product-reference-unlinked":
+      return {
+        ...state,
+        externalProductReferences: state.externalProductReferences.filter(
+          (reference) =>
+            reference.providerKey !== event.data.providerKey ||
+            reference.externalKey !== event.data.externalKey,
+        ),
+      };
     case "catalog.catalog-item.retired":
       return {
         ...state,
@@ -531,6 +634,69 @@ function normalizeTags(tags: readonly string[]): string[] {
   );
 }
 
+function normalizeExternalKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeExternalProductReference(
+  reference: CatalogExternalProductReference,
+): CatalogExternalProductReference {
+  const providerKey = normalizeExternalKey(reference.providerKey);
+  const externalKey = normalizeExternalKey(reference.externalKey);
+  assert(providerKey.length > 0, "External product references require a provider.");
+  assert(externalKey.length > 0, "External product references require an external key.");
+
+  return {
+    providerKey,
+    externalKey,
+    selectedOptions: normalizeSelectedOptions(reference.selectedOptions),
+  };
+}
+
+function normalizeSelectedOptions(
+  selectedOptions: readonly CatalogSelectedOptionReference[],
+): CatalogSelectedOptionReference[] {
+  const normalized = selectedOptions
+    .map((entry) => ({
+      dimensionId: entry.dimensionId.trim(),
+      optionId: entry.optionId.trim(),
+    }))
+    .filter((entry) => entry.dimensionId.length > 0 && entry.optionId.length > 0)
+    .sort((left, right) =>
+      left.dimensionId === right.dimensionId
+        ? left.optionId.localeCompare(right.optionId)
+        : left.dimensionId.localeCompare(right.dimensionId),
+    );
+
+  ensureUniqueBy(
+    normalized,
+    (entry) => entry.dimensionId,
+    "External product reference selected options must be unique per dimension.",
+  );
+
+  return normalized;
+}
+
+function normalizeExternalProductReferences(
+  references: readonly CatalogExternalProductReference[],
+): CatalogExternalProductReference[] {
+  const normalized = references
+    .map(normalizeExternalProductReference)
+    .sort((left, right) =>
+      left.providerKey === right.providerKey
+        ? left.externalKey.localeCompare(right.externalKey)
+        : left.providerKey.localeCompare(right.providerKey),
+    );
+
+  ensureUniqueBy(
+    normalized,
+    (reference) => `${reference.providerKey}:${reference.externalKey}`,
+    "External product references must be unique per provider and key.",
+  );
+
+  return normalized;
+}
+
 function normalizeRequiredFieldIds(
   fieldIds: readonly FieldId[],
 ): readonly FieldId[] {
@@ -546,5 +712,4 @@ function normalizeRequiredFieldIds(
 
   return normalized;
 }
-
 

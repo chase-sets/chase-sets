@@ -25,6 +25,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   return {
     batches: await api.listImportBatches(DEFAULT_IMPORT_QUERY),
+    storageLocations: await api.listStorageLocations("limit=100&offset=0"),
     detail: batchId ? await api.getImportBatch(batchId) : null,
   };
 }
@@ -40,9 +41,18 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "create-batch") {
+      const uploadedFile = formData.get("file");
+      const file = uploadedFile instanceof File && uploadedFile.size > 0
+        ? uploadedFile
+        : null;
       const result = await api.createImportBatch({
-        csvText: String(formData.get("csvText") ?? ""),
-        sourceFilename: String(formData.get("sourceFilename") ?? "").trim() || null,
+        csvText: file ? await file.text() : String(formData.get("csvText") ?? ""),
+        sourceKey: String(formData.get("sourceKey") ?? "native-csv"),
+        quantityMode: String(formData.get("quantityMode") ?? "add"),
+        defaultStorageLocationId:
+          String(formData.get("defaultStorageLocationId") ?? "").trim() || null,
+        sourceFilename:
+          (file?.name ?? String(formData.get("sourceFilename") ?? "").trim()) || null,
       });
       return redirect(`/account/inventory/imports/${result.batch_id}`);
     }
@@ -78,6 +88,7 @@ export default function MarketplaceInventoryImportsRoute() {
   return (
     <InventoryImportBatchPage
       batches={data.batches.items}
+      storageLocations={data.storageLocations.items}
       detail={data.detail}
       errorMessage={actionData?.error ?? null}
     />

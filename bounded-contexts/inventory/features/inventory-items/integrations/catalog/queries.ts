@@ -14,6 +14,14 @@ export type InventoryCatalogItemSnapshot = Readonly<{
   updated_at: string;
 }>;
 
+export type InventoryExternalProductReference = Readonly<{
+  provider_key: string;
+  external_key: string;
+  catalog_item_id: string;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  updated_at: string;
+}>;
+
 type InventoryCatalogItemRow = Readonly<{
   catalog_item_id: string;
   title: string;
@@ -22,6 +30,13 @@ type InventoryCatalogItemRow = Readonly<{
   status: string;
   product_schema: unknown;
   updated_at: string;
+}>;
+
+type InventoryExternalProductReferenceRow = Omit<
+  InventoryExternalProductReference,
+  "selected_options"
+> & Readonly<{
+  selected_options: unknown;
 }>;
 
 async function hasInventoryCatalogItemsTable(db: PgQueryable) {
@@ -66,5 +81,36 @@ export async function getInventoryCatalogItem(
         ? (row.product_schema as InventoryProductSchema)
         : null,
     ),
+  };
+}
+
+export async function getInventoryExternalProductReference(
+  db: PgQueryable,
+  providerKey: string,
+  externalKey: string,
+): Promise<InventoryExternalProductReference | null> {
+  const result = await db.query<InventoryExternalProductReferenceRow>(
+    `SELECT
+       provider_key,
+       external_key,
+       catalog_item_id,
+       selected_options,
+       updated_at
+     FROM inventory_catalog_external_product_references
+     WHERE provider_key = $1
+       AND external_key = $2`,
+    [providerKey.trim().toLowerCase(), externalKey.trim().toLowerCase()],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    selected_options: Array.isArray(row.selected_options)
+      ? (row.selected_options as InventoryExternalProductReference["selected_options"])
+      : [],
   };
 }

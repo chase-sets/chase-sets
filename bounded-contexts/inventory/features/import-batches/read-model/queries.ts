@@ -1,7 +1,13 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type {
+  InventoryImportExternalReference,
+  InventoryImportQuantityMode,
+  InventoryImportSourceKey,
+} from "../domain/import-source-adapters";
 
 export type InventoryImportBatchStatus = "uploaded" | "committed";
 export type InventoryImportRowStatus = "accepted" | "rejected" | "committed";
+export type InventoryImportResolutionStatus = "native" | "resolved" | "unresolved";
 
 export type InventoryImportBatchRow = Readonly<{
   row_id: string;
@@ -9,6 +15,13 @@ export type InventoryImportBatchRow = Readonly<{
   row_number: number;
   status: InventoryImportRowStatus;
   raw_row: Readonly<Record<string, string>>;
+  external_reference: InventoryImportExternalReference | null;
+  row_fingerprint: string;
+  quantity_mode: InventoryImportQuantityMode;
+  quantity_delta: number | null;
+  set_quantity: number | null;
+  source_price_amount: string | null;
+  resolution_status: InventoryImportResolutionStatus;
   catalog_item_id: string | null;
   product_id: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
@@ -31,6 +44,10 @@ export type InventoryImportBatch = Readonly<{
   batch_id: string;
   account_id: string;
   status: InventoryImportBatchStatus;
+  source_key: InventoryImportSourceKey;
+  adapter_version: number;
+  quantity_mode: InventoryImportQuantityMode;
+  default_storage_location_id: string | null;
   source_filename: string | null;
   total_count: number;
   accepted_count: number;
@@ -46,9 +63,10 @@ export type InventoryImportBatchDetail = InventoryImportBatch & Readonly<{
 
 type RawImportBatchRow = Omit<
   InventoryImportBatchRow,
-  "raw_row" | "selected_options" | "validation_errors"
+  "raw_row" | "external_reference" | "selected_options" | "validation_errors"
 > & Readonly<{
   raw_row: unknown;
+  external_reference: unknown;
   selected_options: unknown;
   validation_errors: unknown;
 }>;
@@ -60,6 +78,12 @@ function normalizeRow(row: RawImportBatchRow): InventoryImportBatchRow {
       typeof row.raw_row === "object" && row.raw_row !== null && !Array.isArray(row.raw_row)
         ? (row.raw_row as Record<string, string>)
         : {},
+    external_reference:
+      typeof row.external_reference === "object" &&
+      row.external_reference !== null &&
+      !Array.isArray(row.external_reference)
+        ? (row.external_reference as InventoryImportExternalReference)
+        : null,
     selected_options: Array.isArray(row.selected_options)
       ? (row.selected_options as InventoryImportBatchRow["selected_options"])
       : [],
@@ -79,6 +103,10 @@ export async function getImportBatch(
        batch_id,
        account_id,
        status,
+       source_key,
+       adapter_version,
+       quantity_mode,
+       default_storage_location_id,
        source_filename,
        total_count,
        accepted_count,
@@ -103,6 +131,13 @@ export async function getImportBatch(
        row_number,
        status,
        raw_row,
+       external_reference,
+       row_fingerprint,
+       quantity_mode,
+       quantity_delta,
+       set_quantity,
+       source_price_amount::text,
+       resolution_status,
        catalog_item_id,
        product_id,
        selected_options,
@@ -149,6 +184,10 @@ export async function listImportBatches(
          batch_id,
          account_id,
          status,
+         source_key,
+         adapter_version,
+         quantity_mode,
+         default_storage_location_id,
          source_filename,
          total_count,
          accepted_count,

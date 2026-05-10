@@ -91,6 +91,9 @@ export function createInventoryApiClient({
     async createImportBatch(body: Readonly<{
       csvText?: string;
       parsedRows?: readonly ImportCsvRow[];
+      sourceKey?: string;
+      quantityMode?: string;
+      defaultStorageLocationId?: string | null;
       sourceFilename?: string | null;
     }>): Promise<InventoryImportBatchDetail> {
       return parseJsonResponse(

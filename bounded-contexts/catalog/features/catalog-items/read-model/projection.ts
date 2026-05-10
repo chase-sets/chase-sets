@@ -132,6 +132,50 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
+    "catalog.catalog-item.external-product-reference-linked": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { providerKey, externalKey, selectedOptions } = event.data as {
+        providerKey: string;
+        externalKey: string;
+        selectedOptions: unknown;
+      };
+
+      await db.query(
+        `INSERT INTO catalog_external_product_references (
+           provider_key,
+           external_key,
+           catalog_item_id,
+           selected_options,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (provider_key, external_key) DO UPDATE SET
+           catalog_item_id = EXCLUDED.catalog_item_id,
+           selected_options = EXCLUDED.selected_options,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          providerKey,
+          externalKey,
+          itemId,
+          JSON.stringify(Array.isArray(selectedOptions) ? selectedOptions : []),
+          event.timing.recordedAt,
+        ],
+      );
+    },
+
+    "catalog.catalog-item.external-product-reference-unlinked": async (event) => {
+      const { providerKey, externalKey } = event.data as {
+        providerKey: string;
+        externalKey: string;
+      };
+
+      await db.query(
+        `DELETE FROM catalog_external_product_references
+         WHERE provider_key = $1
+           AND external_key = $2`,
+        [providerKey, externalKey],
+      );
+    },
+
     "catalog.catalog-item.retired": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
@@ -151,6 +195,5 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
     },
   };
 }
-
 
 

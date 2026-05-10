@@ -3,6 +3,10 @@ CREATE TABLE IF NOT EXISTS inventory_import_batches (
   batch_id text PRIMARY KEY,
   account_id text NOT NULL,
   status text NOT NULL,
+  source_key text NOT NULL DEFAULT 'native-csv',
+  adapter_version integer NOT NULL DEFAULT 1,
+  quantity_mode text NOT NULL DEFAULT 'add',
+  default_storage_location_id text NULL,
   source_filename text NULL,
   total_count integer NOT NULL DEFAULT 0,
   accepted_count integer NOT NULL DEFAULT 0,
@@ -18,6 +22,13 @@ CREATE TABLE IF NOT EXISTS inventory_import_batch_rows (
   row_number integer NOT NULL,
   status text NOT NULL,
   raw_row jsonb NOT NULL DEFAULT '{}'::jsonb,
+  external_reference jsonb NULL,
+  row_fingerprint text NOT NULL DEFAULT '',
+  quantity_mode text NOT NULL DEFAULT 'add',
+  quantity_delta integer NULL,
+  set_quantity integer NULL,
+  source_price_amount numeric(12, 2) NULL,
+  resolution_status text NOT NULL DEFAULT 'native',
   catalog_item_id text NULL,
   product_id text NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -42,4 +53,19 @@ CREATE INDEX IF NOT EXISTS inventory_import_batches_account_idx
 
 CREATE INDEX IF NOT EXISTS inventory_import_batch_rows_batch_idx
   ON inventory_import_batch_rows (batch_id, row_number ASC);
+
+ALTER TABLE inventory_import_batches
+  ADD COLUMN IF NOT EXISTS source_key text NOT NULL DEFAULT 'native-csv',
+  ADD COLUMN IF NOT EXISTS adapter_version integer NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS quantity_mode text NOT NULL DEFAULT 'add',
+  ADD COLUMN IF NOT EXISTS default_storage_location_id text NULL;
+
+ALTER TABLE inventory_import_batch_rows
+  ADD COLUMN IF NOT EXISTS external_reference jsonb NULL,
+  ADD COLUMN IF NOT EXISTS row_fingerprint text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS quantity_mode text NOT NULL DEFAULT 'add',
+  ADD COLUMN IF NOT EXISTS quantity_delta integer NULL,
+  ADD COLUMN IF NOT EXISTS set_quantity integer NULL,
+  ADD COLUMN IF NOT EXISTS source_price_amount numeric(12, 2) NULL,
+  ADD COLUMN IF NOT EXISTS resolution_status text NOT NULL DEFAULT 'native';
 `;
