@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS inventory_catalog_items (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE inventory_catalog_items
+  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en';
+
 CREATE INDEX IF NOT EXISTS inventory_catalog_items_blueprint_idx
   ON inventory_catalog_items (blueprint_id);
 
@@ -18,9 +21,6 @@ CREATE INDEX IF NOT EXISTS inventory_catalog_items_language_idx
 
 CREATE INDEX IF NOT EXISTS inventory_catalog_items_status_idx
   ON inventory_catalog_items (status);
-
-ALTER TABLE inventory_catalog_items
-  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en';
 
 CREATE TABLE IF NOT EXISTS inventory_catalog_blueprints (
   blueprint_id text PRIMARY KEY,

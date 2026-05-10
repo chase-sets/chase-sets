@@ -45,6 +45,9 @@ ALTER TABLE marketplace_catalog_dimension_options
   ADD COLUMN IF NOT EXISTS label_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS label text NOT NULL DEFAULT '';
 
+ALTER TABLE marketplace_catalog_items
+  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en';
+
 CREATE TABLE IF NOT EXISTS marketplace_supply_locations (
   storage_location_id text PRIMARY KEY,
   account_id text NOT NULL,
@@ -112,7 +115,4 @@ CREATE INDEX IF NOT EXISTS marketplace_supply_holds_item_idx
 
 ALTER TABLE marketplace_supply_locations
   ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
-
-ALTER TABLE marketplace_catalog_items
-  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en';
 `;
