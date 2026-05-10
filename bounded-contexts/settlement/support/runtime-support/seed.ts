@@ -125,6 +125,7 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
       currencyCode: "usd",
       destinationReference: "bank_seed_completed",
       note: "Completed payout seed",
+      notificationEmail: "demo@chasesets.test",
       requestedAt: "2026-03-24T10:00:00.000Z",
     },
     context,

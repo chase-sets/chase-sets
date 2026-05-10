@@ -115,6 +115,55 @@ async function listOrderPagesForSource(
   return result.rows.map((row) => row.order_id);
 }
 
+async function seedOrderingWebNotifications(db: PgQueryable) {
+  await db.query(
+    `INSERT INTO web_notifications (
+       delivery_id,
+       user_id,
+       account_id,
+       message_type,
+       criticality,
+       title,
+       body,
+       action_href,
+       correlation_id,
+       source_idempotency_key,
+       read_at,
+       created_at
+     ) VALUES
+       ($1, NULL, $2, 'ordering.order.created', 'commerce', $3, $4, $5, $6, $7, NULL, $8),
+       ($9, NULL, $2, 'ordering.order.created', 'commerce', $10, $11, $12, $13, $14, $15, $16)
+     ON CONFLICT (delivery_id) DO UPDATE SET
+       account_id = EXCLUDED.account_id,
+       message_type = EXCLUDED.message_type,
+       criticality = EXCLUDED.criticality,
+       title = EXCLUDED.title,
+       body = EXCLUDED.body,
+       action_href = EXCLUDED.action_href,
+       correlation_id = EXCLUDED.correlation_id,
+       source_idempotency_key = EXCLUDED.source_idempotency_key,
+       created_at = EXCLUDED.created_at`,
+    [
+      "seed:ordering:notification:checkout-pending",
+      identitySeedIds.collector.accountId,
+      "Order confirmed",
+      "Your Pikachu order is waiting for payment confirmation.",
+      `/account/purchases/${orderingReservedSeedIds.orders.checkoutPending}`,
+      "seed_ordering_notifications",
+      `ordering:order_confirmed:${orderingReservedSeedIds.orders.checkoutPending}`,
+      "2026-03-22T11:00:00.000Z",
+      "seed:ordering:notification:accepted-offer-ready",
+      "Accepted offer order ready",
+      "Your Twilight Masquerade order is ready for fulfillment.",
+      `/account/purchases/${orderingReservedSeedIds.orders.acceptedOfferReady}`,
+      "seed_ordering_notifications",
+      `ordering:order_confirmed:${orderingReservedSeedIds.orders.acceptedOfferReady}`,
+      "2026-03-22T11:06:00.000Z",
+      "2026-03-22T11:05:00.000Z",
+    ],
+  );
+}
+
 async function buildCheckoutLine(
   services: ReturnType<typeof createOrderingServices>,
   line:
@@ -205,6 +254,7 @@ export async function seedOrderingDatabase(
       ]);
 
     if (hasCheckoutPending && hasCancelledOrder && hasAcceptedOfferOrder) {
+      await seedOrderingWebNotifications(ordering.db);
       console.log("Ordering already contains seed data. Skipping seed.");
       return;
     }
@@ -338,5 +388,6 @@ export async function seedOrderingDatabase(
     }
   }
 
+  await seedOrderingWebNotifications(ordering.db);
   console.log("\nOrdering seed complete!");
 }

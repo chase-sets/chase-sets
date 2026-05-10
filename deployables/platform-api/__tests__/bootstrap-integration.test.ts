@@ -112,6 +112,21 @@ describeWithDatabase("platform api bootstrap", () => {
          AND terms_schedule_id IS NOT NULL
          AND terms_resolved_at IS NOT NULL`,
     );
+    const orderingEmailOutbox = await pools.ordering.query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM transactional_email_outbox
+       WHERE message_type = 'ordering.order.created'`,
+    );
+    const fulfillmentEmailOutbox = await pools.fulfillment.query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM transactional_email_outbox
+       WHERE message_type = 'fulfillment.shipment.delivered'`,
+    );
+    const settlementEmailOutbox = await pools.settlement.query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM transactional_email_outbox
+       WHERE message_type = 'settlement.payout.completed'`,
+    );
 
     expect(authReplayContext?.requiredGroups).toBeGreaterThan(0);
     expect(authReplayContext?.caughtUpGroups).toBe(authReplayContext?.totalGroups);
@@ -121,5 +136,8 @@ describeWithDatabase("platform api bootstrap", () => {
     expect(Number(commercialTermsAgreements.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(1);
     expect(Number(seededListingsWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededOrdersWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(orderingEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(fulfillmentEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(settlementEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
   }, 60_000);
 });

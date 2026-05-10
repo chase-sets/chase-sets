@@ -23,7 +23,8 @@
     "@chase-sets/payments": "0.1.0",
     "@chase-sets/pricing": "0.1.0",
     "@chase-sets/reputation": "0.1.0",
-    "@chase-sets/settlement": "0.1.0"
+    "@chase-sets/settlement": "0.1.0",
+    "@chase-sets/support": "0.1.0"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

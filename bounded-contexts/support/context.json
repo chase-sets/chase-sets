@@ -21,7 +21,10 @@
     "./seed-support/*",
     "./server"
   ],
-  "allowedContextDependencies": [],
+  "allowedContextDependencies": [
+    "@chase-sets/identity",
+    "@chase-sets/ordering"
+  ],
   "seedRequirements": [
     "identity",
     "ordering",

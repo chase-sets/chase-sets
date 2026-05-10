@@ -24,7 +24,7 @@ import {
   AUTH_SESSION_TRANSACTIONAL_EMAIL_PROJECTION,
   buildAuthSessionTransactionalEmailProjectionHandlers,
   type MagicLinkDeliveryTokenStore,
-} from "../application/transactional-email-projector";
+} from "../integrations/transactional-email/transactional-email-projector";
 
 export type SessionServices = Readonly<{
   commandHandler: CommandHandler<SessionCommand, SessionState, SessionEvent>;

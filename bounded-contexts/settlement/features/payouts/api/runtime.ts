@@ -39,7 +39,7 @@ import { buildPayoutProjectionHandlers } from "../read-model/projection";
 import {
   SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
   buildSettlementPayoutTransactionalEmailProjectionHandlers,
-} from "../application/transactional-email-projector";
+} from "../integrations/transactional-email/transactional-email-projector";
 import {
   getPayout,
   getAccountPayoutRiskSummary,

@@ -7,8 +7,9 @@
     "testProfile": "db"
   },
   "scripts": {
+    "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:fast": "vitest run --config ./tests/vitest.config.mjs"
+    "test:fast": "vitest run --config ./tests/vitest.config.mjs --exclude tests/seed.test.ts"
   },
   "exports": {
     ".": "./index.ts",
@@ -25,7 +26,9 @@
     "@chase-sets/event-core": "0.1.0",
     "@chase-sets/event-core-postgres": "0.1.0",
     "@chase-sets/http": "0.1.0",
+    "@chase-sets/identity": "0.1.0",
     "@chase-sets/localization": "0.0.0",
+    "@chase-sets/ordering": "0.1.0",
     "@chase-sets/platform-runtime": "0.1.0",
     "@chase-sets/primitives": "0.1.0",
     "hono": "^4.12.12"

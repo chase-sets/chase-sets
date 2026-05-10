@@ -32,6 +32,13 @@ describeWithMarketplaceSeedDatabase("settlement seed", () => {
     expect(new Set(payoutStatuses.rows.map((row) => row.status))).toEqual(
       new Set(["completed", "failed"]),
     );
+    const payoutEmails = await pools.settlement.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM transactional_email_outbox
+       WHERE message_type = 'settlement.payout.completed'
+         AND idempotency_key LIKE 'settlement:payout_completed:%'`,
+    );
+    expect(Number(payoutEmails.rows[0]?.count ?? 0)).toBeGreaterThan(0);
 
     const before = await pools.settlement.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'settlement.%'",
