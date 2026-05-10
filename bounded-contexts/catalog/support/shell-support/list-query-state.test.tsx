@@ -38,6 +38,9 @@ function Harness({ query }: { query: CatalogListQuery }) {
       <button type="button" onClick={() => controls.setStatus("active")}>
         Active
       </button>
+      <button type="button" onClick={() => controls.setLanguage("ja")}>
+        Japanese
+      </button>
       <button type="button" onClick={() => controls.setPage(2)}>
         Page 3
       </button>
@@ -53,21 +56,22 @@ describe("catalog list query state", () => {
 
   it("reads URL params and builds the API query with limit and offset", () => {
     const query = readCatalogListQuery(
-      new Request("http://localhost/catalog-items?search=charizard&status=active&page=3"),
+      new Request("http://localhost/catalog-items?search=charizard&status=active&language=ja&page=3"),
     );
 
     expect(query).toEqual({
       search: "charizard",
       status: "active",
+      language: "ja",
       page: 2,
       pageSize: 50,
     });
     expect(buildCatalogListApiQuery(query)).toBe(
-      "search=charizard&status=active&limit=50&offset=100",
+      "search=charizard&status=active&language=ja&limit=50&offset=100",
     );
   });
 
-  it("applies search, status, and page updates to URL params", () => {
+  it("applies search, status, language, and page updates to URL params", () => {
     const searched = applyCatalogListQueryToSearchParams(
       new URLSearchParams("search=old&page=3"),
       { search: " new " },
@@ -80,23 +84,30 @@ describe("catalog list query state", () => {
     );
     expect(filtered.toString()).toBe("search=new&status=active");
 
+    const languageFiltered = applyCatalogListQueryToSearchParams(
+      new URLSearchParams("search=new&status=active&page=2"),
+      { language: "ja" },
+    );
+    expect(languageFiltered.toString()).toBe("search=new&status=active&language=ja");
+
     const paged = applyCatalogListQueryToSearchParams(
-      new URLSearchParams("search=new&status=active"),
+      new URLSearchParams("search=new&status=active&language=ja"),
       { page: 1 },
     );
-    expect(paged.toString()).toBe("search=new&status=active&page=2");
+    expect(paged.toString()).toBe("search=new&status=active&language=ja&page=2");
   });
 
   it("loads route data through the derived API query", async () => {
     const list = vi.fn(async () => ({ items: [{ id: "item-1" }], total: 1 }));
 
     const result = await loadCatalogListRouteData(
-      new Request("http://localhost/catalog-items?search=charizard&page=2"),
+      new Request("http://localhost/catalog-items?search=charizard&language=en&page=2"),
       list,
     );
 
-    expect(list).toHaveBeenCalledWith("search=charizard&limit=50&offset=50");
+    expect(list).toHaveBeenCalledWith("search=charizard&language=en&limit=50&offset=50");
     expect(result.query.search).toBe("charizard");
+    expect(result.query.language).toBe("en");
     expect(result.data.items).toEqual([{ id: "item-1" }]);
   });
 
@@ -133,5 +144,13 @@ describe("catalog list query state", () => {
       "search=charizard&status=active",
     );
     expect(statusOptions).toMatchObject({ replace: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Japanese" }));
+    expect(setSearchParams).toHaveBeenCalledTimes(3);
+    const [languageUpdater, languageOptions] = setSearchParams.mock.calls[2];
+    expect(languageUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe(
+      "search=charizard&language=ja",
+    );
+    expect(languageOptions).toMatchObject({ replace: false });
   });
 });

@@ -23,6 +23,7 @@ const MARKETPLACE_DESCRIPTION =
 const EMPTY_SEARCH_RESULT = {
   search: "",
   category: "",
+  language: "",
   sort: "relevance",
   page: 1,
   data: null,
@@ -32,11 +33,13 @@ const EMPTY_SEARCH_RESULT = {
 function buildSearchQuery({
   search,
   category,
+  language,
   sort,
   page,
 }: {
   search: string;
   category: string;
+  language: string;
   sort: string;
   page: number;
 }) {
@@ -46,6 +49,9 @@ function buildSearchQuery({
   }
   if (category) {
     params.set("category", category);
+  }
+  if (language) {
+    params.set("language", language);
   }
   params.set("sort", sort);
   params.set("limit", String(PAGE_SIZE));
@@ -66,6 +72,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const search = url.searchParams.get("q") ?? url.searchParams.get("search") ?? "";
   const categoryParam = params.categorySlug ?? url.searchParams.get("category") ?? "";
+  const language = url.searchParams.get("language") ?? "";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
   const api = createDiscoveryRequestApiClient(request);
@@ -90,7 +97,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(buildCategoryPath(resolvedCategory.slug, url.searchParams), { status: 301 });
   }
 
-  const data = await api.searchItems(buildSearchQuery({ search, category, sort, page }));
+  const data = await api.searchItems(buildSearchQuery({ search, category, language, sort, page }));
   const canonicalPath = params.categorySlug && resolvedCategory
     ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
     : buildCategoryPath("", url.searchParams);
@@ -98,6 +105,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return {
     search,
     category,
+    language,
     sort,
     page,
     data,
@@ -146,7 +154,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   }));
   const realtimeData = useRealtimePatchedSnapshot<DiscoverySearchResponse | null>({
     initialSnapshot: data.data,
-    snapshotKey: JSON.stringify([data.search, data.category, data.sort, data.page, data.data]),
+    snapshotKey: JSON.stringify([data.search, data.category, data.language, data.sort, data.page, data.data]),
     topics: discoveryRealtimeRouteTopics.search().topics,
     applyPatch: applyDiscoverySearchPatch,
     onSyncRequired: reloadForRealtimeSync,
@@ -178,6 +186,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   const updateSearchParams = useCallback((nextValues: {
     search?: string;
     category?: string;
+    language?: string;
     sort?: string;
     page?: number;
   }, replace = false) => {
@@ -219,6 +228,15 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         next.delete("page");
       }
 
+      if (nextValues.language !== undefined) {
+        if (nextValues.language) {
+          next.set("language", nextValues.language);
+        } else {
+          next.delete("language");
+        }
+        next.delete("page");
+      }
+
       if (nextValues.page !== undefined) {
         if (nextValues.page > 1) {
           next.set("page", String(nextValues.page));
@@ -244,6 +262,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
 
   function handleImmediateSearchParamChange(nextValues: {
     category?: string;
+    language?: string;
     sort?: string;
     page?: number;
   }) {
@@ -258,6 +277,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       search={draftSearch}
       committedSearch={data.search}
       category={data.category}
+      language={data.language}
       sort={data.sort}
       page={data.page}
       data={realtimeData}
@@ -266,6 +286,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       restoreSearchFocus={restoreSearchFocusRef.current}
       onSearchChange={handleSearchChange}
       onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
+      onLanguageChange={(value) => handleImmediateSearchParamChange({ language: value })}
       onSortChange={(value) => handleImmediateSearchParamChange({ sort: value })}
       onPageChange={(value) => handleImmediateSearchParamChange({ page: value })}
     />

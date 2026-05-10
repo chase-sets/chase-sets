@@ -5,11 +5,38 @@ import { buildInventoryCatalogItemProjectionHandlers } from "./projection";
 
 class ProjectionDb implements PgQueryable {
   public readonly externalReferences = new Map<string, unknown>();
+  public readonly catalogItems = new Map<string, Record<string, unknown>>();
 
   async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("INSERT INTO inventory_catalog_items")) {
+      this.catalogItems.set(String(values[0]), {
+        catalog_item_id: values[0],
+        language_code: values[1],
+        title: values[2],
+        subtitle: values[3],
+        status: "draft",
+        updated_at: values[4],
+      });
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at")) {
+      const item = this.catalogItems.get(String(values[0]));
+      return { rows: (item ? [item] : []) as Row[], rowCount: item ? 1 : 0 };
+    }
+
+    if (sql.includes("SET product_schema = $2")) {
+      this.catalogItems.set(String(values[0]), {
+        ...this.catalogItems.get(String(values[0])),
+        product_schema: values[1],
+        updated_at: values[2],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("INSERT INTO inventory_catalog_external_product_references")) {
       this.externalReferences.set(`${values[0]}:${values[1]}`, {
         provider_key: values[0],
@@ -53,6 +80,27 @@ function event(type: string, data: Record<string, unknown>): TransportEvent {
 }
 
 describe("inventory catalog item projection", () => {
+  it("projects catalog item language and resolved English display text", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildInventoryCatalogItemProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.created"]!(
+      event("catalog.catalog-item.created", {
+        itemId: "cat_1",
+        languageCode: "ja",
+        title: { defaultLocale: "en", values: { en: "Charizard", ja: "リザードン" } },
+        subtitle: { defaultLocale: "en", values: { en: "Japanese Base Set", ja: "拡張パック" } },
+      }),
+    );
+
+    expect(db.catalogItems.get("cat_1")).toMatchObject({
+      catalog_item_id: "cat_1",
+      language_code: "ja",
+      title: "Charizard",
+      subtitle: "Japanese Base Set",
+    });
+  });
+
   it("projects Catalog external product reference links and unlinks", async () => {
     const db = new ProjectionDb();
     const handlers = buildInventoryCatalogItemProjectionHandlers(db);

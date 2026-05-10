@@ -8,6 +8,7 @@ export const CATALOG_LIST_SEARCH_DEBOUNCE_MS = 300;
 export type CatalogListQuery = Readonly<{
   search: string;
   status: string;
+  language: string;
   page: number;
   pageSize: number;
 }>;
@@ -17,7 +18,7 @@ export type CatalogListRouteData<T> = Readonly<{
   query: CatalogListQuery;
 }>;
 
-type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "page">>;
+type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "page">>;
 
 export function readCatalogListQuery(request: Request): CatalogListQuery {
   const url = new URL(request.url);
@@ -26,6 +27,7 @@ export function readCatalogListQuery(request: Request): CatalogListQuery {
   return {
     search: url.searchParams.get("search")?.trim() ?? "",
     status: url.searchParams.get("status")?.trim() ?? "",
+    language: url.searchParams.get("language")?.trim() ?? "",
     page: Number.isFinite(pageFromUrl) ? Math.max(0, pageFromUrl - 1) : 0,
     pageSize: CATALOG_LIST_PAGE_SIZE,
   };
@@ -38,6 +40,9 @@ export function buildCatalogListApiQuery(query: CatalogListQuery): string {
   }
   if (query.status) {
     params.set("status", query.status);
+  }
+  if (query.language) {
+    params.set("language", query.language);
   }
   params.set("limit", String(query.pageSize));
   params.set("offset", String(query.page * query.pageSize));
@@ -66,6 +71,16 @@ export function applyCatalogListQueryToSearchParams(
       next.set("status", status);
     } else {
       next.delete("status");
+    }
+    next.delete("page");
+  }
+
+  if (update.language !== undefined) {
+    const language = update.language.trim();
+    if (language) {
+      next.set("language", language);
+    } else {
+      next.delete("language");
     }
     next.delete("page");
   }
@@ -155,11 +170,13 @@ export function useCatalogListQueryControls(
   return {
     search: draftSearch,
     status: query.status,
+    language: query.language,
     page: query.page,
     pageSize: query.pageSize,
     loading: navigation.state !== "idle",
     setSearch,
     setStatus: (status: string) => commitWithCurrentSearch({ status }),
+    setLanguage: (language: string) => commitWithCurrentSearch({ language }),
     setPage: (page: number) => commitWithCurrentSearch({ page }),
   };
 }

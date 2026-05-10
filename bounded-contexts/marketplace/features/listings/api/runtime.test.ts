@@ -462,6 +462,7 @@ describe("marketplace listing runtime", () => {
                     account_id: supply.accountId,
                     catalog_catalog_item_id: supply.catalogItemId,
                     product_id: supply.productId,
+                    item_language_code: "ja",
                     item_title: "Batch card",
                     item_subtitle: null,
                     selected_options: supply.selectedOptions,
@@ -531,6 +532,7 @@ describe("marketplace listing runtime", () => {
       eventType: "marketplace.listing.created",
       payload: expect.objectContaining({
         listingId: "lst_batch",
+        itemLanguageCode: "ja",
         marketplaceSalesFeeUnitAmount: "0.75",
         sellerNetUnitAmount: "4.25",
         termsScheduleId: "cts_batch",

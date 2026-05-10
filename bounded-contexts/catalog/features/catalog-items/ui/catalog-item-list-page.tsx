@@ -5,6 +5,7 @@ import { useRevalidator } from "react-router";
 import {
   Button,
   Dialog,
+  Select,
   Stack,
   StatusPill,
   TextInput,
@@ -34,6 +35,13 @@ const statusOptions = [
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.active"), value: "active" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.retired"), value: "retired" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.archived"), value: "archived" },
+];
+
+const ALL_LANGUAGES = "__all__";
+
+const languageOptions = [
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.english"), value: "en" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.japanese"), value: "ja" },
 ];
 
 export function CatalogItemListPage({ data, query }: CatalogListRouteData<CatalogItemListItem>) {
@@ -76,6 +84,17 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        extraFilters={
+          <Select
+            label={t("catalog.features.catalogItems.ui.catalogItemListPage.language")}
+            value={listControls.language || ALL_LANGUAGES}
+            onValueChange={(value) => listControls.setLanguage(value === ALL_LANGUAGES ? "" : value)}
+            items={[
+              { label: t("catalog.features.catalogItems.ui.catalogItemListPage.all.languages"), value: ALL_LANGUAGES },
+              ...languageOptions,
+            ]}
+          />
+        }
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
@@ -99,5 +118,4 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     </>
   );
 }
-
 

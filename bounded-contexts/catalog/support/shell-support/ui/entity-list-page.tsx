@@ -50,6 +50,7 @@ interface EntityListPageProps<T> {
   statusFilter?: string;
   onStatusFilterChange?: (value: string) => void;
   statusOptions?: { label: string; value: string }[];
+  extraFilters?: ReactNode;
   page?: number;
   pageSize?: number;
   onPageChange?: (page: number) => void;
@@ -71,6 +72,7 @@ export function EntityListPage<T>({
   statusFilter,
   onStatusFilterChange,
   statusOptions,
+  extraFilters,
   page = 0,
   pageSize = 50,
   onPageChange,
@@ -97,7 +99,7 @@ export function EntityListPage<T>({
         actions={createButton}
       />
       <Stack gap={4}>
-        {(onSearchChange || onStatusFilterChange) && (
+        {(onSearchChange || onStatusFilterChange || extraFilters) && (
           <Inline gap={3} align="start">
             {onSearchChange && (
               <TextInput
@@ -115,6 +117,7 @@ export function EntityListPage<T>({
                 items={[{ label: t("catalog.support.shellSupport.ui.entityListPage.all.statuses"), value: ALL_STATUSES }, ...statusOptions]}
               />
             )}
+            {extraFilters}
           </Inline>
         )}
         {error && <Banner tone="danger" title={t("catalog.support.shellSupport.ui.entityListPage.error")} description={error} />}

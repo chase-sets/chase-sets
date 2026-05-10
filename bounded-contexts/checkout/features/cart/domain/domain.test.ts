@@ -13,6 +13,7 @@ describe("checkout cart domain", () => {
       lineId: "cli_1" as never,
       catalogItemId: "cat_1",
       productId: "cat_1::" as never,
+      itemLanguageCode: "ja",
       itemTitle: "Charizard",
       itemSubtitle: "Base Set",
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
@@ -28,6 +29,8 @@ describe("checkout cart domain", () => {
     const updatedState = updated.reduce(evolveCheckoutCart, addedState);
 
     expect(updatedState.lines).toHaveLength(1);
+    expect(added[0]?.data.itemLanguageCode).toBe("ja");
+    expect(addedState.lines[0]?.itemLanguageCode).toBe("ja");
     expect(updatedState.lines[0]?.quantity).toBe(2);
 
     const removed = decideCheckoutCart(updatedState, {

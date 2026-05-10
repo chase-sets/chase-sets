@@ -1,7 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { buildPricingMarketplaceInputProjectionHandlers } from "./source-projection";
+import {
+  buildPricingCatalogInputProjectionHandlers,
+  buildPricingMarketplaceInputProjectionHandlers,
+} from "./source-projection";
 
 describe("pricing marketplace source projection", () => {
+  it("projects catalog item language and resolved English display text", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const handlers = buildPricingCatalogInputProjectionHandlers({
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params: params ?? [] });
+        return { rows: [] };
+      },
+    });
+
+    await handlers["catalog.catalog-item.created"]?.({
+      type: "catalog.catalog-item.created",
+      streamId: "catalog.item-cat_1",
+      streamVersion: 1,
+      data: {
+        itemId: "cat_1",
+        languageCode: "ja",
+        title: { defaultLocale: "en", values: { en: "Charizard", ja: "リザードン" } },
+        subtitle: { defaultLocale: "en", values: { en: "Japanese Base Set", ja: "拡張パック" } },
+      },
+      timing: {
+        recordedAt: "2026-05-09T00:00:00.000Z",
+      },
+    } as never);
+
+    expect(calls[0]?.sql).toContain("pricing_catalog_item_inputs");
+    expect(calls[0]?.params).toEqual([
+      "cat_1",
+      "ja",
+      "Charizard",
+      "Japanese Base Set",
+      "2026-05-09T00:00:00.000Z",
+    ]);
+  });
+
   it("projects listing targets needed for repricing recommendations", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
     const handlers = buildPricingMarketplaceInputProjectionHandlers({

@@ -100,6 +100,7 @@ describeWithDatabase("Admin page projections", () => {
     const rootCategoryId = "ctg_root";
     const childCategoryId = "ctg_child";
     const itemId = "cat_charizard";
+    const japaneseItemId = "cat_charizard_ja";
 
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "CreateDimension",
@@ -226,6 +227,24 @@ describeWithDatabase("Admin page projections", () => {
       requiredFieldIds: [fieldId],
     });
 
+    await sendCommand(services.items.commandHandler, `catalog.item-${japaneseItemId}`, {
+      type: "CreateCatalogItem",
+      itemId: japaneseItemId,
+      languageCode: "ja",
+      title: {
+        defaultLocale: "en",
+        values: { en: "Charizard", ja: "リザードン" },
+      },
+      subtitle: {
+        defaultLocale: "en",
+        values: { en: "Japanese Base Set", ja: "拡張パック" },
+      },
+      description: {
+        defaultLocale: "en",
+        values: { en: "Japanese printed Charizard", ja: "日本語版リザードン" },
+      },
+    });
+
     await drainProjectors();
 
     const dimensionDetail = await getJson(`/api/catalog/dimensions/${dimensionId}`);
@@ -283,12 +302,35 @@ describeWithDatabase("Admin page projections", () => {
     expect(itemList.json.total).toBe(1);
     expect(itemList.json.items[0]).toMatchObject({
       catalog_item_id: itemId,
+      language_code: "en",
+      title: "Charizard",
+      title_i18n: { defaultLocale: "en", values: { en: "Charizard" } },
+      subtitle_i18n: { defaultLocale: "en", values: { en: "Base Set" } },
       blueprint: { blueprintId, name: "Raw Pokemon Card" },
     });
     expect(itemList.json._resolvedNames).toBeUndefined();
 
+    const japaneseItemList = await getJson("/api/catalog/items?language=ja&limit=5&offset=0");
+    expect(japaneseItemList.response.status).toBe(200);
+    expect(japaneseItemList.json.total).toBe(1);
+    expect(japaneseItemList.json.items[0]).toMatchObject({
+      catalog_item_id: japaneseItemId,
+      language_code: "ja",
+      title: "Charizard",
+      title_i18n: { defaultLocale: "en", values: { en: "Charizard", ja: "リザードン" } },
+    });
+
     const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
     expect(itemDetail.response.status).toBe(200);
+    expect(itemDetail.json).toMatchObject({
+      language_code: "en",
+      title_i18n: { defaultLocale: "en", values: { en: "Charizard" } },
+      subtitle_i18n: { defaultLocale: "en", values: { en: "Base Set" } },
+      description_i18n: { defaultLocale: "en", values: { en: "A classic Charizard" } },
+      title: "Charizard",
+      subtitle: "Base Set",
+      description: "A classic Charizard",
+    });
     expect(itemDetail.json.blueprint).toMatchObject({ blueprintId, name: "Raw Pokemon Card" });
     expect(itemDetail.json.field_values[0]).toMatchObject({ fieldId, fieldName: "Card Name", value: "Charizard" });
     expect(itemDetail.json.categories[0]).toMatchObject({ categoryId: childCategoryId, name: "Generation I" });

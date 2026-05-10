@@ -33,10 +33,11 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
 
 import SearchRoute from "@chase-sets/discovery/routes/search";
 
-function searchData(search = "") {
+function searchData(search = "", language = "") {
   return {
     search,
     category: "",
+    language,
     sort: "relevance",
     page: 1,
     data: { items: [], total: 0, count: 0, nextCursor: null },
@@ -53,8 +54,8 @@ function searchData(search = "") {
   };
 }
 
-function searchDataWithResults(search = "") {
-  const data = searchData(search);
+function searchDataWithResults(search = "", language = "") {
+  const data = searchData(search, language);
 
   return {
     ...data,
@@ -63,6 +64,7 @@ function searchDataWithResults(search = "") {
         {
           catalog_item_id: "cat_pikachu",
           slug: "pikachu",
+          language_code: "en",
           title: "Pikachu",
           subtitle: "Jungle 60/64 Common",
           description: "A catalog item for route behavior tests.",
@@ -228,6 +230,24 @@ describe("marketplace search route", () => {
     });
   });
 
+  it("removes applied language filters and clears pagination", () => {
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu", "ja"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&language=ja&page=3"), setSearchParams]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Language: Japanese" }));
+
+    const [updater, options] = setSearchParams.mock.calls[0];
+    const next = updater(new URLSearchParams("q=pikachu&language=ja&page=3"));
+    expect(next.get("q")).toBe("pikachu");
+    expect(next.has("language")).toBe(false);
+    expect(next.has("page")).toBe(false);
+    expect(options).toMatchObject({ preventScrollReset: true, replace: false });
+  });
+
   it("makes product result cards direct item-detail links without compare copy", () => {
     mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
     mockUseNavigate.mockReturnValue(vi.fn());
@@ -242,6 +262,7 @@ describe("marketplace search route", () => {
     expect(screen.getByRole("link", { name: "View details" }).getAttribute("href")).toBe(
       "/items/pikachu",
     );
+    expect(screen.getByText("Language: en")).toBeTruthy();
     expect(screen.queryByText("Compare")).toBeNull();
     expect(
       screen.queryByText("Compare price, seller trust, and fulfillment before choosing."),

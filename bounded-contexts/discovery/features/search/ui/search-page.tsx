@@ -38,6 +38,13 @@ const sortOptions = [
   { label: t("discovery.features.search.ui.searchPage.newest"), value: "newest" },
 ];
 
+const ALL_LANGUAGES = "__all__";
+
+const languageOptions = [
+  { label: t("discovery.features.search.ui.searchPage.english"), value: "en" },
+  { label: t("discovery.features.search.ui.searchPage.japanese"), value: "ja" },
+];
+
 function formatListingMeta(item: DiscoverySearchItem): string {
   const listingCount = item.market_summary?.active_listing_count ?? 0;
   const visibleQuantity = item.market_summary?.total_visible_quantity ?? 0;
@@ -89,6 +96,10 @@ function formatItemLanguage(item: DiscoverySearchItem): string {
   });
 }
 
+function findLanguageLabel(language: string): string {
+  return languageOptions.find((item) => item.value === language)?.label ?? language;
+}
+
 function formatValueCue(item: DiscoverySearchItem): string | undefined {
   const listingCount = item.market_summary?.active_listing_count ?? 0;
 
@@ -101,6 +112,7 @@ export interface SearchPageProps {
   search: string;
   committedSearch?: string;
   category: string;
+  language: string;
   sort: string;
   page: number;
   data: DiscoverySearchResponse | null;
@@ -110,6 +122,7 @@ export interface SearchPageProps {
   restoreSearchFocus?: boolean;
   onSearchChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
+  onLanguageChange: (value: string) => void;
   onSortChange: (value: string) => void;
   onPageChange: (page: number) => void;
 }
@@ -118,6 +131,7 @@ export function SearchPage({
   search,
   committedSearch = search,
   category,
+  language,
   sort,
   page,
   data,
@@ -127,6 +141,7 @@ export function SearchPage({
   restoreSearchFocus = false,
   onSearchChange,
   onCategoryChange,
+  onLanguageChange,
   onSortChange,
   onPageChange,
 }: SearchPageProps) {
@@ -142,8 +157,9 @@ export function SearchPage({
   );
   const activeCategoryLabel =
     categories.find((item) => item.slug === category)?.name ?? t("discovery.features.search.ui.searchPage.all.categories");
+  const activeLanguageLabel = language ? findLanguageLabel(language) : t("discovery.features.search.ui.searchPage.all.languages");
   const hasFocusedResults =
-    committedSearch.trim().length > 0 || Boolean(category) || sort !== "relevance" || page > 1;
+    committedSearch.trim().length > 0 || Boolean(category) || Boolean(language) || sort !== "relevance" || page > 1;
   const appliedFilters = [
     ...(committedSearch.trim()
       ? [{
@@ -161,6 +177,15 @@ export function SearchPage({
             category: activeCategoryLabel,
           }),
           onRemove: () => onCategoryChange(""),
+        }]
+      : []),
+    ...(language
+      ? [{
+          id: "language",
+          label: t("discovery.features.search.ui.searchPage.language.filter.label", {
+            language: activeLanguageLabel,
+          }),
+          onRemove: () => onLanguageChange(""),
         }]
       : []),
     ...(sort !== "relevance"
@@ -259,9 +284,20 @@ export function SearchPage({
               />
             }
             filters={
-              <LinkButton href="/search" tone="secondary" size="sm">
-                {t("discovery.features.search.ui.searchPage.clear.all.filters")}
-              </LinkButton>
+              <Inline gap={2} align="end">
+                <Select
+                  label={t("discovery.features.search.ui.searchPage.language")}
+                  items={[
+                    { label: t("discovery.features.search.ui.searchPage.all.languages"), value: ALL_LANGUAGES },
+                    ...languageOptions,
+                  ]}
+                  value={language || ALL_LANGUAGES}
+                  onValueChange={(value) => onLanguageChange(value === ALL_LANGUAGES ? "" : value)}
+                />
+                <LinkButton href="/search" tone="secondary" size="sm">
+                  {t("discovery.features.search.ui.searchPage.clear.all.filters")}
+                </LinkButton>
+              </Inline>
             }
             appliedFilters={
               <AppliedFilterChips
@@ -295,7 +331,7 @@ export function SearchPage({
           <NoResultsRecovery
             title={t("discovery.features.search.ui.searchPage.no.items.found")}
             description={
-              search || category
+              search || category || language
                 ? t("discovery.features.search.ui.searchPage.try.adjusting.your.search.or.filters")
                 : t("discovery.features.search.ui.searchPage.no.catalog.items.are.available.yet")
             }
@@ -341,9 +377,9 @@ export function SearchPage({
                     }
                     sellerVerified={hasActiveListings}
                     fulfillment={formatAvailability(item)}
-                    availability={item.blueprint_name ?? item.subtitle ?? formatItemLanguage(item)}
-                    condition={uniqueDisplayValues(item.category_names)[0] ?? t("discovery.features.search.ui.searchPage.marketplace")}
-                    valueCue={formatValueCue(item) ?? formatItemLanguage(item)}
+                    availability={item.blueprint_name ?? item.subtitle ?? uniqueDisplayValues(item.category_names)[0] ?? t("discovery.features.search.ui.searchPage.marketplace")}
+                    condition={formatItemLanguage(item)}
+                    valueCue={formatValueCue(item)}
                     promotion={
                       hasActiveListings
                         ? t("discovery.features.search.ui.searchPage.available.now")
