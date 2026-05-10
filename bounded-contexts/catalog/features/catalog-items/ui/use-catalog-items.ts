@@ -59,6 +59,31 @@ export function setImageUrls(id: string, imageUrls: string[]) {
   return api.setImageUrls<CommandResponse>(id, imageUrls);
 }
 
+export function linkExternalProductReference(
+  id: string,
+  providerKey: string,
+  externalKey: string,
+  selectedOptions: Array<{ dimensionId: string; optionId: string }>,
+) {
+  return api.linkExternalProductReference<CommandResponse>(
+    id,
+    providerKey,
+    externalKey,
+    selectedOptions,
+  );
+}
+
+export function unlinkExternalProductReference(
+  id: string,
+  providerKey: string,
+  externalKey: string,
+) {
+  return api.unlinkExternalProductReference<CommandResponse>(
+    id,
+    providerKey,
+    externalKey,
+  );
+}
 
 
 

@@ -27,6 +27,13 @@ type BaseCatalogItemRow = Readonly<{
   updated_at: string;
 }>;
 
+type ExternalProductReferenceRow = Readonly<{
+  provider_key: string;
+  external_key: string;
+  selected_options: unknown;
+  updated_at: string;
+}>;
+
 async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<BaseCatalogItemRow>(
     `SELECT * FROM catalog_items WHERE catalog_item_id = $1`,
@@ -94,6 +101,13 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
   const fieldValues = asArray<FieldValue>(item.field_values);
   const categoryIds = asStringArray(item.category_ids);
   const fieldIds = fieldValues.map((entry) => entry.fieldId);
+  const externalReferencesResult = await db.query<ExternalProductReferenceRow>(
+    `SELECT provider_key, external_key, selected_options, updated_at
+     FROM catalog_external_product_references
+     WHERE catalog_item_id = $1
+     ORDER BY provider_key ASC, external_key ASC`,
+    [itemId],
+  );
 
   const [fieldNames, categoryNames, blueprintNames] = await Promise.all([
     loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds),
@@ -113,6 +127,14 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
     categoryId,
     name: categoryNames.get(categoryId) ?? categoryId,
   }));
+  const externalReferences = externalReferencesResult.rows.map((reference) => ({
+    providerKey: reference.provider_key,
+    externalKey: reference.external_key,
+    selectedOptions: Array.isArray(reference.selected_options)
+      ? reference.selected_options
+      : [],
+    updatedAt: reference.updated_at,
+  }));
 
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_detail_pages (
@@ -125,10 +147,11 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       status,
       field_values,
       categories,
+      external_product_references,
       tags,
       image_urls,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       title = EXCLUDED.title,
       subtitle = EXCLUDED.subtitle,
@@ -138,6 +161,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       status = EXCLUDED.status,
       field_values = EXCLUDED.field_values,
       categories = EXCLUDED.categories,
+      external_product_references = EXCLUDED.external_product_references,
       tags = EXCLUDED.tags,
       image_urls = EXCLUDED.image_urls,
       updated_at = EXCLUDED.updated_at`,
@@ -156,6 +180,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       item.status,
       JSON.stringify(namedFieldValues),
       JSON.stringify(namedCategories),
+      JSON.stringify(externalReferences),
       JSON.stringify(asStringArray(item.tags)),
       JSON.stringify(asStringArray(item.image_urls)),
       item.updated_at,
@@ -248,6 +273,12 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     "catalog.catalog-item.image-urls-set": async (event) => {
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
+    "catalog.catalog-item.external-product-reference-linked": async (event) => {
+      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+    },
+    "catalog.catalog-item.external-product-reference-unlinked": async (event) => {
+      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+    },
     "catalog.catalog-item.retired": async (event) => {
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
@@ -301,4 +332,3 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     },
   };
 }
-

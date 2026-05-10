@@ -28,6 +28,8 @@ import {
   archiveCatalogItem,
   setTags,
   setImageUrls,
+  linkExternalProductReference,
+  unlinkExternalProductReference,
 } from "./use-catalog-items";
 
 function getTransitions(status: string): Transition[] {
@@ -66,6 +68,10 @@ interface CategoryRef {
   categoryId: string;
   name: string;
 }
+
+type ExternalProductReference = NonNullable<
+  ReturnType<typeof useCatalogItem>["data"]
+>["external_product_references"][number];
 
 function formatFieldValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -114,6 +120,12 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   // Image URLs
   const [showSetImageUrls, setShowSetImageUrls] = useState(false);
   const [imageUrlsInput, setImageUrlsInput] = useState("");
+
+  // External product references
+  const [showLinkExternalReference, setShowLinkExternalReference] = useState(false);
+  const [externalProviderKey, setExternalProviderKey] = useState("tcgplayer");
+  const [externalKey, setExternalKey] = useState("");
+  const [externalSelectedOptions, setExternalSelectedOptions] = useState("");
 
   async function handleLifecycleAction(action: string) {
     if (action === "publish") {
@@ -226,8 +238,44 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
     }
   }
 
+  async function handleLinkExternalReference() {
+    const selectedOptions = externalSelectedOptions
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const [dimensionId = "", optionId = ""] = entry.split(":");
+
+        return {
+          dimensionId: dimensionId.trim(),
+          optionId: optionId.trim(),
+        };
+      })
+      .filter((entry) => entry.dimensionId.length > 0 && entry.optionId.length > 0);
+
+    await linkExternalProductReference(
+      id,
+      externalProviderKey,
+      externalKey,
+      selectedOptions,
+    );
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.linked"), "success");
+    setShowLinkExternalReference(false);
+    setExternalProviderKey("tcgplayer");
+    setExternalKey("");
+    setExternalSelectedOptions("");
+    refresh();
+  }
+
+  async function handleUnlinkExternalReference(reference: ExternalProductReference) {
+    await unlinkExternalProductReference(id, reference.providerKey, reference.externalKey);
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.unlinked"), "success");
+    refresh();
+  }
+
   const fieldValues = (data?.field_values ?? []) as FieldValue[];
   const categories = (data?.categories ?? []) as CategoryRef[];
+  const externalReferences = data?.external_product_references ?? [];
 
   const fieldValueColumns: DataColumn<FieldValue>[] = [
     { key: "fieldId", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.field"), cell: (row) => row.fieldName },
@@ -364,6 +412,57 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
                 )}
               </Stack>
             </PageSection>
+
+            <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references")}>
+              <Stack gap={3}>
+                {data.status !== "archived" && (
+                  <Inline>
+                    <Button size="sm" onClick={() => setShowLinkExternalReference(true)}>
+                      {t("catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.reference")}</Button>
+                  </Inline>
+                )}
+                <DataTable
+                  rows={externalReferences}
+                  columns={[
+                    {
+                      key: "provider",
+                      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.provider"),
+                      cell: (row) => row.providerKey,
+                    },
+                    {
+                      key: "externalKey",
+                      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.key"),
+                      cell: (row) => row.externalKey,
+                    },
+                    {
+                      key: "options",
+                      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options"),
+                      cell: (row) =>
+                        row.selectedOptions.length > 0
+                          ? row.selectedOptions
+                              .map((option) =>
+                                t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.option.reference", {
+                                  dimensionId: option.dimensionId,
+                                  optionId: option.optionId,
+                                }),
+                              )
+                              .join(", ")
+                          : t("catalog.features.catalogItems.ui.catalogItemDetailPage.none"),
+                    },
+                    {
+                      key: "actions",
+                      header: "",
+                      cell: (row) => data.status !== "archived" ? (
+                        <Button size="sm" tone="danger" onClick={() => handleUnlinkExternalReference(row)}>
+                          {t("catalog.features.catalogItems.ui.catalogItemDetailPage.unlink")}</Button>
+                      ) : null,
+                    },
+                  ]}
+                  getRowId={(row) => `${row.providerKey}:${row.externalKey}`}
+                  emptyTitle={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.references")}
+                />
+              </Stack>
+            </PageSection>
           </Stack>
         )}
       </EntityDetailPage>
@@ -454,9 +553,35 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
           onChange={(e) => setImageUrlsInput(e.target.value)}
         />
       </Dialog>
+
+      <Dialog
+        open={showLinkExternalReference}
+        onOpenChange={setShowLinkExternalReference}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.reference.2")}
+        description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.description")}
+        footer={<Button onClick={handleLinkExternalReference}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.link")}</Button>}
+      >
+        <Stack gap={3}>
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.provider")}
+            value={externalProviderKey}
+            onChange={(event) => setExternalProviderKey(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.key")}
+            value={externalKey}
+            onChange={(event) => setExternalKey(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options.2")}
+            value={externalSelectedOptions}
+            onChange={(event) => setExternalSelectedOptions(event.target.value)}
+            placeholder={t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options.placeholder")}
+          />
+        </Stack>
+      </Dialog>
     </>
   );
 }
-
 
 

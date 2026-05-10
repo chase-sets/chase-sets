@@ -27,6 +27,7 @@ export type CatalogItemDetailRow = Readonly<{
   status: string;
   field_values: unknown;
   categories: unknown;
+  external_product_references: unknown;
   tags: unknown;
   image_urls: unknown;
   updated_at: string;
@@ -72,5 +73,4 @@ export async function getCatalogItemDetail(db: PgQueryable, itemId: string) {
 
   return result.rows[0] ?? null;
 }
-
 

@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_detail_pages (
   status text NOT NULL DEFAULT 'draft',
   field_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   categories jsonb NOT NULL DEFAULT '[]'::jsonb,
+  external_product_references jsonb NOT NULL DEFAULT '[]'::jsonb,
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -56,4 +57,7 @@ CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_title_idx
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_tags_idx
   ON catalog_admin_catalog_item_list_pages USING gin (tags);
 CREATE INDEX IF NOT EXISTS catalog_external_product_references_catalog_item_idx
-  ON catalog_external_product_references (catalog_item_id);`;
+  ON catalog_external_product_references (catalog_item_id);
+
+ALTER TABLE catalog_admin_catalog_item_detail_pages
+  ADD COLUMN IF NOT EXISTS external_product_references jsonb NOT NULL DEFAULT '[]'::jsonb;`;

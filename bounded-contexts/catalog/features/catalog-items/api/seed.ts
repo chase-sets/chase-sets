@@ -38,6 +38,11 @@ export async function seedCatalogItems(
     fieldValues: [string, string | number][];
     categoryKeys: string[];
     tags: string[];
+    externalProductReferences?: Array<{
+      providerKey: string;
+      externalKey: string;
+      selectedOptions: Array<{ dimensionId: string; optionId: string }>;
+    }>;
   };
 
   const items: ItemDef[] = [
@@ -59,6 +64,22 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "fire"],
       tags: ["base-set", "charizard", "holo", "vintage"],
+      externalProductReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "tcg_sku_1",
+          selectedOptions: [
+            {
+              dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+              optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+            },
+            {
+              dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+              optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+            },
+          ],
+        },
+      ],
     },
     {
       itemId: catalogSeedIds.items.pikachuJungle as CatalogItemId,
@@ -78,6 +99,22 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "electric"],
       tags: ["jungle", "pikachu", "vintage"],
+      externalProductReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "tcg_sku_pikachu_jungle_nm",
+          selectedOptions: [
+            {
+              dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+              optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+            },
+            {
+              dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+              optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+            },
+          ],
+        },
+      ],
     },
     {
       itemId: catalogSeedIds.items.lugiaNeoGenesis as CatalogItemId,
@@ -240,6 +277,15 @@ export async function seedCatalogItems(
       type: "SetCatalogItemTags",
       tags: item.tags,
     });
+
+    for (const reference of item.externalProductReferences ?? []) {
+      await sendSeedCommand(services.items.commandHandler, streamId, {
+        type: "LinkExternalProductReference",
+        providerKey: reference.providerKey,
+        externalKey: reference.externalKey,
+        selectedOptions: reference.selectedOptions,
+      });
+    }
 
     await sendSeedCommand(services.items.commandHandler, streamId, {
       type: "PublishCatalogItem",

@@ -527,6 +527,30 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async linkExternalProductReference<T>(
+      id: string,
+      providerKey: string,
+      externalKey: string,
+      selectedOptions: unknown,
+    ): Promise<T> {
+      const response = await client.items[":id"]["external-product-references"][":providerKey"][":externalKey"].$put({
+        param: { id, providerKey, externalKey },
+        json: { selectedOptions },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async unlinkExternalProductReference<T>(
+      id: string,
+      providerKey: string,
+      externalKey: string,
+    ): Promise<T> {
+      const response = await client.items[":id"]["external-product-references"][":providerKey"][":externalKey"].$delete({
+        param: { id, providerKey, externalKey },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
   };
 }
 
