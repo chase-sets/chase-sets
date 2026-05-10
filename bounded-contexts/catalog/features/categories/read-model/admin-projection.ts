@@ -8,7 +8,9 @@ const CATEGORY_STREAM_PREFIX = "catalog.category-";
 type BaseCategoryRow = Readonly<{
   category_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   parent_category_id: string | null;
@@ -41,17 +43,21 @@ async function refreshCategoryPageRow(
     `INSERT INTO ${tableName} (
       category_id,
       key,
+      name_i18n,
       name,
+      description_i18n,
       description,
       status,
       parent_category_id,
       parent_category,
       display_order,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT (category_id) DO UPDATE SET
       key = EXCLUDED.key,
+      name_i18n = EXCLUDED.name_i18n,
       name = EXCLUDED.name,
+      description_i18n = EXCLUDED.description_i18n,
       description = EXCLUDED.description,
       status = EXCLUDED.status,
       parent_category_id = EXCLUDED.parent_category_id,
@@ -61,7 +67,9 @@ async function refreshCategoryPageRow(
     [
       category.category_id,
       category.key,
+      JSON.stringify(category.name_i18n),
       category.name,
+      JSON.stringify(category.description_i18n),
       category.description,
       category.status,
       category.parent_category_id,
@@ -117,4 +125,3 @@ export function buildCatalogAdminCategoryProjectionHandlers(db: PgQueryable): Pr
     },
   };
 }
-

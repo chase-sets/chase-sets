@@ -7,6 +7,9 @@ import {
   EMPTY_EVENT_DATA,
   assert,
   assertNever,
+  localizedTextMapFromEnglish,
+  normalizeLocalizedTextMap,
+  type LocalizedTextMap,
   type CatalogLifecycleStatus,
   type EmptyEventData,
 } from "../../../support/runtime-support/common";
@@ -15,8 +18,8 @@ import type { CategoryId } from "../../../ids";
 export type CategoryState = Readonly<{
   id: CategoryId | null;
   key: string | null;
-  name: string | null;
-  description: string;
+  name: LocalizedTextMap | null;
+  description: LocalizedTextMap;
   status: CatalogLifecycleStatus;
   parentCategoryId: CategoryId | null;
   displayOrder: number;
@@ -26,7 +29,7 @@ export const initialCategoryState: CategoryState = {
   id: null,
   key: null,
   name: null,
-  description: "",
+  description: localizedTextMapFromEnglish(""),
   status: "draft",
   parentCategoryId: null,
   displayOrder: 0,
@@ -36,8 +39,8 @@ export type CreateCategoryCommand = Readonly<{
   type: "CreateCategory";
   categoryId: CategoryId;
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   parentCategoryId?: CategoryId | null;
   displayOrder?: number;
 }>;
@@ -45,8 +48,8 @@ export type CreateCategoryCommand = Readonly<{
 export type ReviseCategoryCommand = Readonly<{
   type: "ReviseCategory";
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   parentCategoryId?: CategoryId | null;
   displayOrder?: number;
 }>;
@@ -72,8 +75,8 @@ export type CategoryCommand =
 
 type CategorySnapshot = Readonly<{
   key: string;
-  name: string;
-  description: string;
+  name: LocalizedTextMap;
+  description: LocalizedTextMap;
   parentCategoryId: CategoryId | null;
   displayOrder: number;
 }>;
@@ -128,8 +131,10 @@ export const decideCategory: AggregateDecider<
           data: {
             categoryId: command.categoryId,
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? "",
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : localizedTextMapFromEnglish(""),
             parentCategoryId: command.parentCategoryId ?? null,
             displayOrder: command.displayOrder ?? 0,
           },
@@ -144,8 +149,10 @@ export const decideCategory: AggregateDecider<
           type: "catalog.category.revised",
           data: {
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? state.description,
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : state.description,
             parentCategoryId: command.parentCategoryId ?? null,
             displayOrder: command.displayOrder ?? state.displayOrder,
           },
@@ -240,5 +247,4 @@ export const evolveCategory: AggregateEvolver<CategoryState, CategoryEvent> = (
 function requireCreatedCategory(state: CategoryState): void {
   assert(state.id !== null, "Category must be created first.");
 }
-
 

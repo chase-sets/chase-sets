@@ -1,5 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap } from "@chase-sets/localization";
 import {
   createMarketplaceSlug,
   rememberSlugRedirect,
@@ -138,12 +139,14 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       const { categoryId, key, name, description, parentCategoryId, displayOrder } = event.data as {
         categoryId: string;
         key: string;
-        name: string;
-        description: string;
+        name: unknown;
+        description: unknown;
         parentCategoryId?: string;
         displayOrder: number;
       };
-      const slug = createMarketplaceSlug([name], categoryId);
+      const resolvedName = resolveLocalizedTextMap(coerceLocalizedTextMap(name));
+      const resolvedDescription = resolveLocalizedTextMap(coerceLocalizedTextMap(description));
+      const slug = createMarketplaceSlug([resolvedName], categoryId);
 
       await db.query(
         `INSERT INTO discovery_category_catalog_categories (
@@ -169,8 +172,8 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
           categoryId,
           key,
           slug,
-          name,
-          description ?? "",
+          resolvedName,
+          resolvedDescription,
           parentCategoryId ?? null,
           displayOrder,
           event.timing.recordedAt,
@@ -183,12 +186,14 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
       const { key, name, description, parentCategoryId, displayOrder } = event.data as {
         key: string;
-        name: string;
-        description: string;
+        name: unknown;
+        description: unknown;
         parentCategoryId?: string;
         displayOrder: number;
       };
-      const slug = createMarketplaceSlug([name], categoryId);
+      const resolvedName = resolveLocalizedTextMap(coerceLocalizedTextMap(name));
+      const resolvedDescription = resolveLocalizedTextMap(coerceLocalizedTextMap(description));
+      const slug = createMarketplaceSlug([resolvedName], categoryId);
       const current = await db.query<{ slug: string | null }>(
         `SELECT slug FROM discovery_category_catalog_categories WHERE category_id = $1`,
         [categoryId],
@@ -208,8 +213,8 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
           categoryId,
           key,
           slug,
-          name,
-          description ?? "",
+          resolvedName,
+          resolvedDescription,
           parentCategoryId ?? null,
           displayOrder,
           event.timing.recordedAt,

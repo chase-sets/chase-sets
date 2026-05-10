@@ -7,19 +7,21 @@ import {
 } from "./domain";
 import type { FieldId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
+import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 
 const fieldId = "fld_test" as FieldId;
 const defaultBehavior = { filterable: false, searchable: false, sortable: false };
+const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
   return givenEvents(initialFieldState, evolveField, [
-    { type: "catalog.field.created", data: { fieldId, key: "brand", name: "Brand", description: "", valueType: "string", behavior: defaultBehavior } },
+    { type: "catalog.field.created", data: { fieldId, key: "brand", name: l10n("Brand"), description: l10n(""), valueType: "string", behavior: defaultBehavior } },
   ] as FieldEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialFieldState, evolveField, [
-    { type: "catalog.field.created", data: { fieldId, key: "brand", name: "Brand", description: "", valueType: "string", behavior: defaultBehavior } },
+    { type: "catalog.field.created", data: { fieldId, key: "brand", name: l10n("Brand"), description: l10n(""), valueType: "string", behavior: defaultBehavior } },
     { type: "catalog.field.activated", data: {} },
   ] as FieldEvent[]);
 }
@@ -31,7 +33,7 @@ describe("Field aggregate", () => {
         type: "CreateField" as const,
         fieldId,
         key: "brand",
-        name: "Brand",
+        name: l10n("Brand"),
         valueType: "string" as const,
         behavior: defaultBehavior,
       });
@@ -45,7 +47,7 @@ describe("Field aggregate", () => {
           type: "CreateField" as const,
           fieldId: "fld_other" as FieldId,
           key: "x",
-          name: "X",
+          name: l10n("X"),
           valueType: "string" as const,
           behavior: defaultBehavior,
         }),
@@ -57,7 +59,7 @@ describe("Field aggregate", () => {
       const events = decide(decideField, createdState(), {
         type: "ConfigureField" as const,
         key: "brand-name",
-        name: "Brand Name",
+        name: l10n("Brand Name"),
         valueType: "string" as const,
         behavior: { filterable: true, searchable: true, sortable: false },
       });
@@ -101,7 +103,7 @@ describe("Field aggregate", () => {
       ] as FieldEvent[]);
 
       expectDomainError(
-        () => decide(decideField, archivedState, { type: "ConfigureField" as const, key: "x", name: "X", valueType: "string" as const, behavior: defaultBehavior }),
+        () => decide(decideField, archivedState, { type: "ConfigureField" as const, key: "x", name: l10n("X"), valueType: "string" as const, behavior: defaultBehavior }),
         "Archived fields cannot be reconfigured.",
       );
     });
@@ -111,7 +113,7 @@ describe("Field aggregate", () => {
     it("evolves created event", () => {
       const state = evolveField(initialFieldState, {
         type: "catalog.field.created",
-        data: { fieldId, key: "brand", name: "Brand", description: "", valueType: "number", behavior: { filterable: true, searchable: false, sortable: true } },
+        data: { fieldId, key: "brand", name: l10n("Brand"), description: l10n(""), valueType: "number", behavior: { filterable: true, searchable: false, sortable: true } },
       });
 
       expect(state.id).toBe(fieldId);
@@ -122,7 +124,7 @@ describe("Field aggregate", () => {
     it("evolves configured event", () => {
       const state = evolveField(createdState(), {
         type: "catalog.field.configured",
-        data: { key: "brand-v2", name: "Brand V2", description: "", valueType: "boolean", behavior: defaultBehavior },
+        data: { key: "brand-v2", name: l10n("Brand V2"), description: l10n(""), valueType: "boolean", behavior: defaultBehavior },
       });
 
       expect(state.key).toBe("brand-v2");
@@ -130,4 +132,3 @@ describe("Field aggregate", () => {
     });
   });
 });
-

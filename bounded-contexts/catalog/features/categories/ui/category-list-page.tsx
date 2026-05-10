@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import { useRevalidator } from "react-router";
@@ -54,8 +54,8 @@ export function CategoryListPage({ data, query }: CatalogListRouteData<CategoryL
     await createCategory({
       categoryId,
       key,
-      name,
-      description: description || undefined,
+      name: localizedTextMapFromEnglish(name),
+      description: localizedTextMapFromEnglish(description),
       parentCategoryId: parentId || undefined,
       displayOrder: Number(displayOrder) || 0,
     });
@@ -110,7 +110,6 @@ export function CategoryListPage({ data, query }: CatalogListRouteData<CategoryL
     </>
   );
 }
-
 
 
 

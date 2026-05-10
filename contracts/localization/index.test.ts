@@ -3,6 +3,8 @@ import {
   createTranslator,
   coerceLocalizedTextMap,
   defaultLocale,
+  normalizeLocaleCode,
+  normalizeLocalizedTextMap,
   resolveLocalizedTextMap,
   resolveLocale,
   supportedLocales,
@@ -51,6 +53,32 @@ describe("localization", () => {
 
     expect(resolveLocalizedTextMap(text, "ja")).toBe("リザードン");
     expect(resolveLocalizedTextMap(text, "fr")).toBe("Charizard");
+  });
+
+  it("normalizes BCP 47 locale codes and rejects jp", () => {
+    expect(normalizeLocaleCode("JA-jp")).toBe("ja-JP");
+    expect(() => normalizeLocaleCode("jp")).toThrow('Use the BCP 47 language code "ja" for Japanese.');
+  });
+
+  it("normalizes localized text maps and can require English", () => {
+    expect(
+      normalizeLocalizedTextMap({
+        defaultLocale: "en",
+        values: {
+          "JA-jp": " リザードン ",
+          en: " Charizard ",
+        },
+      }),
+    ).toEqual({
+      defaultLocale: "en",
+      values: {
+        en: "Charizard",
+        "ja-JP": "リザードン",
+      },
+    });
+    expect(() =>
+      normalizeLocalizedTextMap({ defaultLocale: "en", values: { ja: "リザードン" } }, { requiredEnglish: true }),
+    ).toThrow("Localized text maps require an English value.");
   });
 
   it("keeps every supported locale key-complete with English", () => {

@@ -46,7 +46,7 @@ export async function loadNameMap(
 export async function loadChoiceCodeMap(
   db: PgQueryable,
   ids: readonly string[],
-): Promise<Map<string, { code: string; displayOrder: number; numericValue: number | null }>> {
+): Promise<Map<string, { code: string; label: string; displayOrder: number; numericValue: number | null }>> {
   if (ids.length === 0) {
     return new Map();
   }
@@ -54,10 +54,11 @@ export async function loadChoiceCodeMap(
   const result = await db.query<{
     option_id: string;
     code: string;
+    label: string;
     display_order: number;
     numeric_value: number | null;
   }>(
-    `SELECT option_id, code, display_order, numeric_value::float8 AS numeric_value FROM catalog_dimension_options WHERE option_id = ANY($1)`,
+    `SELECT option_id, code, label, display_order, numeric_value::float8 AS numeric_value FROM catalog_dimension_options WHERE option_id = ANY($1)`,
     [ids],
   );
 
@@ -66,6 +67,7 @@ export async function loadChoiceCodeMap(
       row.option_id,
       {
         code: row.code,
+        label: row.label,
         displayOrder: row.display_order,
         numericValue: row.numeric_value,
       },

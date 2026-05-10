@@ -8,9 +8,12 @@ import {
   assert,
   assertNever,
   ensureUniqueBy,
+  localizedTextMapFromEnglish,
+  normalizeLocalizedTextMap,
   toSortedUniqueList,
   type CatalogLifecycleStatus,
   type EmptyEventData,
+  type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import type { OptionId, ComponentId, DimensionId, FieldId } from "../../../ids";
 
@@ -34,8 +37,8 @@ export type ComponentDimensionRule = Readonly<{
 export type ComponentState = Readonly<{
   id: ComponentId | null;
   key: string | null;
-  name: string | null;
-  description: string;
+  name: LocalizedTextMap | null;
+  description: LocalizedTextMap;
   status: CatalogLifecycleStatus;
   fieldRules: ComponentFieldRule[];
   dimensionRules: ComponentDimensionRule[];
@@ -45,7 +48,7 @@ export const initialComponentState: ComponentState = {
   id: null,
   key: null,
   name: null,
-  description: "",
+  description: localizedTextMapFromEnglish(""),
   status: "draft",
   fieldRules: [],
   dimensionRules: [],
@@ -55,8 +58,8 @@ export type CreateComponentCommand = Readonly<{
   type: "CreateComponent";
   componentId: ComponentId;
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
 }>;
 
 export type AddFieldRuleToComponentCommand = Readonly<{
@@ -86,8 +89,8 @@ export type RemoveDimensionRuleFromComponentCommand = Readonly<{
 export type ConfigureComponentRulesCommand = Readonly<{
   type: "ConfigureComponentRules";
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   fieldRules: readonly ComponentFieldRule[];
   dimensionRules: readonly ComponentDimensionRule[];
 }>;
@@ -117,8 +120,8 @@ export type ComponentCommand =
 
 type ComponentRuleSet = Readonly<{
   key: string;
-  name: string;
-  description: string;
+  name: LocalizedTextMap;
+  description: LocalizedTextMap;
   fieldRules: ComponentFieldRule[];
   dimensionRules: ComponentDimensionRule[];
 }>;
@@ -128,8 +131,8 @@ export type ComponentCreatedEvent = DomainEvent<
   Readonly<{
     componentId: ComponentId;
     key: string;
-    name: string;
-    description: string;
+    name: LocalizedTextMap;
+    description: LocalizedTextMap;
   }>
 >;
 
@@ -203,8 +206,10 @@ export const decideComponent: AggregateDecider<
           data: {
             componentId: command.componentId,
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? "",
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : localizedTextMapFromEnglish(""),
           },
         },
       ];
@@ -289,8 +294,10 @@ export const decideComponent: AggregateDecider<
           type: "catalog.component.rules-configured",
           data: {
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? state.description,
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : state.description,
             fieldRules: normalizeFieldRules(command.fieldRules),
             dimensionRules: normalizeDimensionRules(command.dimensionRules),
           },
@@ -490,7 +497,6 @@ function normalizeDimensionApplicability(
     left.dimensionId.localeCompare(right.dimensionId),
   );
 }
-
 
 
 

@@ -1,3 +1,4 @@
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { BlueprintId } from "../../../ids";
@@ -26,9 +27,10 @@ export async function seedBlueprints(
       type: "CreateBlueprint",
       blueprintId,
       key: "pokemon-card-single",
-      name: "Pokemon Card Single",
-      description:
+      name: localizedTextMapFromEnglish("Pokemon Card Single"),
+      description: localizedTextMapFromEnglish(
         "Template for a specific printed Pokemon card with raw and graded Products",
+      ),
     });
 
     for (const compKey of ["single-card-identity", "single-card-product-resolution"] as const) {
@@ -121,9 +123,10 @@ export async function seedBlueprints(
       type: "CreateBlueprint",
       blueprintId,
       key: "pokemon-sealed-product",
-      name: "Pokemon Sealed Product",
-      description:
+      name: localizedTextMapFromEnglish("Pokemon Sealed Product"),
+      description: localizedTextMapFromEnglish(
         "Template for Pokemon sealed products such as booster packs, booster boxes, and elite trainer boxes",
+      ),
     });
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {

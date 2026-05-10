@@ -7,19 +7,21 @@ import {
 } from "./domain";
 import type { CategoryId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
+import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 
 const catId = "ctg_test" as CategoryId;
 const parentId = "ctg_parent" as CategoryId;
+const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
   return givenEvents(initialCategoryState, evolveCategory, [
-    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: "Singles", description: "", parentCategoryId: null, displayOrder: 0 } },
+    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: l10n("Singles"), description: l10n(""), parentCategoryId: null, displayOrder: 0 } },
   ] as CategoryEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialCategoryState, evolveCategory, [
-    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: "Singles", description: "", parentCategoryId: null, displayOrder: 0 } },
+    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: l10n("Singles"), description: l10n(""), parentCategoryId: null, displayOrder: 0 } },
     { type: "catalog.category.published", data: {} },
   ] as CategoryEvent[]);
 }
@@ -31,7 +33,7 @@ describe("Category aggregate", () => {
         type: "CreateCategory" as const,
         categoryId: catId,
         key: "singles",
-        name: "Singles",
+        name: l10n("Singles"),
       });
 
       expect(events[0].type).toBe("catalog.category.created");
@@ -43,7 +45,7 @@ describe("Category aggregate", () => {
         type: "CreateCategory" as const,
         categoryId: catId,
         key: "sub",
-        name: "Sub",
+        name: l10n("Sub"),
         parentCategoryId: parentId,
         displayOrder: 5,
       });
@@ -55,7 +57,7 @@ describe("Category aggregate", () => {
       const events = decide(decideCategory, createdState(), {
         type: "ReviseCategory" as const,
         key: "singles-v2",
-        name: "Singles V2",
+        name: l10n("Singles V2"),
       });
 
       expect(events[0].type).toBe("catalog.category.revised");
@@ -95,7 +97,7 @@ describe("Category aggregate", () => {
       ] as CategoryEvent[]);
 
       expectDomainError(
-        () => decide(decideCategory, archivedState, { type: "ReviseCategory" as const, key: "x", name: "X" }),
+        () => decide(decideCategory, archivedState, { type: "ReviseCategory" as const, key: "x", name: l10n("X") }),
         "Archived categories cannot be revised.",
       );
     });
@@ -105,7 +107,7 @@ describe("Category aggregate", () => {
     it("evolves created event", () => {
       const state = evolveCategory(initialCategoryState, {
         type: "catalog.category.created",
-        data: { categoryId: catId, key: "singles", name: "Singles", description: "", parentCategoryId: parentId, displayOrder: 3 },
+        data: { categoryId: catId, key: "singles", name: l10n("Singles"), description: l10n(""), parentCategoryId: parentId, displayOrder: 3 },
       });
 
       expect(state.id).toBe(catId);
@@ -116,7 +118,7 @@ describe("Category aggregate", () => {
     it("evolves revised event", () => {
       const state = evolveCategory(createdState(), {
         type: "catalog.category.revised",
-        data: { key: "v2", name: "V2", description: "", parentCategoryId: null, displayOrder: 10 },
+        data: { key: "v2", name: l10n("V2"), description: l10n(""), parentCategoryId: null, displayOrder: 10 },
       });
 
       expect(state.key).toBe("v2");

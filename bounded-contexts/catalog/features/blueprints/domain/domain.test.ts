@@ -7,22 +7,24 @@ import {
 } from "./domain";
 import type { BlueprintId, ComponentId, DimensionId, FieldId, OptionId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
+import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 
 const bpId = "bpr_test" as BlueprintId;
 const compA = "cmp_a" as ComponentId;
 const dimA = "dim_a" as DimensionId;
 const dimB = "dim_b" as DimensionId;
 const fieldA = "fld_a" as FieldId;
+const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card", description: "" } },
+    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") } },
   ] as BlueprintEvent[]);
 }
 
 function withDimensions() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card", description: "" } },
+    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") } },
     { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [
       { dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] },
       { dimensionId: dimB, required: true, allowedOptionIds: [], appliesWhen: [] },
@@ -33,7 +35,7 @@ function withDimensions() {
 
 function activeState() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card", description: "" } },
+    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") } },
     { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [
       { dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] },
     ] } },
@@ -49,7 +51,7 @@ describe("Blueprint aggregate", () => {
         type: "CreateBlueprint" as const,
         blueprintId: bpId,
         key: "card",
-        name: "Card",
+        name: l10n("Card"),
       });
 
       expect(events[0].type).toBe("catalog.blueprint.created");
@@ -183,7 +185,7 @@ describe("Blueprint aggregate", () => {
     it("evolves created event", () => {
       const state = evolveBlueprint(initialBlueprintState, {
         type: "catalog.blueprint.created",
-        data: { blueprintId: bpId, key: "card", name: "Card", description: "" },
+        data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") },
       });
 
       expect(state.id).toBe(bpId);
@@ -192,7 +194,7 @@ describe("Blueprint aggregate", () => {
 
     it("evolves dimensions-set and prunes orphaned canonical order", () => {
       const state = givenEvents(initialBlueprintState, evolveBlueprint, [
-        { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: "Card", description: "" } },
+        { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") } },
         { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [] }, { dimensionId: dimB, required: true, allowedOptionIds: [] }] } },
         { type: "catalog.blueprint.product-resolution-rules-set", data: { canonicalDimensionOrder: [dimA, dimB] } },
         { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }] } },
@@ -202,4 +204,3 @@ describe("Blueprint aggregate", () => {
     });
   });
 });
-

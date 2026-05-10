@@ -9,7 +9,9 @@ import {
 export type FieldRow = Readonly<{
   field_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   value_type: string;
@@ -35,5 +37,4 @@ export async function getField(db: PgQueryable, fieldId: string) {
 
   return result.rows[0] ?? null;
 }
-
 

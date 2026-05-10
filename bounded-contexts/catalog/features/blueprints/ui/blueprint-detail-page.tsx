@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -180,7 +181,11 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
   }
 
   async function handleRevise() {
-    await reviseBlueprint(id, { key: editKey, name: editName, description: editDescription || undefined });
+    await reviseBlueprint(id, {
+      key: editKey,
+      name: localizedTextMapFromEnglish(editName),
+      description: localizedTextMapFromEnglish(editDescription),
+    });
     addToast(t("catalog.features.blueprints.ui.blueprintDetailPage.blueprint.revised"), "success");
     setEditing(false);
     refresh();
@@ -521,4 +526,3 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
-

@@ -9,9 +9,12 @@ import {
   assertNever,
   ensureUniqueBy,
   hasSameMembers,
+  localizedTextMapFromEnglish,
+  normalizeLocalizedTextMap,
   toSortedUniqueList,
   type CatalogLifecycleStatus,
   type EmptyEventData,
+  type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import type {
   BlueprintId,
@@ -41,8 +44,8 @@ export type BlueprintDimensionRule = Readonly<{
 export type BlueprintState = Readonly<{
   id: BlueprintId | null;
   key: string | null;
-  name: string | null;
-  description: string;
+  name: LocalizedTextMap | null;
+  description: LocalizedTextMap;
   status: CatalogLifecycleStatus;
   componentIds: ComponentId[];
   fieldRules: BlueprintFieldRule[];
@@ -54,7 +57,7 @@ export const initialBlueprintState: BlueprintState = {
   id: null,
   key: null,
   name: null,
-  description: "",
+  description: localizedTextMapFromEnglish(""),
   status: "draft",
   componentIds: [],
   fieldRules: [],
@@ -66,15 +69,15 @@ export type CreateBlueprintCommand = Readonly<{
   type: "CreateBlueprint";
   blueprintId: BlueprintId;
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
 }>;
 
 export type ReviseBlueprintCommand = Readonly<{
   type: "ReviseBlueprint";
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
 }>;
 
 export type AttachComponentToBlueprintCommand = Readonly<{
@@ -131,8 +134,8 @@ export type BlueprintCreatedEvent = DomainEvent<
   Readonly<{
     blueprintId: BlueprintId;
     key: string;
-    name: string;
-    description: string;
+    name: LocalizedTextMap;
+    description: LocalizedTextMap;
   }>
 >;
 
@@ -140,8 +143,8 @@ export type BlueprintRevisedEvent = DomainEvent<
   "catalog.blueprint.revised",
   Readonly<{
     key: string;
-    name: string;
-    description: string;
+    name: LocalizedTextMap;
+    description: LocalizedTextMap;
   }>
 >;
 
@@ -222,8 +225,10 @@ export const decideBlueprint: AggregateDecider<
           data: {
             blueprintId: command.blueprintId,
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? "",
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : localizedTextMapFromEnglish(""),
           },
         },
       ];
@@ -236,8 +241,10 @@ export const decideBlueprint: AggregateDecider<
           type: "catalog.blueprint.revised",
           data: {
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? state.description,
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : state.description,
           },
         },
       ];
@@ -530,7 +537,6 @@ function normalizeDimensionApplicability(
     left.dimensionId.localeCompare(right.dimensionId),
   );
 }
-
 
 
 

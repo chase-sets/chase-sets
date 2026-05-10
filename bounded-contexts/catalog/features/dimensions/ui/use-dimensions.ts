@@ -1,5 +1,6 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Dimension, DimensionDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 
@@ -11,11 +12,11 @@ export function useDimension(id: string, initialData?: DimensionDetail | null) {
   return useFetch(() => api.getDimension<DimensionDetail>(id), [id], initialData);
 }
 
-export function createDimension(body: { dimensionId: string; key: string; name: string; description?: string; valueKind?: string }) {
+export function createDimension(body: { dimensionId: string; key: string; name: LocalizedTextMap; description?: LocalizedTextMap; valueKind?: string }) {
   return api.createDimension<CommandResponse>(body);
 }
 
-export function reviseDimension(id: string, body: { key: string; name: string; description?: string; valueKind?: string }) {
+export function reviseDimension(id: string, body: { key: string; name: LocalizedTextMap; description?: LocalizedTextMap; valueKind?: string }) {
   return api.reviseDimension<CommandResponse>(id, body);
 }
 
@@ -31,11 +32,11 @@ export function archiveDimension(id: string) {
   return api.archiveDimension<CommandResponse>(id);
 }
 
-export function addOption(dimensionId: string, body: { optionId: string; code: string; labels?: { locale: string; value: string }[]; numericValue?: number }) {
+export function addOption(dimensionId: string, body: { optionId: string; code: string; label: LocalizedTextMap; numericValue?: number }) {
   return api.addOption<CommandResponse>(dimensionId, body);
 }
 
-export function reviseOption(dimensionId: string, optionId: string, body: { code: string; labels?: { locale: string; value: string }[]; numericValue?: number }) {
+export function reviseOption(dimensionId: string, optionId: string, body: { code: string; label: LocalizedTextMap; numericValue?: number }) {
   return api.reviseOption<CommandResponse>(dimensionId, optionId, body);
 }
 
@@ -50,7 +51,6 @@ export function reactivateOption(dimensionId: string, optionId: string) {
 export function reorderOptions(dimensionId: string, optionIds: string[]) {
   return api.reorderOptions<CommandResponse>(dimensionId, optionIds);
 }
-
 
 
 

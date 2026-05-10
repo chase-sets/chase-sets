@@ -16,7 +16,9 @@ const FIELD_STREAM_PREFIX = "catalog.field-";
 type BaseComponentRow = Readonly<{
   component_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   field_rules: unknown;
@@ -73,6 +75,7 @@ export async function refreshCatalogAdminComponentDetailPage(
       return {
         optionId,
         code: option?.code ?? optionId,
+        label: option?.label ?? option?.code ?? optionId,
         displayOrder: option?.displayOrder,
         numericValue: option?.numericValue,
       };
@@ -86,6 +89,7 @@ export async function refreshCatalogAdminComponentDetailPage(
         return {
           optionId,
           code: option?.code ?? optionId,
+          label: option?.label ?? option?.code ?? optionId,
           displayOrder: option?.displayOrder,
           numericValue: option?.numericValue,
         };
@@ -97,16 +101,20 @@ export async function refreshCatalogAdminComponentDetailPage(
     `INSERT INTO catalog_admin_component_detail_pages (
       component_id,
       key,
+      name_i18n,
       name,
+      description_i18n,
       description,
       status,
       field_rules,
       dimension_rules,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     ON CONFLICT (component_id) DO UPDATE SET
       key = EXCLUDED.key,
+      name_i18n = EXCLUDED.name_i18n,
       name = EXCLUDED.name,
+      description_i18n = EXCLUDED.description_i18n,
       description = EXCLUDED.description,
       status = EXCLUDED.status,
       field_rules = EXCLUDED.field_rules,
@@ -115,7 +123,9 @@ export async function refreshCatalogAdminComponentDetailPage(
     [
       component.component_id,
       component.key,
+      JSON.stringify(component.name_i18n),
       component.name,
+      JSON.stringify(component.description_i18n),
       component.description,
       component.status,
       JSON.stringify(namedFieldRules),
@@ -268,4 +278,3 @@ export function buildCatalogAdminComponentProjectionHandlers(db: PgQueryable): P
     },
   };
 }
-

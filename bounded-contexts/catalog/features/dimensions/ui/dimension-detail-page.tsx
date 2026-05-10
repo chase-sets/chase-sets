@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import {
@@ -60,12 +60,9 @@ function lifecycleActionLabel(action: string) {
 const optionColumns: DataColumn<DimensionOption>[] = [
   { key: "code", header: t("catalog.features.dimensions.ui.dimensionDetailPage.code"), cell: (row) => row.code },
   {
-    key: "labels",
-    header: t("catalog.features.dimensions.ui.dimensionDetailPage.labels"),
-    cell: (row) =>
-      row.labels && row.labels.length > 0
-        ? row.labels.map((l) => `${l.locale}: ${l.value}`).join(", ")
-        : "—",
+    key: "label",
+    header: t("catalog.features.dimensions.ui.dimensionDetailPage.label"),
+    cell: (row) => row.label || "—",
   },
   { key: "numeric_value", header: t("catalog.features.dimensions.ui.dimensionDetailPage.numeric.value"), cell: (row) => row.numeric_value ?? "—" },
   { key: "display_order", header: t("catalog.features.dimensions.ui.dimensionDetailPage.order"), cell: (row) => row.display_order },
@@ -81,6 +78,18 @@ const valueKindOptions = [
 interface LabelEntry {
   locale: string;
   value: string;
+}
+
+function labelEntriesToMap(entries: readonly LabelEntry[], fallback: string) {
+  const values = Object.fromEntries(
+    entries
+      .map((entry) => [entry.locale.trim(), entry.value.trim()] as const)
+      .filter(([locale, value]) => locale && value),
+  );
+
+  return Object.keys(values).length > 0
+    ? { defaultLocale: "en" as const, values }
+    : localizedTextMapFromEnglish(fallback);
 }
 
 export function DimensionDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useDimension>[1] }) {
@@ -124,7 +133,12 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
   }
 
   async function handleRevise() {
-    await reviseDimension(id, { key: editKey, name: editName, description: editDescription || undefined, valueKind: editValueKind });
+    await reviseDimension(id, {
+      key: editKey,
+      name: localizedTextMapFromEnglish(editName),
+      description: localizedTextMapFromEnglish(editDescription),
+      valueKind: editValueKind,
+    });
     addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.dimension.revised"), "success");
     setEditing(false);
     refresh();
@@ -132,11 +146,10 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
 
   async function handleAddOption() {
     const optionId = createId("chc");
-    const labels = optionLabels.filter((l) => l.value.trim());
     await addOption(id, {
       optionId,
       code: optionCode,
-      labels: labels.length > 0 ? labels : undefined,
+      label: labelEntriesToMap(optionLabels, optionCode),
       numericValue: optionNumericValue ? Number(optionNumericValue) : undefined,
     });
     addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.option.added"), "success");
@@ -149,10 +162,9 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
 
   async function handleReviseOption() {
     if (!editingOption) return;
-    const labels = editOptionLabels.filter((l) => l.value.trim());
     await reviseOption(id, editingOption.option_id, {
       code: editOptionCode,
-      labels: labels.length > 0 ? labels : undefined,
+      label: labelEntriesToMap(editOptionLabels, editOptionCode),
       numericValue: editOptionNumericValue ? Number(editOptionNumericValue) : undefined,
     });
     addToast(t("catalog.features.dimensions.ui.dimensionDetailPage.option.revised"), "success");
@@ -164,8 +176,8 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
     setEditOptionCode(option.code);
     setEditOptionNumericValue(option.numeric_value?.toString() ?? "");
     setEditOptionLabels(
-      option.labels && option.labels.length > 0
-        ? option.labels.map((l) => ({ locale: l.locale, value: l.value }))
+      option.label_i18n && Object.keys(option.label_i18n.values).length > 0
+        ? Object.entries(option.label_i18n.values).map(([locale, value]) => ({ locale, value }))
         : [{ locale: "en", value: "" }],
     );
     setEditingOption(option);
@@ -390,4 +402,3 @@ export function DimensionDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
-

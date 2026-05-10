@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -46,6 +46,8 @@ const valueTypeOptions = [
   { value: "number", label: t("catalog.features.fields.ui.fieldDetailPage.number") },
   { value: "boolean", label: t("catalog.features.fields.ui.fieldDetailPage.boolean") },
   { value: "date", label: t("catalog.features.fields.ui.fieldDetailPage.date") },
+  { value: "json", label: t("catalog.features.fields.ui.fieldDetailPage.json") },
+  { value: "localized_text", label: t("catalog.features.fields.ui.fieldDetailPage.localized.text") },
 ];
 
 export function FieldDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useField>[1] }) {
@@ -89,8 +91,8 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
   async function handleConfigure() {
     await configureField(id, {
       key: editKey,
-      name: editName,
-      description: editDescription || undefined,
+      name: localizedTextMapFromEnglish(editName),
+      description: localizedTextMapFromEnglish(editDescription),
       valueType: editValueType,
       behavior: { filterable: editFilterable, searchable: editSearchable, sortable: editSortable },
     });
@@ -162,6 +164,5 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
     </>
   );
 }
-
 
 

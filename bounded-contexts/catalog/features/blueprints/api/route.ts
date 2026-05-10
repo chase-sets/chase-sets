@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { BlueprintServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -19,8 +19,8 @@ export function blueprintRoutes(services: BlueprintServices) {
         type: "CreateBlueprint",
         blueprintId,
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
       },
       context,
     });
@@ -38,8 +38,8 @@ export function blueprintRoutes(services: BlueprintServices) {
       command: {
         type: "ReviseBlueprint",
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
       },
       context,
     });
@@ -188,7 +188,6 @@ export function blueprintRoutes(services: BlueprintServices) {
 
   return app;
 }
-
 
 
 

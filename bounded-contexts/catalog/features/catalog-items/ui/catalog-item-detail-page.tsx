@@ -83,6 +83,11 @@ function formatFieldValue(value: unknown): string {
     return String(value);
   }
 
+  if (typeof value === "object" && "values" in value) {
+    const values = (value as { defaultLocale?: string; values?: Record<string, string> }).values ?? {};
+    return values.en ?? Object.values(values)[0] ?? "—";
+  }
+
   return JSON.stringify(value);
 }
 

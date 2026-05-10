@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -163,8 +163,8 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
   async function handleConfigure() {
     await configureComponent(id, {
       key: editKey,
-      name: editName,
-      description: editDescription || undefined,
+      name: localizedTextMapFromEnglish(editName),
+      description: localizedTextMapFromEnglish(editDescription),
       fieldRules: (data?.field_rules ?? []).map((rule) => ({
         fieldId: rule.fieldId,
         required: rule.required,
@@ -382,7 +382,6 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
-
 
 
 

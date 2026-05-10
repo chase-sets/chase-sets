@@ -1,5 +1,6 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { CategoryDetail, CategoryListItem } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 
@@ -14,8 +15,8 @@ export function useCategory(id: string, initialData?: CategoryDetail | null) {
 export function createCategory(body: {
   categoryId: string;
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   parentCategoryId?: string;
   displayOrder?: number;
 }) {
@@ -24,8 +25,8 @@ export function createCategory(body: {
 
 export function reviseCategory(id: string, body: {
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   parentCategoryId?: string | null;
   displayOrder?: number;
 }) {
@@ -43,7 +44,6 @@ export function deprecateCategory(id: string) {
 export function archiveCategory(id: string) {
   return api.archiveCategory<CommandResponse>(id);
 }
-
 
 
 

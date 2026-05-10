@@ -6,11 +6,7 @@ import type {
 type ProductOptionChoice = ProductDimension["allowedOptions"][number];
 
 export function getOptionLabel(option: ProductOptionChoice): string {
-  if (option.labels && option.labels.length > 0) {
-    return option.labels[0].value;
-  }
-
-  return option.code;
+  return option.label || option.code;
 }
 
 export function isDimensionActive(

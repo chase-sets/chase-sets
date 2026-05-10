@@ -9,7 +9,9 @@ import {
 export type DimensionRow = Readonly<{
   dimension_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   value_kind: string;
   status: string;
@@ -20,7 +22,8 @@ export type DimensionOptionRow = Readonly<{
   option_id: string;
   dimension_id: string;
   code: string;
-  labels: unknown;
+  label_i18n: unknown;
+  label: string;
   display_order: number;
   numeric_value: number | null;
   status: string;
@@ -49,7 +52,8 @@ export async function getDimension(db: PgQueryable, dimensionId: string) {
        option_id,
        dimension_id,
        code,
-       labels,
+       label_i18n,
+       label,
        display_order,
        numeric_value::float8 AS numeric_value,
        status

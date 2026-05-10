@@ -35,7 +35,7 @@ export async function seedCatalogItems(
     subtitle: LocalizedTextMap;
     description: LocalizedTextMap;
     blueprintKey: string;
-    fieldValues: [string, string | number][];
+    fieldValues: [string, string | number | LocalizedTextMap][];
     categoryKeys: string[];
     tags: string[];
     externalProductReferences?: Array<{
@@ -57,7 +57,7 @@ export async function seedCatalogItems(
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "4/102"],
-        ["card-name", "Charizard"],
+        ["card-name", l10n("Charizard")],
         ["set-name", "Base Set"],
         ["rarity", "Holo Rare"],
         ["artist", "Mitsuhiro Arita"],
@@ -93,7 +93,7 @@ export async function seedCatalogItems(
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "60/64"],
-        ["card-name", "Pikachu"],
+        ["card-name", l10n("Pikachu")],
         ["set-name", "Jungle"],
         ["rarity", "Common"],
         ["artist", "Kagemaru Himeno"],
@@ -134,7 +134,7 @@ export async function seedCatalogItems(
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "No.006"],
-        ["card-name", "リザードン"],
+        ["card-name", l10n("Charizard", { ja: "リザードン" })],
         ["set-name", "Expansion Pack"],
         ["rarity", "Holo Rare"],
         ["artist", "Mitsuhiro Arita"],
@@ -154,7 +154,7 @@ export async function seedCatalogItems(
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "9/111"],
-        ["card-name", "Lugia"],
+        ["card-name", l10n("Lugia")],
         ["set-name", "Neo Genesis"],
         ["rarity", "Holo Rare"],
         ["artist", "Hironobu Yoshida"],
@@ -174,7 +174,7 @@ export async function seedCatalogItems(
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "3"],
-        ["card-name", "Mewtwo"],
+        ["card-name", l10n("Mewtwo")],
         ["set-name", "Wizards Black Star Promos"],
         ["rarity", "Promo"],
         ["artist", "Ken Sugimori"],
@@ -194,7 +194,7 @@ export async function seedCatalogItems(
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "44/102"],
-        ["card-name", "Bulbasaur"],
+        ["card-name", l10n("Bulbasaur")],
         ["set-name", "Base Set"],
         ["rarity", "Common"],
         ["artist", "Mitsuhiro Arita"],
@@ -214,7 +214,7 @@ export async function seedCatalogItems(
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "025"],
-        ["card-name", "Pikachu"],
+        ["card-name", l10n("Pikachu")],
         ["set-name", "Prismatic Evolutions"],
         ["rarity", "Illustration Rare"],
         ["artist", "Ryuta Fuse"],

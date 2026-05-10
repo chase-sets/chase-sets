@@ -1,5 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  coerceLocalizedTextMap,
+  resolveLocalizedTextMap,
+  type LocalizedTextMap,
+} from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.field-";
@@ -10,18 +15,32 @@ export function buildFieldProjectionHandlers(db: PgQueryable): ProjectorHandlerM
       const { fieldId, key, name, description, valueType, behavior } = event.data as {
         fieldId: string;
         key: string;
-        name: string;
-        description: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
         valueType: string;
         behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
       };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `INSERT INTO catalog_fields (field_id, key, name, description, status, value_type, filterable, searchable, sortable, updated_at)
-         VALUES ($1, $2, $3, $4, 'draft', $5, $6, $7, $8, $9)
+        `INSERT INTO catalog_fields (field_id, key, name_i18n, name, description_i18n, description, status, value_type, filterable, searchable, sortable, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, $10, $11)
          ON CONFLICT (field_id) DO UPDATE
-         SET key = $2, name = $3, description = $4, value_type = $5, filterable = $6, searchable = $7, sortable = $8, updated_at = $9`,
-        [fieldId, key, name, description ?? "", valueType, behavior.filterable, behavior.searchable, behavior.sortable, event.timing.recordedAt],
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, value_type = $7, filterable = $8, searchable = $9, sortable = $10, updated_at = $11`,
+        [
+          fieldId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          valueType,
+          behavior.filterable,
+          behavior.searchable,
+          behavior.sortable,
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -29,16 +48,31 @@ export function buildFieldProjectionHandlers(db: PgQueryable): ProjectorHandlerM
       const fieldId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { key, name, description, valueType, behavior } = event.data as {
         key: string;
-        name: string;
-        description: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
         valueType: string;
         behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
       };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `UPDATE catalog_fields SET key = $2, name = $3, description = $4, value_type = $5, filterable = $6, searchable = $7, sortable = $8, updated_at = $9
+        `UPDATE catalog_fields
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, value_type = $7, filterable = $8, searchable = $9, sortable = $10, updated_at = $11
          WHERE field_id = $1`,
-        [fieldId, key, name, description ?? "", valueType, behavior.filterable, behavior.searchable, behavior.sortable, event.timing.recordedAt],
+        [
+          fieldId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          valueType,
+          behavior.filterable,
+          behavior.searchable,
+          behavior.sortable,
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -70,6 +104,5 @@ export function buildFieldProjectionHandlers(db: PgQueryable): ProjectorHandlerM
     },
   };
 }
-
 
 

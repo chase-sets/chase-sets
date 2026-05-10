@@ -8,18 +8,19 @@ import {
   assert,
   assertNever,
   hasSameMembers,
-  normalizeLocalizedText,
+  localizedTextMapFromEnglish,
+  normalizeLocalizedTextMap,
   type CatalogLifecycleStatus,
   type OptionStatus,
   type EmptyEventData,
-  type LocalizedText,
+  type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import type { OptionId, DimensionId } from "../../../ids";
 
 export type DimensionOption = Readonly<{
   id: OptionId;
   code: string;
-  labels: LocalizedText[];
+  label: LocalizedTextMap;
   displayOrder: number;
   numericValue: number | null;
   status: OptionStatus;
@@ -30,8 +31,8 @@ export type DimensionValueKind = "unordered" | "ordered" | "numeric";
 export type DimensionState = Readonly<{
   id: DimensionId | null;
   key: string | null;
-  name: string | null;
-  description: string;
+  name: LocalizedTextMap | null;
+  description: LocalizedTextMap;
   valueKind: DimensionValueKind;
   status: CatalogLifecycleStatus;
   options: DimensionOption[];
@@ -41,7 +42,7 @@ export const initialDimensionState: DimensionState = {
   id: null,
   key: null,
   name: null,
-  description: "",
+  description: localizedTextMapFromEnglish(""),
   valueKind: "unordered",
   status: "draft",
   options: [],
@@ -51,16 +52,16 @@ export type CreateDimensionCommand = Readonly<{
   type: "CreateDimension";
   dimensionId: DimensionId;
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   valueKind?: DimensionValueKind;
 }>;
 
 export type ReviseDimensionCommand = Readonly<{
   type: "ReviseDimension";
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   valueKind?: DimensionValueKind;
 }>;
 
@@ -68,7 +69,7 @@ export type AddOptionCommand = Readonly<{
   type: "AddOption";
   optionId: OptionId;
   code: string;
-  labels: readonly LocalizedText[];
+  label: LocalizedTextMap;
   numericValue?: number | null;
 }>;
 
@@ -76,7 +77,7 @@ export type ReviseOptionCommand = Readonly<{
   type: "ReviseOption";
   optionId: OptionId;
   code: string;
-  labels: readonly LocalizedText[];
+  label: LocalizedTextMap;
   numericValue?: number | null;
 }>;
 
@@ -122,7 +123,7 @@ export type DimensionCommand =
 type OptionSnapshot = Readonly<{
   optionId: OptionId;
   code: string;
-  labels: LocalizedText[];
+  label: LocalizedTextMap;
   displayOrder: number;
   numericValue: number | null;
   status: OptionStatus;
@@ -133,8 +134,8 @@ export type DimensionCreatedEvent = DomainEvent<
   Readonly<{
     dimensionId: DimensionId;
     key: string;
-    name: string;
-    description: string;
+    name: LocalizedTextMap;
+    description: LocalizedTextMap;
     valueKind?: DimensionValueKind;
   }>
 >;
@@ -143,8 +144,8 @@ export type DimensionRevisedEvent = DomainEvent<
   "catalog.dimension.revised",
   Readonly<{
     key: string;
-    name: string;
-    description: string;
+    name: LocalizedTextMap;
+    description: LocalizedTextMap;
     valueKind?: DimensionValueKind;
   }>
 >;
@@ -224,8 +225,10 @@ export const decideDimension: AggregateDecider<
           data: {
             dimensionId: command.dimensionId,
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? "",
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : localizedTextMapFromEnglish(""),
             valueKind: command.valueKind ?? "unordered",
           },
         },
@@ -242,8 +245,10 @@ export const decideDimension: AggregateDecider<
           type: "catalog.dimension.revised",
           data: {
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? state.description,
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : state.description,
             valueKind: command.valueKind ?? state.valueKind,
           },
         },
@@ -267,7 +272,7 @@ export const decideDimension: AggregateDecider<
           data: {
             optionId: command.optionId,
             code: command.code.trim(),
-            labels: normalizeLocalizedText(command.labels),
+            label: normalizeLocalizedTextMap(command.label, { requiredEnglish: true }),
             displayOrder: state.options.length,
             numericValue: command.numericValue ?? null,
             status: "active",
@@ -297,7 +302,7 @@ export const decideDimension: AggregateDecider<
           data: {
             optionId: option.id,
             code: command.code.trim(),
-            labels: normalizeLocalizedText(command.labels),
+            label: normalizeLocalizedTextMap(command.label, { requiredEnglish: true }),
             displayOrder: option.displayOrder,
             numericValue,
             status: option.status,
@@ -503,7 +508,7 @@ function fromOptionSnapshot(snapshot: OptionSnapshot): DimensionOption {
   return {
     id: snapshot.optionId,
     code: snapshot.code,
-    labels: snapshot.labels,
+    label: snapshot.label,
     displayOrder: snapshot.displayOrder,
     numericValue: snapshot.numericValue,
     status: snapshot.status,

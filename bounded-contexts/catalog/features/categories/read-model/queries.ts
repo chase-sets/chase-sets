@@ -9,7 +9,9 @@ import {
 export type CategoryListRow = Readonly<{
   category_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   parent_category_id: string | null;
@@ -52,5 +54,4 @@ export async function getCategoryDetail(db: PgQueryable, categoryId: string) {
 
   return result.rows[0] ?? null;
 }
-
 

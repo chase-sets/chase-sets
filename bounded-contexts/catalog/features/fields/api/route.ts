@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { FieldServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -19,8 +19,8 @@ export function fieldRoutes(services: FieldServices) {
         type: "CreateField",
         fieldId,
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
         valueType: body.valueType,
         behavior: body.behavior,
       },
@@ -40,8 +40,8 @@ export function fieldRoutes(services: FieldServices) {
       command: {
         type: "ConfigureField",
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
         valueType: body.valueType,
         behavior: body.behavior,
       },
@@ -109,7 +109,6 @@ export function fieldRoutes(services: FieldServices) {
 
   return app;
 }
-
 
 
 

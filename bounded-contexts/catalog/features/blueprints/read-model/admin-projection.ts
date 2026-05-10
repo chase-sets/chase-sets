@@ -18,7 +18,9 @@ const FIELD_STREAM_PREFIX = "catalog.field-";
 type BaseBlueprintRow = Readonly<{
   blueprint_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   component_ids: unknown;
@@ -86,6 +88,7 @@ export async function refreshCatalogAdminBlueprintDetailPage(
       return {
         optionId,
         code: option?.code ?? optionId,
+        label: option?.label ?? option?.code ?? optionId,
         displayOrder: option?.displayOrder,
         numericValue: option?.numericValue,
       };
@@ -99,6 +102,7 @@ export async function refreshCatalogAdminBlueprintDetailPage(
         return {
           optionId,
           code: option?.code ?? optionId,
+          label: option?.label ?? option?.code ?? optionId,
           displayOrder: option?.displayOrder,
           numericValue: option?.numericValue,
         };
@@ -115,7 +119,9 @@ export async function refreshCatalogAdminBlueprintDetailPage(
     `INSERT INTO catalog_admin_blueprint_detail_pages (
       blueprint_id,
       key,
+      name_i18n,
       name,
+      description_i18n,
       description,
       status,
       components,
@@ -123,10 +129,12 @@ export async function refreshCatalogAdminBlueprintDetailPage(
       dimension_rules,
       canonical_dimension_order,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     ON CONFLICT (blueprint_id) DO UPDATE SET
       key = EXCLUDED.key,
+      name_i18n = EXCLUDED.name_i18n,
       name = EXCLUDED.name,
+      description_i18n = EXCLUDED.description_i18n,
       description = EXCLUDED.description,
       status = EXCLUDED.status,
       components = EXCLUDED.components,
@@ -137,7 +145,9 @@ export async function refreshCatalogAdminBlueprintDetailPage(
     [
       blueprint.blueprint_id,
       blueprint.key,
+      JSON.stringify(blueprint.name_i18n),
       blueprint.name,
+      JSON.stringify(blueprint.description_i18n),
       blueprint.description,
       blueprint.status,
       JSON.stringify(namedComponents),
@@ -325,4 +335,3 @@ export function buildCatalogAdminBlueprintProjectionHandlers(db: PgQueryable): P
     },
   };
 }
-

@@ -9,7 +9,9 @@ import {
 export type BlueprintRow = Readonly<{
   blueprint_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   component_ids: unknown;
@@ -22,7 +24,9 @@ export type BlueprintRow = Readonly<{
 export type BlueprintDetailRow = Readonly<{
   blueprint_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   components: unknown;
@@ -48,5 +52,4 @@ export async function getBlueprintDetail(db: PgQueryable, blueprintId: string) {
 
   return result.rows[0] ?? null;
 }
-
 

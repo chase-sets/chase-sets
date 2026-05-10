@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
@@ -43,7 +43,12 @@ export function ComponentListPage({ data, query }: CatalogListRouteData<Componen
 
   async function handleCreate() {
     const componentId = createId("cmp");
-    await createComponent({ componentId, key, name, description: description || undefined });
+    await createComponent({
+      componentId,
+      key,
+      name: localizedTextMapFromEnglish(name),
+      description: localizedTextMapFromEnglish(description),
+    });
     addToast(t("catalog.features.components.ui.componentListPage.component.created"), "success");
     setShowCreate(false);
     setKey("");
@@ -91,7 +96,6 @@ export function ComponentListPage({ data, query }: CatalogListRouteData<Componen
     </>
   );
 }
-
 
 
 

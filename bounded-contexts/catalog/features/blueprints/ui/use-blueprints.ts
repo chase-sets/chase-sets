@@ -1,5 +1,6 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Blueprint, BlueprintDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 
@@ -11,11 +12,11 @@ export function useBlueprint(id: string, initialData?: BlueprintDetail | null) {
   return useFetch(() => api.getBlueprint<BlueprintDetail>(id), [id], initialData);
 }
 
-export function createBlueprint(body: { blueprintId: string; key: string; name: string; description?: string }) {
+export function createBlueprint(body: { blueprintId: string; key: string; name: LocalizedTextMap; description?: LocalizedTextMap }) {
   return api.createBlueprint<CommandResponse>(body);
 }
 
-export function reviseBlueprint(id: string, body: { key: string; name: string; description?: string }) {
+export function reviseBlueprint(id: string, body: { key: string; name: LocalizedTextMap; description?: LocalizedTextMap }) {
   return api.reviseBlueprint<CommandResponse>(id, body);
 }
 
@@ -50,7 +51,6 @@ export function deprecateBlueprint(id: string) {
 export function archiveBlueprint(id: string) {
   return api.archiveBlueprint<CommandResponse>(id);
 }
-
 
 
 

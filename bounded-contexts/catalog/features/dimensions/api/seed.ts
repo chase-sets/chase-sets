@@ -1,3 +1,4 @@
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { OptionId, DimensionId } from "../../../ids";
@@ -330,8 +331,8 @@ export async function seedDimensions(
       type: "CreateDimension",
       dimensionId: def.dimensionId,
       key: def.key,
-      name: def.name,
-      description: def.description,
+      name: localizedTextMapFromEnglish(def.name),
+      description: localizedTextMapFromEnglish(def.description),
       valueKind: def.valueKind,
     });
 
@@ -343,7 +344,7 @@ export async function seedDimensions(
         type: "AddOption",
         optionId: option.optionId,
         code: option.code,
-        labels: [{ locale: "en", value: option.label }],
+        label: localizedTextMapFromEnglish(option.label),
         numericValue: option.numericValue ?? null,
       });
     }

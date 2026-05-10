@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
@@ -43,7 +44,12 @@ export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprin
 
   async function handleCreate() {
     const blueprintId = createId("bpr");
-    await createBlueprint({ blueprintId, key, name, description: description || undefined });
+    await createBlueprint({
+      blueprintId,
+      key,
+      name: localizedTextMapFromEnglish(name),
+      description: localizedTextMapFromEnglish(description),
+    });
     addToast(t("catalog.features.blueprints.ui.blueprintListPage.blueprint.created"), "success");
     setShowCreate(false);
     setKey("");
@@ -91,7 +97,6 @@ export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprin
     </>
   );
 }
-
 
 
 

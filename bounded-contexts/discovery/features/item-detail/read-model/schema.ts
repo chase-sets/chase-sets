@@ -71,14 +71,17 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_dimension_options (
   option_id text PRIMARY KEY,
   dimension_id text NOT NULL,
   code text NOT NULL,
-  labels jsonb NOT NULL DEFAULT '[]'::jsonb,
+  label_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  label text NOT NULL DEFAULT '',
   display_order integer NOT NULL DEFAULT 0,
   numeric_value numeric NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE discovery_item_detail_catalog_dimension_options
-  ADD COLUMN IF NOT EXISTS display_order integer NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS display_order integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS label_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS label text NOT NULL DEFAULT '';
 
 ALTER TABLE discovery_item_detail_catalog_dimension_options
   ADD COLUMN IF NOT EXISTS numeric_value numeric NULL;

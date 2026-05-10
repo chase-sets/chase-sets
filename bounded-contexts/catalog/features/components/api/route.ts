@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { ComponentServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -19,8 +19,8 @@ export function componentRoutes(services: ComponentServices) {
         type: "CreateComponent",
         componentId,
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
       },
       context,
     });
@@ -108,8 +108,8 @@ export function componentRoutes(services: ComponentServices) {
       command: {
         type: "ConfigureComponentRules",
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
         fieldRules: body.fieldRules,
         dimensionRules: body.dimensionRules,
       },
@@ -177,7 +177,6 @@ export function componentRoutes(services: ComponentServices) {
 
   return app;
 }
-
 
 
 

@@ -113,15 +113,15 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateDimension",
       dimensionId,
       key: "condition",
-      name: "Condition",
-      description: "Card condition",
+      name: l10n("Condition"),
+      description: l10n("Card condition"),
       valueKind: "ordered",
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "AddOption",
       optionId,
       code: "near-mint",
-      labels: [{ locale: "en", value: "Near Mint" }],
+      label: l10n("Near Mint"),
       numericValue: 5,
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, { type: "ActivateDimension" });
@@ -130,9 +130,9 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateField",
       fieldId,
       key: "card-name",
-      name: "Card Name",
-      description: "Printed card name",
-      valueType: "string",
+      name: l10n("Card Name"),
+      description: l10n("Printed card name"),
+      valueType: "localized_text",
       behavior: { filterable: true, searchable: true, sortable: true },
     });
     await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, { type: "ActivateField" });
@@ -141,8 +141,8 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateComponent",
       componentId,
       key: "base-card-info",
-      name: "Base Card Info",
-      description: "Core fields",
+      name: l10n("Base Card Info"),
+      description: l10n("Core fields"),
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "AddFieldRuleToComponent",
@@ -161,8 +161,8 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateBlueprint",
       blueprintId,
       key: "raw-pokemon-card",
-      name: "Raw Pokemon Card",
-      description: "Raw card template",
+      name: l10n("Raw Pokemon Card"),
+      description: l10n("Raw card template"),
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "AttachComponentToBlueprint",
@@ -186,8 +186,8 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateCategory",
       categoryId: rootCategoryId,
       key: "pokemon-tcg",
-      name: "Pokemon TCG",
-      description: "Root category",
+      name: l10n("Pokemon TCG"),
+      description: l10n("Root category"),
       parentCategoryId: undefined,
       displayOrder: 0,
     });
@@ -197,8 +197,8 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateCategory",
       categoryId: childCategoryId,
       key: "gen-1",
-      name: "Generation I",
-      description: "Generation I cards",
+      name: l10n("Generation I"),
+      description: l10n("Generation I cards"),
       parentCategoryId: rootCategoryId,
       displayOrder: 1,
     });
@@ -218,7 +218,7 @@ describeWithDatabase("Admin page projections", () => {
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "SetCatalogItemFieldValue",
       fieldId,
-      value: "Charizard",
+      value: l10n("Charizard"),
     });
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "AssignCatalogItemToCategory",
@@ -330,7 +330,7 @@ describeWithDatabase("Admin page projections", () => {
       description: "A classic Charizard",
     });
     expect(itemDetail.json.blueprint).toMatchObject({ blueprintId, name: "Raw Pokemon Card" });
-    expect(itemDetail.json.field_values[0]).toMatchObject({ fieldId, fieldName: "Card Name", value: "Charizard" });
+    expect(itemDetail.json.field_values[0]).toMatchObject({ fieldId, fieldName: "Card Name", value: l10n("Charizard") });
     expect(itemDetail.json.categories[0]).toMatchObject({ categoryId: childCategoryId, name: "Generation I" });
 
     const missingBlueprintResolver = await app.fetch(new Request(`http://catalog.test/api/catalog/blueprints/${blueprintId}/resolve-names`, { headers }));
@@ -342,51 +342,51 @@ describeWithDatabase("Admin page projections", () => {
     await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, {
       type: "ConfigureField",
       key: "card-name",
-      name: "Card Title",
-      description: "Printed card name",
-      valueType: "string",
+      name: l10n("Card Title"),
+      description: l10n("Printed card name"),
+      valueType: "localized_text",
       behavior: { filterable: true, searchable: true, sortable: true },
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "ReviseDimension",
       key: "condition",
-      name: "Card Condition",
-      description: "Card condition",
+      name: l10n("Card Condition"),
+      description: l10n("Card condition"),
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "ReviseOption",
       optionId,
       code: "mint",
-      labels: [{ locale: "en", value: "Mint" }],
+      label: l10n("Mint"),
       numericValue: null,
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "ConfigureComponentRules",
       key: "base-card-info",
-      name: "Base Card Info V2",
-      description: "Core fields",
+      name: l10n("Base Card Info V2"),
+      description: l10n("Core fields"),
       fieldRules: [{ fieldId, required: true }],
       dimensionRules: [{ dimensionId, required: true, allowedOptionIds: [optionId] }],
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "ReviseBlueprint",
       key: "raw-pokemon-card",
-      name: "Raw Pokemon Card V2",
-      description: "Raw card template",
+      name: l10n("Raw Pokemon Card V2"),
+      description: l10n("Raw card template"),
     });
     await sendCommand(services.categories.commandHandler, `catalog.category-${rootCategoryId}`, {
       type: "ReviseCategory",
       key: "pokemon-tcg",
-      name: "Pokemon Catalog",
-      description: "Root category",
+      name: l10n("Pokemon Catalog"),
+      description: l10n("Root category"),
       parentCategoryId: undefined,
       displayOrder: 0,
     });
     await sendCommand(services.categories.commandHandler, `catalog.category-${childCategoryId}`, {
       type: "ReviseCategory",
       key: "gen-1",
-      name: "Generation I Singles",
-      description: "Generation I cards",
+      name: l10n("Generation I Singles"),
+      description: l10n("Generation I cards"),
       parentCategoryId: rootCategoryId,
       displayOrder: 1,
     });
@@ -435,14 +435,14 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateDimension",
       dimensionId: formDimensionId,
       key: "form",
-      name: "Form",
-      description: "Card form",
+      name: l10n("Form"),
+      description: l10n("Card form"),
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, {
       type: "AddOption",
       optionId: formRawOptionId,
       code: "raw",
-      labels: [{ locale: "en", value: "Raw" }],
+      label: l10n("Raw"),
       numericValue: null,
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, { type: "ActivateDimension" });
@@ -451,14 +451,14 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateDimension",
       dimensionId: conditionDimensionId,
       key: "condition",
-      name: "Condition",
-      description: "Card condition",
+      name: l10n("Condition"),
+      description: l10n("Card condition"),
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, {
       type: "AddOption",
       optionId: conditionOptionId,
       code: "near-mint",
-      labels: [{ locale: "en", value: "Near Mint" }],
+      label: l10n("Near Mint"),
       numericValue: null,
     });
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, { type: "ActivateDimension" });
@@ -467,8 +467,8 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateComponent",
       componentId,
       key: "single-card-product-resolution",
-      name: "Single Card Product Resolution",
-      description: "Product resolution rules",
+      name: l10n("Single Card Product Resolution"),
+      description: l10n("Product resolution rules"),
     });
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "AddDimensionRuleToComponent",
@@ -489,8 +489,8 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateBlueprint",
       blueprintId,
       key: "pokemon-card-single",
-      name: "Pokemon Card Single",
-      description: "Card blueprint",
+      name: l10n("Pokemon Card Single"),
+      description: l10n("Card blueprint"),
     });
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "AttachComponentToBlueprint",

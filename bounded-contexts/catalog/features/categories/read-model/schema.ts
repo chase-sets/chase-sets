@@ -1,7 +1,9 @@
 export const catalogCategorySchemaSql = `CREATE TABLE IF NOT EXISTS catalog_categories (
   category_id text PRIMARY KEY,
   key text NOT NULL,
+  name_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   name text NOT NULL,
+  description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft',
   parent_category_id text NULL,
@@ -12,7 +14,9 @@ export const catalogCategorySchemaSql = `CREATE TABLE IF NOT EXISTS catalog_cate
 CREATE TABLE IF NOT EXISTS catalog_admin_category_list_pages (
   category_id text PRIMARY KEY REFERENCES catalog_categories(category_id) ON DELETE CASCADE,
   key text NOT NULL,
+  name_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   name text NOT NULL,
+  description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft',
   parent_category_id text NULL,
@@ -24,7 +28,9 @@ CREATE TABLE IF NOT EXISTS catalog_admin_category_list_pages (
 CREATE TABLE IF NOT EXISTS catalog_admin_category_detail_pages (
   category_id text PRIMARY KEY REFERENCES catalog_categories(category_id) ON DELETE CASCADE,
   key text NOT NULL,
+  name_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   name text NOT NULL,
+  description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   status text NOT NULL DEFAULT 'draft',
   parent_category_id text NULL,
@@ -38,5 +44,16 @@ CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_status_idx
 CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_parent_idx
   ON catalog_admin_category_list_pages (parent_category_id);
 CREATE INDEX IF NOT EXISTS catalog_admin_category_list_pages_key_name_idx
-  ON catalog_admin_category_list_pages USING gin (to_tsvector('simple', key || ' ' || name));`;
+  ON catalog_admin_category_list_pages USING gin (to_tsvector('simple', key || ' ' || name));
 
+ALTER TABLE catalog_categories
+  ADD COLUMN IF NOT EXISTS name_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb;
+
+ALTER TABLE catalog_admin_category_list_pages
+  ADD COLUMN IF NOT EXISTS name_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb;
+
+ALTER TABLE catalog_admin_category_detail_pages
+  ADD COLUMN IF NOT EXISTS name_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb;`;

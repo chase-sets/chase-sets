@@ -9,7 +9,9 @@ import {
 export type ComponentRow = Readonly<{
   component_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   field_rules: unknown;
@@ -20,7 +22,9 @@ export type ComponentRow = Readonly<{
 export type ComponentDetailRow = Readonly<{
   component_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   field_rules: unknown;
@@ -44,5 +48,4 @@ export async function getComponentDetail(db: PgQueryable, componentId: string) {
 
   return result.rows[0] ?? null;
 }
-
 

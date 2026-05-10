@@ -7,21 +7,23 @@ import {
 } from "./domain";
 import type { ComponentId, DimensionId, FieldId, OptionId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
+import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 
 const compId = "cmp_test" as ComponentId;
 const fieldA = "fld_a" as FieldId;
 const fieldB = "fld_b" as FieldId;
 const dimA = "dim_a" as DimensionId;
+const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
   return givenEvents(initialComponentState, evolveComponent, [
-    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: "Base", description: "" } },
+    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: l10n("Base"), description: l10n("") } },
   ] as ComponentEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialComponentState, evolveComponent, [
-    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: "Base", description: "" } },
+    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: l10n("Base"), description: l10n("") } },
     { type: "catalog.component.activated", data: {} },
   ] as ComponentEvent[]);
 }
@@ -33,7 +35,7 @@ describe("Component aggregate", () => {
         type: "CreateComponent" as const,
         componentId: compId,
         key: "base",
-        name: "Base",
+        name: l10n("Base"),
       });
 
       expect(events[0].type).toBe("catalog.component.created");
@@ -41,7 +43,7 @@ describe("Component aggregate", () => {
 
     it("rejects creating twice", () => {
       expectDomainError(
-        () => decide(decideComponent, createdState(), { type: "CreateComponent" as const, componentId: compId, key: "x", name: "X" }),
+        () => decide(decideComponent, createdState(), { type: "CreateComponent" as const, componentId: compId, key: "x", name: l10n("X") }),
         "Component has already been created.",
       );
     });
@@ -120,7 +122,7 @@ describe("Component aggregate", () => {
       const events = decide(decideComponent, createdState(), {
         type: "ConfigureComponentRules" as const,
         key: "base-v2",
-        name: "Base V2",
+        name: l10n("Base V2"),
         fieldRules: [{ fieldId: fieldA, required: true }],
         dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [] as OptionId[], appliesWhen: [] }],
       });
@@ -161,7 +163,7 @@ describe("Component aggregate", () => {
     it("evolves created event", () => {
       const state = evolveComponent(initialComponentState, {
         type: "catalog.component.created",
-        data: { componentId: compId, key: "base", name: "Base", description: "" },
+        data: { componentId: compId, key: "base", name: l10n("Base"), description: l10n("") },
       });
 
       expect(state.id).toBe(compId);
@@ -192,5 +194,4 @@ describe("Component aggregate", () => {
     });
   });
 });
-
 

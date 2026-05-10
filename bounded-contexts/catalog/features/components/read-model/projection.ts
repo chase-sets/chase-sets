@@ -1,5 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  coerceLocalizedTextMap,
+  resolveLocalizedTextMap,
+  type LocalizedTextMap,
+} from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.component-";
@@ -10,15 +15,25 @@ export function buildComponentProjectionHandlers(db: PgQueryable): ProjectorHand
       const { componentId, key, name, description } = event.data as {
         componentId: string;
         key: string;
-        name: string;
-        description: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
       };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `INSERT INTO catalog_components (component_id, key, name, description, status, updated_at)
-         VALUES ($1, $2, $3, $4, 'draft', $5)
-         ON CONFLICT (component_id) DO UPDATE SET key = $2, name = $3, description = $4, updated_at = $5`,
-        [componentId, key, name, description ?? "", event.timing.recordedAt],
+        `INSERT INTO catalog_components (component_id, key, name_i18n, name, description_i18n, description, status, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
+         ON CONFLICT (component_id) DO UPDATE SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, updated_at = $7`,
+        [
+          componentId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -82,17 +97,29 @@ export function buildComponentProjectionHandlers(db: PgQueryable): ProjectorHand
       const componentId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { key, name, description, fieldRules, dimensionRules } = event.data as {
         key: string;
-        name: string;
-        description: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
         fieldRules: unknown;
         dimensionRules: unknown;
       };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
         `UPDATE catalog_components
-         SET key = $2, name = $3, description = $4, field_rules = $5, dimension_rules = $6, updated_at = $7
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, field_rules = $7, dimension_rules = $8, updated_at = $9
          WHERE component_id = $1`,
-        [componentId, key, name, description ?? "", JSON.stringify(fieldRules), JSON.stringify(dimensionRules), event.timing.recordedAt],
+        [
+          componentId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          JSON.stringify(fieldRules),
+          JSON.stringify(dimensionRules),
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -124,6 +151,5 @@ export function buildComponentProjectionHandlers(db: PgQueryable): ProjectorHand
     },
   };
 }
-
 
 

@@ -17,7 +17,8 @@ export type CheckoutVersionApplicabilityClause = Readonly<{
 export type CheckoutVersionChoice = Readonly<{
   optionId: string;
   code: string;
-  labels?: Array<{ locale: string; value: string }>;
+  label_i18n?: unknown;
+  label: string;
 }>;
 
 export type CheckoutVersionDimension = Readonly<{

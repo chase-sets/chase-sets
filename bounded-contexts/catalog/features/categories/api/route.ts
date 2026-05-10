@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CategoryServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -19,8 +19,8 @@ export function categoryRoutes(services: CategoryServices) {
         type: "CreateCategory",
         categoryId,
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
         parentCategoryId: body.parentCategoryId as CategoryId | undefined,
         displayOrder: body.displayOrder,
       },
@@ -40,8 +40,8 @@ export function categoryRoutes(services: CategoryServices) {
       command: {
         type: "ReviseCategory",
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
         parentCategoryId: body.parentCategoryId as CategoryId | undefined,
         displayOrder: body.displayOrder,
       },
@@ -108,7 +108,6 @@ export function categoryRoutes(services: CategoryServices) {
 
   return app;
 }
-
 
 
 

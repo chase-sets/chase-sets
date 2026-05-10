@@ -1,10 +1,13 @@
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { ComponentRef } from "../../components/ui/contracts";
 import type { OptionRef } from "../../dimensions/ui/contracts";
 
 export interface Blueprint {
   blueprint_id: string;
   key: string;
+  name_i18n: LocalizedTextMap;
   name: string;
+  description_i18n: LocalizedTextMap;
   description: string;
   status: string;
   component_ids: string[];
@@ -22,7 +25,9 @@ export interface Blueprint {
 export interface BlueprintDetail {
   blueprint_id: string;
   key: string;
+  name_i18n: LocalizedTextMap;
   name: string;
+  description_i18n: LocalizedTextMap;
   description: string;
   status: string;
   components: ComponentRef[];

@@ -1,5 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { localizedTextMapValues } from "@chase-sets/localization";
 import { normalizeSimpleSearchText } from "../domain/normalization";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
@@ -136,9 +137,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
   const categorySlugList = categoryIds.map((id) => categoryRefs.get(id)?.slug ?? id);
 
   const fieldValuesText = fieldValues
-    .map((fieldValue) =>
-      typeof fieldValue.value === "string" ? fieldValue.value : String(fieldValue.value ?? ""),
-    )
+    .flatMap((fieldValue) => searchableValueText(fieldValue.value))
     .join(" ");
   const localizedText = localizedMapValues(item.title_i18n)
     .concat(localizedMapValues(item.subtitle_i18n))
@@ -224,6 +223,22 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       item.updated_at,
     ],
   );
+}
+
+function searchableValueText(value: unknown): string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return [String(value)];
+  }
+
+  if (typeof value === "object" && value !== null && "values" in value) {
+    return localizedTextMapValues(value as Parameters<typeof localizedTextMapValues>[0]);
+  }
+
+  return value === null || value === undefined ? [] : [String(value)];
 }
 
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
@@ -519,7 +534,8 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
     },
 
     "catalog.blueprint.created": async (event) => {
-      const { blueprintId, name } = event.data as { blueprintId: string; name: string };
+      const { blueprintId, name } = event.data as { blueprintId: string; name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO discovery_search_catalog_blueprints (blueprint_id, name, updated_at)
@@ -527,12 +543,13 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
          ON CONFLICT (blueprint_id) DO UPDATE SET
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [blueprintId, name, event.timing.recordedAt],
+        [blueprintId, resolvedName, event.timing.recordedAt],
       );
     },
     "catalog.blueprint.revised": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
-      const { name } = event.data as { name: string };
+      const { name } = event.data as { name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO discovery_search_catalog_blueprints (blueprint_id, name, updated_at)
@@ -540,15 +557,16 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
          ON CONFLICT (blueprint_id) DO UPDATE SET
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [blueprintId, name, event.timing.recordedAt],
+        [blueprintId, resolvedName, event.timing.recordedAt],
       );
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
 
     "catalog.category.created": async (event) => {
-      const { categoryId, name } = event.data as { categoryId: string; name: string };
-      const slug = createMarketplaceSlug([name], categoryId);
+      const { categoryId, name } = event.data as { categoryId: string; name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+      const slug = createMarketplaceSlug([resolvedName], categoryId);
 
       await db.query(
         `INSERT INTO discovery_search_catalog_categories (category_id, slug, name, updated_at)
@@ -557,13 +575,14 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
            slug = EXCLUDED.slug,
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [categoryId, slug, name, event.timing.recordedAt],
+        [categoryId, slug, resolvedName, event.timing.recordedAt],
       );
     },
     "catalog.category.revised": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
-      const { name } = event.data as { name: string };
-      const slug = createMarketplaceSlug([name], categoryId);
+      const { name } = event.data as { name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+      const slug = createMarketplaceSlug([resolvedName], categoryId);
       const current = await db.query<{ slug: string | null }>(
         `SELECT slug FROM discovery_search_catalog_categories WHERE category_id = $1`,
         [categoryId],
@@ -576,7 +595,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
            slug = EXCLUDED.slug,
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [categoryId, slug, name, event.timing.recordedAt],
+        [categoryId, slug, resolvedName, event.timing.recordedAt],
       );
       await rememberSlugRedirect(db, {
         entityKind: "category",

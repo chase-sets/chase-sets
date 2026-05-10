@@ -10,6 +10,10 @@ export type LocalizedTextMap = Readonly<{
   values: Readonly<Record<string, string>>;
 }>;
 
+export type NormalizeLocalizedTextMapOptions = Readonly<{
+  requiredEnglish?: boolean;
+}>;
+
 export interface MissingTranslation {
   locale: SupportedLocale;
   key: string;
@@ -49,6 +53,68 @@ export function localizedTextMapFromString(value: string): LocalizedTextMap {
   };
 }
 
+export function localizedTextMapFromEnglish(value: string): LocalizedTextMap {
+  return normalizeLocalizedTextMap({
+    defaultLocale,
+    values: { en: value },
+  });
+}
+
+export function normalizeLocaleCode(locale: string): string {
+  const trimmed = locale.trim();
+
+  if (!trimmed) {
+    throw new Error("Locale codes are required.");
+  }
+
+  if (trimmed.toLowerCase() === "jp") {
+    throw new Error('Use the BCP 47 language code "ja" for Japanese.');
+  }
+
+  const [language = "", ...rest] = trimmed.split("-");
+  const normalized = [
+    language.toLowerCase(),
+    ...rest.map((part, index) =>
+      index === 0 && part.length === 4
+        ? part[0].toUpperCase() + part.slice(1).toLowerCase()
+        : part.length === 2
+          ? part.toUpperCase()
+          : part.toLowerCase(),
+    ),
+  ].join("-");
+
+  if (!/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(normalized)) {
+    throw new Error("Locale codes must be valid BCP 47 language tags.");
+  }
+
+  return normalized;
+}
+
+export function normalizeLocalizedTextMap(
+  value: LocalizedTextMap,
+  options: NormalizeLocalizedTextMapOptions = {},
+): LocalizedTextMap {
+  if (value.defaultLocale !== defaultLocale) {
+    throw new Error("Localized text maps currently require English as the default locale.");
+  }
+
+  const values = Object.fromEntries(
+    Object.entries(value.values)
+      .map(([locale, text]) => [normalizeLocaleCode(locale), text.trim()] as const)
+      .filter(([, text]) => text.length > 0)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+
+  if (options.requiredEnglish && !values.en) {
+    throw new Error("Localized text maps require an English value.");
+  }
+
+  return {
+    defaultLocale,
+    values,
+  };
+}
+
 export function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {
   if (typeof value === "string") {
     return localizedTextMapFromString(value);
@@ -74,17 +140,27 @@ export function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {
         )
       : {};
 
-  return {
+  return normalizeLocalizedTextMap({
     defaultLocale,
     values,
-  };
+  });
 }
 
 export function resolveLocalizedTextMap(
-  value: LocalizedTextMap,
+  value: LocalizedTextMap | null | undefined,
   locale: string = defaultLocale,
 ): string {
-  return value.values[locale] ?? value.values[value.defaultLocale] ?? value.values.en ?? "";
+  if (!value) {
+    return "";
+  }
+
+  const requestedLocale = normalizeLocaleCode(locale);
+
+  return value.values[requestedLocale] ?? value.values[value.defaultLocale] ?? value.values.en ?? "";
+}
+
+export function localizedTextMapValues(value: LocalizedTextMap | null | undefined): string[] {
+  return value ? Object.values(value.values).filter(Boolean) : [];
 }
 
 export function createTranslator({

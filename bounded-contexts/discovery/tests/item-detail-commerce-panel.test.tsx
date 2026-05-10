@@ -109,7 +109,7 @@ const requiredSchema: ProductSchema = {
         {
           optionId: "raw",
           code: "raw",
-          labels: [{ locale: "en", value: "Raw" }],
+          label: "Raw",
           displayOrder: 0,
           numericValue: null,
         },
@@ -128,7 +128,7 @@ const variantSchema: ProductSchema = {
         {
           optionId: "graded",
           code: "graded",
-          labels: [{ locale: "en", value: "Graded" }],
+          label: "Graded",
           displayOrder: 1,
           numericValue: null,
         },

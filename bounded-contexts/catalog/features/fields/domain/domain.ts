@@ -7,18 +7,22 @@ import {
   EMPTY_EVENT_DATA,
   assert,
   assertNever,
+  localizedTextMapFromEnglish,
+  normalizeLocalizedTextMap,
+  resolveLocalizedTextMap,
   type CatalogLifecycleStatus,
   type EmptyEventData,
   type FieldBehavior,
   type FieldValueType,
+  type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import type { FieldId } from "../../../ids";
 
 export type FieldState = Readonly<{
   id: FieldId | null;
   key: string | null;
-  name: string | null;
-  description: string;
+  name: LocalizedTextMap | null;
+  description: LocalizedTextMap;
   status: CatalogLifecycleStatus;
   valueType: FieldValueType;
   behavior: FieldBehavior;
@@ -28,7 +32,7 @@ export const initialFieldState: FieldState = {
   id: null,
   key: null,
   name: null,
-  description: "",
+  description: localizedTextMapFromEnglish(""),
   status: "draft",
   valueType: "string",
   behavior: {
@@ -42,8 +46,8 @@ export type CreateFieldCommand = Readonly<{
   type: "CreateField";
   fieldId: FieldId;
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   valueType: FieldValueType;
   behavior: FieldBehavior;
 }>;
@@ -51,8 +55,8 @@ export type CreateFieldCommand = Readonly<{
 export type ConfigureFieldCommand = Readonly<{
   type: "ConfigureField";
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   valueType: FieldValueType;
   behavior: FieldBehavior;
 }>;
@@ -78,8 +82,8 @@ export type FieldCommand =
 
 type FieldConfiguration = Readonly<{
   key: string;
-  name: string;
-  description: string;
+  name: LocalizedTextMap;
+  description: LocalizedTextMap;
   valueType: FieldValueType;
   behavior: FieldBehavior;
 }>;
@@ -133,8 +137,10 @@ export const decideField: AggregateDecider<FieldState, FieldCommand, FieldEvent>
           data: {
             fieldId: command.fieldId,
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? "",
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : localizedTextMapFromEnglish(""),
             valueType: command.valueType,
             behavior: normalizeBehavior(command.behavior),
           },
@@ -149,8 +155,10 @@ export const decideField: AggregateDecider<FieldState, FieldCommand, FieldEvent>
           type: "catalog.field.configured",
           data: {
             key: command.key.trim(),
-            name: command.name.trim(),
-            description: command.description?.trim() ?? state.description,
+            name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : state.description,
             valueType: command.valueType,
             behavior: normalizeBehavior(command.behavior),
           },
@@ -238,6 +246,14 @@ export const evolveField: AggregateEvolver<FieldState, FieldEvent> = (
 
 function requireCreatedField(state: FieldState): void {
   assert(state.id !== null, "Field must be created first.");
+}
+
+export function fieldDisplayName(field: FieldState, locale = "en"): string {
+  return resolveLocalizedTextMap(field.name, locale);
+}
+
+export function fieldDisplayDescription(field: FieldState, locale = "en"): string {
+  return resolveLocalizedTextMap(field.description, locale);
 }
 
 function normalizeBehavior(behavior: FieldBehavior): FieldBehavior {

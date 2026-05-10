@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { DimensionServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
@@ -19,8 +19,8 @@ export function dimensionRoutes(services: DimensionServices) {
         type: "CreateDimension",
         dimensionId,
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
         valueKind: body.valueKind,
       },
       context,
@@ -39,8 +39,8 @@ export function dimensionRoutes(services: DimensionServices) {
       command: {
         type: "ReviseDimension",
         key: body.key,
-        name: body.name,
-        description: body.description,
+        name: coerceLocalizedTextMap(body.name),
+        description: coerceLocalizedTextMap(body.description ?? ""),
         valueKind: body.valueKind,
       },
       context,
@@ -60,7 +60,7 @@ export function dimensionRoutes(services: DimensionServices) {
         type: "AddOption",
         optionId: body.optionId as OptionId,
         code: body.code,
-        labels: body.labels ?? [],
+        label: coerceOptionLabel(body.label),
         numericValue: body.numericValue,
       },
       context,
@@ -80,7 +80,7 @@ export function dimensionRoutes(services: DimensionServices) {
         type: "ReviseOption",
         optionId: c.req.param("optionId") as OptionId,
         code: body.code,
-        labels: body.labels ?? [],
+        label: coerceOptionLabel(body.label),
         numericValue: body.numericValue,
       },
       context,
@@ -197,4 +197,26 @@ export function dimensionRoutes(services: DimensionServices) {
   return app;
 }
 
+function coerceOptionLabel(value: unknown) {
+  if (Array.isArray(value)) {
+    return coerceLocalizedTextMap({
+      defaultLocale: "en",
+      values: Object.fromEntries(
+        value
+          .map((entry) => {
+            if (typeof entry !== "object" || entry === null) {
+              return null;
+            }
 
+            const candidate = entry as { locale?: unknown; value?: unknown };
+            return typeof candidate.locale === "string" && typeof candidate.value === "string"
+              ? [candidate.locale, candidate.value]
+              : null;
+          })
+          .filter((entry): entry is [string, string] => entry !== null),
+      ),
+    });
+  }
+
+  return coerceLocalizedTextMap(value);
+}

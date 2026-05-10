@@ -1,5 +1,6 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Field } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 
@@ -14,8 +15,8 @@ export function useField(id: string, initialData?: Field | null) {
 export function createField(body: {
   fieldId: string;
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   valueType: string;
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 }) {
@@ -24,8 +25,8 @@ export function createField(body: {
 
 export function configureField(id: string, body: {
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   valueType: string;
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 }) {
@@ -43,7 +44,6 @@ export function deprecateField(id: string) {
 export function archiveField(id: string) {
   return api.archiveField<CommandResponse>(id);
 }
-
 
 
 

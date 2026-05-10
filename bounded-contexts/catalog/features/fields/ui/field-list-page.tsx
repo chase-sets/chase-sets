@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
@@ -33,6 +33,8 @@ const valueTypeOptions = [
   { value: "number", label: t("catalog.features.fields.ui.fieldListPage.number") },
   { value: "boolean", label: t("catalog.features.fields.ui.fieldListPage.boolean") },
   { value: "date", label: t("catalog.features.fields.ui.fieldListPage.date") },
+  { value: "json", label: t("catalog.features.fields.ui.fieldListPage.json") },
+  { value: "localized_text", label: t("catalog.features.fields.ui.fieldListPage.localized.text") },
 ];
 
 const statusOptions = [
@@ -57,7 +59,14 @@ export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
 
   async function handleCreate() {
     const fieldId = createId("fld");
-    await createField({ fieldId, key, name, description: description || undefined, valueType, behavior: { filterable, searchable, sortable } });
+    await createField({
+      fieldId,
+      key,
+      name: localizedTextMapFromEnglish(name),
+      description: localizedTextMapFromEnglish(description),
+      valueType,
+      behavior: { filterable, searchable, sortable },
+    });
     addToast(t("catalog.features.fields.ui.fieldListPage.field.created"), "success");
     setShowCreate(false);
     setKey("");
@@ -113,7 +122,6 @@ export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
     </>
   );
 }
-
 
 
 

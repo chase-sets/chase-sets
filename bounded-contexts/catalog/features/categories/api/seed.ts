@@ -2,6 +2,7 @@ import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { CategoryId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 
 export type CategoryIds = Record<string, CategoryId>;
 
@@ -23,8 +24,8 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
       type: "CreateCategory",
       categoryId,
       key,
-      name,
-      description,
+      name: localizedTextMapFromEnglish(name),
+      description: localizedTextMapFromEnglish(description),
       parentCategoryId: parentKey ? result[parentKey] : undefined,
       displayOrder: displayOrder ?? 0,
     });
@@ -170,5 +171,4 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
   console.log(`  ${Object.keys(result).length} categories created`);
   return result;
 }
-
 

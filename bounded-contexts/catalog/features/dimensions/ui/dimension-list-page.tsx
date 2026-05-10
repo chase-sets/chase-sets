@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
@@ -52,7 +52,13 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
 
   async function handleCreate() {
     const dimensionId = createId("dim");
-    await createDimension({ dimensionId, key, name, description: description || undefined, valueKind });
+    await createDimension({
+      dimensionId,
+      key,
+      name: localizedTextMapFromEnglish(name),
+      description: localizedTextMapFromEnglish(description),
+      valueKind,
+    });
     addToast(t("catalog.features.dimensions.ui.dimensionListPage.dimension.created"), "success");
     setShowCreate(false);
     setKey("");
@@ -107,6 +113,5 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
     </>
   );
 }
-
 
 

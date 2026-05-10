@@ -40,7 +40,8 @@ export interface ProductDimension {
   allowedOptions: Array<{
     optionId: string;
     code: string;
-    labels?: Array<{ locale: string; value: string }>;
+    label_i18n?: unknown;
+    label: string;
     displayOrder: number;
     numericValue: number | null;
   }>;

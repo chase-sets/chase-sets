@@ -41,9 +41,14 @@ CREATE TABLE IF NOT EXISTS checkout_catalog_dimension_options (
   option_id text PRIMARY KEY,
   dimension_id text NOT NULL,
   code text NOT NULL,
-  labels jsonb NOT NULL DEFAULT '[]'::jsonb,
+  label_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  label text NOT NULL DEFAULT '',
   updated_at timestamptz NOT NULL
 );
+
+ALTER TABLE checkout_catalog_dimension_options
+  ADD COLUMN IF NOT EXISTS label_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS label text NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS checkout_catalog_dimension_options_dimension_idx
   ON checkout_catalog_dimension_options (dimension_id);

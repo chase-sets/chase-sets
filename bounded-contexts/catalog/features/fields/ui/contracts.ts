@@ -1,7 +1,9 @@
 export interface Field {
   field_id: string;
   key: string;
+  name_i18n: unknown;
   name: string;
+  description_i18n: unknown;
   description: string;
   status: string;
   value_type: string;
@@ -10,4 +12,3 @@ export interface Field {
   sortable: boolean;
   updated_at: string;
 }
-

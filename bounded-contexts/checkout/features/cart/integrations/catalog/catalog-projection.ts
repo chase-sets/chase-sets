@@ -33,7 +33,8 @@ type CheckoutBlueprintRow = Readonly<{
 type CheckoutChoiceRow = Readonly<{
   option_id: string;
   code: string;
-  labels: unknown;
+  label_i18n: unknown;
+  label: string;
 }>;
 
 function extractIdFromStreamId(streamId: string, prefix: string): string {
@@ -111,7 +112,7 @@ async function buildVersionSchema(
     ),
     optionIds.length > 0
       ? db.query<CheckoutChoiceRow>(
-          `SELECT option_id, code, labels
+          `SELECT option_id, code, label_i18n, label
            FROM checkout_catalog_dimension_options
            WHERE option_id = ANY($1)`,
           [optionIds],
@@ -140,11 +141,36 @@ async function buildVersionSchema(
         return {
           optionId,
           code: detail?.code ?? optionId,
-          labels: Array.isArray(detail?.labels) ? detail?.labels : [],
+          label_i18n: detail?.label_i18n ?? coerceLocalizedTextMap(detail?.label ?? optionId),
+          label: detail?.label ?? detail?.code ?? optionId,
         };
       }),
     })),
   };
+}
+
+function coerceDimensionOptionLabel(value: unknown): LocalizedTextMap {
+  if (Array.isArray(value)) {
+    return coerceLocalizedTextMap({
+      defaultLocale: "en",
+      values: Object.fromEntries(
+        value
+          .map((entry) => {
+            if (typeof entry !== "object" || entry === null) {
+              return null;
+            }
+
+            const candidate = entry as { locale?: unknown; value?: unknown };
+            return typeof candidate.locale === "string" && typeof candidate.value === "string"
+              ? [candidate.locale, candidate.value]
+              : null;
+          })
+          .filter((entry): entry is [string, string] => entry !== null),
+      ),
+    });
+  }
+
+  return coerceLocalizedTextMap(value);
 }
 
 async function refreshCheckoutCatalogItem(
@@ -315,8 +341,9 @@ export function buildCheckoutCatalogProjectionHandlers(
     "catalog.blueprint.created": async (event) => {
       const { blueprintId, name } = event.data as {
         blueprintId: string;
-        name: string;
+        name: unknown;
       };
+      const resolvedName = resolveLocalizedTextMap(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO checkout_catalog_blueprints (
@@ -328,12 +355,13 @@ export function buildCheckoutCatalogProjectionHandlers(
          ON CONFLICT (blueprint_id) DO UPDATE SET
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [blueprintId, name, event.timing.recordedAt],
+        [blueprintId, resolvedName, event.timing.recordedAt],
       );
     },
     "catalog.blueprint.revised": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, "catalog.blueprint-");
-      const { name } = event.data as { name: string };
+      const { name } = event.data as { name: unknown };
+      const resolvedName = resolveLocalizedTextMap(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO checkout_catalog_blueprints (
@@ -350,7 +378,7 @@ export function buildCheckoutCatalogProjectionHandlers(
          ON CONFLICT (blueprint_id) DO UPDATE SET
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [blueprintId, name, event.timing.recordedAt],
+        [blueprintId, resolvedName, event.timing.recordedAt],
       );
 
       await refreshItemsByBlueprint(db, blueprintId);
@@ -411,8 +439,9 @@ export function buildCheckoutCatalogProjectionHandlers(
     "catalog.dimension.created": async (event) => {
       const { dimensionId, name } = event.data as {
         dimensionId: string;
-        name: string;
+        name: unknown;
       };
+      const resolvedName = resolveLocalizedTextMap(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO checkout_catalog_dimensions (
@@ -423,14 +452,15 @@ export function buildCheckoutCatalogProjectionHandlers(
          ON CONFLICT (dimension_id) DO UPDATE SET
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [dimensionId, name, event.timing.recordedAt],
+        [dimensionId, resolvedName, event.timing.recordedAt],
       );
 
       await refreshAllCheckoutCatalogItems(db);
     },
     "catalog.dimension.revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, "catalog.dimension-");
-      const { name } = event.data as { name: string };
+      const { name } = event.data as { name: unknown };
+      const resolvedName = resolveLocalizedTextMap(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO checkout_catalog_dimensions (
@@ -441,37 +471,42 @@ export function buildCheckoutCatalogProjectionHandlers(
          ON CONFLICT (dimension_id) DO UPDATE SET
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [dimensionId, name, event.timing.recordedAt],
+        [dimensionId, resolvedName, event.timing.recordedAt],
       );
 
       await refreshAllCheckoutCatalogItems(db);
     },
     "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, "catalog.dimension-");
-      const { optionId, code, labels } = event.data as {
+      const { optionId, code, label, labels } = event.data as {
         optionId: string;
         code: string;
-        labels: unknown;
+        label?: unknown;
+        labels?: unknown;
       };
+      const labelI18n = coerceDimensionOptionLabel(label ?? labels);
 
       await db.query(
         `INSERT INTO checkout_catalog_dimension_options (
            option_id,
            dimension_id,
            code,
-           labels,
+           label_i18n,
+           label,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5)
+         ) VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (option_id) DO UPDATE SET
            dimension_id = EXCLUDED.dimension_id,
            code = EXCLUDED.code,
-           labels = EXCLUDED.labels,
+           label_i18n = EXCLUDED.label_i18n,
+           label = EXCLUDED.label,
            updated_at = EXCLUDED.updated_at`,
         [
           optionId,
           dimensionId,
           code,
-          JSON.stringify(Array.isArray(labels) ? labels : []),
+          JSON.stringify(labelI18n),
+          resolveLocalizedTextMap(labelI18n),
           event.timing.recordedAt,
         ],
       );
@@ -480,30 +515,35 @@ export function buildCheckoutCatalogProjectionHandlers(
     },
     "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, "catalog.dimension-");
-      const { optionId, code, labels } = event.data as {
+      const { optionId, code, label, labels } = event.data as {
         optionId: string;
         code: string;
-        labels: unknown;
+        label?: unknown;
+        labels?: unknown;
       };
+      const labelI18n = coerceDimensionOptionLabel(label ?? labels);
 
       await db.query(
         `INSERT INTO checkout_catalog_dimension_options (
            option_id,
            dimension_id,
            code,
-           labels,
+           label_i18n,
+           label,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5)
+         ) VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (option_id) DO UPDATE SET
            dimension_id = EXCLUDED.dimension_id,
            code = EXCLUDED.code,
-           labels = EXCLUDED.labels,
+           label_i18n = EXCLUDED.label_i18n,
+           label = EXCLUDED.label,
            updated_at = EXCLUDED.updated_at`,
         [
           optionId,
           dimensionId,
           code,
-          JSON.stringify(Array.isArray(labels) ? labels : []),
+          JSON.stringify(labelI18n),
+          resolveLocalizedTextMap(labelI18n),
           event.timing.recordedAt,
         ],
       );

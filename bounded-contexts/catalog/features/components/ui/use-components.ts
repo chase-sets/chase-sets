@@ -1,5 +1,6 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Component, ComponentDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 
@@ -11,14 +12,14 @@ export function useComponent(id: string, initialData?: ComponentDetail | null) {
   return useFetch(() => api.getComponent<ComponentDetail>(id), [id], initialData);
 }
 
-export function createComponent(body: { componentId: string; key: string; name: string; description?: string }) {
+export function createComponent(body: { componentId: string; key: string; name: LocalizedTextMap; description?: LocalizedTextMap }) {
   return api.createComponent<CommandResponse>(body);
 }
 
 export function configureComponent(id: string, body: {
   key: string;
-  name: string;
-  description?: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
   fieldRules: { fieldId: string; required: boolean }[];
   dimensionRules: { dimensionId: string; required: boolean; allowedOptionIds: string[]; appliesWhen: Array<{ dimensionId: string; optionIds: string[] }> }[];
 }) {
@@ -52,7 +53,6 @@ export function deprecateComponent(id: string) {
 export function archiveComponent(id: string) {
   return api.archiveComponent<CommandResponse>(id);
 }
-
 
 
 

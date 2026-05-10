@@ -4,6 +4,7 @@ import type { ComponentId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
 import type { DimensionIds } from "../../dimensions/api/seed";
 import type { FieldIds } from "../../fields/api/seed";
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 
 export type ComponentIds = Record<string, ComponentId>;
 
@@ -23,8 +24,8 @@ export async function seedComponents(
       type: "CreateComponent",
       componentId,
       key: "single-card-identity",
-      name: "Single Card Identity",
-      description: "Descriptive fields for a specific printed Pokemon card",
+      name: localizedTextMapFromEnglish("Single Card Identity"),
+      description: localizedTextMapFromEnglish("Descriptive fields for a specific printed Pokemon card"),
     });
 
     for (const [fieldKey, required] of [
@@ -59,8 +60,8 @@ export async function seedComponents(
       type: "CreateComponent",
       componentId,
       key: "single-card-product-resolution",
-      name: "Single Card Product Resolution",
-      description: "Product-resolution rules for raw and graded card variants",
+      name: localizedTextMapFromEnglish("Single Card Product Resolution"),
+      description: localizedTextMapFromEnglish("Product-resolution rules for raw and graded card variants"),
     });
 
     await sendSeedCommand(services.components.commandHandler, streamId, {
@@ -115,8 +116,8 @@ export async function seedComponents(
       type: "CreateComponent",
       componentId,
       key: "sealed-product-identity",
-      name: "Sealed Product Identity",
-      description: "Descriptive fields for Pokemon sealed products",
+      name: localizedTextMapFromEnglish("Sealed Product Identity"),
+      description: localizedTextMapFromEnglish("Descriptive fields for Pokemon sealed products"),
     });
 
     for (const [fieldKey, required] of [

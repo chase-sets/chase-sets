@@ -2,13 +2,14 @@ import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { FieldId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
+import { localizedTextMapFromEnglish, type LocalizedTextMap } from "@chase-sets/localization";
 
 type FieldDef = {
   key: string;
   fieldId: FieldId;
-  name: string;
-  description: string;
-  valueType: "string" | "number" | "boolean" | "date" | "json";
+  name: LocalizedTextMap;
+  description: LocalizedTextMap;
+  valueType: "string" | "number" | "boolean" | "date" | "json" | "localized_text";
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 };
 
@@ -16,56 +17,56 @@ const fieldDefs: FieldDef[] = [
   {
     key: "card-number",
     fieldId: catalogSeedIds.fields.cardNumber as FieldId,
-    name: "Card Number",
-    description: "The card number within its set (for example 4/102)",
+    name: l10n("Card Number"),
+    description: l10n("The card number within its set (for example 4/102)"),
     valueType: "string",
     behavior: { filterable: true, searchable: false, sortable: true },
   },
   {
     key: "card-name",
     fieldId: catalogSeedIds.fields.cardName as FieldId,
-    name: "Card Name",
-    description: "The printed name of the card",
-    valueType: "string",
+    name: l10n("Card Name"),
+    description: l10n("The printed name of the card"),
+    valueType: "localized_text",
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
     key: "set-name",
     fieldId: catalogSeedIds.fields.setName as FieldId,
-    name: "Set Name",
-    description: "The expansion set or product line the item belongs to",
+    name: l10n("Set Name"),
+    description: l10n("The expansion set or product line the item belongs to"),
     valueType: "string",
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
     key: "rarity",
     fieldId: catalogSeedIds.fields.rarity as FieldId,
-    name: "Rarity",
-    description: "The printed rarity classification for a single card",
+    name: l10n("Rarity"),
+    description: l10n("The printed rarity classification for a single card"),
     valueType: "string",
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
     key: "artist",
     fieldId: catalogSeedIds.fields.artist as FieldId,
-    name: "Artist",
-    description: "The illustrator of the card",
+    name: l10n("Artist"),
+    description: l10n("The illustrator of the card"),
     valueType: "string",
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
     key: "release-year",
     fieldId: catalogSeedIds.fields.releaseYear as FieldId,
-    name: "Release Year",
-    description: "The year the card or product was released",
+    name: l10n("Release Year"),
+    description: l10n("The year the card or product was released"),
     valueType: "number",
     behavior: { filterable: true, searchable: false, sortable: true },
   },
   {
     key: "pack-count",
     fieldId: catalogSeedIds.fields.packCount as FieldId,
-    name: "Pack Count",
-    description: "Number of booster packs included in a sealed product",
+    name: l10n("Pack Count"),
+    description: l10n("Number of booster packs included in a sealed product"),
     valueType: "number",
     behavior: { filterable: true, searchable: false, sortable: true },
   },
@@ -95,9 +96,12 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
     });
 
     result[def.key] = def.fieldId;
-    console.log(`  Field "${def.name}" created`);
+    console.log(`  Field "${def.name.values.en}" created`);
   }
 
   return result;
 }
 
+function l10n(en: string): LocalizedTextMap {
+  return localizedTextMapFromEnglish(en);
+}

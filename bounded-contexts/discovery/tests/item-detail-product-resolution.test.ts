@@ -20,8 +20,8 @@ const schema: ProductSchema = {
       required: true,
       appliesWhen: [],
       allowedOptions: [
-        { optionId: "raw", code: "raw", labels: [{ locale: "en", value: "Raw" }], displayOrder: 0, numericValue: null },
-        { optionId: "graded", code: "graded", labels: [{ locale: "en", value: "Graded" }], displayOrder: 1, numericValue: null },
+        { optionId: "raw", code: "raw", label: "Raw", displayOrder: 0, numericValue: null },
+        { optionId: "graded", code: "graded", label: "Graded", displayOrder: 1, numericValue: null },
       ],
     },
     {
@@ -31,8 +31,8 @@ const schema: ProductSchema = {
       required: true,
       appliesWhen: [{ dimensionId: "form", optionIds: ["raw"] }],
       allowedOptions: [
-        { optionId: "near_mint", code: "near-mint", labels: [{ locale: "en", value: "Near Mint" }], displayOrder: 0, numericValue: 5 },
-        { optionId: "excellent", code: "excellent", labels: [{ locale: "en", value: "Excellent" }], displayOrder: 1, numericValue: 4 },
+        { optionId: "near_mint", code: "near-mint", label: "Near Mint", displayOrder: 0, numericValue: 5 },
+        { optionId: "excellent", code: "excellent", label: "Excellent", displayOrder: 1, numericValue: 4 },
       ],
     },
   ],

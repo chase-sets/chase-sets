@@ -1,9 +1,11 @@
-import type { LocalizedText } from "../../../support/runtime-support/common";
+import type { LocalizedTextMap } from "@chase-sets/localization";
 
 export interface Dimension {
   dimension_id: string;
   key: string;
+  name_i18n: LocalizedTextMap;
   name: string;
+  description_i18n: LocalizedTextMap;
   description: string;
   value_kind: "unordered" | "ordered" | "numeric";
   status: string;
@@ -14,7 +16,8 @@ export interface DimensionOption {
   option_id: string;
   dimension_id: string;
   code: string;
-  labels: LocalizedText[] | null;
+  label_i18n: LocalizedTextMap;
+  label: string;
   display_order: number;
   numeric_value: number | null;
   status: string;
@@ -27,6 +30,7 @@ export interface DimensionDetail extends Dimension {
 export interface OptionRef {
   optionId: string;
   code: string;
+  label?: string;
   displayOrder?: number;
   numericValue?: number | null;
 }

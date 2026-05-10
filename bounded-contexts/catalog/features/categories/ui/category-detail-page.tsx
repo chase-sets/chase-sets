@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -82,8 +82,8 @@ export function CategoryDetailPage({ id, initialData }: { id: string; initialDat
   async function handleRevise() {
     await reviseCategory(id, {
       key: editKey,
-      name: editName,
-      description: editDescription || undefined,
+      name: localizedTextMapFromEnglish(editName),
+      description: localizedTextMapFromEnglish(editDescription),
       parentCategoryId: editParentId || null,
       displayOrder: Number(editDisplayOrder) || 0,
     });
@@ -151,6 +151,5 @@ export function CategoryDetailPage({ id, initialData }: { id: string; initialDat
     </>
   );
 }
-
 
 

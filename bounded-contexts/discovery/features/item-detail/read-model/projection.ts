@@ -49,7 +49,8 @@ type ItemDetailBlueprintRow = Readonly<{
 type ChoiceDetailRow = Readonly<{
   option_id: string;
   code: string;
-  labels: unknown;
+  label_i18n: unknown;
+  label: string;
   display_order: number;
   numeric_value: number | null;
 }>;
@@ -153,7 +154,7 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
       : Promise.resolve([] as DimensionDetailRow[]),
     optionIds.length > 0
       ? db.query<ChoiceDetailRow>(
-          `SELECT option_id, code, labels, display_order, numeric_value::float8 AS numeric_value
+          `SELECT option_id, code, label_i18n, label, display_order, numeric_value::float8 AS numeric_value
            FROM discovery_item_detail_catalog_dimension_options
            WHERE option_id = ANY($1)`,
           [optionIds],
@@ -184,7 +185,8 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
           return {
             optionId,
             code: detail?.code ?? optionId,
-            labels: Array.isArray(detail?.labels) ? detail?.labels : [],
+            label_i18n: detail?.label_i18n ?? localizedTextMap(detail?.label ?? optionId),
+            label: detail?.label ?? detail?.code ?? optionId,
             displayOrder: detail?.display_order ?? fallbackOrder,
             numericValue: detail?.numeric_value ?? null,
           };
@@ -619,7 +621,8 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
 
     "catalog.blueprint.created": async (event) => {
-      const { blueprintId, name } = event.data as { blueprintId: string; name: string };
+      const { blueprintId, name } = event.data as { blueprintId: string; name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_blueprints (
@@ -630,12 +633,13 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         ON CONFLICT (blueprint_id) DO UPDATE SET
           name = EXCLUDED.name,
           updated_at = EXCLUDED.updated_at`,
-        [blueprintId, name, event.timing.recordedAt],
+        [blueprintId, resolvedName, event.timing.recordedAt],
       );
     },
     "catalog.blueprint.revised": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
-      const { name } = event.data as { name: string };
+      const { name } = event.data as { name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_blueprints (
@@ -646,7 +650,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         ON CONFLICT (blueprint_id) DO UPDATE SET
           name = EXCLUDED.name,
           updated_at = EXCLUDED.updated_at`,
-        [blueprintId, name, event.timing.recordedAt],
+        [blueprintId, resolvedName, event.timing.recordedAt],
       );
 
       await refreshItemsByBlueprint(db, blueprintId);
@@ -704,8 +708,9 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
 
     "catalog.category.created": async (event) => {
-      const { categoryId, name } = event.data as { categoryId: string; name: string };
-      const slug = createMarketplaceSlug([name], categoryId);
+      const { categoryId, name } = event.data as { categoryId: string; name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+      const slug = createMarketplaceSlug([resolvedName], categoryId);
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_categories (category_id, slug, name, updated_at)
@@ -714,13 +719,14 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
            slug = EXCLUDED.slug,
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [categoryId, slug, name, event.timing.recordedAt],
+        [categoryId, slug, resolvedName, event.timing.recordedAt],
       );
     },
     "catalog.category.revised": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
-      const { name } = event.data as { name: string };
-      const slug = createMarketplaceSlug([name], categoryId);
+      const { name } = event.data as { name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+      const slug = createMarketplaceSlug([resolvedName], categoryId);
       const current = await db.query<{ slug: string | null }>(
         `SELECT slug FROM discovery_item_detail_catalog_categories WHERE category_id = $1`,
         [categoryId],
@@ -733,7 +739,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
            slug = EXCLUDED.slug,
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [categoryId, slug, name, event.timing.recordedAt],
+        [categoryId, slug, resolvedName, event.timing.recordedAt],
       );
       await rememberSlugRedirect(db, {
         entityKind: "category",
@@ -747,7 +753,8 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
 
     "catalog.field.created": async (event) => {
-      const { fieldId, name } = event.data as { fieldId: string; name: string };
+      const { fieldId, name } = event.data as { fieldId: string; name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_fields (field_id, name, updated_at)
@@ -755,14 +762,15 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
          ON CONFLICT (field_id) DO UPDATE SET
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [fieldId, name, event.timing.recordedAt],
+        [fieldId, resolvedName, event.timing.recordedAt],
       );
 
       await refreshAllItems(db);
     },
     "catalog.field.configured": async (event) => {
       const fieldId = extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX);
-      const { name } = event.data as { name: string };
+      const { name } = event.data as { name: unknown };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_fields (field_id, name, updated_at)
@@ -770,7 +778,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
          ON CONFLICT (field_id) DO UPDATE SET
            name = EXCLUDED.name,
            updated_at = EXCLUDED.updated_at`,
-        [fieldId, name, event.timing.recordedAt],
+        [fieldId, resolvedName, event.timing.recordedAt],
       );
 
       await refreshAllItems(db);
@@ -779,9 +787,10 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     "catalog.dimension.created": async (event) => {
       const { dimensionId, name, valueKind } = event.data as {
         dimensionId: string;
-        name: string;
+        name: unknown;
         valueKind?: "unordered" | "ordered" | "numeric";
       };
+      const nameI18n = coerceLocalizedTextMap(name);
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_dimensions (dimension_id, name, value_kind, updated_at)
@@ -790,7 +799,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
            name = EXCLUDED.name,
            value_kind = COALESCE($3, discovery_item_detail_catalog_dimensions.value_kind),
            updated_at = EXCLUDED.updated_at`,
-        [dimensionId, name, valueKind ?? "unordered", event.timing.recordedAt],
+        [dimensionId, resolveLocalizedText(nameI18n), valueKind ?? "unordered", event.timing.recordedAt],
       );
 
       await refreshAllItems(db);
@@ -798,9 +807,10 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     "catalog.dimension.revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { name, valueKind } = event.data as {
-        name: string;
+        name: unknown;
         valueKind?: "unordered" | "ordered" | "numeric";
       };
+      const nameI18n = coerceLocalizedTextMap(name);
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_dimensions (dimension_id, name, value_kind, updated_at)
@@ -809,35 +819,39 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
            name = EXCLUDED.name,
            value_kind = COALESCE($3, discovery_item_detail_catalog_dimensions.value_kind),
            updated_at = EXCLUDED.updated_at`,
-        [dimensionId, name, valueKind ?? null, event.timing.recordedAt],
+        [dimensionId, resolveLocalizedText(nameI18n), valueKind ?? null, event.timing.recordedAt],
       );
 
       await refreshAllItems(db);
     },
     "catalog.dimension.option-added": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
-      const { optionId, code, labels, displayOrder, numericValue } = event.data as {
+      const { optionId, code, label, labels, displayOrder, numericValue } = event.data as {
         optionId: string;
         code: string;
-        labels: unknown;
+        label?: unknown;
+        labels?: unknown;
         displayOrder?: number;
         numericValue?: number | null;
       };
+      const labelI18n = coerceDimensionOptionLabel(label ?? labels);
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_dimension_options (
           option_id,
           dimension_id,
           code,
-          labels,
+          label_i18n,
+          label,
           display_order,
           numeric_value,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
-          labels = EXCLUDED.labels,
+          label_i18n = EXCLUDED.label_i18n,
+          label = EXCLUDED.label,
           display_order = EXCLUDED.display_order,
           numeric_value = EXCLUDED.numeric_value,
           updated_at = EXCLUDED.updated_at`,
@@ -845,7 +859,8 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
           optionId,
           dimensionId,
           code,
-          JSON.stringify(Array.isArray(labels) ? labels : []),
+          JSON.stringify(labelI18n),
+          resolveLocalizedText(labelI18n),
           displayOrder ?? 0,
           numericValue ?? null,
           event.timing.recordedAt,
@@ -856,28 +871,32 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
     "catalog.dimension.option-revised": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
-      const { optionId, code, labels, displayOrder, numericValue } = event.data as {
+      const { optionId, code, label, labels, displayOrder, numericValue } = event.data as {
         optionId: string;
         code: string;
-        labels: unknown;
+        label?: unknown;
+        labels?: unknown;
         displayOrder?: number;
         numericValue?: number | null;
       };
+      const labelI18n = coerceDimensionOptionLabel(label ?? labels);
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_dimension_options (
           option_id,
           dimension_id,
           code,
-          labels,
+          label_i18n,
+          label,
           display_order,
           numeric_value,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (option_id) DO UPDATE SET
           dimension_id = EXCLUDED.dimension_id,
           code = EXCLUDED.code,
-          labels = EXCLUDED.labels,
+          label_i18n = EXCLUDED.label_i18n,
+          label = EXCLUDED.label,
           display_order = EXCLUDED.display_order,
           numeric_value = EXCLUDED.numeric_value,
           updated_at = EXCLUDED.updated_at`,
@@ -885,7 +904,8 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
           optionId,
           dimensionId,
           code,
-          JSON.stringify(Array.isArray(labels) ? labels : []),
+          JSON.stringify(labelI18n),
+          resolveLocalizedText(labelI18n),
           displayOrder ?? 0,
           numericValue ?? null,
           event.timing.recordedAt,
@@ -936,4 +956,28 @@ function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {
 
 function resolveLocalizedText(value: LocalizedTextMap): string {
   return value.values.en ?? value.values[value.defaultLocale] ?? Object.values(value.values)[0] ?? "";
+}
+
+function coerceDimensionOptionLabel(value: unknown) {
+  if (Array.isArray(value)) {
+    return coerceLocalizedTextMap({
+      defaultLocale: "en",
+      values: Object.fromEntries(
+        value
+          .map((entry) => {
+            if (typeof entry !== "object" || entry === null) {
+              return null;
+            }
+
+            const candidate = entry as { locale?: unknown; value?: unknown };
+            return typeof candidate.locale === "string" && typeof candidate.value === "string"
+              ? [candidate.locale, candidate.value]
+              : null;
+          })
+          .filter((entry): entry is [string, string] => entry !== null),
+      ),
+    });
+  }
+
+  return coerceLocalizedTextMap(value);
 }

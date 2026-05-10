@@ -1,9 +1,12 @@
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { OptionRef } from "../../dimensions/ui/contracts";
 
 export interface Component {
   component_id: string;
   key: string;
+  name_i18n: LocalizedTextMap;
   name: string;
+  description_i18n: LocalizedTextMap;
   description: string;
   status: string;
   field_rules: { fieldId: string; required: boolean }[];
@@ -19,7 +22,9 @@ export interface Component {
 export interface ComponentDetail {
   component_id: string;
   key: string;
+  name_i18n: LocalizedTextMap;
   name: string;
+  description_i18n: LocalizedTextMap;
   description: string;
   status: string;
   field_rules: Array<{ fieldId: string; fieldName: string; required: boolean }>;

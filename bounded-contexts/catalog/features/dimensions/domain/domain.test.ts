@@ -7,21 +7,23 @@ import {
 } from "./domain";
 import type { OptionId, DimensionId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
+import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 
 const dimId = "dim_test" as DimensionId;
 const optionA = "chc_a" as OptionId;
 const optionB = "chc_b" as OptionId;
+const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
   return givenEvents(initialDimensionState, evolveDimension, [
-    { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "" } },
+    { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: l10n("Color"), description: l10n("") } },
   ] as DimensionEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialDimensionState, evolveDimension, [
-    { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "" } },
-    { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+    { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: l10n("Color"), description: l10n("") } },
+    { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", label: l10n("Red"), displayOrder: 0, numericValue: null, status: "active" } },
     { type: "catalog.dimension.activated", data: {} },
   ] as DimensionEvent[]);
 }
@@ -33,11 +35,11 @@ describe("Dimension aggregate", () => {
         type: "CreateDimension" as const,
         dimensionId: dimId,
         key: "color",
-        name: "Color",
+        name: l10n("Color"),
       });
 
       expect(events).toEqual([
-        { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: "Color", description: "", valueKind: "unordered" } },
+        { type: "catalog.dimension.created", data: { dimensionId: dimId, key: "color", name: l10n("Color"), description: l10n(""), valueKind: "unordered" } },
       ]);
     });
 
@@ -46,7 +48,7 @@ describe("Dimension aggregate", () => {
         type: "CreateDimension" as const,
         dimensionId: dimId,
         key: "condition",
-        name: "Condition",
+        name: l10n("Condition"),
         valueKind: "ordered",
       });
 
@@ -55,26 +57,26 @@ describe("Dimension aggregate", () => {
 
     it("rejects creating a dimension twice", () => {
       expectDomainError(
-        () => decide(decideDimension, createdState(), { type: "CreateDimension" as const, dimensionId: "dim_other" as DimensionId, key: "size", name: "Size" }),
+        () => decide(decideDimension, createdState(), { type: "CreateDimension" as const, dimensionId: "dim_other" as DimensionId, key: "size", name: l10n("Size") }),
         "Dimension has already been created.",
       );
     });
 
     it("revises a dimension", () => {
-      const events = decide(decideDimension, createdState(), { type: "ReviseDimension" as const, key: "colour", name: "Colour" });
+      const events = decide(decideDimension, createdState(), { type: "ReviseDimension" as const, key: "colour", name: l10n("Colour") });
 
       expect(events[0].type).toBe("catalog.dimension.revised");
     });
 
     it("revises dimension value kind when active options have numeric values", () => {
       const state = givenEvents(createdState(), evolveDimension, [
-        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: 1, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", label: l10n("Red"), displayOrder: 0, numericValue: 1, status: "active" } },
       ] as DimensionEvent[]);
 
       const events = decide(decideDimension, state, {
         type: "ReviseDimension" as const,
         key: "score",
-        name: "Score",
+        name: l10n("Score"),
         valueKind: "numeric",
       });
 
@@ -83,14 +85,14 @@ describe("Dimension aggregate", () => {
 
     it("rejects numeric dimensions with active options missing numeric values", () => {
       const state = givenEvents(createdState(), evolveDimension, [
-        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", label: l10n("Red"), displayOrder: 0, numericValue: null, status: "active" } },
       ] as DimensionEvent[]);
 
       expectDomainError(
         () => decide(decideDimension, state, {
           type: "ReviseDimension" as const,
           key: "score",
-          name: "Score",
+          name: l10n("Score"),
           valueKind: "numeric",
         }),
         "Numeric dimensions require numeric values for active options.",
@@ -102,7 +104,7 @@ describe("Dimension aggregate", () => {
         type: "AddOption" as const,
         optionId: optionA,
         code: "red",
-        labels: [{ locale: "en", value: "Red" }],
+        label: l10n("Red"),
       });
 
       expect(events[0].type).toBe("catalog.dimension.option-added");
@@ -114,7 +116,7 @@ describe("Dimension aggregate", () => {
         type: "AddOption" as const,
         optionId: optionA,
         code: "red",
-        labels: [{ locale: "en", value: "Red" }],
+        label: l10n("Red"),
         numericValue: 7,
       });
 
@@ -123,22 +125,22 @@ describe("Dimension aggregate", () => {
 
     it("rejects duplicate option IDs", () => {
       const state = givenEvents(createdState(), evolveDimension, [
-        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", label: l10n("Red"), displayOrder: 0, numericValue: null, status: "active" } },
       ] as DimensionEvent[]);
 
       expectDomainError(
-        () => decide(decideDimension, state, { type: "AddOption" as const, optionId: optionA, code: "blue", labels: [] }),
+        () => decide(decideDimension, state, { type: "AddOption" as const, optionId: optionA, code: "blue", label: l10n("Blue") }),
         "Option already exists on this dimension.",
       );
     });
 
     it("rejects duplicate option codes", () => {
       const state = givenEvents(createdState(), evolveDimension, [
-        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", label: l10n("Red"), displayOrder: 0, numericValue: null, status: "active" } },
       ] as DimensionEvent[]);
 
       expectDomainError(
-        () => decide(decideDimension, state, { type: "AddOption" as const, optionId: optionB, code: "red", labels: [] }),
+        () => decide(decideDimension, state, { type: "AddOption" as const, optionId: optionB, code: "red", label: l10n("Red") }),
         "Option codes must be unique within a dimension.",
       );
     });
@@ -186,15 +188,15 @@ describe("Dimension aggregate", () => {
       ] as DimensionEvent[]);
 
       expectDomainError(
-        () => decide(decideDimension, archivedState, { type: "ReviseDimension" as const, key: "x", name: "X" }),
+        () => decide(decideDimension, archivedState, { type: "ReviseDimension" as const, key: "x", name: l10n("X") }),
         "Archived dimensions cannot be revised.",
       );
     });
 
     it("reorders options", () => {
       const state = givenEvents(createdState(), evolveDimension, [
-        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" } },
-        { type: "catalog.dimension.option-added", data: { optionId: optionB, code: "blue", labels: [], displayOrder: 1, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionA, code: "red", label: l10n("Red"), displayOrder: 0, numericValue: null, status: "active" } },
+        { type: "catalog.dimension.option-added", data: { optionId: optionB, code: "blue", label: l10n("Blue"), displayOrder: 1, numericValue: null, status: "active" } },
       ] as DimensionEvent[]);
 
       const events = decide(decideDimension, state, { type: "ReorderOptions" as const, optionIds: [optionB, optionA] });
@@ -207,12 +209,12 @@ describe("Dimension aggregate", () => {
     it("evolves created event", () => {
       const state = evolveDimension(initialDimensionState, {
         type: "catalog.dimension.created",
-        data: { dimensionId: dimId, key: "color", name: "Color", description: "" },
+        data: { dimensionId: dimId, key: "color", name: l10n("Color"), description: l10n("") },
       });
 
       expect(state.id).toBe(dimId);
       expect(state.key).toBe("color");
-      expect(state.name).toBe("Color");
+      expect(state.name).toEqual(l10n("Color"));
       expect(state.status).toBe("draft");
     });
 
@@ -228,7 +230,7 @@ describe("Dimension aggregate", () => {
     it("evolves option-added event", () => {
       const state = evolveDimension(createdState(), {
         type: "catalog.dimension.option-added",
-        data: { optionId: optionA, code: "red", labels: [], displayOrder: 0, numericValue: null, status: "active" },
+        data: { optionId: optionA, code: "red", label: l10n("Red"), displayOrder: 0, numericValue: null, status: "active" },
       } as DimensionEvent);
 
       expect(state.options).toHaveLength(1);

@@ -11,7 +11,8 @@ export type MarketplaceVersionApplicabilityClause = Readonly<{
 export type MarketplaceVersionChoice = Readonly<{
   optionId: string;
   code: string;
-  labels?: Array<{ locale: string; value: string }>;
+  label_i18n?: unknown;
+  label: string;
 }>;
 
 export type MarketplaceVersionDimension = Readonly<{

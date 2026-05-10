@@ -1,5 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  coerceLocalizedTextMap,
+  resolveLocalizedTextMap,
+  type LocalizedTextMap,
+} from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.category-";
@@ -10,18 +15,30 @@ export function buildCategoryProjectionHandlers(db: PgQueryable): ProjectorHandl
       const { categoryId, key, name, description, parentCategoryId, displayOrder } = event.data as {
         categoryId: string;
         key: string;
-        name: string;
-        description: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
         parentCategoryId: string | null;
         displayOrder: number;
       };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `INSERT INTO catalog_categories (category_id, key, name, description, status, parent_category_id, display_order, updated_at)
-         VALUES ($1, $2, $3, $4, 'draft', $5, $6, $7)
+        `INSERT INTO catalog_categories (category_id, key, name_i18n, name, description_i18n, description, status, parent_category_id, display_order, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9)
          ON CONFLICT (category_id) DO UPDATE
-         SET key = $2, name = $3, description = $4, parent_category_id = $5, display_order = $6, updated_at = $7`,
-        [categoryId, key, name, description ?? "", parentCategoryId, displayOrder, event.timing.recordedAt],
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, parent_category_id = $7, display_order = $8, updated_at = $9`,
+        [
+          categoryId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          parentCategoryId,
+          displayOrder,
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -29,17 +46,29 @@ export function buildCategoryProjectionHandlers(db: PgQueryable): ProjectorHandl
       const categoryId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { key, name, description, parentCategoryId, displayOrder } = event.data as {
         key: string;
-        name: string;
-        description: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
         parentCategoryId: string | null;
         displayOrder: number;
       };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
         `UPDATE catalog_categories
-         SET key = $2, name = $3, description = $4, parent_category_id = $5, display_order = $6, updated_at = $7
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, parent_category_id = $7, display_order = $8, updated_at = $9
          WHERE category_id = $1`,
-        [categoryId, key, name, description ?? "", parentCategoryId, displayOrder, event.timing.recordedAt],
+        [
+          categoryId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          parentCategoryId,
+          displayOrder,
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -71,6 +100,5 @@ export function buildCategoryProjectionHandlers(db: PgQueryable): ProjectorHandl
     },
   };
 }
-
 
 

@@ -159,15 +159,15 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateDimension",
       dimensionId: itemSeed.dimensionId as never,
       key: "condition",
-      name: "Condition",
-      description: "Card condition",
+      name: l10n("Condition"),
+      description: l10n("Card condition"),
     });
 
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
       type: "AddOption",
       optionId: itemSeed.optionId as never,
       code: "near-mint",
-      labels: [{ locale: "en", value: "Near Mint" }],
+      label: "Near Mint",
       numericValue: null,
     });
 
@@ -179,8 +179,8 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateField",
       fieldId: itemSeed.fieldId as never,
       key: "card-name",
-      name: "Card Name",
-      description: "The printed card name",
+      name: l10n("Card Name"),
+      description: l10n("The printed card name"),
       valueType: "string",
       behavior: { filterable: true, searchable: true, sortable: true },
     });
@@ -193,8 +193,8 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateCategory",
       categoryId: itemSeed.categoryId as never,
       key: "pokemon",
-      name: "Pokemon",
-      description: "Pokemon cards",
+      name: l10n("Pokemon"),
+      description: l10n("Pokemon cards"),
       displayOrder: 0,
     });
 
@@ -206,8 +206,8 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateBlueprint",
       blueprintId: itemSeed.blueprintId as never,
       key: "card",
-      name: "Pokemon Card",
-      description: "A tradable card",
+      name: l10n("Pokemon Card"),
+      description: l10n("A tradable card"),
     });
 
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
@@ -250,7 +250,7 @@ describeWithDatabase("marketplace search", () => {
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "SetCatalogItemFieldValue",
       fieldId: itemSeed.fieldId as never,
-      value: "Charizard",
+      value: l10n("Charizard"),
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
@@ -365,8 +365,8 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateCategory",
       categoryId: ids.categoryId as never,
       key: "pokemon",
-      name: "Pokemon",
-      description: "Pokemon items",
+      name: l10n("Pokemon"),
+      description: l10n("Pokemon items"),
       displayOrder: 0,
     });
     await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${ids.categoryId}`, {
@@ -374,7 +374,7 @@ describeWithDatabase("marketplace search", () => {
     });
 
     for (const field of [
-      { fieldId: ids.nameFieldId, key: "card-name", name: "Card Name", valueType: "string" as const },
+      { fieldId: ids.nameFieldId, key: "card-name", name: "Card Name", valueType: "localized_text" as const },
       { fieldId: ids.setFieldId, key: "set-name", name: "Set Name", valueType: "string" as const },
       { fieldId: ids.packCountFieldId, key: "pack-count", name: "Pack Count", valueType: "number" as const },
     ]) {
@@ -382,8 +382,8 @@ describeWithDatabase("marketplace search", () => {
         type: "CreateField",
         fieldId: field.fieldId as never,
         key: field.key,
-        name: field.name,
-        description: field.name,
+        name: l10n(field.name),
+        description: l10n(field.name),
         valueType: field.valueType,
         behavior: { filterable: true, searchable: true, sortable: true },
       });
@@ -396,14 +396,14 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateDimension",
       dimensionId: ids.formDimensionId as never,
       key: "form",
-      name: "Form",
-      description: "Card form",
+      name: l10n("Form"),
+      description: l10n("Card form"),
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.formDimensionId}`, {
       type: "AddOption",
       optionId: ids.formRawOptionId as never,
       code: "raw",
-      labels: [{ locale: "en", value: "Raw" }],
+      label: "Raw",
       numericValue: null,
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.formDimensionId}`, {
@@ -414,22 +414,22 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateDimension",
       dimensionId: ids.conditionDimensionId as never,
       key: "condition",
-      name: "Condition",
-      description: "Card condition",
+      name: l10n("Condition"),
+      description: l10n("Card condition"),
       valueKind: "ordered",
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
       type: "AddOption",
       optionId: ids.conditionNearMintOptionId as never,
       code: "near-mint",
-      labels: [{ locale: "en", value: "Near Mint" }],
+      label: "Near Mint",
       numericValue: 5,
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
       type: "AddOption",
       optionId: ids.conditionExcellentOptionId as never,
       code: "excellent",
-      labels: [{ locale: "en", value: "Excellent" }],
+      label: "Excellent",
       numericValue: 4,
     });
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
@@ -440,8 +440,8 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateBlueprint",
       blueprintId: ids.cardBlueprintId as never,
       key: "pokemon-card-single",
-      name: "Pokemon Card Single",
-      description: "Single card blueprint",
+      name: l10n("Pokemon Card Single"),
+      description: l10n("Single card blueprint"),
     });
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.cardBlueprintId}`, {
       type: "SetBlueprintFields",
@@ -474,8 +474,8 @@ describeWithDatabase("marketplace search", () => {
       type: "CreateBlueprint",
       blueprintId: ids.sealedBlueprintId as never,
       key: "pokemon-sealed-product",
-      name: "Pokemon Sealed Product",
-      description: "Sealed product blueprint",
+      name: l10n("Pokemon Sealed Product"),
+      description: l10n("Sealed product blueprint"),
     });
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${ids.sealedBlueprintId}`, {
       type: "SetBlueprintFields",
@@ -501,7 +501,7 @@ describeWithDatabase("marketplace search", () => {
       itemId: ids.cardItemId as never,
       title: "Charizard",
       subtitle: "Base Set 4/102",
-      description: "Classic single",
+      description: l10n("Classic single"),
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
       type: "AssignBlueprintToCatalogItem",
@@ -510,7 +510,7 @@ describeWithDatabase("marketplace search", () => {
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
       type: "SetCatalogItemFieldValue",
       fieldId: ids.nameFieldId as never,
-      value: "Charizard",
+      value: l10n("Charizard"),
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
       type: "SetCatalogItemFieldValue",
@@ -532,7 +532,7 @@ describeWithDatabase("marketplace search", () => {
       itemId: ids.sealedItemId as never,
       title: "Twilight Masquerade ETB",
       subtitle: "Sealed product",
-      description: "Sealed product",
+      description: l10n("Sealed product"),
     });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
       type: "AssignBlueprintToCatalogItem",

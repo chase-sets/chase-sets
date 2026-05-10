@@ -1,5 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  coerceLocalizedTextMap,
+  resolveLocalizedTextMap,
+  type LocalizedTextMap,
+} from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.blueprint-";
@@ -10,25 +15,51 @@ export function buildBlueprintProjectionHandlers(db: PgQueryable): ProjectorHand
       const { blueprintId, key, name, description } = event.data as {
         blueprintId: string;
         key: string;
-        name: string;
-        description: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
       };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `INSERT INTO catalog_blueprints (blueprint_id, key, name, description, status, updated_at)
-         VALUES ($1, $2, $3, $4, 'draft', $5)
-         ON CONFLICT (blueprint_id) DO UPDATE SET key = $2, name = $3, description = $4, updated_at = $5`,
-        [blueprintId, key, name, description ?? "", event.timing.recordedAt],
+        `INSERT INTO catalog_blueprints (blueprint_id, key, name_i18n, name, description_i18n, description, status, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
+         ON CONFLICT (blueprint_id) DO UPDATE SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, updated_at = $7`,
+        [
+          blueprintId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          event.timing.recordedAt,
+        ],
       );
     },
 
     "catalog.blueprint.revised": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { key, name, description } = event.data as { key: string; name: string; description: string };
+      const { key, name, description } = event.data as {
+        key: string;
+        name: LocalizedTextMap | string;
+        description: LocalizedTextMap | string;
+      };
+      const nameI18n = coerceLocalizedTextMap(name);
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `UPDATE catalog_blueprints SET key = $2, name = $3, description = $4, updated_at = $5 WHERE blueprint_id = $1`,
-        [blueprintId, key, name, description ?? "", event.timing.recordedAt],
+        `UPDATE catalog_blueprints
+         SET key = $2, name_i18n = $3, name = $4, description_i18n = $5, description = $6, updated_at = $7
+         WHERE blueprint_id = $1`,
+        [
+          blueprintId,
+          key,
+          JSON.stringify(nameI18n),
+          resolveLocalizedTextMap(nameI18n),
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -118,6 +149,5 @@ export function buildBlueprintProjectionHandlers(db: PgQueryable): ProjectorHand
     },
   };
 }
-
 
 

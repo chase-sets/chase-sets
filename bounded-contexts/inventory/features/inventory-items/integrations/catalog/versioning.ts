@@ -13,7 +13,8 @@ export type InventoryProductApplicabilityClause = Readonly<{
 export type InventoryProductOption = Readonly<{
   optionId: string;
   code: string;
-  labels?: Array<{ locale: string; value: string }>;
+  label_i18n?: unknown;
+  label: string;
 }>;
 
 export type InventoryProductDimension = Readonly<{
@@ -41,11 +42,7 @@ export function toInventoryItemProductSchema(
 }
 
 export function getOptionLabel(option: InventoryProductOption): string {
-  if (option.labels && option.labels.length > 0) {
-    return option.labels[0].value;
-  }
-
-  return option.code;
+  return option.label || option.code;
 }
 
 export function isDimensionActive(
