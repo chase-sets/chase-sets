@@ -12,10 +12,13 @@
   "dependencies": {
     "@chase-sets/auth": "workspace:*",
     "@chase-sets/catalog": "workspace:*",
+    "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
+    "@chase-sets/experience": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/public-presence": "workspace:*",
     "@react-router/node": "7.14.0",
     "@react-router/serve": "7.14.0",
     "isbot": "^5",

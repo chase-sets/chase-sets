@@ -11,6 +11,7 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
+    "@chase-sets/http": "workspace:*",
     "@chase-sets/payment-processing": "workspace:*"
   },
   "devDependencies": {

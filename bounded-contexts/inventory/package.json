@@ -28,5 +28,9 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "hono": "^4.12.12"
+  },
+  "devDependencies": {
+    "@chase-sets/commercial-terms": "workspace:*",
+    "@chase-sets/ordering": "workspace:*"
   }
 }

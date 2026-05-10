@@ -17,6 +17,7 @@
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/catalog": "workspace:*",
     "@chase-sets/communications-email": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
@@ -35,6 +36,7 @@
     "hono": "^4.12.12"
   },
   "devDependencies": {
+    "@chase-sets/marketplace-seed-testing": "workspace:*",
     "vitest": "^4.1.4"
   }
 }

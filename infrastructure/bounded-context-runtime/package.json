@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*"
   }
 }

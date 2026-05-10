@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@chase-sets/communications-email": "workspace:*",
+    "@chase-sets/http": "workspace:*",
     "@chase-sets/notifications": "workspace:*"
   },
   "devDependencies": {

@@ -16,5 +16,8 @@
     "@chase-sets/observability": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
   }
 }

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@chase-sets/auth": "workspace:*",
+    "@chase-sets/checkout": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/discovery": "workspace:*",
     "@chase-sets/fulfillment": "workspace:*",
@@ -23,6 +24,7 @@
     "@chase-sets/ordering": "workspace:*",
     "@chase-sets/payments": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/pricing": "workspace:*",
     "@chase-sets/reputation": "workspace:*",
     "@chase-sets/settlement": "workspace:*",
     "@chase-sets/support": "workspace:*",

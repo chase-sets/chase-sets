@@ -4,48 +4,62 @@ import path from "node:path";
 import process from "node:process";
 import { repoRoot } from "./repo.mjs";
 
-function activePackageManagerExecPath() {
-  const execPath = process.env.npm_execpath;
-  if (!execPath || !/pnpm/i.test(execPath) || !existsSync(execPath)) {
+function activePackageManagerExecPath({ env = process.env, exists = existsSync } = {}) {
+  const execPath = env.npm_execpath;
+  if (!execPath || !/pnpm/i.test(execPath) || !exists(execPath)) {
     return null;
   }
 
   return execPath;
 }
 
-function resolveWindowsPnpmCliPath() {
+function buildInvocationFromPackageManagerPath(execPath, args) {
+  const extension = path.extname(execPath).toLowerCase();
+
+  if (extension === ".cjs" || extension === ".js") {
+    return {
+      command: process.execPath,
+      args: [execPath, ...args],
+    };
+  }
+
+  return {
+    command: execPath,
+    args,
+  };
+}
+
+function resolveWindowsPnpmCliPath({ env = process.env, exists = existsSync } = {}) {
   const candidates = [
-    activePackageManagerExecPath(),
-    process.env.PNPM_HOME ? path.join(process.env.PNPM_HOME, "pnpm.cjs") : null,
-    process.env.PNPM_HOME
-      ? path.join(process.env.PNPM_HOME, "node_modules", "pnpm", "bin", "pnpm.cjs")
+    activePackageManagerExecPath({ env, exists }),
+    env.PNPM_HOME ? path.join(env.PNPM_HOME, "pnpm.cjs") : null,
+    env.PNPM_HOME
+      ? path.join(env.PNPM_HOME, "node_modules", "pnpm", "bin", "pnpm.cjs")
       : null,
     path.join(path.dirname(process.execPath), "node_modules", "pnpm", "bin", "pnpm.cjs"),
-    process.env.APPDATA
-      ? path.join(process.env.APPDATA, "npm", "node_modules", "pnpm", "bin", "pnpm.cjs")
+    env.APPDATA
+      ? path.join(env.APPDATA, "npm", "node_modules", "pnpm", "bin", "pnpm.cjs")
       : null,
   ].filter(Boolean);
 
-  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+  return candidates.find((candidate) => exists(candidate)) ?? null;
 }
 
-export function buildPackageManagerInvocation(args) {
-  if (process.platform === "win32") {
-    const pnpmCliPath = resolveWindowsPnpmCliPath();
+export function buildPackageManagerInvocation(args, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const env = options.env ?? process.env;
+  const exists = options.exists ?? existsSync;
+
+  if (platform === "win32") {
+    const pnpmCliPath = resolveWindowsPnpmCliPath({ env, exists });
     if (pnpmCliPath) {
-      return {
-        command: process.execPath,
-        args: [pnpmCliPath, ...args],
-      };
+      return buildInvocationFromPackageManagerPath(pnpmCliPath, args);
     }
   }
 
-  const activeExecPath = activePackageManagerExecPath();
+  const activeExecPath = activePackageManagerExecPath({ env, exists });
   if (activeExecPath) {
-    return {
-      command: process.execPath,
-      args: [activeExecPath, ...args],
-    };
+    return buildInvocationFromPackageManagerPath(activeExecPath, args);
   }
 
   return {
