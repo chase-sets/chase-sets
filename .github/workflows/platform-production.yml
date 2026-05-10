@@ -82,13 +82,15 @@ jobs:
 
           git push origin production
 
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.0.9
+          run_install: false
+
       - uses: actions/setup-node@v6
         with:
           node-version-file: package.json
           cache: pnpm
-
-      - name: Install pnpm
-        run: npm install -g pnpm@11.0.9
 
       - uses: hashicorp/setup-terraform@v4
 
