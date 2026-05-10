@@ -3,11 +3,20 @@ CREATE TABLE IF NOT EXISTS pricing_recommendation_pages (
   recommendation_id text PRIMARY KEY,
   catalog_catalog_item_id text NOT NULL,
   seller_account_id text NOT NULL,
+  action_type text NOT NULL DEFAULT 'active-listing-price-update',
+  status text NOT NULL DEFAULT 'proposed',
+  listing_id text NULL,
+  inventory_item_id text NULL,
   market_price_amount numeric(12, 2) NOT NULL,
   market_currency text NOT NULL,
+  market_signal_type text NOT NULL DEFAULT 'competition',
   market_observed_at timestamptz NOT NULL,
+  current_price_amount numeric(12, 2) NULL,
   recommended_list_amount numeric(12, 2) NULL,
   recommendation_reason text NULL,
+  quantity_cap integer NULL,
+  applied_listing_id text NULL,
+  last_error text NULL,
   recommendation_published_at timestamptz NULL,
   updated_at timestamptz NOT NULL
 );
@@ -15,19 +24,42 @@ CREATE TABLE IF NOT EXISTS pricing_recommendation_pages (
 CREATE INDEX IF NOT EXISTS pricing_recommendation_pages_seller_idx
   ON pricing_recommendation_pages (seller_account_id, updated_at DESC, recommendation_id DESC);
 
+ALTER TABLE pricing_recommendation_pages
+  ADD COLUMN IF NOT EXISTS action_type text NOT NULL DEFAULT 'active-listing-price-update',
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'proposed',
+  ADD COLUMN IF NOT EXISTS listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS inventory_item_id text NULL,
+  ADD COLUMN IF NOT EXISTS market_signal_type text NOT NULL DEFAULT 'competition',
+  ADD COLUMN IF NOT EXISTS current_price_amount numeric(12, 2) NULL,
+  ADD COLUMN IF NOT EXISTS quantity_cap integer NULL,
+  ADD COLUMN IF NOT EXISTS applied_listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS last_error text NULL;
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_pages_action_idx
+  ON pricing_recommendation_pages (seller_account_id, status, action_type, updated_at DESC);
+
 CREATE OR REPLACE VIEW pricing_recommendation_feed AS
 SELECT
   recommendation.recommendation_id,
   recommendation.catalog_catalog_item_id,
   recommendation.seller_account_id,
+  recommendation.action_type,
+  recommendation.status,
+  recommendation.listing_id,
+  recommendation.inventory_item_id,
   catalog_input.title AS catalog_item_title,
   catalog_input.subtitle AS catalog_item_subtitle,
   catalog_input.status AS catalog_item_status,
   recommendation.market_price_amount,
   recommendation.market_currency,
+  recommendation.market_signal_type,
   recommendation.market_observed_at,
+  recommendation.current_price_amount,
   recommendation.recommended_list_amount,
   recommendation.recommendation_reason,
+  recommendation.quantity_cap,
+  recommendation.applied_listing_id,
+  recommendation.last_error,
   recommendation.recommendation_published_at,
   COALESCE(stock_signal.stock_on_hand_quantity, 0) AS stock_on_hand_quantity,
   COALESCE(stock_signal.stock_reserved_quantity, 0) AS stock_reserved_quantity,

@@ -37,6 +37,7 @@ CREATE INDEX IF NOT EXISTS pricing_inventory_hold_inputs_item_idx
 CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   listing_id text PRIMARY KEY,
   seller_account_id text NOT NULL,
+  inventory_item_id text NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   price_amount numeric(12, 2) NOT NULL,
@@ -47,6 +48,13 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
 
 CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
   ON pricing_market_listing_inputs (seller_account_id, catalog_catalog_item_id, product_id, status);
+
+ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS inventory_item_id text NULL;
+
+CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_inventory_idx
+  ON pricing_market_listing_inputs (seller_account_id, inventory_item_id, status)
+  WHERE inventory_item_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS pricing_buyer_offer_inputs (
   offer_id text PRIMARY KEY,

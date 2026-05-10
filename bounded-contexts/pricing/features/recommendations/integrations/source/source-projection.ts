@@ -211,6 +211,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
       const data = event.data as {
         listingId: string;
         accountId: string;
+        inventoryItemId?: string;
         catalogItemId: string;
         productId: string;
         priceAmount: string;
@@ -221,15 +222,17 @@ export function buildPricingMarketplaceInputProjectionHandlers(
         `INSERT INTO pricing_market_listing_inputs (
            listing_id,
            seller_account_id,
+           inventory_item_id,
            catalog_catalog_item_id,
            product_id,
            price_amount,
            quantity_cap,
            status,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
+             inventory_item_id = EXCLUDED.inventory_item_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
@@ -238,6 +241,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
         [
           data.listingId,
           data.accountId,
+          data.inventoryItemId ?? null,
           data.catalogItemId,
           data.productId,
           data.priceAmount,

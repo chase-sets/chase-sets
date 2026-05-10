@@ -20,7 +20,9 @@
     "./routes/*",
     "./server"
   ],
-  "allowedContextDependencies": [],
+  "allowedContextDependencies": [
+    "@chase-sets/marketplace"
+  ],
   "seedRequirements": [
     "catalog",
     "identity",
@@ -242,7 +244,7 @@
       "purpose": "Provide reusable request-support assets shared by pricing-owned routes and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
-        "Pricing route modules"
+        "recommendations"
       ],
       "justification": "request-support centralizes context-local HTTP client composition for route loaders.",
       "createdFor": "pricing workflows that span public entrypoints.",

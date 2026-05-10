@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { PricingApiEnv } from "../../../api";
 import type { PricingRecommendationServices } from "./runtime";
+import { createPricingMarketplaceListingGateway } from "../../../support/request-support/marketplace-listings";
 
 function requireRecommendationAccess(
   c: { get(key: "actor"): PricingApiEnv["Variables"]["actor"] },
@@ -33,6 +34,12 @@ function requireRecommendationAccess(
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("pricing.features.recommendations.api.route.request.failed");
+}
+
+function parseRecommendationIds(value: unknown) {
+  return Array.isArray(value)
+    ? value.map(String).map((item) => item.trim()).filter(Boolean)
+    : [];
 }
 
 export function createAccountRecommendationRoutes(
@@ -106,6 +113,87 @@ export function createAccountRecommendationRoutes(
         context,
       );
       return c.json({ id: result.recommendationId, version: result.version });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/recommendations/refresh", async (c) => {
+    const access = requireRecommendationAccess(c, "pricing.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.context.missing.2") } }, 401);
+    }
+
+    try {
+      const result = await services.refreshRecommendations(
+        { accountId: access.actor.accountId },
+        context,
+      );
+      return c.json({ status: "refreshed", ...result });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/recommendations/apply", async (c) => {
+    const access = requireRecommendationAccess(c, "pricing.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.context.missing.3") } }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      const result = await services.applyRecommendations(
+        {
+          accountId: access.actor.accountId,
+          recommendationIds: parseRecommendationIds(
+            (body as { recommendationIds?: unknown }).recommendationIds,
+          ),
+          marketplaceListings: createPricingMarketplaceListingGateway(c.req.raw),
+        },
+        context,
+      );
+      return c.json({ status: "applied", ...result });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/recommendations/dismiss", async (c) => {
+    const access = requireRecommendationAccess(c, "pricing.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.context.missing.4") } }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      const result = await services.dismissRecommendations(
+        {
+          accountId: access.actor.accountId,
+          recommendationIds: parseRecommendationIds(
+            (body as { recommendationIds?: unknown }).recommendationIds,
+          ),
+        },
+        context,
+      );
+      return c.json({ status: "dismissed", ...result });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

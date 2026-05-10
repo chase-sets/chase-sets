@@ -7,14 +7,23 @@ const recommendation = {
   recommendation_id: "rec_1",
   catalog_catalog_item_id: "cat_1",
   seller_account_id: "acc_1",
+  action_type: "active-listing-price-update",
+  status: "proposed",
+  listing_id: "lst_1",
+  inventory_item_id: "inv_1",
   catalog_item_title: "Charizard ex",
   catalog_item_subtitle: "Obsidian Flames",
   catalog_item_status: "active",
   market_price_amount: 20,
   market_currency: "USD",
+  market_signal_type: "competition",
   market_observed_at: "2026-05-09T00:00:00.000Z",
+  current_price_amount: 23,
   recommended_list_amount: 22,
   recommendation_reason: "Protect margin.",
+  quantity_cap: 1,
+  applied_listing_id: null,
+  last_error: null,
   recommendation_published_at: "2026-05-09T00:01:00.000Z",
   stock_on_hand_quantity: 4,
   stock_reserved_quantity: 1,
@@ -29,21 +38,43 @@ const recommendation = {
 } satisfies AccountRecommendationListItem;
 
 describe("PricingRecommendationListPage", () => {
-  it("renders advisory recommendation feed signals without active listing mutation controls", () => {
+  it("renders batch recommendation controls and feed signals", () => {
     const html = renderToString(
       <PricingRecommendationListPage recommendations={[recommendation]} />,
     );
 
-    expect(html).toContain("Pricing recommendations are advisory.");
+    expect(html).toContain("Refresh");
+    expect(html).toContain("Apply selected");
+    expect(html).toContain("Dismiss selected");
     expect(html).toContain("Charizard ex");
     expect(html).toContain("$20.00");
     expect(html).toContain("$22.00");
+    expect(html).toContain("Current: $23.00");
     expect(html).toContain("Lowest active: $18.00");
     expect(html).toContain("Offers: 2; Highest: $19.00");
     expect(html).toContain("Delivered: 4; Returned: 1");
-    expect(html).toContain("Reserved: 1");
-    expect(html).toContain("Use in draft");
-    expect(html).toContain("/account/listings?catalogItemId=cat_1&amp;recommendedPrice=22");
+    expect(html).toContain("Update active");
+    expect(html).toContain("Competition anchor");
     expect(html).not.toContain("Publish listing");
+  });
+
+  it("renders applied and failed states distinctly", () => {
+    const html = renderToString(
+      <PricingRecommendationListPage
+        recommendations={[
+          { ...recommendation, status: "applied", recommendation_id: "rec_applied" },
+          {
+            ...recommendation,
+            status: "failed",
+            recommendation_id: "rec_failed",
+            last_error: "Fee quote changed.",
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain("applied");
+    expect(html).toContain("failed");
+    expect(html).toContain("Fee quote changed.");
   });
 });

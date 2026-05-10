@@ -75,6 +75,34 @@ export function createPricingApiClient({
         }),
       );
     },
+    async refreshRecommendations(): Promise<{ status: string; proposedCount: number }> {
+      return parseJsonResponse(
+        await client.account.recommendations.refresh.$post({
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async applyRecommendations(
+      recommendationIds: readonly string[],
+    ): Promise<{ status: string; appliedCount: number; failedCount: number }> {
+      return parseJsonResponse(
+        await client.account.recommendations.apply.$post({
+          json: { recommendationIds },
+          header: headers,
+        }),
+      );
+    },
+    async dismissRecommendations(
+      recommendationIds: readonly string[],
+    ): Promise<{ status: string; dismissedCount: number }> {
+      return parseJsonResponse(
+        await client.account.recommendations.dismiss.$post({
+          json: { recommendationIds },
+          header: headers,
+        }),
+      );
+    },
   };
 }
 

@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient } from "../../support/request-support/api-client";
@@ -20,6 +20,65 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
+function selectedRecommendationIds(formData: FormData) {
+  return formData
+    .getAll("recommendationId")
+    .map(String)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  await requireActorFromAuthApi({
+    request,
+    permission: "pricing.manage",
+  });
+  const api = createPricingRequestApiClient(request);
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "");
+
+  try {
+    if (intent === "refresh-recommendations") {
+      const result = await api.refreshRecommendations();
+      return {
+        message: t("pricing.routes.marketplace.accountRepricing.refresh.complete", {
+          count: result.proposedCount,
+        }),
+      };
+    }
+
+    if (intent === "apply-recommendations") {
+      const result = await api.applyRecommendations(selectedRecommendationIds(formData));
+      return {
+        message: t("pricing.routes.marketplace.accountRepricing.apply.complete", {
+          applied: result.appliedCount,
+          failed: result.failedCount,
+        }),
+      };
+    }
+
+    if (intent === "dismiss-recommendations") {
+      const result = await api.dismissRecommendations(selectedRecommendationIds(formData));
+      return {
+        message: t("pricing.routes.marketplace.accountRepricing.dismiss.complete", {
+          count: result.dismissedCount,
+        }),
+      };
+    }
+
+    return {
+      error: t("pricing.routes.marketplace.accountRepricing.unknown.action"),
+    };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : t("pricing.routes.marketplace.accountRepricing.action.failed"),
+    };
+  }
+}
+
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
     title: t("pricing.routes.marketplace.accountRepricing.repricing.marketplace"),
@@ -28,10 +87,13 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceRepricingRoute() {
   const data = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
 
   return (
     <PricingRecommendationListPage
       recommendations={data.recommendations.items}
+      message={actionData && "message" in actionData ? actionData.message : null}
+      errorMessage={actionData && "error" in actionData ? actionData.error : null}
     />
   );
 }

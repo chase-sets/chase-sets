@@ -71,4 +71,75 @@ describe("pricing recommendation domain", () => {
       }),
     ).toThrow("Cannot publish recommendation before recording a market price snapshot.");
   });
+
+  it("keeps dismissed recommendations out of the queue until the proposal changes", () => {
+    const dismissedState = evolve([
+      {
+        type: "pricing.recommendation.proposed",
+        data: {
+          recommendationId: "rec_1",
+          catalogItemId: "cat_1",
+          sellerAccountId: "acc_1",
+          actionType: "active-listing-price-update",
+          listingId: "lst_1",
+          inventoryItemId: "inv_1",
+          marketPriceAmount: 18,
+          marketCurrency: "USD",
+          marketSignalType: "competition",
+          currentPriceAmount: 20,
+          recommendedListAmount: 17.99,
+          reason: "Priced one cent below the lowest competing active listing.",
+          quantityCap: 1,
+          observedAt: "2026-05-09T00:00:00.000Z",
+        },
+      },
+      {
+        type: "pricing.recommendation.dismissed",
+        data: {
+          recommendationId: "rec_1",
+          dismissedAt: "2026-05-09T00:05:00.000Z",
+        },
+      },
+    ]);
+
+    expect(
+      decidePricingRecommendation(dismissedState, {
+        type: "ProposeRecommendation",
+        recommendationId: "rec_1",
+        catalogItemId: "cat_1",
+        sellerAccountId: "acc_1",
+        actionType: "active-listing-price-update",
+        listingId: "lst_1",
+        inventoryItemId: "inv_1",
+        marketPriceAmount: 18,
+        marketCurrency: "USD",
+        marketSignalType: "competition",
+        currentPriceAmount: 20,
+        recommendedListAmount: 17.99,
+        reason: "Priced one cent below the lowest competing active listing.",
+        quantityCap: 1,
+        observedAt: "2026-05-09T01:00:00.000Z",
+      }),
+    ).toEqual([]);
+
+    expect(
+      decidePricingRecommendation(dismissedState, {
+        type: "ProposeRecommendation",
+        recommendationId: "rec_1",
+        catalogItemId: "cat_1",
+        sellerAccountId: "acc_1",
+        actionType: "active-listing-price-update",
+        listingId: "lst_1",
+        inventoryItemId: "inv_1",
+        marketPriceAmount: 17,
+        marketCurrency: "USD",
+        marketSignalType: "competition",
+        currentPriceAmount: 20,
+        recommendedListAmount: 16.99,
+        reason: "Priced one cent below the lowest competing active listing.",
+        quantityCap: 1,
+        observedAt: "2026-05-09T01:00:00.000Z",
+      }),
+    ).toHaveLength(1);
+  });
 });
