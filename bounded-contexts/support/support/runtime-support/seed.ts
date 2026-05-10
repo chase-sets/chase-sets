@@ -52,14 +52,29 @@ async function supportRequestExists(services: SupportServices, supportRequestId:
 async function loadSeedOrderSource(
   services: SupportServices,
 ): Promise<SupportSeedOrderSource> {
-  const result = await services.db.query<SupportSeedOrderSource>(
+  const reservedOrder = await services.db.query<SupportSeedOrderSource>(
     `SELECT order_id, buyer_account_id, seller_account_id, status
      FROM support_order_sources
      WHERE order_id = $1`,
     [orderingReservedSeedIds.orders.acceptedOfferReady],
   );
-  const order = result.rows[0];
+  const order = reservedOrder.rows[0];
   if (!order) {
+    const reconciledOrder = await services.db.query<SupportSeedOrderSource>(
+      `SELECT order_id, buyer_account_id, seller_account_id, status
+       FROM support_order_sources
+       WHERE buyer_account_id = $1
+         AND seller_account_id = $2
+         AND status = 'ready-for-fulfillment'
+       ORDER BY updated_at DESC, order_id ASC
+       LIMIT 1`,
+      [identitySeedIds.collector.accountId, identitySeedIds.demo.accountId],
+    );
+    const fallbackOrder = reconciledOrder.rows[0];
+    if (fallbackOrder) {
+      return fallbackOrder;
+    }
+
     throw new Error(
       `Support seed requires order source '${orderingReservedSeedIds.orders.acceptedOfferReady}' to be projected before support seeding runs.`,
     );
