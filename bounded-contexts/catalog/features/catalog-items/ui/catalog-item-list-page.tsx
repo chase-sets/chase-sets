@@ -17,7 +17,7 @@ import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { createCatalogItem } from "./use-catalog-items";
+import { createCatalogItem, localizedTextMapFromEnglish } from "./use-catalog-items";
 import type { CatalogItemListItem } from "./contracts";
 
 function buildColumns(): DataColumn<CatalogItemListItem>[] {
@@ -57,7 +57,13 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
 
   async function handleCreate() {
     const itemId = createId("cat");
-    await createCatalogItem({ itemId, languageCode, title, subtitle: subtitle || undefined, description: description || undefined });
+    await createCatalogItem({
+      itemId,
+      languageCode,
+      title: localizedTextMapFromEnglish(title),
+      subtitle: subtitle ? localizedTextMapFromEnglish(subtitle) : null,
+      description: localizedTextMapFromEnglish(description),
+    });
     addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.catalog.item.created"), "success");
     setShowCreate(false);
     setTitle("");
@@ -118,4 +124,3 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     </>
   );
 }
-

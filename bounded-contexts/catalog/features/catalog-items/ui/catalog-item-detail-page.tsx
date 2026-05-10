@@ -24,6 +24,7 @@ import {
   removeCategory,
   publishCatalogItem,
   reviseMetadata,
+  localizedTextMapFromEnglish,
   retireCatalogItem,
   archiveCatalogItem,
   setTags,
@@ -191,9 +192,9 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
 
   async function handleReviseMetadata() {
     await reviseMetadata(id, {
-      title: editTitle,
-      subtitle: editSubtitle || null,
-      description: editDescription || undefined,
+      title: localizedTextMapFromEnglish(editTitle),
+      subtitle: editSubtitle ? localizedTextMapFromEnglish(editSubtitle) : null,
+      description: localizedTextMapFromEnglish(editDescription),
       languageCode: editLanguageCode || "en",
     });
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.metadata.revised"), "success");
@@ -588,4 +589,3 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
     </>
   );
 }
-

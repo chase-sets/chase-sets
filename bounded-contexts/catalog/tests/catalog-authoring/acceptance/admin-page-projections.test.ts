@@ -39,6 +39,13 @@ const headers = {
   "x-account-id": "acc_test",
 };
 
+function l10n(en: string, values: Record<string, string> = {}) {
+  return {
+    defaultLocale: "en" as const,
+    values: { en, ...values },
+  };
+}
+
 let pool: PgTransactionalPool;
 let services: CatalogServices;
 let app: ReturnType<typeof buildCatalogAuthoringTestApp>;
@@ -200,9 +207,9 @@ describeWithDatabase("Admin page projections", () => {
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "CreateCatalogItem",
       itemId,
-      title: "Charizard",
-      subtitle: "Base Set",
-      description: "A classic Charizard",
+      title: l10n("Charizard"),
+      subtitle: l10n("Base Set"),
+      description: l10n("A classic Charizard"),
     });
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "AssignBlueprintToCatalogItem",
@@ -231,18 +238,9 @@ describeWithDatabase("Admin page projections", () => {
       type: "CreateCatalogItem",
       itemId: japaneseItemId,
       languageCode: "ja",
-      title: {
-        defaultLocale: "en",
-        values: { en: "Charizard", ja: "リザードン" },
-      },
-      subtitle: {
-        defaultLocale: "en",
-        values: { en: "Japanese Base Set", ja: "拡張パック" },
-      },
-      description: {
-        defaultLocale: "en",
-        values: { en: "Japanese printed Charizard", ja: "日本語版リザードン" },
-      },
+      title: l10n("Charizard", { ja: "リザードン" }),
+      subtitle: l10n("Japanese Base Set", { ja: "拡張パック" }),
+      description: l10n("Japanese printed Charizard", { ja: "日本語版リザードン" }),
     });
 
     await drainProjectors();

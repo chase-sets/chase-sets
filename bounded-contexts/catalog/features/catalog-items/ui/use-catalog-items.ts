@@ -1,7 +1,24 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
+import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { CatalogItemDetail, CatalogItemListItem } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
+
+export type CatalogItemMetadataInput = {
+  languageCode?: string;
+  title: LocalizedTextMap;
+  subtitle?: LocalizedTextMap | null;
+  description?: LocalizedTextMap;
+};
+
+export function localizedTextMapFromEnglish(value: string): LocalizedTextMap {
+  const trimmed = value.trim();
+
+  return {
+    defaultLocale: "en",
+    values: trimmed ? { en: trimmed } : {},
+  };
+}
 
 export function useCatalogItemList(query: string, initialData?: ListResponse<CatalogItemListItem> | null) {
   return useFetch(() => api.listCatalogItems<ListResponse<CatalogItemListItem>>(query), [query], initialData);
@@ -11,7 +28,7 @@ export function useCatalogItem(id: string, initialData?: CatalogItemDetail | nul
   return useFetch(() => api.getCatalogItem<CatalogItemDetail>(id), [id], initialData);
 }
 
-export function createCatalogItem(body: { itemId: string; languageCode?: string; title: string; subtitle?: string; description?: string }) {
+export function createCatalogItem(body: CatalogItemMetadataInput & { itemId: string }) {
   return api.createCatalogItem<CommandResponse>(body);
 }
 
@@ -39,7 +56,7 @@ export function publishCatalogItem(id: string, blueprintIsActive: boolean, requi
   return api.publishCatalogItem<CommandResponse>(id, blueprintIsActive, requiredFieldIds);
 }
 
-export function reviseMetadata(id: string, body: { languageCode?: string; title: string; subtitle?: string | null; description?: string }) {
+export function reviseMetadata(id: string, body: CatalogItemMetadataInput) {
   return api.reviseMetadata<CommandResponse>(id, body);
 }
 
@@ -84,7 +101,6 @@ export function unlinkExternalProductReference(
     externalKey,
   );
 }
-
 
 
 
