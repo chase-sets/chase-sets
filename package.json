@@ -13,6 +13,11 @@
         "deployables/*"
     ],
     "scripts": {
+        "env:sync": "node ./scripts/local-env.mjs sync",
+        "env:pull": "node ./scripts/local-env.mjs pull",
+        "env:push": "node ./scripts/local-env.mjs push",
+        "env:check": "node ./scripts/local-env.mjs check",
+        "env:doctor": "node ./scripts/local-env.mjs doctor",
         "sync:workspace-metadata": "node ./scripts/sync-workspace-metadata.mjs",
         "dev": "node ./scripts/dev-system.mjs dev",
         "dev:bootstrap": "node ./scripts/dev-system.mjs bootstrap",
@@ -35,7 +40,8 @@
         "build": "node ./scripts/run-workspaces.mjs build",
         "test:structure": "vitest run scripts/check-structure/account-capability-language.test.mjs",
         "test:remote-dev": "vitest run scripts/remote-dev.test.mjs",
-        "verify": "npm run sync:workspace-metadata && npm run check:postage-adapters && npm run check:structure && npm run check:localization && npm run test:structure && npm run test:remote-dev && npm run typecheck && npm run test:fast && npm run build",
+        "test:local-env": "vitest run scripts/local-env.test.mjs",
+        "verify": "npm run sync:workspace-metadata && npm run check:postage-adapters && npm run check:structure && npm run check:localization && npm run test:structure && npm run test:remote-dev && npm run test:local-env && npm run typecheck && npm run test:fast && npm run build",
         "verify:db": "npm run test:db",
         "dev:platform-api": "npm run dev --workspace @chase-sets/app-platform-api",
         "dev:platform-worker": "npm run dev --workspace @chase-sets/app-platform-worker",

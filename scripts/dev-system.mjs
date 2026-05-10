@@ -12,6 +12,7 @@ import { buildNpmInvocation, runCommand, spawnCommand } from "./lib/process.mjs"
 const mode = process.argv[2] ?? "dev";
 const target = process.argv[3] ?? "all";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
+const localEnvScript = fileURLToPath(new URL("./local-env.mjs", import.meta.url));
 const stripeCliScript = fileURLToPath(new URL("./stripe-cli.mjs", import.meta.url));
 const dockerComposeArgs = ["compose", "-f", "docker-compose.dev.yml"];
 const localAdminDatabaseUrl =
@@ -471,6 +472,9 @@ async function ensureDevDatabase() {
 }
 
 async function runBootstrap() {
+  await runCommand("node", [localEnvScript, "sync"], {
+    prefix: "env",
+  });
   await ensureDevDatabase();
 
   for (const workspace of bootstrapWorkspaces) {

@@ -4,12 +4,15 @@ import path from "node:path";
 import { readEnvFile } from "./lib/env.mjs";
 import { buildNpmInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
+import { syncLocalEnvFiles } from "./local-env.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const inheritedEnvKeys = new Set(Object.keys(process.env));
 const testEnvFiles = [".env", ".env.local", ".env.test", ".env.test.local"];
 
 function loadTestEnvironment() {
+  syncLocalEnvFiles({ command: "sync" });
+
   for (const fileName of testEnvFiles) {
     const values = readEnvFile(path.join(rootDir, fileName));
 

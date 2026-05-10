@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { detectLineEnding, readEnvFile } from "./lib/env.mjs";
+import { syncLocalEnvFiles } from "./local-env.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const platformApiEnvExamplePath = path.join(
@@ -82,9 +83,11 @@ function persistWebhookSecret(webhookSecret) {
 
   if (nextContent !== currentContent) {
     writeFileSync(platformApiEnvLocalPath, nextContent, "utf8");
+    syncLocalEnvFiles({ command: "push" });
     console.log(
       `[stripe] Saved STRIPE_WEBHOOK_SECRET to ${path.relative(rootDir, platformApiEnvLocalPath)}`,
     );
+    console.log("[stripe] Synced platform-api local env to the shared local env store.");
     console.log("[stripe] Restart platform-api if it was already running.");
   }
 }

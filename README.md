@@ -120,6 +120,33 @@ The default local database is `postgresql://postgres:postgres@localhost:5432/cha
 
 Stripe and EasyPost are optional for local startup. When Stripe configuration is missing, platform payment flows use the fake payment processor.
 
+### Local Environment Files
+
+Ignored local env files are synchronized from a machine-level shared directory so each worktree can hydrate the same local secrets and variables. The default shared location is:
+
+```bash
+%USERPROFILE%\.config\chase-sets\env\local
+```
+
+Set `CHASE_SETS_LOCAL_ENV_HOME` to use a different shared directory.
+
+The shared directory mirrors repo-relative env paths, such as:
+
+- `.env.test.local`
+- `deployables/platform-api/.env.local`
+
+Useful commands:
+
+```bash
+npm run env:sync   # two-way sync; newer file wins
+npm run env:pull   # copy shared env into this worktree
+npm run env:push   # copy this worktree env into shared env
+npm run env:check  # report missing or drifted env files
+npm run env:doctor # print detailed local env status
+```
+
+`npm run dev`, `npm run dev:bootstrap`, and `npm run dev:db:refresh` run `env:sync` before starting the local platform. Test workspace runs hydrate local test env before reading `.env.test.local`, and the Stripe listener pushes the latest local webhook secret back into the shared store.
+
 ## Common Commands
 
 ```bash
