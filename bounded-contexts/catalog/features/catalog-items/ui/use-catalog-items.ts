@@ -11,7 +11,7 @@ export function useCatalogItem(id: string, initialData?: CatalogItemDetail | nul
   return useFetch(() => api.getCatalogItem<CatalogItemDetail>(id), [id], initialData);
 }
 
-export function createCatalogItem(body: { itemId: string; title: string; subtitle?: string; description?: string }) {
+export function createCatalogItem(body: { itemId: string; languageCode?: string; title: string; subtitle?: string; description?: string }) {
   return api.createCatalogItem<CommandResponse>(body);
 }
 
@@ -39,7 +39,7 @@ export function publishCatalogItem(id: string, blueprintIsActive: boolean, requi
   return api.publishCatalogItem<CommandResponse>(id, blueprintIsActive, requiredFieldIds);
 }
 
-export function reviseMetadata(id: string, body: { title: string; subtitle?: string | null; description?: string }) {
+export function reviseMetadata(id: string, body: { languageCode?: string; title: string; subtitle?: string | null; description?: string }) {
   return api.reviseMetadata<CommandResponse>(id, body);
 }
 
@@ -84,7 +84,6 @@ export function unlinkExternalProductReference(
     externalKey,
   );
 }
-
 
 
 

@@ -1,5 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  coerceLocalizedTextMap,
+  resolveLocalizedTextMap,
+  type LocalizedTextMap,
+} from "@chase-sets/localization";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -14,6 +19,7 @@ type DimensionRule = Readonly<{
 
 type InventoryCatalogItemRow = Readonly<{
   catalog_item_id: string;
+  language_code: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
@@ -150,7 +156,7 @@ async function refreshInventoryCatalogItem(
   itemId: string,
 ): Promise<void> {
   const result = await db.query<InventoryCatalogItemRow>(
-    `SELECT catalog_item_id, title, subtitle, blueprint_id, status, updated_at
+    `SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at
      FROM inventory_catalog_items
      WHERE catalog_item_id = $1`,
     [itemId],
@@ -207,25 +213,33 @@ export function buildInventoryCatalogItemProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
-      const { itemId, title, subtitle } = event.data as {
+      const { itemId, languageCode, title, subtitle } = event.data as {
         itemId: string;
-        title: string;
-        subtitle: string | null;
+        languageCode?: string;
+        title: string | LocalizedTextMap;
+        subtitle?: string | LocalizedTextMap | null;
       };
+      const titleText = resolveLocalizedTextMap(coerceLocalizedTextMap(title));
+      const subtitleText =
+        subtitle === null || subtitle === undefined
+          ? null
+          : resolveLocalizedTextMap(coerceLocalizedTextMap(subtitle)) || null;
 
       await db.query(
         `INSERT INTO inventory_catalog_items (
           catalog_item_id,
+          language_code,
           title,
           subtitle,
           status,
           updated_at
-        ) VALUES ($1, $2, $3, 'draft', $4)
+        ) VALUES ($1, $2, $3, $4, 'draft', $5)
         ON CONFLICT (catalog_item_id) DO UPDATE SET
+          language_code = EXCLUDED.language_code,
           title = EXCLUDED.title,
           subtitle = EXCLUDED.subtitle,
           updated_at = EXCLUDED.updated_at`,
-        [itemId, title, subtitle, event.timing.recordedAt],
+        [itemId, languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
       );
 
       await refreshInventoryCatalogItem(db, itemId);
@@ -259,18 +273,25 @@ export function buildInventoryCatalogItemProjectionHandlers(
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
-      const { title, subtitle } = event.data as {
-        title: string;
-        subtitle: string | null;
+      const { languageCode, title, subtitle } = event.data as {
+        languageCode?: string;
+        title: string | LocalizedTextMap;
+        subtitle?: string | LocalizedTextMap | null;
       };
+      const titleText = resolveLocalizedTextMap(coerceLocalizedTextMap(title));
+      const subtitleText =
+        subtitle === null || subtitle === undefined
+          ? null
+          : resolveLocalizedTextMap(coerceLocalizedTextMap(subtitle)) || null;
 
       await db.query(
         `UPDATE inventory_catalog_items
-         SET title = $2,
-             subtitle = $3,
-             updated_at = $4
+         SET language_code = $2,
+             title = $3,
+             subtitle = $4,
+             updated_at = $5
          WHERE catalog_item_id = $1`,
-        [itemId, title, subtitle, event.timing.recordedAt],
+        [itemId, languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
       );
 
       await refreshInventoryCatalogItem(db, itemId);

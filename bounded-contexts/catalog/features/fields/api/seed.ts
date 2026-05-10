@@ -46,14 +46,6 @@ const fieldDefs: FieldDef[] = [
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
-    key: "language",
-    fieldId: catalogSeedIds.fields.language as FieldId,
-    name: "Language",
-    description: "The language the item is printed in",
-    valueType: "string",
-    behavior: { filterable: true, searchable: true, sortable: true },
-  },
-  {
     key: "artist",
     fieldId: catalogSeedIds.fields.artist as FieldId,
     name: "Artist",
@@ -108,5 +100,4 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
 
   return result;
 }
-
 

@@ -15,8 +15,12 @@ const FIELD_STREAM_PREFIX = "catalog.field-";
 
 type BaseCatalogItemRow = Readonly<{
   catalog_item_id: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
+  description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
   status: string;
@@ -54,16 +58,22 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_list_pages (
       catalog_item_id,
+      language_code,
+      title_i18n,
       title,
+      subtitle_i18n,
       subtitle,
       blueprint_id,
       blueprint,
       status,
       tags,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
+      language_code = EXCLUDED.language_code,
+      title_i18n = EXCLUDED.title_i18n,
       title = EXCLUDED.title,
+      subtitle_i18n = EXCLUDED.subtitle_i18n,
       subtitle = EXCLUDED.subtitle,
       blueprint_id = EXCLUDED.blueprint_id,
       blueprint = EXCLUDED.blueprint,
@@ -72,7 +82,10 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
       updated_at = EXCLUDED.updated_at`,
     [
       item.catalog_item_id,
+      item.language_code,
+      JSON.stringify(item.title_i18n ?? { defaultLocale: "en", values: { en: item.title } }),
       item.title,
+      item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
       item.subtitle,
       item.blueprint_id,
       item.blueprint_id && blueprintName
@@ -139,8 +152,12 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_detail_pages (
       catalog_item_id,
+      language_code,
+      title_i18n,
       title,
+      subtitle_i18n,
       subtitle,
+      description_i18n,
       description,
       blueprint_id,
       blueprint,
@@ -151,10 +168,14 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       tags,
       image_urls,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
+      language_code = EXCLUDED.language_code,
+      title_i18n = EXCLUDED.title_i18n,
       title = EXCLUDED.title,
+      subtitle_i18n = EXCLUDED.subtitle_i18n,
       subtitle = EXCLUDED.subtitle,
+      description_i18n = EXCLUDED.description_i18n,
       description = EXCLUDED.description,
       blueprint_id = EXCLUDED.blueprint_id,
       blueprint = EXCLUDED.blueprint,
@@ -167,8 +188,12 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       updated_at = EXCLUDED.updated_at`,
     [
       item.catalog_item_id,
+      item.language_code,
+      JSON.stringify(item.title_i18n ?? { defaultLocale: "en", values: { en: item.title } }),
       item.title,
+      item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
       item.subtitle,
+      JSON.stringify(item.description_i18n ?? { defaultLocale: "en", values: { en: item.description } }),
       item.description,
       item.blueprint_id,
       item.blueprint_id

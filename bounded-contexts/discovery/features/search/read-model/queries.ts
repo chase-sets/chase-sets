@@ -6,6 +6,7 @@ export type DiscoverySearchParams = {
   category?: string;
   tag?: string;
   blueprintId?: string;
+  language?: string;
   status?: string;
   sort?: string;
   limit?: number;
@@ -19,8 +20,12 @@ export type ListResult<T> = { items: T[]; total: number | null; nextCursor: stri
 export type DiscoverySearchItemRow = Readonly<{
   catalog_item_id: string;
   slug: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
+  description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
   blueprint_name: string | null;
@@ -126,6 +131,12 @@ export async function searchDiscoveryItems(
     paramIndex++;
   }
 
+  if (params.language) {
+    conditions.push(`language_code = $${paramIndex}`);
+    values.push(params.language);
+    paramIndex++;
+  }
+
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   let rankExpression: string | null = null;
@@ -197,7 +208,7 @@ export async function searchDiscoveryItems(
   const countPromise = params.includeTotal || useLegacyOffset
     ? db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM discovery_search_items ${where}`, values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch) : 0)))
     : Promise.resolve({ rows: [] });
-  const listSql = `SELECT catalog_item_id, slug, title, subtitle, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, updated_at${selectRank}
+  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, updated_at${selectRank}
     FROM discovery_search_items ${whereWithCursor}
     ORDER BY ${orderBy}
     ${listLimitSql}`;

@@ -115,6 +115,7 @@ export const catalogSeedIds = {
   items: {
     charizardBaseSet: "cat_seed_charizard_base_set" as SeedCatalogItemId,
     pikachuJungle: "cat_seed_pikachu_jungle" as SeedCatalogItemId,
+    japaneseCharizardBaseSet: "cat_seed_japanese_charizard_base_set" as SeedCatalogItemId,
     lugiaNeoGenesis: "cat_seed_lugia_neo_genesis" as SeedCatalogItemId,
     mewtwoBlackStarPromo: "cat_seed_mewtwo_black_star_promo" as SeedCatalogItemId,
     bulbasaurBaseSet: "cat_seed_bulbasaur_base_set" as SeedCatalogItemId,

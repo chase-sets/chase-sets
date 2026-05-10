@@ -1,8 +1,12 @@
 export const discoveryItemDetailSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_items (
   catalog_item_id text PRIMARY KEY,
   slug text NOT NULL DEFAULT '',
+  language_code text NOT NULL DEFAULT 'en',
+  title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   title text NOT NULL DEFAULT '',
+  subtitle_i18n jsonb NULL,
   subtitle text NULL,
+  description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   blueprint_id text NULL,
   status text NOT NULL DEFAULT 'draft',
@@ -16,7 +20,14 @@ export const discoveryItemDetailSchemaSql = `CREATE TABLE IF NOT EXISTS discover
 ALTER TABLE discovery_item_detail_catalog_items
   ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
 
+ALTER TABLE discovery_item_detail_catalog_items
+  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
+  ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
+  ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb;
+
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_slug_idx ON discovery_item_detail_catalog_items (slug) WHERE slug <> '';
+CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_language_idx ON discovery_item_detail_catalog_items (language_code);
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_blueprint_idx ON discovery_item_detail_catalog_items (blueprint_id);
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_category_ids_idx ON discovery_item_detail_catalog_items USING gin (category_ids);
 
@@ -77,8 +88,12 @@ CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_dimension_options_dimen
 CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   catalog_item_id text PRIMARY KEY,
   slug text NOT NULL DEFAULT '',
+  language_code text NOT NULL DEFAULT 'en',
+  title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   title text NOT NULL DEFAULT '',
+  subtitle_i18n jsonb NULL,
   subtitle text NULL,
+  description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   description text NOT NULL DEFAULT '',
   blueprint_id text NULL,
   blueprint jsonb NULL,
@@ -93,5 +108,11 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
 
 ALTER TABLE discovery_item_detail_pages
   ADD COLUMN IF NOT EXISTS slug text NOT NULL DEFAULT '';
+
+ALTER TABLE discovery_item_detail_pages
+  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
+  ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
+  ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb;
 
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_pages_slug_idx ON discovery_item_detail_pages (slug) WHERE slug <> '';`;

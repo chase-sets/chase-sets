@@ -4,8 +4,12 @@ import { uniqueStrings } from "../../../support/item-support/unique-strings";
 export type DiscoveryItemDetailRow = Readonly<{
   catalog_item_id: string;
   slug: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
+  description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
   blueprint: unknown;

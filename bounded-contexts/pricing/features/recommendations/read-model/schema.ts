@@ -47,6 +47,7 @@ SELECT
   recommendation.status,
   recommendation.listing_id,
   recommendation.inventory_item_id,
+  catalog_input.language_code AS catalog_item_language_code,
   catalog_input.title AS catalog_item_title,
   catalog_input.subtitle AS catalog_item_subtitle,
   catalog_input.status AS catalog_item_status,

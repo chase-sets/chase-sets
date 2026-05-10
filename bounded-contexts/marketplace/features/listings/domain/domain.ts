@@ -67,6 +67,7 @@ export type MarketplaceListingState = Readonly<{
   inventoryItemId: string | null;
   catalogItemId: string | null;
   productId: string | null;
+  itemLanguageCode: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
@@ -93,6 +94,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   inventoryItemId: null,
   catalogItemId: null,
   productId: null,
+  itemLanguageCode: null,
   itemTitle: null,
   itemSubtitle: null,
   selectedOptions: [],
@@ -120,6 +122,7 @@ export type CreateListingCommand = Readonly<{
   inventoryItemId: string;
   catalogItemId: string;
   productId: string;
+  itemLanguageCode?: string | null;
   itemTitle: string | null;
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
@@ -192,6 +195,7 @@ export type ListingCreatedEvent = DomainEvent<
     inventoryItemId: string;
     catalogItemId: string;
     productId: string;
+    itemLanguageCode: string | null;
     itemTitle: string | null;
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
@@ -283,6 +287,7 @@ export const decideMarketplaceListing: AggregateDecider<
             inventoryItemId: command.inventoryItemId.trim(),
             catalogItemId: command.catalogItemId.trim(),
             productId: command.productId,
+            itemLanguageCode: command.itemLanguageCode?.trim() || null,
             itemTitle: command.itemTitle?.trim() ?? null,
             itemSubtitle: command.itemSubtitle?.trim() ?? null,
             selectedOptions: command.selectedOptions.map((selection) => ({
@@ -445,6 +450,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         inventoryItemId: event.data.inventoryItemId,
         catalogItemId: event.data.catalogItemId,
         productId: event.data.productId,
+        itemLanguageCode: event.data.itemLanguageCode,
         itemTitle: event.data.itemTitle,
         itemSubtitle: event.data.itemSubtitle,
         selectedOptions: event.data.selectedOptions,

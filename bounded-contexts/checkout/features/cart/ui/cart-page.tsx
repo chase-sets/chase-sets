@@ -197,8 +197,11 @@ export function CheckoutCartPage({
                   subtitle={line.item_subtitle}
                   productLabel={t("checkout.features.cart.ui.cartPage.product")}
                   productSummary={
-                    <Stack gap={2}>
-                      <ProductSelectionSummary
+                      <Stack gap={2}>
+                        {line.item_language_code ? (
+                          <Badge tone="neutral">{line.item_language_code}</Badge>
+                        ) : null}
+                        <ProductSelectionSummary
                         selections={productSelectionDetails(line.product_summary)}
                         summary={line.product_summary ?? t("checkout.features.cart.ui.cartPage.standard")}
                         summaryAsChip

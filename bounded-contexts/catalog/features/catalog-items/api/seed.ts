@@ -5,6 +5,7 @@ import { sendSeedCommand } from "../../../support/seed-support/context";
 import type { BlueprintIds } from "../../blueprints/api/seed";
 import type { CategoryIds } from "../../categories/api/seed";
 import type { FieldIds } from "../../fields/api/seed";
+import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 
 export async function seedCatalogItems(
   services: CatalogServices,
@@ -20,20 +21,19 @@ export async function seedCatalogItems(
       fields["card-name"],
       fields["set-name"],
       fields.rarity,
-      fields.language,
     ],
     "pokemon-sealed-product": [
       fields["set-name"],
-      fields.language,
       fields["pack-count"],
     ],
   };
 
   type ItemDef = {
     itemId: CatalogItemId;
-    title: string;
-    subtitle: string;
-    description: string;
+    languageCode: string;
+    title: LocalizedTextMap;
+    subtitle: LocalizedTextMap;
+    description: LocalizedTextMap;
     blueprintKey: string;
     fieldValues: [string, string | number][];
     categoryKeys: string[];
@@ -48,17 +48,18 @@ export async function seedCatalogItems(
   const items: ItemDef[] = [
     {
       itemId: catalogSeedIds.items.charizardBaseSet as CatalogItemId,
-      title: "Charizard",
-      subtitle: "Base Set 4/102 Holo Rare",
-      description:
+      languageCode: "en",
+      title: l10n("Charizard"),
+      subtitle: l10n("Base Set 4/102 Holo Rare"),
+      description: l10n(
         "The iconic Base Set Charizard, seeded as a single Catalog Item whose sellable Products vary by Form, Condition, and Grade.",
+      ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "4/102"],
         ["card-name", "Charizard"],
         ["set-name", "Base Set"],
         ["rarity", "Holo Rare"],
-        ["language", "English"],
         ["artist", "Mitsuhiro Arita"],
         ["release-year", 1999],
       ],
@@ -83,17 +84,18 @@ export async function seedCatalogItems(
     },
     {
       itemId: catalogSeedIds.items.pikachuJungle as CatalogItemId,
-      title: "Pikachu",
-      subtitle: "Jungle 60/64 Common",
-      description:
+      languageCode: "en",
+      title: l10n("Pikachu"),
+      subtitle: l10n("Jungle 60/64 Common"),
+      description: l10n(
         "A classic Jungle Pikachu seeded as one catalog item instead of separate raw and graded items.",
+      ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "60/64"],
         ["card-name", "Pikachu"],
         ["set-name", "Jungle"],
         ["rarity", "Common"],
-        ["language", "English"],
         ["artist", "Kagemaru Himeno"],
         ["release-year", 1999],
       ],
@@ -117,18 +119,44 @@ export async function seedCatalogItems(
       ],
     },
     {
+      itemId: catalogSeedIds.items.japaneseCharizardBaseSet as CatalogItemId,
+      languageCode: "ja",
+      title: l10n("Charizard", { ja: "リザードン" }),
+      subtitle: l10n("Japanese Base Set No. 006 Holo Rare", {
+        ja: "ポケットモンスターカードゲーム 第1弾 No.006 キラ",
+      }),
+      description: l10n(
+        "Japanese Base Set Charizard kept as its own catalog item so Japanese supply, offers, and pricing remain distinct.",
+        {
+          ja: "日本語版第1弾のリザードン。日本語版の在庫、オファー、価格を別の市場として扱うため独立したカタログアイテムです。",
+        },
+      ),
+      blueprintKey: "pokemon-card-single",
+      fieldValues: [
+        ["card-number", "No.006"],
+        ["card-name", "リザードン"],
+        ["set-name", "Expansion Pack"],
+        ["rarity", "Holo Rare"],
+        ["artist", "Mitsuhiro Arita"],
+        ["release-year", 1996],
+      ],
+      categoryKeys: ["pokemon-tcg", "singles", "gen-1", "fire"],
+      tags: ["base-set", "charizard", "holo", "japanese", "vintage"],
+    },
+    {
       itemId: catalogSeedIds.items.lugiaNeoGenesis as CatalogItemId,
-      title: "Lugia",
-      subtitle: "Neo Genesis 9/111 Holo Rare",
-      description:
+      languageCode: "en",
+      title: l10n("Lugia"),
+      subtitle: l10n("Neo Genesis 9/111 Holo Rare"),
+      description: l10n(
         "A Neo Genesis Lugia single whose raw and graded variants resolve from the same catalog item.",
+      ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "9/111"],
         ["card-name", "Lugia"],
         ["set-name", "Neo Genesis"],
         ["rarity", "Holo Rare"],
-        ["language", "English"],
         ["artist", "Hironobu Yoshida"],
         ["release-year", 2000],
       ],
@@ -137,17 +165,18 @@ export async function seedCatalogItems(
     },
     {
       itemId: catalogSeedIds.items.mewtwoBlackStarPromo as CatalogItemId,
-      title: "Mewtwo",
-      subtitle: "Black Star Promo 3",
-      description:
+      languageCode: "en",
+      title: l10n("Mewtwo"),
+      subtitle: l10n("Black Star Promo 3"),
+      description: l10n(
         "A Black Star Promo Mewtwo used by the marketplace seed as a listings-only market case.",
+      ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "3"],
         ["card-name", "Mewtwo"],
         ["set-name", "Wizards Black Star Promos"],
         ["rarity", "Promo"],
-        ["language", "English"],
         ["artist", "Ken Sugimori"],
         ["release-year", 1999],
       ],
@@ -156,17 +185,18 @@ export async function seedCatalogItems(
     },
     {
       itemId: catalogSeedIds.items.bulbasaurBaseSet as CatalogItemId,
-      title: "Bulbasaur",
-      subtitle: "Base Set 44/102 Common",
-      description:
+      languageCode: "en",
+      title: l10n("Bulbasaur"),
+      subtitle: l10n("Base Set 44/102 Common"),
+      description: l10n(
         "A catalog-only item used by the marketplace seed to keep a no-listings-and-no-offers case available.",
+      ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "44/102"],
         ["card-name", "Bulbasaur"],
         ["set-name", "Base Set"],
         ["rarity", "Common"],
-        ["language", "English"],
         ["artist", "Mitsuhiro Arita"],
         ["release-year", 1999],
       ],
@@ -175,17 +205,18 @@ export async function seedCatalogItems(
     },
     {
       itemId: catalogSeedIds.items.pikachuPrismaticEvolutions as CatalogItemId,
-      title: "Pikachu",
-      subtitle: "Prismatic Evolutions 025 Illustration Rare",
-      description:
+      languageCode: "en",
+      title: l10n("Pikachu"),
+      subtitle: l10n("Prismatic Evolutions 025 Illustration Rare"),
+      description: l10n(
         "A modern Pikachu single from Prismatic Evolutions with Form-based Products instead of duplicated raw and graded Catalog Items.",
+      ),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "025"],
         ["card-name", "Pikachu"],
         ["set-name", "Prismatic Evolutions"],
         ["rarity", "Illustration Rare"],
-        ["language", "English"],
         ["artist", "Ryuta Fuse"],
         ["release-year", 2025],
       ],
@@ -194,14 +225,15 @@ export async function seedCatalogItems(
     },
     {
       itemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack as CatalogItemId,
-      title: "Prismatic Evolutions Booster Pack",
-      subtitle: "Sealed booster pack",
-      description:
+      languageCode: "en",
+      title: l10n("Prismatic Evolutions Booster Pack"),
+      subtitle: l10n("Sealed booster pack"),
+      description: l10n(
         "A single sealed booster pack from the Prismatic Evolutions set.",
+      ),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
         ["set-name", "Prismatic Evolutions"],
-        ["language", "English"],
         ["release-year", 2025],
         ["pack-count", 1],
       ],
@@ -210,14 +242,15 @@ export async function seedCatalogItems(
     },
     {
       itemId: catalogSeedIds.items.surgingSparksBoosterBox as CatalogItemId,
-      title: "Surging Sparks Booster Box",
-      subtitle: "Sealed booster box",
-      description:
+      languageCode: "en",
+      title: l10n("Surging Sparks Booster Box"),
+      subtitle: l10n("Sealed booster box"),
+      description: l10n(
         "A factory sealed Surging Sparks booster box containing 36 packs.",
+      ),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
         ["set-name", "Surging Sparks"],
-        ["language", "English"],
         ["release-year", 2024],
         ["pack-count", 36],
       ],
@@ -226,14 +259,15 @@ export async function seedCatalogItems(
     },
     {
       itemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox as CatalogItemId,
-      title: "Twilight Masquerade Elite Trainer Box",
-      subtitle: "Sealed Elite Trainer Box",
-      description:
+      languageCode: "en",
+      title: l10n("Twilight Masquerade Elite Trainer Box"),
+      subtitle: l10n("Sealed Elite Trainer Box"),
+      description: l10n(
         "A sealed Twilight Masquerade Elite Trainer Box with nine booster packs and accessories.",
+      ),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
         ["set-name", "Twilight Masquerade"],
-        ["language", "English"],
         ["release-year", 2024],
         ["pack-count", 9],
       ],
@@ -248,6 +282,7 @@ export async function seedCatalogItems(
     await sendSeedCommand(services.items.commandHandler, streamId, {
       type: "CreateCatalogItem",
       itemId: item.itemId,
+      languageCode: item.languageCode,
       title: item.title,
       subtitle: item.subtitle,
       description: item.description,
@@ -293,6 +328,16 @@ export async function seedCatalogItems(
       requiredFieldIds: requiredFieldIdsByBlueprint[item.blueprintKey],
     });
 
-    console.log(`  Item "${item.title}" created and published`);
+    console.log(`  Item "${item.title.values.en}" created and published`);
   }
+}
+
+function l10n(en: string, values: Record<string, string> = {}): LocalizedTextMap {
+  return {
+    defaultLocale: "en",
+    values: {
+      en,
+      ...values,
+    },
+  };
 }

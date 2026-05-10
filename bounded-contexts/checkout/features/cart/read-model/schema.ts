@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
   line_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
+  item_language_code text NULL,
   item_title text NOT NULL,
   item_subtitle text NULL,
   item_image_url text NULL,
@@ -33,4 +34,7 @@ CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_buyer_idx
 
 CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_catalog_version_idx
   ON checkout_cart_line_pages (product_id);
+
+ALTER TABLE checkout_cart_line_pages
+  ADD COLUMN IF NOT EXISTS item_language_code text NULL;
 `;

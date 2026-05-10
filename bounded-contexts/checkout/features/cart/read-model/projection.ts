@@ -11,6 +11,7 @@ export function buildCheckoutCartProjectionHandlers(
         lineId: string;
         catalogItemId: string;
         productId: string;
+        itemLanguageCode?: string | null;
         itemTitle: string;
         itemSubtitle: string | null;
         itemImageUrl?: string | null;
@@ -29,6 +30,7 @@ export function buildCheckoutCartProjectionHandlers(
            line_id,
            catalog_catalog_item_id,
            product_id,
+           item_language_code,
            item_title,
            item_subtitle,
            item_image_url,
@@ -41,10 +43,11 @@ export function buildCheckoutCartProjectionHandlers(
            availability_state,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
          ON CONFLICT (buyer_account_id, line_id) DO UPDATE
          SET catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
+             item_language_code = EXCLUDED.item_language_code,
              item_title = EXCLUDED.item_title,
              item_subtitle = EXCLUDED.item_subtitle,
              item_image_url = EXCLUDED.item_image_url,
@@ -61,6 +64,7 @@ export function buildCheckoutCartProjectionHandlers(
           data.lineId,
           data.catalogItemId,
           data.productId,
+          data.itemLanguageCode ?? null,
           data.itemTitle,
           data.itemSubtitle,
           data.itemImageUrl ?? null,

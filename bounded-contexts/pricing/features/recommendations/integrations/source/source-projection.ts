@@ -1,5 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  coerceLocalizedTextMap,
+  resolveLocalizedTextMap,
+  type LocalizedTextMap,
+} from "@chase-sets/localization";
 
 function extractIdFromStreamId(streamId: string, prefix: string): string {
   if (!streamId.startsWith(prefix)) {
@@ -16,36 +21,54 @@ export function buildPricingCatalogInputProjectionHandlers(
     "catalog.catalog-item.created": async (event) => {
       const data = event.data as {
         itemId: string;
-        title: string;
-        subtitle: string | null;
+        languageCode?: string;
+        title: string | LocalizedTextMap;
+        subtitle?: string | LocalizedTextMap | null;
       };
+      const titleText = resolveLocalizedTextMap(coerceLocalizedTextMap(data.title));
+      const subtitleText =
+        data.subtitle === null || data.subtitle === undefined
+          ? null
+          : resolveLocalizedTextMap(coerceLocalizedTextMap(data.subtitle)) || null;
 
       await db.query(
         `INSERT INTO pricing_catalog_item_inputs (
            catalog_item_id,
+           language_code,
            title,
            subtitle,
            status,
            updated_at
-         ) VALUES ($1, $2, $3, 'draft', $4)
+         ) VALUES ($1, $2, $3, $4, 'draft', $5)
          ON CONFLICT (catalog_item_id) DO UPDATE
-         SET title = EXCLUDED.title,
+         SET language_code = EXCLUDED.language_code,
+             title = EXCLUDED.title,
              subtitle = EXCLUDED.subtitle,
              updated_at = EXCLUDED.updated_at`,
-        [data.itemId, data.title, data.subtitle, event.timing.recordedAt],
+        [data.itemId, data.languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
       );
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
-      const data = event.data as { title: string; subtitle: string | null };
+      const data = event.data as {
+        languageCode?: string;
+        title: string | LocalizedTextMap;
+        subtitle?: string | LocalizedTextMap | null;
+      };
       const itemId = extractIdFromStreamId(event.streamId, "catalog.item-");
+      const titleText = resolveLocalizedTextMap(coerceLocalizedTextMap(data.title));
+      const subtitleText =
+        data.subtitle === null || data.subtitle === undefined
+          ? null
+          : resolveLocalizedTextMap(coerceLocalizedTextMap(data.subtitle)) || null;
 
       await db.query(
         `UPDATE pricing_catalog_item_inputs
-         SET title = $2,
-             subtitle = $3,
-             updated_at = $4
+         SET language_code = $2,
+             title = $3,
+             subtitle = $4,
+             updated_at = $5
          WHERE catalog_item_id = $1`,
-        [itemId, data.title, data.subtitle, event.timing.recordedAt],
+        [itemId, data.languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
       );
     },
     "catalog.catalog-item.published": async (event) => {

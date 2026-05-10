@@ -8,7 +8,10 @@ import {
 
 export type CatalogItemListRow = Readonly<{
   catalog_item_id: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
   blueprint_id: string | null;
   blueprint: unknown;
@@ -19,8 +22,12 @@ export type CatalogItemListRow = Readonly<{
 
 export type CatalogItemDetailRow = Readonly<{
   catalog_item_id: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
+  description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
   blueprint: unknown;
@@ -35,7 +42,7 @@ export type CatalogItemDetailRow = Readonly<{
 
 export async function listCatalogItems(
   db: PgQueryable,
-  params: ListParams & { blueprintId?: string; tag?: string } = {},
+  params: ListParams & { blueprintId?: string; tag?: string; language?: string } = {},
 ): Promise<ListResult<CatalogItemListRow>> {
   const extraConditions: string[] = [];
   const extraValues: unknown[] = [];
@@ -50,6 +57,12 @@ export async function listCatalogItems(
   if (params.tag) {
     extraConditions.push(`tags @> $${paramIndex}::jsonb`);
     extraValues.push(JSON.stringify([params.tag]));
+    paramIndex++;
+  }
+
+  if (params.language) {
+    extraConditions.push(`language_code = $${paramIndex}`);
+    extraValues.push(params.language);
     paramIndex++;
   }
 
@@ -73,4 +86,3 @@ export async function getCatalogItemDetail(db: PgQueryable, itemId: string) {
 
   return result.rows[0] ?? null;
 }
-

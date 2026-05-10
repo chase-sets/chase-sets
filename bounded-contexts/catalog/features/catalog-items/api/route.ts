@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
+import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 
 
 export function catalogItemRoutes(services: CatalogItemServices) {
@@ -18,9 +19,10 @@ export function catalogItemRoutes(services: CatalogItemServices) {
       command: {
         type: "CreateCatalogItem",
         itemId,
-        title: body.title,
-        subtitle: body.subtitle,
-        description: body.description,
+        languageCode: body.languageCode,
+        title: toLocalizedTextMap(body.title),
+        subtitle: body.subtitle ? toLocalizedTextMap(body.subtitle) : null,
+        description: toLocalizedTextMap(body.description ?? ""),
       },
       context,
     });
@@ -140,9 +142,10 @@ export function catalogItemRoutes(services: CatalogItemServices) {
       streamId: `catalog.item-${itemId}`,
       command: {
         type: "ReviseCatalogItemMetadata",
-        title: body.title,
-        subtitle: body.subtitle,
-        description: body.description,
+        languageCode: body.languageCode,
+        title: toLocalizedTextMap(body.title),
+        subtitle: body.subtitle ? toLocalizedTextMap(body.subtitle) : null,
+        description: body.description === undefined ? undefined : toLocalizedTextMap(body.description),
       },
       context,
     });
@@ -247,8 +250,8 @@ export function catalogItemRoutes(services: CatalogItemServices) {
   });
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset, blueprintId, tag } = c.req.query();
-    const result = await services.listCatalogItems({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, blueprintId, tag });
+    const { search, status, limit, offset, blueprintId, tag, language } = c.req.query();
+    const result = await services.listCatalogItems({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, blueprintId, tag, language });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
@@ -265,6 +268,23 @@ export function catalogItemRoutes(services: CatalogItemServices) {
   return app;
 }
 
+function toLocalizedTextMap(value: unknown): LocalizedTextMap {
+  if (
+    value &&
+    typeof value === "object" &&
+    "defaultLocale" in value &&
+    "values" in value
+  ) {
+    return value as LocalizedTextMap;
+  }
+
+  return {
+    defaultLocale: "en",
+    values: {
+      en: String(value ?? ""),
+    },
+  };
+}
 
 
 

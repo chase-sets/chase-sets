@@ -23,8 +23,12 @@ type DimensionRule = Readonly<{
 type ItemDetailCatalogItemRow = Readonly<{
   catalog_item_id: string;
   slug: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
+  description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
   status: string;
@@ -251,8 +255,12 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
     `INSERT INTO discovery_item_detail_pages (
       catalog_item_id,
       slug,
+      language_code,
+      title_i18n,
       title,
+      subtitle_i18n,
       subtitle,
+      description_i18n,
       description,
       blueprint_id,
       blueprint,
@@ -263,11 +271,15 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       image_urls,
       product_schema,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
+      language_code = EXCLUDED.language_code,
+      title_i18n = EXCLUDED.title_i18n,
       title = EXCLUDED.title,
+      subtitle_i18n = EXCLUDED.subtitle_i18n,
       subtitle = EXCLUDED.subtitle,
+      description_i18n = EXCLUDED.description_i18n,
       description = EXCLUDED.description,
       blueprint_id = EXCLUDED.blueprint_id,
       blueprint = EXCLUDED.blueprint,
@@ -281,8 +293,12 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
     [
       item.catalog_item_id,
       item.slug,
+      item.language_code,
+      JSON.stringify(item.title_i18n ?? localizedTextMap(item.title)),
       item.title,
+      item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
       item.subtitle,
+      JSON.stringify(item.description_i18n ?? localizedTextMap(item.description)),
       item.description,
       item.blueprint_id,
       item.blueprint_id
@@ -343,31 +359,57 @@ async function refreshAllItems(db: PgQueryable): Promise<void> {
 export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
-      const { itemId, title, subtitle, description } = event.data as {
+      const { itemId, languageCode, title, subtitle, description } = event.data as {
         itemId: string;
-        title: string;
-        subtitle: string | null;
-        description: string;
+        languageCode?: string;
+        title: unknown;
+        subtitle: unknown;
+        description: unknown;
       };
-      const slug = createMarketplaceSlug([title, subtitle], itemId);
+      const titleI18n = coerceLocalizedTextMap(title);
+      const subtitleI18n = subtitle ? coerceLocalizedTextMap(subtitle) : null;
+      const descriptionI18n = coerceLocalizedTextMap(description);
+      const resolvedTitle = resolveLocalizedText(titleI18n);
+      const resolvedSubtitle = subtitleI18n ? resolveLocalizedText(subtitleI18n) : null;
+      const resolvedDescription = resolveLocalizedText(descriptionI18n);
+      const slug = createMarketplaceSlug([resolvedTitle, resolvedSubtitle], itemId);
 
       await db.query(
         `INSERT INTO discovery_item_detail_catalog_items (
           catalog_item_id,
           slug,
+          language_code,
+          title_i18n,
           title,
+          subtitle_i18n,
           subtitle,
+          description_i18n,
           description,
           status,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5, 'draft', $6)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9)
         ON CONFLICT (catalog_item_id) DO UPDATE SET
           slug = EXCLUDED.slug,
+          language_code = EXCLUDED.language_code,
+          title_i18n = EXCLUDED.title_i18n,
           title = EXCLUDED.title,
+          subtitle_i18n = EXCLUDED.subtitle_i18n,
           subtitle = EXCLUDED.subtitle,
+          description_i18n = EXCLUDED.description_i18n,
           description = EXCLUDED.description,
           updated_at = EXCLUDED.updated_at`,
-        [itemId, slug, title, subtitle, description ?? "", event.timing.recordedAt],
+        [
+          itemId,
+          slug,
+          languageCode ?? "en",
+          JSON.stringify(titleI18n),
+          resolvedTitle,
+          subtitleI18n ? JSON.stringify(subtitleI18n) : null,
+          resolvedSubtitle,
+          JSON.stringify(descriptionI18n),
+          resolvedDescription,
+          event.timing.recordedAt,
+        ],
       );
 
       await refreshDiscoveryItemDetailPage(db, itemId);
@@ -470,12 +512,19 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
-      const { title, subtitle, description } = event.data as {
-        title: string;
-        subtitle: string | null;
-        description: string;
+      const { languageCode, title, subtitle, description } = event.data as {
+        languageCode?: string;
+        title: unknown;
+        subtitle: unknown;
+        description: unknown;
       };
-      const slug = createMarketplaceSlug([title, subtitle], itemId);
+      const titleI18n = coerceLocalizedTextMap(title);
+      const subtitleI18n = subtitle ? coerceLocalizedTextMap(subtitle) : null;
+      const descriptionI18n = coerceLocalizedTextMap(description);
+      const resolvedTitle = resolveLocalizedText(titleI18n);
+      const resolvedSubtitle = subtitleI18n ? resolveLocalizedText(subtitleI18n) : null;
+      const resolvedDescription = resolveLocalizedText(descriptionI18n);
+      const slug = createMarketplaceSlug([resolvedTitle, resolvedSubtitle], itemId);
       const current = await db.query<{ slug: string | null }>(
         `SELECT slug FROM discovery_item_detail_catalog_items WHERE catalog_item_id = $1`,
         [itemId],
@@ -484,12 +533,27 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE discovery_item_detail_catalog_items
          SET slug = $2,
-             title = $3,
-             subtitle = $4,
-             description = $5,
-             updated_at = $6
+             language_code = $3,
+             title_i18n = $4,
+             title = $5,
+             subtitle_i18n = $6,
+             subtitle = $7,
+             description_i18n = $8,
+             description = $9,
+             updated_at = $10
          WHERE catalog_item_id = $1`,
-        [itemId, slug, title, subtitle, description ?? "", event.timing.recordedAt],
+        [
+          itemId,
+          slug,
+          languageCode ?? "en",
+          JSON.stringify(titleI18n),
+          resolvedTitle,
+          subtitleI18n ? JSON.stringify(subtitleI18n) : null,
+          resolvedSubtitle,
+          JSON.stringify(descriptionI18n),
+          resolvedDescription,
+          event.timing.recordedAt,
+        ],
       );
       await rememberSlugRedirect(db, {
         entityKind: "item",
@@ -846,4 +910,30 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       await refreshAllItems(db);
     },
   };
+}
+
+type LocalizedTextMap = Readonly<{
+  defaultLocale: "en";
+  values: Readonly<Record<string, string>>;
+}>;
+
+function localizedTextMap(value: string): LocalizedTextMap {
+  return { defaultLocale: "en", values: value ? { en: value } : {} };
+}
+
+function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {
+  if (
+    value &&
+    typeof value === "object" &&
+    "defaultLocale" in value &&
+    "values" in value
+  ) {
+    return value as LocalizedTextMap;
+  }
+
+  return localizedTextMap(String(value ?? ""));
+}
+
+function resolveLocalizedText(value: LocalizedTextMap): string {
+  return value.values.en ?? value.values[value.defaultLocale] ?? Object.values(value.values)[0] ?? "";
 }

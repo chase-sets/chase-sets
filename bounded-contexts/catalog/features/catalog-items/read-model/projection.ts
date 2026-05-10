@@ -1,24 +1,63 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
+import {
+  localizedTextMapFromEnglish,
+  normalizeLocaleCode,
+  resolveLocalizedTextMap,
+  type LocalizedTextMap,
+} from "../../../support/runtime-support/common";
 
 const STREAM_PREFIX = "catalog.item-";
 
 export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
-      const { itemId, title, subtitle, description } = event.data as {
+      const { itemId, languageCode, title, subtitle, description } = event.data as {
         itemId: string;
-        title: string;
-        subtitle: string | null;
-        description: string;
+        languageCode?: string;
+        title: LocalizedTextMap | string;
+        subtitle: LocalizedTextMap | string | null;
+        description: LocalizedTextMap | string;
       };
+      const titleI18n = coerceLocalizedTextMap(title);
+      const subtitleI18n = subtitle ? coerceLocalizedTextMap(subtitle) : null;
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `INSERT INTO catalog_items (catalog_item_id, title, subtitle, description, status, updated_at)
-         VALUES ($1, $2, $3, $4, 'draft', $5)
-         ON CONFLICT (catalog_item_id) DO UPDATE SET title = $2, subtitle = $3, description = $4, updated_at = $5`,
-        [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
+        `INSERT INTO catalog_items (
+           catalog_item_id,
+           language_code,
+           title_i18n,
+           title,
+           subtitle_i18n,
+           subtitle,
+           description_i18n,
+           description,
+           status,
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9)
+         ON CONFLICT (catalog_item_id) DO UPDATE SET
+           language_code = EXCLUDED.language_code,
+           title_i18n = EXCLUDED.title_i18n,
+           title = EXCLUDED.title,
+           subtitle_i18n = EXCLUDED.subtitle_i18n,
+           subtitle = EXCLUDED.subtitle,
+           description_i18n = EXCLUDED.description_i18n,
+           description = EXCLUDED.description,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          itemId,
+          normalizeLocaleCode(languageCode ?? "en"),
+          JSON.stringify(titleI18n),
+          resolveLocalizedTextMap(titleI18n),
+          subtitleI18n ? JSON.stringify(subtitleI18n) : null,
+          subtitleI18n ? resolveLocalizedTextMap(subtitleI18n) : null,
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -104,11 +143,38 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
 
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
-      const { title, subtitle, description } = event.data as { title: string; subtitle: string | null; description: string };
+      const { languageCode, title, subtitle, description } = event.data as {
+        languageCode?: string;
+        title: LocalizedTextMap | string;
+        subtitle: LocalizedTextMap | string | null;
+        description: LocalizedTextMap | string;
+      };
+      const titleI18n = coerceLocalizedTextMap(title);
+      const subtitleI18n = subtitle ? coerceLocalizedTextMap(subtitle) : null;
+      const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
       await db.query(
-        `UPDATE catalog_items SET title = $2, subtitle = $3, description = $4, updated_at = $5 WHERE catalog_item_id = $1`,
-        [itemId, title, subtitle, description ?? "", event.timing.recordedAt],
+        `UPDATE catalog_items
+         SET language_code = $2,
+             title_i18n = $3,
+             title = $4,
+             subtitle_i18n = $5,
+             subtitle = $6,
+             description_i18n = $7,
+             description = $8,
+             updated_at = $9
+         WHERE catalog_item_id = $1`,
+        [
+          itemId,
+          normalizeLocaleCode(languageCode ?? "en"),
+          JSON.stringify(titleI18n),
+          resolveLocalizedTextMap(titleI18n),
+          subtitleI18n ? JSON.stringify(subtitleI18n) : null,
+          subtitleI18n ? resolveLocalizedTextMap(subtitleI18n) : null,
+          JSON.stringify(descriptionI18n),
+          resolveLocalizedTextMap(descriptionI18n),
+          event.timing.recordedAt,
+        ],
       );
     },
 
@@ -196,4 +262,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
   };
 }
 
+function coerceLocalizedTextMap(value: LocalizedTextMap | string): LocalizedTextMap {
+  return typeof value === "string" ? localizedTextMapFromEnglish(value) : value;
+}
 

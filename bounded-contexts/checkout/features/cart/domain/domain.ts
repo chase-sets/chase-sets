@@ -19,6 +19,7 @@ export type CheckoutCartLine = Readonly<{
   lineId: CartLineId;
   catalogItemId: string;
   productId: string;
+  itemLanguageCode: string | null;
   itemTitle: string;
   itemSubtitle: string | null;
   itemImageUrl: string | null;
@@ -49,6 +50,7 @@ export type AddCartLineCommand = Readonly<{
   lineId: CartLineId;
   catalogItemId: string;
   productId: string;
+  itemLanguageCode?: string | null;
   itemTitle: string;
   itemSubtitle: string | null;
   itemImageUrl: string | null;
@@ -100,6 +102,7 @@ export type CartLineAddedEvent = DomainEvent<
     lineId: CartLineId;
     catalogItemId: string;
     productId: string;
+    itemLanguageCode: string | null;
     itemTitle: string;
     itemSubtitle: string | null;
     itemImageUrl: string | null;
@@ -211,6 +214,7 @@ export const decideCheckoutCart: AggregateDecider<
               String(command.productId),
               "Cart lines must reference a product id.",
             ),
+            itemLanguageCode: normalizeOptionalText(command.itemLanguageCode ?? null),
             itemTitle: normalizeRequiredText(
               command.itemTitle,
               "Cart lines must include an item title snapshot.",
@@ -315,6 +319,7 @@ export const evolveCheckoutCart: AggregateEvolver<
             lineId: event.data.lineId,
             catalogItemId: event.data.catalogItemId,
             productId: event.data.productId,
+            itemLanguageCode: event.data.itemLanguageCode,
             itemTitle: event.data.itemTitle,
             itemSubtitle: event.data.itemSubtitle,
             itemImageUrl: event.data.itemImageUrl,

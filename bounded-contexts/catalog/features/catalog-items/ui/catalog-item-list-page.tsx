@@ -23,6 +23,7 @@ function buildColumns(): DataColumn<CatalogItemListItem>[] {
   return [
     { key: "title", header: t("catalog.features.catalogItems.ui.catalogItemListPage.title"), cell: (row) => row.title },
     { key: "subtitle", header: t("catalog.features.catalogItems.ui.catalogItemListPage.subtitle"), cell: (row) => row.subtitle ?? "—" },
+    { key: "language", header: t("catalog.features.catalogItems.ui.catalogItemListPage.language"), cell: (row) => row.language_code },
     { key: "blueprint", header: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint"), cell: (row) => row.blueprint?.name ?? "—" },
     { key: "status", header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
   ];
@@ -44,15 +45,17 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [description, setDescription] = useState("");
+  const [languageCode, setLanguageCode] = useState("en");
 
   async function handleCreate() {
     const itemId = createId("cat");
-    await createCatalogItem({ itemId, title, subtitle: subtitle || undefined, description: description || undefined });
+    await createCatalogItem({ itemId, languageCode, title, subtitle: subtitle || undefined, description: description || undefined });
     addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.catalog.item.created"), "success");
     setShowCreate(false);
     setTitle("");
     setSubtitle("");
     setDescription("");
+    setLanguageCode("en");
     revalidator.revalidate();
   }
 
@@ -89,12 +92,12 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         <Stack gap={3}>
           <TextInput label={t("catalog.features.catalogItems.ui.catalogItemListPage.title.2")} value={title} onChange={(e) => setTitle(e.target.value)} />
           <TextInput label={t("catalog.features.catalogItems.ui.catalogItemListPage.subtitle.optional")} value={subtitle} onChange={(e) => setSubtitle(e.target.value)} />
+          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemListPage.language.code")} value={languageCode} onChange={(e) => setLanguageCode(e.target.value)} />
           <TextInput label={t("catalog.features.catalogItems.ui.catalogItemListPage.description")} value={description} onChange={(e) => setDescription(e.target.value)} />
         </Stack>
       </Dialog>
     </>
   );
 }
-
 
 

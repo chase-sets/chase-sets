@@ -32,7 +32,6 @@ export async function seedComponents(
       ["card-name", true],
       ["set-name", true],
       ["rarity", true],
-      ["language", true],
       ["artist", false],
       ["release-year", false],
     ] as const) {
@@ -122,7 +121,6 @@ export async function seedComponents(
 
     for (const [fieldKey, required] of [
       ["set-name", true],
-      ["language", true],
       ["release-year", false],
       ["pack-count", true],
     ] as const) {

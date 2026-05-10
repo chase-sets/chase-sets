@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Button,
+  Badge,
   Card,
   DataTable,
   LinkButton,
@@ -274,6 +275,9 @@ export function InventoryItemListPage({
                   cell: (row) => (
                     <Stack gap={1}>
                       <Text weight="semibold">{displayItemLabel(row)}</Text>
+                      {row.language_code ? (
+                        <Badge tone="neutral">{row.language_code}</Badge>
+                      ) : null}
                       {row.item_subtitle ? (
                         <Text tone="secondary" size="sm">
                           {row.item_subtitle}

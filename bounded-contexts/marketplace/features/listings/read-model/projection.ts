@@ -11,6 +11,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     inventory_item_id: string;
     catalog_catalog_item_id: string;
     product_id: string;
+    item_language_code: string | null;
     item_title: string | null;
     item_subtitle: string | null;
     selected_options: unknown;
@@ -81,6 +82,7 @@ export function buildMarketplaceListingProjectionHandlers(
         productId: string;
         itemTitle: string | null;
         itemSubtitle: string | null;
+        itemLanguageCode?: string | null;
         selectedOptions: unknown;
         productSummary: string | null;
         gradedCard: unknown;
@@ -105,6 +107,7 @@ export function buildMarketplaceListingProjectionHandlers(
           inventory_item_id,
           catalog_catalog_item_id,
           product_id,
+          item_language_code,
           item_title,
           item_subtitle,
           selected_options,
@@ -126,13 +129,14 @@ export function buildMarketplaceListingProjectionHandlers(
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 'draft', $23, $23
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'draft', $24, $24
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
           inventory_item_id = EXCLUDED.inventory_item_id,
           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
           product_id = EXCLUDED.product_id,
+          item_language_code = EXCLUDED.item_language_code,
           item_title = EXCLUDED.item_title,
           item_subtitle = EXCLUDED.item_subtitle,
           selected_options = EXCLUDED.selected_options,
@@ -157,6 +161,7 @@ export function buildMarketplaceListingProjectionHandlers(
           data.inventoryItemId,
           data.catalogItemId,
           data.productId,
+          data.itemLanguageCode ?? null,
           data.itemTitle,
           data.itemSubtitle,
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),

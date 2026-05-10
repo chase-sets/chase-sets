@@ -39,6 +39,7 @@ function toInventoryOption(
     item_id: inventoryItem.item_id,
     catalog_catalog_item_id: inventoryItem.catalog_catalog_item_id,
     product_id: inventoryItem.product_id,
+    item_language_code: inventoryItem.language_code,
     item_title: inventoryItem.item_title,
     item_subtitle: inventoryItem.item_subtitle,
     selected_options: inventoryItem.selected_options,

@@ -8,9 +8,14 @@ import {
   assert,
   assertNever,
   ensureUniqueBy,
+  localizedTextMapFromEnglish,
+  normalizeLocaleCode,
+  normalizeLocalizedTextMap,
+  resolveLocalizedTextMap,
   type CatalogItemStatus,
   type CatalogValue,
   type EmptyEventData,
+  type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import type { BlueprintId, CategoryId, FieldId, CatalogItemId } from "../../../ids";
 
@@ -32,9 +37,10 @@ export type CatalogExternalProductReference = Readonly<{
 
 export type CatalogItemState = Readonly<{
   id: CatalogItemId | null;
-  title: string | null;
-  subtitle: string | null;
-  description: string;
+  languageCode: string;
+  title: LocalizedTextMap | null;
+  subtitle: LocalizedTextMap | null;
+  description: LocalizedTextMap;
   blueprintId: BlueprintId | null;
   status: CatalogItemStatus;
   fieldValues: readonly ItemFieldValue[];
@@ -46,9 +52,10 @@ export type CatalogItemState = Readonly<{
 
 export const initialCatalogItemState: CatalogItemState = {
   id: null,
+  languageCode: "en",
   title: null,
   subtitle: null,
-  description: "",
+  description: localizedTextMapFromEnglish(""),
   blueprintId: null,
   status: "draft",
   fieldValues: [],
@@ -61,9 +68,10 @@ export const initialCatalogItemState: CatalogItemState = {
 export type CreateCatalogItemCommand = Readonly<{
   type: "CreateCatalogItem";
   itemId: CatalogItemId;
-  title: string;
-  subtitle?: string | null;
-  description?: string;
+  languageCode?: string;
+  title: LocalizedTextMap;
+  subtitle?: LocalizedTextMap | null;
+  description?: LocalizedTextMap;
 }>;
 
 export type AssignBlueprintToCatalogItemCommand = Readonly<{
@@ -101,9 +109,10 @@ export type PublishCatalogItemCommand = Readonly<{
 
 export type ReviseCatalogItemMetadataCommand = Readonly<{
   type: "ReviseCatalogItemMetadata";
-  title: string;
-  subtitle?: string | null;
-  description?: string;
+  languageCode?: string;
+  title: LocalizedTextMap;
+  subtitle?: LocalizedTextMap | null;
+  description?: LocalizedTextMap;
 }>;
 
 export type SetCatalogItemTagsCommand = Readonly<{
@@ -154,9 +163,10 @@ export type CatalogItemCommand =
   | ArchiveCatalogItemCommand;
 
 type ItemMetadata = Readonly<{
-  title: string;
-  subtitle: string | null;
-  description: string;
+  languageCode: string;
+  title: LocalizedTextMap;
+  subtitle: LocalizedTextMap | null;
+  description: LocalizedTextMap;
 }>;
 
 export type ItemCreatedEvent = DomainEvent<
@@ -274,14 +284,21 @@ export const decideCatalogItem: AggregateDecider<
     case "CreateCatalogItem":
       assert(state.id === null, "Catalog item has already been created.");
 
+      assertLocalizedTitle(command.title);
+
       return [
         {
           type: "catalog.catalog-item.created",
           data: {
             itemId: command.itemId,
-            title: command.title.trim(),
-            subtitle: command.subtitle?.trim() ?? null,
-            description: command.description?.trim() ?? "",
+            languageCode: normalizeLanguageCode(command.languageCode),
+            title: normalizeLocalizedTextMap(command.title, { requiredEnglish: true }),
+            subtitle: command.subtitle
+              ? normalizeLocalizedTextMap(command.subtitle)
+              : null,
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : localizedTextMapFromEnglish(""),
           },
         },
       ];
@@ -402,14 +419,20 @@ export const decideCatalogItem: AggregateDecider<
     case "ReviseCatalogItemMetadata":
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be revised.");
+      assertLocalizedTitle(command.title);
 
       return [
         {
           type: "catalog.catalog-item.metadata-revised",
           data: {
-            title: command.title.trim(),
-            subtitle: command.subtitle?.trim() ?? null,
-            description: command.description?.trim() ?? state.description,
+            languageCode: normalizeLanguageCode(command.languageCode ?? state.languageCode),
+            title: normalizeLocalizedTextMap(command.title, { requiredEnglish: true }),
+            subtitle: command.subtitle
+              ? normalizeLocalizedTextMap(command.subtitle)
+              : null,
+            description: command.description
+              ? normalizeLocalizedTextMap(command.description)
+              : state.description,
           },
         },
       ];
@@ -510,6 +533,7 @@ export const evolveCatalogItem: AggregateEvolver<
       return {
         ...state,
         id: event.data.itemId,
+        languageCode: event.data.languageCode,
         title: event.data.title,
         subtitle: event.data.subtitle,
         description: event.data.description,
@@ -560,6 +584,7 @@ export const evolveCatalogItem: AggregateEvolver<
     case "catalog.catalog-item.metadata-revised":
       return {
         ...state,
+        languageCode: event.data.languageCode,
         title: event.data.title,
         subtitle: event.data.subtitle,
         description: event.data.description,
@@ -612,6 +637,39 @@ export const evolveCatalogItem: AggregateEvolver<
 
 function requireCreatedItem(state: CatalogItemState): void {
   assert(state.id !== null, "Catalog item must be created first.");
+}
+
+export function resolveCatalogItemTitle(
+  item: Pick<CatalogItemState, "title">,
+  locale = "en",
+): string {
+  return resolveLocalizedTextMap(item.title, locale);
+}
+
+export function resolveCatalogItemSubtitle(
+  item: Pick<CatalogItemState, "subtitle">,
+  locale = "en",
+): string | null {
+  const value = resolveLocalizedTextMap(item.subtitle, locale);
+  return value.length > 0 ? value : null;
+}
+
+export function resolveCatalogItemDescription(
+  item: Pick<CatalogItemState, "description">,
+  locale = "en",
+): string {
+  return resolveLocalizedTextMap(item.description, locale);
+}
+
+function normalizeLanguageCode(languageCode: string | undefined): string {
+  return normalizeLocaleCode(languageCode ?? "en");
+}
+
+function assertLocalizedTitle(title: LocalizedTextMap): void {
+  assert(
+    title.values?.en?.trim().length > 0,
+    "Catalog items require an English title.",
+  );
 }
 
 function normalizeFieldValues(
@@ -712,4 +770,3 @@ function normalizeRequiredFieldIds(
 
   return normalized;
 }
-

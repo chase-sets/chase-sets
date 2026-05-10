@@ -125,10 +125,11 @@ export function createCheckoutCartRuntime(
   async function getCatalogItemSnapshot(catalogItemId: string) {
     const result = await deps.db.query<{
       catalog_item_id: string;
+      language_code: string;
       status: string;
       product_schema: unknown;
     }>(
-      `SELECT catalog_item_id, status, product_schema
+      `SELECT catalog_item_id, language_code, status, product_schema
        FROM checkout_catalog_items
        WHERE catalog_item_id = $1`,
       [catalogItemId],
@@ -206,6 +207,7 @@ export function createCheckoutCartRuntime(
           lineId,
           catalogItemId: params.catalogItemId,
           productId: catalogVersion.productId,
+          itemLanguageCode: catalogItem.language_code,
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,
           itemImageUrl: params.itemImageUrl,
@@ -296,6 +298,7 @@ export function createCheckoutCartRuntime(
               lineId: line.line_id as CartLineId,
               catalogItemId: line.catalog_catalog_item_id,
               productId: line.product_id,
+              itemLanguageCode: line.item_language_code,
               itemTitle: line.item_title,
               itemSubtitle: line.item_subtitle,
               itemImageUrl: line.item_image_url,

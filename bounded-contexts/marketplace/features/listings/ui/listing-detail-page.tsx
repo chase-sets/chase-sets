@@ -148,6 +148,9 @@ export function MarketplaceListingDetailPage({
               <Stack gap={2}>
                 <Inline>
                   <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
+                  {listing.item_language_code ? (
+                    <Badge tone="neutral">{listing.item_language_code}</Badge>
+                  ) : null}
                   {listing.status === "active" ? (
                     <Badge tone="success">
                       {t("marketplace.features.listings.ui.listingDetailPage.verified.seller")}

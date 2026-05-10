@@ -3,6 +3,7 @@ export interface CheckoutCartLine {
   line_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  item_language_code: string | null;
   item_title: string;
   item_subtitle: string | null;
   item_image_url: string | null;

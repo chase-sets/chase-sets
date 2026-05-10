@@ -29,6 +29,7 @@ export type InventoryItemListItem = Readonly<{
   account_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  language_code: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];

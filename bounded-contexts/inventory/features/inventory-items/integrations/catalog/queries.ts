@@ -6,6 +6,7 @@ import { toInventoryItemProductSchema } from "./versioning";
 
 export type InventoryCatalogItemSnapshot = Readonly<{
   catalog_item_id: string;
+  language_code: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
@@ -24,6 +25,7 @@ export type InventoryExternalProductReference = Readonly<{
 
 type InventoryCatalogItemRow = Readonly<{
   catalog_item_id: string;
+  language_code: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
@@ -58,6 +60,7 @@ export async function getInventoryCatalogItem(
   const result = await db.query<InventoryCatalogItemRow>(
     `SELECT
        catalog_item_id,
+       language_code,
        title,
        subtitle,
        blueprint_id,

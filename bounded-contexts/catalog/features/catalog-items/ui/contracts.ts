@@ -3,7 +3,10 @@ import type { CategoryRef } from "../../categories/ui/contracts";
 
 export interface CatalogItemListItem {
   catalog_item_id: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
   blueprint: BlueprintRef | null;
   status: string;
@@ -13,8 +16,12 @@ export interface CatalogItemListItem {
 
 export interface CatalogItemDetail {
   catalog_item_id: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
+  description_i18n: unknown;
   description: string;
   blueprint: BlueprintRef | null;
   status: string;

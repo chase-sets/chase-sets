@@ -207,6 +207,9 @@ export function PricingRecommendationListPage({
                         </Text>
                       ) : null}
                       <Inline>
+                        {row.catalog_item_language_code ? (
+                          <Badge tone="neutral">{row.catalog_item_language_code}</Badge>
+                        ) : null}
                         <Badge tone={row.catalog_item_status === "active" ? "success" : "neutral"}>
                           {row.catalog_item_status ?? t("pricing.features.recommendations.ui.recommendationListPage.unknown")}
                         </Badge>

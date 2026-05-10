@@ -12,6 +12,7 @@ export type InventoryItemListRow = Readonly<{
   account_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  language_code: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   selected_options: readonly InventorySelectedOptionEntry[];
@@ -53,6 +54,7 @@ type BaseInventoryItemRow = Readonly<{
 
 type CatalogItemSummaryRow = Readonly<{
   catalog_item_id: string;
+  language_code: string;
   title: string;
   subtitle: string | null;
   product_schema: unknown;
@@ -75,7 +77,7 @@ async function loadCatalogItemSummaries(
   }
 
   const result = await db.query<CatalogItemSummaryRow>(
-    `SELECT catalog_item_id, title, subtitle, product_schema
+    `SELECT catalog_item_id, language_code, title, subtitle, product_schema
      FROM inventory_catalog_items
      WHERE catalog_item_id = ANY($1::text[])`,
     [catalogItemIds],
@@ -101,6 +103,7 @@ function enrichInventoryItemRows(
 
     return {
       ...row,
+      language_code: catalogItem?.language_code ?? null,
       item_title: catalogItem?.title ?? null,
       item_subtitle: catalogItem?.subtitle ?? null,
       selected_options: selectedOptions,

@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   inventory_item_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
+  item_language_code text NULL,
   item_title text NULL,
   item_subtitle text NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -41,5 +42,6 @@ CREATE INDEX IF NOT EXISTS marketplace_listing_pages_inventory_item_idx
 
 ALTER TABLE marketplace_listing_pages
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
-  ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS item_language_code text NULL;
 `;

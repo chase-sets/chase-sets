@@ -9,6 +9,7 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
     const category = c.req.query("category");
     const tag = c.req.query("tag");
     const blueprintId = c.req.query("blueprintId");
+    const language = c.req.query("language");
     const sort = c.req.query("sort");
     const status = c.req.query("status");
     const limit = c.req.query("limit");
@@ -21,6 +22,7 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       category: category || undefined,
       tag: tag || undefined,
       blueprintId: blueprintId || undefined,
+      language: language || undefined,
       sort: sort || undefined,
       status: status || undefined,
       limit: limit ? Number.parseInt(limit, 10) : undefined,

@@ -1,11 +1,15 @@
 export const pricingRecommendationSourceSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   catalog_item_id text PRIMARY KEY,
+  language_code text NOT NULL DEFAULT 'en',
   title text NOT NULL,
   subtitle text NULL,
   status text NOT NULL,
   updated_at timestamptz NOT NULL
 );
+
+ALTER TABLE pricing_catalog_item_inputs
+  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en';
 
 CREATE TABLE IF NOT EXISTS pricing_inventory_item_inputs (
   item_id text PRIMARY KEY,

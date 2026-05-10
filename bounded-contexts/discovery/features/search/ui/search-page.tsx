@@ -83,6 +83,12 @@ function formatSellerSignal(item: DiscoverySearchItem): string {
     : t("discovery.features.search.ui.searchPage.supply.wanted");
 }
 
+function formatItemLanguage(item: DiscoverySearchItem): string {
+  return t("discovery.features.search.ui.searchPage.language.code", {
+    language: item.language_code,
+  });
+}
+
 function formatValueCue(item: DiscoverySearchItem): string | undefined {
   const listingCount = item.market_summary?.active_listing_count ?? 0;
 
@@ -335,9 +341,9 @@ export function SearchPage({
                     }
                     sellerVerified={hasActiveListings}
                     fulfillment={formatAvailability(item)}
-                    availability={item.blueprint_name ?? item.subtitle}
+                    availability={item.blueprint_name ?? item.subtitle ?? formatItemLanguage(item)}
                     condition={uniqueDisplayValues(item.category_names)[0] ?? t("discovery.features.search.ui.searchPage.marketplace")}
-                    valueCue={formatValueCue(item)}
+                    valueCue={formatValueCue(item) ?? formatItemLanguage(item)}
                     promotion={
                       hasActiveListings
                         ? t("discovery.features.search.ui.searchPage.available.now")

@@ -12,6 +12,7 @@ export type AccountRecommendationListItem = Readonly<{
   listing_id: string | null;
   inventory_item_id: string | null;
   catalog_item_title: string | null;
+  catalog_item_language_code: string | null;
   catalog_item_subtitle: string | null;
   catalog_item_status: string | null;
   market_price_amount: number;
@@ -61,6 +62,7 @@ export async function listAccountRecommendations(
          listing_id,
          inventory_item_id,
          catalog_item_title,
+         catalog_item_language_code,
          catalog_item_subtitle,
          catalog_item_status,
          market_price_amount,
@@ -113,6 +115,7 @@ export async function getAccountRecommendation(
        listing_id,
        inventory_item_id,
        catalog_item_title,
+       catalog_item_language_code,
        catalog_item_subtitle,
        catalog_item_status,
        market_price_amount,
@@ -163,6 +166,7 @@ export async function listAccountRecommendationsByIds(
        listing_id,
        inventory_item_id,
        catalog_item_title,
+       catalog_item_language_code,
        catalog_item_subtitle,
        catalog_item_status,
        market_price_amount,

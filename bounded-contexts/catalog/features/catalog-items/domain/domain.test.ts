@@ -15,15 +15,25 @@ const fieldB = "fld_b" as FieldId;
 const catA = "ctg_a" as CategoryId;
 const catB = "ctg_b" as CategoryId;
 
+function l10n(en: string, values: Record<string, string> = {}) {
+  return {
+    defaultLocale: "en" as const,
+    values: {
+      en,
+      ...values,
+    },
+  };
+}
+
 function createdState() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null, description: "" } },
+    { type: "catalog.catalog-item.created", data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") } },
   ] as CatalogItemEvent[]);
 }
 
 function draftWithBlueprint() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null, description: "" } },
+    { type: "catalog.catalog-item.created", data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") } },
     { type: "catalog.catalog-item.blueprint-assigned", data: { blueprintId: bpId } },
     { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },
   ] as CatalogItemEvent[]);
@@ -31,7 +41,7 @@ function draftWithBlueprint() {
 
 function activeState() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, title: "Test Card", subtitle: null, description: "" } },
+    { type: "catalog.catalog-item.created", data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") } },
     { type: "catalog.catalog-item.blueprint-assigned", data: { blueprintId: bpId } },
     { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },
     { type: "catalog.catalog-item.published", data: { blueprintId: bpId } },
@@ -44,17 +54,43 @@ describe("CatalogItem aggregate", () => {
       const events = decide(decideCatalogItem, initialCatalogItemState, {
         type: "CreateCatalogItem" as const,
         itemId,
-        title: "Test Card",
-        subtitle: "Subtitle",
+        languageCode: "ja",
+        title: l10n("Test Card", { ja: "テストカード" }),
+        subtitle: l10n("Subtitle"),
       });
 
       expect(events[0].type).toBe("catalog.catalog-item.created");
-      expect(events[0].data).toMatchObject({ itemId, title: "Test Card", subtitle: "Subtitle" });
+      expect(events[0].data).toMatchObject({ itemId, languageCode: "ja" });
+      expect(events[0].data.title.values).toMatchObject({ en: "Test Card", ja: "テストカード" });
+      expect(events[0].data.subtitle?.values.en).toBe("Subtitle");
+    });
+
+    it("rejects non-BCP Japanese language code", () => {
+      expectDomainError(
+        () => decide(decideCatalogItem, initialCatalogItemState, {
+          type: "CreateCatalogItem" as const,
+          itemId,
+          languageCode: "jp",
+          title: l10n("Test Card"),
+        }),
+        'Use the BCP 47 language code "ja" for Japanese.',
+      );
+    });
+
+    it("requires an English title", () => {
+      expectDomainError(
+        () => decide(decideCatalogItem, initialCatalogItemState, {
+          type: "CreateCatalogItem" as const,
+          itemId,
+          title: { defaultLocale: "en", values: { ja: "テストカード" } },
+        }),
+        "Catalog items require an English title.",
+      );
     });
 
     it("rejects creating twice", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, createdState(), { type: "CreateCatalogItem" as const, itemId: "other" as CatalogItemId, title: "X" }),
+        () => decide(decideCatalogItem, createdState(), { type: "CreateCatalogItem" as const, itemId: "other" as CatalogItemId, title: l10n("X") }),
         "Catalog item has already been created.",
       );
     });
@@ -198,8 +234,9 @@ describe("CatalogItem aggregate", () => {
     it("revises metadata on active item", () => {
       const events = decide(decideCatalogItem, activeState(), {
         type: "ReviseCatalogItemMetadata" as const,
-        title: "Updated Title",
-        subtitle: "New Sub",
+        languageCode: "en",
+        title: l10n("Updated Title"),
+        subtitle: l10n("New Sub"),
       });
 
       expect(events[0].type).toBe("catalog.catalog-item.metadata-revised");
@@ -236,12 +273,12 @@ describe("CatalogItem aggregate", () => {
     it("evolves created event", () => {
       const state = evolveCatalogItem(initialCatalogItemState, {
         type: "catalog.catalog-item.created",
-        data: { itemId, title: "Test", subtitle: "Sub", description: "" },
+        data: { itemId, languageCode: "en", title: l10n("Test"), subtitle: l10n("Sub"), description: l10n("") },
       });
 
       expect(state.id).toBe(itemId);
-      expect(state.title).toBe("Test");
-      expect(state.subtitle).toBe("Sub");
+      expect(state.title?.values.en).toBe("Test");
+      expect(state.subtitle?.values.en).toBe("Sub");
       expect(state.status).toBe("draft");
     });
 

@@ -1,8 +1,12 @@
 export interface DiscoverySearchItem {
   catalog_item_id: string;
   slug: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
+  description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
   blueprint_name: string | null;
@@ -62,8 +66,12 @@ export interface CategoryRef {
 export interface DiscoveryItemDetail {
   catalog_item_id: string;
   slug: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
+  description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
   blueprint: { blueprintId: string; name: string } | null;

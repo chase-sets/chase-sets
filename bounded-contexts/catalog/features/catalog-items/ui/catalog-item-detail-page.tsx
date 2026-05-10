@@ -107,6 +107,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   const [editTitle, setEditTitle] = useState("");
   const [editSubtitle, setEditSubtitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editLanguageCode, setEditLanguageCode] = useState("");
 
   // Publish dialog
   const [showPublish, setShowPublish] = useState(false);
@@ -193,6 +194,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       title: editTitle,
       subtitle: editSubtitle || null,
       description: editDescription || undefined,
+      languageCode: editLanguageCode || "en",
     });
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.metadata.revised"), "success");
     setShowEditMetadata(false);
@@ -204,6 +206,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       setEditTitle(data.title);
       setEditSubtitle(data.subtitle ?? "");
       setEditDescription(data.description ?? "");
+      setEditLanguageCode(data.language_code ?? "en");
       setShowEditMetadata(true);
     }
   }
@@ -322,6 +325,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
               items={[
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.title"), value: data.title },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle"), value: data.subtitle ?? "—" },
+                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.language"), value: data.language_code },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.description"), value: data.description ?? "—" },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint"), value: data.blueprint?.name ?? t("catalog.features.catalogItems.ui.catalogItemDetailPage.none") },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.status"), value: data.status },
@@ -506,6 +510,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         <Stack gap={3}>
           <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.title")} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
           <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle")} value={editSubtitle} onChange={(e) => setEditSubtitle(e.target.value)} />
+          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.language.code")} value={editLanguageCode} onChange={(e) => setEditLanguageCode(e.target.value)} />
           <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.description")} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
         </Stack>
       </Dialog>
@@ -583,5 +588,4 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
     </>
   );
 }
-
 

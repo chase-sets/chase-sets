@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   createTranslator,
+  coerceLocalizedTextMap,
   defaultLocale,
+  resolveLocalizedTextMap,
   resolveLocale,
   supportedLocales,
   translationCatalogs,
@@ -36,6 +38,19 @@ describe("localization", () => {
 
     expect(translator.t("missing.key")).toBe("[missing:en:missing.key]");
     expect(missing).toEqual(["missing.key"]);
+  });
+
+  it("resolves localized text maps with English fallback", () => {
+    const text = coerceLocalizedTextMap({
+      defaultLocale: "en",
+      values: {
+        en: "Charizard",
+        ja: "リザードン",
+      },
+    });
+
+    expect(resolveLocalizedTextMap(text, "ja")).toBe("リザードン");
+    expect(resolveLocalizedTextMap(text, "fr")).toBe("Charizard");
   });
 
   it("keeps every supported locale key-complete with English", () => {

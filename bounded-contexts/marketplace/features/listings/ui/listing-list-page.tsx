@@ -337,6 +337,9 @@ export function MarketplaceListingListPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{row.item_title ?? row.catalog_catalog_item_id}</Text>
+                  {row.item_language_code ? (
+                    <Badge tone="neutral">{row.item_language_code}</Badge>
+                  ) : null}
                   {row.item_subtitle ? (
                     <Text tone="secondary" size="sm">
                       {row.item_subtitle}

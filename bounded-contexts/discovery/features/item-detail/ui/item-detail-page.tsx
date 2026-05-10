@@ -738,6 +738,10 @@ function LoadedItemDetailPage({
       })
     : {};
   const metadataItems = [
+    {
+      key: t("discovery.features.itemDetail.ui.itemDetailPage.language"),
+      value: data.language_code,
+    },
     ...(categories.length > 0
       ? [
           {

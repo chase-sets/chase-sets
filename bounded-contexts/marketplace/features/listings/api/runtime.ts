@@ -416,6 +416,7 @@ export function createMarketplaceListingRuntime(
         inventoryItemId: supply.item_id,
         catalogItemId: supply.catalog_catalog_item_id,
         productId: supply.product_id as never,
+        itemLanguageCode: supply.item_language_code,
         itemTitle: supply.item_title,
         itemSubtitle: supply.item_subtitle,
         selectedOptions: supply.selected_options,

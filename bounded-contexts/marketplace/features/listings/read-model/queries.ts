@@ -8,6 +8,7 @@ export type MarketplaceListingListRow = Readonly<{
   inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  item_language_code: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
@@ -39,6 +40,7 @@ export type MarketplaceItemListingRow = MarketplaceListingListRow &
 export type MarketplaceListingFeeLockReportRow = Readonly<{
   listing_id: string;
   inventory_item_id: string;
+  item_language_code: string | null;
   item_title: string | null;
   product_summary: string | null;
   status: string;
@@ -67,6 +69,7 @@ type MarketplaceListingPageRow = Readonly<{
   inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  item_language_code: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   selected_options: unknown;
@@ -94,6 +97,7 @@ export type MarketplaceInventoryItemSupply = Readonly<{
   account_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  item_language_code: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
@@ -145,6 +149,7 @@ export async function getInventoryItemSupply(
     account_id: string;
     catalog_catalog_item_id: string;
     product_id: string;
+    item_language_code: string | null;
     item_title: string | null;
     item_subtitle: string | null;
     selected_options: unknown;
@@ -160,6 +165,7 @@ export async function getInventoryItemSupply(
        item.account_id,
        item.catalog_catalog_item_id,
        item.product_id,
+       catalog_item.language_code AS item_language_code,
        catalog_item.title AS item_title,
        catalog_item.subtitle AS item_subtitle,
        item.selected_options,
@@ -264,6 +270,7 @@ export async function listSellerInventoryItemSupply(
       item.account_id,
       item.catalog_catalog_item_id,
       item.product_id,
+      catalog_item.language_code AS item_language_code,
       catalog_item.title AS item_title,
       catalog_item.subtitle AS item_subtitle,
       item.selected_options,
@@ -338,6 +345,7 @@ export async function listSellerInventoryItemSupply(
       account_id: string;
       catalog_catalog_item_id: string;
       product_id: string;
+      item_language_code: string | null;
       item_title: string | null;
       item_subtitle: string | null;
       selected_options: unknown;
@@ -470,6 +478,7 @@ export async function listSellerListingFeeLockReport(
       `SELECT
          listing_id,
          inventory_item_id,
+         item_language_code,
          item_title,
          product_summary,
          status,

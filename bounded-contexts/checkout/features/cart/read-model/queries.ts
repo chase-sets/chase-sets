@@ -6,6 +6,7 @@ export type CheckoutCartLineRow = Readonly<{
   line_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  item_language_code: string | null;
   item_title: string;
   item_subtitle: string | null;
   item_image_url: string | null;
@@ -34,6 +35,7 @@ type CartLinePageRow = Readonly<{
   line_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  item_language_code: string | null;
   item_title: string;
   item_subtitle: string | null;
   item_image_url: string | null;
@@ -110,6 +112,7 @@ export async function listCartLines(
        line.line_id,
        line.catalog_catalog_item_id,
        line.product_id,
+       line.item_language_code,
        line.item_title,
        line.item_subtitle,
        item_page.image_urls->>0 AS item_image_url,

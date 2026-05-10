@@ -45,7 +45,6 @@ export async function seedBlueprints(
         { fieldId: fields["card-name"], required: true },
         { fieldId: fields["set-name"], required: true },
         { fieldId: fields.rarity, required: true },
-        { fieldId: fields.language, required: true },
         { fieldId: fields.artist, required: false },
         { fieldId: fields["release-year"], required: false },
       ],
@@ -136,7 +135,6 @@ export async function seedBlueprints(
       type: "SetBlueprintFields",
       fieldRules: [
         { fieldId: fields["set-name"], required: true },
-        { fieldId: fields.language, required: true },
         { fieldId: fields["release-year"], required: false },
         { fieldId: fields["pack-count"], required: true },
       ],

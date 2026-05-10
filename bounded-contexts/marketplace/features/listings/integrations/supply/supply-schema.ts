@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS marketplace_account_pages (
 
 CREATE TABLE IF NOT EXISTS marketplace_catalog_items (
   catalog_item_id text PRIMARY KEY,
+  language_code text NOT NULL DEFAULT 'en',
   title text NOT NULL,
   subtitle text NULL,
   blueprint_id text NULL,
@@ -80,6 +81,9 @@ CREATE INDEX IF NOT EXISTS marketplace_account_pages_status_idx
 CREATE INDEX IF NOT EXISTS marketplace_catalog_items_blueprint_idx
   ON marketplace_catalog_items (blueprint_id);
 
+CREATE INDEX IF NOT EXISTS marketplace_catalog_items_language_idx
+  ON marketplace_catalog_items (language_code);
+
 CREATE INDEX IF NOT EXISTS marketplace_catalog_items_status_idx
   ON marketplace_catalog_items (status);
 
@@ -103,4 +107,7 @@ CREATE INDEX IF NOT EXISTS marketplace_supply_holds_item_idx
 
 ALTER TABLE marketplace_supply_locations
   ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE marketplace_catalog_items
+  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en';
 `;

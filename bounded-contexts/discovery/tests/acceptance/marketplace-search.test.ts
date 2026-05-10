@@ -65,6 +65,16 @@ async function sendCommand<Command>(
   return handler({ streamId, command, context });
 }
 
+function l10n(en: string, values: Record<string, string> = {}) {
+  return {
+    defaultLocale: "en" as const,
+    values: {
+      en,
+      ...values,
+    },
+  };
+}
+
 const itemSeed = {
   dimensionId: "dim_condition",
   optionId: "chc_nm",
@@ -72,6 +82,7 @@ const itemSeed = {
   blueprintId: "bpr_card",
   categoryId: "cat_pokemon",
   itemId: "cat_charizard",
+  japaneseItemId: "cat_japanese_charizard",
 };
 
 describeWithDatabase("marketplace search", () => {
@@ -225,9 +236,10 @@ describeWithDatabase("marketplace search", () => {
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "CreateCatalogItem",
       itemId: itemSeed.itemId as never,
-      title: "Charizard",
-      subtitle: "Base Set",
-      description: "Classic fire-breathing favorite",
+      languageCode: "en",
+      title: l10n("Charizard"),
+      subtitle: l10n("Base Set"),
+      description: l10n("Classic fire-breathing favorite"),
     });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
@@ -284,6 +296,52 @@ describeWithDatabase("marketplace search", () => {
     expect(categoryResponse.status).toBe(200);
     const categoryBody = await categoryResponse.json();
     expect(categoryBody.items[0].item_count).toBe(1);
+
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.japaneseItemId}`, {
+      type: "CreateCatalogItem",
+      itemId: itemSeed.japaneseItemId as never,
+      languageCode: "ja",
+      title: l10n("Charizard", { ja: "リザードン" }),
+      subtitle: l10n("Japanese Base Set"),
+      description: l10n("Japanese printed Charizard"),
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.japaneseItemId}`, {
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId: itemSeed.blueprintId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.japaneseItemId}`, {
+      type: "SetCatalogItemFieldValue",
+      fieldId: itemSeed.fieldId as never,
+      value: "リザードン",
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.japaneseItemId}`, {
+      type: "AssignCatalogItemToCategory",
+      categoryId: itemSeed.categoryId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.japaneseItemId}`, {
+      type: "PublishCatalogItem",
+      blueprintIsActive: true,
+      requiredFieldIds: [itemSeed.fieldId as never],
+    });
+
+    await drainContextProcesses({
+      projectors: discoveryServices.projectors,
+      subscriptionRunners,
+    });
+
+    const japaneseSearchResponse = await app.request("/api/marketplace/items?search=%E3%83%AA%E3%82%B6%E3%83%BC%E3%83%89%E3%83%B3");
+    expect(japaneseSearchResponse.status).toBe(200);
+    const japaneseSearchBody = await japaneseSearchResponse.json();
+    expect(japaneseSearchBody.total).toBe(1);
+    expect(japaneseSearchBody.items[0].catalog_item_id).toBe(itemSeed.japaneseItemId);
+    expect(japaneseSearchBody.items[0].language_code).toBe("ja");
+
+    const languageFilterResponse = await app.request("/api/marketplace/items?language=ja");
+    expect(languageFilterResponse.status).toBe(200);
+    const languageFilterBody = await languageFilterResponse.json();
+    expect(languageFilterBody.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+      itemSeed.japaneseItemId,
+    ]);
   });
 
   it("projects conditional product resolution rules and sealed products into item detail payloads", async () => {

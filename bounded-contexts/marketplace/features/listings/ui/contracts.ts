@@ -6,6 +6,7 @@ export interface MarketplaceListingListItem {
   inventory_item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  item_language_code: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
@@ -47,6 +48,7 @@ export interface MarketplaceListingFeeLockReportEntry {
   listing_id: string;
   inventory_item_id: string;
   item_title: string | null;
+  item_language_code: string | null;
   product_summary: string | null;
   status: string;
   price_amount: string;
@@ -77,6 +79,7 @@ export interface MarketplaceListingInventoryItemOption {
   item_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
+  item_language_code: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
