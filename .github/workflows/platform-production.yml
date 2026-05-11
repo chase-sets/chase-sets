@@ -114,6 +114,17 @@ jobs:
 
           git push origin production
 
+      - name: Check out release commit
+        run: |
+          set -euo pipefail
+          release_commit="${{ steps.promote.outputs.release_commit }}"
+          git checkout --detach "$release_commit"
+          checked_out_commit="$(git rev-parse HEAD)"
+          if [ "$checked_out_commit" != "$release_commit" ]; then
+            echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
+            exit 1
+          fi
+
       - uses: ./.github/actions/setup-pnpm-workspace
 
       - uses: hashicorp/setup-terraform@v4
