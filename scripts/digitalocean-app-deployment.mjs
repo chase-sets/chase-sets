@@ -75,6 +75,14 @@ export function activeDeployments(deployments) {
     .filter((deployment) => !TERMINAL_DEPLOYMENT_PHASES.has(deployment.phase));
 }
 
+export function appNotFound(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    /(?:not found|404|does not exist|could not find)/i.test(message) &&
+    /\bapp(?:s| platform)?\b/i.test(message)
+  );
+}
+
 export async function planAppChanged(tfplanPath, options = {}) {
   const output = await (options.commandOutput ?? commandOutput)("terraform", [
     "show",
@@ -93,9 +101,22 @@ export async function waitForDeployments(appId, options = {}) {
   const deadline = now() + timeoutSeconds * 1000;
 
   while (true) {
-    const deployments = activeDeployments(
-      await runJson("doctl", ["apps", "list-deployments", appId, "--output", "json"], options),
-    );
+    let deploymentResponse;
+    try {
+      deploymentResponse = await runJson(
+        "doctl",
+        ["apps", "list-deployments", appId, "--output", "json"],
+        options,
+      );
+    } catch (error) {
+      if (appNotFound(error)) {
+        console.log(`App Platform app '${appId}' no longer exists; skipping deployment wait.`);
+        return;
+      }
+      throw error;
+    }
+
+    const deployments = activeDeployments(deploymentResponse);
 
     if (deployments.length === 0) {
       console.log("No in-progress App Platform deployments remain.");

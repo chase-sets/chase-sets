@@ -25,6 +25,17 @@ resource "digitalocean_database_user" "contexts" {
   name       = each.value
 }
 
+resource "digitalocean_database_connection_pool" "contexts" {
+  for_each = local.staging_connection_pool_contexts
+
+  cluster_id = digitalocean_database_cluster.postgres.id
+  name       = "${each.key}-runtime"
+  mode       = "transaction"
+  size       = 1
+  db_name    = digitalocean_database_db.contexts[each.key].name
+  user       = digitalocean_database_user.contexts[each.key].name
+}
+
 resource "terraform_data" "context_database_grants" {
   triggers_replace = [
     for context_name in sort(keys(local.context_databases)) :
@@ -316,7 +327,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
-          value = "$${db-control.DATABASE_URL}"
+          value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"
         }
@@ -325,7 +336,7 @@ resource "digitalocean_app" "platform" {
           for_each = local.context_database_env
           content {
             key   = env.value
-            value = format("$${db-%s.DATABASE_URL}", env.key)
+            value = local.context_database_urls[env.key]
             type  = "SECRET"
             scope = "RUN_TIME"
           }
@@ -465,7 +476,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
-          value = "$${db-control.DATABASE_URL}"
+          value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"
         }
@@ -474,7 +485,7 @@ resource "digitalocean_app" "platform" {
           for_each = local.context_database_env
           content {
             key   = env.value
-            value = format("$${db-%s.DATABASE_URL}", env.key)
+            value = local.context_database_urls[env.key]
             type  = "SECRET"
             scope = "RUN_TIME"
           }
@@ -550,7 +561,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
-          value = "$${db-control.DATABASE_URL}"
+          value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"
         }
@@ -559,7 +570,7 @@ resource "digitalocean_app" "platform" {
           for_each = local.context_database_env
           content {
             key   = env.value
-            value = format("$${db-%s.DATABASE_URL}", env.key)
+            value = local.context_database_urls[env.key]
             type  = "SECRET"
             scope = "RUN_TIME"
           }
@@ -679,7 +690,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
-          value = "$${db-control.DATABASE_URL}"
+          value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"
         }
@@ -688,7 +699,7 @@ resource "digitalocean_app" "platform" {
           for_each = local.context_database_env
           content {
             key   = env.value
-            value = format("$${db-%s.DATABASE_URL}", env.key)
+            value = local.context_database_urls[env.key]
             type  = "SECRET"
             scope = "RUN_TIME"
           }
@@ -741,7 +752,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
-          value = "$${db-control.DATABASE_URL}"
+          value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"
         }
@@ -750,7 +761,7 @@ resource "digitalocean_app" "platform" {
           for_each = local.context_database_env
           content {
             key   = env.value
-            value = format("$${db-%s.DATABASE_URL}", env.key)
+            value = local.context_database_urls[env.key]
             type  = "SECRET"
             scope = "RUN_TIME"
           }
@@ -830,7 +841,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
-          value = "$${db-control.DATABASE_URL}"
+          value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"
         }
@@ -839,7 +850,7 @@ resource "digitalocean_app" "platform" {
           for_each = local.context_database_env
           content {
             key   = env.value
-            value = format("$${db-%s.DATABASE_URL}", env.key)
+            value = local.context_database_urls[env.key]
             type  = "SECRET"
             scope = "RUN_TIME"
           }
