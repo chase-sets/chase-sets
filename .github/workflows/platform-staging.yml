@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: platform-staging
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -121,27 +121,38 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: Terraform plan
+        id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
-        run: terraform plan -out=tfplan
+        run: |
+          terraform plan -out=tfplan
+          app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
+          echo "Terraform will change digitalocean_app.platform: ${app_changed}"
+          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for previous App Platform deployment
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "No existing App Platform app was found in Terraform state; skipping deployment wait."
+            exit 0
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
 
       - name: Terraform apply
         working-directory: infrastructure/digitalocean/platform
         run: terraform apply -auto-approve tfplan
 
       - name: Deploy App Platform app
+        if: steps.terraform_plan.outputs.app_changed != 'true'
         working-directory: infrastructure/digitalocean/platform
         run: |
+          set -euo pipefail
           app_id="$(terraform output -raw app_id)"
-          deployment_id="$(doctl apps create-deployment "$app_id" --wait --force-rebuild --format ID --no-header | tail -n 1 | tr -d '[:space:]')"
-          if [ -z "$deployment_id" ]; then
-            echo "DigitalOcean deployment did not return an ID." >&2
-            exit 1
-          fi
-          phase="$(doctl apps get-deployment "$app_id" "$deployment_id" --format Phase --no-header | tr -d '[:space:]')"
-          if [ "$phase" != "ACTIVE" ]; then
-            echo "DigitalOcean deployment $deployment_id finished with phase '$phase' instead of ACTIVE." >&2
-            exit 1
-          fi
+          node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
 
       - name: Smoke check
         working-directory: infrastructure/digitalocean/platform
@@ -152,6 +163,7 @@ jobs:
           SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
         run: |
+          set -euo pipefail
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
