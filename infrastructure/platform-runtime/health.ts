@@ -21,6 +21,11 @@ export type HealthProjectionReplaySummary = Readonly<{
   }>[];
 }>;
 
+export type HealthProjectionReplayError = Readonly<{
+  status: "degraded";
+  message: string;
+}>;
+
 export type ReadinessCheck = Readonly<{
   name: string;
   check: () => Promise<void>;
@@ -33,7 +38,12 @@ export type ReadinessStatus = Readonly<{
     status: "ok" | "degraded";
     message?: string;
   }>[];
+}>;
+
+export type HealthStatus = Readonly<{
+  status: "ok" | "degraded";
   projectionReplay?: HealthProjectionReplaySummary;
+  projectionReplayError?: HealthProjectionReplayError;
 }>;
 
 export function createHealthRoutes(
@@ -59,12 +69,9 @@ export function createHealthRoutes(
   });
 
   app.get("/", async (c) => {
-    const projectionReplay = await options.getProjectionReplay?.();
+    const health = await resolveHealthStatus(options.getProjectionReplay);
 
-    return c.json({
-      status: projectionReplay?.status ?? "ok",
-      projectionReplay,
-    });
+    return c.json(health);
   });
 
   return app;
@@ -72,9 +79,6 @@ export function createHealthRoutes(
 
 async function resolveReadiness(
   options: Readonly<{
-    getProjectionReplay?: () =>
-      | HealthProjectionReplaySummary
-      | Promise<HealthProjectionReplaySummary>;
     readinessChecks?: readonly ReadinessCheck[];
   }>,
 ): Promise<ReadinessStatus> {
@@ -95,16 +99,39 @@ async function resolveReadiness(
       }
     }),
   );
-  const projectionReplay = await options.getProjectionReplay?.();
-  const status =
-    checks.some((check) => check.status === "degraded") ||
-    projectionReplay?.status === "degraded"
-      ? "degraded"
-      : "ok";
+  const status = checks.some((check) => check.status === "degraded")
+    ? "degraded"
+    : "ok";
 
   return {
     status,
     checks,
-    projectionReplay,
   };
+}
+
+async function resolveHealthStatus(
+  getProjectionReplay:
+    | (() => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>)
+    | undefined,
+): Promise<HealthStatus> {
+  if (!getProjectionReplay) {
+    return { status: "ok" };
+  }
+
+  try {
+    const projectionReplay = await getProjectionReplay();
+
+    return {
+      status: projectionReplay.status,
+      projectionReplay,
+    };
+  } catch (error) {
+    return {
+      status: "degraded",
+      projectionReplayError: {
+        status: "degraded",
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
 }
