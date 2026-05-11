@@ -53,7 +53,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create or validate release tag
+      - name: Resolve release commit
         id: promote
         run: |
           set -euo pipefail
@@ -63,25 +63,25 @@ jobs:
           git fetch origin production || true
 
           if git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
-            tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+            release_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+            release_tag_exists=true
           else
+            release_tag_exists=false
             git fetch origin "${release_ref}" || true
             if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
-              tag_commit="$(git rev-parse "${release_ref}^{commit}")"
+              release_commit="$(git rev-parse "${release_ref}^{commit}")"
             elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
-              tag_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
+              release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
             else
               echo "Release ref '${release_ref}' does not resolve to a commit." >&2
               exit 1
             fi
-
-            git tag -a "$tag" "$tag_commit" -m "Release ${tag}"
-            git push origin "refs/tags/${tag}"
           fi
 
-          git merge-base --is-ancestor "$tag_commit" origin/main
-          echo "release_commit=$tag_commit" >> "$GITHUB_OUTPUT"
-          echo "TF_VAR_platform_image_tag=$tag_commit" >> "$GITHUB_ENV"
+          git merge-base --is-ancestor "$release_commit" origin/main
+          echo "release_commit=$release_commit" >> "$GITHUB_OUTPUT"
+          echo "release_tag_exists=$release_tag_exists" >> "$GITHUB_OUTPUT"
+          echo "TF_VAR_platform_image_tag=$release_commit" >> "$GITHUB_ENV"
 
       - name: Validate release checks
         env:
@@ -90,14 +90,31 @@ jobs:
           set -euo pipefail
           required_check="PR Required"
           release_commit="${{ steps.promote.outputs.release_commit }}"
-          conclusion="$(gh api "repos/${{ github.repository }}/commits/${release_commit}/check-runs" \
-            --jq ".check_runs[] | select(.name == \"${required_check}\") | .conclusion" \
-            | head -n 1)"
+          completed_checks="$(gh api --paginate "repos/${{ github.repository }}/commits/${release_commit}/check-runs?per_page=100" \
+            --jq ".check_runs[] | select(.name == \"${required_check}\" and .status == \"completed\") | [.conclusion, .html_url] | @tsv")"
+          successful_check_url="$(printf '%s\n' "$completed_checks" | awk -F '\t' '$1 == "success" { print $2; exit }')"
 
-          if [ "$conclusion" != "success" ]; then
-            echo "Release commit ${release_commit} must have a successful '${required_check}' check before production deploy." >&2
+          if [ -z "$successful_check_url" ]; then
+            echo "Release commit ${release_commit} must have a completed successful '${required_check}' check before production deploy." >&2
+            if [ -z "$completed_checks" ]; then
+              echo "No completed '${required_check}' check run was found on the release commit." >&2
+            else
+              echo "Completed '${required_check}' check runs found:" >&2
+              printf '%s\n' "$completed_checks" >&2
+            fi
             exit 1
           fi
+
+          echo "Validated ${required_check}: ${successful_check_url}"
+
+      - name: Create release tag
+        if: steps.promote.outputs.release_tag_exists != 'true'
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.release_tag }}"
+          release_commit="${{ steps.promote.outputs.release_commit }}"
+          git tag -a "$tag" "$release_commit" -m "Release ${tag}"
+          git push origin "refs/tags/${tag}"
 
       - name: Fast-forward production
         run: |

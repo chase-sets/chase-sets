@@ -101,15 +101,16 @@ Production deploys through `.github/workflows/platform-production.yml` with a re
 
 The workflow:
 
-1. Creates the release tag from the requested release ref when it is missing, or verifies the existing tag.
-2. Fast-forwards the protected `production` branch to that tag.
-3. Verifies the release commit has a successful `PR Required` check from the Platform PR workflow. The workflow runs on pull requests and on pushes to `main`, so the merge or squash commit selected for release carries its own deploy gate result.
-4. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:${release_commit}`.
-5. Runs Terraform fmt and plan for `environment=production` with the pushed image tag.
-6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
-7. Runs Terraform apply for `environment=production`.
-8. Creates a DigitalOcean App Platform deployment to force App Platform to pull the pushed image tag, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-9. Runs `pnpm run smoke:platform` with `ops+smoke@chasesets.com` and smoke UTM markers.
+1. Resolves the release commit from the existing release tag, or from the requested release ref when the tag does not exist.
+2. Verifies the release commit has a completed successful `PR Required` check from the Platform PR workflow. The workflow runs on pull requests and on pushes to `main`, so the merge or squash commit selected for release carries its own deploy gate result.
+3. Creates the release tag when it does not already exist.
+4. Fast-forwards the protected `production` branch to the release commit.
+5. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:${release_commit}`.
+6. Runs Terraform fmt and plan for `environment=production` with the pushed image tag.
+7. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
+8. Runs Terraform apply for `environment=production`.
+9. Creates a DigitalOcean App Platform deployment to force App Platform to pull the pushed image tag, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+10. Runs `pnpm run smoke:platform` with `ops+smoke@chasesets.com` and smoke UTM markers.
 
 ## Smoke Coverage
 
