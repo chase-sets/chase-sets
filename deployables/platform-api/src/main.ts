@@ -231,13 +231,16 @@ const realtimeObserver = {
     });
   },
 } satisfies RealtimeObserver;
-const realtimeWakeSignal = await createPlatformRealtimeWakeSignal(
-  [...new Set(realtimeStores.map((store) => store.db))],
-  realtimeObserver,
-);
+const realtimeWakeSignal = config.realtime.wakeSignalEnabled
+  ? await createPlatformRealtimeWakeSignal(
+      [...new Set(realtimeStores.map((store) => store.db))],
+      realtimeObserver,
+    )
+  : undefined;
 const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
+  writeConsistencyDrainEnabled: config.writeConsistencyDrainEnabled,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readinessChecks: [
     {
@@ -275,18 +278,20 @@ const app = buildPlatformApiApp(runtime, {
     maxActiveStreamsPerConnectionKey: config.realtime.maxActiveStreamsPerConnectionKey,
   },
 });
-const realtimeRetentionSweeper = createRealtimeRetentionSweeper({
-  stores: realtimeStores,
-  intervalMs: config.realtime.retentionPruneIntervalMs,
-  observer: realtimeObserver,
-  onError: (error) => {
-    logger.error("Realtime retention sweep failed.", {
-      type: "realtime.retention.failed",
-      error,
-    });
-  },
-});
-if (config.realtime.backgroundMaintenanceEnabled) {
+const realtimeRetentionSweeper = config.realtime.backgroundMaintenanceEnabled
+  ? createRealtimeRetentionSweeper({
+      stores: realtimeStores,
+      intervalMs: config.realtime.retentionPruneIntervalMs,
+      observer: realtimeObserver,
+      onError: (error) => {
+        logger.error("Realtime retention sweep failed.", {
+          type: "realtime.retention.failed",
+          error,
+        });
+      },
+    })
+  : undefined;
+if (realtimeRetentionSweeper) {
   void realtimeRetentionSweeper.sweep();
 }
 const realtimePartitionMaintainerStores = [...new Set(
@@ -324,7 +329,7 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
-    realtimeRetentionSweeper.stop();
+    realtimeRetentionSweeper?.stop();
     for (const maintainer of realtimePartitionMaintainers) {
       maintainer.stop();
     }

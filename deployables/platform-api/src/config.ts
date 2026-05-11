@@ -55,6 +55,7 @@ export type PlatformApiBaseConfig = Readonly<{
   port: number;
   internalAuthSecret?: string;
   realtime?: PlatformApiRealtimeConfig;
+  writeConsistencyDrainEnabled?: boolean;
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
   payoutReconciliationIntervalMs?: number | null;
@@ -83,6 +84,7 @@ export type PlatformApiRealtimeConfig = Readonly<{
   heartbeatIntervalMs: number;
   retentionPruneIntervalMs: number;
   backgroundMaintenanceEnabled: boolean;
+  wakeSignalEnabled: boolean;
   maxConsecutiveFullBatches: number;
   maxTopicsPerStream: number;
   maxActiveStreams: number;
@@ -180,6 +182,15 @@ function getOptionalCsvEnv(name: string): readonly string[] {
     .filter(Boolean);
 }
 
+function isProductionDeployment() {
+  const deploymentEnvironment = getOptionalEnv("DEPLOYMENT_ENVIRONMENT");
+  if (deploymentEnvironment) {
+    return deploymentEnvironment === "production";
+  }
+
+  return process.env.NODE_ENV === "production";
+}
+
 function loadPlatformAdminConfig(): PlatformApiPlatformAdminConfig | null {
   const email = getOptionalEnv("PLATFORM_ADMIN_EMAIL");
   const password = getOptionalEnv("PLATFORM_ADMIN_PASSWORD");
@@ -209,7 +220,7 @@ export function getContextDatabaseEnvName(contextName: PlatformApiContextName) {
 function loadBaseConfig(): PlatformApiBaseConfig {
   const sharedDatabaseUrl = getOptionalEnv("DATABASE_URL");
   const explicitControlDatabaseUrl = getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL");
-  const productionLike = process.env.NODE_ENV === "production";
+  const productionLike = isProductionDeployment();
   const controlDatabaseUrl = explicitControlDatabaseUrl ?? sharedDatabaseUrl;
   if (!controlDatabaseUrl) {
     throw new Error(
@@ -251,12 +262,14 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     },
     port: Number(process.env.PORT ?? 6182),
     internalAuthSecret: resolvePlatformInternalAuthSecret(),
+    writeConsistencyDrainEnabled: getBooleanEnv("WRITE_CONSISTENCY_DRAIN_ENABLED", true),
     realtime: {
       batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
       pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),
       heartbeatIntervalMs: getPositiveNumberEnv("REALTIME_HEARTBEAT_INTERVAL_MS", 15_000),
       retentionPruneIntervalMs: getPositiveNumberEnv("REALTIME_RETENTION_PRUNE_INTERVAL_MS", 60_000),
       backgroundMaintenanceEnabled: getBooleanEnv("REALTIME_BACKGROUND_MAINTENANCE_ENABLED", true),
+      wakeSignalEnabled: getBooleanEnv("REALTIME_WAKE_SIGNAL_ENABLED", true),
       maxConsecutiveFullBatches: getPositiveNumberEnv("REALTIME_MAX_CONSECUTIVE_FULL_BATCHES", 3),
       maxTopicsPerStream: getPositiveNumberEnv("REALTIME_MAX_TOPICS_PER_STREAM", 16),
       maxActiveStreams: getPositiveNumberEnv("REALTIME_MAX_ACTIVE_STREAMS", 1_000),
@@ -309,14 +322,15 @@ export function loadConfig(): PlatformApiConfig {
   const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
   const easyPostMode =
     getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
-  const productionLike = process.env.NODE_ENV === "production";
+  const productionLike = isProductionDeployment();
 
   if (
     productionLike &&
-    baseConfig.realtime.streamLimiter.kind !== "postgres"
+    (baseConfig.realtime.streamLimiter.kind !== "postgres" ||
+      !baseConfig.realtime.wakeSignalEnabled)
   ) {
     throw new Error(
-      "REALTIME_STREAM_LIMITER=postgres and PLATFORM_CONTROL_DATABASE_URL are required for horizontally scalable SSE in production.",
+      "REALTIME_STREAM_LIMITER=postgres, REALTIME_WAKE_SIGNAL_ENABLED=true, and PLATFORM_CONTROL_DATABASE_URL are required for horizontally scalable SSE in production.",
     );
   }
 

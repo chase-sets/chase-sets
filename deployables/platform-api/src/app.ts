@@ -73,6 +73,7 @@ export type BuildPlatformApiOptions = Readonly<{
   >[0]["streamLimiter"];
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   realtimeActiveConnectionCount?: () => number;
+  writeConsistencyDrainEnabled?: boolean;
   mcp?: CreateMcpRoutesOptions;
   internalAuthSecret?: string;
 }>;
@@ -233,9 +234,11 @@ export function buildPlatformApiApp(
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
-  attachWriteDrainMiddleware(app, apiMounts, () =>
-    drainContextRuntime(runtime),
-  );
+  if (options.writeConsistencyDrainEnabled !== false) {
+    attachWriteDrainMiddleware(app, apiMounts, () =>
+      drainContextRuntime(runtime),
+    );
+  }
   mountApiRouters(app, apiMounts);
 
   return app;

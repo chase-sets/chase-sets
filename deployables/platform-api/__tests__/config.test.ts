@@ -46,6 +46,7 @@ afterEach(() => {
   delete process.env.REALTIME_HEARTBEAT_INTERVAL_MS;
   delete process.env.REALTIME_RETENTION_PRUNE_INTERVAL_MS;
   delete process.env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED;
+  delete process.env.REALTIME_WAKE_SIGNAL_ENABLED;
   delete process.env.REALTIME_MAX_CONSECUTIVE_FULL_BATCHES;
   delete process.env.REALTIME_MAX_TOPICS_PER_STREAM;
   delete process.env.REALTIME_MAX_ACTIVE_STREAMS;
@@ -59,9 +60,11 @@ afterEach(() => {
   delete process.env.DATABASE_POOL_MAX;
   delete process.env.DATABASE_POOL_IDLE_TIMEOUT_MS;
   delete process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS;
+  delete process.env.WRITE_CONSISTENCY_DRAIN_ENABLED;
   delete process.env.REALTIME_CURSOR_SIGNING_SECRET;
   delete process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS;
   delete process.env.NODE_ENV;
+  delete process.env.DEPLOYMENT_ENVIRONMENT;
   delete process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV];
   delete process.env.PLATFORM_ADMIN_EMAIL;
   delete process.env.PLATFORM_ADMIN_PASSWORD;
@@ -291,6 +294,7 @@ describe("platform api config", () => {
     process.env.REALTIME_HEARTBEAT_INTERVAL_MS = "5000";
     process.env.REALTIME_RETENTION_PRUNE_INTERVAL_MS = "120000";
     process.env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED = "false";
+    process.env.REALTIME_WAKE_SIGNAL_ENABLED = "false";
     process.env.REALTIME_MAX_CONSECUTIVE_FULL_BATCHES = "2";
     process.env.REALTIME_MAX_TOPICS_PER_STREAM = "8";
     process.env.REALTIME_MAX_ACTIVE_STREAMS = "200";
@@ -306,6 +310,7 @@ describe("platform api config", () => {
       heartbeatIntervalMs: 5_000,
       retentionPruneIntervalMs: 120_000,
       backgroundMaintenanceEnabled: false,
+      wakeSignalEnabled: false,
       maxConsecutiveFullBatches: 2,
       maxTopicsPerStream: 8,
       maxActiveStreams: 200,
@@ -324,10 +329,29 @@ describe("platform api config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.REALTIME_STREAM_LIMITER = "local";
 
     expect(() => loadConfig()).toThrow(
-      "REALTIME_STREAM_LIMITER=postgres and PLATFORM_CONTROL_DATABASE_URL are required for horizontally scalable SSE in production.",
+      "REALTIME_STREAM_LIMITER=postgres, REALTIME_WAKE_SIGNAL_ENABLED=true, and PLATFORM_CONTROL_DATABASE_URL are required for horizontally scalable SSE in production.",
     );
+  });
+
+  it("allows single-connection staging to disable postgres realtime coordination and write drains", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.NODE_ENV = "production";
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.REALTIME_STREAM_LIMITER = "local";
+    process.env.REALTIME_WAKE_SIGNAL_ENABLED = "false";
+    process.env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED = "false";
+    process.env.WRITE_CONSISTENCY_DRAIN_ENABLED = "false";
+
+    const config = loadConfig();
+
+    expect(config.realtime.streamLimiter).toEqual({ kind: "local" });
+    expect(config.realtime.wakeSignalEnabled).toBe(false);
+    expect(config.realtime.backgroundMaintenanceEnabled).toBe(false);
+    expect(config.writeConsistencyDrainEnabled).toBe(false);
   });
 });
