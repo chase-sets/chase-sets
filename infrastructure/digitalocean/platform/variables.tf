@@ -28,16 +28,6 @@ variable "region" {
   default = "nyc3"
 }
 
-variable "repo" {
-  type    = string
-  default = "todd-skelton/chase-sets"
-}
-
-variable "branch" {
-  type        = string
-  description = "Git branch used by App Platform."
-}
-
 variable "root_domain" {
   type    = string
   default = "chasesets.com"
@@ -62,6 +52,17 @@ variable "database_node_count" {
 variable "app_instance_size_slug" {
   type    = string
   default = "apps-s-1vcpu-1gb"
+}
+
+variable "platform_image_repository" {
+  type        = string
+  default     = "chase-sets-platform"
+  description = "DigitalOcean Container Registry repository that stores the prebuilt platform runtime image."
+}
+
+variable "platform_image_tag" {
+  type        = string
+  description = "Container image tag to deploy for App Platform components."
 }
 
 variable "platform_internal_auth_secret" {

@@ -37,12 +37,14 @@ jobs:
       TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_environment: production
-      TF_VAR_branch: production
+      TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
       TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
       TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+      DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -51,7 +53,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create or validate release tag
+      - name: Validate production configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            DIGITALOCEAN_ACCESS_TOKEN \
+            TF_VAR_platform_internal_auth_secret \
+            TF_VAR_platform_admin_email \
+            TF_VAR_platform_admin_password \
+            TF_VAR_discord_invite_url
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required production configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Resolve release commit
         id: promote
         run: |
           set -euo pipefail
@@ -61,24 +86,25 @@ jobs:
           git fetch origin production || true
 
           if git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
-            tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+            release_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+            release_tag_exists=true
           else
+            release_tag_exists=false
             git fetch origin "${release_ref}" || true
             if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
-              tag_commit="$(git rev-parse "${release_ref}^{commit}")"
+              release_commit="$(git rev-parse "${release_ref}^{commit}")"
             elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
-              tag_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
+              release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
             else
               echo "Release ref '${release_ref}' does not resolve to a commit." >&2
               exit 1
             fi
-
-            git tag -a "$tag" "$tag_commit" -m "Release ${tag}"
-            git push origin "refs/tags/${tag}"
           fi
 
-          git merge-base --is-ancestor "$tag_commit" origin/main
-          echo "release_commit=$tag_commit" >> "$GITHUB_OUTPUT"
+          git merge-base --is-ancestor "$release_commit" origin/main
+          echo "release_commit=$release_commit" >> "$GITHUB_OUTPUT"
+          echo "release_tag_exists=$release_tag_exists" >> "$GITHUB_OUTPUT"
+          echo "TF_VAR_platform_image_tag=$release_commit" >> "$GITHUB_ENV"
 
       - name: Validate release checks
         env:
@@ -87,29 +113,42 @@ jobs:
           set -euo pipefail
           required_check="PR Required"
           release_commit="${{ steps.promote.outputs.release_commit }}"
-          conclusion="$(gh api "repos/${{ github.repository }}/commits/${release_commit}/check-runs" \
-            --jq ".check_runs[] | select(.name == \"${required_check}\") | .conclusion" \
-            | head -n 1)"
+          completed_checks="$(gh api --paginate "repos/${{ github.repository }}/commits/${release_commit}/check-runs?per_page=100" \
+            --jq ".check_runs[] | select(.name == \"${required_check}\" and .status == \"completed\") | [.conclusion, .html_url] | @tsv")"
+          successful_check_url="$(printf '%s\n' "$completed_checks" | awk -F '\t' '$1 == "success" { print $2; exit }')"
 
-          if [ "$conclusion" != "success" ]; then
-            echo "Release commit ${release_commit} must have a successful '${required_check}' check before production deploy." >&2
+          if [ -z "$successful_check_url" ]; then
+            echo "Release commit ${release_commit} must have a completed successful '${required_check}' check before production deploy." >&2
+            if [ -z "$completed_checks" ]; then
+              echo "No completed '${required_check}' check run was found on the release commit." >&2
+            else
+              echo "Completed '${required_check}' check runs found:" >&2
+              printf '%s\n' "$completed_checks" >&2
+            fi
             exit 1
           fi
 
-      - name: Fast-forward production
+          echo "Validated ${required_check}: ${successful_check_url}"
+
+      - name: Create release tag
+        if: steps.promote.outputs.release_tag_exists != 'true'
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.release_tag }}"
+          release_commit="${{ steps.promote.outputs.release_commit }}"
+          git tag -a "$tag" "$release_commit" -m "Release ${tag}"
+          git push origin "refs/tags/${tag}"
+
+      - name: Check out release commit
         run: |
           set -euo pipefail
           release_commit="${{ steps.promote.outputs.release_commit }}"
-          git fetch origin production || true
-
-          if git show-ref --verify --quiet refs/remotes/origin/production; then
-            git checkout -B production origin/production
-            git merge --ff-only "$release_commit"
-          else
-            git checkout -B production "$release_commit"
+          git checkout --detach "$release_commit"
+          checked_out_commit="$(git rev-parse HEAD)"
+          if [ "$checked_out_commit" != "$release_commit" ]; then
+            echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
+            exit 1
           fi
-
-          git push origin production
 
       - uses: ./.github/actions/setup-pnpm-workspace
 
@@ -125,6 +164,20 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build and push App Platform image
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
+            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          docker build --pull --tag "$image" .
+          docker push "$image"
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform
@@ -149,9 +202,9 @@ jobs:
         id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
         run: |
+          set -euo pipefail
           terraform plan -out=tfplan
           app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
-          echo "Terraform will change digitalocean_app.platform: ${app_changed}"
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Wait for previous App Platform deployment
@@ -171,7 +224,14 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform apply -auto-approve tfplan
 
-      - name: Deploy App Platform app
+      - name: Wait for Terraform App Platform deployment
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+
+      - name: Deploy App Platform image
         if: steps.terraform_plan.outputs.app_changed != 'true'
         working-directory: infrastructure/digitalocean/platform
         run: |
@@ -184,6 +244,7 @@ jobs:
         env:
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_EMAIL: ops+smoke@chasesets.com
           SMOKE_SOURCE: production-smoke
           SMOKE_UTM_CAMPAIGN: production-release
@@ -193,3 +254,18 @@ jobs:
           admin_domain="$(terraform output -raw admin_domain)"
           cd ../../..
           pnpm run smoke:platform -- "https://${public_domain}" "https://${admin_domain}"
+
+      - name: Fast-forward production
+        run: |
+          set -euo pipefail
+          release_commit="${{ steps.promote.outputs.release_commit }}"
+          git fetch origin production || true
+
+          if git show-ref --verify --quiet refs/remotes/origin/production; then
+            git checkout -B production origin/production
+            git merge --ff-only "$release_commit"
+          else
+            git checkout -B production "$release_commit"
+          fi
+
+          git push origin production

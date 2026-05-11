@@ -1,0 +1,15 @@
+.git
+.github
+.terraform
+**/.terraform
+artifacts
+node_modules
+**/node_modules
+*.log
+*.tfplan
+**/*.tfstate
+**/*.tfstate.*
+infrastructure/digitalocean
+.env
+.env.*
+!.env.example

@@ -9,7 +9,9 @@ This runbook covers the staging full-system platform deployment and the current 
 - State: DigitalOcean Spaces bucket through Terraform's S3 backend with `use_lockfile=true`.
 - Compatibility: remote state keys remain `landing/staging.tfstate` and `landing/production.tfstate` until a deliberate state-key migration is scheduled.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before this root runs; staging and production share the same zone.
-- Deploy orchestration: GitHub Actions is the canonical deploy owner. App Platform components use the public Git clone source and workflows trigger deployments after Terraform apply unless Terraform already changed and deployed the app spec; the GitHub App-backed source is avoided because it can serve stale branch revisions during manual deployments.
+- Deploy orchestration: GitHub Actions is the canonical deploy owner. Workflows build one platform container image in GitHub Actions, push it to DigitalOcean Container Registry, and point App Platform components at that immutable image tag. This avoids App Platform source builds for each component during Terraform app updates.
+- Production branch: `production` is a smoke-verified deployed release marker. The production workflow fast-forwards it only after App Platform deployment and production smoke pass.
+- Image retention: the `chase-sets-platform` DOCR repository uses immutable commit tags. During weekly operations, keep the images for the currently deployed staging commit, the currently deployed production release commit, the intended rollback window, and recent staging commits needed for active investigation; delete older tags and run DigitalOcean registry garbage collection after confirming no App Platform spec references them.
 - Staging hosts:
   - `landing-staging.chasesets.com`: landing `public-web`.
   - `marketplace-staging.chasesets.com`: marketplace web.
@@ -59,6 +61,17 @@ Staging Terraform validation requires test-mode provider values:
 - `EASYPOST_API_KEY` starts with `EZTK`
 - `EASYPOST_MODE` is `test`
 
+## Required GitHub Protection
+
+Deployment safety depends on GitHub repository settings as well as workflow code:
+
+- Protect `main` with required pull requests and a required `PR Required` status check from `.github/workflows/platform-pr.yml`.
+- Protect or ruleset-match `production` before the first production deploy so only the production workflow can move the deployed-release marker.
+- Restrict the `staging` and `production` GitHub Environments to deployments from `main`.
+- Require approval on the `production` GitHub Environment before secrets are released to the job.
+
+The Platform PR workflow validates static checks, typecheck, unit tests, DB-profile tests, workspace builds, Docker image builds, workflow syntax with Actionlint, staging Terraform shape, production Terraform shape, and state-bootstrap Terraform before reporting `PR Required`.
+
 ## One-Time State Bootstrap
 
 Create the Spaces bucket before the first platform Terraform init:
@@ -82,14 +95,17 @@ The workflow serializes staging runs so an in-progress DigitalOcean App Platform
 The workflow:
 
 1. Validates required staging secrets and variables before dependency install.
-2. Runs the staging gate: generated metadata check, static checks, and workspace builds.
-3. Runs Terraform fmt and plan for `environment=staging`.
-4. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply, so concurrent DigitalOcean builds do not compete with the next deploy.
-5. Runs Terraform apply for `environment=staging`.
-6. Creates a DigitalOcean App Platform deployment when Terraform did not already change and deploy `digitalocean_app.platform`, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-7. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
+2. Waits for the full `PR Required` gate on the pushed `main` commit.
+3. Runs the staging gate: generated metadata check, static checks, and workspace builds.
+4. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:${GITHUB_SHA}`.
+5. Runs Terraform fmt and plan for `environment=staging` with the pushed image tag, and records whether `digitalocean_app.platform` will change.
+6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
+7. Runs Terraform apply for `environment=staging`.
+8. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
+9. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+10. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
 
-The current App Platform components still build from repository source. Their build commands share one Terraform-local workspace setup command; moving to immutable artifacts or container images built once in GitHub Actions is the next deployment-efficiency step.
+The App Platform components share the same runtime image and differ only by run command, environment, scaling, health checks, and ingress routing.
 
 Staging is persistent and intentionally `noindex,nofollow` for landing and marketplace; production is the only indexed public origin.
 
@@ -99,14 +115,19 @@ Production deploys through `.github/workflows/platform-production.yml` with a re
 
 The workflow:
 
-1. Creates the release tag from the requested release ref when it is missing, or verifies the existing tag.
-2. Fast-forwards the protected `production` branch to that tag.
-3. Verifies the release commit has a successful `PR Required` check.
-4. Runs Terraform fmt and plan for `environment=production`.
-5. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
-6. Runs Terraform apply for `environment=production`.
-7. Creates a DigitalOcean App Platform deployment when Terraform did not already change and deploy `digitalocean_app.platform`, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-8. Runs `pnpm run smoke:platform` with `ops+smoke@chasesets.com` and smoke UTM markers.
+1. Validates required production secrets and variables before release tag or branch mutation.
+2. Resolves the release commit from the existing release tag, or from the requested release ref when the tag does not exist.
+3. Verifies the release commit has a completed successful `PR Required` check from the Platform PR workflow. The workflow runs on pull requests and on pushes to `main`, so the merge or squash commit selected for release carries its own deploy gate result.
+4. Creates the release tag when it does not already exist.
+5. Checks out the resolved release commit.
+6. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:${release_commit}`.
+7. Runs Terraform fmt and plan for `environment=production` with the pushed image tag, and records whether `digitalocean_app.platform` will change.
+8. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
+9. Runs Terraform apply for `environment=production`.
+10. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
+11. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+12. Runs `pnpm run smoke:platform` with required admin authentication, `ops+smoke@chasesets.com`, and smoke UTM markers.
+13. Fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
 
 ## Smoke Coverage
 
@@ -122,7 +143,7 @@ The platform smoke script checks:
 - admin password sign-in works when admin credentials are supplied
 - waitlist admin endpoint can find the synthetic lead
 
-Set `SMOKE_REQUIRE_ADMIN=true`, `SMOKE_REQUIRE_MARKETPLACE=true`, and `SMOKE_REQUIRE_LEGACY_REDIRECT=true` for staging CI. Set `SMOKE_WRITE_WAITLIST=false` for a read-only smoke check.
+Set `SMOKE_REQUIRE_ADMIN=true`, `SMOKE_REQUIRE_MARKETPLACE=true`, and `SMOKE_REQUIRE_LEGACY_REDIRECT=true` for staging CI. Production also sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` for a read-only smoke check.
 
 `platform-worker` has no public ingress rule. Its `/health/ready` endpoint is covered by the App Platform component health check, and the workflow verifies that the deployment reaches `ACTIVE` after DigitalOcean evaluates component health.
 
