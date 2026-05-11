@@ -85,7 +85,7 @@ terraform apply
 
 Then run `terraform init` in `infrastructure/digitalocean/platform` using `landing/staging.tfstate` or `landing/production.tfstate` as the backend key. The CI workflows use the same backend settings.
 
-Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys. In staging, Terraform also creates one managed Postgres transaction pool per context database and points runtime `DATABASE_URL_*` variables at the pool private URIs instead of App Platform database bindables.
+Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys. In staging, Terraform also creates one managed Postgres transaction pool per context database and points runtime `DATABASE_URL_*` variables at the pool URIs instead of App Platform database bindables.
 
 ## Staging Deployment
 
@@ -168,6 +168,6 @@ If staging deployment fails in `platform-bootstrap` with PostgreSQL `53300` / `r
 
 1. Confirm the Terraform spec includes `DATABASE_POOL_MAX=1` for `platform-api`, `platform-worker`, and `platform-bootstrap`.
 2. Confirm staging has one `digitalocean_database_connection_pool.contexts` pool per context database, each in `transaction` mode with size `1`.
-3. Confirm runtime `PLATFORM_CONTROL_DATABASE_URL` and `DATABASE_URL_*` variables resolve to connection pool private URIs, not direct database URLs.
+3. Confirm runtime `PLATFORM_CONTROL_DATABASE_URL` and `DATABASE_URL_*` variables resolve to connection pool URIs, not direct database URLs.
 4. Re-run the staging workflow.
 5. If the previous active app is still holding too many direct connections while the new pool-backed spec starts, destroy or temporarily scale down the staging App Platform app and re-run staging. Staging is disposable; Terraform will recreate the App Platform app from state/config, while the managed database remains the persistent data boundary unless deliberately destroyed.
