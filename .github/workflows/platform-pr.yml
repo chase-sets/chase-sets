@@ -84,6 +84,15 @@ jobs:
       - name: Build workspaces
         run: pnpm run verify:build
 
+  docker-image:
+    name: Docker Image Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build App Platform image
+        run: docker build --pull --tag chase-sets-platform:pr-validation .
+
   terraform-plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
@@ -159,6 +168,7 @@ jobs:
       - unit-tests
       - db-tests
       - build
+      - docker-image
       - terraform-plan
     steps:
       - name: Verify required jobs
@@ -169,6 +179,7 @@ jobs:
             "${{ needs['unit-tests'].result }}" \
             "${{ needs['db-tests'].result }}" \
             "${{ needs.build.result }}" \
+            "${{ needs['docker-image'].result }}" \
             "${{ needs['terraform-plan'].result }}"
           do
             if [ "$result" != "success" ]; then

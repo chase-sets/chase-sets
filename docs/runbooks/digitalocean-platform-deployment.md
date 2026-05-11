@@ -10,6 +10,7 @@ This runbook covers the staging full-system platform deployment and the current 
 - Compatibility: remote state keys remain `landing/staging.tfstate` and `landing/production.tfstate` until a deliberate state-key migration is scheduled.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before this root runs; staging and production share the same zone.
 - Deploy orchestration: GitHub Actions is the canonical deploy owner. Workflows build one platform container image in GitHub Actions, push it to DigitalOcean Container Registry, and point App Platform components at that immutable image tag. This avoids App Platform source builds for each component during Terraform app updates.
+- Image retention: the `chase-sets-platform` DOCR repository uses immutable commit tags. During weekly operations, keep the images for the currently deployed staging commit, the currently deployed production release commit, the intended rollback window, and recent staging commits needed for active investigation; delete older tags and run DigitalOcean registry garbage collection after confirming no App Platform spec references them.
 - Staging hosts:
   - `landing-staging.chasesets.com`: landing `public-web`.
   - `marketplace-staging.chasesets.com`: marketplace web.
@@ -87,7 +88,7 @@ The workflow:
 4. Runs Terraform fmt and plan for `environment=staging` with the pushed image tag.
 5. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
 6. Runs Terraform apply for `environment=staging`.
-7. Creates a DigitalOcean App Platform deployment when Terraform did not already change and deploy `digitalocean_app.platform`, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+7. Creates a DigitalOcean App Platform deployment to force App Platform to pull the pushed image tag, waits for completion, and fails unless the deployment phase is `ACTIVE`.
 8. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
 
 The App Platform components share the same runtime image and differ only by run command, environment, scaling, health checks, and ingress routing.
@@ -107,7 +108,7 @@ The workflow:
 5. Runs Terraform fmt and plan for `environment=production` with the pushed image tag.
 6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
 7. Runs Terraform apply for `environment=production`.
-8. Creates a DigitalOcean App Platform deployment when Terraform did not already change and deploy `digitalocean_app.platform`, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+8. Creates a DigitalOcean App Platform deployment to force App Platform to pull the pushed image tag, waits for completion, and fails unless the deployment phase is `ACTIVE`.
 9. Runs `pnpm run smoke:platform` with `ops+smoke@chasesets.com` and smoke UTM markers.
 
 ## Smoke Coverage

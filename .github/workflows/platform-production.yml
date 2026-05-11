@@ -188,13 +188,19 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform apply -auto-approve tfplan
 
-      - name: Deploy App Platform app
-        if: steps.terraform_plan.outputs.app_changed != 'true'
+      - name: Wait for Terraform App Platform deployment
         working-directory: infrastructure/digitalocean/platform
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+
+      - name: Deploy App Platform image
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id"
 
       - name: Smoke check
         working-directory: infrastructure/digitalocean/platform
