@@ -197,24 +197,24 @@
     },
     "runtime-support": {
       "classification": "support",
-      "purpose": "Provide event-store, schema, and projector composition for the Public Presence context.",
+      "purpose": "Provide event-store, schema, and projector composition for the public-presence context.",
       "allowedWhen": "Allowed only for context runtime composition.",
       "expectedConsumers": [
         "waitlist"
       ],
       "justification": "runtime-support centralizes event-store composition for the waitlist slice.",
-      "createdFor": "Public Presence API and worker runtime.",
+      "createdFor": "public-presence API and worker runtime.",
       "sunsetWhen": "Remove when public presence no longer needs runtime composition."
     },
     "shell-support": {
       "classification": "support",
-      "purpose": "Provide deployable-facing public-presence page shell exports.",
+      "purpose": "Provide deployable-facing public-presence page shell exports for waitlist routes.",
       "allowedWhen": "Allowed only for shell composition consumed by context web exports.",
       "expectedConsumers": [
         "waitlist"
       ],
       "justification": "shell-support keeps deployable-facing page shell exports out of feature internals.",
-      "createdFor": "Public Presence public page shell composition.",
+      "createdFor": "public-presence waitlist page shell composition.",
       "sunsetWhen": "Remove when public presence no longer exports deployable-facing shell modules."
     },
     "routes": {

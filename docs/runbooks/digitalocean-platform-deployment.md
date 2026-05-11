@@ -9,6 +9,7 @@ This runbook covers the staging full-system platform deployment and the current 
 - State: DigitalOcean Spaces bucket through Terraform's S3 backend with `use_lockfile=true`.
 - Compatibility: remote state keys remain `landing/staging.tfstate` and `landing/production.tfstate` until a deliberate state-key migration is scheduled.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before this root runs; staging and production share the same zone.
+- Deploy orchestration: GitHub Actions is the canonical deploy owner. DigitalOcean App Platform push auto-deploy is disabled; workflows trigger deployments explicitly after Terraform apply.
 - Staging hosts:
   - `landing-staging.chasesets.com`: landing `public-web`.
   - `marketplace-staging.chasesets.com`: marketplace web.
@@ -76,12 +77,17 @@ Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraf
 
 Staging deploys from `main` through `.github/workflows/platform-staging.yml`.
 
+The workflow cancels stale in-progress staging runs when a newer commit reaches `main`.
+
 The workflow:
 
-1. Runs `pnpm run verify`.
-2. Runs Terraform fmt, plan, and apply for `environment=staging`.
-3. Creates a DigitalOcean App Platform deployment, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-4. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
+1. Validates required staging secrets and variables before dependency install.
+2. Runs the staging gate: generated metadata check, static checks, and workspace builds.
+3. Runs Terraform fmt, plan, and apply for `environment=staging`.
+4. Creates a DigitalOcean App Platform deployment, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+5. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
+
+The current App Platform components still build from repository source. Their build commands share one Terraform-local workspace setup command; moving to immutable artifacts or container images built once in GitHub Actions is the next deployment-efficiency step.
 
 Staging is persistent and intentionally `noindex,nofollow` for landing and marketplace; production is the only indexed public origin.
 
@@ -93,7 +99,7 @@ The workflow:
 
 1. Creates the release tag from the requested release ref when it is missing, or verifies the existing tag.
 2. Fast-forwards the protected `production` branch to that tag.
-3. Runs `pnpm run verify`.
+3. Verifies the release commit has a successful `PR Required` check.
 4. Runs Terraform fmt, plan, and apply for `environment=production`.
 5. Creates a DigitalOcean App Platform deployment, waits for completion, and fails unless the deployment phase is `ACTIVE`.
 6. Runs `pnpm run smoke:platform` with `ops+smoke@chasesets.com` and smoke UTM markers.

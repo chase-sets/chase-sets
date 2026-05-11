@@ -34,10 +34,11 @@ export function normalizeRelative(filePath, fromRoot = repoRoot) {
 
 export function listWorkspacePackages(options = {}) {
   const roots = options.roots ?? workspaceRoots;
+  const rootDir = options.repoRoot ?? repoRoot;
   const workspaces = [];
 
   for (const workspaceRoot of roots) {
-    const rootPath = path.join(repoRoot, workspaceRoot);
+    const rootPath = path.join(rootDir, workspaceRoot);
 
     for (const entry of readDir(rootPath)) {
       if (!entry.isDirectory()) {

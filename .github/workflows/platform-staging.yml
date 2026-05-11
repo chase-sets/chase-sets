@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: platform-staging
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -46,15 +46,35 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 11.0.9
-          run_install: false
+      - name: Validate staging configuration
+        run: |
+          missing=()
+          for name in \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            DIGITALOCEAN_ACCESS_TOKEN \
+            TF_VAR_platform_internal_auth_secret \
+            TF_VAR_platform_admin_email \
+            TF_VAR_platform_admin_password \
+            TF_VAR_discord_invite_url \
+            TF_VAR_stripe_secret_key \
+            TF_VAR_stripe_publishable_key \
+            TF_VAR_stripe_webhook_secret \
+            TF_VAR_stripe_connect_return_url \
+            TF_VAR_stripe_connect_refresh_url \
+            TF_VAR_easypost_api_key
+          do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-          cache: pnpm
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required staging configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - uses: ./.github/actions/setup-pnpm-workspace
 
       - uses: hashicorp/setup-terraform@v4
 
@@ -65,8 +85,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify repository
-        run: pnpm run verify
+      - name: Check generated metadata
+        run: pnpm run verify:metadata
+
+      - name: Run staging static gate
+        run: pnpm run verify:static
+
+      - name: Build staging workspaces
+        run: pnpm run verify:build
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform

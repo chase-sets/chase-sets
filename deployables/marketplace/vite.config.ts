@@ -28,6 +28,7 @@ const localDevCorsOrigins = [
 
 export default defineConfig({
   build: {
+    chunkSizeWarningLimit: 900,
     rolldownOptions: {
       checks: {
         pluginTimings: false,
@@ -76,5 +77,5 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-  }
+  },
 });

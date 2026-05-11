@@ -118,7 +118,7 @@ resource "digitalocean_app" "platform" {
     service {
       name               = "public-web"
       source_dir         = "/"
-      build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-public-web run build"
+      build_command      = local.public_web_build_command
       run_command        = "pnpm --filter @chase-sets/app-public-web run start"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
@@ -178,7 +178,7 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "marketplace"
         source_dir         = "/"
-        build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-marketplace-web run build"
+        build_command      = local.marketplace_web_build_command
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
         environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
@@ -224,7 +224,7 @@ resource "digitalocean_app" "platform" {
     service {
       name               = "admin-web"
       source_dir         = "/"
-      build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-admin-web run build"
+      build_command      = local.admin_web_build_command
       run_command        = "pnpm --filter @chase-sets/app-admin-web run start"
       environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
@@ -265,7 +265,7 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "platform-api"
         source_dir         = "/"
-        build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-platform-api run build"
+        build_command      = local.platform_api_build_command
         run_command        = "pnpm --filter @chase-sets/app-platform-api run start:production"
         environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
@@ -395,7 +395,7 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "admin-support-api"
         source_dir         = "/"
-        build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-admin-support-api run build"
+        build_command      = local.admin_support_api_build_command
         run_command        = "pnpm --filter @chase-sets/app-admin-support-api run start:production"
         environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
@@ -461,7 +461,7 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "platform-worker"
         source_dir         = "/"
-        build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-platform-worker run build"
+        build_command      = local.platform_worker_build_command
         run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
         environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
@@ -578,7 +578,7 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "admin-support-worker"
         source_dir         = "/"
-        build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata && pnpm --filter @chase-sets/app-admin-support-worker run build"
+        build_command      = local.admin_support_worker_build_command
         run_command        = "pnpm --filter @chase-sets/app-admin-support-worker run start:production"
         environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
@@ -621,7 +621,7 @@ resource "digitalocean_app" "platform" {
         name               = "platform-bootstrap"
         kind               = "PRE_DEPLOY"
         source_dir         = "/"
-        build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata"
+        build_command      = local.app_platform_workspace_setup_command
         run_command        = "pnpm --filter @chase-sets/app-platform-api run bootstrap:production"
         environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
@@ -691,7 +691,7 @@ resource "digitalocean_app" "platform" {
         name               = "admin-support-bootstrap"
         kind               = "PRE_DEPLOY"
         source_dir         = "/"
-        build_command      = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata"
+        build_command      = local.app_platform_workspace_setup_command
         run_command        = "pnpm --filter @chase-sets/app-admin-support-api run bootstrap:production"
         environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
