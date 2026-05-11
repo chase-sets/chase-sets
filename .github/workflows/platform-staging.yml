@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  checks: read
 
 concurrency:
   group: platform-staging
@@ -54,6 +55,7 @@ jobs:
 
       - name: Validate staging configuration
         run: |
+          set -euo pipefail
           missing=()
           for name in \
             AWS_ACCESS_KEY_ID \
@@ -70,7 +72,7 @@ jobs:
             TF_VAR_stripe_connect_refresh_url \
             TF_VAR_easypost_api_key
           do
-            if [ -z "${!name}" ]; then
+            if [ -z "${!name:-}" ]; then
               missing+=("$name")
             fi
           done
@@ -79,6 +81,41 @@ jobs:
             printf 'Missing required staging configuration: %s\n' "${missing[*]}" >&2
             exit 1
           fi
+
+      - name: Wait for main CI gate
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          required_check="PR Required"
+          release_commit="${{ github.sha }}"
+          deadline=$((SECONDS + 1800))
+
+          while true; do
+            completed_checks="$(gh api --paginate "repos/${{ github.repository }}/commits/${release_commit}/check-runs?per_page=100" \
+              --jq ".check_runs[] | select(.name == \"${required_check}\" and .status == \"completed\") | [.conclusion, .html_url] | @tsv")"
+            successful_check_url="$(printf '%s\n' "$completed_checks" | awk -F '\t' '$1 == "success" { print $2; exit }')"
+
+            if [ -n "$successful_check_url" ]; then
+              echo "Validated ${required_check}: ${successful_check_url}"
+              break
+            fi
+
+            if [ -n "$completed_checks" ]; then
+              echo "Completed '${required_check}' check runs did not include a success:" >&2
+              printf '%s\n' "$completed_checks" >&2
+              exit 1
+            fi
+
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for '${required_check}' on ${release_commit}." >&2
+              exit 1
+            fi
+
+            echo "Waiting for '${required_check}' on ${release_commit}..."
+            sleep 30
+          done
 
       - uses: ./.github/actions/setup-pnpm-workspace
 

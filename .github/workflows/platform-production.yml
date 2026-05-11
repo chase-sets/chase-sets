@@ -53,6 +53,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate production configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            DIGITALOCEAN_ACCESS_TOKEN \
+            TF_VAR_platform_internal_auth_secret \
+            TF_VAR_platform_admin_email \
+            TF_VAR_platform_admin_password \
+            TF_VAR_discord_invite_url
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required production configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
       - name: Resolve release commit
         id: promote
         run: |
@@ -115,21 +138,6 @@ jobs:
           release_commit="${{ steps.promote.outputs.release_commit }}"
           git tag -a "$tag" "$release_commit" -m "Release ${tag}"
           git push origin "refs/tags/${tag}"
-
-      - name: Fast-forward production
-        run: |
-          set -euo pipefail
-          release_commit="${{ steps.promote.outputs.release_commit }}"
-          git fetch origin production || true
-
-          if git show-ref --verify --quiet refs/remotes/origin/production; then
-            git checkout -B production origin/production
-            git merge --ff-only "$release_commit"
-          else
-            git checkout -B production "$release_commit"
-          fi
-
-          git push origin production
 
       - name: Check out release commit
         run: |
@@ -230,6 +238,7 @@ jobs:
         env:
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_EMAIL: ops+smoke@chasesets.com
           SMOKE_SOURCE: production-smoke
           SMOKE_UTM_CAMPAIGN: production-release
@@ -239,3 +248,18 @@ jobs:
           admin_domain="$(terraform output -raw admin_domain)"
           cd ../../..
           pnpm run smoke:platform -- "https://${public_domain}" "https://${admin_domain}"
+
+      - name: Fast-forward production
+        run: |
+          set -euo pipefail
+          release_commit="${{ steps.promote.outputs.release_commit }}"
+          git fetch origin production || true
+
+          if git show-ref --verify --quiet refs/remotes/origin/production; then
+            git checkout -B production origin/production
+            git merge --ff-only "$release_commit"
+          else
+            git checkout -B production "$release_commit"
+          fi
+
+          git push origin production
