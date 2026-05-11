@@ -700,6 +700,27 @@ describe("realtime outbox", () => {
     expect(calls[3].sql).toContain("SET dropped_at");
   });
 
+  it("reports outbox partition maintenance failures without rejecting", async () => {
+    const error = new Error("connection timeout");
+    const errors: unknown[] = [];
+    const maintainer = createRealtimeOutboxPartitionMaintainer({
+      db: {
+        query: async () => {
+          throw error;
+        },
+      },
+      intervalMs: 60_000,
+      onError: (reportedError) => {
+        errors.push(reportedError);
+      },
+    });
+
+    await expect(maintainer.maintain()).resolves.toBeUndefined();
+    maintainer.stop();
+
+    expect(errors).toEqual([error]);
+  });
+
   it("records idempotent projection patches with a retention cutoff", async () => {
     const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
     const db = {

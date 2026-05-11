@@ -211,15 +211,15 @@ export function createRealtimeOutboxPartitionMaintainer(options: Readonly<{
           addUtcDays(start, -retentionDays).toISOString(),
         ],
       );
+    } catch (error) {
+      options.onError?.(error);
     } finally {
       running = false;
     }
   };
 
   const timer = setInterval(() => {
-    void maintain().catch((error: unknown) => {
-      options.onError?.(error);
-    });
+    void maintain();
   }, options.intervalMs ?? 60 * 60 * 1_000);
   timer.unref?.();
 
