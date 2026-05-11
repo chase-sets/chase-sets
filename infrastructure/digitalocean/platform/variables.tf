@@ -40,8 +40,15 @@ variable "postgres_version" {
 }
 
 variable "database_size" {
-  type    = string
-  default = "db-s-1vcpu-1gb"
+  type        = string
+  default     = "db-s-1vcpu-1gb"
+  description = "Production database cluster size. Staging uses staging_database_size because it runs the full platform."
+}
+
+variable "staging_database_size" {
+  type        = string
+  default     = "db-s-2vcpu-4gb"
+  description = "Staging database cluster size. Full-system staging mounts many bounded-context databases and needs more connection headroom than the smallest tier."
 }
 
 variable "database_node_count" {

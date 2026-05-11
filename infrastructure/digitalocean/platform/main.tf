@@ -7,7 +7,7 @@ resource "digitalocean_database_cluster" "postgres" {
   name       = "${local.name_prefix}-postgres"
   engine     = "pg"
   version    = var.postgres_version
-  size       = var.database_size
+  size       = local.database_size
   region     = var.region
   node_count = var.database_node_count
   tags       = [var.environment, "platform", "managed-by-terraform"]
@@ -297,6 +297,24 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "DATABASE_POOL_MAX"
+          value = local.database_pool_max
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_IDLE_TIMEOUT_MS"
+          value = local.database_pool_idle_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
+          value = local.database_pool_connection_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
           value = "$${db-control.DATABASE_URL}"
           type  = "SECRET"
@@ -428,6 +446,24 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "DATABASE_POOL_MAX"
+          value = local.database_pool_max
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_IDLE_TIMEOUT_MS"
+          value = local.database_pool_idle_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
+          value = local.database_pool_connection_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
           value = "$${db-control.DATABASE_URL}"
           type  = "SECRET"
@@ -491,6 +527,24 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "PORT"
           value = "8080"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_MAX"
+          value = local.database_pool_max
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_IDLE_TIMEOUT_MS"
+          value = local.database_pool_idle_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
+          value = local.database_pool_connection_timeout_ms
           scope = "RUN_TIME"
         }
 
@@ -606,6 +660,24 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "DATABASE_POOL_MAX"
+          value = local.database_pool_max
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_IDLE_TIMEOUT_MS"
+          value = local.database_pool_idle_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
+          value = local.database_pool_connection_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
           value = "$${db-control.DATABASE_URL}"
           type  = "SECRET"
@@ -647,6 +719,24 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_MAX"
+          value = local.database_pool_max
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_IDLE_TIMEOUT_MS"
+          value = local.database_pool_idle_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
+          value = local.database_pool_connection_timeout_ms
+          scope = "RUN_TIME"
         }
 
         env {
@@ -718,6 +808,24 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_MAX"
+          value = local.database_pool_max
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_IDLE_TIMEOUT_MS"
+          value = local.database_pool_idle_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
+          value = local.database_pool_connection_timeout_ms
+          scope = "RUN_TIME"
         }
 
         env {
