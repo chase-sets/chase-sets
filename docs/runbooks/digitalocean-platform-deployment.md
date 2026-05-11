@@ -9,7 +9,7 @@ This runbook covers the staging full-system platform deployment and the current 
 - State: DigitalOcean Spaces bucket through Terraform's S3 backend with `use_lockfile=true`.
 - Compatibility: remote state keys remain `landing/staging.tfstate` and `landing/production.tfstate` until a deliberate state-key migration is scheduled.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before this root runs; staging and production share the same zone.
-- Deploy orchestration: GitHub Actions is the canonical deploy owner. App Platform components use the public Git clone source and workflows trigger deployments explicitly after Terraform apply; the GitHub App-backed source is avoided because it can serve stale branch revisions during manual deployments.
+- Deploy orchestration: GitHub Actions is the canonical deploy owner. App Platform components use the public Git clone source and workflows trigger deployments after Terraform apply unless Terraform already changed and deployed the app spec; the GitHub App-backed source is avoided because it can serve stale branch revisions during manual deployments.
 - Staging hosts:
   - `landing-staging.chasesets.com`: landing `public-web`.
   - `marketplace-staging.chasesets.com`: marketplace web.
@@ -77,15 +77,17 @@ Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraf
 
 Staging deploys from `main` through `.github/workflows/platform-staging.yml`.
 
-The workflow cancels stale in-progress staging runs when a newer commit reaches `main`.
+The workflow serializes staging runs so an in-progress DigitalOcean App Platform deployment can finish before the next run touches the app.
 
 The workflow:
 
 1. Validates required staging secrets and variables before dependency install.
 2. Runs the staging gate: generated metadata check, static checks, and workspace builds.
-3. Runs Terraform fmt, plan, and apply for `environment=staging`.
-4. Creates a DigitalOcean App Platform deployment, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-5. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
+3. Runs Terraform fmt and plan for `environment=staging`.
+4. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply, so concurrent DigitalOcean builds do not compete with the next deploy.
+5. Runs Terraform apply for `environment=staging`.
+6. Creates a DigitalOcean App Platform deployment when Terraform did not already change and deploy `digitalocean_app.platform`, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+7. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
 
 The current App Platform components still build from repository source. Their build commands share one Terraform-local workspace setup command; moving to immutable artifacts or container images built once in GitHub Actions is the next deployment-efficiency step.
 
@@ -100,9 +102,11 @@ The workflow:
 1. Creates the release tag from the requested release ref when it is missing, or verifies the existing tag.
 2. Fast-forwards the protected `production` branch to that tag.
 3. Verifies the release commit has a successful `PR Required` check.
-4. Runs Terraform fmt, plan, and apply for `environment=production`.
-5. Creates a DigitalOcean App Platform deployment, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-6. Runs `pnpm run smoke:platform` with `ops+smoke@chasesets.com` and smoke UTM markers.
+4. Runs Terraform fmt and plan for `environment=production`.
+5. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
+6. Runs Terraform apply for `environment=production`.
+7. Creates a DigitalOcean App Platform deployment when Terraform did not already change and deploy `digitalocean_app.platform`, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+8. Runs `pnpm run smoke:platform` with `ops+smoke@chasesets.com` and smoke UTM markers.
 
 ## Smoke Coverage
 
