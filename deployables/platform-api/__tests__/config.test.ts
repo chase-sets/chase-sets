@@ -45,6 +45,7 @@ afterEach(() => {
   delete process.env.REALTIME_POLL_INTERVAL_MS;
   delete process.env.REALTIME_HEARTBEAT_INTERVAL_MS;
   delete process.env.REALTIME_RETENTION_PRUNE_INTERVAL_MS;
+  delete process.env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED;
   delete process.env.REALTIME_MAX_CONSECUTIVE_FULL_BATCHES;
   delete process.env.REALTIME_MAX_TOPICS_PER_STREAM;
   delete process.env.REALTIME_MAX_ACTIVE_STREAMS;
@@ -289,6 +290,7 @@ describe("platform api config", () => {
     process.env.REALTIME_POLL_INTERVAL_MS = "250";
     process.env.REALTIME_HEARTBEAT_INTERVAL_MS = "5000";
     process.env.REALTIME_RETENTION_PRUNE_INTERVAL_MS = "120000";
+    process.env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED = "false";
     process.env.REALTIME_MAX_CONSECUTIVE_FULL_BATCHES = "2";
     process.env.REALTIME_MAX_TOPICS_PER_STREAM = "8";
     process.env.REALTIME_MAX_ACTIVE_STREAMS = "200";
@@ -303,6 +305,7 @@ describe("platform api config", () => {
       pollIntervalMs: 250,
       heartbeatIntervalMs: 5_000,
       retentionPruneIntervalMs: 120_000,
+      backgroundMaintenanceEnabled: false,
       maxConsecutiveFullBatches: 2,
       maxTopicsPerStream: 8,
       maxActiveStreams: 200,

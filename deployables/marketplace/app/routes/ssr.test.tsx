@@ -21,6 +21,7 @@ import { loader as healthReadyLoader } from "./health-ready";
 describe("marketplace SSR routes", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("loads discovery data through the marketplace API", async () => {
@@ -62,6 +63,86 @@ describe("marketplace SSR routes", () => {
 
     expect(result.search).toBe("charizard");
     expect(result.data.items).toEqual([]);
+  });
+
+  it("renders an empty discovery result when marketplace category reads fail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/marketplace/categories")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: "Connection timeout." }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [],
+              total: 0,
+              count: 0,
+              nextCursor: null,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }),
+    );
+
+    const result = await searchLoader({
+      request: new Request("http://localhost/search?search=charizard"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.categories).toEqual([]);
+    expect(result.data.items).toEqual([]);
+  });
+
+  it("renders an empty discovery result when marketplace search reads fail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/marketplace/categories")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ items: [], total: 0, count: 0 }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "Connection timeout." }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
+    );
+
+    const result = await searchLoader({
+      request: new Request("http://localhost/search?search=charizard"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.data).toEqual({
+      items: [],
+      total: 0,
+      count: 0,
+      nextCursor: null,
+    });
   });
 
   it("builds canonical URLs for marketplace pages", () => {
@@ -340,4 +421,3 @@ describe("marketplace SSR routes", () => {
     );
   });
 });
-

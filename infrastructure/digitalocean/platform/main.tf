@@ -417,6 +417,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "REALTIME_BACKGROUND_MAINTENANCE_ENABLED"
+          value = local.is_staging ? "false" : "true"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "DEPLOYMENT_ENVIRONMENT"
           value = var.environment
           scope = "RUN_TIME"
