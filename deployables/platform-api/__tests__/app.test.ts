@@ -77,6 +77,38 @@ describe("platform api app", () => {
     });
   });
 
+  it("mounts API-prefixed health for ingress smoke checks", async () => {
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      },
+      {
+        readinessChecks: [
+          {
+            name: "control.database",
+            check: async () => undefined,
+          },
+        ],
+      },
+    );
+
+    const response = await app.request("/api/health/ready");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "ok",
+      checks: [{ name: "control.database", status: "ok" }],
+    });
+  });
+
   it("mounts the internal realtime status route", async () => {
     const module = {
       contextName: "discovery",
