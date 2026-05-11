@@ -47,8 +47,8 @@ variable "database_size" {
 
 variable "staging_database_size" {
   type        = string
-  default     = "db-s-2vcpu-4gb"
-  description = "Staging database cluster size. Full-system staging mounts many bounded-context databases and needs more connection headroom than the smallest tier."
+  default     = "db-s-1vcpu-1gb"
+  description = "Staging database cluster size. Staging uses managed Postgres connection pools to fit the full platform on the smallest tier."
 }
 
 variable "database_node_count" {

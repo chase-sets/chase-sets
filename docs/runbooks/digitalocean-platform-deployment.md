@@ -10,7 +10,7 @@ This runbook covers the staging full-system platform deployment and the current 
 - Compatibility: remote state keys remain `landing/staging.tfstate` and `landing/production.tfstate` until a deliberate state-key migration is scheduled.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before this root runs; staging and production share the same zone.
 - Deploy orchestration: GitHub Actions is the canonical deploy owner. Workflows build one platform container image in GitHub Actions, push it to DigitalOcean Container Registry, and point App Platform components at that immutable image tag. This avoids App Platform source builds for each component during Terraform app updates.
-- Database connections: App Platform API, worker, and bootstrap components cap each per-context Postgres pool at one connection. Full-system staging runs many bounded-context databases and uses a larger database tier than the production landing/admin-support slice to keep pre-deploy bootstrap below DigitalOcean Postgres connection limits.
+- Database connections: App Platform API, worker, and bootstrap components cap each per-context Postgres client pool at one connection. Full-system staging stays on the smallest managed Postgres tier and routes runtime traffic through one managed PgBouncer transaction pool per context database. Production can use a larger database tier when production marketplace promotion needs more headroom.
 - Production branch: `production` is a smoke-verified deployed release marker. The production workflow fast-forwards it only after App Platform deployment and production smoke pass.
 - Image retention: the `chase-sets-platform` DOCR repository uses immutable commit tags. During weekly operations, keep the images for the currently deployed staging commit, the currently deployed production release commit, the intended rollback window, and recent staging commits needed for active investigation; delete older tags and run DigitalOcean registry garbage collection after confirming no App Platform spec references them.
 - Staging hosts:
@@ -85,7 +85,7 @@ terraform apply
 
 Then run `terraform init` in `infrastructure/digitalocean/platform` using `landing/staging.tfstate` or `landing/production.tfstate` as the backend key. The CI workflows use the same backend settings.
 
-Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys.
+Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys. In staging, Terraform also creates one managed Postgres transaction pool per context database and points runtime `DATABASE_URL_*` variables at the pool private URIs.
 
 ## Staging Deployment
 
@@ -109,6 +109,8 @@ The workflow:
 The App Platform components share the same runtime image and differ only by run command, environment, scaling, health checks, and ingress routing.
 
 Staging is persistent and intentionally `noindex,nofollow` for landing and marketplace; production is the only indexed public origin.
+
+When migrating an existing staging app from direct database URLs to pool-backed URLs, delete or temporarily scale down the existing staging App Platform app before the first pool-backed apply if direct connections are still exhausting the small database tier. The deploy workflow tolerates a missing stale app ID during the pre-apply deployment wait, and Terraform recreates the app from state/config.
 
 ## Production Deployment
 
@@ -165,6 +167,7 @@ Do not copy production auth credential rows into staging without explicit saniti
 If staging deployment fails in `platform-bootstrap` with PostgreSQL `53300` / `remaining connection slots are reserved for roles with the SUPERUSER attribute`, the active staging app or bootstrap job exceeded the database tier's connection budget.
 
 1. Confirm the Terraform spec includes `DATABASE_POOL_MAX=1` for `platform-api`, `platform-worker`, and `platform-bootstrap`.
-2. Confirm staging is on at least `db-s-2vcpu-4gb`.
-3. Re-run the staging workflow.
-4. If the previous active app is still holding too many connections while the new pre-deploy job starts, destroy or temporarily scale down the staging App Platform app and re-run staging. Staging is disposable; Terraform will recreate the App Platform app from state/config, while the managed database remains the persistent data boundary unless deliberately destroyed.
+2. Confirm staging has one `digitalocean_database_connection_pool.contexts` pool per context database, each in `transaction` mode with size `1`.
+3. Confirm runtime `PLATFORM_CONTROL_DATABASE_URL` and `DATABASE_URL_*` variables resolve to connection pool private URIs, not direct database URLs.
+4. Re-run the staging workflow.
+5. If the previous active app is still holding too many direct connections while the new pool-backed spec starts, destroy or temporarily scale down the staging App Platform app and re-run staging. Staging is disposable; Terraform will recreate the App Platform app from state/config, while the managed database remains the persistent data boundary unless deliberately destroyed.

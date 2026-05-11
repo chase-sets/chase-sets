@@ -73,6 +73,13 @@ locals {
     context_name => "cs_${var.environment}_${replace(context_name, "-", "_")}"
   }
 
+  staging_connection_pool_contexts = local.is_staging ? local.context_databases : {}
+
+  context_database_urls = {
+    for context_name in local.context_names :
+    context_name => local.is_staging ? digitalocean_database_connection_pool.contexts[context_name].private_uri : format("$${db-%s.DATABASE_URL}", context_name)
+  }
+
   context_database_env = {
     for context_name in local.context_names :
     context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}"

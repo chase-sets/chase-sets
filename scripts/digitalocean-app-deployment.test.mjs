@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activeDeployments,
+  appNotFound,
   appPlatformChanges,
   deployApp,
   planAppChanged,
@@ -93,6 +94,23 @@ describe("digitalocean-app-deployment", () => {
     });
 
     expect(sleeps).toBe(1);
+  });
+
+  it("treats a deleted App Platform app as no active deployment to wait for", async () => {
+    await waitForDeployments("deleted-app-id", {
+      commandJson: async () => {
+        throw new Error("doctl apps list-deployments deleted-app-id failed: app not found");
+      },
+      sleep: async () => {
+        throw new Error("sleep should not be called");
+      },
+    });
+  });
+
+  it("recognizes App Platform app not found errors", () => {
+    expect(appNotFound(new Error("app not found"))).toBe(true);
+    expect(appNotFound(new Error("404 could not find apps resource"))).toBe(true);
+    expect(appNotFound(new Error("database not found"))).toBe(false);
   });
 
   it("times out with deployment IDs and phases", async () => {
