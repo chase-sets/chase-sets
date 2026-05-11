@@ -77,7 +77,7 @@ locals {
 
   context_database_urls = {
     for context_name in local.context_names :
-    context_name => local.is_staging ? digitalocean_database_connection_pool.contexts[context_name].private_uri : format("$${db-%s.DATABASE_URL}", context_name)
+    context_name => local.is_staging ? digitalocean_database_connection_pool.contexts[context_name].uri : format("$${db-%s.DATABASE_URL}", context_name)
   }
 
   context_database_env = {
