@@ -24,6 +24,11 @@ locals {
   api_component_name = local.is_staging ? "platform-api" : "admin-support-api"
   api_private_url    = local.is_staging ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
   marketplace_origin = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
+  database_size      = local.is_staging ? var.staging_database_size : var.database_size
+
+  database_pool_max                   = "1"
+  database_pool_idle_timeout_ms       = "5000"
+  database_pool_connection_timeout_ms = "10000"
 
   landing_context_names = [
     "auth",
