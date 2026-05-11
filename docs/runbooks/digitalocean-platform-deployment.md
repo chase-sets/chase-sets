@@ -103,7 +103,7 @@ The workflow:
 
 1. Creates the release tag from the requested release ref when it is missing, or verifies the existing tag.
 2. Fast-forwards the protected `production` branch to that tag.
-3. Verifies the release commit has a successful `PR Required` check.
+3. Verifies the release commit has a successful `PR Required` check from the Platform PR workflow. The workflow runs on pull requests and on pushes to `main`, so the merge or squash commit selected for release carries its own deploy gate result.
 4. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:${release_commit}`.
 5. Runs Terraform fmt and plan for `environment=production` with the pushed image tag.
 6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.

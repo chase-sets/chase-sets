@@ -28,11 +28,6 @@ variable "region" {
   default = "nyc3"
 }
 
-variable "repo" {
-  type    = string
-  default = "todd-skelton/chase-sets"
-}
-
 variable "root_domain" {
   type    = string
   default = "chasesets.com"

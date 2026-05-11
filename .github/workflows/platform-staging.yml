@@ -138,13 +138,8 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: Terraform plan
-        id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
-        run: |
-          terraform plan -out=tfplan
-          app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
-          echo "Terraform will change digitalocean_app.platform: ${app_changed}"
-          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
+        run: terraform plan -out=tfplan
 
       - name: Wait for previous App Platform deployment
         working-directory: infrastructure/digitalocean/platform

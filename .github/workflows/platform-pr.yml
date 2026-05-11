@@ -2,12 +2,15 @@ name: Platform PR
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: platform-pr-${{ github.event.pull_request.number }}
+  group: platform-pr-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
