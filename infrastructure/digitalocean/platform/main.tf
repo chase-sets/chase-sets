@@ -37,10 +37,13 @@ resource "digitalocean_database_connection_pool" "contexts" {
 }
 
 resource "terraform_data" "context_database_grants" {
-  triggers_replace = [
-    for context_name in sort(keys(local.context_databases)) :
-    "${digitalocean_database_db.contexts[context_name].name}:${digitalocean_database_user.contexts[context_name].name}"
-  ]
+  triggers_replace = concat(
+    [digitalocean_database_cluster.postgres.id],
+    [
+      for context_name in sort(keys(local.context_databases)) :
+      "${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.contexts[context_name].id}"
+    ],
+  )
 
   provisioner "local-exec" {
     working_dir = "${path.module}/../../.."
