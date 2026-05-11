@@ -37,6 +37,7 @@ export default [
   ),
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
+  route("health/ready", "routes/health-ready.ts"),
   route("offline", "routes/offline.tsx"),
   layout("routes/layout.tsx", [
     index("routes/index.tsx"),
