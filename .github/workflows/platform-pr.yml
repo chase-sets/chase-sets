@@ -11,8 +11,81 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Verify and Terraform Plan
+  static:
+    name: Static Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check generated metadata
+        run: pnpm run verify:metadata
+
+      - name: Run static checks
+        run: pnpm run verify:static
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck repository
+        run: pnpm run verify:typecheck
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run non-DB tests
+        run: pnpm run verify:test
+
+  db-tests:
+    name: DB Profile Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run DB-profile fast tests
+        run: pnpm run verify:test-db
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspaces
+        run: pnpm run verify:build
+
+  terraform-plan:
+    name: Terraform Plan
     runs-on: ubuntu-latest
     env:
       TF_IN_AUTOMATION: "true"
@@ -25,6 +98,7 @@ jobs:
       TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
       TF_VAR_platform_admin_email: ops+pr@chasesets.com
       TF_VAR_platform_admin_password: pr-validation-password-please-rotate
+      TF_VAR_platform_admin_display_name: Platform Admin
       TF_VAR_discord_invite_url: https://discord.gg/pr-validation
       TF_VAR_stripe_secret_key: sk_test_pr_validation
       TF_VAR_stripe_publishable_key: pk_test_pr_validation
@@ -36,25 +110,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 11.0.9
-          run_install: false
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-          cache: pnpm
-
       - uses: hashicorp/setup-terraform@v4
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Verify repository
-        run: pnpm run verify
-
-      - name: Terraform init without remote backend
+      - name: Terraform init platform without remote backend
         working-directory: infrastructure/digitalocean/platform
         run: terraform init -backend=false
 
@@ -89,3 +147,31 @@ jobs:
       - name: Terraform plan state bootstrap
         working-directory: infrastructure/digitalocean/state-bootstrap
         run: terraform plan -refresh=false -lock=false -out=tfplan
+
+  pr-required:
+    name: PR Required
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - static
+      - typecheck
+      - unit-tests
+      - db-tests
+      - build
+      - terraform-plan
+    steps:
+      - name: Verify required jobs
+        run: |
+          for result in \
+            "${{ needs.static.result }}" \
+            "${{ needs.typecheck.result }}" \
+            "${{ needs['unit-tests'].result }}" \
+            "${{ needs['db-tests'].result }}" \
+            "${{ needs.build.result }}" \
+            "${{ needs['terraform-plan'].result }}"
+          do
+            if [ "$result" != "success" ]; then
+              echo "At least one required PR job failed or was skipped." >&2
+              exit 1
+            fi
+          done

@@ -6,7 +6,7 @@ import {
   createPublicPresenceRequestApiClient,
 } from "../../support/request-support/api-client";
 import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
-import heroImageUrl from "../../support/shell-support/assets/chase-sets-prelaunch-hero.webp?url";
+import heroImageUrl from "../../features/waitlist/ui/assets/chase-sets-prelaunch-hero.webp?url";
 
 function optional(value: FormDataEntryValue | null) {
   const text = typeof value === "string" ? value.trim() : "";

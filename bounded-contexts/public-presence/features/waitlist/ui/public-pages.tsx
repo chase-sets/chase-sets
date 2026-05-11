@@ -29,9 +29,9 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import prelaunchHeroUrl from "../../../support/shell-support/assets/chase-sets-prelaunch-hero.webp?url";
-import pikachuIllustrationRareUrl from "../../../support/shell-support/assets/pikachu-illustration-rare.png?url";
-import waitlistCardPanelsUrl from "../../../support/shell-support/assets/chase-sets-waitlist-card-panels.webp?url";
+import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
+import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare.png?url";
+import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp?url";
 
 export type WaitlistActionData =
   | Readonly<{ status: "joined" }>

@@ -15,6 +15,8 @@ on:
 
 permissions:
   contents: write
+  actions: read
+  checks: read
 
 concurrency:
   group: platform-production
@@ -46,7 +48,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create or validate release tag and fast-forward production
+      - name: Create or validate release tag
+        id: promote
         run: |
           set -euo pipefail
           tag="${{ inputs.release_tag }}"
@@ -72,25 +75,40 @@ jobs:
           fi
 
           git merge-base --is-ancestor "$tag_commit" origin/main
+          echo "release_commit=$tag_commit" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          required_check="PR Required"
+          release_commit="${{ steps.promote.outputs.release_commit }}"
+          conclusion="$(gh api "repos/${{ github.repository }}/commits/${release_commit}/check-runs" \
+            --jq ".check_runs[] | select(.name == \"${required_check}\") | .conclusion" \
+            | head -n 1)"
+
+          if [ "$conclusion" != "success" ]; then
+            echo "Release commit ${release_commit} must have a successful '${required_check}' check before production deploy." >&2
+            exit 1
+          fi
+
+      - name: Fast-forward production
+        run: |
+          set -euo pipefail
+          release_commit="${{ steps.promote.outputs.release_commit }}"
+          git fetch origin production || true
 
           if git show-ref --verify --quiet refs/remotes/origin/production; then
             git checkout -B production origin/production
-            git merge --ff-only "$tag_commit"
+            git merge --ff-only "$release_commit"
           else
-            git checkout -B production "$tag_commit"
+            git checkout -B production "$release_commit"
           fi
 
           git push origin production
 
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 11.0.9
-          run_install: false
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-          cache: pnpm
+      - uses: ./.github/actions/setup-pnpm-workspace
 
       - uses: hashicorp/setup-terraform@v4
 
@@ -100,9 +118,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Verify repository
-        run: pnpm run verify
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform

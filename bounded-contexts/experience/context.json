@@ -82,7 +82,7 @@
   "directoryIntent": {
     "platform-feedback": {
       "classification": "slice",
-      "purpose": "Own platform feedback behavior, read models, UI contracts, and admin review surfaces.",
+      "purpose": "Own platform-feedback behavior, read models, UI contracts, and admin review surfaces.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal experience module composition",
@@ -97,7 +97,7 @@
         "platform-feedback"
       ],
       "justification": "request-support centralizes the Experience API client for route modules and browser prompt UI.",
-      "createdFor": "platform feedback routes and contextual prompt submissions.",
+      "createdFor": "platform-feedback routes and contextual prompt submissions.",
       "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
@@ -125,7 +125,7 @@
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide deterministic platform feedback seed identifiers.",
+      "purpose": "Provide deterministic platform-feedback seed identifiers.",
       "allowedWhen": "Allowed for bootstrap and test data.",
       "expectedConsumers": [
         "platform-feedback",
