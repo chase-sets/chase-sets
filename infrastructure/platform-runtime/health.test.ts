@@ -10,7 +10,7 @@ describe("health routes", () => {
     expect(response.status).toBe(200);
   });
 
-  it("reports readiness with dependency and projection status", async () => {
+  it("reports readiness with dependency status", async () => {
     const app = createHealthRoutes({
       readinessChecks: [
         {
@@ -18,6 +18,18 @@ describe("health routes", () => {
           check: async () => undefined,
         },
       ],
+    });
+    const response = await app.request("/ready");
+
+    await expect(response.json()).resolves.toMatchObject({
+      status: "ok",
+      checks: [{ name: "identity.database", status: "ok" }],
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("reports projection replay status outside readiness", async () => {
+    const app = createHealthRoutes({
       getProjectionReplay: async () => ({
         status: "ok",
         totalGroups: 1,
@@ -30,12 +42,50 @@ describe("health routes", () => {
         contexts: [],
       }),
     });
-    const response = await app.request("/ready");
+    const response = await app.request("/");
 
     await expect(response.json()).resolves.toMatchObject({
       status: "ok",
-      checks: [{ name: "identity.database", status: "ok" }],
       projectionReplay: { status: "ok" },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("keeps projection replay failures out of readiness", async () => {
+    const app = createHealthRoutes({
+      readinessChecks: [
+        {
+          name: "control.database",
+          check: async () => undefined,
+        },
+      ],
+      getProjectionReplay: async () => {
+        throw new Error("projection replay unavailable");
+      },
+    });
+    const response = await app.request("/ready");
+
+    await expect(response.json()).resolves.toEqual({
+      status: "ok",
+      checks: [{ name: "control.database", status: "ok" }],
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("reports projection replay failures as degraded health", async () => {
+    const app = createHealthRoutes({
+      getProjectionReplay: async () => {
+        throw new Error("projection replay unavailable");
+      },
+    });
+    const response = await app.request("/");
+
+    await expect(response.json()).resolves.toEqual({
+      status: "degraded",
+      projectionReplayError: {
+        status: "degraded",
+        message: "projection replay unavailable",
+      },
     });
     expect(response.status).toBe(200);
   });

@@ -40,6 +40,43 @@ describe("platform api app", () => {
     expect(response.status).toBe(200);
   });
 
+  it("keeps projection replay out of readiness", async () => {
+    const getProjectionReplay = vi.fn(async () => {
+      throw new Error("projection replay unavailable");
+    });
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      },
+      {
+        getProjectionReplay,
+        readinessChecks: [
+          {
+            name: "control.database",
+            check: async () => undefined,
+          },
+        ],
+      },
+    );
+
+    const response = await app.request("/health/ready");
+
+    expect(response.status).toBe(200);
+    expect(getProjectionReplay).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({
+      status: "ok",
+      checks: [{ name: "control.database", status: "ok" }],
+    });
+  });
+
   it("mounts the internal realtime status route", async () => {
     const module = {
       contextName: "discovery",

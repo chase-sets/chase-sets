@@ -239,12 +239,14 @@ const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
-  readinessChecks: runtime.mountedContexts.map((entry) => ({
-    name: `${entry.contextName}.database`,
-    check: async () => {
-      await entry.pool.query("SELECT 1");
+  readinessChecks: [
+    {
+      name: "control.database",
+      check: async () => {
+        await pools.control.query("SELECT 1");
+      },
     },
-  })),
+  ],
   resolveActor: (request) =>
     resolveActorFromRequest(
       runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0],
