@@ -26,11 +26,9 @@ resource "digitalocean_database_user" "contexts" {
 }
 
 resource "terraform_data" "context_database_grants" {
-  for_each = local.context_databases
-
   triggers_replace = [
-    digitalocean_database_db.contexts[each.key].name,
-    digitalocean_database_user.contexts[each.key].name,
+    for context_name in sort(keys(local.context_databases)) :
+    "${digitalocean_database_db.contexts[context_name].name}:${digitalocean_database_user.contexts[context_name].name}"
   ]
 
   provisioner "local-exec" {
@@ -38,14 +36,18 @@ resource "terraform_data" "context_database_grants" {
     command     = "node scripts/apply-digitalocean-database-grant.mjs"
 
     environment = {
-      DATABASE_GRANT_NAME = digitalocean_database_db.contexts[each.key].name
-      DATABASE_GRANT_USER = digitalocean_database_user.contexts[each.key].name
-      PGDATABASE          = digitalocean_database_db.contexts[each.key].name
-      PGHOST              = digitalocean_database_cluster.postgres.host
-      PGPASSWORD          = digitalocean_database_cluster.postgres.password
-      PGPORT              = tostring(digitalocean_database_cluster.postgres.port)
-      PGSSLMODE           = "require"
-      PGUSER              = digitalocean_database_cluster.postgres.user
+      DATABASE_GRANTS_JSON = jsonencode([
+        for context_name in sort(keys(local.context_databases)) : {
+          database = digitalocean_database_db.contexts[context_name].name
+          user     = digitalocean_database_user.contexts[context_name].name
+        }
+      ])
+      PGDATABASE = digitalocean_database_db.contexts[sort(keys(local.context_databases))[0]].name
+      PGHOST     = digitalocean_database_cluster.postgres.host
+      PGPASSWORD = digitalocean_database_cluster.postgres.password
+      PGPORT     = tostring(digitalocean_database_cluster.postgres.port)
+      PGSSLMODE  = "require"
+      PGUSER     = digitalocean_database_cluster.postgres.user
     }
   }
 

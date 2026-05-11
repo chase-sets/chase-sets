@@ -44,6 +44,9 @@ jobs:
       TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
       TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
     steps:
+      - name: Configure Git defaults
+        run: git config --global init.defaultBranch main
+
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -111,8 +114,12 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
 
       - uses: hashicorp/setup-terraform@v4
+        env:
+          NODE_OPTIONS: --no-deprecation
 
       - uses: digitalocean/action-doctl@v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
