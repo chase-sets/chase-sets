@@ -366,4 +366,66 @@ describe("platform api app", () => {
     expect(response.status).toBe(201);
     expect(runOnce).toHaveBeenCalledTimes(2);
   });
+
+  it("can disable write-drain consistency for constrained deploy targets", async () => {
+    const writeRouter = new Hono();
+    writeRouter.post("/cart", async (c) => c.json({ status: "added" }, 201));
+
+    const runOnce = vi.fn();
+    const module = {
+      contextName: "checkout",
+      apiMounts: [
+        {
+          mountPath: "/api/marketplace",
+          kind: "primary",
+          requiresAuth: true,
+          drainProjectorsOnWrite: true,
+        },
+      ],
+      buildApis: () => [writeRouter],
+      projectors: () => [{ runOnce }],
+    };
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [
+          {
+            contextName: "checkout",
+            module,
+            services: {},
+            pool: {},
+            projectors: [{ runOnce }],
+          },
+        ],
+        mountedModules: [{ module, services: {} }],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [{ runOnce }],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      } as never,
+      {
+        resolveActor: vi.fn(async () => ({
+          sessionId: "sess_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          accountId: "account_1",
+          membershipId: "member_1",
+          roleKey: "buyer",
+          permissions: ["orders.manage"],
+        })),
+        writeConsistencyDrainEnabled: false,
+      },
+    );
+
+    const response = await app.request("/api/marketplace/cart", {
+      method: "POST",
+      body: JSON.stringify({ productId: "prod_1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(runOnce).not.toHaveBeenCalled();
+  });
 });

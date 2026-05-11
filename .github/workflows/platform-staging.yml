@@ -223,6 +223,7 @@ jobs:
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
+          SMOKE_WRITE_WAITLIST: "false"
         run: |
           set -euo pipefail
           landing_domain="$(terraform output -raw landing_domain)"

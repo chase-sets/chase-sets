@@ -412,12 +412,24 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "REALTIME_STREAM_LIMITER"
-          value = "postgres"
+          value = local.is_staging ? "local" : "postgres"
           scope = "RUN_TIME"
         }
 
         env {
           key   = "REALTIME_BACKGROUND_MAINTENANCE_ENABLED"
+          value = local.is_staging ? "false" : "true"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "REALTIME_WAKE_SIGNAL_ENABLED"
+          value = local.is_staging ? "false" : "true"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WRITE_CONSISTENCY_DRAIN_ENABLED"
           value = local.is_staging ? "false" : "true"
           scope = "RUN_TIME"
         }
