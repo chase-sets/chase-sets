@@ -160,6 +160,13 @@ export function buildPlatformApiApp(
       readinessChecks: options.readinessChecks,
     }),
   );
+  app.route(
+    "/api/health",
+    createHealthRoutes({
+      getProjectionReplay: options.getProjectionReplay,
+      readinessChecks: options.readinessChecks,
+    }),
+  );
   app.get("/internal/realtime/status", async (c) =>
     c.json(
       await createRealtimeStatusSnapshot({

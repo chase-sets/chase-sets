@@ -1,24 +1,27 @@
 import process from "node:process";
+import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
+
+const cliArgs = getPlatformSmokeCliArgs(process.argv);
 
 const landingUrl = validateHttpUrl(
   trimTrailingSlash(
     process.env.LANDING_WEB_URL ??
       process.env.PUBLIC_WEB_URL ??
-      process.argv[2] ??
+      cliArgs[0] ??
       "",
   ),
   "landing URL",
 );
 const adminUrl = validateHttpUrl(
-  trimTrailingSlash(process.env.ADMIN_WEB_URL ?? process.argv[3] ?? ""),
+  trimTrailingSlash(process.env.ADMIN_WEB_URL ?? cliArgs[1] ?? ""),
   "admin URL",
 );
 const marketplaceUrl = validateHttpUrl(
-  trimTrailingSlash(process.env.MARKETPLACE_WEB_URL ?? process.argv[4] ?? ""),
+  trimTrailingSlash(process.env.MARKETPLACE_WEB_URL ?? cliArgs[2] ?? ""),
   "marketplace URL",
 );
 const redirectUrl = validateHttpUrl(
-  trimTrailingSlash(process.env.LEGACY_PUBLIC_URL ?? process.argv[5] ?? ""),
+  trimTrailingSlash(process.env.LEGACY_PUBLIC_URL ?? cliArgs[3] ?? ""),
   "legacy redirect URL",
 );
 const syntheticEmail =
