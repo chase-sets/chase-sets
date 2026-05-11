@@ -28,6 +28,15 @@ coverage/
 playwright-report/
 test-results/
 
+# Terraform local state and plans
+.terraform/
+**/.terraform/
+*.tfplan
+tfplan
+**/tfplan
+**/*.tfstate
+**/*.tfstate.*
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

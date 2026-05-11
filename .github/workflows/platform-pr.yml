@@ -96,8 +96,16 @@ jobs:
       - name: Build App Platform image
         run: docker build --pull --tag chase-sets-platform:pr-validation .
 
+  workflow-lint:
+    name: Workflow Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: rhysd/actionlint@v1
+
   terraform-plan:
-    name: Terraform Plan
+    name: Terraform Staging Plan
     runs-on: ubuntu-latest
     env:
       TF_IN_AUTOMATION: "true"
@@ -161,6 +169,44 @@ jobs:
         working-directory: infrastructure/digitalocean/state-bootstrap
         run: terraform plan -refresh=false -lock=false -out=tfplan
 
+  terraform-production-plan:
+    name: Terraform Production Plan
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_digitalocean_token: pr-validation-token
+      TF_VAR_spaces_access_id: pr-validation-access-id
+      TF_VAR_spaces_secret_key: pr-validation-secret-key
+      TF_VAR_environment: production
+      TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_platform_image_tag: pr-validation-production
+      TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
+      TF_VAR_platform_admin_email: ops+pr@chasesets.com
+      TF_VAR_platform_admin_password: pr-validation-password-please-rotate
+      TF_VAR_platform_admin_display_name: Platform Admin
+      TF_VAR_discord_invite_url: https://discord.gg/pr-validation
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform init platform without remote backend
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform init -backend=false
+
+      - name: Terraform validate platform
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform validate
+
+      - name: Terraform plan production platform
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/platform/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
   pr-required:
     name: PR Required
     runs-on: ubuntu-latest
@@ -172,7 +218,9 @@ jobs:
       - db-tests
       - build
       - docker-image
+      - workflow-lint
       - terraform-plan
+      - terraform-production-plan
     steps:
       - name: Verify required jobs
         run: |
@@ -183,7 +231,9 @@ jobs:
             "${{ needs['db-tests'].result }}" \
             "${{ needs.build.result }}" \
             "${{ needs['docker-image'].result }}" \
-            "${{ needs['terraform-plan'].result }}"
+            "${{ needs['workflow-lint'].result }}" \
+            "${{ needs['terraform-plan'].result }}" \
+            "${{ needs['terraform-production-plan'].result }}"
           do
             if [ "$result" != "success" ]; then
               echo "At least one required PR job failed or was skipped." >&2

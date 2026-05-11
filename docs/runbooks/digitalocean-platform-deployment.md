@@ -61,6 +61,17 @@ Staging Terraform validation requires test-mode provider values:
 - `EASYPOST_API_KEY` starts with `EZTK`
 - `EASYPOST_MODE` is `test`
 
+## Required GitHub Protection
+
+Deployment safety depends on GitHub repository settings as well as workflow code:
+
+- Protect `main` with required pull requests and a required `PR Required` status check from `.github/workflows/platform-pr.yml`.
+- Protect or ruleset-match `production` before the first production deploy so only the production workflow can move the deployed-release marker.
+- Restrict the `staging` and `production` GitHub Environments to deployments from `main`.
+- Require approval on the `production` GitHub Environment before secrets are released to the job.
+
+The Platform PR workflow validates static checks, typecheck, unit tests, DB-profile tests, workspace builds, Docker image builds, workflow syntax with Actionlint, staging Terraform shape, production Terraform shape, and state-bootstrap Terraform before reporting `PR Required`.
+
 ## One-Time State Bootstrap
 
 Create the Spaces bucket before the first platform Terraform init:
@@ -87,11 +98,12 @@ The workflow:
 2. Waits for the full `PR Required` gate on the pushed `main` commit.
 3. Runs the staging gate: generated metadata check, static checks, and workspace builds.
 4. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:${GITHUB_SHA}`.
-5. Runs Terraform fmt and plan for `environment=staging` with the pushed image tag.
+5. Runs Terraform fmt and plan for `environment=staging` with the pushed image tag, and records whether `digitalocean_app.platform` will change.
 6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
 7. Runs Terraform apply for `environment=staging`.
-8. Creates a DigitalOcean App Platform deployment to force App Platform to pull the pushed image tag, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-9. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
+8. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
+9. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+10. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
 
 The App Platform components share the same runtime image and differ only by run command, environment, scaling, health checks, and ingress routing.
 
@@ -109,12 +121,13 @@ The workflow:
 4. Creates the release tag when it does not already exist.
 5. Checks out the resolved release commit.
 6. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:${release_commit}`.
-7. Runs Terraform fmt and plan for `environment=production` with the pushed image tag.
+7. Runs Terraform fmt and plan for `environment=production` with the pushed image tag, and records whether `digitalocean_app.platform` will change.
 8. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
 9. Runs Terraform apply for `environment=production`.
-10. Creates a DigitalOcean App Platform deployment to force App Platform to pull the pushed image tag, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-11. Runs `pnpm run smoke:platform` with required admin authentication, `ops+smoke@chasesets.com`, and smoke UTM markers.
-12. Fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
+10. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
+11. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+12. Runs `pnpm run smoke:platform` with required admin authentication, `ops+smoke@chasesets.com`, and smoke UTM markers.
+13. Fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
 
 ## Smoke Coverage
 
