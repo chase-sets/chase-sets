@@ -80,7 +80,6 @@ locals {
   api_instances        = local.is_production ? 2 : 1
   admin_web_instances  = 1
   worker_instances     = 1
-  deploy_on_push       = false
 
   app_platform_workspace_setup_command = "npm install -g pnpm@11.0.9 && pnpm install --frozen-lockfile && pnpm run sync:workspace-metadata"
   public_web_build_command             = "${local.app_platform_workspace_setup_command} && pnpm --filter @chase-sets/app-public-web run build"
