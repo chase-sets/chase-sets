@@ -85,7 +85,7 @@ terraform apply
 
 Then run `terraform init` in `infrastructure/digitalocean/platform` using `landing/staging.tfstate` or `landing/production.tfstate` as the backend key. The CI workflows use the same backend settings.
 
-Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys. In staging, Terraform also creates one managed Postgres transaction pool per context database and points runtime `DATABASE_URL_*` variables at the pool private URIs.
+Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys. In staging, Terraform also creates one managed Postgres transaction pool per context database and points runtime `DATABASE_URL_*` variables at the pool private URIs instead of App Platform database bindables.
 
 ## Staging Deployment
 
