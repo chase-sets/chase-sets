@@ -9,7 +9,7 @@ This runbook covers the staging full-system platform deployment and the current 
 - State: DigitalOcean Spaces bucket through Terraform's S3 backend with `use_lockfile=true`.
 - Compatibility: remote state keys remain `landing/staging.tfstate` and `landing/production.tfstate` until a deliberate state-key migration is scheduled.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before this root runs; staging and production share the same zone.
-- Deploy orchestration: GitHub Actions is the canonical deploy owner. DigitalOcean App Platform push auto-deploy is disabled; workflows trigger deployments explicitly after Terraform apply.
+- Deploy orchestration: GitHub Actions is the canonical deploy owner. App Platform components use the public Git clone source and workflows trigger deployments explicitly after Terraform apply; the GitHub App-backed source is avoided because it can serve stale branch revisions during manual deployments.
 - Staging hosts:
   - `landing-staging.chasesets.com`: landing `public-web`.
   - `marketplace-staging.chasesets.com`: marketplace web.

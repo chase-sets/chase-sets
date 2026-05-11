@@ -127,10 +127,9 @@ resource "digitalocean_app" "platform" {
       instance_count     = local.public_web_instances
       http_port          = 8080
 
-      github {
-        repo           = var.repo
+      git {
+        repo_clone_url = "https://github.com/${var.repo}.git"
         branch         = var.branch
-        deploy_on_push = local.deploy_on_push
       }
 
       env {
@@ -187,10 +186,9 @@ resource "digitalocean_app" "platform" {
         instance_count     = local.public_web_instances
         http_port          = 8080
 
-        github {
-          repo           = var.repo
+        git {
+          repo_clone_url = "https://github.com/${var.repo}.git"
           branch         = var.branch
-          deploy_on_push = local.deploy_on_push
         }
 
         env {
@@ -233,10 +231,9 @@ resource "digitalocean_app" "platform" {
       instance_count     = local.admin_web_instances
       http_port          = 8080
 
-      github {
-        repo           = var.repo
+      git {
+        repo_clone_url = "https://github.com/${var.repo}.git"
         branch         = var.branch
-        deploy_on_push = local.deploy_on_push
       }
 
       env {
@@ -274,10 +271,9 @@ resource "digitalocean_app" "platform" {
         instance_count     = local.api_instances
         http_port          = 8080
 
-        github {
-          repo           = var.repo
+        git {
+          repo_clone_url = "https://github.com/${var.repo}.git"
           branch         = var.branch
-          deploy_on_push = local.deploy_on_push
         }
 
         env {
@@ -404,10 +400,9 @@ resource "digitalocean_app" "platform" {
         instance_count     = local.api_instances
         http_port          = 8080
 
-        github {
-          repo           = var.repo
+        git {
+          repo_clone_url = "https://github.com/${var.repo}.git"
           branch         = var.branch
-          deploy_on_push = local.deploy_on_push
         }
 
         env {
@@ -470,10 +465,9 @@ resource "digitalocean_app" "platform" {
         instance_count     = local.worker_instances
         http_port          = 8080
 
-        github {
-          repo           = var.repo
+        git {
+          repo_clone_url = "https://github.com/${var.repo}.git"
           branch         = var.branch
-          deploy_on_push = local.deploy_on_push
         }
 
         env {
@@ -586,10 +580,9 @@ resource "digitalocean_app" "platform" {
         instance_size_slug = var.app_instance_size_slug
         instance_count     = local.worker_instances
 
-        github {
-          repo           = var.repo
+        git {
+          repo_clone_url = "https://github.com/${var.repo}.git"
           branch         = var.branch
-          deploy_on_push = local.deploy_on_push
         }
 
         env {
@@ -629,10 +622,9 @@ resource "digitalocean_app" "platform" {
         instance_size_slug = var.app_instance_size_slug
         instance_count     = 1
 
-        github {
-          repo           = var.repo
+        git {
+          repo_clone_url = "https://github.com/${var.repo}.git"
           branch         = var.branch
-          deploy_on_push = local.deploy_on_push
         }
 
         env {
@@ -699,10 +691,9 @@ resource "digitalocean_app" "platform" {
         instance_size_slug = var.app_instance_size_slug
         instance_count     = 1
 
-        github {
-          repo           = var.repo
+        git {
+          repo_clone_url = "https://github.com/${var.repo}.git"
           branch         = var.branch
-          deploy_on_push = local.deploy_on_push
         }
 
         env {
