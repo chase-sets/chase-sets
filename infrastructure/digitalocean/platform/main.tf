@@ -117,7 +117,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "database" {
-      for_each = local.context_databases
+      for_each = local.is_staging ? {} : local.context_databases
       content {
         name         = "db-${database.key}"
         engine       = "PG"
