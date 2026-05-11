@@ -286,7 +286,9 @@ const realtimeRetentionSweeper = createRealtimeRetentionSweeper({
     });
   },
 });
-void realtimeRetentionSweeper.sweep();
+if (config.realtime.backgroundMaintenanceEnabled) {
+  void realtimeRetentionSweeper.sweep();
+}
 const realtimePartitionMaintainerStores = [...new Set(
   realtimeStores.map((store) => store.db),
 )].map((db) => {
@@ -295,18 +297,20 @@ const realtimePartitionMaintainerStores = [...new Set(
     .map((store) => store.contextName);
   return { db, contextNames };
 });
-const realtimePartitionMaintainers = realtimePartitionMaintainerStores.map((store) =>
-  createRealtimeOutboxPartitionMaintainer({
-    db: store.db,
-    onError: (error) => {
-      logger.error("Realtime outbox partition maintenance failed.", {
-        type: "realtime.partition_maintenance.failed",
-        contextNames: store.contextNames,
-        error,
-      });
-    },
-  }),
-);
+const realtimePartitionMaintainers = config.realtime.backgroundMaintenanceEnabled
+  ? realtimePartitionMaintainerStores.map((store) =>
+      createRealtimeOutboxPartitionMaintainer({
+        db: store.db,
+        onError: (error) => {
+          logger.error("Realtime outbox partition maintenance failed.", {
+            type: "realtime.partition_maintenance.failed",
+            contextNames: store.contextNames,
+            error,
+          });
+        },
+      }),
+    )
+  : [];
 for (const maintainer of realtimePartitionMaintainers) {
   void maintainer.maintain();
 }

@@ -11,7 +11,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
-import type { DiscoverySearchResponse } from "../support/request-support/api-client";
+import type {
+  CategoryListResponse,
+  DiscoverySearchResponse,
+} from "../support/request-support/api-client";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
@@ -29,6 +32,17 @@ const EMPTY_SEARCH_RESULT = {
   data: null,
   categories: [],
 } as const;
+const EMPTY_CATEGORY_LIST: CategoryListResponse = {
+  items: [],
+  total: 0,
+  count: 0,
+};
+const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
+  items: [],
+  total: 0,
+  count: 0,
+  nextCursor: null,
+};
 
 function buildSearchQuery({
   search,
@@ -79,7 +93,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   const [categoryBySlug, categories] = await Promise.all([
     categoryParam ? api.getCategoryBySlug(categoryParam).catch(() => null) : Promise.resolve(null),
-    api.listCategories(),
+    api.listCategories().catch(() => EMPTY_CATEGORY_LIST),
   ]);
   const resolvedCategory = categoryBySlug ?? categories.items.find(
     (item) =>
@@ -97,7 +111,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(buildCategoryPath(resolvedCategory.slug, url.searchParams), { status: 301 });
   }
 
-  const data = await api.searchItems(buildSearchQuery({ search, category, language, sort, page }));
+  const data = await api.searchItems(
+    buildSearchQuery({ search, category, language, sort, page }),
+  ).catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
   const canonicalPath = params.categorySlug && resolvedCategory
     ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
     : buildCategoryPath("", url.searchParams);

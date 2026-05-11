@@ -82,6 +82,7 @@ export type PlatformApiRealtimeConfig = Readonly<{
   pollIntervalMs: number;
   heartbeatIntervalMs: number;
   retentionPruneIntervalMs: number;
+  backgroundMaintenanceEnabled: boolean;
   maxConsecutiveFullBatches: number;
   maxTopicsPerStream: number;
   maxActiveStreams: number;
@@ -161,6 +162,15 @@ function getOptionalPositiveNumberEnv(name: string, defaultValue: number) {
 
 function getPositiveNumberEnv(name: string, defaultValue: number) {
   return getOptionalPositiveNumberEnv(name, defaultValue) ?? defaultValue;
+}
+
+function getBooleanEnv(name: string, defaultValue: boolean) {
+  const value = getOptionalEnv(name);
+  if (!value) {
+    return defaultValue;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
 function getOptionalCsvEnv(name: string): readonly string[] {
@@ -246,6 +256,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),
       heartbeatIntervalMs: getPositiveNumberEnv("REALTIME_HEARTBEAT_INTERVAL_MS", 15_000),
       retentionPruneIntervalMs: getPositiveNumberEnv("REALTIME_RETENTION_PRUNE_INTERVAL_MS", 60_000),
+      backgroundMaintenanceEnabled: getBooleanEnv("REALTIME_BACKGROUND_MAINTENANCE_ENABLED", true),
       maxConsecutiveFullBatches: getPositiveNumberEnv("REALTIME_MAX_CONSECUTIVE_FULL_BATCHES", 3),
       maxTopicsPerStream: getPositiveNumberEnv("REALTIME_MAX_TOPICS_PER_STREAM", 16),
       maxActiveStreams: getPositiveNumberEnv("REALTIME_MAX_ACTIVE_STREAMS", 1_000),
