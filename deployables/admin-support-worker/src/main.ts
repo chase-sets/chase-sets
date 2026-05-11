@@ -56,6 +56,11 @@ const heartbeatTimer = setInterval(() => {
     workerId: config.workerId,
     workerKind: "admin-support-worker",
     metadata: { runnerCount: runners.length },
+  }).catch((error) => {
+    logger.error("Admin support worker heartbeat failed.", {
+      type: "admin-support-worker.heartbeat.failed",
+      error,
+    });
   });
 }, Math.max(5_000, Math.floor(config.leaseTtlMs / 3)));
 heartbeatTimer.unref?.();
