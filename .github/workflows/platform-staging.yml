@@ -28,7 +28,8 @@ jobs:
       TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_environment: staging
-      TF_VAR_branch: main
+      TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_platform_image_tag: ${{ github.sha }}
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
@@ -43,6 +44,8 @@ jobs:
       TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
       TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
       TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+      DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -100,6 +103,20 @@ jobs:
 
       - name: Build staging workspaces
         run: pnpm run verify:build
+
+      - name: Build and push App Platform image
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
+            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          docker build --pull --tag "$image" .
+          docker push "$image"
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform

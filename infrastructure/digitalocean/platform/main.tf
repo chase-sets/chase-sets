@@ -119,17 +119,19 @@ resource "digitalocean_app" "platform" {
 
     service {
       name               = "public-web"
-      source_dir         = "/"
-      build_command      = local.public_web_build_command
       run_command        = "pnpm --filter @chase-sets/app-public-web run start"
-      environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = local.public_web_instances
       http_port          = 8080
 
-      git {
-        repo_clone_url = "https://github.com/${var.repo}.git"
-        branch         = var.branch
+      image {
+        registry_type = "DOCR"
+        repository    = var.platform_image_repository
+        tag           = var.platform_image_tag
+
+        deploy_on_push {
+          enabled = false
+        }
       }
 
       env {
@@ -178,17 +180,19 @@ resource "digitalocean_app" "platform" {
       for_each = local.is_staging ? [1] : []
       content {
         name               = "marketplace"
-        source_dir         = "/"
-        build_command      = local.marketplace_web_build_command
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
-        environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
         instance_count     = local.public_web_instances
         http_port          = 8080
 
-        git {
-          repo_clone_url = "https://github.com/${var.repo}.git"
-          branch         = var.branch
+        image {
+          registry_type = "DOCR"
+          repository    = var.platform_image_repository
+          tag           = var.platform_image_tag
+
+          deploy_on_push {
+            enabled = false
+          }
         }
 
         env {
@@ -223,17 +227,19 @@ resource "digitalocean_app" "platform" {
 
     service {
       name               = "admin-web"
-      source_dir         = "/"
-      build_command      = local.admin_web_build_command
       run_command        = "pnpm --filter @chase-sets/app-admin-web run start"
-      environment_slug   = "node-js"
       instance_size_slug = var.app_instance_size_slug
       instance_count     = local.admin_web_instances
       http_port          = 8080
 
-      git {
-        repo_clone_url = "https://github.com/${var.repo}.git"
-        branch         = var.branch
+      image {
+        registry_type = "DOCR"
+        repository    = var.platform_image_repository
+        tag           = var.platform_image_tag
+
+        deploy_on_push {
+          enabled = false
+        }
       }
 
       env {
@@ -263,17 +269,19 @@ resource "digitalocean_app" "platform" {
       for_each = local.is_staging ? [1] : []
       content {
         name               = "platform-api"
-        source_dir         = "/"
-        build_command      = local.platform_api_build_command
         run_command        = "pnpm --filter @chase-sets/app-platform-api run start:production"
-        environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
         instance_count     = local.api_instances
         http_port          = 8080
 
-        git {
-          repo_clone_url = "https://github.com/${var.repo}.git"
-          branch         = var.branch
+        image {
+          registry_type = "DOCR"
+          repository    = var.platform_image_repository
+          tag           = var.platform_image_tag
+
+          deploy_on_push {
+            enabled = false
+          }
         }
 
         env {
@@ -392,17 +400,19 @@ resource "digitalocean_app" "platform" {
       for_each = local.is_staging ? [] : [1]
       content {
         name               = "admin-support-api"
-        source_dir         = "/"
-        build_command      = local.admin_support_api_build_command
         run_command        = "pnpm --filter @chase-sets/app-admin-support-api run start:production"
-        environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
         instance_count     = local.api_instances
         http_port          = 8080
 
-        git {
-          repo_clone_url = "https://github.com/${var.repo}.git"
-          branch         = var.branch
+        image {
+          registry_type = "DOCR"
+          repository    = var.platform_image_repository
+          tag           = var.platform_image_tag
+
+          deploy_on_push {
+            enabled = false
+          }
         }
 
         env {
@@ -457,17 +467,19 @@ resource "digitalocean_app" "platform" {
       for_each = local.is_staging ? [1] : []
       content {
         name               = "platform-worker"
-        source_dir         = "/"
-        build_command      = local.platform_worker_build_command
         run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
-        environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
         instance_count     = local.worker_instances
         http_port          = 8080
 
-        git {
-          repo_clone_url = "https://github.com/${var.repo}.git"
-          branch         = var.branch
+        image {
+          registry_type = "DOCR"
+          repository    = var.platform_image_repository
+          tag           = var.platform_image_tag
+
+          deploy_on_push {
+            enabled = false
+          }
         }
 
         env {
@@ -573,16 +585,18 @@ resource "digitalocean_app" "platform" {
       for_each = local.is_staging ? [] : [1]
       content {
         name               = "admin-support-worker"
-        source_dir         = "/"
-        build_command      = local.admin_support_worker_build_command
         run_command        = "pnpm --filter @chase-sets/app-admin-support-worker run start:production"
-        environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
         instance_count     = local.worker_instances
 
-        git {
-          repo_clone_url = "https://github.com/${var.repo}.git"
-          branch         = var.branch
+        image {
+          registry_type = "DOCR"
+          repository    = var.platform_image_repository
+          tag           = var.platform_image_tag
+
+          deploy_on_push {
+            enabled = false
+          }
         }
 
         env {
@@ -615,16 +629,18 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "platform-bootstrap"
         kind               = "PRE_DEPLOY"
-        source_dir         = "/"
-        build_command      = local.app_platform_workspace_setup_command
         run_command        = "pnpm --filter @chase-sets/app-platform-api run bootstrap:production"
-        environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
         instance_count     = 1
 
-        git {
-          repo_clone_url = "https://github.com/${var.repo}.git"
-          branch         = var.branch
+        image {
+          registry_type = "DOCR"
+          repository    = var.platform_image_repository
+          tag           = var.platform_image_tag
+
+          deploy_on_push {
+            enabled = false
+          }
         }
 
         env {
@@ -684,16 +700,18 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "admin-support-bootstrap"
         kind               = "PRE_DEPLOY"
-        source_dir         = "/"
-        build_command      = local.app_platform_workspace_setup_command
         run_command        = "pnpm --filter @chase-sets/app-admin-support-api run bootstrap:production"
-        environment_slug   = "node-js"
         instance_size_slug = var.app_instance_size_slug
         instance_count     = 1
 
-        git {
-          repo_clone_url = "https://github.com/${var.repo}.git"
-          branch         = var.branch
+        image {
+          registry_type = "DOCR"
+          repository    = var.platform_image_repository
+          tag           = var.platform_image_tag
+
+          deploy_on_push {
+            enabled = false
+          }
         }
 
         env {

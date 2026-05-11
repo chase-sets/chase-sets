@@ -94,7 +94,8 @@ jobs:
       TF_VAR_spaces_access_id: pr-validation-access-id
       TF_VAR_spaces_secret_key: pr-validation-secret-key
       TF_VAR_environment: staging
-      TF_VAR_branch: main
+      TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_platform_image_tag: pr-validation
       TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
       TF_VAR_platform_admin_email: ops+pr@chasesets.com
       TF_VAR_platform_admin_password: pr-validation-password-please-rotate

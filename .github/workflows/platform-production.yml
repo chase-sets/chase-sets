@@ -37,12 +37,14 @@ jobs:
       TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_environment: production
-      TF_VAR_branch: production
+      TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
       TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
       TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+      DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -79,6 +81,7 @@ jobs:
 
           git merge-base --is-ancestor "$tag_commit" origin/main
           echo "release_commit=$tag_commit" >> "$GITHUB_OUTPUT"
+          echo "TF_VAR_platform_image_tag=$tag_commit" >> "$GITHUB_ENV"
 
       - name: Validate release checks
         env:
@@ -125,6 +128,20 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build and push App Platform image
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
+            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          docker build --pull --tag "$image" .
+          docker push "$image"
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform

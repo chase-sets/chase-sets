@@ -1,0 +1,11 @@
+.git
+.github
+.terraform
+artifacts
+node_modules
+**/node_modules
+*.log
+*.tfplan
+.env
+.env.*
+!.env.example
