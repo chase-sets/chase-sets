@@ -16,6 +16,7 @@ import {
 } from "@chase-sets/discovery/routes/search";
 import { meta as signInMeta } from "@chase-sets/auth/routes/marketplace/sign-in";
 import { loader as sitemapLoader } from "./sitemap";
+import { loader as healthReadyLoader } from "./health-ready";
 
 describe("marketplace SSR routes", () => {
   afterEach(() => {
@@ -261,6 +262,18 @@ describe("marketplace SSR routes", () => {
 
     expect(devtools.status).toBe(204);
     expect(devtools.headers.get("Cache-Control")).toBe("no-store");
+    const health = healthReadyLoader({
+      request: new Request("https://marketplace.example/health/ready"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(health.headers.get("Content-Type")).toContain("application/json");
+    await expect(health.json()).resolves.toMatchObject({
+      ok: true,
+      service: "marketplace",
+      origin: "https://marketplace.example",
+    });
     const sitemap = await sitemapLoader({
       request: new Request("https://marketplace.example/sitemap.xml"),
       params: {},

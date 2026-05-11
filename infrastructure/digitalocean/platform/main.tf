@@ -234,7 +234,7 @@ resource "digitalocean_app" "platform" {
         }
 
         health_check {
-          http_path = "/"
+          http_path = "/health/ready"
         }
       }
     }
