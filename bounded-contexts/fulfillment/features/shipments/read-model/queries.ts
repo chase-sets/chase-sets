@@ -67,6 +67,7 @@ export type FulfillmentShipmentListRow = Readonly<{
   package_prepared_at: string | null;
   label_attached_at: string | null;
   label_voided_at: string | null;
+  cancelled_at: string | null;
   dispatched_at: string | null;
   delivered_at: string | null;
   returned_at: string | null;
@@ -123,6 +124,7 @@ const baseShipmentSelect = `
     page.package_prepared_at,
     page.label_attached_at,
     page.label_voided_at,
+    page.cancelled_at,
     page.dispatched_at,
     page.delivered_at,
     page.returned_at,

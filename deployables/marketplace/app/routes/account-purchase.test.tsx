@@ -50,13 +50,58 @@ const order = {
   item_subtotal_amount: "20.00",
   shipping_base_amount: "4.99",
   shipping_discount_amount: "0.00",
+  shipping_allowance_amount: "4.99",
+  shipping_overage_amount: "0.00",
   shipping_charge_amount: "4.99",
+  sales_tax_amount: "0.00",
+  marketplace_sales_fee_amount: "1.00",
+  seller_net_amount: "19.00",
+  seller_item_net_amount: "19.00",
+  seller_payout_amount: "23.99",
+  shipping_allowance_percentage_bps: 500,
+  taxable_amount: "24.99",
+  tax_jurisdiction_country: "US",
+  tax_jurisdiction_state: "IL",
+  tax_rate_bps: 0,
+  tax_provider_name: "local-tax-stub",
+  tax_provider_quote_reference: null,
+  tax_quoted_at: "2026-04-02T00:00:00.000Z",
   total_amount: "24.99",
+  terms_schedule_id: "cts_default",
+  terms_agreement_id: null,
+  terms_resolved_at: "2026-04-02T00:00:00.000Z",
+  shipping_destination_snapshot: {
+    name: "Buyer",
+    company: null,
+    line1: "2 Market St",
+    line2: null,
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+    phone: null,
+    email: null,
+  },
+  shipping_origin_snapshot: {
+    name: "Seller",
+    company: null,
+    line1: "1 Main St",
+    line2: null,
+    city: "Austin",
+    state: "TX",
+    postalCode: "78701",
+    country: "US",
+    phone: null,
+    email: null,
+  },
   status: "pending-payment",
   created_at: "2026-04-02T00:00:00.000Z",
   updated_at: "2026-04-02T00:00:00.000Z",
   cancelled_at: null,
+  cancellation_reason: null,
   ready_for_fulfillment_at: null,
+  self_service_cancellation_available: true,
+  cancellation_unavailable_reason: null,
   line_count: 1,
   total_quantity: 1,
   lines: [],
@@ -149,5 +194,48 @@ describe("marketplace account purchase route", () => {
     );
 
     expect(screen.queryByText("Leave account review")).toBeNull();
+  });
+
+  it("shows direct cancellation for a fulfillment-ready purchase inside the cancellation window", () => {
+    mockUseLoaderData.mockReturnValue({
+      purchase: {
+        ...order,
+        status: "ready-for-fulfillment",
+        ready_for_fulfillment_at: "2026-04-02T00:10:00.000Z",
+        self_service_cancellation_available: true,
+        cancellation_unavailable_reason: null,
+      },
+      reviewOpportunity: null,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPurchaseRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByRole("button", { name: "Cancel purchase" })).toBeTruthy();
+  });
+
+  it("routes cancellation to support after fulfillment starts", () => {
+    mockUseLoaderData.mockReturnValue({
+      purchase: {
+        ...order,
+        status: "ready-for-fulfillment",
+        ready_for_fulfillment_at: "2026-04-02T00:10:00.000Z",
+        self_service_cancellation_available: false,
+        cancellation_unavailable_reason: "fulfillment-started",
+      },
+      reviewOpportunity: null,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPurchaseRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Cancel purchase" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Ask to cancel" })).toBeTruthy();
   });
 });

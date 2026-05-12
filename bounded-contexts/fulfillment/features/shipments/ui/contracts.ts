@@ -49,6 +49,7 @@ export interface FulfillmentShipmentListItem {
   package_prepared_at: string | null;
   label_attached_at: string | null;
   label_voided_at: string | null;
+  cancelled_at: string | null;
   dispatched_at: string | null;
   delivered_at: string | null;
   returned_at: string | null;

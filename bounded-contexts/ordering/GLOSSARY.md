@@ -49,6 +49,17 @@ Examples:
 - Pending Payment
 - Cancelled
 
+## Self-Service Purchase Cancellation
+
+**Self-Service Purchase Cancellation** is the buyer-initiated cancellation of a paid purchase while the Fulfillment-owned shipment is still awaiting package preparation.
+
+Notes:
+
+- Ordering owns the cancellation decision.
+- Fulfillment owns the operational cutoff.
+- Payments owns any refund created from the cancellation.
+- After package preparation starts, buyers use the Support-owned buyer cancellation request flow.
+
 ## Order Split
 
 An **Order Split** is the decomposition of a checkout session into one or more orders grouped by seller account.

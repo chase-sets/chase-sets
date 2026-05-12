@@ -2043,8 +2043,12 @@ export function createOrderingOrderRuntime(
       if (!order) {
         throw new OrderingDomainError("Purchase not found.");
       }
-      if (!isCancelableOrderStatus(order.status)) {
-        throw new OrderingDomainError("Only pending purchases can be cancelled.");
+      if (!isCancelableOrderStatus(order.status) && !order.self_service_cancellation_available) {
+        throw new OrderingDomainError(
+          order.cancellation_unavailable_reason === "fulfillment-started"
+            ? "Purchase cancellation is now handled through support because fulfillment has started."
+            : "Only pending purchases can be cancelled.",
+        );
       }
 
       const result = await commandHandler({

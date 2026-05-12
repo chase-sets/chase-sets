@@ -118,6 +118,22 @@
         "payments.payment-captured"
       ],
       "order": 60
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "ordering-fulfillment-cancellation-inputs",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "ordering-fulfillment-cancellation-inputs"
+      ],
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.package-prepared",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.cancelled"
+      ],
+      "order": 70
     }
   ],
   "projectionGroups": [
@@ -180,6 +196,16 @@
       ],
       "ownedTables": [
         "ordering_payment_capture_inputs"
+      ],
+      "requiredDuringBootstrap": false
+    },
+    {
+      "projectionName": "ordering-fulfillment-cancellation-inputs",
+      "sourceContextNames": [
+        "fulfillment"
+      ],
+      "ownedTables": [
+        "ordering_fulfillment_cancellation_inputs"
       ],
       "requiredDuringBootstrap": false
     }

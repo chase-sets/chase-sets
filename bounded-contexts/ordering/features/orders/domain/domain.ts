@@ -787,8 +787,10 @@ export const decideOrderingOrder: AggregateDecider<
         return [];
       }
       assert(
-        state.status === "pending-reservation" || state.status === "pending-payment",
-        "Only pending orders can be cancelled.",
+        state.status === "pending-reservation" ||
+          state.status === "pending-payment" ||
+          state.status === "ready-for-fulfillment",
+        "Only pending or fulfillment-ready orders can be cancelled.",
       );
       return [
         {

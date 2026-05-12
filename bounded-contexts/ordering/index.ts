@@ -18,6 +18,7 @@ import {
   buildOrderingInventorySupplyProjectionHandlers,
   buildOrderingMarketplaceSupplyProjectionHandlers,
 } from "./features/orders/integrations/supply/supply-projection";
+import { buildOrderingFulfillmentCancellationProjectionHandlers } from "./features/orders/integrations/fulfillment/fulfillment-projection";
 import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaSql } from "./support/runtime-support/schema";
@@ -89,6 +90,10 @@ export const module: BcApiModule<
     const paymentCaptureSubscription = getEventSubscription(
       "payments",
       "ordering-payment-capture",
+    );
+    const fulfillmentCancellationSubscription = getEventSubscription(
+      "fulfillment",
+      "ordering-fulfillment-cancellation-inputs",
     );
 
     return [
@@ -355,6 +360,16 @@ export const module: BcApiModule<
         eventTypes: paymentCaptureSubscription.eventTypes,
         streamPrefixes: paymentCaptureSubscription.streamPrefixes,
         order: paymentCaptureSubscription.order,
+      },
+      {
+        subscriptionName: "ordering.fulfillment-cancellation-inputs",
+        sourceContextName: "fulfillment",
+        projectionName: fulfillmentCancellationSubscription.projectionName,
+        subscriptionVersion: fulfillmentCancellationSubscription.subscriptionVersion,
+        handlers: buildOrderingFulfillmentCancellationProjectionHandlers(services.db),
+        eventTypes: fulfillmentCancellationSubscription.eventTypes,
+        streamPrefixes: fulfillmentCancellationSubscription.streamPrefixes,
+        order: fulfillmentCancellationSubscription.order,
       },
     ];
   },

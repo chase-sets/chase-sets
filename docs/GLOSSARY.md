@@ -31,9 +31,12 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Order | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Commercial commitment between buyer and seller accounts. |
 | Purchase | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Buyer-facing order projection. |
 | Sale | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Seller-facing order projection. |
+| Self-Service Purchase Cancellation | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Buyer-initiated cancellation of a paid purchase before Fulfillment starts package preparation. |
 | Shipment | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Physical delivery execution for an order. |
+| Cancellation Cutoff | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Shipment state boundary that closes self-service purchase cancellation. |
 | Review | [Reputation](../bounded-contexts/reputation/GLOSSARY.md) | Post-transaction account evaluation. |
 | Payment | [Payments](../bounded-contexts/payments/GLOSSARY.md) | External charge or refund workflow. |
+| Buyer-Paid Share | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Captured payment amount attributable to a cancelled order, including allocated checkout fee. |
 | Wallet | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Marketplace ledger balance container. |
 | Payout | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Transfer of eligible funds to an account. |
 | Commercial Terms Resolution | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Deterministic seller-side fee policy resolution. |

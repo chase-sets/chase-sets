@@ -40,6 +40,12 @@ export interface OrderingOrderProjection {
   cancelled_at: string | null;
   cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
+  self_service_cancellation_available: boolean;
+  cancellation_unavailable_reason:
+    | "payment-pending"
+    | "fulfillment-started"
+    | "already-cancelled"
+    | null;
   line_count: number;
   total_quantity: number;
 }

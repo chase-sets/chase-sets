@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   package_prepared_at timestamptz NULL,
   label_attached_at timestamptz NULL,
   label_voided_at timestamptz NULL,
+  cancelled_at timestamptz NULL,
   dispatched_at timestamptz NULL,
   delivered_at timestamptz NULL,
   returned_at timestamptz NULL,
@@ -89,7 +90,8 @@ ALTER TABLE IF EXISTS fulfillment_shipment_pages
   ADD COLUMN IF NOT EXISTS label_error_message text NULL,
   ADD COLUMN IF NOT EXISTS label_refund_status text NULL,
   ADD COLUMN IF NOT EXISTS label_refund_reference text NULL,
-  ADD COLUMN IF NOT EXISTS label_voided_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS label_voided_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS fulfillment_label_address_override_audit_pages (
   shipment_id text NOT NULL REFERENCES fulfillment_shipment_pages (shipment_id) ON DELETE CASCADE,

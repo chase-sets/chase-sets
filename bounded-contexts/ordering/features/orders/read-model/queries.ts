@@ -71,6 +71,12 @@ export type OrderingOrderListRow = Readonly<{
   cancelled_at: string | null;
   cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
+  self_service_cancellation_available: boolean;
+  cancellation_unavailable_reason:
+    | "payment-pending"
+    | "fulfillment-started"
+    | "already-cancelled"
+    | null;
   line_count: number;
   total_quantity: number;
 }>;
@@ -121,6 +127,12 @@ type BaseOrderPageRow = Readonly<{
   cancelled_at: string | null;
   cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
+  self_service_cancellation_available: boolean;
+  cancellation_unavailable_reason:
+    | "payment-pending"
+    | "fulfillment-started"
+    | "already-cancelled"
+    | null;
   line_count: number;
   total_quantity: number;
 }>;
@@ -185,6 +197,28 @@ const baseOrderSelect = `
     page.cancelled_at,
     page.cancellation_reason,
     page.ready_for_fulfillment_at,
+    CASE
+      WHEN page.status IN ('pending-payment', 'pending-reservation') THEN true
+      WHEN page.status = 'ready-for-fulfillment'
+        AND fulfillment.shipment_status = 'awaiting-package'
+        AND fulfillment.package_status = 'awaiting-package'
+        AND fulfillment.package_prepared_at IS NULL
+        AND fulfillment.cancelled_at IS NULL
+      THEN true
+      ELSE false
+    END AS self_service_cancellation_available,
+    CASE
+      WHEN page.status = 'cancelled' THEN 'already-cancelled'
+      WHEN page.status IN ('pending-payment', 'pending-reservation') THEN NULL
+      WHEN page.status = 'ready-for-fulfillment'
+        AND fulfillment.shipment_status = 'awaiting-package'
+        AND fulfillment.package_status = 'awaiting-package'
+        AND fulfillment.package_prepared_at IS NULL
+        AND fulfillment.cancelled_at IS NULL
+      THEN NULL
+      WHEN page.status = 'ready-for-fulfillment' THEN 'fulfillment-started'
+      ELSE 'payment-pending'
+    END AS cancellation_unavailable_reason,
     COALESCE(line_stats.line_count, 0) AS line_count,
     COALESCE(line_stats.total_quantity, 0) AS total_quantity
   FROM ordering_order_pages AS page
@@ -201,6 +235,8 @@ const baseOrderSelect = `
     GROUP BY order_id
   ) AS line_stats
     ON line_stats.order_id = page.order_id
+  LEFT JOIN ordering_fulfillment_cancellation_inputs AS fulfillment
+    ON fulfillment.order_id = page.order_id
 `;
 
 function mapOrderLine(row: OrderLinePageRow): OrderingOrderLineRow {

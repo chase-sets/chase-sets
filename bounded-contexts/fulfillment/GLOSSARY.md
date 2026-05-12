@@ -43,3 +43,13 @@ Examples:
 - Lost in transit
 - Damaged package
 - Return to sender
+
+## Cancellation Cutoff
+
+A **Cancellation Cutoff** is the Fulfillment-owned shipment state boundary that closes buyer self-service purchase cancellation.
+
+Notes:
+
+- The window is open while the shipment is awaiting package preparation.
+- The window closes when package preparation is recorded.
+- After the cutoff, buyer cancellation requests use Support instead of direct cancellation.

@@ -61,6 +61,18 @@
         "support.support-request.resolved"
       ],
       "order": 70
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "payments-order-cancellation-refund-effect",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "payments-order-cancellation-refund-effect"
+      ],
+      "eventTypes": [
+        "ordering.order.cancelled"
+      ],
+      "order": 20
     }
   ],
   "projectionGroups": [
@@ -81,6 +93,16 @@
       ],
       "ownedTables": [
         "payments_support_refund_effects"
+      ],
+      "requiredDuringBootstrap": false
+    },
+    {
+      "projectionName": "payments-order-cancellation-refund-effect",
+      "sourceContextNames": [
+        "ordering"
+      ],
+      "ownedTables": [
+        "payments_order_cancellation_refund_effects"
       ],
       "requiredDuringBootstrap": false
     }

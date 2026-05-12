@@ -30,6 +30,10 @@ function isPendingStatus(status: string) {
   return status === "pending-payment" || status === "pending-reservation";
 }
 
+function canSelfServiceCancel(order: PurchaseDetail | SaleDetail) {
+  return Boolean(order.self_service_cancellation_available) || isPendingStatus(order.status);
+}
+
 function statusTone(status: string) {
   switch (status) {
     case "cancelled":
@@ -92,8 +96,13 @@ export function OrderingOrderDetailPage({
       ? order.seller_display_name ?? order.seller_account_id
       : order.buyer_display_name ?? order.buyer_account_id;
   const canPay = order.status === "pending-payment" && paymentHref;
+  const canCancel = role === "buyer" ? canSelfServiceCancel(order) : isPendingStatus(order.status);
   const projectionLabel = role === "buyer" ? t("ordering.features.orders.ui.orderDetailPage.purchase") : t("ordering.features.orders.ui.orderDetailPage.sale");
   const cancelIntent = role === "buyer" ? "cancel-purchase" : "cancel-sale";
+  const supportLabel =
+    role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
+      ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")
+      : t("ordering.features.orders.ui.orderDetailPage.open.support");
 
   return (
     <Page>
@@ -182,10 +191,10 @@ export function OrderingOrderDetailPage({
                 {canPay ? <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton> : null}
                 {supportHref ? (
                   <LinkButton href={supportHref} tone="secondary">
-                    {t("ordering.features.orders.ui.orderDetailPage.open.support")}
+                    {supportLabel}
                   </LinkButton>
                 ) : null}
-                {isPendingStatus(order.status) ? (
+                {canCancel ? (
                   <form method="post">
                     <Button type="submit" name="intent" value={cancelIntent} tone="danger">
                       {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {

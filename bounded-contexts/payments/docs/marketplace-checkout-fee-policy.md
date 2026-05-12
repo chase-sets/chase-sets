@@ -20,6 +20,12 @@ Payments owns the buyer-side Marketplace Checkout Fee. The fee is quoted before 
 - Unsupported or unknown methods normalize to the card quote in the current US-only V1 policy.
 - Positive fractional cents round up; exact zero remains zero.
 
+## Cancellation Refunds
+
+When Ordering records buyer self-service cancellation for a captured purchase, Payments refunds the buyer-paid share for the cancelled order. The buyer-paid share includes the order total plus the order's allocated Marketplace Checkout Fee.
+
+Cancellation refund effects must be idempotent across event replay and provider retry. Payments owns the processor-facing refund reference and refund status; Ordering and Fulfillment publish only cancellation and shipment facts.
+
 ## Launch Review
 
 Before launch, counsel/provider review should approve final buyer-facing copy and any state-specific disclosure requirements.
