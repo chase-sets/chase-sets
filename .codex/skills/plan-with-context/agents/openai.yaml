@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan With Context"
+  short_description: "Plan features against repo context"
+  default_prompt: "Use $plan-with-context to pressure-test my plan against the Chase Sets bounded-context model, terminology, code, and docs."
