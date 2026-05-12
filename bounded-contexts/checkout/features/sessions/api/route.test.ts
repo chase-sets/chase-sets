@@ -364,6 +364,51 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("returns a sign-in-required code when limited listings cannot be confirmed as guest", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockRejectedValue(
+      Object.assign(
+        new Error("Sign in is required to confirm checkout for listings with daily or customer purchase limits."),
+        {
+          body: {
+            error: {
+              code: "account_sign_in_required",
+              message: "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
+            },
+          },
+        },
+      ),
+    );
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
+    });
+    const app = buildApp(services, {
+      sessionId: "guest:tok_1",
+      tenantId: "tnt_identity",
+      userId: "usr_guest_checkout",
+      accountId: "acc_guest",
+      membershipId: "guest:tok_1",
+      roleKey: "guest-buyer",
+      permissions: ["guest-checkout.manage"],
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "account_sign_in_required",
+        message: "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
+      },
+    });
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
   it("returns an existing checkout payment without re-running confirmation", async () => {
     const services = createServices({
       getSession: vi.fn(async () =>

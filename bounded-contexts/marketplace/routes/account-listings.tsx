@@ -59,6 +59,11 @@ function toInventoryOption(
   };
 }
 
+function optionalLimit(value: FormDataEntryValue | null) {
+  const text = String(value ?? "").trim();
+  return text === "" ? null : Number(text);
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
@@ -91,6 +96,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
           inventoryItemId: selectedInventoryItem.item_id,
           priceAmount: recommendedPrice,
           quantityCap: "1",
+          maxUnitsPerOrder: "",
+          maxUnitsPerDay: "",
+          maxUnitsPerCustomerAccount: "",
         }
       : null,
   };
@@ -105,6 +113,9 @@ export async function action({ request }: ActionFunctionArgs) {
     inventoryItemId: String(formData.get("inventoryItemId") ?? ""),
     priceAmount: String(formData.get("priceAmount") ?? ""),
     quantityCap: String(formData.get("quantityCap") ?? ""),
+    maxUnitsPerOrder: String(formData.get("maxUnitsPerOrder") ?? ""),
+    maxUnitsPerDay: String(formData.get("maxUnitsPerDay") ?? ""),
+    maxUnitsPerCustomerAccount: String(formData.get("maxUnitsPerCustomerAccount") ?? ""),
   };
 
   try {
@@ -122,6 +133,11 @@ export async function action({ request }: ActionFunctionArgs) {
         inventoryItemId: createForm.inventoryItemId,
         priceAmount: createForm.priceAmount,
         quantityCap: Number(createForm.quantityCap ?? 0),
+        purchaseLimits: {
+          maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
+          maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
+          maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
+        },
       }) as { id: string; feeQuoteFingerprint?: string };
 
       if (intent === "create-and-publish-listing") {

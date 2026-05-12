@@ -180,6 +180,7 @@
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
         "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.purchase-limits-updated",
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.withdrawn",

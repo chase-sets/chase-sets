@@ -112,6 +112,9 @@ export interface DiscoveryMarketListing {
   price_amount: string;
   shipping_allowance_percentage_bps: number;
   quantity_cap: number;
+  max_units_per_order?: number | null;
+  max_units_per_day?: number | null;
+  max_units_per_customer_account?: number | null;
   status: string;
   seller_display_name: string | null;
   visible_quantity: number;

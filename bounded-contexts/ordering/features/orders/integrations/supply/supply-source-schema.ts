@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NOT NULL,
   quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
+  max_units_per_order integer NULL CHECK (max_units_per_order IS NULL OR max_units_per_order > 0),
+  max_units_per_day integer NULL CHECK (max_units_per_day IS NULL OR max_units_per_day > 0),
+  max_units_per_customer_account integer NULL CHECK (max_units_per_customer_account IS NULL OR max_units_per_customer_account > 0),
   status text NOT NULL,
   updated_at timestamptz NOT NULL
 );
@@ -84,7 +87,10 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
 
 ALTER TABLE ordering_market_listing_inputs
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
-  ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS max_units_per_order integer NULL,
+  ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
+  ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL;
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;

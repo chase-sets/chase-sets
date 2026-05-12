@@ -145,8 +145,13 @@ export class OrderingApiError extends Error {
     public readonly body: unknown,
   ) {
     super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
+      typeof body === "object" &&
+        body !== null &&
+        "error" in body &&
+        typeof (body as { error?: unknown }).error === "object" &&
+        (body as { error?: unknown }).error !== null &&
+        "message" in ((body as { error: Record<string, unknown> }).error)
+        ? String((body as { error: { message?: unknown } }).error.message)
         : `API error ${status}`,
     );
   }

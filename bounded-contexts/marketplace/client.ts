@@ -199,6 +199,15 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async updateListingPurchaseLimits(id: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.account.listings[":id"]["purchase-limits"].$post({
+          param: { id },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async publishListing(id: string, body: Record<string, unknown> = {}) {
       return parseJsonResponse(
         await client.account.listings[":id"].publish.$post({

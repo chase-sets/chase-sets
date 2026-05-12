@@ -21,6 +21,7 @@ import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
+  type MarketplaceListingPurchaseLimits,
   type MarketplaceListingCommand,
   type MarketplaceListingEvent,
   type MarketplaceListingState,
@@ -76,6 +77,7 @@ export type MarketplaceListingServices = Readonly<{
       inventoryItemId: string;
       priceAmount: string;
       quantityCap: number;
+      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
@@ -98,6 +100,7 @@ export type MarketplaceListingServices = Readonly<{
       acquisitionCostAmount: string | null;
       priceAmount: string;
       quantityCap: number;
+      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
@@ -118,7 +121,16 @@ export type MarketplaceListingServices = Readonly<{
       accountId: string;
       listingId: string;
       quantityCap: number;
+      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       feeQuoteFingerprint?: string | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ listingId: string; version: number }>;
+  updateListingPurchaseLimits: (
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
@@ -383,6 +395,7 @@ export function createMarketplaceListingRuntime(
       inventoryItemId: string;
       priceAmount: string;
       quantityCap: number;
+      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
@@ -434,6 +447,7 @@ export function createMarketplaceListingRuntime(
         termsResolvedAt: quote.resolved_at,
         feeQuoteFingerprint: quote.fee_quote_fingerprint,
         quantityCap: params.quantityCap,
+        purchaseLimits: params.purchaseLimits,
       },
       context,
     });
@@ -456,6 +470,7 @@ export function createMarketplaceListingRuntime(
           inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
           quantityCap: params.quantityCap,
+          purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
         },
         context,
@@ -507,6 +522,7 @@ export function createMarketplaceListingRuntime(
         command: {
           type: "UpdateListingQuantityCap",
           quantityCap: params.quantityCap,
+          purchaseLimits: params.purchaseLimits,
           marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
           sellerNetUnitAmount: quote.seller_net_unit_amount,
           shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
@@ -514,6 +530,20 @@ export function createMarketplaceListingRuntime(
           termsAgreementId: quote.agreement_id,
           termsResolvedAt: quote.resolved_at,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        },
+        context,
+      });
+
+      return { listingId: params.listingId, version: result.version };
+    },
+    updateListingPurchaseLimits: async (params, context) => {
+      await loadOwnedListingState(params.listingId, params.accountId);
+
+      const result = await commandHandler({
+        streamId: `marketplace.listing-${params.listingId}`,
+        command: {
+          type: "UpdateListingPurchaseLimits",
+          purchaseLimits: params.purchaseLimits ?? null,
         },
         context,
       });

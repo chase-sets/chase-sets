@@ -41,6 +41,11 @@ function staleQuoteFromError(error: MarketplaceApiError) {
   return body.error.currentQuote as MarketplaceListingTermsPreview;
 }
 
+function optionalLimit(value: FormDataEntryValue | null) {
+  const text = String(value ?? "").trim();
+  return text === "" ? null : Number(text);
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const api = createMarketplaceRequestApiClient(request);
@@ -86,6 +91,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
         await api.updateListingQuantityCap(params.listingId!, {
           quantityCap: Number(formData.get("quantityCap") ?? 0),
           feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
+        });
+        return redirect(`${pathname}?feedbackWorkflow=listing-update`);
+      case "update-purchase-limits":
+        await api.updateListingPurchaseLimits(params.listingId!, {
+          purchaseLimits: {
+            maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
+            maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
+            maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
+          },
         });
         return redirect(`${pathname}?feedbackWorkflow=listing-update`);
       case "publish":

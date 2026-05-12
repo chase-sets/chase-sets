@@ -397,8 +397,48 @@ export function MarketplaceListingDetailPage({
                   min="1"
                   required
                 />
+                <Text size="sm" tone="secondary">
+                  {t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.exposure.copy")}
+                </Text>
                 <Button type="submit" tone="secondary">
                   {t("marketplace.features.listings.ui.listingDetailPage.save.quantity.cap")}</Button>
+              </Stack>
+            </form>
+          </Card>
+
+          <Card>
+            <form method="post">
+              <Stack gap={3}>
+                <input type="hidden" name="intent" value="update-purchase-limits" />
+                <Inline>
+                  <NumberInput
+                    label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.order")}
+                    name="maxUnitsPerOrder"
+                    defaultValue={listing.max_units_per_order == null ? "" : String(listing.max_units_per_order)}
+                    min="1"
+                  />
+                  <NumberInput
+                    label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.day")}
+                    name="maxUnitsPerDay"
+                    defaultValue={listing.max_units_per_day == null ? "" : String(listing.max_units_per_day)}
+                    min="1"
+                  />
+                  <NumberInput
+                    label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.customer")}
+                    name="maxUnitsPerCustomerAccount"
+                    defaultValue={
+                      listing.max_units_per_customer_account == null
+                        ? ""
+                        : String(listing.max_units_per_customer_account)
+                    }
+                    min="1"
+                  />
+                </Inline>
+                <Text size="sm" tone="secondary">
+                  {t("marketplace.features.listings.ui.listingDetailPage.purchase.limits.copy")}
+                </Text>
+                <Button type="submit" tone="secondary">
+                  {t("marketplace.features.listings.ui.listingDetailPage.save.purchase.limits")}</Button>
               </Stack>
             </form>
           </Card>

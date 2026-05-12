@@ -117,4 +117,30 @@ CREATE TABLE IF NOT EXISTS ordering_order_hold_pages (
 
 CREATE INDEX IF NOT EXISTS ordering_order_hold_pages_order_idx
   ON ordering_order_hold_pages (order_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS ordering_listing_purchase_limit_claims (
+  claim_id text PRIMARY KEY,
+  source_type text NOT NULL,
+  source_reference_id text NOT NULL,
+  buyer_account_id text NOT NULL,
+  listing_id text NOT NULL,
+  quantity integer NOT NULL CHECK (quantity > 0),
+  status text NOT NULL DEFAULT 'claimed',
+  claimed_at timestamptz NOT NULL DEFAULT now(),
+  released_at timestamptz NULL,
+  UNIQUE (source_type, source_reference_id, buyer_account_id, listing_id)
+);
+
+CREATE INDEX IF NOT EXISTS ordering_listing_purchase_limit_claims_usage_idx
+  ON ordering_listing_purchase_limit_claims (buyer_account_id, listing_id, status);
+
+CREATE TABLE IF NOT EXISTS ordering_listing_purchase_limit_usage (
+  buyer_account_id text NOT NULL,
+  listing_id text NOT NULL,
+  marketplace_day date NOT NULL,
+  day_quantity integer NOT NULL DEFAULT 0 CHECK (day_quantity >= 0),
+  customer_account_quantity integer NOT NULL DEFAULT 0 CHECK (customer_account_quantity >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (buyer_account_id, listing_id)
+);
 `;

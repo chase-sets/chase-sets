@@ -55,6 +55,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         termsAgreementId: string | null;
         termsResolvedAt: string;
         quantityCap: number;
+        purchaseLimits?: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
       };
 
       await db.query(
@@ -79,10 +84,13 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            terms_agreement_id,
            terms_resolved_at,
            quantity_cap,
+           max_units_per_order,
+           max_units_per_day,
+           max_units_per_customer_account,
            status,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'draft', $21
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'draft', $24
          )
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
@@ -104,6 +112,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              terms_agreement_id = EXCLUDED.terms_agreement_id,
              terms_resolved_at = EXCLUDED.terms_resolved_at,
              quantity_cap = EXCLUDED.quantity_cap,
+             max_units_per_order = EXCLUDED.max_units_per_order,
+             max_units_per_day = EXCLUDED.max_units_per_day,
+             max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at`,
         [
@@ -127,6 +138,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.termsAgreementId,
           data.termsResolvedAt,
           data.quantityCap,
+          data.purchaseLimits?.maxUnitsPerOrder ?? null,
+          data.purchaseLimits?.maxUnitsPerDay ?? null,
+          data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
           event.timing.recordedAt,
         ],
       );
@@ -169,6 +183,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
     "marketplace.listing.quantity-cap-updated": async (event) => {
       const data = event.data as {
         quantityCap: number;
+        purchaseLimits?: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         shippingAllowancePercentageBps?: number;
@@ -176,6 +195,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         termsAgreementId: string | null;
         termsResolvedAt: string;
       };
+      const hasPurchaseLimits = data.purchaseLimits !== undefined;
 
       await db.query(
         `UPDATE ordering_market_listing_inputs
@@ -186,7 +206,10 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              terms_schedule_id = $6,
              terms_agreement_id = $7,
              terms_resolved_at = $8,
-             updated_at = $9
+             max_units_per_order = CASE WHEN $9 THEN $10 ELSE max_units_per_order END,
+             max_units_per_day = CASE WHEN $9 THEN $11 ELSE max_units_per_day END,
+             max_units_per_customer_account = CASE WHEN $9 THEN $12 ELSE max_units_per_customer_account END,
+             updated_at = $13
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
@@ -197,6 +220,35 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.termsScheduleId,
           data.termsAgreementId,
           data.termsResolvedAt,
+          hasPurchaseLimits,
+          data.purchaseLimits?.maxUnitsPerOrder ?? null,
+          data.purchaseLimits?.maxUnitsPerDay ?? null,
+          data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "marketplace.listing.purchase-limits-updated": async (event) => {
+      const data = event.data as {
+        purchaseLimits: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
+      };
+
+      await db.query(
+        `UPDATE ordering_market_listing_inputs
+         SET max_units_per_order = $2,
+             max_units_per_day = $3,
+             max_units_per_customer_account = $4,
+             updated_at = $5
+         WHERE listing_id = $1`,
+        [
+          event.streamId.replace("marketplace.listing-", ""),
+          data.purchaseLimits.maxUnitsPerOrder,
+          data.purchaseLimits.maxUnitsPerDay,
+          data.purchaseLimits.maxUnitsPerCustomerAccount,
           event.timing.recordedAt,
         ],
       );
