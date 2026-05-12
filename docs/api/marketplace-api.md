@@ -89,6 +89,11 @@ Seller listing:
 6. `GET /api/marketplace/account/listings/fee-lock-report`
 7. `GET /api/marketplace/account/listings/{id}/fee-history`
 
+Seller shipment printing:
+
+1. `GET /api/marketplace/account/sales/shipments`
+2. `GET /api/marketplace/account/sales/shipments/packing-slips?shipmentIds=shp_1,shp_2`
+
 Offer acceptance:
 
 1. `POST /api/marketplace/account/offers/submitted`

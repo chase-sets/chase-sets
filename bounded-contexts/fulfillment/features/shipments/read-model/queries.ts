@@ -340,3 +340,18 @@ export async function getSellerShipment(
     address_override_audits: addressOverrideAuditsResult.rows,
   };
 }
+
+export async function listSellerPackingSlips(
+  db: PgQueryable,
+  params: Readonly<{ sellerAccountId: string; shipmentIds: readonly string[] }>,
+): Promise<FulfillmentShipmentDetailRow[]> {
+  const shipments = await Promise.all(
+    params.shipmentIds.map((shipmentId) =>
+      getSellerShipment(db, shipmentId, params.sellerAccountId),
+    ),
+  );
+
+  return shipments.filter((shipment): shipment is FulfillmentShipmentDetailRow =>
+    shipment !== null,
+  );
+}

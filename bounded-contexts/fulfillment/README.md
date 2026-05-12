@@ -9,6 +9,7 @@ Fulfillment owns the physical execution of shipping and delivery.
 - Ship-from Locations
 - Shipment
 - Package assembly state
+- Packing slip preparation
 - Shipping method selection
 - Label purchase references
 - Tracking identifiers

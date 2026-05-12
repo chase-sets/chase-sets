@@ -15,6 +15,17 @@ Notes:
 
 A **Package** is the packed unit prepared for carrier handoff within a shipment workflow.
 
+## Packing Slip
+
+A **Packing Slip** is a seller-facing shipment document that lists what should be included in a package.
+
+Notes:
+
+- Packing Slips are owned by Fulfillment.
+- Packing Slips do not include prices or payment details.
+- A **Letter Packing Slip** is formatted for standard 8.5x11 paper workflows.
+- A **Thermal 4x6 Packing Slip** is formatted for thermal-label printer workflows.
+
 ## Tracking Identifier
 
 A **Tracking Identifier** is the carrier-issued or carrier-linked reference used to monitor shipment progress.

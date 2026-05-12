@@ -11,6 +11,9 @@ export type {
   FulfillmentApiClientOptions,
   FulfillmentNotificationItem,
   FulfillmentNotificationListResponse,
+  FulfillmentPackingSlip,
+  FulfillmentPackingSlipBatch,
+  FulfillmentPackingSlipFormat,
   FulfillmentShipmentDetail,
   FulfillmentShipmentListItem,
 } from "../../client";

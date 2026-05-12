@@ -79,3 +79,12 @@ export interface FulfillmentShipmentDetail extends FulfillmentShipmentListItem {
   exceptions: readonly FulfillmentShipmentException[];
   address_override_audits: readonly FulfillmentLabelAddressOverrideAudit[];
 }
+
+export type FulfillmentPackingSlipFormat = "letter" | "thermal-4x6";
+
+export type FulfillmentPackingSlip = FulfillmentShipmentDetail;
+
+export interface FulfillmentPackingSlipBatch {
+  items: readonly FulfillmentPackingSlip[];
+  count: number;
+}

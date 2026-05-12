@@ -37,6 +37,7 @@ export default function MarketplaceAccountSaleShipmentsRoute() {
       emptyTitle={t("fulfillment.routes.marketplace.accountSaleShipments.no.sale.shipments.yet")}
       emptyDescription={t("fulfillment.routes.marketplace.accountSaleShipments.shipments.appear.here.once.a.paid")}
       shipmentDetailBasePath="/account/sales/shipments"
+      batchPrintActionPath="/account/sales/shipments/packing-slips"
       shipments={(data.shipments as ListResponse<FulfillmentShipmentListItem>).items}
     />
   );
