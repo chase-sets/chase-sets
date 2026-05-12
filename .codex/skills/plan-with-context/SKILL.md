@@ -1,11 +1,11 @@
 ---
 name: plan-with-context
-description: Plan implementation or product features against the Chase Sets bounded-context model, ubiquitous language, code, and docs. Use when the user wants one-question-at-a-time planning with recommended answers, code/doc cross-checks, a working plan under .codex/plans, mobile and desktop visual verification, and durable updates to owning glossaries, context docs, or ADRs.
+description: Plan implementation or product features against the Chase Sets bounded-context model, ubiquitous language, code, and docs. Use when the user asks to plan or implement a feature with one-question-at-a-time prompts, recommended answers, code/doc cross-checks, plan/doc creation, goal creation, and no product code changes during planning.
 ---
 
 # Plan With Context
 
-Pressure-test a plan against the repo's domain model. Ask one question at a time, recommend an answer, verify anything discoverable from code/docs before asking, keep a temporary plan current, and promote durable context into canonical docs as soon as it settles.
+Plan a feature against the repo's domain model. In this skill, "implement" means collect decisions, write planning artifacts/docs, and create a goal for implementation; do not change product code.
 
 ## Repo Map
 
@@ -24,8 +24,9 @@ Pressure-test a plan against the repo's domain model. Ask one question at a time
 2. Read the repo map files plus each candidate context's `README.md`, `GLOSSARY.md`, and `context.json`.
 3. Search code for relevant terms, events, routes, IDs, projections, UI labels, and tests before asking answerable questions.
 4. Create or update `.codex/plans/<feature-slug>.md`.
-5. Ask the next blocking question with the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently.
-6. After each answer or finding, update the plan and immediately promote durable terms or decisions to canonical docs.
+5. Ask the next blocking question with the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use interactive `request_user_input` prompts when available; otherwise ask in plain text.
+6. After each answer or finding, update the plan and any already-settled docs.
+7. When planning is complete, create a `/goal` whose objective references the plan path and owns implementation, durable doc promotion, verification, visual checks, and plan cleanup.
 
 Walk questions in dependency order: ownership, language, invariants, events, read models, APIs, UI, operations.
 
@@ -45,14 +46,15 @@ Use `.codex/plans/<feature-slug>.md` as disposable memory for compaction, handof
 ## Cleanup Criteria
 ```
 
-Update the plan after every answered question, repo finding, accepted/rejected recommendation, and doc change. `Cleanup Criteria` must list what durable context must survive after the plan is deleted.
+Update the plan after every answered question, repo finding, accepted/rejected recommendation, and doc change. `Cleanup Criteria` must list what the later implementation goal must verify, promote, and clean up.
 
-If the user explicitly asks for `/goal`, create a goal whose objective references the plan path. Treat unchecked items, unresolved questions, failing automated checks, missing mobile/desktop visual verification, unpromoted durable context, and the still-present plan file as blockers to completion.
+Treat "Use `$plan-with-context` to implement <feature>" as an explicit request to create the implementation goal after planning. If goal tooling is unavailable, write the exact goal prompt into the plan and tell the user.
 
 ## Planning Rules
 
 - Ask exactly one question at a time and wait for feedback.
 - Resolve questions from code/docs yourself when possible.
+- Do not edit product code, runtime code, schemas, tests, or UI during this skill.
 - Call out glossary conflicts immediately.
 - Propose a canonical term and owning context for vague or overloaded language.
 - Stress-test abstractions with scenarios covering normal flow, partial/multi-party flow, stale data or replay, cross-context handoff, failure/cancellation, and low-value card economics when relevant.
@@ -85,6 +87,4 @@ Offer an ADR only when the choice is hard to reverse, surprising without context
 
 Before pausing, report the plan path, resolved decisions, docs updated, contradictions found, and next unresolved question.
 
-Before completion, visually verify the result in mobile and desktop viewports. For non-UI work, verify the nearest visible result, such as generated docs, API output, logs, or an operator page.
-
-When the feature is done, reread the plan, promote remaining durable context, pass automated checks, pass mobile/desktop visual verification, delete `.codex/plans/<feature-slug>.md`, remove `.codex/plans/` if empty, and summarize the durable docs that remain.
+This skill is complete when the plan/docs are written and the implementation goal exists. The goal is complete only after implementation, durable doc promotion, automated checks, mobile/desktop visual verification, and deletion of `.codex/plans/<feature-slug>.md`.
