@@ -94,6 +94,7 @@ export type FulfillmentShipmentState = Readonly<{
   packagePreparedAt: string | null;
   labelAttachedAt: string | null;
   labelVoidedAt: string | null;
+  cancelledAt: string | null;
   dispatchedAt: string | null;
   deliveredAt: string | null;
   returnedAt: string | null;
@@ -138,6 +139,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   packagePreparedAt: null,
   labelAttachedAt: null,
   labelVoidedAt: null,
+  cancelledAt: null,
   dispatchedAt: null,
   deliveredAt: null,
   returnedAt: null,
@@ -200,6 +202,11 @@ export type VoidShipmentLabelCommand = Readonly<{
   voidedAt: string;
 }>;
 
+export type CancelShipmentCommand = Readonly<{
+  type: "CancelShipment";
+  cancelledAt: string;
+}>;
+
 export type DispatchShipmentCommand = Readonly<{
   type: "DispatchShipment";
   dispatchedAt: string;
@@ -229,6 +236,7 @@ export type FulfillmentShipmentCommand =
   | AttachShipmentLabelCommand
   | RecordShipmentLabelPurchaseFailedCommand
   | VoidShipmentLabelCommand
+  | CancelShipmentCommand
   | DispatchShipmentCommand
   | RecordShipmentDeliveryCommand
   | ReturnShipmentCommand
@@ -302,6 +310,17 @@ export type ShipmentLabelVoidedEvent = DomainEvent<
   }>
 >;
 
+export type ShipmentCancelledEvent = DomainEvent<
+  "fulfillment.shipment.cancelled",
+  Readonly<{
+    shipmentId: ShipmentId;
+    orderId: OrderId;
+    buyerAccountId: AccountId;
+    sellerAccountId: AccountId;
+    cancelledAt: string;
+  }>
+>;
+
 export type ShipmentDispatchedEvent = DomainEvent<
   "fulfillment.shipment.dispatched",
   Readonly<{
@@ -347,6 +366,7 @@ export type FulfillmentShipmentEvent =
   | ShipmentLabelAttachedEvent
   | ShipmentLabelPurchaseFailedEvent
   | ShipmentLabelVoidedEvent
+  | ShipmentCancelledEvent
   | ShipmentDispatchedEvent
   | ShipmentDeliveredEvent
   | ShipmentReturnedEvent
@@ -589,6 +609,33 @@ export const decideFulfillmentShipment: AggregateDecider<
           },
         },
       ];
+    case "CancelShipment":
+      assert(state.shipmentId !== null, "Shipment must be created first.");
+      assert(state.orderId !== null, "Shipment must reference an order before cancellation.");
+      assert(state.buyerAccountId !== null, "Shipment must reference a buyer before cancellation.");
+      assert(state.sellerAccountId !== null, "Shipment must reference a seller before cancellation.");
+      if (state.status === "cancelled") {
+        return [];
+      }
+      assert(
+        state.status === "awaiting-package",
+        "Only shipments awaiting package preparation can be cancelled.",
+      );
+      return [
+        {
+          type: "fulfillment.shipment.cancelled",
+          data: {
+            shipmentId: state.shipmentId,
+            orderId: state.orderId,
+            buyerAccountId: state.buyerAccountId,
+            sellerAccountId: state.sellerAccountId,
+            cancelledAt: ensureIsoTimestamp(
+              command.cancelledAt,
+              "Shipment cancellation must record a timestamp.",
+            ),
+          },
+        },
+      ];
     case "DispatchShipment":
       assert(state.shipmentId !== null, "Shipment must be created first.");
       if (state.status === "dispatched") {
@@ -730,6 +777,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         packagePreparedAt: null,
         labelAttachedAt: null,
         labelVoidedAt: null,
+        cancelledAt: null,
         dispatchedAt: null,
         deliveredAt: null,
         returnedAt: null,
@@ -791,6 +839,12 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         labelRefundStatus: event.data.refundStatus,
         labelRefundReference: event.data.refundReference,
         labelVoidedAt: event.data.voidedAt,
+      };
+    case "fulfillment.shipment.cancelled":
+      return {
+        ...state,
+        status: "cancelled",
+        cancelledAt: event.data.cancelledAt,
       };
     case "fulfillment.shipment.dispatched":
       return {

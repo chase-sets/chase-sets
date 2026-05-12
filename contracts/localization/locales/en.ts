@@ -1999,6 +1999,7 @@ export const englishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.no.schedule.snapshot": "No schedule snapshot",
   "ordering.features.orders.ui.orderDetailPage.pay.now": "Pay now",
   "ordering.features.orders.ui.orderDetailPage.open.support": "Get help",
+  "ordering.features.orders.ui.orderDetailPage.ask.to.cancel": "Ask to cancel",
   "ordering.features.orders.ui.orderDetailPage.payment.state": "Payment State",
   "ordering.features.orders.ui.orderDetailPage.purchase": "Purchase",
   "ordering.features.orders.ui.orderDetailPage.quantity": "Quantity",

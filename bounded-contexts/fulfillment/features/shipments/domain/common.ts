@@ -4,6 +4,7 @@ export type ShipmentStatus =
   | "awaiting-package"
   | "awaiting-label"
   | "label-attached"
+  | "cancelled"
   | "dispatched"
   | "delivered"
   | "returned"

@@ -13,6 +13,7 @@ Payments owns money movement with external payment rails and buyer-facing charge
 - Marketplace checkout fee quotes and payment snapshots
 - Marketplace sales fee snapshots supplied by Ordering
 - Shipping rebate calculation inputs at checkout and refund time
+- Buyer-paid share refunds for self-service purchase cancellation
 
 Buyer marketplace checkout fee policy is documented in [Marketplace Checkout Fee Policy](./docs/marketplace-checkout-fee-policy.md).
 
@@ -56,6 +57,7 @@ Stripe runtime configuration, webhook setup, smoke tests, and incident workflows
 2. External money movement and internal balance accounting are separate models.
 3. Payments determines whether a buyer was charged or refunded successfully.
 4. Payments may carry marketplace checkout fees and rebate inputs, but Settlement owns ledger postings.
+5. Self-service purchase cancellation refunds include the cancelled order total plus the allocated Marketplace Checkout Fee.
 
 ## Open Extraction Candidates
 

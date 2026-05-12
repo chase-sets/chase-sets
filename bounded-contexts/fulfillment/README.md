@@ -15,11 +15,14 @@ Fulfillment owns the physical execution of shipping and delivery.
 - Tracking identifiers
 - Dispatch and in-transit status
 - Delivery, loss, return, and exception handling
+- Shipment cancellation before package preparation
 
 ## Does Not Own
 
 - Order pricing
+- Order cancellation decisions
 - Payment capture logic
+- Buyer refund execution
 - Seller balances
 
 ## Ubiquitous Language
@@ -45,6 +48,7 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 
 - `ShipmentCreated`
 - `ShipmentLabelAttached`
+- `ShipmentCancelled`
 - `ShipmentDispatched`
 - `ShipmentDelivered`
 - `ShipmentReturned`
@@ -56,6 +60,7 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 2. A single order may map to one or more shipments.
 3. Tracking state is owned only in Fulfillment.
 4. Fulfillment issues facts that may trigger refunds, but it does not execute refunds.
+5. A shipment may be cancelled for buyer self-service cancellation only before package preparation starts.
 
 ## Open Extraction Candidates
 

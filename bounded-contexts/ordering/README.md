@@ -20,12 +20,14 @@ If an item uses a `condition` dimension, that condition is represented inside th
 - Buyer and seller pairing per order
 - Pending-payment and cancelled order status
 - Pre-shipment cancellation rules
+- Buyer self-service purchase cancellation while Fulfillment has not started packing
 
 ## Does Not Own
 
 - Listing negotiation
 - Payment processor state
 - Shipment tracking
+- Shipment cancellation execution
 - Seller payout accounting
 
 ## Ubiquitous Language
@@ -57,7 +59,8 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 3. Checkout lines express buyer intent for a product; concrete listing and inventory matching happen when Ordering creates orders.
 4. A checkout session may produce one or more orders grouped by seller account.
 5. Inventory holds are placed only when an order is committed and released if the order is cancelled while pending.
-6. In v1, orders remain `Pending Payment` or `Cancelled`; confirmation and fulfillment-readiness stay out of scope.
+6. Buyer self-service cancellation after payment is available only before Fulfillment records package preparation.
+7. Buyers correct purchase mistakes by cancelling and rebuying, not by editing committed order terms.
 
 ## Open Extraction Candidates
 

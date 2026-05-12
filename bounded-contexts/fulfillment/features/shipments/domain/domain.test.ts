@@ -180,4 +180,74 @@ describe("fulfillment shipment domain", () => {
       }),
     ).toThrow("Shipments must be packed before a label can be attached.");
   });
+
+  it("cancels a shipment before package preparation starts", () => {
+    const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+      type: "CreateShipment",
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      ...shipmentAddressSnapshots,
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+
+    const cancelledState = decideFulfillmentShipment(createdState, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:03:00.000Z",
+    }).reduce(evolveFulfillmentShipment, createdState);
+
+    expect(cancelledState.status).toBe("cancelled");
+    expect(cancelledState.cancelledAt).toBe("2026-04-02T00:03:00.000Z");
+  });
+
+  it("rejects cancellation after package preparation starts", () => {
+    const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+      type: "CreateShipment",
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      ...shipmentAddressSnapshots,
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    const packedState = decideFulfillmentShipment(createdState, {
+      type: "PrepareShipmentPackage",
+      packageCount: 1,
+      preparedAt: "2026-04-02T00:05:00.000Z",
+    }).reduce(evolveFulfillmentShipment, createdState);
+
+    expect(() =>
+      decideFulfillmentShipment(packedState, {
+        type: "CancelShipment",
+        cancelledAt: "2026-04-02T00:06:00.000Z",
+      }),
+    ).toThrow("Only shipments awaiting package preparation can be cancelled.");
+  });
 });

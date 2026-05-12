@@ -29,6 +29,8 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Localization Contract](../contracts/localization/README.md)
 - [MCP Contract](../contracts/mcp/README.md)
 - [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
+- [Ordering Self-Service Purchase Cancellation](../bounded-contexts/ordering/docs/self-service-purchase-cancellation.md)
+- [Fulfillment Purchase Cancellation Cutoff](../bounded-contexts/fulfillment/docs/purchase-cancellation-cutoff.md)
 - [Marketplace Seller Fee Confirmation](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md)
 - [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md)
 

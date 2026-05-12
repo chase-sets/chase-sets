@@ -64,12 +64,13 @@ export function buildFulfillmentShipmentProjectionHandlers(
            package_prepared_at,
            label_attached_at,
            label_voided_at,
+           cancelled_at,
            dispatched_at,
            delivered_at,
            returned_at,
            exception_raised_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $8, $8, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $8, $8, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
@@ -307,6 +308,21 @@ export function buildFulfillmentShipmentProjectionHandlers(
           data.refundReference,
           data.voidedAt,
         ],
+      );
+    },
+    "fulfillment.shipment.cancelled": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        cancelledAt: string;
+      };
+
+      await db.query(
+        `UPDATE fulfillment_shipment_pages
+         SET status = 'cancelled',
+             cancelled_at = $2,
+             updated_at = $2
+         WHERE shipment_id = $1`,
+        [data.shipmentId, data.cancelledAt],
       );
     },
     "fulfillment.shipment.dispatched": async (event) => {

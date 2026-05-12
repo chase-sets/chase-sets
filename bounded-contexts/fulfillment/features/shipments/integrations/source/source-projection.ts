@@ -94,6 +94,11 @@ export function buildFulfillmentOrderProjectionHandlers(
       readyForFulfillmentAt: string;
       context: EventStoreContext;
     }) => Promise<void>;
+    onOrderCancelled?: (params: {
+      orderId: string;
+      cancelledAt: string;
+      context: EventStoreContext;
+    }) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
   return {
@@ -218,6 +223,16 @@ export function buildFulfillmentOrderProjectionHandlers(
          WHERE order_id = $1`,
         [data.orderId, data.cancelledAt],
       );
+
+      await options.onOrderCancelled?.({
+        orderId: data.orderId,
+        cancelledAt: data.cancelledAt,
+        context: {
+          tenantId: event.tenantId,
+          audit: event.audit,
+          trace: event.trace,
+        } as EventStoreContext,
+      });
     },
     "ordering.order.ready-for-fulfillment-recorded": async (event) => {
       const data = event.data as {

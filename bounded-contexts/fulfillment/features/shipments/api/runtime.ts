@@ -146,6 +146,11 @@ export type FulfillmentShipmentServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
+  cancelShipmentForCancelledOrder: (params: {
+    orderId: string;
+    cancelledAt: string;
+    context: EventStoreContext;
+  }) => Promise<{ shipmentId: ShipmentId | null }>;
   listBuyerShipments: (
     params: Parameters<typeof listBuyerShipments>[1],
   ) => ReturnType<typeof listBuyerShipments>;
@@ -242,6 +247,28 @@ async function loadReadyOrderSnapshot(
     shipping_origin_snapshot: order.shipping_origin_snapshot,
     lines: linesResult.rows,
   };
+}
+
+type CancellableShipmentSnapshot = Readonly<{
+  shipment_id: string;
+  status: string;
+  package_status: string;
+}>;
+
+async function loadCancellableShipmentForOrder(
+  db: PgQueryable,
+  orderId: string,
+): Promise<CancellableShipmentSnapshot | null> {
+  const result = await db.query<CancellableShipmentSnapshot>(
+    `SELECT shipment_id, status, package_status
+     FROM fulfillment_shipment_pages
+     WHERE order_id = $1
+     ORDER BY created_at ASC, shipment_id ASC
+     LIMIT 1`,
+    [orderId],
+  );
+
+  return result.rows[0] ?? null;
 }
 
 function postageAddressFromSnapshot(address: AddressSnapshot): PostageAddress {
@@ -347,6 +374,26 @@ export function createFulfillmentShipmentRuntime(
       });
 
       return { shipmentId };
+    },
+    cancelShipmentForCancelledOrder: async (params) => {
+      const shipment = await loadCancellableShipmentForOrder(deps.db, params.orderId);
+      if (!shipment || shipment.status === "cancelled") {
+        return { shipmentId: null };
+      }
+      if (shipment.status !== "awaiting-package" || shipment.package_status !== "awaiting-package") {
+        return { shipmentId: null };
+      }
+
+      await commandHandler({
+        streamId: `fulfillment.shipment-${shipment.shipment_id}`,
+        command: {
+          type: "CancelShipment",
+          cancelledAt: params.cancelledAt,
+        },
+        context: params.context,
+      });
+
+      return { shipmentId: shipment.shipment_id as ShipmentId };
     },
     packShipment: async (params, context) => {
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);

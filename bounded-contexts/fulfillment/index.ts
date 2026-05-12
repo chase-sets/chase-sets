@@ -92,6 +92,9 @@ export const module: BcApiModule<
           onReadyForFulfillment: async (params) => {
             await services.shipments.createShipmentForReadyOrder(params);
           },
+          onOrderCancelled: async (params) => {
+            await services.shipments.cancelShipmentForCancelledOrder(params);
+          },
         }),
         eventTypes: orderingSubscription.eventTypes,
         streamPrefixes: orderingSubscription.streamPrefixes,

@@ -1184,4 +1184,248 @@ describe("ordering order runtime", () => {
       ],
     });
   });
+
+  it("lets a buyer cancel a paid purchase before fulfillment packing starts", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM ordering_order_pages")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                source_type: "cart-checkout",
+                source_reference_id: null,
+                buyer_account_id: "acc_buyer",
+                buyer_display_name: "Buyer",
+                seller_account_id: "acc_seller",
+                seller_display_name: "Seller",
+                shipping_option: "standard",
+                item_subtotal_amount: "20.00",
+                shipping_base_amount: "4.99",
+                shipping_discount_amount: "0.00",
+                shipping_allowance_amount: "4.99",
+                shipping_overage_amount: "0.00",
+                shipping_charge_amount: "4.99",
+                sales_tax_amount: "0.00",
+                total_amount: "24.99",
+                marketplace_sales_fee_amount: "1.00",
+                seller_net_amount: "19.00",
+                seller_item_net_amount: "19.00",
+                seller_payout_amount: "23.99",
+                shipping_allowance_percentage_bps: 500,
+                taxable_amount: "24.99",
+                tax_jurisdiction_country: "US",
+                tax_jurisdiction_state: "IL",
+                tax_rate_bps: 0,
+                tax_provider_name: "local-tax-stub",
+                tax_provider_quote_reference: null,
+                tax_quoted_at: "2026-03-31T00:00:00.000Z",
+                shipping_destination_snapshot: shippingAddress,
+                shipping_origin_snapshot: shipFromAddress,
+                terms_schedule_id: "cts_default",
+                terms_agreement_id: null,
+                terms_resolved_at: "2026-03-31T00:00:00.000Z",
+                status: "ready-for-fulfillment",
+                created_at: "2026-03-31T00:00:00.000Z",
+                updated_at: "2026-04-01T00:00:00.000Z",
+                cancelled_at: null,
+                cancellation_reason: null,
+                ready_for_fulfillment_at: "2026-04-01T00:00:00.000Z",
+                self_service_cancellation_available: true,
+                cancellation_unavailable_reason: null,
+                line_count: 1,
+                total_quantity: 1,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+
+    const services = createOrderingOrderRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+
+    await services.commandHandler({
+      streamId: "ordering.order-ord_1",
+      command: {
+        type: "CreateOrder",
+        orderId: "ord_1" as never,
+        sourceType: "cart-checkout",
+        sourceReferenceId: null,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        itemSubtotalAmount: "20.00",
+        shippingBaseAmount: "4.99",
+        shippingDiscountAmount: "0.00",
+        shippingChargeAmount: "4.99",
+        salesTaxAmount: "0.00",
+        taxSnapshot,
+        totalAmount: "24.99",
+        shippingDestinationSnapshot: shippingAddress,
+        shippingOriginSnapshot: shipFromAddress,
+        commercialTermsSnapshot: {
+          marketplaceSalesFeeAmount: "1.00",
+          sellerNetAmount: "19.00",
+          termsScheduleId: "cts_default",
+          termsAgreementId: null,
+          termsResolvedAt: "2026-03-31T00:00:00.000Z",
+        },
+        lines: [
+          {
+            lineId: "oli_1" as never,
+            listingId: "lst_1",
+            inventoryItemId: "inv_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::" as never,
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            unitPriceAmount: "20.00",
+            quantity: 1,
+            lineTotalAmount: "20.00",
+            marketplaceSalesFeeUnitAmount: "1.00",
+            marketplaceSalesFeeTotalAmount: "1.00",
+            sellerNetUnitAmount: "19.00",
+            sellerNetTotalAmount: "19.00",
+          },
+        ],
+        reservationRequests: [
+          {
+            reservationRequestId: "rsv_1",
+            inventoryItemId: "inv_1",
+            sellerAccountId: "acc_seller",
+            quantity: 1,
+          },
+        ],
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "ordering.order-ord_1",
+      command: {
+        type: "RecordReservationConfirmed",
+        reservationRequestId: "rsv_1",
+        holdId: "hld_1",
+        confirmedAt: "2026-03-31T00:01:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "ordering.order-ord_1",
+      command: {
+        type: "MarkReadyForFulfillment",
+        readyForFulfillmentAt: "2026-04-01T00:00:00.000Z",
+      },
+      context,
+    });
+
+    await services.cancelPurchase(
+      { orderId: "ord_1", buyerAccountId: "acc_buyer" },
+      context,
+    );
+
+    expect(
+      readAllEvents().some((event) => event.eventType === "ordering.order.cancelled"),
+    ).toBe(true);
+  });
+
+  it("routes buyer cancellation to support after fulfillment packing starts", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM ordering_order_pages")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                source_type: "cart-checkout",
+                source_reference_id: null,
+                buyer_account_id: "acc_buyer",
+                buyer_display_name: "Buyer",
+                seller_account_id: "acc_seller",
+                seller_display_name: "Seller",
+                shipping_option: "standard",
+                item_subtotal_amount: "20.00",
+                shipping_base_amount: "4.99",
+                shipping_discount_amount: "0.00",
+                shipping_allowance_amount: "4.99",
+                shipping_overage_amount: "0.00",
+                shipping_charge_amount: "4.99",
+                sales_tax_amount: "0.00",
+                total_amount: "24.99",
+                marketplace_sales_fee_amount: "1.00",
+                seller_net_amount: "19.00",
+                seller_item_net_amount: "19.00",
+                seller_payout_amount: "23.99",
+                shipping_allowance_percentage_bps: 500,
+                taxable_amount: "24.99",
+                tax_jurisdiction_country: "US",
+                tax_jurisdiction_state: "IL",
+                tax_rate_bps: 0,
+                tax_provider_name: "local-tax-stub",
+                tax_provider_quote_reference: null,
+                tax_quoted_at: "2026-03-31T00:00:00.000Z",
+                shipping_destination_snapshot: shippingAddress,
+                shipping_origin_snapshot: shipFromAddress,
+                terms_schedule_id: "cts_default",
+                terms_agreement_id: null,
+                terms_resolved_at: "2026-03-31T00:00:00.000Z",
+                status: "ready-for-fulfillment",
+                created_at: "2026-03-31T00:00:00.000Z",
+                updated_at: "2026-04-01T00:00:00.000Z",
+                cancelled_at: null,
+                cancellation_reason: null,
+                ready_for_fulfillment_at: "2026-04-01T00:00:00.000Z",
+                self_service_cancellation_available: false,
+                cancellation_unavailable_reason: "fulfillment-started",
+                line_count: 1,
+                total_quantity: 1,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+
+    const services = createOrderingOrderRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+        }),
+      },
+    });
+
+    await expect(
+      services.cancelPurchase(
+        { orderId: "ord_1", buyerAccountId: "acc_buyer" },
+        context,
+      ),
+    ).rejects.toThrow(
+      "Purchase cancellation is now handled through support because fulfillment has started.",
+    );
+  });
 });

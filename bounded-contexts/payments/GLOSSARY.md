@@ -29,3 +29,13 @@ A **Marketplace Checkout Fee** is the buyer-side payment-level marketplace fee q
 ## Shipping Rebate Calculation
 
 A **Shipping Rebate Calculation** is the payment-time computation used to reduce the buyer's effective shipping cost under marketplace rules.
+
+## Buyer-Paid Share
+
+A **Buyer-Paid Share** is the portion of a captured payment attributable to one cancelled order, including that order's total and allocated Marketplace Checkout Fee.
+
+Notes:
+
+- Payments owns buyer-paid share refund execution.
+- Ordering owns the order cancellation fact.
+- Allocation must be replay-safe so a cancellation cannot create duplicate refunds.
