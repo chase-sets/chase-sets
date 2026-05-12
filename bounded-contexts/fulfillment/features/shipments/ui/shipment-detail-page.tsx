@@ -85,6 +85,7 @@ export function FulfillmentShipmentDetailPage({
       : shipment.buyer_display_name ?? shipment.buyer_account_id;
   const recipientSnapshot = shipment.shipping_destination_snapshot;
   const senderSnapshot = shipment.shipping_origin_snapshot;
+  const packingSlipHref = `/account/sales/shipments/packing-slips?shipmentIds=${encodeURIComponent(shipment.shipment_id)}&format=letter`;
 
   return (
     <Page>
@@ -96,8 +97,14 @@ export function FulfillmentShipmentDetailPage({
           counterpart: counterpartLabel,
         })}
         actions={
-          <LinkButton href={backHref} tone="secondary">
-            {t("fulfillment.features.shipments.ui.shipmentDetailPage.back")}</LinkButton>
+          <Stack gap={2}>
+            {role === "seller" ? (
+              <LinkButton href={packingSlipHref} tone="primary" target="_blank">
+                {t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip")}</LinkButton>
+            ) : null}
+            <LinkButton href={backHref} tone="secondary">
+              {t("fulfillment.features.shipments.ui.shipmentDetailPage.back")}</LinkButton>
+          </Stack>
         }
       />
 

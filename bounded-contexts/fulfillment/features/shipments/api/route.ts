@@ -79,6 +79,17 @@ function hasAddressInput(body: Record<string, unknown>, prefix: string) {
   ].some((field) => typeof body[`${prefix}${field}`] === "string");
 }
 
+function parseShipmentIds(value: string | undefined) {
+  return Array.from(
+    new Set(
+      (value ?? "")
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 export function createAccountShipmentRoutes(services: FulfillmentShipmentServices) {
   const app = new Hono<FulfillmentApiEnv>();
 
@@ -144,6 +155,41 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
       items: result.items,
       total: result.total,
       count: result.items.length,
+    });
+  });
+
+  app.get("/sales/shipments/packing-slips", async (c) => {
+    const access = requireShipmentAccess(c, "fulfillment.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const shipmentIds = parseShipmentIds(c.req.query("shipmentIds"));
+    if (shipmentIds.length === 0) {
+      return c.json({
+        error: {
+          code: "validation_failed",
+          message: t("fulfillment.features.shipments.api.route.packing.slips.require.shipments"),
+        },
+      }, 400);
+    }
+    if (shipmentIds.length > 100) {
+      return c.json({
+        error: {
+          code: "validation_failed",
+          message: t("fulfillment.features.shipments.api.route.packing.slips.too.many.shipments"),
+        },
+      }, 400);
+    }
+
+    const items = await services.listSellerPackingSlips({
+      sellerAccountId: access.actor.accountId,
+      shipmentIds,
+    });
+
+    return c.json({
+      items,
+      count: items.length,
     });
   });
 

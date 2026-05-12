@@ -34,6 +34,7 @@ import { FulfillmentDomainError } from "../domain/common";
 import {
   getBuyerShipment,
   getSellerShipment,
+  listSellerPackingSlips,
   listBuyerShipments,
   listSellerShipments,
 } from "../read-model/queries";
@@ -159,6 +160,9 @@ export type FulfillmentShipmentServices = Readonly<{
     shipmentId: string,
     sellerAccountId: string,
   ) => ReturnType<typeof getSellerShipment>;
+  listSellerPackingSlips: (
+    params: Parameters<typeof listSellerPackingSlips>[1],
+  ) => ReturnType<typeof listSellerPackingSlips>;
   createShipmentForReadyOrder: (params: {
     orderId: string;
     readyForFulfillmentAt: string;
@@ -593,6 +597,8 @@ export function createFulfillmentShipmentRuntime(
     listSellerShipments: (params) => listSellerShipments(deps.db, params),
     getSellerShipment: (shipmentId, sellerAccountId) =>
       getSellerShipment(deps.db, shipmentId, sellerAccountId),
+    listSellerPackingSlips: (params) =>
+      listSellerPackingSlips(deps.db, params),
     projectors: [
       createProjector({
         projectorName: "fulfillment-shipment-projection",

@@ -7,6 +7,9 @@ export type {
   FulfillmentShipmentDetail,
   FulfillmentShipmentException,
   FulfillmentLabelAddressOverrideAudit,
+  FulfillmentPackingSlip,
+  FulfillmentPackingSlipBatch,
+  FulfillmentPackingSlipFormat,
   FulfillmentShipmentLine,
   FulfillmentShipmentListItem,
 } from "./features/shipments/api/contracts";
@@ -14,6 +17,7 @@ export type {
 import type {
   FulfillmentShipmentDetail,
   FulfillmentShipmentListItem,
+  FulfillmentPackingSlipBatch,
 } from "./features/shipments/api/contracts";
 
 export type FulfillmentNotificationItem = Readonly<{
@@ -123,6 +127,16 @@ export function createFulfillmentApiClient({
       return parseJsonResponse(
         await client.account.sales.shipments[":id"].$get({
           param: { id: shipmentId },
+          header: headers,
+        }),
+      );
+    },
+    async listSellerPackingSlips(
+      shipmentIds: readonly string[],
+    ): Promise<FulfillmentPackingSlipBatch> {
+      return parseJsonResponse(
+        await client.account.sales.shipments["packing-slips"].$get({
+          query: { shipmentIds: shipmentIds.join(",") },
           header: headers,
         }),
       );

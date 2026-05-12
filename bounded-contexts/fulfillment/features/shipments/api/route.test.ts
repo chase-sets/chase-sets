@@ -44,6 +44,7 @@ function createServices(): FulfillmentShipmentServices {
       newEvents: [],
       storedEvents: [],
     })),
+    createShipmentForReadyOrder: vi.fn(async () => ({ shipmentId: "shp_1" })),
     packShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 2 })),
     attachLabel: vi.fn(async () => ({ shipmentId: "shp_1", version: 3 })),
     purchaseUspsLabel: vi.fn(async () => ({
@@ -60,6 +61,89 @@ function createServices(): FulfillmentShipmentServices {
     getBuyerShipment: vi.fn(async () => null),
     listSellerShipments: vi.fn(async () => ({ items: [], total: 0 })),
     getSellerShipment: vi.fn(async () => null),
+    listSellerPackingSlips: vi.fn(async ({ shipmentIds }) =>
+      shipmentIds.map((shipmentId) => ({
+        shipment_id: shipmentId,
+        order_id: "ord_1",
+        buyer_account_id: "acc_buyer",
+        buyer_display_name: "Buyer",
+        seller_account_id: "acc_seller",
+        seller_display_name: "Seller",
+        shipping_option: "standard",
+        shipping_destination_snapshot: {
+          name: "Buyer",
+          company: null,
+          line1: "2 Market St",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+          phone: null,
+          email: null,
+        },
+        shipping_origin_snapshot: {
+          name: "Seller",
+          company: null,
+          line1: "1 Main St",
+          line2: null,
+          city: "Austin",
+          state: "TX",
+          postalCode: "78701",
+          country: "US",
+          phone: null,
+          email: null,
+        },
+        shipping_method: null,
+        carrier_name: null,
+        label_reference: null,
+        label_document_url: null,
+        tracking_identifier: null,
+        postage_provider_name: null,
+        postage_provider_mode: null,
+        postage_provider_shipment_id: null,
+        postage_provider_label_id: null,
+        postage_rate_id: null,
+        postage_service_level: null,
+        postage_amount_cents: null,
+        postage_currency: null,
+        label_status: "not-purchased",
+        label_error_code: null,
+        label_error_message: null,
+        label_refund_status: null,
+        label_refund_reference: null,
+        status: "awaiting-package",
+        package_status: "awaiting-package",
+        package_count: null,
+        current_exception_type: null,
+        current_exception_notes: null,
+        created_at: "2026-04-02T00:00:00.000Z",
+        updated_at: "2026-04-02T00:00:00.000Z",
+        package_prepared_at: null,
+        label_attached_at: null,
+        label_voided_at: null,
+        dispatched_at: null,
+        delivered_at: null,
+        returned_at: null,
+        exception_raised_at: null,
+        line_count: 1,
+        total_quantity: 1,
+        lines: [
+          {
+            line_id: "spl_1",
+            order_line_id: "oli_1",
+            catalog_catalog_item_id: "cat_1",
+            product_id: "cat_1::",
+            item_title: "Charizard",
+            item_subtitle: null,
+            product_summary: "Condition: Near Mint",
+            quantity: 1,
+          },
+        ],
+        exceptions: [],
+        address_override_audits: [],
+      })),
+    ),
     projectors: [],
   };
 }
@@ -126,6 +210,131 @@ describe("fulfillment shipment routes", () => {
         message: "Forbidden.",
       },
     });
+  });
+
+  it("returns packing slips for selected seller shipments", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/packing-slips?shipmentIds=shp_1,shp_2"),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.count).toBe(2);
+    expect(body.items[0]).toMatchObject({
+      shipment_id: "shp_1",
+      order_id: "ord_1",
+      lines: [
+        expect.objectContaining({
+          item_title: "Charizard",
+          quantity: 1,
+        }),
+      ],
+    });
+    expect(JSON.stringify(body)).not.toContain("price");
+    expect(JSON.stringify(body)).not.toContain("payment");
+    expect(services.listSellerPackingSlips).toHaveBeenCalledWith({
+      sellerAccountId: "acc_seller",
+      shipmentIds: ["shp_1", "shp_2"],
+    });
+  });
+
+  it("rejects packing slip batches without selected shipments", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/packing-slips"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(services.listSellerPackingSlips).not.toHaveBeenCalled();
+  });
+
+  it("rejects packing slip batches without an authenticated seller", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/packing-slips?shipmentIds=shp_1"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(services.listSellerPackingSlips).not.toHaveBeenCalled();
+  });
+
+  it("rejects packing slip batches without fulfillment view permission", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "viewer",
+        permissions: [],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/packing-slips?shipmentIds=shp_1"),
+    );
+
+    expect(response.status).toBe(403);
+    expect(services.listSellerPackingSlips).not.toHaveBeenCalled();
+  });
+
+  it("rejects packing slip batches over one hundred shipments", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view"],
+      },
+      services,
+    });
+    const shipmentIds = Array.from({ length: 101 }, (_, index) => `shp_${index}`).join(",");
+
+    const response = await app.fetch(
+      new Request(`http://fulfillment.test/account/sales/shipments/packing-slips?shipmentIds=${shipmentIds}`),
+    );
+
+    expect(response.status).toBe(400);
+    expect(services.listSellerPackingSlips).not.toHaveBeenCalled();
   });
 
   it("drives the seller shipment lifecycle through documented API actions", async () => {

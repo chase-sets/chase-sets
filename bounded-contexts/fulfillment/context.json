@@ -113,6 +113,14 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "account-sale-shipment-packing-slips",
+          "routePath": "account/sales/shipments/packing-slips",
+          "fileExport": "./routes/marketplace/account-sale-shipment-packing-slips",
+          "routeType": "route",
+          "placement": "root",
+          "sourceContext": "fulfillment"
+        },
+        {
           "routeId": "account-shipment",
           "routePath": "account/shipments/:shipmentId",
           "fileExport": "./routes/marketplace/account-shipment",

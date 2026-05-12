@@ -75,6 +75,7 @@
     "/api/marketplace/account/shipments": { "get": { "tags": ["Orders and Shipments"], "summary": "List buyer shipments.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/shipments/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer shipment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/sales/shipments": { "get": { "tags": ["Orders and Shipments"], "summary": "List seller shipments.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+    "/api/marketplace/account/sales/shipments/packing-slips": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller packing slips for selected shipments.", "responses": { "200": { "$ref": "#/components/responses/List" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
     "/api/marketplace/account/sales/shipments/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller shipment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/sales/shipments/{id}/pack": { "post": { "tags": ["Orders and Shipments"], "summary": "Pack seller shipment.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/sales/shipments/{id}/label": { "post": { "tags": ["Orders and Shipments"], "summary": "Attach seller shipment label.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },

@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Button,
   Card,
   LinkButton,
   MarketplaceEmptyState,
+  NativeSelect,
   Page,
   PageHeader,
   PageSection,
@@ -42,6 +45,7 @@ export function FulfillmentShipmentListPage({
   emptyDescription,
   shipmentDetailBasePath,
   shipments,
+  batchPrintActionPath,
 }: {
   title: string;
   eyebrow: string;
@@ -49,7 +53,19 @@ export function FulfillmentShipmentListPage({
   emptyDescription: string;
   shipmentDetailBasePath: string;
   shipments: readonly FulfillmentShipmentListItem[];
+  batchPrintActionPath?: string;
 }) {
+  const [selectedShipmentIds, setSelectedShipmentIds] = useState<string[]>([]);
+  const selectedShipmentIdSet = new Set(selectedShipmentIds);
+
+  function toggleShipment(shipmentId: string, checked: boolean) {
+    setSelectedShipmentIds((current) =>
+      checked
+        ? Array.from(new Set([...current, shipmentId]))
+        : current.filter((id) => id !== shipmentId),
+    );
+  }
+
   return (
     <Page>
       <PageHeader
@@ -59,7 +75,33 @@ export function FulfillmentShipmentListPage({
       />
 
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentListPage.shipments")}>
+        <form method="get" action={batchPrintActionPath} target="_blank">
         <Stack gap={3}>
+          {batchPrintActionPath && shipments.length > 0 ? (
+            <Card>
+              <Stack gap={3}>
+                <NativeSelect
+                  label={t("fulfillment.features.shipments.ui.shipmentListPage.packing.slip.format")}
+                  name="format"
+                  defaultValue="letter"
+                  items={[
+                    { value: "letter", label: t("fulfillment.features.shipments.ui.shipmentListPage.letter") },
+                    { value: "thermal-4x6", label: t("fulfillment.features.shipments.ui.shipmentListPage.thermal.4x6") },
+                  ]}
+                />
+                <Text size="sm" tone="secondary">
+                  {t("fulfillment.features.shipments.ui.shipmentListPage.selected.shipments", {
+                    count: selectedShipmentIds.length,
+                  })}
+                </Text>
+                <Button
+                  type="submit"
+                  disabled={selectedShipmentIds.length === 0}
+                >
+                  {t("fulfillment.features.shipments.ui.shipmentListPage.print.packing.slips")}</Button>
+              </Stack>
+            </Card>
+          ) : null}
           {shipments.length === 0 ? (
             <MarketplaceEmptyState
               title={emptyTitle}
@@ -69,6 +111,20 @@ export function FulfillmentShipmentListPage({
             shipments.map((shipment) => (
               <Card key={shipment.shipment_id}>
                 <Stack gap={2}>
+                  {batchPrintActionPath ? (
+                    <label className="flex items-center gap-2 text-sm font-semibold">
+                      <input
+                        type="checkbox"
+                        name="shipmentIds"
+                        value={shipment.shipment_id}
+                        checked={selectedShipmentIdSet.has(shipment.shipment_id)}
+                        onChange={(event) =>
+                          toggleShipment(shipment.shipment_id, event.currentTarget.checked)
+                        }
+                      />
+                      {t("fulfillment.features.shipments.ui.shipmentListPage.select.for.packing.slip")}
+                    </label>
+                  ) : null}
                   <Stack gap={1}>
                     <Text weight="semibold">{shipmentTitle(shipment)}</Text>
                     <Badge tone={statusTone(shipment.status)}>{shipment.status}</Badge>
@@ -92,6 +148,7 @@ export function FulfillmentShipmentListPage({
             ))
           )}
         </Stack>
+        </form>
       </PageSection>
     </Page>
   );
