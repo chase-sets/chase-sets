@@ -1,6 +1,6 @@
 ---
 name: plan-with-context
-description: Plan implementation or product features against the Chase Sets bounded-context model, ubiquitous language, code, and docs. Use when the user wants one-question-at-a-time planning with recommended answers, code/doc cross-checks, a working plan under .codex/plans, and durable updates to owning glossaries, context docs, or ADRs.
+description: Plan implementation or product features against the Chase Sets bounded-context model, ubiquitous language, code, and docs. Use when the user wants one-question-at-a-time planning with recommended answers, code/doc cross-checks, a working plan under .codex/plans, mobile and desktop visual verification, and durable updates to owning glossaries, context docs, or ADRs.
 ---
 
 # Plan With Context
@@ -47,7 +47,7 @@ Use `.codex/plans/<feature-slug>.md` as disposable memory for compaction, handof
 
 Update the plan after every answered question, repo finding, accepted/rejected recommendation, and doc change. `Cleanup Criteria` must list what durable context must survive after the plan is deleted.
 
-If the user explicitly asks for `/goal`, create a goal whose objective references the plan path. Treat unchecked items, unresolved questions, failing verification, unpromoted durable context, and the still-present plan file as blockers to completion.
+If the user explicitly asks for `/goal`, create a goal whose objective references the plan path. Treat unchecked items, unresolved questions, failing automated checks, missing mobile/desktop visual verification, unpromoted durable context, and the still-present plan file as blockers to completion.
 
 ## Planning Rules
 
@@ -85,4 +85,6 @@ Offer an ADR only when the choice is hard to reverse, surprising without context
 
 Before pausing, report the plan path, resolved decisions, docs updated, contradictions found, and next unresolved question.
 
-When the feature is done, reread the plan, promote remaining durable context, verify implementation/docs, delete `.codex/plans/<feature-slug>.md`, remove `.codex/plans/` if empty, and summarize the durable docs that remain.
+Before completion, visually verify the result in mobile and desktop viewports. For non-UI work, verify the nearest visible result, such as generated docs, API output, logs, or an operator page.
+
+When the feature is done, reread the plan, promote remaining durable context, pass automated checks, pass mobile/desktop visual verification, delete `.codex/plans/<feature-slug>.md`, remove `.codex/plans/` if empty, and summarize the durable docs that remain.
