@@ -63,6 +63,29 @@ function validationError(error: unknown) {
   return null;
 }
 
+function parseLimitValue(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function parsePurchaseLimits(body: Record<string, unknown>) {
+  const source =
+    body.purchaseLimits && typeof body.purchaseLimits === "object"
+      ? (body.purchaseLimits as Record<string, unknown>)
+      : body;
+
+  return {
+    maxUnitsPerOrder: parseLimitValue(source.maxUnitsPerOrder ?? source.max_units_per_order),
+    maxUnitsPerDay: parseLimitValue(source.maxUnitsPerDay ?? source.max_units_per_day),
+    maxUnitsPerCustomerAccount: parseLimitValue(
+      source.maxUnitsPerCustomerAccount ?? source.max_units_per_customer_account,
+    ),
+  };
+}
+
 export function createAccountListingRoutes(services: MarketplaceListingServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
@@ -211,6 +234,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
           inventoryItemId: String(body.inventoryItemId ?? ""),
           priceAmount: String(body.priceAmount ?? ""),
           quantityCap: Number(body.quantityCap ?? 0),
+          purchaseLimits: parsePurchaseLimits(body),
         },
         context,
       );
@@ -283,6 +307,10 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
           quantityCap: Number(body.quantityCap ?? 0),
+          purchaseLimits:
+            body.purchaseLimits && typeof body.purchaseLimits === "object"
+              ? parsePurchaseLimits(body)
+              : undefined,
           feeQuoteFingerprint:
             typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
@@ -295,6 +323,35 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       if (response) {
         return response;
       }
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/listings/:id/purchase-limits", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.3") } }, 401);
+    }
+
+    const body = await c.req.json();
+
+    try {
+      const result = await services.updateListingPurchaseLimits(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          purchaseLimits: parsePurchaseLimits(body),
+        },
+        context,
+      );
+
+      return c.json({ id: result.listingId, version: result.version, status: "purchase-limits-updated" });
+    } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });

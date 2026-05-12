@@ -48,6 +48,12 @@ function normalizePercentageBps(value: number, fieldName: string): number {
 
 export type ListingStatus = "draft" | "active" | "paused" | "withdrawn";
 
+export type MarketplaceListingPurchaseLimits = Readonly<{
+  maxUnitsPerOrder: number | null;
+  maxUnitsPerDay: number | null;
+  maxUnitsPerCustomerAccount: number | null;
+}>;
+
 export type MarketplaceGradedCardDetails = Readonly<{
   gradingCompany: string;
   grade: string;
@@ -85,6 +91,7 @@ export type MarketplaceListingState = Readonly<{
   termsResolvedAt: string | null;
   feeQuoteFingerprint: string | null;
   quantityCap: number;
+  purchaseLimits: MarketplaceListingPurchaseLimits;
   status: ListingStatus;
 }>;
 
@@ -112,6 +119,11 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   termsResolvedAt: null,
   feeQuoteFingerprint: null,
   quantityCap: 0,
+  purchaseLimits: {
+    maxUnitsPerOrder: null,
+    maxUnitsPerDay: null,
+    maxUnitsPerCustomerAccount: null,
+  },
   status: "draft",
 };
 
@@ -140,6 +152,7 @@ export type CreateListingCommand = Readonly<{
   termsResolvedAt?: string | null;
   feeQuoteFingerprint: string;
   quantityCap: number;
+  purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
 }>;
 
 export type UpdateListingPriceCommand = Readonly<{
@@ -157,6 +170,7 @@ export type UpdateListingPriceCommand = Readonly<{
 export type UpdateListingQuantityCapCommand = Readonly<{
   type: "UpdateListingQuantityCap";
   quantityCap: number;
+  purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps?: number;
@@ -164,6 +178,11 @@ export type UpdateListingQuantityCapCommand = Readonly<{
   termsAgreementId?: string | null;
   termsResolvedAt?: string | null;
   feeQuoteFingerprint: string;
+}>;
+
+export type UpdateListingPurchaseLimitsCommand = Readonly<{
+  type: "UpdateListingPurchaseLimits";
+  purchaseLimits: Partial<MarketplaceListingPurchaseLimits> | null;
 }>;
 
 export type PublishListingCommand = Readonly<{
@@ -183,6 +202,7 @@ export type MarketplaceListingCommand =
   | CreateListingCommand
   | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
+  | UpdateListingPurchaseLimitsCommand
   | PublishListingCommand
   | PauseListingCommand
   | WithdrawListingCommand;
@@ -213,6 +233,7 @@ export type ListingCreatedEvent = DomainEvent<
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
     quantityCap: number;
+    purchaseLimits: MarketplaceListingPurchaseLimits;
   }>
 >;
 export type ListingPriceUpdatedEvent = DomainEvent<
@@ -232,6 +253,7 @@ export type ListingQuantityCapUpdatedEvent = DomainEvent<
   "marketplace.listing.quantity-cap-updated",
   Readonly<{
     quantityCap: number;
+    purchaseLimits: MarketplaceListingPurchaseLimits;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     shippingAllowancePercentageBps: number;
@@ -239,6 +261,12 @@ export type ListingQuantityCapUpdatedEvent = DomainEvent<
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string;
+  }>
+>;
+export type ListingPurchaseLimitsUpdatedEvent = DomainEvent<
+  "marketplace.listing.purchase-limits-updated",
+  Readonly<{
+    purchaseLimits: MarketplaceListingPurchaseLimits;
   }>
 >;
 export type ListingPublishedEvent = DomainEvent<
@@ -266,6 +294,7 @@ export type MarketplaceListingEvent =
   | ListingCreatedEvent
   | ListingPriceUpdatedEvent
   | ListingQuantityCapUpdatedEvent
+  | ListingPurchaseLimitsUpdatedEvent
   | ListingPublishedEvent
   | ListingPausedEvent
   | ListingWithdrawnEvent;
@@ -326,6 +355,10 @@ export const decideMarketplaceListing: AggregateDecider<
               command.quantityCap,
               "Listing quantity cap must be a positive whole number.",
             ),
+            purchaseLimits: normalizePurchaseLimits(
+              command.purchaseLimits,
+              command.quantityCap,
+            ),
           },
         },
       ];
@@ -370,6 +403,10 @@ export const decideMarketplaceListing: AggregateDecider<
               command.quantityCap,
               "Listing quantity cap must be a positive whole number.",
             ),
+            purchaseLimits: normalizePurchaseLimits(
+              command.purchaseLimits ?? state.purchaseLimits,
+              command.quantityCap,
+            ),
             marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
               fieldName: "Marketplace sales fee unit amount",
               allowZero: true,
@@ -388,6 +425,20 @@ export const decideMarketplaceListing: AggregateDecider<
             feeQuoteFingerprint: normalizeRequiredText(
               command.feeQuoteFingerprint,
               "Fee quote fingerprint is required.",
+            ),
+          },
+        },
+      ];
+    case "UpdateListingPurchaseLimits":
+      assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
+      return [
+        {
+          type: "marketplace.listing.purchase-limits-updated",
+          data: {
+            purchaseLimits: normalizePurchaseLimits(
+              command.purchaseLimits,
+              state.quantityCap,
             ),
           },
         },
@@ -468,6 +519,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         termsResolvedAt: event.data.termsResolvedAt,
         feeQuoteFingerprint: event.data.feeQuoteFingerprint,
         quantityCap: event.data.quantityCap,
+        purchaseLimits: event.data.purchaseLimits ?? initialMarketplaceListingState.purchaseLimits,
         status: "draft",
       };
     case "marketplace.listing.price-updated":
@@ -481,6 +533,11 @@ export const evolveMarketplaceListing: AggregateEvolver<
         termsAgreementId: event.data.termsAgreementId,
         termsResolvedAt: event.data.termsResolvedAt,
         feeQuoteFingerprint: event.data.feeQuoteFingerprint,
+      };
+    case "marketplace.listing.purchase-limits-updated":
+      return {
+        ...state,
+        purchaseLimits: event.data.purchaseLimits,
       };
     case "marketplace.listing.quantity-cap-updated":
       return {
@@ -523,6 +580,79 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
 function normalizeRequiredText(value: string, message: string): string {
   const normalized = value.trim();
   assert(normalized.length > 0, message);
+  return normalized;
+}
+
+function normalizePurchaseLimitValue(
+  value: number | null | undefined,
+  fieldName: string,
+  quantityCap: number,
+): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  assert(Number.isInteger(value) && value > 0, `${fieldName} must be a positive whole number.`);
+  assert(value <= quantityCap, `${fieldName} cannot exceed the listing quantity cap.`);
+  return value;
+}
+
+function normalizePurchaseLimits(
+  limits: Partial<MarketplaceListingPurchaseLimits> | null | undefined,
+  quantityCapInput: number,
+): MarketplaceListingPurchaseLimits {
+  const quantityCap = ensurePositiveInteger(
+    quantityCapInput,
+    "Listing quantity cap must be a positive whole number.",
+  );
+  const normalized = {
+    maxUnitsPerOrder: normalizePurchaseLimitValue(
+      limits?.maxUnitsPerOrder,
+      "Maximum units per order",
+      quantityCap,
+    ),
+    maxUnitsPerDay: normalizePurchaseLimitValue(
+      limits?.maxUnitsPerDay,
+      "Maximum units per day",
+      quantityCap,
+    ),
+    maxUnitsPerCustomerAccount: normalizePurchaseLimitValue(
+      limits?.maxUnitsPerCustomerAccount,
+      "Maximum units per customer account",
+      quantityCap,
+    ),
+  };
+
+  if (
+    normalized.maxUnitsPerOrder !== null &&
+    normalized.maxUnitsPerDay !== null
+  ) {
+    assert(
+      normalized.maxUnitsPerOrder <= normalized.maxUnitsPerDay,
+      "Maximum units per order cannot exceed maximum units per day.",
+    );
+  }
+
+  if (
+    normalized.maxUnitsPerDay !== null &&
+    normalized.maxUnitsPerCustomerAccount !== null
+  ) {
+    assert(
+      normalized.maxUnitsPerDay <= normalized.maxUnitsPerCustomerAccount,
+      "Maximum units per day cannot exceed maximum units per customer account.",
+    );
+  }
+
+  if (
+    normalized.maxUnitsPerOrder !== null &&
+    normalized.maxUnitsPerCustomerAccount !== null
+  ) {
+    assert(
+      normalized.maxUnitsPerOrder <= normalized.maxUnitsPerCustomerAccount,
+      "Maximum units per order cannot exceed maximum units per customer account.",
+    );
+  }
+
   return normalized;
 }
 

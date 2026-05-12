@@ -81,4 +81,63 @@ describe("ordering purchase routes", () => {
       }),
     );
   });
+
+  it("returns sign-in-required when guest confirmation hits account-scoped limits", async () => {
+    const services = {
+      ...createServices(),
+      createOrdersFromCheckout: vi.fn(async () => {
+        throw new Error(
+          "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
+        );
+      }),
+    } as unknown as OrderingOrderServices;
+    const app = buildApp({
+      actor: {
+        sessionId: "guest:tok_1",
+        tenantId: "tnt_identity",
+        userId: "usr_guest_checkout",
+        accountId: "acc_guest",
+        membershipId: "guest:tok_1",
+        roleKey: "guest-buyer",
+        permissions: ["guest-checkout.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://ordering.test/account/purchases/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkoutSessionId: "chk_1",
+          sourceType: "cart-checkout",
+          shippingOption: "standard",
+          shippingAddress: {
+            name: "Jane Smith",
+            line1: "100 Market Street",
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          },
+          lines: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "account_sign_in_required",
+        message:
+          "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
+      },
+    });
+    expect(services.createOrdersFromCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerAccountIsGuest: true,
+      }),
+      expect.anything(),
+    );
+  });
 });

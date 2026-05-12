@@ -46,6 +46,12 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("ordering.features.orders.api.route.request.failed");
 }
 
+function errorCode(error: unknown) {
+  return errorMessage(error).startsWith("Sign in is required")
+    ? "account_sign_in_required"
+    : "validation_failed";
+}
+
 function parseShippingAddress(value: unknown) {
   const source =
     value && typeof value === "object"
@@ -148,7 +154,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
       return c.json(result);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -184,6 +190,9 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
               ? body.fulfillmentPreviewRevision
               : null,
           acknowledgedMaterialChanges: body.acknowledgedMaterialChanges === true,
+          customerAccountIsGuest:
+            !access.actor.permissions.includes("orders.manage") &&
+            access.actor.permissions.includes("guest-checkout.manage"),
           lines: Array.isArray(body.lines)
             ? body.lines.map((line: Record<string, unknown>) => ({
                 listingId:
@@ -227,7 +236,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
       return c.json({ orderIds: result.orderIds, status: "created" }, 201);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 

@@ -41,6 +41,9 @@ export type MarketplaceSupplyCandidate = Readonly<{
   termsAgreementId: string | null;
   termsResolvedAt: string;
   availableQuantity: number;
+  maxUnitsPerOrder: number | null;
+  maxUnitsPerDay: number | null;
+  maxUnitsPerCustomerAccount: number | null;
   updatedAt: string;
 }>;
 

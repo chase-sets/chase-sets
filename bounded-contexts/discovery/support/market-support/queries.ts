@@ -18,7 +18,11 @@ export type DiscoveryPublicListingRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
+  shipping_allowance_percentage_bps: number;
   quantity_cap: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
   status: string;
   created_at: string;
   updated_at: string;

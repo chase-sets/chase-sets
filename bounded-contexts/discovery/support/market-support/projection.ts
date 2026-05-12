@@ -48,6 +48,9 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     price_amount: string;
     shipping_allowance_percentage_bps: number;
     quantity_cap: number;
+    max_units_per_order: number | null;
+    max_units_per_day: number | null;
+    max_units_per_customer_account: number | null;
     status: string;
     created_at: string;
     updated_at: string;
@@ -390,6 +393,11 @@ export function buildDiscoveryMarketProjectionHandlers(
         priceAmount: string;
         shippingAllowancePercentageBps?: number;
         quantityCap: number;
+        purchaseLimits?: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
       };
       const listingSlug = createMarketplaceSlug(
         [data.itemTitle, data.itemSubtitle, data.productSummary],
@@ -427,11 +435,14 @@ export function buildDiscoveryMarketProjectionHandlers(
           price_amount,
           shipping_allowance_percentage_bps,
           quantity_cap,
+          max_units_per_order,
+          max_units_per_day,
+          max_units_per_customer_account,
           status,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'draft', $17, $17
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'draft', $20, $20
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           listing_slug = EXCLUDED.listing_slug,
@@ -449,6 +460,9 @@ export function buildDiscoveryMarketProjectionHandlers(
           price_amount = EXCLUDED.price_amount,
           shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
           quantity_cap = EXCLUDED.quantity_cap,
+          max_units_per_order = EXCLUDED.max_units_per_order,
+          max_units_per_day = EXCLUDED.max_units_per_day,
+          max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
           updated_at = EXCLUDED.updated_at`,
         [
           data.listingId,
@@ -467,6 +481,9 @@ export function buildDiscoveryMarketProjectionHandlers(
           data.priceAmount,
           data.shippingAllowancePercentageBps ?? 500,
           data.quantityCap,
+          data.purchaseLimits?.maxUnitsPerOrder ?? null,
+          data.purchaseLimits?.maxUnitsPerDay ?? null,
+          data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
           event.timing.recordedAt,
         ],
       );
@@ -503,16 +520,56 @@ export function buildDiscoveryMarketProjectionHandlers(
       await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
+      const purchaseLimits = (event.data as {
+        purchaseLimits?: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
+      }).purchaseLimits;
+      const hasPurchaseLimits = purchaseLimits !== undefined;
       await db.query(
         `UPDATE discovery_market_listings
          SET quantity_cap = $2,
              shipping_allowance_percentage_bps = COALESCE($3, shipping_allowance_percentage_bps),
-             updated_at = $4
+             max_units_per_order = CASE WHEN $4 THEN $5 ELSE max_units_per_order END,
+             max_units_per_day = CASE WHEN $4 THEN $6 ELSE max_units_per_day END,
+             max_units_per_customer_account = CASE WHEN $4 THEN $7 ELSE max_units_per_customer_account END,
+             updated_at = $8
          WHERE listing_id = $1`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           (event.data as { quantityCap: number }).quantityCap,
           (event.data as { shippingAllowancePercentageBps?: number }).shippingAllowancePercentageBps ?? null,
+          hasPurchaseLimits,
+          purchaseLimits?.maxUnitsPerOrder ?? null,
+          purchaseLimits?.maxUnitsPerDay ?? null,
+          purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
+          event.timing.recordedAt,
+        ],
+      );
+      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
+    },
+    "marketplace.listing.purchase-limits-updated": async (event) => {
+      const { purchaseLimits } = event.data as {
+        purchaseLimits: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
+      };
+      await db.query(
+        `UPDATE discovery_market_listings
+         SET max_units_per_order = $2,
+             max_units_per_day = $3,
+             max_units_per_customer_account = $4,
+             updated_at = $5
+         WHERE listing_id = $1`,
+        [
+          event.streamId.replace("marketplace.listing-", ""),
+          purchaseLimits.maxUnitsPerOrder,
+          purchaseLimits.maxUnitsPerDay,
+          purchaseLimits.maxUnitsPerCustomerAccount,
           event.timing.recordedAt,
         ],
       );

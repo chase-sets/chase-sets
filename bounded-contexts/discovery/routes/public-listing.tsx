@@ -79,6 +79,24 @@ function availableQuantityLabel(visibleQuantity: number | null, quantityCap: num
   });
 }
 
+function purchaseLimitLabel(
+  listing: Pick<
+    DiscoveryPublicListing,
+    "max_units_per_order" | "max_units_per_day" | "max_units_per_customer_account"
+  >,
+) {
+  if (listing.max_units_per_customer_account) {
+    return `Limit ${listing.max_units_per_customer_account} per customer`;
+  }
+  if (listing.max_units_per_day) {
+    return `Limit ${listing.max_units_per_day} per day`;
+  }
+  if (listing.max_units_per_order) {
+    return `Limit ${listing.max_units_per_order} per order`;
+  }
+  return null;
+}
+
 function checkoutStartHref(listing: DiscoveryPublicListing) {
   const params = new URLSearchParams({
     source: "buy-now",
@@ -92,7 +110,10 @@ function checkoutStartHref(listing: DiscoveryPublicListing) {
     selectedOptions: JSON.stringify(listing.selected_options ?? []),
     priceAmount: listing.price_amount,
     sellerName: listing.seller_display_name ?? t("discovery.routes.publicListing.seller"),
-    availability: availableQuantityLabel(listing.visible_quantity, listing.quantity_cap),
+    availability: [
+      availableQuantityLabel(listing.visible_quantity, listing.quantity_cap),
+      purchaseLimitLabel(listing),
+    ].filter(Boolean).join(" | "),
     fulfillment: buyerFulfillmentLabel(listing.ship_from_code),
   });
 
@@ -190,6 +211,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const sellerHref = listing.seller_slug ? `/sellers/${listing.seller_slug}` : null;
   const productDetails = productSelectionDetails(listing.product_summary);
   const availability = availableQuantityLabel(listing.visible_quantity, listing.quantity_cap);
+  const limitLabel = purchaseLimitLabel(listing);
   const fulfillment = buyerFulfillmentLabel(listing.ship_from_code);
 
   return (
@@ -241,6 +263,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                 </LinkButton>
               }
             />
+            {limitLabel ? <Badge tone="neutral">{limitLabel}</Badge> : null}
           </Stack>
 
           <Stack gap={4}>
@@ -252,7 +275,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               policies={[
                 {
                   label: t("discovery.routes.publicListing.availability"),
-                  value: availability,
+                  value: limitLabel ? `${availability} | ${limitLabel}` : availability,
                 },
                 {
                   label: t("discovery.routes.publicListing.shipping.credit"),

@@ -24,6 +24,9 @@ export interface MarketplaceListingListItem {
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
   quantity_cap: number;
+  max_units_per_order?: number | null;
+  max_units_per_day?: number | null;
+  max_units_per_customer_account?: number | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -53,6 +56,9 @@ export interface MarketplaceListingFeeLockReportEntry {
   status: string;
   price_amount: string;
   quantity_cap: number;
+  max_units_per_order?: number | null;
+  max_units_per_day?: number | null;
+  max_units_per_customer_account?: number | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;

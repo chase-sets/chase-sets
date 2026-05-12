@@ -29,6 +29,9 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     terms_resolved_at: string | null;
     fee_quote_fingerprint: string;
     quantity_cap: number;
+    max_units_per_order: number | null;
+    max_units_per_day: number | null;
+    max_units_per_customer_account: number | null;
     status: string;
     created_at: string;
     updated_at: string;
@@ -98,6 +101,11 @@ export function buildMarketplaceListingProjectionHandlers(
         termsResolvedAt: string | null;
         feeQuoteFingerprint: string;
         quantityCap: number;
+        purchaseLimits?: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
       };
 
       await db.query(
@@ -125,11 +133,14 @@ export function buildMarketplaceListingProjectionHandlers(
           terms_resolved_at,
           fee_quote_fingerprint,
           quantity_cap,
+          max_units_per_order,
+          max_units_per_day,
+          max_units_per_customer_account,
           status,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'draft', $24, $24
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 'draft', $27, $27
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
@@ -154,6 +165,9 @@ export function buildMarketplaceListingProjectionHandlers(
           terms_resolved_at = EXCLUDED.terms_resolved_at,
           fee_quote_fingerprint = EXCLUDED.fee_quote_fingerprint,
           quantity_cap = EXCLUDED.quantity_cap,
+          max_units_per_order = EXCLUDED.max_units_per_order,
+          max_units_per_day = EXCLUDED.max_units_per_day,
+          max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
           updated_at = EXCLUDED.updated_at`,
         [
           data.listingId,
@@ -181,6 +195,9 @@ export function buildMarketplaceListingProjectionHandlers(
           data.termsResolvedAt,
           data.feeQuoteFingerprint,
           data.quantityCap,
+          data.purchaseLimits?.maxUnitsPerOrder ?? null,
+          data.purchaseLimits?.maxUnitsPerDay ?? null,
+          data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
           event.timing.recordedAt,
         ],
       );
@@ -239,6 +256,7 @@ export function buildMarketplaceListingProjectionHandlers(
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const {
         quantityCap,
+        purchaseLimits,
         marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount,
         shippingAllowancePercentageBps,
@@ -248,6 +266,11 @@ export function buildMarketplaceListingProjectionHandlers(
         feeQuoteFingerprint,
       } = event.data as {
         quantityCap: number;
+        purchaseLimits?: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         shippingAllowancePercentageBps?: number;
@@ -256,6 +279,7 @@ export function buildMarketplaceListingProjectionHandlers(
         termsResolvedAt: string | null;
         feeQuoteFingerprint: string;
       };
+      const hasPurchaseLimits = purchaseLimits !== undefined;
 
       await db.query(
         `UPDATE marketplace_listing_pages
@@ -267,7 +291,10 @@ export function buildMarketplaceListingProjectionHandlers(
              terms_agreement_id = $7,
              terms_resolved_at = $8,
              fee_quote_fingerprint = $9,
-             updated_at = $10
+             max_units_per_order = CASE WHEN $10 THEN $11 ELSE max_units_per_order END,
+             max_units_per_day = CASE WHEN $10 THEN $12 ELSE max_units_per_day END,
+             max_units_per_customer_account = CASE WHEN $10 THEN $13 ELSE max_units_per_customer_account END,
+             updated_at = $14
          WHERE listing_id = $1`,
         [
           listingId,
@@ -279,6 +306,37 @@ export function buildMarketplaceListingProjectionHandlers(
           termsAgreementId,
           termsResolvedAt,
           feeQuoteFingerprint,
+          hasPurchaseLimits,
+          purchaseLimits?.maxUnitsPerOrder ?? null,
+          purchaseLimits?.maxUnitsPerDay ?? null,
+          purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
+          event.timing.recordedAt,
+        ],
+      );
+      await emitListingPatch(db, event, listingId);
+    },
+    "marketplace.listing.purchase-limits-updated": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const { purchaseLimits } = event.data as {
+        purchaseLimits: {
+          maxUnitsPerOrder: number | null;
+          maxUnitsPerDay: number | null;
+          maxUnitsPerCustomerAccount: number | null;
+        };
+      };
+
+      await db.query(
+        `UPDATE marketplace_listing_pages
+         SET max_units_per_order = $2,
+             max_units_per_day = $3,
+             max_units_per_customer_account = $4,
+             updated_at = $5
+         WHERE listing_id = $1`,
+        [
+          listingId,
+          purchaseLimits.maxUnitsPerOrder,
+          purchaseLimits.maxUnitsPerDay,
+          purchaseLimits.maxUnitsPerCustomerAccount,
           event.timing.recordedAt,
         ],
       );

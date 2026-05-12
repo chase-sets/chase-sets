@@ -26,6 +26,9 @@ export type MarketplaceListingListRow = Readonly<{
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
   quantity_cap: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -46,6 +49,9 @@ export type MarketplaceListingFeeLockReportRow = Readonly<{
   status: string;
   price_amount: string;
   quantity_cap: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -87,6 +93,9 @@ type MarketplaceListingPageRow = Readonly<{
   terms_resolved_at: string | null;
   fee_quote_fingerprint: string;
   quantity_cap: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -484,6 +493,9 @@ export async function listSellerListingFeeLockReport(
          status,
          price_amount,
          quantity_cap,
+         max_units_per_order,
+         max_units_per_day,
+         max_units_per_customer_account,
          marketplace_sales_fee_unit_amount,
          seller_net_unit_amount,
          shipping_allowance_percentage_bps,

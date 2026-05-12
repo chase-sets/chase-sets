@@ -47,6 +47,23 @@ function buyerFulfillmentLabel(shipFromCode: string | null) {
   return t("discovery.routes.publicSeller.seller.fulfillment.center");
 }
 
+function purchaseLimitLabel(listing: {
+  max_units_per_order?: number | null;
+  max_units_per_day?: number | null;
+  max_units_per_customer_account?: number | null;
+}) {
+  if (listing.max_units_per_customer_account) {
+    return `Limit ${listing.max_units_per_customer_account} per customer`;
+  }
+  if (listing.max_units_per_day) {
+    return `Limit ${listing.max_units_per_day} per day`;
+  }
+  if (listing.max_units_per_order) {
+    return `Limit ${listing.max_units_per_order} per order`;
+  }
+  return null;
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const slug = params.sellerSlug;
 
@@ -211,46 +228,49 @@ function PublicSellerRealtimeView({ data }: { data: Awaited<ReturnType<typeof lo
 
         {seller.listings.length > 0 ? (
           <Grid columns={{ base: 1, lg: 2 }} gap={4}>
-            {seller.listings.map((listing) => (
-              <ListingCard
-                key={listing.listing_id}
-                title={listing.item_title ?? t("discovery.routes.publicSeller.marketplace.listing")}
-                imageSrc={discoveryAssetUrls.defaultProductImage}
-                imageAlt={listing.item_title ?? t("discovery.routes.publicSeller.pokemon.card.back")}
-                price={formatMoney(listing.price_amount)}
-                priceDetail={t("discovery.routes.publicSeller.quantity.available", {
-                  quantity: listing.quantity_cap,
-                })}
-                sellerName={seller.seller_display_name ?? t("discovery.routes.publicSeller.seller.2")}
-                sellerTrustLabel={
-                  seller.status === "active"
-                    ? t("discovery.routes.publicSeller.verified.seller")
-                    : t("discovery.routes.publicSeller.seller.details.visible")
-                }
-                sellerVerified={seller.status === "active"}
-                fulfillment={buyerFulfillmentLabel(listing.ship_from_code)}
-                availability={t("discovery.routes.publicSeller.quantity.available", {
-                  quantity: listing.quantity_cap,
-                })}
-                condition={listing.product_summary ?? t("discovery.routes.publicSeller.standard.product")}
-                valueCue={t("discovery.routes.publicSeller.price.quantity.and.seller.visible")}
-                protection={t("discovery.routes.publicSeller.buyer.protected")}
-                primaryAction={
-                  <LinkButton href={`/listings/${listing.listing_slug}`} size="sm">
-                    {t("discovery.routes.publicSeller.view.listing")}
-                  </LinkButton>
-                }
-                secondaryAction={
-                  <LinkButton
-                    href={`/items/${listing.catalog_item_slug ?? listing.catalog_catalog_item_id}`}
-                    tone="secondary"
-                    size="sm"
-                  >
-                    {t("discovery.routes.publicSeller.compare")}
-                  </LinkButton>
-                }
-              />
-            ))}
+            {seller.listings.map((listing) => {
+              const availability = t("discovery.routes.publicSeller.quantity.available", {
+                quantity: listing.quantity_cap,
+              });
+              const limitLabel = purchaseLimitLabel(listing);
+              const availabilityDetail = limitLabel ? `${availability} | ${limitLabel}` : availability;
+              return (
+                <ListingCard
+                  key={listing.listing_id}
+                  title={listing.item_title ?? t("discovery.routes.publicSeller.marketplace.listing")}
+                  imageSrc={discoveryAssetUrls.defaultProductImage}
+                  imageAlt={listing.item_title ?? t("discovery.routes.publicSeller.pokemon.card.back")}
+                  price={formatMoney(listing.price_amount)}
+                  priceDetail={availabilityDetail}
+                  sellerName={seller.seller_display_name ?? t("discovery.routes.publicSeller.seller.2")}
+                  sellerTrustLabel={
+                    seller.status === "active"
+                      ? t("discovery.routes.publicSeller.verified.seller")
+                      : t("discovery.routes.publicSeller.seller.details.visible")
+                  }
+                  sellerVerified={seller.status === "active"}
+                  fulfillment={buyerFulfillmentLabel(listing.ship_from_code)}
+                  availability={availabilityDetail}
+                  condition={listing.product_summary ?? t("discovery.routes.publicSeller.standard.product")}
+                  valueCue={t("discovery.routes.publicSeller.price.quantity.and.seller.visible")}
+                  protection={t("discovery.routes.publicSeller.buyer.protected")}
+                  primaryAction={
+                    <LinkButton href={`/listings/${listing.listing_slug}`} size="sm">
+                      {t("discovery.routes.publicSeller.view.listing")}
+                    </LinkButton>
+                  }
+                  secondaryAction={
+                    <LinkButton
+                      href={`/items/${listing.catalog_item_slug ?? listing.catalog_catalog_item_id}`}
+                      tone="secondary"
+                      size="sm"
+                    >
+                      {t("discovery.routes.publicSeller.compare")}
+                    </LinkButton>
+                  }
+                />
+              );
+            })}
           </Grid>
         ) : (
           <MarketplaceEmptyState

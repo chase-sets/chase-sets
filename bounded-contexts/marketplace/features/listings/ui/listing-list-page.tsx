@@ -151,6 +151,9 @@ export function MarketplaceListingListPage({
     inventoryItemId?: string | null;
     priceAmount?: string | null;
     quantityCap?: string | null;
+    maxUnitsPerOrder?: string | null;
+    maxUnitsPerDay?: string | null;
+    maxUnitsPerCustomerAccount?: string | null;
   };
   createPreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
@@ -266,6 +269,35 @@ export function MarketplaceListingListPage({
                 required
                 disabled={!hasInventory}
               />
+              <Text size="sm" tone="secondary">
+                {t("marketplace.features.listings.ui.listingListPage.quantity.cap.exposure.copy")}
+              </Text>
+              <Inline>
+                <NumberInput
+                  label={t("marketplace.features.listings.ui.listingListPage.limit.per.order")}
+                  name="maxUnitsPerOrder"
+                  min="1"
+                  defaultValue={createForm?.maxUnitsPerOrder ?? ""}
+                  disabled={!hasInventory}
+                />
+                <NumberInput
+                  label={t("marketplace.features.listings.ui.listingListPage.limit.per.day")}
+                  name="maxUnitsPerDay"
+                  min="1"
+                  defaultValue={createForm?.maxUnitsPerDay ?? ""}
+                  disabled={!hasInventory}
+                />
+                <NumberInput
+                  label={t("marketplace.features.listings.ui.listingListPage.limit.per.customer")}
+                  name="maxUnitsPerCustomerAccount"
+                  min="1"
+                  defaultValue={createForm?.maxUnitsPerCustomerAccount ?? ""}
+                  disabled={!hasInventory}
+                />
+              </Inline>
+              <Text size="sm" tone="secondary">
+                {t("marketplace.features.listings.ui.listingListPage.purchase.limits.copy")}
+              </Text>
               <Inline>
                 <Button
                   type="submit"

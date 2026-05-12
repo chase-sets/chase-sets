@@ -137,6 +137,9 @@ type SupplyCandidate = Readonly<{
   termsAgreementId?: string | null;
   termsResolvedAt?: string;
   availableQuantity: number;
+  maxUnitsPerOrder?: number | null;
+  maxUnitsPerDay?: number | null;
+  maxUnitsPerCustomerAccount?: number | null;
   updatedAt: string;
 }>;
 
@@ -171,6 +174,9 @@ function createSupplyDb(
         terms_agreement_id: candidate.termsAgreementId ?? null,
         terms_resolved_at: candidate.termsResolvedAt ?? "2026-03-31T00:00:00.000Z",
         available_quantity: candidate.availableQuantity,
+        max_units_per_order: candidate.maxUnitsPerOrder ?? null,
+        max_units_per_day: candidate.maxUnitsPerDay ?? null,
+        max_units_per_customer_account: candidate.maxUnitsPerCustomerAccount ?? null,
         updated_at: candidate.updatedAt,
       })),
     };
@@ -267,6 +273,94 @@ describe("ordering order runtime", () => {
     await expect(
       services.createOrdersFromCheckout(checkoutParams, context),
     ).rejects.toThrow("No checkout lines are currently fulfillable.");
+  });
+
+  it("treats listing purchase limits as available supply for optimized checkout", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = createSupplyDb((params) => {
+      const key = String(params?.[0] ?? "");
+      if (key !== "cat_1::" && key !== "lst_discount" && key !== "lst_standard") {
+        return [];
+      }
+      return [
+        {
+          listingId: "lst_discount",
+          sellerAccountId: "acc_seller_a",
+          inventoryItemId: "inv_discount",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          storageLocationName: "North shelf",
+          shipFromCode: "CHI",
+          priceAmount: "5.00",
+          availableQuantity: 4,
+          maxUnitsPerOrder: 1,
+          updatedAt: "2026-03-31T00:00:00.000Z",
+        },
+        {
+          listingId: "lst_standard",
+          sellerAccountId: "acc_seller_b",
+          inventoryItemId: "inv_standard",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          storageLocationName: "South shelf",
+          shipFromCode: "STL",
+          priceAmount: "10.00",
+          availableQuantity: 4,
+          updatedAt: "2026-03-31T00:00:00.000Z",
+        },
+      ];
+    });
+
+    const services = createOrderingOrderRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      shippingQuotePolicy: {
+        quote: () => ({
+          shippingOption: "standard",
+          baseAmount: "0.00",
+          discountAmount: "0.00",
+          chargeAmount: "0.00",
+        }),
+      },
+    });
+
+    const preview = await services.previewCheckoutFulfillment({
+      buyerAccountId: "acc_buyer" as never,
+      checkoutSessionId: "chk_limits",
+      sourceType: "cart-checkout",
+      shippingOption: "standard",
+      shippingAddress,
+      lines: [
+        {
+          listingId: null,
+          cartLineId: "cli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 2,
+        },
+      ],
+    });
+
+    const allocations = preview.sellerGroups.flatMap((group) => group.lines);
+    expect(allocations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ listingId: "lst_discount", quantity: 1 }),
+        expect.objectContaining({ listingId: "lst_standard", quantity: 1 }),
+      ]),
+    );
   });
 
   it("keeps buyer cost lowest by rewarding same-seller checkout grouping", async () => {

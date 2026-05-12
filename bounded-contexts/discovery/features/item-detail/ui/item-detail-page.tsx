@@ -153,6 +153,24 @@ function formatListingAvailability(
   return availableQuantity > 0 ? String(availableQuantity) : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
 }
 
+function formatListingPurchaseLimit(
+  listing: Pick<
+    DiscoveryMarketListing,
+    "max_units_per_order" | "max_units_per_day" | "max_units_per_customer_account"
+  >,
+): string | null {
+  if (listing.max_units_per_customer_account) {
+    return `Limit ${listing.max_units_per_customer_account} per customer`;
+  }
+  if (listing.max_units_per_day) {
+    return `Limit ${listing.max_units_per_day} per day`;
+  }
+  if (listing.max_units_per_order) {
+    return `Limit ${listing.max_units_per_order} per order`;
+  }
+  return null;
+}
+
 function matchesSelectedOptions(
   listing: Readonly<{
     selected_options: readonly { dimensionId: string; optionId: string }[];
@@ -1192,6 +1210,7 @@ function LoadedItemDetailPage({
                         visibleListings.map((listing) => {
                           const isSelected =
                             selectedListing?.listing_id === listing.listing_id;
+                          const purchaseLimit = formatListingPurchaseLimit(listing);
                           const selectListing = () => {
                             setSelectedListingId(listing.listing_id);
                             if (data.product_schema) {
@@ -1237,6 +1256,9 @@ function LoadedItemDetailPage({
                                   <Text>
                                     {formatListingAvailability(listing)}
                                   </Text>
+                                  {purchaseLimit ? (
+                                    <Badge tone="neutral">{purchaseLimit}</Badge>
+                                  ) : null}
                                 </Stack>
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">

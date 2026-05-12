@@ -46,6 +46,20 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("checkout.features.sessions.api.route.request.failed");
 }
 
+function errorCode(error: unknown) {
+  const body =
+    typeof error === "object" &&
+    error !== null &&
+    "body" in error &&
+    typeof error.body === "object"
+      ? error.body as { error?: { code?: unknown } } | null
+      : null;
+  if (body?.error?.code === "account_sign_in_required") {
+    return "account_sign_in_required";
+  }
+  return "validation_failed";
+}
+
 function parseSelectedOptions(value: unknown) {
   return Array.isArray(value)
     ? value
@@ -173,7 +187,7 @@ export function createAccountCheckoutSessionRoutes(
       );
       return c.json({ session_id: result.sessionId, status: "started" }, 201);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -221,7 +235,7 @@ export function createAccountCheckoutSessionRoutes(
         status: "shipping-option-selected",
       });
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -252,7 +266,7 @@ export function createAccountCheckoutSessionRoutes(
         status: "optimization-goal-selected",
       });
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -376,7 +390,7 @@ export function createAccountCheckoutSessionRoutes(
         session,
       });
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 

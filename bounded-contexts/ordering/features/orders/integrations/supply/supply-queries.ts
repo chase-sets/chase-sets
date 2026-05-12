@@ -30,6 +30,9 @@ type OrderingSupplyCandidateRow = Readonly<{
   terms_agreement_id: string | null;
   terms_resolved_at: string;
   available_quantity: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
   updated_at: string;
 }>;
 
@@ -82,6 +85,9 @@ export async function listOrderingSupplyCandidates(
        listing.terms_schedule_id,
        listing.terms_agreement_id,
        listing.terms_resolved_at::text AS terms_resolved_at,
+       listing.max_units_per_order,
+       listing.max_units_per_day,
+       listing.max_units_per_customer_account,
        LEAST(
          listing.quantity_cap,
          GREATEST(
@@ -147,6 +153,9 @@ export async function listOrderingSupplyCandidates(
       termsAgreementId: row.terms_agreement_id,
       termsResolvedAt: row.terms_resolved_at,
       availableQuantity: row.available_quantity,
+      maxUnitsPerOrder: row.max_units_per_order,
+      maxUnitsPerDay: row.max_units_per_day,
+      maxUnitsPerCustomerAccount: row.max_units_per_customer_account,
       updatedAt: row.updated_at,
     }))
     .filter((row) => row.availableQuantity > 0);
@@ -178,6 +187,9 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.terms_schedule_id,
        listing.terms_agreement_id,
        listing.terms_resolved_at::text AS terms_resolved_at,
+       listing.max_units_per_order,
+       listing.max_units_per_day,
+       listing.max_units_per_customer_account,
        LEAST(
          listing.quantity_cap,
          GREATEST(
@@ -242,6 +254,9 @@ export async function getOrderingSupplyCandidateByListingId(
     termsAgreementId: row.terms_agreement_id,
     termsResolvedAt: row.terms_resolved_at,
     availableQuantity: row.available_quantity,
+    maxUnitsPerOrder: row.max_units_per_order,
+    maxUnitsPerDay: row.max_units_per_day,
+    maxUnitsPerCustomerAccount: row.max_units_per_customer_account,
     updatedAt: row.updated_at,
   };
 }
