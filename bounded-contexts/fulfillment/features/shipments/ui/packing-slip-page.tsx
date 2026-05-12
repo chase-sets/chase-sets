@@ -27,16 +27,8 @@ function printPageSize(format: FulfillmentPackingSlipFormat) {
   return format === "thermal-4x6" ? "4in 6in" : "letter";
 }
 
-export function FulfillmentPackingSlipPrintPage({
-  slips,
-  format,
-}: {
-  slips: readonly FulfillmentPackingSlip[];
-  format: FulfillmentPackingSlipFormat;
-}) {
-  return (
-    <div className="fulfillment-packing-slip-page">
-      <style>{`
+function packingSlipPageStyles(format: FulfillmentPackingSlipFormat) {
+  return `
         .fulfillment-packing-slip-page {
           --packing-slip-shell-background: #f8fafc;
           --packing-slip-shell-text: #0f172a;
@@ -455,7 +447,19 @@ export function FulfillmentPackingSlipPrintPage({
           }
         }
 
-      `}</style>
+  `;
+}
+
+export function FulfillmentPackingSlipPrintPage({
+  slips,
+  format,
+}: {
+  slips: readonly FulfillmentPackingSlip[];
+  format: FulfillmentPackingSlipFormat;
+}) {
+  return (
+    <div className="fulfillment-packing-slip-page">
+      <style dangerouslySetInnerHTML={{ __html: packingSlipPageStyles(format) }} />
       <div className="fulfillment-packing-slip-toolbar">
         <div className="fulfillment-packing-slip-toolbar__copy">
           <p className="fulfillment-packing-slip-toolbar__eyebrow">
