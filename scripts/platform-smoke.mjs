@@ -1,45 +1,51 @@
 import process from "node:process";
 import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
+import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
+const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment();
+
+function getSmokeEnv(name) {
+  return process.env[name] ?? sandboxEnv[name] ?? "";
+}
 
 const landingUrl = validateHttpUrl(
   trimTrailingSlash(
-    process.env.LANDING_WEB_URL ??
-      process.env.PUBLIC_WEB_URL ??
-      cliArgs[0] ??
+    getSmokeEnv("LANDING_WEB_URL") ||
+      getSmokeEnv("PUBLIC_WEB_URL") ||
+      cliArgs[0] ||
       "",
   ),
   "landing URL",
 );
 const adminUrl = validateHttpUrl(
-  trimTrailingSlash(process.env.ADMIN_WEB_URL ?? cliArgs[1] ?? ""),
+  trimTrailingSlash(getSmokeEnv("ADMIN_WEB_URL") || cliArgs[1] || ""),
   "admin URL",
 );
 const marketplaceUrl = validateHttpUrl(
-  trimTrailingSlash(process.env.MARKETPLACE_WEB_URL ?? cliArgs[2] ?? ""),
+  trimTrailingSlash(getSmokeEnv("MARKETPLACE_WEB_URL") || cliArgs[2] || ""),
   "marketplace URL",
 );
 const redirectUrl = validateHttpUrl(
-  trimTrailingSlash(process.env.LEGACY_PUBLIC_URL ?? cliArgs[3] ?? ""),
+  trimTrailingSlash(getSmokeEnv("LEGACY_PUBLIC_URL") || cliArgs[3] || ""),
   "legacy redirect URL",
 );
 const syntheticEmail =
-  process.env.SMOKE_WAITLIST_EMAIL ??
-  process.env.SMOKE_EMAIL ??
+  getSmokeEnv("SMOKE_WAITLIST_EMAIL") ||
+  getSmokeEnv("SMOKE_EMAIL") ||
   "ops+smoke@chasesets.com";
-const adminEmail = process.env.PLATFORM_ADMIN_EMAIL ?? "";
-const adminPassword = process.env.PLATFORM_ADMIN_PASSWORD ?? "";
+const adminEmail = getSmokeEnv("PLATFORM_ADMIN_EMAIL");
+const adminPassword = getSmokeEnv("PLATFORM_ADMIN_PASSWORD");
 const writeWaitlist =
-  (process.env.SMOKE_WRITE_WAITLIST ?? "true").toLowerCase() !== "false";
+  (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
 const requireAdmin = readBooleanEnv("SMOKE_REQUIRE_ADMIN", false);
 const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
 const requireLegacyRedirect = readBooleanEnv("SMOKE_REQUIRE_LEGACY_REDIRECT", false);
-const smokeUtmSource = process.env.SMOKE_UTM_SOURCE ?? process.env.SMOKE_SOURCE ?? "smoke";
-const smokeUtmMedium = process.env.SMOKE_UTM_MEDIUM ?? "automation";
-const smokeUtmCampaign = process.env.SMOKE_UTM_CAMPAIGN ?? "platform-smoke";
-const smokeUtmContent = process.env.SMOKE_UTM_CONTENT ?? null;
-const smokeUtmTerm = process.env.SMOKE_UTM_TERM ?? null;
+const smokeUtmSource = getSmokeEnv("SMOKE_UTM_SOURCE") || getSmokeEnv("SMOKE_SOURCE") || "smoke";
+const smokeUtmMedium = getSmokeEnv("SMOKE_UTM_MEDIUM") || "automation";
+const smokeUtmCampaign = getSmokeEnv("SMOKE_UTM_CAMPAIGN") || "platform-smoke";
+const smokeUtmContent = getSmokeEnv("SMOKE_UTM_CONTENT") || null;
+const smokeUtmTerm = getSmokeEnv("SMOKE_UTM_TERM") || null;
 
 if (!landingUrl || !adminUrl) {
   throw new Error(
@@ -71,7 +77,7 @@ function validateHttpUrl(value, label) {
 }
 
 function readBooleanEnv(name, defaultValue) {
-  const value = process.env[name]?.trim().toLowerCase();
+  const value = getSmokeEnv(name).trim().toLowerCase();
   if (!value) {
     return defaultValue;
   }

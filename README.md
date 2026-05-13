@@ -70,7 +70,11 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `deployables/platform-api`: Hono-based platform API and HTTP composition root.
 - `deployables/platform-worker`: background worker composition root.
 
-Default local ports:
+Default local ports are sandbox-aware. Each worktree receives a stable
+port block derived from its path so multiple worktrees can run at the same
+time. Use `pnpm run sandbox:doctor` to print the current worktree's URLs.
+The fallback ports below are still used when running deployables directly
+without the sandbox env:
 
 | Surface | URL |
 | --- | --- |
@@ -97,7 +101,16 @@ pnpm run dev:bootstrap
 pnpm run dev
 ```
 
-`pnpm run dev` starts shared Postgres, provisions the local database, bootstraps platform services, and runs the full local system.
+`pnpm run dev` creates or refreshes the current worktree sandbox, starts its
+Docker-scoped Postgres, provisions the platform control database and
+per-context databases, bootstraps platform services, and runs the full local
+system.
+
+Inspect the active sandbox:
+
+```bash
+pnpm run sandbox:doctor
+```
 
 Focused dev targets are available when you only need part of the system:
 
@@ -109,11 +122,13 @@ pnpm run dev:marketplace-full
 Useful local lifecycle commands:
 
 ```bash
-pnpm run dev:down       # stop shared local services
-pnpm run dev:db:refresh # destroy local Postgres data and bootstrap again
+pnpm run dev:down       # stop this worktree sandbox
+pnpm run dev:db:refresh # destroy this sandbox Postgres data and bootstrap again
+pnpm run sandbox:clean  # remove this worktree sandbox containers and volumes
 ```
 
-The default local database is `postgresql://postgres:postgres@localhost:5432/chase_sets`. Platform environment defaults live in:
+The sandbox writes generated runtime values to `.env.sandbox.local`. That file
+is ignored and local to the worktree. Platform environment defaults live in:
 
 - [deployables/platform-api/.env.example](deployables/platform-api/.env.example)
 - [deployables/platform-worker/.env.example](deployables/platform-worker/.env.example)
@@ -145,7 +160,7 @@ pnpm run env:check  # report missing or drifted env files
 pnpm run env:doctor # print detailed local env status
 ```
 
-`pnpm run dev`, `pnpm run dev:bootstrap`, and `pnpm run dev:db:refresh` run `env:sync` before starting the local platform. Test workspace runs hydrate local test env before reading `.env.test.local`, and the Stripe listener pushes the latest local webhook secret back into the shared store.
+`pnpm run dev`, `pnpm run dev:bootstrap`, and `pnpm run dev:db:refresh` run `env:sync` before starting the local platform. Test workspace runs hydrate local test env before reading `.env.test.local`, then prefer generated sandbox runtime values from `.env.sandbox.local` unless the shell already provided a value. The Stripe listener stores its session webhook secret in `.env.sandbox.local` so simultaneous worktrees do not overwrite each other.
 
 ## Common Commands
 
@@ -169,8 +184,10 @@ It syncs workspace metadata, checks architectural boundaries, typechecks, runs f
 pnpm run verify:db
 ```
 
-Local DB-backed tests read `TEST_DATABASE_URL` from root `.env.test.local`
-when it is not already set in the shell. The default dev value is:
+Local DB-backed tests read `TEST_DATABASE_URL` from the generated sandbox env
+when it is not already set in the shell. The sandbox value points at the
+current worktree's Postgres admin database. A root `.env.test.local` value can
+still be used as a shared fallback:
 
 ```bash
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres

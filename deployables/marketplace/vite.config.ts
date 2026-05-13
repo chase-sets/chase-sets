@@ -25,6 +25,8 @@ const localDevCorsOrigins = [
   /^https?:\/\/(?:[\w-]+\.)*[\w-]+\.test(?::\d+)?$/i,
   /^https?:\/\/(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?::\d+)?$/,
 ];
+const platformApiTarget =
+  process.env.VITE_PLATFORM_API_URL ?? process.env.PLATFORM_API_URL ?? "http://localhost:6182";
 
 export default defineConfig({
   build: {
@@ -41,39 +43,39 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 6173,
+    port: Number(process.env.PORT ?? process.env.MARKETPLACE_WEB_PORT ?? 6173),
     strictPort: true,
     allowedHosts: [...localMachineHostnames, ".local", ".test"],
     cors: { origin: localDevCorsOrigins },
     proxy: {
       "/api/auth": {
-        target: "http://localhost:6182",
+        target: platformApiTarget,
         changeOrigin: true,
       },
       "/api/marketplace": {
-        target: "http://localhost:6182",
+        target: platformApiTarget,
         changeOrigin: true,
       },
       "/api/public-presence": {
-        target: "http://localhost:6182",
+        target: platformApiTarget,
         changeOrigin: true,
       },
       "/api/identity": {
-        target: "http://localhost:6182",
+        target: platformApiTarget,
         changeOrigin: true,
       },
       "/api/inventory": {
-        target: "http://localhost:6182",
+        target: platformApiTarget,
         changeOrigin: true,
       },
       "/api/realtime": {
-        target: "http://localhost:6182",
+        target: platformApiTarget,
         changeOrigin: true,
         timeout: 0,
         proxyTimeout: 0,
       },
       "/api/settlement": {
-        target: "http://localhost:6182",
+        target: platformApiTarget,
         changeOrigin: true,
       },
     },

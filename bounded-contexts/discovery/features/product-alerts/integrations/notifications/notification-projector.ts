@@ -377,25 +377,25 @@ async function loadMarketActivity(
 ): Promise<MarketActivity | null> {
   const result = await db.query<MarketActivity>(
     `SELECT
-       activity_id,
-       market_side,
-       owner_account_id,
-       catalog_catalog_item_id,
-       product_id,
-       selected_options,
-       item_title,
-       item_subtitle,
-       product_summary,
-       price_amount,
-       quantity,
-       status,
+       activity.activity_id,
+       activity.market_side,
+       activity.owner_account_id,
+       activity.catalog_catalog_item_id,
+       activity.product_id,
+       activity.selected_options,
+       activity.item_title,
+       activity.item_subtitle,
+       activity.product_summary,
+       activity.price_amount,
+       activity.quantity,
+       activity.status,
        COALESCE(account.seller_listing_availability_status, 'available') AS seller_listing_availability_status,
-       created_at,
-       updated_at
-     FROM discovery_product_alert_market_activity
+       activity.created_at,
+       activity.updated_at
+     FROM discovery_product_alert_market_activity AS activity
      LEFT JOIN discovery_market_accounts AS account
-       ON account.account_id = discovery_product_alert_market_activity.owner_account_id
-     WHERE activity_id = $1`,
+       ON account.account_id = activity.owner_account_id
+     WHERE activity.activity_id = $1`,
     [activityId],
   );
 

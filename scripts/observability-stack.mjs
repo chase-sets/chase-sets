@@ -1,18 +1,28 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import {
+  applySandboxEnv,
+  buildDockerComposeArgs,
+  ensureWorktreeSandboxEnvironment,
+} from "./lib/sandbox.mjs";
 
 const command = process.argv[2] ?? "urls";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
-const composeArgs = ["compose", "-f", "docker-compose.dev.yml"];
+const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
+applySandboxEnv(sandboxEnv);
+const composeArgs = buildDockerComposeArgs(sandbox);
 const services = ["otel-collector", "prometheus", "loki", "tempo", "grafana"];
 
 function run(commandName, args) {
   const result = spawnSync(commandName, args, {
     stdio: "inherit",
     shell: process.platform === "win32",
+    env: {
+      ...process.env,
+      ...sandboxEnv,
+    },
     windowsHide: true,
   });
 
@@ -41,20 +51,20 @@ function openUrl(url) {
 
 function printUrls() {
   console.log("");
-  console.log("Observability stack");
-  console.log("  Grafana:      http://localhost:3000");
-  console.log("  Prometheus:   http://localhost:9090");
-  console.log("  Loki:         http://localhost:3100");
-  console.log("  Tempo:        http://localhost:3200");
-  console.log("  OTLP HTTP:    http://localhost:4318");
-  console.log("  OTLP gRPC:    localhost:4317");
+  console.log(`Observability stack (${sandbox.id})`);
+  console.log(`  Grafana:      ${sandbox.urls.grafana}`);
+  console.log(`  Prometheus:   ${sandbox.urls.prometheus}`);
+  console.log(`  Loki:         ${sandbox.urls.loki}`);
+  console.log(`  Tempo:        ${sandbox.urls.tempo}`);
+  console.log(`  OTLP HTTP:    ${sandbox.urls.otelHttp}`);
+  console.log(`  OTLP gRPC:    ${sandbox.urls.otelGrpc}`);
   console.log("");
   console.log("Local Grafana credentials default to admin/admin.");
   console.log("");
 }
 
 if (command === "up") {
-  mkdirSync(path.join(rootDir, "artifacts", "observability"), { recursive: true });
+  mkdirSync(sandbox.observabilityArtifactsPath, { recursive: true });
   run("docker", [...composeArgs, "--profile", "observability", "up", "-d", ...services]);
   printUrls();
 } else if (command === "down") {
@@ -62,7 +72,7 @@ if (command === "up") {
   run("docker", [...composeArgs, "rm", "-f", ...services]);
 } else if (command === "open") {
   printUrls();
-  openUrl("http://localhost:3000");
+  openUrl(sandbox.urls.grafana);
 } else if (command === "urls") {
   printUrls();
 } else {

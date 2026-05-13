@@ -1,23 +1,26 @@
 import { createServer } from "node:http";
 
 const port = parseInt(process.env.PORT ?? "6170", 10);
+const adminWebUrl = process.env.ADMIN_WEB_URL ?? "http://localhost:6172";
+const marketplaceWebUrl = process.env.MARKETPLACE_WEB_URL ?? "http://localhost:6173";
+const platformApiUrl = process.env.PLATFORM_API_URL ?? "http://localhost:6182";
 
 const services = [
   {
     name: "Admin Web",
-    url: "http://localhost:6172",
+    url: adminWebUrl,
     description: "Unified catalog and identity administration workspace",
     category: "frontend",
   },
   {
     name: "Marketplace",
-    url: "http://localhost:6173",
+    url: marketplaceWebUrl,
     description: "Buyer and seller marketplace experience",
     category: "frontend",
   },
   {
     name: "Platform API",
-    url: "http://localhost:6182",
+    url: platformApiUrl,
     description: "Unified API host composed from the active bounded contexts",
     category: "api",
   },

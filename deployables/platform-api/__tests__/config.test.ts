@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   PLATFORM_INTERNAL_AUTH_SECRET_ENV,
 } from "@chase-sets/platform-runtime/http";
@@ -22,7 +22,7 @@ function platformApiContextNames() {
   return getApiHostContextNames(apiContextRegistry, "platform-api");
 }
 
-afterEach(() => {
+function resetConfigEnv() {
   for (const envName of envNames) {
     delete process.env[envName];
   }
@@ -70,7 +70,10 @@ afterEach(() => {
   delete process.env.PLATFORM_ADMIN_PASSWORD;
   delete process.env.PLATFORM_ADMIN_DISPLAY_NAME;
   delete process.env.PLATFORM_ADMIN_ACCOUNT_NAME;
-});
+}
+
+beforeEach(resetConfigEnv);
+afterEach(resetConfigEnv);
 
 describe("platform api config", () => {
   it("loads the shared database url", () => {
