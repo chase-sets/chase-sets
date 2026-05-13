@@ -20,6 +20,8 @@ import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 
 const MARKETPLACE_DESCRIPTION =
   t("checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped");
+const FULFILLMENT_PREVIEW_UNAVAILABLE =
+  t("checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable");
 
 async function loadWalletBalance(request: Request) {
   const response = await createForwardedAuthFetch(request)(
@@ -87,6 +89,36 @@ function isOfferIntentSession(session: Readonly<{ source_type: string }>) {
   return session.source_type === "offer-intent";
 }
 
+async function loadFulfillmentPreview(
+  request: Request,
+  session: Awaited<
+    ReturnType<ReturnType<typeof createCheckoutRequestApiClient>["getCheckoutSession"]>
+  >,
+) {
+  if (isOfferIntentSession(session)) {
+    return { fulfillmentPreview: null, previewError: null };
+  }
+
+  const orderingApi = createOrderingRequestApiClient(request);
+  try {
+    return {
+      fulfillmentPreview: await orderingApi.previewCheckoutFulfillment({
+        checkoutSessionId: session.session_id,
+        sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
+        shippingOption: session.shipping_option,
+        optimizationGoal: session.optimization_goal,
+        lines: session.lines,
+      }),
+      previewError: null,
+    };
+  } catch {
+    return {
+      fulfillmentPreview: null,
+      previewError: FULFILLMENT_PREVIEW_UNAVAILABLE,
+    };
+  }
+}
+
 function reloadForRealtimeSync() {
   if (typeof window !== "undefined") {
     window.location.reload();
@@ -110,21 +142,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const wallet = actor && actor.roleKey !== "guest-buyer"
     ? await loadWalletBalance(request)
     : null;
-  const orderingApi = createOrderingRequestApiClient(request);
-  const fulfillmentPreview = isOfferIntentSession(session)
-    ? null
-    : await orderingApi.previewCheckoutFulfillment({
-        checkoutSessionId: session.session_id,
-        sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
-        shippingOption: session.shipping_option,
-        optimizationGoal: session.optimization_goal,
-        lines: session.lines,
-      });
+  const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(
+    request,
+    session,
+  );
 
   return {
     session,
     wallet,
     fulfillmentPreview,
+    previewError,
   };
 }
 
@@ -208,7 +235,7 @@ export default function CheckoutSessionRoute() {
       session={data.session}
       wallet={data.wallet}
       fulfillmentPreview={data.fulfillmentPreview}
-      errorMessage={actionData?.error ?? null}
+      errorMessage={actionData?.error ?? data.previewError ?? null}
       isSubmitting={navigation.state === "submitting"}
     />
   );

@@ -914,6 +914,7 @@ export const englishTranslations = {
   "checkout.routes.checkoutSession.checkout.session.not.found": "Checkout session not found.",
   "checkout.routes.checkoutSession.checkout.session.not.found.2": "Checkout session not found.",
   "checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped": "Choose shipping and create purchases grouped by seller before payment.",
+  "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable": "Live fulfillment preview is temporarily unavailable. You can still review checkout and refresh before confirming.",
   "checkout.routes.checkoutSession.request.failed": "Request failed.",
   "commercialTerms.features.agreements.api.route.agreement.not.found": "Agreement not found.",
   "commercialTerms.features.agreements.api.route.authentication.context.missing": "Authentication context missing.",

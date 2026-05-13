@@ -216,6 +216,21 @@ describe("marketplace route layout", () => {
     ]);
   });
 
+  it("keeps cart access for signed-in buyers without order-management permissions", () => {
+    const actor = {
+      permissions: [
+        "accounts.view",
+      ],
+    };
+
+    expect(
+      resolveMarketplaceNavItems("top-nav", actor).map((item) => item.label),
+    ).toContain("Cart");
+    expect(
+      resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
+    ).toContain("Cart");
+  });
+
   it("keeps sign-in and registration entry points for signed-out actors", () => {
     mockUseRouteLoaderData.mockReturnValue({
       actor: null,

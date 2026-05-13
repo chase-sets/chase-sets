@@ -14,12 +14,17 @@ import { CheckoutCartPage } from "../features/cart/ui/cart-page";
 const MARKETPLACE_DESCRIPTION =
   t("checkout.routes.accountCart.review.cart.lines.adjust.quantity.and");
 
+function canUseAccountCart(
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+) {
+  return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
-  const canUseAccountCart = actor?.permissions.includes("orders.view") ?? false;
 
-  if (!actor || !canUseAccountCart) {
+  if (!canUseAccountCart(actor)) {
     return {
       cart: await api.getGuestCart(readAnonymousCartId(request)),
     };
@@ -37,14 +42,14 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
   const anonymousCartId = readAnonymousCartId(request);
-  const canManageAccountCart = actor?.permissions.includes("orders.manage") ?? false;
+  const useAccountCart = canUseAccountCart(actor);
 
   try {
     if (intent === "update-cart-line") {
       const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
       const [primaryLineId, ...duplicateLineIds] = lineIds;
 
-      if ((!actor || !canManageAccountCart) && anonymousCartId) {
+      if (!useAccountCart && anonymousCartId) {
         await api.updateGuestCartLineQuantity(
           anonymousCartId,
           primaryLineId ?? "",
@@ -60,7 +65,7 @@ export async function action({ request }: ActionFunctionArgs) {
         return redirect("/account/cart");
       }
 
-      if (!actor || !canManageAccountCart) {
+      if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
@@ -76,14 +81,14 @@ export async function action({ request }: ActionFunctionArgs) {
     if (intent === "remove-cart-line") {
       const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
 
-      if ((!actor || !canManageAccountCart) && anonymousCartId) {
+      if (!useAccountCart && anonymousCartId) {
         await Promise.all(
           lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)),
         );
         return redirect("/account/cart");
       }
 
-      if (!actor || !canManageAccountCart) {
+      if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
@@ -94,7 +99,7 @@ export async function action({ request }: ActionFunctionArgs) {
     if (intent === "unlock-cart-line") {
       const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
 
-      if ((!actor || !canManageAccountCart) && anonymousCartId) {
+      if (!useAccountCart && anonymousCartId) {
         await Promise.all(
           lineIds.map((lineId) =>
             api.updateGuestCartLineFulfillment(anonymousCartId, lineId, {
@@ -108,7 +113,7 @@ export async function action({ request }: ActionFunctionArgs) {
         return redirect("/account/cart");
       }
 
-      if (!actor || !canManageAccountCart) {
+      if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
@@ -132,7 +137,7 @@ export async function action({ request }: ActionFunctionArgs) {
         throw new Error("Choose a seller option before locking fulfillment.");
       }
 
-      if ((!actor || !canManageAccountCart) && anonymousCartId) {
+      if (!useAccountCart && anonymousCartId) {
         await Promise.all(
           lineIds.map((lineId) =>
             api.updateGuestCartLineFulfillment(anonymousCartId, lineId, {
@@ -146,7 +151,7 @@ export async function action({ request }: ActionFunctionArgs) {
         return redirect("/account/cart");
       }
 
-      if (!actor || !canManageAccountCart) {
+      if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 

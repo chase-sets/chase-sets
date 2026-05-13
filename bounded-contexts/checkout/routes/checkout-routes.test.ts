@@ -4,8 +4,11 @@ const {
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockCreateCheckoutRequestApiClient,
+  mockCreateOrderingRequestApiClient,
   mockCreateAuthRequestApiClient,
   mockCreateCheckoutSession,
+  mockGetCheckoutSession,
+  mockPreviewCheckoutFulfillment,
   mockSelectShippingOption,
   mockConfirmCheckoutSession,
   mockStartGuestCheckout,
@@ -16,8 +19,11 @@ const {
   mockRequireActorFromAuthApi: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
   mockCreateCheckoutRequestApiClient: vi.fn(),
+  mockCreateOrderingRequestApiClient: vi.fn(),
   mockCreateAuthRequestApiClient: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
+  mockGetCheckoutSession: vi.fn(),
+  mockPreviewCheckoutFulfillment: vi.fn(),
   mockSelectShippingOption: vi.fn(),
   mockConfirmCheckoutSession: vi.fn(),
   mockStartGuestCheckout: vi.fn(),
@@ -51,6 +57,10 @@ vi.mock("@chase-sets/auth/server", async () => {
 
 vi.mock("../support/request-support/api-client", () => ({
   createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
+}));
+
+vi.mock("@chase-sets/ordering/server", () => ({
+  createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
 }));
 
 import { AuthApiError } from "@chase-sets/auth/server";
@@ -303,6 +313,60 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/chk_offer");
+  });
+
+  it("keeps checkout visible when live fulfillment preview is temporarily unavailable", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "buy-now",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      order_ids: [],
+      lines: [
+        {
+          listingId: null,
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockRejectedValue(new Error("preview unavailable"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/chk_1"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        fulfillmentPreview: null,
+        previewError:
+          "Live fulfillment preview is temporarily unavailable. You can still review checkout and refresh before confirming.",
+      }),
+    );
+    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkoutSessionId: "chk_1",
+        sourceType: "buy-now",
+      }),
+    );
   });
 
   it("starts signed-out cart checkout by creating a guest account and merging the anonymous cart", async () => {

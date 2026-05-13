@@ -130,7 +130,7 @@ function notifyCartCountChanged(quantity: number) {
 function canUseAccountCheckoutCart(
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
 ) {
-  return Boolean(actor?.permissions.includes("orders.manage"));
+  return Boolean(actor);
 }
 
 function formatAllowancePercentage(bps: number) {
