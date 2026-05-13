@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
 import { resolveWebHostRouteConfigRecords } from "@chase-sets/platform-runtime/web-route-config";
-import type { NavigationItem } from "@chase-sets/design-system";
+import type { AccountMenuItem, NavigationItem } from "@chase-sets/design-system";
 import { webContextRegistry } from "./generated/web-context-registry";
 
 export function resolveMarketplaceRouteConfigRecords() {
@@ -27,6 +27,29 @@ export function resolveMarketplaceNavItems(
   }
 
   return moveCartLast(withCartNavigation(groupMarketplaceTopNav(items), cartCount));
+}
+
+export function resolveMarketplaceAccountMenuItems(
+  actor?: Readonly<{ permissions?: readonly string[] }> | null,
+): AccountMenuItem[] {
+  if (!actor) {
+    return [];
+  }
+
+  return orderAccountChildNav(
+    resolveWebHostNavItems(webContextRegistry, "marketplace-web", "top-nav", actor)
+      .map(toTraderNavItem)
+      .filter((item) => accountChildKeys.has(item.key) && Boolean(item.href)),
+  ).flatMap((item) =>
+    item.href
+      ? [{
+          key: item.key,
+          label: item.label,
+          href: item.href,
+          icon: item.icon,
+        }]
+      : [],
+  );
 }
 
 const sellingWorkflowKeys = new Set([
@@ -323,23 +346,9 @@ function groupMarketplaceTopNav(
   const accountItems = orderAccountNav(
     visibleItems.filter((item) => !sellingWorkflowKeys.has(item.key) && !accountChildKeys.has(item.key)),
   );
-  const accountBaseItem = visibleItems.find((item) => item.key === "account");
-  const accountChildren = orderAccountChildNav(
-    visibleItems.filter((item) => accountChildKeys.has(item.key)),
-  );
-  const accountGroup: NavigationItem | undefined = accountBaseItem && accountChildren.length > 1
-    ? {
-        ...accountBaseItem,
-        href: undefined,
-        children: accountChildren,
-      }
-    : accountBaseItem;
 
   if (sellingItems.length === 0) {
-    return [
-      ...accountItems.filter((item) => item.key !== "account"),
-      ...(accountGroup ? [accountGroup] : []),
-    ];
+    return accountItems;
   }
 
   const sellingGroup: NavigationItem = {
@@ -351,8 +360,7 @@ function groupMarketplaceTopNav(
   };
 
   return [
-    ...accountItems.filter((item) => item.key !== "account"),
+    ...accountItems,
     sellingGroup,
-    ...(accountGroup ? [accountGroup] : []),
   ];
 }
