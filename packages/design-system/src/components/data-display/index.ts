@@ -12,6 +12,11 @@ export {
 } from "./timeline";
 export { Card, type CardProps, DetailPanel, type DetailPanelProps } from "./card";
 export {
+  ActorIdentityCue,
+  type ActorIdentityCueProps,
+  type ActorIdentityCueVariant,
+} from "./actor-identity-cue";
+export {
   FilterBar,
   type FilterBarProps,
   FilterDrawer,

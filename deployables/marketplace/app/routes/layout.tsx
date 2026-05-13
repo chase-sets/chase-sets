@@ -1,8 +1,9 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useRouteLoaderData } from "react-router";
-import { Banner, Button, LinkButton, Stack } from "@chase-sets/design-system";
+import { ActorIdentityCue, Banner, Button, LinkButton, Stack } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
+import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { resolveMarketplaceNavItems } from "../host";
 
 type MarketplaceActor = {
@@ -73,11 +74,27 @@ function getActiveKey(pathname: string) {
   return "search";
 }
 
+function displayActorAccountName(display: CurrentActorDisplay) {
+  return display.account.display_name ?? display.account.name ?? display.account.account_id;
+}
+
+function displayActorUserName(display: CurrentActorDisplay) {
+  return display.user.display_name ?? display.user.primary_email ?? display.user.user_id;
+}
+
+function displayRole(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export default function MarketplaceLayoutRoute() {
   const location = useLocation();
   const rootData = useRouteLoaderData("root") as
     | {
         actor?: MarketplaceActor;
+        actorDisplay?: CurrentActorDisplay | null;
         cartCount?: number;
       }
     | undefined;
@@ -118,10 +135,24 @@ export default function MarketplaceLayoutRoute() {
       bottomNavItems={bottomNavItems}
       actions={
         rootData?.actor ? (
-          <form action="/sign-out" method="post">
-            <Button type="submit" tone="secondary">
-              {t("marketplace.app.routes.layout.sign.out")}</Button>
-          </form>
+          <>
+            {rootData.actorDisplay ? (
+              <ActorIdentityCue
+                title={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.identity")}
+                accountLabel={t("identity.features.accounts.ui.currentActorDisplayCue.acting.as")}
+                accountName={displayActorAccountName(rootData.actorDisplay)}
+                userLabel={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.as")}
+                userName={displayActorUserName(rootData.actorDisplay)}
+                membershipLabel={t("identity.features.accounts.ui.currentActorDisplayCue.membership")}
+                membershipName={displayRole(rootData.actorDisplay.membership.role_key)}
+                className="hidden md:flex"
+              />
+            ) : null}
+            <form action="/sign-out" method="post">
+              <Button type="submit" tone="secondary">
+                {t("marketplace.app.routes.layout.sign.out")}</Button>
+            </form>
+          </>
         ) : null
       }
     >
