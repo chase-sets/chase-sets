@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { WebNotificationFeed } from "@chase-sets/web-notifications";
 import { Hono } from "hono";
 import type { DiscoveryApiEnv } from "../../../api";
@@ -12,7 +13,7 @@ function requireNotificationAccess(c: {
       response: new Response(JSON.stringify({
         error: {
           code: "authentication_required",
-          message: "Sign in to view Product Alert notifications.",
+          message: t("discovery.features.productAlerts.api.notificationRoutes.sign.in.to.view.product.alert.notifications"),
         },
       }), {
         status: 401,
@@ -27,7 +28,7 @@ function requireNotificationAccess(c: {
       response: new Response(JSON.stringify({
         error: {
           code: "authorization_forbidden",
-          message: "This account cannot view Product Alert notifications.",
+          message: t("discovery.features.productAlerts.api.notificationRoutes.account.cannot.view.product.alert.notifications"),
         },
       }), {
         status: 403,

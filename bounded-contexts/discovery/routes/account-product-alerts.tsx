@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
@@ -34,7 +35,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export const meta: MetaFunction = () => [
   {
-    title: "Product Alerts | Chase Sets",
+    title: t("discovery.routes.accountProductAlerts.title"),
   },
 ];
 

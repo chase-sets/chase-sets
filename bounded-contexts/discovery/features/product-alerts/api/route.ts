@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import type { DiscoveryApiEnv } from "../../../api";
 import type { ProductAlertServices } from "./runtime";
@@ -12,7 +13,7 @@ function requireProductAlertAccess(c: {
       response: new Response(JSON.stringify({
         error: {
           code: "authentication_required",
-          message: "Sign in to manage Product Alerts.",
+          message: t("discovery.features.productAlerts.api.route.sign.in.to.manage.product.alerts"),
         },
       }), {
         status: 401,
@@ -27,7 +28,7 @@ function requireProductAlertAccess(c: {
       response: new Response(JSON.stringify({
         error: {
           code: "authorization_forbidden",
-          message: "This account cannot manage Product Alerts.",
+          message: t("discovery.features.productAlerts.api.route.account.cannot.manage.product.alerts"),
         },
       }), {
         status: 403,
@@ -59,7 +60,9 @@ function parseSelectedOptions(value: unknown) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Product Alert request failed.";
+  return error instanceof Error
+    ? error.message
+    : t("discovery.features.productAlerts.api.route.product.alert.request.failed");
 }
 
 export function createProductAlertRoutes(services: ProductAlertServices) {
@@ -89,7 +92,7 @@ export function createProductAlertRoutes(services: ProductAlertServices) {
       return c.json({
         error: {
           code: "authentication_required",
-          message: "Authentication context is missing.",
+          message: t("discovery.features.productAlerts.api.route.authentication.context.missing"),
         },
       }, 401);
     }
@@ -149,7 +152,7 @@ async function updateAlert(
     return c.json({
       error: {
         code: "authentication_required",
-        message: "Authentication context is missing.",
+        message: t("discovery.features.productAlerts.api.route.authentication.context.missing"),
       },
     }, 401);
   }

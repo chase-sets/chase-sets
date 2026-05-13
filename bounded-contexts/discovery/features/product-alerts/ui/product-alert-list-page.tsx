@@ -11,6 +11,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import type { ProductAlertPageRow } from "../read-model/queries";
 
 export function ProductAlertListPage({
@@ -22,23 +23,27 @@ export function ProductAlertListPage({
     <Container width="wide">
       <Stack gap={6}>
         <Stack gap={2}>
-          <Heading level={1}>Product Alerts</Heading>
+          <Heading level={1}>
+            {t("discovery.features.productAlerts.ui.productAlertListPage.product.alerts")}
+          </Heading>
           <Text tone="secondary">
-            Watch selected products for new listings or offer demand that meets your price.
+            {t("discovery.features.productAlerts.ui.productAlertListPage.watch.selected.products")}
           </Text>
         </Stack>
 
-        <PageSection title="Active watches">
+        <PageSection title={t("discovery.features.productAlerts.ui.productAlertListPage.active.watches")}>
           {alerts.length === 0 ? (
             <Card>
               <Stack gap={3}>
-                <Text weight="semibold">No Product Alerts yet</Text>
+                <Text weight="semibold">
+                  {t("discovery.features.productAlerts.ui.productAlertListPage.no.product.alerts.yet")}
+                </Text>
                 <Text tone="secondary">
-                  Choose product options from an item detail page, then create an alert for listings or offers.
+                  {t("discovery.features.productAlerts.ui.productAlertListPage.choose.product.options")}
                 </Text>
                 <Inline>
                   <LinkButton href="/search" tone="secondary">
-                    Browse products
+                    {t("discovery.features.productAlerts.ui.productAlertListPage.browse.products")}
                   </LinkButton>
                 </Inline>
               </Stack>
@@ -57,13 +62,20 @@ export function ProductAlertListPage({
 }
 
 function ProductAlertCard({ alert }: { alert: ProductAlertPageRow }) {
-  const sideLabel = alert.market_side === "listing" ? "Listings" : "Offers";
+  const sideLabel =
+    alert.market_side === "listing"
+      ? t("discovery.features.productAlerts.ui.productAlertListPage.listings")
+      : t("discovery.features.productAlerts.ui.productAlertListPage.offers");
   const thresholdLabel =
     alert.threshold_amount === null
-      ? "All new matches"
+      ? t("discovery.features.productAlerts.ui.productAlertListPage.all.new.matches")
       : alert.market_side === "listing"
-        ? `At or below $${alert.threshold_amount}`
-        : `At or above $${alert.threshold_amount}`;
+        ? t("discovery.features.productAlerts.ui.productAlertListPage.at.or.below", {
+            amount: `$${alert.threshold_amount}`,
+          })
+        : t("discovery.features.productAlerts.ui.productAlertListPage.at.or.above", {
+            amount: `$${alert.threshold_amount}`,
+          });
   const nextAction = alert.status === "paused" ? "resume" : "pause";
 
   return (
@@ -84,7 +96,9 @@ function ProductAlertCard({ alert }: { alert: ProductAlertPageRow }) {
         </Inline>
 
         <Text size="sm" tone="secondary">
-          Product {alert.product_id}
+          {t("discovery.features.productAlerts.ui.productAlertListPage.product.id", {
+            productId: alert.product_id,
+          })}
         </Text>
 
         <Inline gap={2}>
@@ -92,14 +106,16 @@ function ProductAlertCard({ alert }: { alert: ProductAlertPageRow }) {
             <input type="hidden" name="intent" value={nextAction} />
             <input type="hidden" name="alertId" value={alert.alert_id} />
             <Button type="submit" tone="secondary" size="sm">
-              {alert.status === "paused" ? "Resume" : "Pause"}
+              {alert.status === "paused"
+                ? t("discovery.features.productAlerts.ui.productAlertListPage.resume")
+                : t("discovery.features.productAlerts.ui.productAlertListPage.pause")}
             </Button>
           </form>
           <form method="post">
             <input type="hidden" name="intent" value="delete" />
             <input type="hidden" name="alertId" value={alert.alert_id} />
             <Button type="submit" tone="ghost" size="sm">
-              Delete
+              {t("discovery.features.productAlerts.ui.productAlertListPage.delete")}
             </Button>
           </form>
           <LinkButton
@@ -107,7 +123,7 @@ function ProductAlertCard({ alert }: { alert: ProductAlertPageRow }) {
             tone="ghost"
             size="sm"
           >
-            View product
+            {t("discovery.features.productAlerts.ui.productAlertListPage.view.product")}
           </LinkButton>
         </Inline>
       </Stack>
