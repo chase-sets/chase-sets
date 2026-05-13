@@ -25,6 +25,7 @@ import {
   type CheckoutVersionSchema,
   type ShippingOption,
 } from "../../../support/runtime-support/common";
+import { drainOwnedProjector } from "../../../support/runtime-support/projectors";
 import {
   decideCheckoutSession,
   evolveCheckoutSession,
@@ -193,6 +194,12 @@ export function createCheckoutSessionRuntime(
     evolve: evolveCheckoutSession,
     decide: decideCheckoutSession,
   });
+  const sessionProjector = createProjector({
+    projectorName: "checkout.session-projection",
+    eventStore: deps.eventStore,
+    checkpointStore: deps.checkpointStore,
+    handlers: buildCheckoutSessionProjectionHandlers(deps.db),
+  });
 
   async function validateCatalogSelection(params: Readonly<{
     catalogItemId: string;
@@ -261,6 +268,7 @@ export function createCheckoutSessionRuntime(
       },
       context,
     });
+    await drainOwnedProjector(sessionProjector);
     return { sessionId };
   }
 
@@ -523,13 +531,6 @@ export function createCheckoutSessionRuntime(
     },
     getSession: (sessionId, accountId) =>
       getCheckoutSession(deps.db, sessionId, accountId),
-    projectors: [
-      createProjector({
-        projectorName: "checkout.session-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildCheckoutSessionProjectionHandlers(deps.db),
-      }),
-    ],
+    projectors: [sessionProjector],
   };
 }

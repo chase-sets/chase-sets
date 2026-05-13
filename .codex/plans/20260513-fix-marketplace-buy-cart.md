@@ -7,7 +7,7 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets-20260513-fix-marketplace-buy-cart`
-- Branch: `codex/fix-marketplace-buy-cart`
+- Branch: initial permission fix used `codex/fix-marketplace-buy-cart`; staging read-after-write follow-up uses `codex/fix-checkout-read-after-write`.
 - Base: rebased onto local `origin/main` at `9e0a0da8fcc4c547f788e755ee86d1d82f35fe65`.
 - Sandbox id: `b3c77d75`
 - Sandbox services: Marketplace `http://localhost:8453`, Platform API `http://localhost:8462`
@@ -26,6 +26,7 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 - Treat Discovery as the presentation and form/action owner for item detail purchase intent.
 - Treat Marketplace listing availability as an input to Discovery/Checkout behavior, not as the owner of checkout orchestration.
 - Treat buyer cart and checkout-session start as signed-in account behavior, not seller/order-management permission behavior. A signed-in account without `orders.manage` must not be downgraded into an anonymous cart.
+- Staging intentionally disables the platform-wide write drain (`WRITE_CONSISTENCY_DRAIN_ENABLED=false`) to protect the small managed Postgres pool, so Checkout-owned cart/session writes must provide their own narrow read-your-own-write projection consistency before returning buyer redirects or cart responses.
 
 ## Open Questions
 
@@ -37,6 +38,7 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 - Inspect Checkout start route and cart/session API contracts. Done.
 - Reproduce the failing path with focused route/action tests before changing behavior when practical. Baseline tests passed but did not cover signed-in actors without `orders.manage`. Done.
 - Fix the smallest owning-context code path that restores signed-in buy-now and add-to-cart behavior. Done.
+- Fix the staging read-after-write gap by draining only the Checkout cart/session owned projectors after Checkout writes, rather than enabling the global platform drain. Done locally; pending PR/deploy verification.
 - Add or update focused tests covering signed-in buyer behavior without `orders.manage`, optimized buy-now, seller-locked buy-now, add-to-cart cart visibility, Ordering checkout preview/confirmation access, and preview fallback. Done.
 - Run focused tests, then broader relevant package checks if the change touches shared behavior. Done.
 - Start the local marketplace stack if needed and visually verify desktop/mobile buyer flows. Done with Platform API + Marketplace local stack.
@@ -50,6 +52,10 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
   - `pnpm --filter @chase-sets/discovery run test`: 13 passed, 1 skipped; 62 passed, 3 skipped.
   - `pnpm --filter @chase-sets/app-marketplace-web run test`: 19 files, 80 tests.
 - After the final rebase, `pnpm --filter @chase-sets/app-marketplace-web run typecheck` and `pnpm run check:structure` passed.
+- After the staging read-after-write patch, `pnpm --filter @chase-sets/checkout run test` passed: 9 files, 48 tests.
+- After the staging read-after-write patch, `pnpm --filter @chase-sets/app-marketplace-web run test` passed: 19 files, 80 tests.
+- After the staging read-after-write patch, `pnpm --filter @chase-sets/app-marketplace-web run typecheck` passed.
+- After the staging read-after-write patch, `pnpm run check:structure` passed.
 - Local visual check against `demo@chasesets.test` on `http://localhost:8453` confirmed:
   - Add product to cart updates the account cart and `/account/cart` shows the Twilight Masquerade Elite Trainer Box line.
   - Desktop Buy optimized reaches `/checkout/...` without Marketplace error.
@@ -68,4 +74,4 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 - Durable docs are promoted only if the code investigation finds a lasting cross-context rule.
 - Automated checks cover the restored behavior.
 - Desktop and mobile visual checks confirm buttons no longer fail and cart reflects added lines.
-- PR is submitted, CI passes, PR is merged, and staging deploy is verified against `demo@chasesets.com`.
+- Follow-up PR for staging read-after-write is submitted, CI passes, PR is merged, and staging deploy is verified against the available staging demo buyer account. Exact `demo@chasesets.com` verification still requires credentials because the in-repo seeded staging demo is `demo@chasesets.test` / `demo1234`, while `demo@chasesets.com` with that password returns 401.
