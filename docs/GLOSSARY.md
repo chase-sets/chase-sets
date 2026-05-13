@@ -29,6 +29,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Seller Listing Availability | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-level overlay that temporarily prevents active listings from creating new seller commitments without changing listing status. |
 | Cart | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Mutable saved purchase intent. |
 | Checkout Session | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Active purchase workflow before orders and payment. |
+| Offer Intent | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Checkout-owned source intent that captures purchase intent before submitting a Marketplace-owned Offer. |
 | Order | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Commercial commitment between buyer and seller accounts. |
 | Purchase | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Buyer-facing order projection. |
 | Sale | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Seller-facing order projection. |

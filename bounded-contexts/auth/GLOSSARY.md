@@ -35,3 +35,12 @@ Auth resolves the actor for hosts. Identity remains upstream for the user, accou
 ## Return Path
 
 The safe in-app path that Auth sends the user back to after sign-in, registration, or account selection completes.
+
+## Checkout Registration Continuation
+
+A **Checkout Registration Continuation** is the Auth-owned registration journey that returns a signed-in account to an in-progress checkout source intent.
+
+Notes:
+
+- Passkey is the default registration method for purchase-intent checkout, with magic link available as the passwordless fallback.
+- Checkout owns the purchase-intent workflow state; Auth owns registration, authentication method selection, session creation, account selection, and safe return paths.

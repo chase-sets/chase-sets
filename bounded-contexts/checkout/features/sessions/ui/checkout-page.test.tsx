@@ -61,6 +61,7 @@ const session: CheckoutSessionRow = {
   ],
   order_ids: [],
   payment_id: null,
+  submitted_offer_id: null,
   created_at: "2026-05-06T00:00:00.000Z",
   updated_at: "2026-05-06T00:00:00.000Z",
 };
@@ -148,5 +149,36 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("lst_card_vault");
     expect(markup).not.toContain("cat_bulbasaur");
     expect(markup).not.toContain("acc_card_vault");
+  });
+
+  it("renders purchase intent checkout without payment controls or purchase-creation copy", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={{
+          ...session,
+          session_id: "chk_offer_intent",
+          source_type: "offer-intent",
+          fulfillment_preview_revision: null,
+          lines: [
+            {
+              ...session.lines[0],
+              cartLineId: null,
+              offerPriceAmount: "350.00",
+              availabilityState: "waiting-for-supply",
+            },
+          ],
+        }}
+        fulfillmentPreview={null}
+      />,
+    );
+
+    expect(markup).toContain("Place purchase intent");
+    expect(markup).toContain("Ready to place purchase intent");
+    expect(markup).toContain("No payment today");
+    expect(markup).toContain("Sellers can accept your purchase intent");
+    expect(markup).toContain("Destination is required so a seller knows where the purchase intent would ship");
+    expect(markup).not.toContain("Payment method");
+    expect(markup).not.toContain("Live fulfillment preview");
+    expect(markup).not.toContain("Destination is required before purchases are created");
   });
 });

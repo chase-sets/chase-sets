@@ -1,5 +1,6 @@
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
+import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
 
@@ -77,4 +78,73 @@ export async function createCheckoutPaymentThroughPayments(
   });
 
   return payment.payment_id;
+}
+
+function offerIdForCheckoutSession(sessionId: string) {
+  return `off_${sessionId.replace(/^chk_?/, "")}`;
+}
+
+function isAlreadySubmittedOfferError(error: unknown) {
+  if (!(error instanceof MarketplaceApiError) || error.status !== 400) {
+    return false;
+  }
+
+  const message =
+    typeof error.body === "object" &&
+    error.body !== null &&
+    "error" in error.body &&
+    typeof (error.body as { error?: { message?: unknown } }).error?.message === "string"
+      ? (error.body as { error: { message: string } }).error.message
+      : "";
+
+  return message.includes("Offer has already been submitted.");
+}
+
+export async function submitPurchaseIntentThroughMarketplace(
+  request: Request,
+  session: CheckoutSessionRow,
+) {
+  if (!session.shipping_address) {
+    throw new Error("Shipping destination is required before checkout can place purchase intent.");
+  }
+
+  if (session.source_type !== "offer-intent") {
+    throw new Error("Only purchase-intent checkout can submit an offer.");
+  }
+
+  const line = session.lines[0];
+  if (!line) {
+    throw new Error("Purchase intent requires one checkout line.");
+  }
+
+  const offerPriceAmount = line.offerPriceAmount?.trim();
+  if (!offerPriceAmount) {
+    throw new Error("Purchase intent requires an offer price.");
+  }
+
+  const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const offerId = offerIdForCheckoutSession(session.session_id);
+
+  try {
+    const offer = await marketplaceApi.createSubmittedOffer({
+      offerId,
+      catalogItemId: line.catalogItemId,
+      productId: line.productId,
+      itemTitle: line.itemTitle,
+      itemSubtitle: line.itemSubtitle,
+      selectedOptions: line.selectedOptions,
+      productSummary: line.productSummary,
+      shippingDestinationSnapshot: session.shipping_address,
+      priceAmount: offerPriceAmount,
+      quantityRequested: line.quantity,
+    }) as { id?: string; offer_id?: string };
+
+    return offer.id ?? offer.offer_id ?? offerId;
+  } catch (error) {
+    if (isAlreadySubmittedOfferError(error)) {
+      return offerId;
+    }
+
+    throw error;
+  }
 }
