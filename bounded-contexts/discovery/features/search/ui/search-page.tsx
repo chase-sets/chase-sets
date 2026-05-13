@@ -196,22 +196,39 @@ export function SearchPage({
         }]
       : []),
   ];
+  const categoryFacet = (
+    <MarketplaceFacetRail
+      items={categories.map((item) => ({
+        id: item.slug,
+        label: item.name,
+        count: item.item_count,
+      }))}
+      selectedId={category}
+      onSelect={onCategoryChange}
+    />
+  );
+  const categoryActions = [
+    {
+      id: "",
+      label: t("discovery.features.search.ui.searchPage.all.categories"),
+      count: undefined,
+      selected: !category,
+      onSelect: () => onCategoryChange(""),
+      leadingIcon: "grid" as const,
+    },
+    ...featuredCategories.map((item) => ({
+      id: item.slug,
+      label: item.name,
+      count: item.item_count,
+      selected: category === item.slug,
+      onSelect: () => onCategoryChange(item.slug),
+      leadingIcon: "tag" as const,
+    })),
+  ];
 
   return (
     <SearchResultsLayout
-      filters={
-        hasFocusedResults ? null : (
-          <MarketplaceFacetRail
-          items={categories.map((item) => ({
-            id: item.slug,
-            label: item.name,
-            count: item.item_count,
-          }))}
-          selectedId={category}
-          onSelect={onCategoryChange}
-          />
-        )
-      }
+      filters={categoryFacet}
       summary={
         hasFocusedResults ? null : (
           <Stack gap={6}>
@@ -320,6 +337,31 @@ export function SearchPage({
             })}
           />
         ) : null}
+        {hasFocusedResults ? (
+          <div
+            className="w-full min-w-0 overflow-x-auto lg:hidden"
+            aria-label={t("discovery.features.search.ui.searchPage.browse.categories")}
+          >
+            <div className="flex min-w-max gap-2 pb-1">
+              {categoryActions.map((item) => (
+                <Button
+                  key={item.id}
+                  tone={item.selected ? "primary" : "ghost"}
+                  size="sm"
+                  leadingIcon={item.leadingIcon}
+                  onClick={item.onSelect}
+                >
+                  {item.count == null
+                    ? item.label
+                    : t("discovery.features.search.ui.searchPage.category.count.label", {
+                        category: item.label,
+                        count: item.count,
+                      })}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {error ? <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} /> : null}
 
@@ -353,7 +395,10 @@ export function SearchPage({
           />
         ) : data ? (
           <>
-            <Grid columns={{ base: 1, sm: 2, xl: 3 }} gap={4}>
+            <Grid
+              columns={hasFocusedResults ? { base: 1, lg: 2, "2xl": 3 } : { base: 1, sm: 2, xl: 3 }}
+              gap={4}
+            >
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
@@ -395,32 +440,6 @@ export function SearchPage({
                 );
               })}
             </Grid>
-            {hasFocusedResults ? (
-              <Inline>
-                <Button
-                  tone={!category ? "primary" : "ghost"}
-                  size="sm"
-                  leadingIcon="grid"
-                  onClick={() => onCategoryChange("")}
-                >
-                  {t("discovery.features.search.ui.searchPage.all.categories")}
-                </Button>
-                {featuredCategories.map((item) => (
-                  <Button
-                    key={item.slug}
-                    tone={category === item.slug ? "primary" : "ghost"}
-                    size="sm"
-                    leadingIcon="tag"
-                onClick={() => onCategoryChange(item.slug)}
-              >
-                {t("discovery.features.search.ui.searchPage.category.count.label", {
-                  category: item.name,
-                  count: item.item_count,
-                })}
-              </Button>
-                ))}
-              </Inline>
-            ) : null}
             {hasFocusedResults ? (
               <SavedSearchPrompt
                 title={t("discovery.features.search.ui.searchPage.save.this.search")}
