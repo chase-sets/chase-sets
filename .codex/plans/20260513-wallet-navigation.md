@@ -78,6 +78,7 @@ The UX concern is that Wallet is account-owned financial state from the user's p
 - `git diff --check`
 - Local marketplace stack was started at `http://localhost:7553` after `pnpm run dev:bootstrap`.
 - Browser visual verification covered signed-out desktop and mobile navigation. Authenticated desktop/mobile Wallet and Payouts navigation is covered by layout tests; the in-app browser could not complete sign-in because email input automation failed on the local sign-in form.
+- Staging verification after PR #67 showed desktop Account navigation exposed Wallet and Payouts, but mobile Account navigation went to `/account` and did not expose Wallet. A follow-up fix promotes Wallet directly in signed-in mobile bottom navigation for actors with `payouts.view`.
 
 ## Goal Completion Criteria
 

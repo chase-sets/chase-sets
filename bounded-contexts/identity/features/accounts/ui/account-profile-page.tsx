@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  ActorIdentityCue,
   MarketplaceDashboardPanel,
   PlatformCredibilityCue,
   SpecificationList,
@@ -9,6 +10,7 @@ import {
   UiPageSection,
 } from "@chase-sets/design-system";
 import type { Account } from "./contracts";
+import type { CurrentActorDisplay } from "../../../support/request-support/current-actor-display";
 
 function formatAccountValue(value: string) {
   return value
@@ -17,7 +19,21 @@ function formatAccountValue(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function AccountProfilePage({ account }: { account: Account }) {
+function displayActorAccountName(display: CurrentActorDisplay) {
+  return display.account.display_name ?? display.account.name ?? display.account.account_id;
+}
+
+function displayActorUserName(display: CurrentActorDisplay) {
+  return display.user.display_name ?? display.user.primary_email ?? display.user.user_id;
+}
+
+export function AccountProfilePage({
+  account,
+  actorDisplay,
+}: {
+  account: Account;
+  actorDisplay?: CurrentActorDisplay | null;
+}) {
   const updatedAt = account.updated_at
     ? new Date(account.updated_at).toLocaleDateString()
     : t("identity.features.accounts.ui.accountProfilePage.not.available");
@@ -29,6 +45,22 @@ export function AccountProfilePage({ account }: { account: Account }) {
         title={account.display_name}
         description={t("identity.features.accounts.ui.accountProfilePage.profile.and.commercial.ownership.details.for")}
       />
+      {actorDisplay ? (
+        <ActorIdentityCue
+          variant="panel"
+          title={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.identity")}
+          description={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.identity.description")}
+          accountLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account")}
+          accountName={displayActorAccountName(actorDisplay)}
+          accountDetail={t("identity.features.accounts.ui.currentActorDisplayCue.selected.account")}
+          userLabel={t("identity.features.accounts.ui.currentActorDisplayCue.user")}
+          userName={displayActorUserName(actorDisplay)}
+          userDetail={actorDisplay.user.primary_email ?? t("identity.features.accounts.ui.currentActorDisplayCue.current.user")}
+          membershipLabel={t("identity.features.accounts.ui.currentActorDisplayCue.membership")}
+          membershipName={formatAccountValue(actorDisplay.membership.role_key)}
+          membershipDetail={t("identity.features.accounts.ui.currentActorDisplayCue.active.membership")}
+        />
+      ) : null}
       <MarketplaceDashboardPanel
         title={t("identity.features.accounts.ui.accountProfilePage.marketplace.readiness")}
         description={t("identity.features.accounts.ui.accountProfilePage.marketplace.readiness.description")}

@@ -254,6 +254,7 @@ function buildMarketplaceBottomNav(
   const accountItems = orderAccountNav(
     visibleItems.filter((item) => ["search", "cart", "purchases", "notifications", "account", "reviews"].includes(item.key)),
   );
+  const walletItem = visibleItems.find((item) => item.key === "wallet");
   const accountItem = accountItems.find((item) => item.key === "account");
   const accountGroup: NavigationItem | undefined = accountItem
     ? {
@@ -261,14 +262,20 @@ function buildMarketplaceBottomNav(
         children: orderAccountChildNav(
           visibleItems.filter((item) => accountChildKeys.has(item.key)),
         ),
-      }
+    }
     : undefined;
 
   if (sellingItems.length === 0) {
+    const primaryAccountItems = compactBottomPrimaryItems(
+      accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+      5 - (walletItem ? 1 : 0) - (accountGroup ? 1 : 0),
+    );
+
     return [
-      ...accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+      ...primaryAccountItems,
+      ...(walletItem ? [walletItem] : []),
       ...(accountGroup ? [accountGroup] : []),
-    ];
+    ].slice(0, 5);
   }
 
   const sellingGroup: NavigationItem = {
@@ -279,17 +286,31 @@ function buildMarketplaceBottomNav(
     children: sellingItems,
   };
 
-  const primaryAccountItems = accountItems
-    .filter((item) => !["account", "reviews"].includes(item.key))
-    .filter((item, _index, allItems) =>
-      allItems.length <= 3 || item.key !== "purchases" || !allItems.some((candidate) => candidate.key === "notifications"),
-    );
+  const primaryAccountItems = compactBottomPrimaryItems(
+    accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+    3,
+  );
 
   return [
     ...primaryAccountItems,
     sellingGroup,
+    ...(walletItem ? [walletItem] : []),
     ...(accountGroup ? [accountGroup] : []),
   ].slice(0, 5);
+}
+
+function compactBottomPrimaryItems(
+  items: NavigationItem[],
+  capacity: number,
+): NavigationItem[] {
+  if (
+    items.length <= capacity ||
+    !items.some((item) => item.key === "notifications")
+  ) {
+    return items;
+  }
+
+  return items.filter((item) => item.key !== "purchases");
 }
 
 function groupMarketplaceTopNav(

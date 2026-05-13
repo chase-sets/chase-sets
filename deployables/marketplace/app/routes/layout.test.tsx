@@ -22,6 +22,23 @@ vi.mock("react-router", async () => {
 
 import MarketplaceLayoutRoute from "./layout";
 
+const actorDisplay = {
+  account: {
+    account_id: "acc_card_vault",
+    display_name: "Card Vault",
+    name: "Card Vault LLC",
+  },
+  membership: {
+    membership_id: "mbr_card_vault_alex",
+    role_key: "manager",
+  },
+  user: {
+    user_id: "usr_alex",
+    display_name: "Alex Clerk",
+    primary_email: "alex@example.com",
+  },
+};
+
 describe("marketplace route layout", () => {
   beforeEach(() => {
     mockUseLocation.mockReturnValue({
@@ -53,6 +70,7 @@ describe("marketplace route layout", () => {
     };
     mockUseRouteLoaderData.mockReturnValue({
       actor,
+      actorDisplay,
     });
 
     const html = renderToString(<MarketplaceLayoutRoute />);
@@ -98,7 +116,7 @@ describe("marketplace route layout", () => {
       "Cart",
       "Notifications",
       "Sell",
-      "Account",
+      "Wallet",
     ]);
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/inventory/imports"');
@@ -117,6 +135,11 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account"');
     expect(html).not.toContain('href="/account/shipments"');
     expect(html).toContain('action="/sign-out"');
+    expect(html).toContain("Acting as");
+    expect(html).toContain("Card Vault");
+    expect(html).toContain("Signed in as");
+    expect(html).toContain("Alex Clerk");
+    expect(html).toContain("Manager");
     expect(html).not.toContain("Verified");
     expect(html).not.toContain('href="/sign-in"');
   });
@@ -170,16 +193,26 @@ describe("marketplace route layout", () => {
       .find((item) => item.key === "account");
     const bottomAccountNav = resolveMarketplaceNavItems("bottom-nav", actor)
       .find((item) => item.key === "account");
+    const bottomWalletNav = resolveMarketplaceNavItems("bottom-nav", actor)
+      .find((item) => item.key === "wallet");
 
     expect(topAccountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
       "Wallet",
       "Payouts",
     ]);
+    expect(bottomWalletNav?.href).toBe("/account/settlement");
     expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
       "Wallet",
       "Payouts",
+    ]);
+    expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
+      "Browse",
+      "Cart",
+      "Notifications",
+      "Wallet",
+      "Account",
     ]);
   });
 
@@ -239,6 +272,7 @@ describe("marketplace route layout", () => {
     });
     mockUseRouteLoaderData.mockReturnValue({
       actor: { permissions: ["accounts.view"] },
+      actorDisplay,
     });
 
     const html = renderToString(<MarketplaceLayoutRoute />);

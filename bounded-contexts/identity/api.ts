@@ -22,6 +22,7 @@ import { invitationRoutes } from "./features/invitations/api/route";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
+import { buildCurrentActorDisplay } from "./support/request-support/current-actor-display";
 
 export type IdentityApiEnv = {
   Variables: {
@@ -415,6 +416,33 @@ export function buildIdentityApi(services: IdentityServices) {
       context: getBootstrapContext(c),
     });
     return c.json({ membershipId });
+  });
+
+  app.get("/current-actor-display", async (c) => {
+    const actor = c.var.actor;
+    if (!actor) {
+      return c.json({
+        error: {
+          code: "authentication_required",
+          message: "Authentication required.",
+        },
+      }, 401);
+    }
+
+    const [account, membership, user] = await Promise.all([
+      services.accounts.getAccount(actor.accountId),
+      services.memberships.getActiveMembershipForUserAccount(
+        actor.userId,
+        actor.accountId,
+      ),
+      services.users.getUser(actor.userId),
+    ]);
+
+    return c.json(buildCurrentActorDisplay(actor, {
+      account,
+      membership,
+      user,
+    }));
   });
 
   app.use("/accounts", requirePermission("accounts.view", "accounts.manage"));

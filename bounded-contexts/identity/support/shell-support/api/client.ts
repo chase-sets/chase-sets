@@ -72,6 +72,11 @@ export function createIdentityApiClient({
         await client.accounts[":id"].$get({ param: { id }, header: headers }),
       );
     },
+    async getCurrentActorDisplay<T>(): Promise<T> {
+      return parseJsonResponse<T>(
+        await client["current-actor-display"].$get({ header: headers }),
+      );
+    },
     async listUsers<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
         await client.users.$get({

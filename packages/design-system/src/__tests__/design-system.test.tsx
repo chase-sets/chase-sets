@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
+  ActorIdentityCue,
   AppliedFilterChips,
   BottomNav,
   BuyerProtectionBadge,
@@ -75,6 +76,41 @@ describe("design-system", () => {
     expect(markup).toContain("Listing tools");
     expect(markup).toContain("Ready");
     expect(markup).toContain("Charizard");
+  });
+
+  it("renders actor identity cues in shell and panel variants", () => {
+    const shellMarkup = renderToString(
+      <ActorIdentityCue
+        title="Signed-In Identity"
+        accountLabel="Acting as"
+        accountName="Card Vault"
+        userLabel="Signed in as"
+        userName="Alex Clerk"
+        membershipLabel="Membership"
+        membershipName="Manager"
+      />
+    );
+    const panelMarkup = renderToString(
+      <ActorIdentityCue
+        variant="panel"
+        title="Signed-In Identity"
+        description="Confirm the account and user before work starts."
+        accountLabel="Account"
+        accountName="Card Vault"
+        accountDetail="Selected account"
+        userLabel="User"
+        userName="Alex Clerk"
+        userDetail="alex@example.com"
+        membershipLabel="Membership"
+        membershipName="Manager"
+        membershipDetail="Active membership"
+      />
+    );
+
+    expect(shellMarkup).toContain("Acting as");
+    expect(shellMarkup).toContain("Signed in as");
+    expect(panelMarkup).toContain("Signed-In Identity");
+    expect(panelMarkup).toContain("alex@example.com");
   });
 
   it("renders marketing visual cards with accessible image context", () => {
