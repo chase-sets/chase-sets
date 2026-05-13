@@ -1,9 +1,43 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { SearchPage } from "./search-page";
 
-const searchItem = {
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { SearchPage } from "./search-page";
+import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
+import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
+
+afterEach(() => cleanup());
+
+const categories: DiscoveryCategoryItem[] = [
+  createCategory({ slug: "booster-packs", name: "Booster Packs", item_count: 1 }),
+  createCategory({ slug: "generation-i", name: "Generation I", item_count: 5 }),
+  createCategory({ slug: "fire", name: "Fire", item_count: 2 }),
+  createCategory({ slug: "singles", name: "Singles", item_count: 7 }),
+  createCategory({ slug: "pokemon-tcg", name: "Pokemon TCG", item_count: 10 }),
+];
+
+const searchResult: DiscoverySearchItem = {
+  catalog_item_id: "cat_booster_pack",
+  slug: "prismatic-evolutions-booster-pack-cat_booster_pack",
+  language_code: "en",
+  title_i18n: {},
+  title: "Prismatic Evolutions Booster Pack",
+  subtitle_i18n: {},
+  subtitle: "Pokemon sealed product",
+  description_i18n: {},
+  description: "Make an offer or list yours to help this market form.",
+  blueprint_id: null,
+  blueprint_name: "Pokemon Sealed Product",
+  status: "active",
+  category_names: ["Booster Packs"],
+  category_slugs: ["booster-packs"],
+  tags: [],
+  image_urls: [],
+  market_summary: null,
+  updated_at: "2026-05-13T00:00:00.000Z",
+};
+
+const japaneseSearchResult: DiscoverySearchItem = {
   catalog_item_id: "cat_bulbasaur",
   slug: "bulbasaur-cat_bulbasaur",
   language_code: "ja",
@@ -28,27 +62,93 @@ const searchItem = {
   updated_at: "2026-05-13T00:00:00.000Z",
 };
 
+const searchResponse: DiscoverySearchResponse = {
+  items: [searchResult],
+  total: 1,
+  count: 1,
+  nextCursor: null,
+};
+
+function createCategory(overrides: Partial<DiscoveryCategoryItem>): DiscoveryCategoryItem {
+  return {
+    category_id: `cat_${overrides.slug ?? "category"}`,
+    key: overrides.slug ?? "category",
+    slug: overrides.slug ?? "category",
+    name: overrides.name ?? "Category",
+    description: "",
+    status: "active",
+    parent_category_id: null,
+    item_count: overrides.item_count ?? 0,
+    display_order: 0,
+    updated_at: "2026-05-13T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> = {}) {
+  const props: Parameters<typeof SearchPage>[0] = {
+    search: "",
+    committedSearch: "",
+    category: "",
+    language: "",
+    sort: "relevance",
+    page: 1,
+    data: searchResponse,
+    categories,
+    onSearchChange: vi.fn(),
+    onCategoryChange: vi.fn(),
+    onLanguageChange: vi.fn(),
+    onSortChange: vi.fn(),
+    onPageChange: vi.fn(),
+    ...overrides,
+  };
+
+  render(<SearchPage {...props} />);
+
+  return props;
+}
+
 describe("SearchPage", () => {
   it("renders search result language codes as localized labels", () => {
-    render(
-      <SearchPage
-        search="bulbasaur"
-        committedSearch="bulbasaur"
-        category=""
-        language=""
-        sort="relevance"
-        page={0}
-        data={{ items: [searchItem], total: 1, count: 1, nextCursor: null }}
-        categories={[]}
-        onSearchChange={vi.fn()}
-        onCategoryChange={vi.fn()}
-        onLanguageChange={vi.fn()}
-        onSortChange={vi.fn()}
-        onPageChange={vi.fn()}
-      />,
-    );
+    renderSearchPage({
+      search: "bulbasaur",
+      committedSearch: "bulbasaur",
+      data: { items: [japaneseSearchResult], total: 1, count: 1, nextCursor: null },
+      categories: [],
+    });
 
     expect(screen.getByText("Japanese")).toBeTruthy();
     expect(screen.queryByText("Language: ja")).toBeNull();
+  });
+
+  it("keeps the category facet visible when a category is selected", () => {
+    const props = renderSearchPage({ category: "booster-packs" });
+
+    expect(screen.getByText("Browse Categories")).toBeTruthy();
+    expect(screen.getByText("1 results in Booster Packs")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Singles (7)" }).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Singles (7)" })[0]);
+
+    expect(props.onCategoryChange).toHaveBeenCalledWith("singles");
+  });
+
+  it("keeps focused mobile category switching above recovery and saved-search content", () => {
+    renderSearchPage({ category: "booster-packs" });
+
+    const mobileCategories = screen.getByLabelText("Browse categories");
+    const savedSearch = screen.getByText("Save this search");
+
+    expect(
+      mobileCategories.compareDocumentPosition(savedSearch) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps applied category chips reversible", () => {
+    const props = renderSearchPage({ category: "booster-packs" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Category: Booster Packs" }));
+
+    expect(props.onCategoryChange).toHaveBeenCalledWith("");
   });
 });

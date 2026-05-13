@@ -223,7 +223,7 @@ describe("marketplace search route", () => {
     mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&page=3"), vi.fn()]);
 
     render(<SearchRoute />);
-    fireEvent.click(screen.getByRole("button", { name: "Cards (2)" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Cards (2)" })[0]);
 
     expect(navigate).toHaveBeenCalledWith("/categories/cards?q=pikachu", {
       preventScrollReset: true,

@@ -1122,6 +1122,7 @@ export const englishTranslations = {
   "discovery.features.search.ui.searchPage.all.categories": "All Categories",
   "discovery.features.search.ui.searchPage.all.languages": "All languages",
   "discovery.features.search.ui.searchPage.available.now": "Available Now",
+  "discovery.features.search.ui.searchPage.browse.categories": "Browse categories",
   "discovery.features.search.ui.searchPage.buyer.confidence.is.built.into.discovery": "Buyer confidence is built into discovery.",
   "discovery.features.search.ui.searchPage.category.count.label": "{category} ({count})",
   "discovery.features.search.ui.searchPage.category.filter.label": "Category: {category}",
