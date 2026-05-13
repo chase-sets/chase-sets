@@ -61,55 +61,6 @@ async function getShipmentStatus(
   return result.rows[0]?.status ?? null;
 }
 
-async function seedFulfillmentWebNotifications(pool: PgTransactionalPool) {
-  await pool.query(
-    `INSERT INTO web_notifications (
-       delivery_id,
-       user_id,
-       account_id,
-       message_type,
-       criticality,
-       title,
-       body,
-       action_href,
-       correlation_id,
-       source_idempotency_key,
-       read_at,
-       created_at
-     ) VALUES
-       ($1, NULL, $2, 'fulfillment.shipment.delivered', 'operational', $3, $4, $5, $6, $7, NULL, $8),
-       ($9, NULL, $2, 'fulfillment.shipment.exception-raised', 'operational', $10, $11, $12, $13, $14, $15, $16)
-     ON CONFLICT (delivery_id) DO UPDATE SET
-       account_id = EXCLUDED.account_id,
-       message_type = EXCLUDED.message_type,
-       criticality = EXCLUDED.criticality,
-       title = EXCLUDED.title,
-       body = EXCLUDED.body,
-       action_href = EXCLUDED.action_href,
-       correlation_id = EXCLUDED.correlation_id,
-       source_idempotency_key = EXCLUDED.source_idempotency_key,
-       created_at = EXCLUDED.created_at`,
-    [
-      "seed:fulfillment:notification:delivered",
-      identitySeedIds.collector.accountId,
-      "Shipment delivered",
-      "Your seed shipment was delivered and is ready to review.",
-      `/account/shipments/${fulfillmentReservedSeedIds.shipments.demoCharizardShipment}`,
-      "seed_fulfillment_notifications",
-      `fulfillment:shipment_delivered:${fulfillmentReservedSeedIds.shipments.demoCharizardShipment}`,
-      "2026-03-22T11:10:00.000Z",
-      "seed:fulfillment:notification:exception",
-      "Shipment needs attention",
-      "A seed shipment has a carrier delay exception.",
-      `/account/shipments/${fulfillmentReservedSeedIds.shipments.exceptionShipment}`,
-      "seed_fulfillment_notifications",
-      `fulfillment:shipment_exception:${fulfillmentReservedSeedIds.shipments.exceptionShipment}`,
-      "2026-03-22T11:16:00.000Z",
-      "2026-03-22T11:15:00.000Z",
-    ],
-  );
-}
-
 async function loadReferenceOrder(pool: PgTransactionalPool): Promise<OrderSnapshot> {
   const orderResult = await pool.query<{
     order_id: string;
@@ -169,7 +120,6 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
       [reservedShipmentIds],
     );
     if (Number(existing.rows[0]?.count ?? 0) === reservedShipmentIds.length) {
-      await seedFulfillmentWebNotifications(pool);
       console.log("Fulfillment already contains seed data. Skipping seed.");
       return;
     }
@@ -376,5 +326,4 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
   }
 
   await drainProjectors(services.projectors);
-  await seedFulfillmentWebNotifications(pool);
 }

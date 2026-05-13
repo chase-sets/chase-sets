@@ -41,10 +41,10 @@ const sellingWorkflowKeys = new Set([
 const sellingInfrastructureKeys = new Set([
   "shipments",
 ]);
-const topNavUtilityKeys = new Set(["account", "cart", "register", "sign-in"]);
+const topNavUtilityKeys = new Set(["account", "cart", "notifications", "register", "sign-in"]);
 
 const accountChildKeys = new Set(["account", "wallet", "payouts", "submitted-offers", "reviews"]);
-const accountTopNavOrder = ["search", "cart", "purchases", "account", "reviews"];
+const accountTopNavOrder = ["search", "cart", "purchases", "notifications", "account", "reviews"];
 const accountChildNavOrder = ["account", "wallet", "payouts", "submitted-offers", "reviews"];
 const sellingNavOrder = [
   "inventory",
@@ -86,6 +86,11 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   reviews: {
     label: t("marketplace.app.host.reviews"),
     icon: "star",
+  },
+  notifications: {
+    label: t("marketplace.app.host.notifications"),
+    icon: "bell",
+    href: undefined,
   },
   sales: {
     label: t("marketplace.app.host.sales"),
@@ -247,7 +252,7 @@ function buildMarketplaceBottomNav(
     visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
   );
   const accountItems = orderAccountNav(
-    visibleItems.filter((item) => ["search", "cart", "purchases", "account", "reviews"].includes(item.key)),
+    visibleItems.filter((item) => ["search", "cart", "purchases", "notifications", "account", "reviews"].includes(item.key)),
   );
   const walletItem = visibleItems.find((item) => item.key === "wallet");
   const accountItem = accountItems.find((item) => item.key === "account");
@@ -257,12 +262,17 @@ function buildMarketplaceBottomNav(
         children: orderAccountChildNav(
           visibleItems.filter((item) => accountChildKeys.has(item.key)),
         ),
-      }
+    }
     : undefined;
 
   if (sellingItems.length === 0) {
+    const primaryAccountItems = compactBottomPrimaryItems(
+      accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+      5 - (walletItem ? 1 : 0) - (accountGroup ? 1 : 0),
+    );
+
     return [
-      ...accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+      ...primaryAccountItems,
       ...(walletItem ? [walletItem] : []),
       ...(accountGroup ? [accountGroup] : []),
     ].slice(0, 5);
@@ -276,12 +286,31 @@ function buildMarketplaceBottomNav(
     children: sellingItems,
   };
 
+  const primaryAccountItems = compactBottomPrimaryItems(
+    accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+    3,
+  );
+
   return [
-    ...accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+    ...primaryAccountItems,
     sellingGroup,
     ...(walletItem ? [walletItem] : []),
     ...(accountGroup ? [accountGroup] : []),
   ].slice(0, 5);
+}
+
+function compactBottomPrimaryItems(
+  items: NavigationItem[],
+  capacity: number,
+): NavigationItem[] {
+  if (
+    items.length <= capacity ||
+    !items.some((item) => item.key === "notifications")
+  ) {
+    return items;
+  }
+
+  return items.filter((item) => item.key !== "purchases");
 }
 
 function groupMarketplaceTopNav(

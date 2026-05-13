@@ -90,11 +90,6 @@
       "portName": "postageLabelProvider",
       "providedBy": "platform-api",
       "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."
-    },
-    {
-      "portName": "notificationOutbox",
-      "providedBy": "platform-worker",
-      "purpose": "Durable notification outbox consumed by event projectors and dispatched through channel adapters."
     }
   ],
   "apiDeployables": [

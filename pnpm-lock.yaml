@@ -296,9 +296,6 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/web-notifications':
-        specifier: workspace:*
-        version: link:../../infrastructure/web-notifications
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -394,12 +391,6 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
-      '@chase-sets/notification-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/notification-outbox
-      '@chase-sets/notifications':
-        specifier: workspace:*
-        version: link:../../contracts/notifications
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -409,9 +400,6 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/web-notifications':
-        specifier: workspace:*
-        version: link:../../infrastructure/web-notifications
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -576,6 +564,58 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  bounded-contexts/notifications:
+    dependencies:
+      '@chase-sets/auth-context':
+        specifier: workspace:*
+        version: link:../../contracts/auth-context
+      '@chase-sets/bounded-context-module':
+        specifier: workspace:*
+        version: link:../../contracts/bounded-context-module
+      '@chase-sets/design-system':
+        specifier: workspace:*
+        version: link:../../packages/design-system
+      '@chase-sets/event-core':
+        specifier: workspace:*
+        version: link:../../contracts/event-core
+      '@chase-sets/event-core-postgres':
+        specifier: workspace:*
+        version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/localization':
+        specifier: workspace:*
+        version: link:../../contracts/localization
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
+      '@chase-sets/web-notifications':
+        specifier: workspace:*
+        version: link:../../infrastructure/web-notifications
+      hono:
+        specifier: ^4.12.12
+        version: 4.12.18
+      react:
+        specifier: ^19.2.5
+        version: 19.2.6
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^16.3.2
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@testing-library/user-event':
+        specifier: ^14.6.1
+        version: 14.6.1(@testing-library/dom@10.4.1)
+      jsdom:
+        specifier: ^29.0.2
+        version: 29.1.1
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
   bounded-contexts/ordering:
     dependencies:
       '@chase-sets/auth-context':
@@ -614,12 +654,6 @@ importers:
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../marketplace
-      '@chase-sets/notification-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/notification-outbox
-      '@chase-sets/notifications':
-        specifier: workspace:*
-        version: link:../../contracts/notifications
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -629,9 +663,6 @@ importers:
       '@chase-sets/reputation':
         specifier: workspace:*
         version: link:../reputation
-      '@chase-sets/web-notifications':
-        specifier: workspace:*
-        version: link:../../infrastructure/web-notifications
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -1261,6 +1292,9 @@ importers:
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../../bounded-contexts/marketplace
+      '@chase-sets/notification-center':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/notifications
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
@@ -1425,6 +1459,9 @@ importers:
       '@chase-sets/money-movement-testing':
         specifier: workspace:*
         version: link:../../infrastructure/money-movement-testing
+      '@chase-sets/notification-center':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/notifications
       '@chase-sets/observability':
         specifier: workspace:*
         version: link:../../infrastructure/observability
@@ -1540,6 +1577,9 @@ importers:
       '@chase-sets/money-movement-testing':
         specifier: workspace:*
         version: link:../../infrastructure/money-movement-testing
+      '@chase-sets/notification-center':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/notifications
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox

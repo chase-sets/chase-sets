@@ -255,6 +255,21 @@
       "@chase-sets/money-movement-testing": [
         "./infrastructure/money-movement-testing/index.ts"
       ],
+      "@chase-sets/notification-center": [
+        "./bounded-contexts/notifications/index.ts"
+      ],
+      "@chase-sets/notification-center/context": [
+        "./bounded-contexts/notifications/context.json"
+      ],
+      "@chase-sets/notification-center/routes/*": [
+        "./bounded-contexts/notifications/routes/*.tsx"
+      ],
+      "@chase-sets/notification-center/server": [
+        "./bounded-contexts/notifications/server.ts"
+      ],
+      "@chase-sets/notification-center/web": [
+        "./bounded-contexts/notifications/web.ts"
+      ],
       "@chase-sets/notification-outbox": [
         "./infrastructure/notification-outbox/index.ts"
       ],

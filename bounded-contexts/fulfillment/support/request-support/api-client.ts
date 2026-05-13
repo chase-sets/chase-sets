@@ -9,8 +9,6 @@ export {
 } from "../../client";
 export type {
   FulfillmentApiClientOptions,
-  FulfillmentNotificationItem,
-  FulfillmentNotificationListResponse,
   FulfillmentPackingSlip,
   FulfillmentPackingSlipBatch,
   FulfillmentPackingSlipFormat,

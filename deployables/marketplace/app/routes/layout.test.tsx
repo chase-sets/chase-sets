@@ -2,8 +2,9 @@ import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMarketplaceNavItems } from "../host";
 
-const { mockUseLocation, mockUseRouteLoaderData } = vi.hoisted(() => ({
+const { mockUseLocation, mockUseNavigate, mockUseRouteLoaderData } = vi.hoisted(() => ({
   mockUseLocation: vi.fn(),
+  mockUseNavigate: vi.fn(),
   mockUseRouteLoaderData: vi.fn(),
 }));
 
@@ -14,6 +15,7 @@ vi.mock("react-router", async () => {
     ...actual,
     Outlet: () => <main>Marketplace content</main>,
     useLocation: mockUseLocation,
+    useNavigate: () => mockUseNavigate,
     useRouteLoaderData: mockUseRouteLoaderData,
   };
 });
@@ -86,7 +88,6 @@ describe("marketplace route layout", () => {
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
       "Purchases",
-      "Product Alerts",
       "Notifications",
       "Support",
       "Sell",
@@ -113,15 +114,15 @@ describe("marketplace route layout", () => {
     ).toEqual([
       "Browse",
       "Cart",
-      "Purchases",
+      "Notifications",
       "Sell",
       "Wallet",
     ]);
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/inventory/imports"');
     expect(html).toContain('href="/account/cart"');
-    expect(html).toContain('href="/account/product-alerts"');
-    expect(html).toContain('href="/account/notifications"');
+    expect(html).not.toContain('href="/account/product-alerts"');
+    expect(html).not.toContain('href="/account/notifications"');
     expect(html).toContain('href="/account/support"');
     expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account/offers/matches"');
@@ -159,7 +160,6 @@ describe("marketplace route layout", () => {
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
       "Purchases",
-      "Product Alerts",
       "Notifications",
       "Account",
       "Cart",
@@ -174,6 +174,7 @@ describe("marketplace route layout", () => {
       "Browse",
       "Cart",
       "Purchases",
+      "Notifications",
       "Account",
     ]);
   });
@@ -209,7 +210,7 @@ describe("marketplace route layout", () => {
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
       "Cart",
-      "Purchases",
+      "Notifications",
       "Wallet",
       "Account",
     ]);

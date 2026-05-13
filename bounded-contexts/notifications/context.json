@@ -1,0 +1,188 @@
+{
+  "contextName": "notifications",
+  "packageName": "@chase-sets/notification-center",
+  "ownedNouns": [
+    "notification-center",
+    "notification-feed-item",
+    "notification-preference"
+  ],
+  "streamPrefix": "notifications.",
+  "apiBasePath": "/api/notifications",
+  "slices": [
+    "notification-center",
+    "preferences"
+  ],
+  "allowedSupportDirectories": [
+    "runtime-support",
+    "shell-support"
+  ],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./server",
+    "./web"
+  ],
+  "allowedContextDependencies": [],
+  "seedRequirements": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "notifications-ordering-facts-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "notifications-ordering-facts-projection"
+      ],
+      "eventTypes": [
+        "ordering.order.created"
+      ],
+      "order": 20
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "notifications-fulfillment-facts-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "notifications-fulfillment-facts-projection"
+      ],
+      "eventTypes": [
+        "fulfillment.shipment.delivered"
+      ],
+      "order": 30
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "notifications-ordering-facts-projection",
+      "sourceContextNames": [
+        "ordering"
+      ],
+      "ownedTables": [
+        "notification_outbox"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "notifications-fulfillment-facts-projection",
+      "sourceContextNames": [
+        "fulfillment"
+      ],
+      "ownedTables": [
+        "notification_outbox"
+      ],
+      "requiredDuringBootstrap": true
+    }
+  ],
+  "hostPorts": [
+    {
+      "portName": "notificationOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable notification outbox owned by Notifications and dispatched through channel adapters."
+    }
+  ],
+  "apiDeployables": [
+    "platform-api"
+  ],
+  "apiMounts": [
+    {
+      "mountPath": "/api/notifications",
+      "kind": "primary",
+      "requiresAuth": true,
+      "drainProjectorsOnWrite": false
+    }
+  ],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-notifications",
+          "routePath": "account/notifications",
+          "fileExport": "./routes/account-notifications",
+          "routeType": "route",
+          "sourceContext": "notifications"
+        }
+      ]
+    }
+  ],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "notifications",
+      "label": "Notifications",
+      "icon": "bell",
+      "href": "/account/notifications",
+      "order": 90,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "accounts.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "notifications",
+      "label": "Alerts",
+      "icon": "bell",
+      "href": "/account/notifications",
+      "order": 90,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "accounts.view"
+      ]
+    }
+  ],
+  "directoryIntent": {
+    "notification-center": {
+      "classification": "slice",
+      "purpose": "Own notification-center feed behavior, read state, APIs, and marketplace shell UI contracts.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal notifications module composition",
+        "Marketplace shell notification drawer"
+      ]
+    },
+    "preferences": {
+      "classification": "slice",
+      "purpose": "Own account notification preferences and settings behavior.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "notification-center"
+      ]
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide schema and service composition for the Notifications context.",
+      "allowedWhen": "Allowed only for context runtime composition.",
+      "expectedConsumers": [
+        "notification-center"
+      ],
+      "justification": "runtime-support centralizes Notifications database adapters and service composition.",
+      "createdFor": "Notifications API and worker runtime.",
+      "sunsetWhen": "Remove when Notifications no longer needs runtime composition."
+    },
+    "shell-support": {
+      "classification": "support",
+      "purpose": "Provide Notifications marketplace shell composition for deployable layout routes.",
+      "allowedWhen": "Allowed only for marketplace-web shell composition.",
+      "expectedConsumers": [
+        "marketplace-web"
+      ],
+      "justification": "shell-support keeps notification drawer composition outside feature route modules.",
+      "createdFor": "Notifications marketplace Notification Center drawer.",
+      "sunsetWhen": "Remove if Notifications no longer contributes marketplace-web shell behavior."
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Reserve notifications-owned route metadata for future deployable route contributions.",
+      "allowedWhen": "Required by bounded-context structure metadata even when the context does not yet contribute page routes.",
+      "expectedConsumers": [
+        "Future generated deployable route adapters"
+      ]
+    }
+  },
+  "runtimeDeployables": [
+    "platform-worker"
+  ]
+}

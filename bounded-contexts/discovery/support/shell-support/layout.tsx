@@ -12,12 +12,14 @@ export function DiscoveryShellLayout({
   activeKey = "search",
   topNavItems,
   bottomNavItems,
+  onNavSelect,
   actions,
   children,
 }: {
   activeKey?: string;
   topNavItems: readonly NavigationItem[];
   bottomNavItems: readonly NavigationItem[];
+  onNavSelect?: (key: string) => void;
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -30,6 +32,7 @@ export function DiscoveryShellLayout({
         topNavItems={[...topNavItems]}
         bottomNavItems={[...bottomNavItems]}
         activeKey={activeKey}
+        onNavSelect={onNavSelect}
         actions={actions}
       >
         {children}

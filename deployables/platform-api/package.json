@@ -35,6 +35,7 @@
     "@chase-sets/inventory": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/money-movement-testing": "workspace:*",
+    "@chase-sets/notification-center": "workspace:*",
     "@chase-sets/observability": "workspace:*",
     "@chase-sets/ordering": "workspace:*",
     "@chase-sets/payment-processing-testing": "workspace:*",

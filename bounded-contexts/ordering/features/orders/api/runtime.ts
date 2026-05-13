@@ -9,10 +9,6 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  createNoopNotificationOutbox,
-  type NotificationOutbox,
-} from "@chase-sets/notifications";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeAddressSnapshot,
@@ -45,10 +41,6 @@ import {
   listSales,
 } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
-import {
-  ORDERING_NOTIFICATION_PROJECTION,
-  buildOrderingNotificationProjectionHandlers,
-} from "../integrations/notifications/notification-projector";
 import { listOrderingSupplyCandidates } from "../integrations/supply/supply-queries";
 import { getOrderingSupplyCandidateByListingId } from "../integrations/supply/supply-queries";
 import {
@@ -112,7 +104,6 @@ type OrderRuntimeDeps = Readonly<{
   db: PgQueryable;
   shippingQuotePolicy: ShippingQuotePolicy;
   taxQuoteResolver?: TaxQuoteResolver;
-  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type CheckoutOrderLineSnapshot = Readonly<{
@@ -1420,8 +1411,6 @@ function planToPreview(params: Readonly<{
 export function createOrderingOrderRuntime(
   deps: OrderRuntimeDeps,
 ): OrderingOrderServices {
-  const notificationOutbox =
-    deps.notificationOutbox ?? createNoopNotificationOutbox();
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -2098,15 +2087,6 @@ export function createOrderingOrderRuntime(
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildOrderingOrderProjectionHandlers(deps.db),
-      }),
-      createProjector({
-        projectorName: ORDERING_NOTIFICATION_PROJECTION,
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildOrderingNotificationProjectionHandlers(
-          notificationOutbox,
-          ORDERING_NOTIFICATION_PROJECTION,
-        ),
       }),
     ],
   };

@@ -304,6 +304,9 @@ function createNotificationDispatchRunners(
   runtime: WorkerHostRuntime,
   workerId: string,
 ): readonly WorkerRunner[] {
+  const notificationCenterContext = runtime.mountedContexts.find(
+    (context) => context.contextName === "notifications",
+  );
   const notificationOutboxContextNames = new Set<string>(
     workerContextRegistry
       .filter((entry) =>
@@ -317,11 +320,12 @@ function createNotificationDispatchRunners(
   return runtime.mountedContexts
     .filter((context) => notificationOutboxContextNames.has(context.contextName))
     .map((context) => {
+      const webNotificationDb = notificationCenterContext?.pool ?? context.pool;
       const dispatcher = createNotificationOutboxDispatcher({
         outbox: createPostgresNotificationOutbox({ db: context.pool }),
         adapters: [
           createNoopNotificationAdapter("email"),
-          createPostgresWebNotificationAdapter({ db: context.pool }),
+          createPostgresWebNotificationAdapter({ db: webNotificationDb }),
         ],
         claimOwnerId: `${workerId}:${context.contextName}:notifications`,
       });
