@@ -9,7 +9,8 @@ The feature should keep account-owned address book behavior separate from checko
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets-20260513-account-shipping-addresses`
-- Branch: `codex/account-shipping-addresses`
+- Original feature branch: `codex/account-shipping-addresses`
+- Staging read-after-write follow-up branch: `codex/shipping-address-read-after-write`
 - Base: current source repo `HEAD` at worktree creation, `8cc4f1e6 Add notifications database to staging platform (#72)`
 - Dependency setup: `pnpm run deps:install` completed successfully.
 - Sandbox id: `12252d7f`
@@ -136,6 +137,10 @@ The implementation goal can proceed with the resolved decisions unless new contr
 - Browser visual verification covered `/account/shipping-addresses` and `/checkout/chk_seed_started_cart` at desktop and narrow mobile-ish widths with manual seeded sign-in because the in-app browser control layer could not type into `type=email` fields and Browser policy blocked script/file helper navigation.
 - Visual verification found and fixed a shared `PriceBreakdown` total-row wrapping issue that made long checkout statuses overlap in narrow sidebars.
 - After the shared design-system fix, `pnpm --filter @chase-sets/design-system run test`, `pnpm --filter @chase-sets/design-system run typecheck`, `pnpm run verify:typecheck`, `pnpm run verify:test`, and `pnpm run verify:build` passed again.
+- PR #78 merged and deployed to staging at merge commit `366a7e33b0f756236742b51170a70889089ba21c`; the staging workflow completed successfully.
+- Staging verification confirmed the new account and checkout routes loaded, but direct shipping-address creation returned `201` while the saved-address list stayed empty. The root cause was the nested shipping-address API returning before its Identity-owned read model projector drained.
+- Follow-up branch `codex/shipping-address-read-after-write` adds slice-local projector draining after add, update, default, and archive writes, plus a regression test proving `POST /accounts/:accountId/shipping-addresses` drains the shipping-address projector before returning.
+- Follow-up verification: `pnpm --filter @chase-sets/identity run test`, `pnpm run check:structure`, `pnpm run verify:static`, `pnpm run verify:test`, `pnpm run verify:typecheck`, and `pnpm run verify:build` passed. An earlier `verify:typecheck` attempt hit the two-minute tool timeout and emitted `EPIPE` while being interrupted; the standalone rerun passed.
 
 ## Documentation To Promote
 
