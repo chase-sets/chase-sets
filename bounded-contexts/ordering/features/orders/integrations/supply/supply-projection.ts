@@ -87,10 +87,11 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            max_units_per_order,
            max_units_per_day,
            max_units_per_customer_account,
+           seller_listing_availability_status,
            status,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'draft', $24
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, COALESCE((SELECT status FROM ordering_seller_listing_availability_inputs WHERE account_id = $2), 'available'), 'draft', $24
          )
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
@@ -115,6 +116,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              max_units_per_order = EXCLUDED.max_units_per_order,
              max_units_per_day = EXCLUDED.max_units_per_day,
              max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
+             seller_listing_availability_status = ordering_market_listing_inputs.seller_listing_availability_status,
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at`,
         [
@@ -301,6 +303,50 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              updated_at = $2
          WHERE listing_id = $1`,
         [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
+      );
+    },
+    "marketplace.seller-listing-availability.disabled": async (event) => {
+      const data = event.data as { accountId: string };
+
+      await db.query(
+        `INSERT INTO ordering_seller_listing_availability_inputs (
+           account_id,
+           status,
+           updated_at
+         ) VALUES ($1, 'unavailable', $2)
+         ON CONFLICT (account_id) DO UPDATE SET
+           status = EXCLUDED.status,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, event.timing.recordedAt],
+      );
+      await db.query(
+        `UPDATE ordering_market_listing_inputs
+         SET seller_listing_availability_status = 'unavailable',
+             updated_at = $2
+         WHERE seller_account_id = $1`,
+        [data.accountId, event.timing.recordedAt],
+      );
+    },
+    "marketplace.seller-listing-availability.enabled": async (event) => {
+      const data = event.data as { accountId: string };
+
+      await db.query(
+        `INSERT INTO ordering_seller_listing_availability_inputs (
+           account_id,
+           status,
+           updated_at
+         ) VALUES ($1, 'available', $2)
+         ON CONFLICT (account_id) DO UPDATE SET
+           status = EXCLUDED.status,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, event.timing.recordedAt],
+      );
+      await db.query(
+        `UPDATE ordering_market_listing_inputs
+         SET seller_listing_availability_status = 'available',
+             updated_at = $2
+         WHERE seller_account_id = $1`,
+        [data.accountId, event.timing.recordedAt],
       );
     },
     "marketplace.offer.accepted": async (event) => {

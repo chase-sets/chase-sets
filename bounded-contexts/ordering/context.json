@@ -62,7 +62,9 @@
         "marketplace.listing.purchase-limits-updated",
         "marketplace.listing.published",
         "marketplace.listing.paused",
-        "marketplace.listing.withdrawn"
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability.enabled"
       ],
       "order": 30
     },

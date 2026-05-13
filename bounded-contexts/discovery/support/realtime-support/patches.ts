@@ -24,11 +24,13 @@ export function createDiscoveryListingPatch(
     listing_id: string;
     catalog_catalog_item_id: string;
     status: string;
+    seller_listing_availability_status?: string | null;
   }>,
   summary: unknown,
 ): RealtimeProjectionPatch {
   return createDiscoveryProjectionPatch(topics, [
-    listing.status === "active"
+    listing.status === "active" &&
+    (listing.seller_listing_availability_status ?? "available") === "available"
       ? {
           op: "upsert",
           entity: "discovery.marketListing",

@@ -69,6 +69,16 @@ export type MarketplaceMarketSummaryRow = Readonly<{
   total_visible_quantity: number;
 }>;
 
+export type MarketplaceSellerListingAvailabilityRow = Readonly<{
+  account_id: string;
+  status: "available" | "unavailable";
+  disabled_reason_category: string | null;
+  available_again_on: string | null;
+  disabled_at: string | null;
+  enabled_at: string | null;
+  updated_at: string;
+}>;
+
 type MarketplaceListingPageRow = Readonly<{
   listing_id: string;
   account_id: string;
@@ -469,6 +479,35 @@ export async function listSellerListings(
   };
 }
 
+export async function getSellerListingAvailability(
+  db: PgQueryable,
+  accountId: string,
+): Promise<MarketplaceSellerListingAvailabilityRow> {
+  const result = await db.query<MarketplaceSellerListingAvailabilityRow>(
+    `SELECT
+       account_id,
+       status,
+       disabled_reason_category,
+       available_again_on::text AS available_again_on,
+       disabled_at::text AS disabled_at,
+       enabled_at::text AS enabled_at,
+       updated_at::text AS updated_at
+     FROM marketplace_seller_listing_availability_pages
+     WHERE account_id = $1`,
+    [accountId],
+  );
+
+  return result.rows[0] ?? {
+    account_id: accountId,
+    status: "available",
+    disabled_reason_category: null,
+    available_again_on: null,
+    disabled_at: null,
+    enabled_at: null,
+    updated_at: new Date(0).toISOString(),
+  };
+}
+
 export async function listSellerListingFeeLockReport(
   db: PgQueryable,
   params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
@@ -564,8 +603,11 @@ export async function getMarketSummaryForItem(
        GROUP BY item_id
      ) AS active_holds
        ON active_holds.item_id = item.item_id
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
-       AND listing.status = 'active'`,
+       AND listing.status = 'active'
+       AND COALESCE(availability.status, 'available') = 'available'`,
     [productId],
   );
 
@@ -605,8 +647,11 @@ export async function listItemListings(
        ON active_holds.item_id = item.item_id
      LEFT JOIN marketplace_account_pages AS account
        ON account.account_id = listing.account_id
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
        AND listing.status = 'active'
+       AND COALESCE(availability.status, 'available') = 'available'
        AND LEAST(
          listing.quantity_cap,
          GREATEST(item.total_quantity - COALESCE(active_holds.held_quantity, 0), 0)

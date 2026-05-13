@@ -8,6 +8,7 @@ type Row = Record<string, unknown>;
 class ProductAlertProjectionDb implements PgQueryable {
   public readonly alerts = new Map<string, Row>();
   public readonly activities = new Map<string, Row>();
+  public readonly accounts = new Map<string, Row>();
   public readonly notifications = new Set<string>();
 
   async query<T = Row>(
@@ -16,7 +17,15 @@ class ProductAlertProjectionDb implements PgQueryable {
   ): Promise<PgQueryResult<T>> {
     if (sql.includes("SELECT") && sql.includes("FROM discovery_product_alert_market_activity")) {
       const row = this.activities.get(String(values[0]));
-      return { rows: (row ? [row] : []) as T[], rowCount: row ? 1 : 0 };
+      const account = row ? this.accounts.get(String(row.owner_account_id)) : null;
+      const listingAvailability =
+        account?.seller_listing_availability_status ?? "available";
+      return {
+        rows: (row
+          ? [{ ...row, seller_listing_availability_status: listingAvailability }]
+          : []) as T[],
+        rowCount: row ? 1 : 0,
+      };
     }
 
     if (sql.includes("INSERT INTO discovery_product_alert_market_activity")) {
@@ -180,5 +189,44 @@ describe("Product Alert notification projector", () => {
     const message = outbox.enqueueNotification.mock.calls[0]?.[0].message;
     expect(message.title).toBe("Product Alert: demand for Charizard");
     expect(JSON.stringify(message)).not.toContain("acc_buyer");
+  });
+
+  it("does not notify listing subscribers while the seller's listings are unavailable", async () => {
+    const db = new ProductAlertProjectionDb();
+    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+    db.alerts.set("pal_3", {
+      alert_id: "pal_3",
+      account_id: "acc_watcher",
+      market_side: "listing",
+      product_id: "cat_1::raw",
+      threshold_amount: "20.00",
+      status: "active",
+    });
+    db.accounts.set("acc_seller", {
+      account_id: "acc_seller",
+      seller_listing_availability_status: "unavailable",
+    });
+
+    await projectMarketplaceEventToProductAlertNotifications(db, outbox, marketplaceEvent(
+      "marketplace.listing.created",
+      {
+        listingId: "lst_1",
+        accountId: "acc_seller",
+        catalogItemId: "cat_1",
+        productId: "cat_1::raw",
+        selectedOptions: [],
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        productSummary: "Raw",
+        priceAmount: "18.00",
+        quantityCap: 1,
+      },
+    ));
+    await projectMarketplaceEventToProductAlertNotifications(db, outbox, marketplaceEvent(
+      "marketplace.listing.published",
+      {},
+    ));
+
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
 });

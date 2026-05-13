@@ -229,6 +229,9 @@ export function createMarketplaceOfferRuntime(
       if (!offer) {
         throw new Error("Offer not found.");
       }
+      if (offer.seller_listing_availability_status === "unavailable") {
+        throw new Error("Seller listing availability is off.");
+      }
       if (!offer.can_fulfill) {
         throw new Error("Seller does not have enough active supply to accept this offer.");
       }
@@ -281,6 +284,10 @@ export function createMarketplaceOfferRuntime(
       for (const item of items) {
         if (item.status !== "submitted") {
           skipped.push({ offerId: item.offer_id, reason: "Offer is no longer submitted." });
+          continue;
+        }
+        if (item.seller_listing_availability_status === "unavailable") {
+          skipped.push({ offerId: item.offer_id, reason: "Seller listing availability is off." });
           continue;
         }
         if (!item.can_fulfill) {

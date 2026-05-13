@@ -83,11 +83,14 @@ Seller listing:
 
 1. `GET /api/inventory/items`
 2. `GET /api/marketplace/account/listing-inventory`
-3. `POST /api/marketplace/account/listings/preview`
-4. `POST /api/marketplace/account/listings`
-5. `POST /api/marketplace/account/listings/{id}/publish`
-6. `GET /api/marketplace/account/listings/fee-lock-report`
-7. `GET /api/marketplace/account/listings/{id}/fee-history`
+3. `GET /api/marketplace/account/listing-availability`
+4. `POST /api/marketplace/account/listing-availability/disable`
+5. `POST /api/marketplace/account/listing-availability/enable`
+6. `POST /api/marketplace/account/listings/preview`
+7. `POST /api/marketplace/account/listings`
+8. `POST /api/marketplace/account/listings/{id}/publish`
+9. `GET /api/marketplace/account/listings/fee-lock-report`
+10. `GET /api/marketplace/account/listings/{id}/fee-history`
 
 Seller shipment printing:
 
@@ -144,6 +147,12 @@ Publish, active price edits, active quantity-cap edits, and offer acceptance mus
 `GET /api/marketplace/account/listings/fee-lock-report` returns the seller-visible management report of current per-unit marketplace sales fee locks across the account's listings, including source schedule/agreement ids, resolved time, fee quote fingerprint, locked fee, and seller net.
 
 The full policy and confirmation flow lives in [Marketplace Seller Fee Confirmation](../../bounded-contexts/marketplace/docs/seller-fee-confirmation.md).
+
+## Seller Listing Availability
+
+Seller Listing Availability is an account-level Marketplace overlay for pausing new seller commitments without changing individual Listing Status values. `GET /api/marketplace/account/listing-availability` returns the current overlay. `POST /api/marketplace/account/listing-availability/disable` accepts optional `reasonCategory` (`travel`, `audit`, `operations`, or `other`) and optional `availableAgainOn` (`YYYY-MM-DD`) for seller-facing context. `POST /api/marketplace/account/listing-availability/enable` restores the account's listings to public availability.
+
+When the overlay is off, Marketplace blocks checkout confirmation and offer acceptance for the seller's listings. Discovery hides affected listings from browse, search, item detail market supply, seller pages, and sitemap surfaces, while direct listing URLs remain reachable with no buy action. The durable behavior model lives in [Marketplace Seller Listing Availability](../../bounded-contexts/marketplace/docs/seller-listing-availability.md).
 
 ## Marketplace Checkout Fee Confirmation
 

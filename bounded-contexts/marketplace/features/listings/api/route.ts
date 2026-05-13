@@ -86,6 +86,30 @@ function parsePurchaseLimits(body: Record<string, unknown>) {
   };
 }
 
+function parseSellerListingAvailabilityReason(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (
+    normalized === "travel" ||
+    normalized === "audit" ||
+    normalized === "operations" ||
+    normalized === "other"
+  ) {
+    return normalized;
+  }
+
+  throw new Error("Seller listing availability reason is invalid.");
+}
+
+function parseAvailableAgainOn(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized ? normalized : null;
+}
+
 export function createAccountListingRoutes(services: MarketplaceListingServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
@@ -131,6 +155,69 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       total: result.total,
       count: result.items.length,
     });
+  });
+
+  app.get("/listing-availability", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(
+      await services.getSellerListingAvailability(access.actor.accountId),
+    );
+  });
+
+  app.post("/listing-availability/disable", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      const result = await services.disableSellerListingAvailability(
+        {
+          accountId: access.actor.accountId,
+          reasonCategory: parseSellerListingAvailabilityReason(body.reasonCategory),
+          availableAgainOn: parseAvailableAgainOn(body.availableAgainOn),
+        },
+        context,
+      );
+
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/listing-availability/enable", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
+    }
+
+    try {
+      const result = await services.enableSellerListingAvailability(
+        { accountId: access.actor.accountId },
+        context,
+      );
+
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
   });
 
   app.post("/listings/preview", async (c) => {

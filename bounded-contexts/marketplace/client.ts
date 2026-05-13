@@ -10,6 +10,7 @@ export type {
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
+  MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
@@ -28,6 +29,7 @@ import type {
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
+  MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
@@ -131,6 +133,29 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account["listing-inventory"].$get({
           query: queryFromString(query),
+          header: headers,
+        }),
+      );
+    },
+    async getSellerListingAvailability(): Promise<MarketplaceSellerListingAvailability> {
+      return parseJsonResponse(
+        await client.account["listing-availability"].$get({
+          header: headers,
+        }),
+      );
+    },
+    async disableSellerListingAvailability(body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.account["listing-availability"].disable.$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async enableSellerListingAvailability() {
+      return parseJsonResponse(
+        await client.account["listing-availability"].enable.$post({
+          json: {},
           header: headers,
         }),
       );

@@ -21,6 +21,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 - Buyer proposed prices
 - Requested quantity
 - Listing visibility and activation state
+- Seller Listing Availability
 - Marketplace-wide demand visibility for matching seller supply
 
 ## Does Not Own
@@ -36,11 +37,13 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 Seller fee confirmation rules are documented in [Seller Fee Confirmation](./docs/seller-fee-confirmation.md).
 Limited Product Alert demand visibility is documented in [Limited Offer Demand Signals](./docs/limited-offer-demand-signals.md).
+Seller Listing Availability is documented in [Seller Listing Availability](./docs/seller-listing-availability.md).
 
 ## Core Aggregates and Process Managers
 
 - Listing
 - Offer
+- Seller Listing Availability
 - Listing Publication Policy
 - Offer Visibility Projection
 
@@ -55,6 +58,8 @@ Limited Product Alert demand visibility is documented in [Limited Offer Demand S
 - `ListingPublished`
 - `ListingUpdated`
 - `ListingWithdrawn`
+- `SellerListingAvailabilityDisabled`
+- `SellerListingAvailabilityEnabled`
 - `OfferSubmitted`
 - `OfferAccepted`
 

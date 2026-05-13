@@ -211,6 +211,8 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const sellerHref = listing.seller_slug ? `/sellers/${listing.seller_slug}` : null;
   const productDetails = productSelectionDetails(listing.product_summary);
   const availability = availableQuantityLabel(listing.visible_quantity, listing.quantity_cap);
+  const sellerListingsAvailable =
+    (listing.seller_listing_availability_status ?? "available") === "available";
   const limitLabel = purchaseLimitLabel(listing);
   const fulfillment = buyerFulfillmentLabel(listing.ship_from_code);
 
@@ -218,8 +220,8 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
     <Container width="content">
       <Stack gap={6}>
         <Stack gap={3}>
-          <Badge tone={listing.status === "active" ? "success" : "neutral"}>
-            {listing.status}
+          <Badge tone={listing.status === "active" && sellerListingsAvailable ? "success" : "neutral"}>
+            {sellerListingsAvailable ? listing.status : t("discovery.routes.publicListing.unavailable")}
           </Badge>
           <Heading level={1}>{titleForListing(listing)}</Heading>
           <Text size="lg" tone="secondary">
@@ -243,19 +245,25 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               price={formatMoney(listing.price_amount)}
               seller={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
               trust={
-                listing.status === "active"
+                listing.status === "active" && sellerListingsAvailable
                   ? t("discovery.routes.publicListing.verified.seller")
                   : t("discovery.routes.publicListing.seller.details.visible")
               }
-              availability={availability}
+              availability={
+                sellerListingsAvailable
+                  ? availability
+                  : t("discovery.routes.publicListing.seller.listings.unavailable")
+              }
               fulfillment={fulfillment}
               policy={t("discovery.routes.publicListing.returns.reviewed.before.payment")}
               protection={t("discovery.routes.publicListing.buyer.protected")}
               reassurance={t("discovery.routes.publicListing.secure.checkout.reassurance")}
               primaryAction={
-                <LinkButton href={checkoutHref} size="lg" leadingIcon="lock">
-                  {t("discovery.routes.publicListing.buy.this.listing")}
-                </LinkButton>
+                sellerListingsAvailable ? (
+                  <LinkButton href={checkoutHref} size="lg" leadingIcon="lock">
+                    {t("discovery.routes.publicListing.buy.this.listing")}
+                  </LinkButton>
+                ) : null
               }
               secondaryAction={
                 <LinkButton href={itemMarketHref} tone="secondary">
@@ -269,13 +277,15 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           <Stack gap={4}>
             <SellerTrustCard
               name={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
-              verified={listing.status === "active"}
+              verified={listing.status === "active" && sellerListingsAvailable}
               completedSales={t("discovery.routes.publicListing.active.listing")}
               shipsFrom={fulfillment}
               policies={[
                 {
                   label: t("discovery.routes.publicListing.availability"),
-                  value: limitLabel ? `${availability} | ${limitLabel}` : availability,
+                  value: sellerListingsAvailable
+                    ? limitLabel ? `${availability} | ${limitLabel}` : availability
+                    : t("discovery.routes.publicListing.seller.listings.unavailable"),
                 },
                 {
                   label: t("discovery.routes.publicListing.shipping.credit"),

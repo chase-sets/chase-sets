@@ -52,6 +52,25 @@ function createServices(): MarketplaceListingServices {
       },
     ]),
     listSellerListings: vi.fn(async () => ({ items: [], total: 0 })),
+    getSellerListingAvailability: vi.fn(async () => ({
+      account_id: "acc_seller",
+      status: "available",
+      disabled_reason_category: null,
+      available_again_on: null,
+      disabled_at: null,
+      enabled_at: null,
+      updated_at: "1970-01-01T00:00:00.000Z",
+    })),
+    disableSellerListingAvailability: vi.fn(async () => ({
+      accountId: "acc_seller",
+      version: 1,
+      status: "unavailable",
+    })),
+    enableSellerListingAvailability: vi.fn(async () => ({
+      accountId: "acc_seller",
+      version: 2,
+      status: "available",
+    })),
     listSellerListingFeeLockReport: vi.fn(async () => ({
       items: [
         {
@@ -197,5 +216,52 @@ describe("marketplace listing routes", () => {
       limit: 100,
       offset: 0,
     });
+  });
+
+  it("turns seller listing availability off for the acting account", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view", "listings.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listing-availability/disable", {
+        method: "POST",
+        body: JSON.stringify({
+          reasonCategory: "audit",
+          availableAgainOn: "2026-06-01",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      accountId: "acc_seller",
+      version: 1,
+      status: "unavailable",
+    });
+    expect(services.disableSellerListingAvailability).toHaveBeenCalledWith(
+      {
+        accountId: "acc_seller",
+        reasonCategory: "audit",
+        availableAgainOn: "2026-06-01",
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
+        }),
+      }),
+    );
   });
 });

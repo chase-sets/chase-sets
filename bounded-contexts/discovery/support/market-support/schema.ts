@@ -9,6 +9,11 @@ export const discoveryMarketSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_ma
 ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS seller_slug text NOT NULL DEFAULT '';
 
+ALTER TABLE discovery_market_accounts
+  ADD COLUMN IF NOT EXISTS seller_listing_availability_status text NOT NULL DEFAULT 'available',
+  ADD COLUMN IF NOT EXISTS seller_listing_availability_reason_category text NULL,
+  ADD COLUMN IF NOT EXISTS seller_listing_available_again_on date NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_market_accounts_seller_slug_idx
   ON discovery_market_accounts (seller_slug) WHERE seller_slug <> '';
 

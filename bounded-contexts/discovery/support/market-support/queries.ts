@@ -7,6 +7,9 @@ export type DiscoveryPublicListingRow = Readonly<{
   account_id: string;
   seller_slug: string | null;
   seller_display_name: string | null;
+  seller_listing_availability_status: "available" | "unavailable";
+  seller_listing_availability_reason_category: string | null;
+  seller_listing_available_again_on: string | null;
   inventory_item_id: string;
   catalog_catalog_item_id: string;
   catalog_item_slug: string | null;
@@ -56,7 +59,10 @@ export async function getDiscoveryPublicListingBySlug(
        listing.*,
        item.slug AS catalog_item_slug,
        account.seller_slug,
-       account.seller_display_name
+       account.seller_display_name,
+       account.seller_listing_availability_status,
+       account.seller_listing_availability_reason_category,
+       account.seller_listing_available_again_on::text AS seller_listing_available_again_on
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
@@ -110,7 +116,10 @@ export async function getDiscoveryPublicSellerBySlug(
        listing.*,
        item.slug AS catalog_item_slug,
        account.seller_slug,
-       account.seller_display_name
+       account.seller_display_name,
+       account.seller_listing_availability_status,
+       account.seller_listing_availability_reason_category,
+       account.seller_listing_available_again_on::text AS seller_listing_available_again_on
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
@@ -118,6 +127,7 @@ export async function getDiscoveryPublicSellerBySlug(
        ON item.catalog_item_id = listing.catalog_catalog_item_id
      WHERE listing.account_id = $1
        AND listing.status = 'active'
+       AND account.seller_listing_availability_status = 'available'
      ORDER BY listing.updated_at DESC, listing.price_amount ASC, listing.listing_id ASC`,
     [seller.account_id],
   );
@@ -157,15 +167,20 @@ export async function listDiscoveryPublicSitemapUrls(
            FROM discovery_market_listings AS listing
            WHERE listing.account_id = account.account_id
              AND listing.status = 'active'
+             AND account.seller_listing_availability_status = 'available'
          )
        ORDER BY account.updated_at DESC
        LIMIT 5000`,
     ),
     db.query<{ listing_slug: string; updated_at: string }>(
-      `SELECT listing_slug, updated_at
-       FROM discovery_market_listings
-       WHERE listing_slug <> '' AND status = 'active'
-       ORDER BY updated_at DESC
+      `SELECT listing.listing_slug, listing.updated_at
+       FROM discovery_market_listings AS listing
+       INNER JOIN discovery_market_accounts AS account
+         ON account.account_id = listing.account_id
+       WHERE listing.listing_slug <> ''
+         AND listing.status = 'active'
+         AND account.seller_listing_availability_status = 'available'
+       ORDER BY listing.updated_at DESC
        LIMIT 5000`,
     ),
   ]);

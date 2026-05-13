@@ -84,6 +84,9 @@ export function MarketplaceOfferMatchListPage({
 }) {
   const queuedCount = cartData?.items.length ?? 0;
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
+  const listingsUnavailable = data.items.some(
+    (item) => item.seller_listing_availability_status === "unavailable",
+  );
   const nextAcceptableOffer = data.items.find((item) => item.can_fulfill && item.status === "submitted")
     ?? data.items.find((item) => item.status === "submitted")
     ?? data.items[0];
@@ -115,6 +118,14 @@ export function MarketplaceOfferMatchListPage({
           tone="error"
           title={t("marketplace.features.offers.ui.offerMatchListPage.offer.match.issue")}
           description={errorMessage}
+        />
+      ) : null}
+
+      {listingsUnavailable ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("marketplace.features.offers.ui.offerMatchListPage.listings.unavailable")}
+          description={t("marketplace.features.offers.ui.offerMatchListPage.turn.listings.on.before.accepting")}
         />
       ) : null}
 
@@ -191,6 +202,7 @@ export function MarketplaceOfferMatchListPage({
                   type="submit"
                   name="intent"
                   value="accept-sell-list"
+                  disabled={cartData.items.some((item) => item.seller_listing_availability_status === "unavailable")}
                 >
                   {t("marketplace.features.offers.ui.offerMatchListPage.accept.sell.list")}</Button>
               ) : nextAcceptableOffer ? (
@@ -261,7 +273,9 @@ export function MarketplaceOfferMatchListPage({
                 <Stack gap={1}>
                   <Badge tone={statusTone(row.status)}>{row.status}</Badge>
                   <Badge tone={row.can_fulfill ? "success" : "warning"}>
-                    {row.can_fulfill ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill") : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
+                    {row.seller_listing_availability_status === "unavailable"
+                      ? t("marketplace.features.offers.ui.offerMatchListPage.listings.unavailable")
+                      : row.can_fulfill ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill") : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
                   </Badge>
                   {row.in_sell_list ? <Badge tone="accent">{t("marketplace.features.offers.ui.offerMatchListPage.in.sell.list")}</Badge> : null}
                 </Stack>

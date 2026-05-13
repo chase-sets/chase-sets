@@ -202,6 +202,8 @@
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability.enabled",
         "marketplace.offer.submitted",
         "marketplace.offer.accepted"
       ],
