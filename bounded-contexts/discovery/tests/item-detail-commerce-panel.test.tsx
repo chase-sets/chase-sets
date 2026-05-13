@@ -454,6 +454,10 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Accept offer")).toBeTruthy();
     expect(screen.getByText("1 matching offer")).toBeTruthy();
     expect(screen.getByText("Ash Ketchum")).toBeTruthy();
+    expect(screen.getAllByText("$350.00").length).toBeGreaterThan(0);
+    expect(screen.getByText("Raw / Near Mint")).toBeTruthy();
+    expect(screen.queryByText("Status")).toBeNull();
+    expect(screen.queryByText("submitted")).toBeNull();
     expect(screen.queryByText("1 active listing")).toBeNull();
   });
 
@@ -491,7 +495,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Accept offer")).toBeTruthy();
   });
 
-  it("shows fulfillment badges for the selling account when eligible offer match data is available", () => {
+  it("keeps public offer cards focused on listing-equivalent information for selling accounts", () => {
     render(
       <ItemDetailPage
         data={createItem()}
@@ -511,7 +515,12 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByText("Selected")).toBeTruthy();
-    expect(screen.getByText("Can fulfill")).toBeTruthy();
+    expect(screen.getByText("Ash Ketchum")).toBeTruthy();
+    expect(screen.getAllByText("$350.00").length).toBeGreaterThan(0);
+    expect(screen.getByText("Raw / Near Mint")).toBeTruthy();
+    expect(screen.queryByText("Status")).toBeNull();
+    expect(screen.queryByText("submitted")).toBeNull();
+    expect(screen.queryByText("Can fulfill")).toBeNull();
   });
 
   it("highlights the initial selected listing and attributes the buy panel to it", () => {
