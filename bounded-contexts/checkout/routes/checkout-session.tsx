@@ -14,6 +14,10 @@ import {
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
 import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import {
+  createIdentityRequestApiClient,
+  type ShippingAddress,
+} from "@chase-sets/identity/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
@@ -45,6 +49,7 @@ function normalizeText(value: FormDataEntryValue | null) {
 
 function shippingAddressFromForm(formData: FormData) {
   return {
+    shippingAddressId: normalizeText(formData.get("shippingAddressId")),
     name: String(formData.get("shippingName") ?? "").trim(),
     company: normalizeText(formData.get("shippingCompany")),
     line1: String(formData.get("shippingLine1") ?? "").trim(),
@@ -55,6 +60,114 @@ function shippingAddressFromForm(formData: FormData) {
     country: String(formData.get("shippingCountry") ?? "US").trim().toUpperCase(),
     phone: normalizeText(formData.get("shippingPhone")),
     email: normalizeText(formData.get("shippingEmail")),
+  };
+}
+
+function shippingAddressFromSavedAddress(address: ShippingAddress) {
+  return {
+    shippingAddressId: address.shipping_address_id,
+    name: address.recipient_name,
+    company: address.company,
+    line1: address.line1,
+    line2: address.line2,
+    city: address.city,
+    state: address.state,
+    postalCode: address.postal_code,
+    country: address.country,
+    phone: address.phone,
+    email: address.email,
+  };
+}
+
+async function loadSavedShippingAddresses(request: Request, actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
+  if (
+    !actor ||
+    actor.roleKey === "guest-buyer" ||
+    !Array.isArray(actor.permissions) ||
+    !actor.permissions.includes("accounts.view")
+  ) {
+    return [];
+  }
+  const identityApi = createIdentityRequestApiClient(request);
+  const response = await identityApi.listShippingAddresses<{
+    items: readonly ShippingAddress[];
+  }>(actor.accountId);
+  return response.items;
+}
+
+async function resolveCheckoutShippingAddress(
+  request: Request,
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+  formData: FormData,
+) {
+  const selectedShippingAddressId = normalizeText(formData.get("shippingAddressId"));
+  const addressBookAction = String(formData.get("addressBookAction") ?? "checkout-only");
+  const makeDefault = String(formData.get("makeDefaultShippingAddress") ?? "") === "true";
+  const formAddress = shippingAddressFromForm(formData);
+
+  const canReadAddressBook = Boolean(
+    actor &&
+    actor.roleKey !== "guest-buyer" &&
+    Array.isArray(actor.permissions) &&
+    actor.permissions.includes("accounts.view"),
+  );
+  const canManageAddressBook = Boolean(
+    actor &&
+    actor.roleKey !== "guest-buyer" &&
+    Array.isArray(actor.permissions) &&
+    actor.permissions.includes("accounts.manage"),
+  );
+  const actorAccountId = canManageAddressBook && actor ? actor.accountId : null;
+
+  if (!canReadAddressBook) {
+    return {
+      ...formAddress,
+      shippingAddressId: null,
+    };
+  }
+
+  const identityApi = createIdentityRequestApiClient(request);
+  const savedAddresses = selectedShippingAddressId && selectedShippingAddressId !== "__manual"
+    ? await loadSavedShippingAddresses(request, actor)
+    : [];
+  const selectedSavedAddress = savedAddresses.find(
+    (address) => address.shipping_address_id === selectedShippingAddressId,
+  );
+
+  if (
+    selectedSavedAddress &&
+    addressBookAction !== "save-new" &&
+    addressBookAction !== "update-selected"
+  ) {
+    return shippingAddressFromSavedAddress(selectedSavedAddress);
+  }
+
+  if (addressBookAction === "update-selected" && selectedSavedAddress && canManageAddressBook) {
+    await identityApi.updateShippingAddress(actorAccountId!, selectedSavedAddress.shipping_address_id, {
+      label: selectedSavedAddress.label,
+      ...formAddress,
+      makeDefault,
+    });
+    return {
+      ...formAddress,
+      shippingAddressId: selectedSavedAddress.shipping_address_id,
+    };
+  }
+
+  if (addressBookAction === "save-new" && canManageAddressBook) {
+    const result = await identityApi.createShippingAddress<{ id: string }>(actorAccountId!, {
+      ...formAddress,
+      makeDefault,
+    });
+    return {
+      ...formAddress,
+      shippingAddressId: result.id,
+    };
+  }
+
+  return {
+    ...formAddress,
+    shippingAddressId: selectedSavedAddress?.shipping_address_id ?? null,
   };
 }
 
@@ -142,6 +255,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const wallet = actor && actor.roleKey !== "guest-buyer"
     ? await loadWalletBalance(request)
     : null;
+  const savedShippingAddresses = await loadSavedShippingAddresses(request, actor);
   const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(
     request,
     session,
@@ -150,6 +264,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return {
     session,
     wallet,
+    savedShippingAddresses,
+    canManageShippingAddresses: Boolean(
+      actor &&
+      actor.roleKey !== "guest-buyer" &&
+      Array.isArray(actor.permissions) &&
+      actor.permissions.includes("accounts.manage"),
+    ),
     fulfillmentPreview,
     previewError,
   };
@@ -188,7 +309,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges:
           String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
-        shippingAddress: shippingAddressFromForm(formData),
+        shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
       });
       if (result.offer_id) {
         return redirect(`/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`);
@@ -235,6 +356,8 @@ export default function CheckoutSessionRoute() {
       session={data.session}
       wallet={data.wallet}
       fulfillmentPreview={data.fulfillmentPreview}
+      savedShippingAddresses={data.savedShippingAddresses}
+      canManageShippingAddresses={data.canManageShippingAddresses}
       errorMessage={actionData?.error ?? data.previewError ?? null}
       isSubmitting={navigation.state === "submitting"}
     />

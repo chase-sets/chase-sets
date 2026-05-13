@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   optimization_goal text NOT NULL DEFAULT 'lowest-total',
   fulfillment_preview_revision text NULL,
   shipping_option text NOT NULL,
+  shipping_address_id text NULL,
   shipping_address jsonb NULL,
   lines jsonb NOT NULL DEFAULT '[]'::jsonb,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -19,6 +20,7 @@ CREATE INDEX IF NOT EXISTS checkout_session_pages_buyer_idx
   ON checkout_session_pages (buyer_account_id, updated_at DESC, session_id DESC);
 
 ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS shipping_address_id text NULL,
   ADD COLUMN IF NOT EXISTS shipping_address jsonb NULL;
 
 ALTER TABLE checkout_session_pages

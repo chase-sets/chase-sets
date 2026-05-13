@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import type { ShippingAddressId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import type { CheckoutSessionServices } from "./runtime";
 import {
@@ -71,6 +72,10 @@ function parseShippingAddress(value: unknown) {
       ? (value as Record<string, unknown>)
       : {};
   return {
+    shippingAddressId:
+      source.shippingAddressId === null || source.shippingAddressId === undefined
+        ? null
+        : String(source.shippingAddressId) as ShippingAddressId,
     name:
       source.name === null || source.name === undefined
         ? ""

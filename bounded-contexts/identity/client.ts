@@ -5,6 +5,7 @@ export {
 } from "./support/shell-support/api/client";
 export type { IdentityApiClientOptions } from "./support/shell-support/api/client";
 export type { Account } from "./features/accounts/api/contracts";
+export type { ShippingAddress } from "./features/shipping-addresses/api/contracts";
 export type { User } from "./features/users/api/contracts";
 export type { Membership } from "./features/memberships/api/contracts";
 export type { Invitation } from "./features/invitations/api/contracts";

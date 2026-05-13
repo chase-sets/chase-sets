@@ -89,6 +89,7 @@ export type SelectCheckoutOptimizationGoalRequest = Readonly<{
 }>;
 
 export type CheckoutShippingAddressInput = Readonly<{
+  shippingAddressId?: string | null;
   name: string;
   company?: string | null;
   line1: string;

@@ -25,6 +25,7 @@
   ],
   "allowedContextDependencies": [
     "@chase-sets/auth",
+    "@chase-sets/identity",
     "@chase-sets/marketplace",
     "@chase-sets/ordering",
     "@chase-sets/payments"
