@@ -9,25 +9,37 @@ function getSmokeEnv(name) {
   return process.env[name] ?? sandboxEnv[name] ?? "";
 }
 
+function getExplicitEnv(name) {
+  return process.env[name] ?? "";
+}
+
+function getConfiguredUrl(primaryName, cliValue, fallbackName) {
+  return (
+    getExplicitEnv(primaryName) ||
+    (fallbackName ? getExplicitEnv(fallbackName) : "") ||
+    cliValue ||
+    sandboxEnv[primaryName] ||
+    (fallbackName ? sandboxEnv[fallbackName] : "") ||
+    ""
+  );
+}
+
 const landingUrl = validateHttpUrl(
   trimTrailingSlash(
-    getSmokeEnv("LANDING_WEB_URL") ||
-      getSmokeEnv("PUBLIC_WEB_URL") ||
-      cliArgs[0] ||
-      "",
+    getConfiguredUrl("LANDING_WEB_URL", cliArgs[0] || "", "PUBLIC_WEB_URL"),
   ),
   "landing URL",
 );
 const adminUrl = validateHttpUrl(
-  trimTrailingSlash(getSmokeEnv("ADMIN_WEB_URL") || cliArgs[1] || ""),
+  trimTrailingSlash(getConfiguredUrl("ADMIN_WEB_URL", cliArgs[1] || "")),
   "admin URL",
 );
 const marketplaceUrl = validateHttpUrl(
-  trimTrailingSlash(getSmokeEnv("MARKETPLACE_WEB_URL") || cliArgs[2] || ""),
+  trimTrailingSlash(getConfiguredUrl("MARKETPLACE_WEB_URL", cliArgs[2] || "")),
   "marketplace URL",
 );
 const redirectUrl = validateHttpUrl(
-  trimTrailingSlash(getSmokeEnv("LEGACY_PUBLIC_URL") || cliArgs[3] || ""),
+  trimTrailingSlash(getConfiguredUrl("LEGACY_PUBLIC_URL", cliArgs[3] || "")),
   "legacy redirect URL",
 );
 const syntheticEmail =
@@ -46,6 +58,8 @@ const smokeUtmMedium = getSmokeEnv("SMOKE_UTM_MEDIUM") || "automation";
 const smokeUtmCampaign = getSmokeEnv("SMOKE_UTM_CAMPAIGN") || "platform-smoke";
 const smokeUtmContent = getSmokeEnv("SMOKE_UTM_CONTENT") || null;
 const smokeUtmTerm = getSmokeEnv("SMOKE_UTM_TERM") || null;
+const fetchAttempts = readPositiveIntegerEnv("SMOKE_FETCH_ATTEMPTS", 6);
+const fetchRetryDelayMs = readPositiveIntegerEnv("SMOKE_FETCH_RETRY_DELAY_MS", 5_000);
 
 if (!landingUrl || !adminUrl) {
   throw new Error(
@@ -85,6 +99,35 @@ function readBooleanEnv(name, defaultValue) {
   return ["1", "true", "yes", "on"].includes(value);
 }
 
+function readPositiveIntegerEnv(name, defaultValue) {
+  const value = getSmokeEnv(name).trim();
+  if (!value) {
+    return defaultValue;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || String(parsed) !== value) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+
+  return parsed;
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+function describeFetchError(error) {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+
+  const cause = error.cause instanceof Error ? ` (${error.cause.message})` : "";
+  return `${error.message}${cause}`;
+}
+
 function createSmokePagePath() {
   const params = new URLSearchParams({
     utm_source: smokeUtmSource,
@@ -103,19 +146,56 @@ function createSmokePagePath() {
   return `/?${params.toString()}`;
 }
 
-async function expectOk(label, input, init) {
-  const response = await fetch(input, init);
-  if (!response.ok) {
-    throw new Error(`${label} failed with ${response.status} ${response.statusText}`);
+async function fetchWithRetry(label, input, init, isSuccess) {
+  let lastError;
+  let lastResponse;
+
+  for (let attempt = 1; attempt <= fetchAttempts; attempt += 1) {
+    try {
+      const response = await fetch(input, init);
+      if (isSuccess(response)) {
+        return response;
+      }
+
+      lastResponse = response;
+      lastError = new Error(`${response.status} ${response.statusText}`);
+    } catch (error) {
+      lastError = error;
+      lastResponse = undefined;
+    }
+
+    if (attempt < fetchAttempts) {
+      const detail = lastResponse
+        ? `${lastResponse.status} ${lastResponse.statusText}`
+        : describeFetchError(lastError);
+      console.warn(
+        `${label} attempt ${attempt}/${fetchAttempts} failed for ${input}: ${detail}; retrying in ${fetchRetryDelayMs}ms.`,
+      );
+      await delay(fetchRetryDelayMs);
+    }
   }
+
+  if (lastResponse) {
+    throw new Error(
+      `${label} failed for ${input} with ${lastResponse.status} ${lastResponse.statusText}.`,
+    );
+  }
+
+  throw new Error(`${label} failed for ${input}: ${describeFetchError(lastError)}`);
+}
+
+async function expectOk(label, input, init) {
+  const response = await fetchWithRetry(label, input, init, (candidate) => candidate.ok);
   return response;
 }
 
 async function expectRedirect(label, input, expectedAuthority) {
-  const response = await fetch(input, { redirect: "manual" });
-  if (response.status !== 302) {
-    throw new Error(`${label} expected temporary 302 redirect but received ${response.status}.`);
-  }
+  const response = await fetchWithRetry(
+    label,
+    input,
+    { redirect: "manual" },
+    (candidate) => candidate.status === 302,
+  );
 
   const location = response.headers.get("location");
   if (!location) {
