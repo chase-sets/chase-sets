@@ -8,6 +8,7 @@ const cartLine: CheckoutCartLine = {
   line_id: "cart_line_1",
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::condition:raw",
+  item_language_code: "ja",
   item_title: "Charizard",
   item_subtitle: "Base Set 4/102 Holo Rare",
   item_image_url: "/fake-cdn/assets/charizard.png",
@@ -70,6 +71,7 @@ describe("checkout cart page", () => {
 
     expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
     expect(markup).toContain("Charizard");
+    expect(markup).toContain("Japanese");
     expect(markup).toContain("Base Set 4/102 Holo Rare");
     expect(markup).toContain("Form<!-- -->: <!-- -->Raw");
     expect(markup).toContain("Condition<!-- -->: <!-- -->Near Mint");

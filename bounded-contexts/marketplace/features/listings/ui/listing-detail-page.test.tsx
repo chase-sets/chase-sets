@@ -13,6 +13,7 @@ const listing: MarketplaceListingDetail = {
   inventory_item_id: "inv_1",
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::dim_condition:near_mint",
+  item_language_code: "ja",
   item_title: "Charizard",
   item_subtitle: null,
   selected_options: [],
@@ -62,6 +63,7 @@ describe("MarketplaceListingDetailPage", () => {
       screen.getByText("Fee quote changed. Review the current preview and submit again."),
     ).toBeTruthy();
     expect(screen.getAllByText("Buyer shipping credit").length).toBeGreaterThan(0);
+    expect(screen.getByText("Japanese")).toBeTruthy();
     expect(screen.getByText(/Buyer shipping credit 7.5%/)).toBeTruthy();
     expect(
       container.querySelector(

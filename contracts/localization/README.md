@@ -19,6 +19,8 @@ t("catalog.support.shellSupport.ui.lifecycleControls.confirm.action.title", {
 
 The translator supports named interpolation with `{name}` tokens. Keep interpolation values data-only; do not build sentences by concatenating translated fragments when a complete sentence key would be clearer.
 
+Use `formatLanguageCodeLabel` for visible catalog language-code badges or display fields. Keep the underlying API, event, query, and persisted values as language codes such as `en` or `ja`; only convert them to localized labels at presentation boundaries.
+
 ## Missing Translations
 
 Missing keys return a visible sentinel in the current locale:

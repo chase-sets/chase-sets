@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -208,7 +208,7 @@ export function PricingRecommendationListPage({
                       ) : null}
                       <Inline>
                         {row.catalog_item_language_code ? (
-                          <Badge tone="neutral">{row.catalog_item_language_code}</Badge>
+                          <Badge tone="neutral">{formatLanguageCodeLabel(row.catalog_item_language_code)}</Badge>
                         ) : null}
                         <Badge tone={row.catalog_item_status === "active" ? "success" : "neutral"}>
                           {row.catalog_item_status ?? t("pricing.features.recommendations.ui.recommendationListPage.unknown")}
