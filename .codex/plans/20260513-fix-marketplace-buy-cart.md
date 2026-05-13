@@ -40,7 +40,8 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 - Reproduce the failing path with focused route/action tests before changing behavior when practical. Baseline tests passed but did not cover signed-in actors without `orders.manage`. Done.
 - Fix the smallest owning-context code path that restores signed-in buy-now and add-to-cart behavior. Done.
 - Fix the staging read-after-write gap by draining only the Checkout cart/session owned projectors after Checkout writes, rather than enabling the global platform drain. Done locally; pending PR/deploy verification.
-- Fix Platform API internal self-calls so staging auth registration/magic-link account creation can reach Identity internal routes. In progress.
+- Fix Platform API internal self-calls so staging auth registration/magic-link account creation can reach Identity internal routes. Done.
+- Fix Auth registration/magic-link account creation to start the new session from the freshly granted Identity membership instead of waiting on async Auth identity projections. Done locally; pending PR/deploy verification.
 - Add or update focused tests covering signed-in buyer behavior without `orders.manage`, optimized buy-now, seller-locked buy-now, add-to-cart cart visibility, Ordering checkout preview/confirmation access, and preview fallback. Done.
 - Run focused tests, then broader relevant package checks if the change touches shared behavior. Done.
 - Start the local marketplace stack if needed and visually verify desktop/mobile buyer flows. Done with Platform API + Marketplace local stack.
@@ -59,6 +60,7 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 - After the staging read-after-write patch, `pnpm --filter @chase-sets/app-marketplace-web run typecheck` passed.
 - After the staging read-after-write patch, `pnpm run check:structure` passed.
 - After the Platform API internal-origin patch, `terraform fmt -check infrastructure/digitalocean/platform` and `pnpm run check:structure` passed.
+- After the Auth registration consistency patch, `pnpm --filter @chase-sets/auth run test`, `pnpm --filter @chase-sets/identity run test`, `pnpm --filter @chase-sets/app-marketplace-web run typecheck`, and `pnpm run check:structure` passed.
 - Local visual check against `demo@chasesets.test` on `http://localhost:8453` confirmed:
   - Add product to cart updates the account cart and `/account/cart` shows the Twilight Masquerade Elite Trainer Box line.
   - Desktop Buy optimized reaches `/checkout/...` without Marketplace error.

@@ -56,7 +56,7 @@ export type IdentityAuthMutationClient = Readonly<{
     givenName?: string;
     familyName?: string;
     consents?: readonly { policyKey: string; policyVersion: string }[];
-  }>) => Promise<Readonly<{ userId: string; accountId: string }>>;
+  }>) => Promise<Readonly<{ userId: string; accountId: string; membershipId: string }>>;
   enablePasswordCredential: (params: Readonly<{
     userId: string;
     credentialId: string;

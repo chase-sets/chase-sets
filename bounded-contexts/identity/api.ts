@@ -136,7 +136,7 @@ async function createPersonalIdentityForAuth(
   }
 
   await drainProjectors(services);
-  return { userId, accountId };
+  return { userId, accountId, membershipId };
 }
 
 async function createGuestAccountForAuth(
