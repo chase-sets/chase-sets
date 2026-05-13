@@ -4,6 +4,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   ActorIdentityCue,
+  AccountMenu,
   AppliedFilterChips,
   BottomNav,
   BuyerProtectionBadge,
@@ -111,6 +112,34 @@ describe("design-system", () => {
     expect(shellMarkup).toContain("Signed in as");
     expect(panelMarkup).toContain("Signed-In Identity");
     expect(panelMarkup).toContain("alex@example.com");
+  });
+
+  it("opens account menus with account links and sign out", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <div>
+        <form id="account-menu-sign-out" action="/sign-out" method="post" />
+        <AccountMenu
+          accountName="Card Vault"
+          roleName="Manager"
+          userName="Alex Clerk"
+          items={[
+            { key: "account", label: "Account", href: "/account", icon: "user" },
+            { key: "wallet", label: "Wallet", href: "/account/settlement", icon: "wallet" },
+          ]}
+          signOutFormId="account-menu-sign-out"
+          signOutLabel="Sign Out"
+        />
+      </div>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Account menu" }));
+
+    expect(await screen.findByText("Alex Clerk")).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Account" }).getAttribute("href")).toBe("/account");
+    expect(screen.getByRole("menuitem", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
+    expect(screen.getByRole("menuitem", { name: "Sign Out" }).getAttribute("form")).toBe("account-menu-sign-out");
   });
 
   it("renders marketing visual cards with accessible image context", () => {

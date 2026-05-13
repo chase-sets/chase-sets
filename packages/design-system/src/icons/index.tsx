@@ -29,6 +29,7 @@ import {
   Info,
   LayoutDashboard,
   LockKeyhole,
+  LogOut,
   Mail,
   Menu,
   MessageSquare,
@@ -111,6 +112,7 @@ export type IconName =
   | "shirt"
   | "grid"
   | "lock"
+  | "logOut"
   | "creditCard"
   | "chart"
   | "users"
@@ -186,6 +188,7 @@ const iconMap: Record<IconName, LucideIcon> = {
   shirt: Shirt,
   grid: Grid2X2,
   lock: LockKeyhole,
+  logOut: LogOut,
   creditCard: CreditCard,
   chart: BarChart3,
   users: Users,
