@@ -21,6 +21,7 @@ import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
+import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
 import { buildCurrentActorDisplay } from "./support/request-support/current-actor-display";
 
@@ -457,6 +458,10 @@ export function buildIdentityApi(services: IdentityServices) {
   app.use("/api-keys/*", requirePermission("security.manage"));
 
   app.route("/accounts", accountRoutes(services.accounts));
+  app.route(
+    "/accounts/:accountId/shipping-addresses",
+    shippingAddressRoutes(services.shippingAddresses),
+  );
   app.route("/users", userRoutes(services.users));
   app.route("/memberships", membershipRoutes(services.memberships));
   app.route("/invitations", invitationRoutes(services.invitations));

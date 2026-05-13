@@ -18,6 +18,7 @@ const line = {
 };
 
 const shippingAddress = {
+  shippingAddressId: "adr_home" as never,
   name: "Jane Smith",
   line1: "100 Market Street",
   line2: null,

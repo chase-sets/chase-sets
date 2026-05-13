@@ -28,6 +28,22 @@ import type {
   CheckoutSessionRow,
 } from "../../../support/request-support/api-client";
 
+export type CheckoutSavedShippingAddress = Readonly<{
+  shipping_address_id: string;
+  label: string;
+  recipient_name: string;
+  company: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  phone: string | null;
+  email: string | null;
+  is_default: boolean;
+}>;
+
 function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
   return [line.itemTitle, line.itemSubtitle, line.productSummary]
     .filter(Boolean)
@@ -48,12 +64,16 @@ export function CheckoutSessionPage({
   fulfillmentPreview,
   errorMessage,
   isSubmitting = false,
+  savedShippingAddresses = [],
+  canManageShippingAddresses = false,
 }: {
   session: CheckoutSessionRow;
   wallet?: { available_balance_amount: string; currency_code: string } | null;
   fulfillmentPreview?: CheckoutFulfillmentPreview | null;
   errorMessage?: string | null;
   isSubmitting?: boolean;
+  savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
+  canManageShippingAddresses?: boolean;
 }) {
   const lines = session.lines;
   const lineCount = lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -64,6 +84,52 @@ export function CheckoutSessionPage({
   const unavailableCount = isOfferIntent ? lines.length : preview?.unavailableLineKeys.length ?? 0;
   const canConfirm = isOfferIntent ? lines.length > 0 : readyCount > 0;
   const previewAllocationLines = preview?.sellerGroups.flatMap((group) => group.lines) ?? [];
+  const defaultSavedAddress =
+    savedShippingAddresses.find((address) => address.shipping_address_id === session.shipping_address_id) ??
+    savedShippingAddresses.find((address) => address.is_default) ??
+    savedShippingAddresses[0] ??
+    null;
+  const addressDefaults = session.shipping_address
+    ? {
+        shippingAddressId: session.shipping_address.shippingAddressId ?? "__manual",
+        name: session.shipping_address.name,
+        company: session.shipping_address.company ?? "",
+        line1: session.shipping_address.line1,
+        line2: session.shipping_address.line2 ?? "",
+        city: session.shipping_address.city,
+        state: session.shipping_address.state,
+        postalCode: session.shipping_address.postalCode,
+        country: session.shipping_address.country,
+        phone: session.shipping_address.phone ?? "",
+        email: session.shipping_address.email ?? "",
+      }
+    : defaultSavedAddress
+      ? {
+          shippingAddressId: defaultSavedAddress.shipping_address_id,
+          name: defaultSavedAddress.recipient_name,
+          company: defaultSavedAddress.company ?? "",
+          line1: defaultSavedAddress.line1,
+          line2: defaultSavedAddress.line2 ?? "",
+          city: defaultSavedAddress.city,
+          state: defaultSavedAddress.state,
+          postalCode: defaultSavedAddress.postal_code,
+          country: defaultSavedAddress.country,
+          phone: defaultSavedAddress.phone ?? "",
+          email: defaultSavedAddress.email ?? "",
+        }
+      : {
+          shippingAddressId: "__manual",
+          name: "",
+          company: "",
+          line1: "",
+          line2: "",
+          city: "",
+          state: "",
+          postalCode: "",
+          country: "US",
+          phone: "",
+          email: "",
+        };
   const hasOnlyLockedAllocations =
     previewAllocationLines.length > 0 &&
     previewAllocationLines.every((line) => line.priceState === "locked");
@@ -351,65 +417,113 @@ export function CheckoutSessionPage({
                         title={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today") : t("checkout.features.sessions.ui.checkoutPage.transparent.totals")}
                         description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.shipping.notice.description") : t("checkout.features.sessions.ui.checkoutPage.transparent.totals.description")}
                       />
+                      {savedShippingAddresses.length > 0 ? (
+                        <NativeSelect
+                          label={t("checkout.features.sessions.ui.checkoutPage.saved.shipping.address")}
+                          name="shippingAddressId"
+                          defaultValue={addressDefaults.shippingAddressId}
+                          items={[
+                            { value: "__manual", label: t("checkout.features.sessions.ui.checkoutPage.enter.a.new.address") },
+                            ...savedShippingAddresses.map((address) => ({
+                              value: address.shipping_address_id,
+                              label: address.is_default
+                                ? t("checkout.features.sessions.ui.checkoutPage.default.address.option", { label: address.label })
+                                : address.label,
+                            })),
+                          ]}
+                        />
+                      ) : null}
                       <Grid columns={{ base: 1, md: 2 }} gap={3}>
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.recipient.name")}
                           name="shippingName"
                           placeholder={t("checkout.features.sessions.ui.checkoutPage.recipient.placeholder")}
+                          defaultValue={addressDefaults.name}
                           required
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.company")}
                           name="shippingCompany"
+                          defaultValue={addressDefaults.company}
                           autoComplete="shipping organization"
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.country")}
                           name="shippingCountry"
-                          defaultValue="US"
+                          defaultValue={addressDefaults.country}
                           autoComplete="shipping country"
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.address.line1")}
                           name="shippingLine1"
+                          defaultValue={addressDefaults.line1}
                           autoComplete="shipping address-line1"
                           required
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.address.line2")}
                           name="shippingLine2"
+                          defaultValue={addressDefaults.line2}
                           autoComplete="shipping address-line2"
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.city")}
                           name="shippingCity"
+                          defaultValue={addressDefaults.city}
                           autoComplete="shipping address-level2"
                           required
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.state")}
                           name="shippingState"
+                          defaultValue={addressDefaults.state}
                           autoComplete="shipping address-level1"
                           required
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.postal.code")}
                           name="shippingPostalCode"
+                          defaultValue={addressDefaults.postalCode}
                           autoComplete="shipping postal-code"
                           required
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.phone")}
                           name="shippingPhone"
+                          defaultValue={addressDefaults.phone}
                           autoComplete="shipping tel"
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.email")}
                           name="shippingEmail"
                           type="email"
+                          defaultValue={addressDefaults.email}
                           autoComplete="shipping email"
                         />
                       </Grid>
+                      {canManageShippingAddresses ? (
+                        <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                          <NativeSelect
+                            label={t("checkout.features.sessions.ui.checkoutPage.address.book.action")}
+                            name="addressBookAction"
+                            defaultValue={savedShippingAddresses.length > 0 ? "checkout-only" : "save-new"}
+                            items={[
+                              { value: "checkout-only", label: t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout") },
+                              { value: "save-new", label: t("checkout.features.sessions.ui.checkoutPage.save.as.new.address") },
+                              { value: "update-selected", label: t("checkout.features.sessions.ui.checkoutPage.update.selected.address") },
+                            ]}
+                          />
+                          <NativeSelect
+                            label={t("checkout.features.sessions.ui.checkoutPage.saved.address.default")}
+                            name="makeDefaultShippingAddress"
+                            defaultValue="false"
+                            items={[
+                              { value: "false", label: t("checkout.features.sessions.ui.checkoutPage.do.not.change.default") },
+                              { value: "true", label: t("checkout.features.sessions.ui.checkoutPage.make.this.default") },
+                            ]}
+                          />
+                        </Grid>
+                      ) : null}
                       <NativeSelect
                         label={t("checkout.features.sessions.ui.checkoutPage.shipping.option")}
                         name="shippingOption"

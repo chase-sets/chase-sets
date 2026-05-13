@@ -544,6 +544,7 @@ describe("checkout web routes", () => {
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
       shippingAddress: {
+        shippingAddressId: null,
         name: "Jane Smith",
         company: null,
         line1: "100 Market Street",

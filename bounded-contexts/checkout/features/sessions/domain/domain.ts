@@ -8,6 +8,7 @@ import type {
   CheckoutSessionId,
   OrderId,
   PaymentId,
+  ShippingAddressId,
 } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -42,6 +43,7 @@ export type CheckoutSessionLine = Readonly<{
 }>;
 
 export type CheckoutShippingAddress = Readonly<{
+  shippingAddressId?: ShippingAddressId | null;
   name: string;
   company?: string | null;
   line1: string;
@@ -295,6 +297,7 @@ function normalizeShippingAddress(
   address: CheckoutShippingAddress,
 ): CheckoutShippingAddress {
   return {
+    shippingAddressId: normalizeOptionalText(address.shippingAddressId) as ShippingAddressId | null,
     name: normalizeRequiredText(address.name, "Shipping name is required."),
     company: normalizeOptionalText(address.company),
     line1: normalizeRequiredText(address.line1, "Shipping address line 1 is required."),

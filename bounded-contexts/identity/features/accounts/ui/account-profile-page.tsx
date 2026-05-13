@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   ActorIdentityCue,
+  LinkButton,
   MarketplaceDashboardPanel,
   PlatformCredibilityCue,
   SpecificationList,
@@ -44,6 +45,11 @@ export function AccountProfilePage({
         eyebrow={t("identity.features.accounts.ui.accountProfilePage.account")}
         title={account.display_name}
         description={t("identity.features.accounts.ui.accountProfilePage.profile.and.commercial.ownership.details.for")}
+        actions={
+          <LinkButton href="/account/shipping-addresses" tone="secondary">
+            {t("identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses")}
+          </LinkButton>
+        }
       />
       {actorDisplay ? (
         <ActorIdentityCue

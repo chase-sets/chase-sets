@@ -15,6 +15,7 @@ export type {
   IdentityApiClientOptions,
   Invitation,
   Membership,
+  ShippingAddress,
   User,
 } from "../../client";
 import { createIdentityApiClient } from "../../client";

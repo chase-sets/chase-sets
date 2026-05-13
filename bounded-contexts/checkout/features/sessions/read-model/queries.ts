@@ -8,6 +8,7 @@ export type CheckoutSessionRow = Readonly<{
   optimization_goal: "lowest-total" | "fewest-shipments";
   fulfillment_preview_revision: string | null;
   shipping_option: "standard" | "expedited" | "priority";
+  shipping_address_id: string | null;
   shipping_address: CheckoutShippingAddress | null;
   lines: readonly CheckoutSessionLine[];
   order_ids: readonly string[];
@@ -73,6 +74,7 @@ export async function getCheckoutSession(
        optimization_goal,
        fulfillment_preview_revision,
        shipping_option,
+       shipping_address_id,
        shipping_address,
        lines,
        order_ids,

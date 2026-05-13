@@ -61,3 +61,5 @@ export type SessionId = TypedUlid<"ses">;
 export type CheckoutSessionId = TypedUlid<"chk">;
 
 export type ApiKeyId = TypedUlid<"key">;
+
+export type ShippingAddressId = TypedUlid<"adr">;
