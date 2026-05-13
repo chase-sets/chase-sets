@@ -27,7 +27,18 @@ Notes:
 - In v1, offers are not tied to a specific seller, listing, or inventory item until accepted.
 - Accounts see their submitted demand as Submitted Offers.
 - Accounts can review Offer Matches only when they have matching active listings.
+- Discovery Product Alerts may consume limited offer demand signals for subscribed accounts without exposing buyer identity or full Offer detail.
 - When accepted, an offer becomes a commitment input for the selling account in Ordering.
+
+## Limited Offer Demand Signal
+
+A **Limited Offer Demand Signal** is the restricted fact that submitted demand exists for a Product and satisfies a Product Alert price threshold.
+
+Notes:
+
+- Marketplace owns the underlying Offer and full Offer visibility policy.
+- Discovery Product Alerts may use limited offer demand signals for notifications.
+- Limited offer demand signals do not expose buyer identity, shipping destination, or full Offer detail.
 
 ## Listing Status
 

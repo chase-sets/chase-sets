@@ -11,6 +11,7 @@ Discovery owns the browse, search, and detail experience for catalog items.
 - Browse-oriented read models
 - Filter state and facet presentation
 - Catalog item detail presentation models
+- Product Alerts created from product detail selection
 - Search index rebuild and projection workflows
 
 ## Does Not Own
@@ -37,6 +38,10 @@ Discovery terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 - Catalog for canonical item, category, blueprint, dimension, and field facts
 - Marketplace for future visibility or listing signals when browse behavior needs commercial state
+
+## Product Alerts
+
+Product Alert matching is documented in [Product Alerts](./docs/product-alerts.md). Discovery owns the subscription and matching behavior; Marketplace remains the source of Listing and Offer facts.
 
 ## Outgoing Integration Events
 

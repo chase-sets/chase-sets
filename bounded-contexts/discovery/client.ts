@@ -5,6 +5,10 @@ import type {
   CategoryListResponse,
   DiscoveryCategoryItem,
 } from "./features/categories/api/contracts";
+import type {
+  CreateProductAlertRequest,
+  ProductAlertListResponse,
+} from "./features/product-alerts/api/contracts";
 
 export type {
   DiscoveryItemDetail,
@@ -17,6 +21,11 @@ export type {
   CategoryListResponse,
   DiscoveryCategoryItem,
 } from "./features/categories/api/contracts";
+export type {
+  CreateProductAlertRequest,
+  ProductAlertListResponse,
+} from "./features/product-alerts/api/contracts";
+export type { ProductAlertPageRow } from "./features/product-alerts/read-model/queries";
 
 import type {
   DiscoveryItemDetail,
@@ -101,6 +110,46 @@ export function createDiscoveryApiClient({
     async listCategories(): Promise<CategoryListResponse> {
       return parseJsonResponse(
         await client.categories.$get({ header: headers }),
+      );
+    },
+    async listProductAlerts(): Promise<ProductAlertListResponse> {
+      return parseJsonResponse(
+        await client.account["product-alerts"].$get({ header: headers }),
+      );
+    },
+    async createProductAlert(body: CreateProductAlertRequest) {
+      return parseJsonResponse(
+        await client.account["product-alerts"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async pauseProductAlert(id: string) {
+      return parseJsonResponse(
+        await client.account["product-alerts"][":id"].pause.$post({
+          param: { id },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async resumeProductAlert(id: string) {
+      return parseJsonResponse(
+        await client.account["product-alerts"][":id"].resume.$post({
+          param: { id },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async deleteProductAlert(id: string) {
+      return parseJsonResponse(
+        await client.account["product-alerts"][":id"].delete.$post({
+          param: { id },
+          json: {},
+          header: headers,
+        }),
       );
     },
     async getCategoryBySlug(slug: string): Promise<DiscoveryCategoryItem> {

@@ -45,6 +45,8 @@ describe("marketplace route layout", () => {
         "reputation.view",
         "orders.view",
         "orders.manage",
+        "support.view",
+        "support.manage",
       ],
     };
     mockUseRouteLoaderData.mockReturnValue({
@@ -66,7 +68,9 @@ describe("marketplace route layout", () => {
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
       "Purchases",
+      "Product Alerts",
       "Notifications",
+      "Support",
       "Sell",
       "Account",
       "Cart",
@@ -97,7 +101,9 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/inventory/imports"');
     expect(html).toContain('href="/account/cart"');
+    expect(html).toContain('href="/account/product-alerts"');
     expect(html).toContain('href="/account/notifications"');
+    expect(html).toContain('href="/account/support"');
     expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account/offers/matches"');
     expect(html).toContain('href="/account/offers/submitted"');
@@ -128,6 +134,7 @@ describe("marketplace route layout", () => {
     expect(topNav.map((item) => item.label)).toEqual([
       "Browse",
       "Purchases",
+      "Product Alerts",
       "Notifications",
       "Account",
       "Cart",

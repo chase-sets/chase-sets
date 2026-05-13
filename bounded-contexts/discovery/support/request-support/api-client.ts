@@ -16,6 +16,8 @@ export type {
   DiscoveryPublicSeller,
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
+  ProductAlertListResponse,
+  ProductAlertPageRow,
 } from "../../client";
 import { createDiscoveryApiClient } from "../../client";
 

@@ -3433,6 +3433,7 @@ export const englishTranslations = {
   "discovery.routes.itemDetail.add.product.to.cart": "Add product to cart",
   "discovery.routes.itemDetail.buy.locked.to.this.seller": "Buy locked to this seller",
   "discovery.routes.itemDetail.buy.optimized": "Buy optimized",
+  "discovery.routes.itemDetail.create.product.alert": "Create Product Alert",
   "discovery.routes.itemDetail.market.signal": "Market signal",
   "discovery.routes.itemDetail.product.intent.buy.guidance": "Buy optimized lets checkout pick fulfillment. Buy locked to this seller keeps the selected seller as a hard constraint.",
   "discovery.routes.itemDetail.product.intent.choose.options.guidance": "Choose every required product option before buying, saving demand, or making an offer.",

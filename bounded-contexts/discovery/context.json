@@ -4,13 +4,15 @@
   "ownedNouns": [
     "search",
     "browse",
-    "item-detail"
+    "item-detail",
+    "product-alert"
   ],
   "streamPrefix": "discovery.",
   "apiBasePath": "/api/marketplace",
   "slices": [
     "categories",
     "item-detail",
+    "product-alerts",
     "search"
   ],
   "allowedSupportDirectories": [
@@ -32,10 +34,26 @@
   "allowedContextDependencies": [
     "@chase-sets/catalog",
     "@chase-sets/checkout",
-    "@chase-sets/marketplace"
+    "@chase-sets/marketplace",
+    "@chase-sets/notifications"
   ],
   "seedRequirements": [],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "discovery",
+      "projectionName": "discovery-product-alert-page-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "discovery-product-alert-page-projection"
+      ],
+      "eventTypes": [
+        "discovery.product-alert.created",
+        "discovery.product-alert.paused",
+        "discovery.product-alert.resumed",
+        "discovery.product-alert.deleted"
+      ],
+      "order": 5
+    },
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-category-projection",
@@ -188,6 +206,25 @@
         "marketplace.offer.accepted"
       ],
       "order": 30
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "discovery-product-alert-notification-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "discovery-product-alert-notification-projection"
+      ],
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.withdrawn",
+        "marketplace.offer.submitted",
+        "marketplace.offer.accepted"
+      ],
+      "order": 35
     }
   ],
   "projectionGroups": [
@@ -244,9 +281,36 @@
         "discovery_buyer_offer_matches"
       ],
       "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "discovery-product-alert-page-projection",
+      "sourceContextNames": [
+        "discovery"
+      ],
+      "ownedTables": [
+        "discovery_product_alert_pages"
+      ],
+      "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "discovery-product-alert-notification-projection",
+      "sourceContextNames": [
+        "marketplace"
+      ],
+      "ownedTables": [
+        "discovery_product_alert_market_activity",
+        "discovery_product_alert_match_notifications"
+      ],
+      "requiredDuringBootstrap": true
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "notificationOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable notification outbox consumed by Product Alert match projectors and dispatched through channel adapters."
+    }
+  ],
   "apiDeployables": [
     "platform-api"
   ],
@@ -255,13 +319,20 @@
       "mountPath": "/api/marketplace",
       "kind": "primary",
       "requiresAuth": true,
-      "drainProjectorsOnWrite": false
+      "drainProjectorsOnWrite": true
     }
   ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
       "routes": [
+        {
+          "routeId": "account-product-alerts",
+          "routePath": "account/product-alerts",
+          "fileExport": "./routes/account-product-alerts",
+          "routeType": "route",
+          "sourceContext": "discovery"
+        },
         {
           "routeId": "category",
           "routePath": "categories/:categorySlug",
@@ -301,6 +372,32 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "product-alerts",
+      "label": "Product Alerts",
+      "icon": "bell",
+      "href": "/account/product-alerts",
+      "order": 15,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "accounts.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "product-alerts",
+      "label": "Alerts",
+      "icon": "bell",
+      "href": "/account/product-alerts",
+      "order": 15,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "accounts.view"
+      ]
+    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -344,6 +441,14 @@
     "search": {
       "classification": "slice",
       "purpose": "Own search feature behavior, read models, and UI contracts for the discovery context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal discovery module composition"
+      ]
+    },
+    "product-alerts": {
+      "classification": "slice",
+      "purpose": "Own product-alerts behavior, read models, notification matching, APIs, and account UI for selected marketplace Products.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal discovery module composition"
@@ -417,6 +522,7 @@
       "expectedConsumers": [
         "categories",
         "item-detail",
+        "product-alerts",
         "search"
       ],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
