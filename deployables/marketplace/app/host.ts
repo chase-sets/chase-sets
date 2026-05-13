@@ -19,14 +19,14 @@ export function resolveMarketplaceNavItems(
 
   if (!actor || slot === "bottom-nav") {
     const resolvedItems = slot === "bottom-nav" && actor
-      ? buildMarketplaceBottomNav(items, actor)
+      ? buildMarketplaceBottomNav(items)
       : items;
     const withCart = withCartNavigation(resolvedItems, cartCount, { includeGuestCart: !actor });
 
     return slot === "top-nav" ? moveCartLast(withCart) : withCart;
   }
 
-  return moveCartLast(withCartNavigation(groupMarketplaceTopNav(items, actor), cartCount));
+  return moveCartLast(withCartNavigation(groupMarketplaceTopNav(items), cartCount));
 }
 
 const sellingWorkflowKeys = new Set([
@@ -36,7 +36,6 @@ const sellingWorkflowKeys = new Set([
   "offer-matches",
   "sales",
   "sale-shipments",
-  "payouts",
 ]);
 
 const sellingInfrastructureKeys = new Set([
@@ -44,8 +43,9 @@ const sellingInfrastructureKeys = new Set([
 ]);
 const topNavUtilityKeys = new Set(["account", "cart", "notifications", "register", "sign-in"]);
 
+const accountChildKeys = new Set(["account", "wallet", "payouts", "submitted-offers", "reviews"]);
 const accountTopNavOrder = ["search", "cart", "purchases", "notifications", "account", "reviews"];
-const accountChildNavOrder = ["account", "submitted-offers", "reviews"];
+const accountChildNavOrder = ["account", "wallet", "payouts", "submitted-offers", "reviews"];
 const sellingNavOrder = [
   "inventory",
   "inventory-imports",
@@ -53,7 +53,6 @@ const sellingNavOrder = [
   "offer-matches",
   "sales",
   "sale-shipments",
-  "payouts",
 ];
 
 const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
@@ -101,14 +100,15 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
     label: t("marketplace.app.host.shipping"),
     icon: "truck",
   },
+  wallet: {
+    label: t("marketplace.app.host.wallet"),
+    icon: "wallet",
+  },
+  payouts: {
+    label: t("marketplace.app.host.payouts"),
+    icon: "wallet",
+  },
 };
-
-function hasPermission(
-  actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
-  permission: string,
-) {
-  return actor?.permissions?.includes(permission) ?? false;
-}
 
 function toTraderNavItem(item: NavigationItem): NavigationItem {
   const override = traderNavOverrides[item.key];
@@ -238,25 +238,6 @@ function orderSellingNav(items: NavigationItem[]): NavigationItem[] {
   });
 }
 
-function withSyntheticPayoutItems(
-  items: NavigationItem[],
-  actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
-): NavigationItem[] {
-  if (!hasPermission(actor, "payouts.view")) {
-    return items;
-  }
-
-  return [
-    ...items,
-    {
-      key: "payouts",
-      label: t("marketplace.app.host.payouts"),
-      icon: "wallet",
-      href: "/account/payouts",
-    },
-  ];
-}
-
 function sellingLandingHref(items: readonly NavigationItem[]): string {
   return items.find((item) => item.key === "listings")?.href
     ?? items[0]?.href
@@ -265,14 +246,10 @@ function sellingLandingHref(items: readonly NavigationItem[]): string {
 
 function buildMarketplaceBottomNav(
   items: NavigationItem[],
-  actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
 ): NavigationItem[] {
   const visibleItems = items.filter((item) => !sellingInfrastructureKeys.has(item.key));
   const sellingItems = orderSellingNav(
-    withSyntheticPayoutItems(
-      visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
-      actor,
-    ),
+    visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
   );
   const accountItems = orderAccountNav(
     visibleItems.filter((item) => ["search", "cart", "purchases", "notifications", "account", "reviews"].includes(item.key)),
@@ -282,15 +259,16 @@ function buildMarketplaceBottomNav(
     ? {
         ...accountItem,
         children: orderAccountChildNav(
-          visibleItems.filter((item) => ["account", "submitted-offers", "reviews"].includes(item.key)),
+          visibleItems.filter((item) => accountChildKeys.has(item.key)),
         ),
       }
     : undefined;
 
   if (sellingItems.length === 0) {
-    return orderAccountNav(
-      visibleItems.filter((item) => ["search", "cart", "purchases", "notifications", "account"].includes(item.key)),
-    );
+    return [
+      ...accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+      ...(accountGroup ? [accountGroup] : []),
+    ];
   }
 
   const sellingGroup: NavigationItem = {
@@ -316,29 +294,25 @@ function buildMarketplaceBottomNav(
 
 function groupMarketplaceTopNav(
   items: NavigationItem[],
-  actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
 ): NavigationItem[] {
   const visibleItems = items.filter((item) => !sellingInfrastructureKeys.has(item.key));
   const sellingItems = orderSellingNav(
-    withSyntheticPayoutItems(
-      visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
-      actor,
-    ),
+    visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
   );
   const accountItems = orderAccountNav(
-    visibleItems.filter((item) => !sellingWorkflowKeys.has(item.key) && !["submitted-offers", "reviews"].includes(item.key)),
+    visibleItems.filter((item) => !sellingWorkflowKeys.has(item.key) && !accountChildKeys.has(item.key)),
   );
-  const accountItem = accountItems.find((item) => item.key === "account");
+  const accountBaseItem = visibleItems.find((item) => item.key === "account");
   const accountChildren = orderAccountChildNav(
-    visibleItems.filter((item) => ["account", "submitted-offers", "reviews"].includes(item.key)),
+    visibleItems.filter((item) => accountChildKeys.has(item.key)),
   );
-  const accountGroup: NavigationItem | undefined = accountItem && accountChildren.length > 1
+  const accountGroup: NavigationItem | undefined = accountBaseItem && accountChildren.length > 1
     ? {
-        ...accountItem,
+        ...accountBaseItem,
         href: undefined,
         children: accountChildren,
       }
-    : accountItem;
+    : accountBaseItem;
 
   if (sellingItems.length === 0) {
     return [

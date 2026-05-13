@@ -28,6 +28,7 @@ Notes:
 - Any signed-in account may submit product-scoped offers; offer submission does not require listing, inventory, or seller-management permissions.
 - Submitted offers are public marketplace-wide demand on product detail surfaces. Public offer rows expose the same account-level attribution style as public listings and must not expose shipping destinations or private contact details.
 - Accounts see their submitted demand as Submitted Offers.
+- Offers may be captured through Checkout Offer Intent, but Marketplace remains the owner of validation, lifecycle, visibility, matching, and acceptance.
 - Accounts can review Offer Matches only when they have matching active listings.
 - Discovery Product Alerts may consume limited offer demand signals for subscribed accounts without exposing buyer identity or full Offer detail.
 - When accepted, an offer leaves public marketplace-wide demand and becomes a commitment input for the selling account in Ordering.

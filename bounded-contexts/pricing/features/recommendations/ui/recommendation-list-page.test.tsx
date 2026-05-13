@@ -12,6 +12,7 @@ const recommendation = {
   listing_id: "lst_1",
   inventory_item_id: "inv_1",
   catalog_item_title: "Charizard ex",
+  catalog_item_language_code: "ja",
   catalog_item_subtitle: "Obsidian Flames",
   catalog_item_status: "active",
   market_price_amount: 20,
@@ -47,6 +48,7 @@ describe("PricingRecommendationListPage", () => {
     expect(html).toContain("Apply selected");
     expect(html).toContain("Dismiss selected");
     expect(html).toContain("Charizard ex");
+    expect(html).toContain("Japanese");
     expect(html).toContain("$20.00");
     expect(html).toContain("$22.00");
     expect(html).toContain("Current: $23.00");

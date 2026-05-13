@@ -83,10 +83,11 @@ describe("marketplace route layout", () => {
       "Offer Matches",
       "Sales",
       "Shipping",
-      "Payouts",
     ]);
     expect(accountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
+      "Wallet",
+      "Payouts",
       "Submitted Offers",
       "Reviews",
     ]);
@@ -108,6 +109,7 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/listings"');
     expect(html).toContain('href="/account/offers/matches"');
     expect(html).toContain('href="/account/offers/submitted"');
+    expect(html).toContain('href="/account/settlement"');
     expect(html).toContain('href="/account/payouts"');
     expect(html).toContain('href="/account/reviews"');
     expect(html).toContain('href="/account/purchases"');
@@ -151,6 +153,33 @@ describe("marketplace route layout", () => {
       "Purchases",
       "Notifications",
       "Account",
+    ]);
+  });
+
+  it("keeps wallet discoverable through account navigation without selling workflow permissions", () => {
+    const actor = {
+      permissions: [
+        "accounts.view",
+        "orders.view",
+        "orders.manage",
+        "payouts.view",
+      ],
+    };
+
+    const topAccountNav = resolveMarketplaceNavItems("top-nav", actor)
+      .find((item) => item.key === "account");
+    const bottomAccountNav = resolveMarketplaceNavItems("bottom-nav", actor)
+      .find((item) => item.key === "account");
+
+    expect(topAccountNav?.children?.map((item) => item.label)).toEqual([
+      "Account",
+      "Wallet",
+      "Payouts",
+    ]);
+    expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual([
+      "Account",
+      "Wallet",
+      "Payouts",
     ]);
   });
 

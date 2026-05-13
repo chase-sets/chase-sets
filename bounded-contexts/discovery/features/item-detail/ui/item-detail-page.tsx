@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   useEffect,
   useState,
@@ -423,17 +423,6 @@ function sortAccountOfferMatchesForReview(
   });
 }
 
-function offerStatusTone(status: string): "accent" | "neutral" | "success" {
-  switch (status) {
-    case "submitted":
-      return "accent";
-    case "accepted":
-      return "success";
-    default:
-      return "neutral";
-  }
-}
-
 function buildProductOptionSummaries({
   entries,
   mode,
@@ -685,9 +674,6 @@ function LoadedItemDetailPage({
           : true,
     )
   );
-  const sellerOfferById = new Map(
-    matchingAccountOfferMatches.map((offer) => [offer.offer_id, offer] as const),
-  );
   const bestOffer = getBestOffer(matchingOffers);
   const bestAccountOfferMatch = getBestAccountOfferMatch(matchingAccountOfferMatches);
   const defaultSellerOffer =
@@ -763,7 +749,7 @@ function LoadedItemDetailPage({
   const metadataItems = [
     {
       key: t("discovery.features.itemDetail.ui.itemDetailPage.language"),
-      value: data.language_code,
+      value: formatLanguageCodeLabel(data.language_code),
     },
     ...(categories.length > 0
       ? [
@@ -1330,7 +1316,6 @@ function LoadedItemDetailPage({
                       </Inline>
                       {matchingOffers.length > 0 ? (
                         matchingOffers.map((offer) => {
-                          const sellerOffer = sellerOfferById.get(offer.offer_id);
                           const isViewerOffer =
                             viewerAccountId !== null &&
                             offer.buyer_account_id === viewerAccountId;
@@ -1361,7 +1346,7 @@ function LoadedItemDetailPage({
                                 handleSelectionKeyDown(event, selectOffer)
                               }
                             >
-                              <Grid columns={{ base: 1, md: 4 }} gap={3}>
+                              <Grid columns={{ base: 1, md: 3 }} gap={3}>
                                 <Stack gap={1}>
                                   <Inline gap={2}>
                                     <Text weight="semibold">
@@ -1395,23 +1380,6 @@ function LoadedItemDetailPage({
                                     selections={getProductSelectionDetails(offer.selected_options)}
                                     summary={offer.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard.2")}
                                   />
-                                </Stack>
-                                <Stack gap={1}>
-                                  <Text size="sm" tone="secondary">
-                                    {t("discovery.features.itemDetail.ui.itemDetailPage.status")}</Text>
-                                  <Inline gap={2}>
-                                    <Badge tone={offerStatusTone(offer.status)}>
-                                      {offer.status}
-                                    </Badge>
-                                    {sellerOffer ? (
-                                      <Badge tone={sellerOffer.can_fulfill ? "success" : "warning"}>
-                                        {sellerOffer.can_fulfill ? t("discovery.features.itemDetail.ui.itemDetailPage.can.fulfill") : t("discovery.features.itemDetail.ui.itemDetailPage.needs.supply")}
-                                      </Badge>
-                                    ) : null}
-                                    {sellerOffer?.in_sell_list ? (
-                                      <Badge tone="accent">{t("discovery.features.itemDetail.ui.itemDetailPage.in.sell.list")}</Badge>
-                                    ) : null}
-                                  </Inline>
                                 </Stack>
                               </Grid>
                             </Card>

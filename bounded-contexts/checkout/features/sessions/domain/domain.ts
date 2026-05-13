@@ -21,7 +21,7 @@ import {
   type VersionSelectedOptionEntry,
 } from "../../../support/runtime-support/common";
 
-export type CheckoutSourceType = "cart" | "buy-now";
+export type CheckoutSourceType = "cart" | "buy-now" | "offer-intent";
 export type CheckoutOptimizationGoal = "lowest-total" | "fewest-shipments";
 
 export type CheckoutSessionLine = Readonly<{
@@ -33,6 +33,7 @@ export type CheckoutSessionLine = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: VersionSelectedOptionEntry[];
   productSummary: string | null;
+  offerPriceAmount?: string | null;
   quantity: number;
   fulfillmentMode?: "optimize" | "locked-listing";
   lockedListingId?: string | null;
@@ -64,6 +65,7 @@ export type CheckoutSessionState = Readonly<{
   lines: CheckoutSessionLine[];
   orderIds: readonly OrderId[];
   paymentId: PaymentId | null;
+  submittedOfferId: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }>;
@@ -79,6 +81,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   lines: [],
   orderIds: [],
   paymentId: null,
+  submittedOfferId: null,
   createdAt: null,
   updatedAt: null,
 };
@@ -131,6 +134,12 @@ export type RecordPaymentStartedCommand = Readonly<{
   recordedAt: string;
 }>;
 
+export type RecordOfferSubmittedCommand = Readonly<{
+  type: "RecordOfferSubmitted";
+  offerId: string;
+  recordedAt: string;
+}>;
+
 export type CheckoutSessionCommand =
   | StartCheckoutSessionCommand
   | SelectShippingOptionCommand
@@ -138,7 +147,8 @@ export type CheckoutSessionCommand =
   | RecordFulfillmentPreviewCommand
   | SetShippingAddressCommand
   | RecordOrdersCreatedCommand
-  | RecordPaymentStartedCommand;
+  | RecordPaymentStartedCommand
+  | RecordOfferSubmittedCommand;
 
 export type CheckoutSessionStartedEvent = DomainEvent<
   "checkout.session.started",
@@ -208,6 +218,15 @@ export type CheckoutPaymentStartedEvent = DomainEvent<
   }>
 >;
 
+export type CheckoutOfferSubmittedEvent = DomainEvent<
+  "checkout.session.offer-submitted",
+  Readonly<{
+    sessionId: CheckoutSessionId;
+    offerId: string;
+    recordedAt: string;
+  }>
+>;
+
 export type CheckoutSessionEvent =
   | CheckoutSessionStartedEvent
   | CheckoutShippingOptionSelectedEvent
@@ -215,7 +234,8 @@ export type CheckoutSessionEvent =
   | CheckoutFulfillmentPreviewRecordedEvent
   | CheckoutShippingAddressSetEvent
   | CheckoutOrdersCreatedEvent
-  | CheckoutPaymentStartedEvent;
+  | CheckoutPaymentStartedEvent
+  | CheckoutOfferSubmittedEvent;
 
 function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
   const lockedListingId =
@@ -242,6 +262,7 @@ function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
     selectedOptions: normalizeVersionSelection(line.selectedOptions),
     productSummary: normalizeOptionalText(line.productSummary),
+    offerPriceAmount: normalizeOptionalText(line.offerPriceAmount),
     quantity: ensurePositiveInteger(
       line.quantity,
       "Checkout quantity must be a positive whole number.",
@@ -351,6 +372,7 @@ export const decideCheckoutSession: AggregateDecider<
     case "RecordFulfillmentPreview":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assert(state.orderIds.length === 0, "Fulfillment preview cannot change after orders are created.");
+      assert(!state.submittedOfferId, "Fulfillment preview cannot change after purchase intent is placed.");
       return [
         {
           type: "checkout.session.fulfillment-preview-recorded",
@@ -370,6 +392,7 @@ export const decideCheckoutSession: AggregateDecider<
     case "SelectShippingOption":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assert(state.orderIds.length === 0, "Shipping cannot change after orders are created.");
+      assert(!state.submittedOfferId, "Shipping cannot change after purchase intent is placed.");
       return [
         {
           type: "checkout.session.shipping-option-selected",
@@ -389,6 +412,7 @@ export const decideCheckoutSession: AggregateDecider<
         state.orderIds.length === 0,
         "Shipping address cannot change after orders are created.",
       );
+      assert(!state.submittedOfferId, "Shipping address cannot change after purchase intent is placed.");
       return [
         {
           type: "checkout.session.shipping-address-set",
@@ -405,6 +429,7 @@ export const decideCheckoutSession: AggregateDecider<
     case "RecordOrdersCreated":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assert(state.shippingAddress !== null, "Checkout requires a shipping address before orders are created.");
+      assert(state.sourceType !== "offer-intent", "Purchase intent does not create orders during checkout.");
       if (state.orderIds.length > 0) {
         return [];
       }
@@ -424,6 +449,7 @@ export const decideCheckoutSession: AggregateDecider<
     case "RecordPaymentStarted":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assert(state.orderIds.length > 0, "Orders must be created before payment starts.");
+      assert(state.sourceType !== "offer-intent", "Purchase intent does not start payment during checkout.");
       if (state.paymentId) {
         return [];
       }
@@ -436,6 +462,31 @@ export const decideCheckoutSession: AggregateDecider<
             recordedAt: normalizeRequiredText(
               command.recordedAt,
               "Payment recording must include a timestamp.",
+            ),
+          },
+        },
+      ];
+    case "RecordOfferSubmitted":
+      assert(state.sessionId !== null, "Checkout session must be started first.");
+      assert(state.shippingAddress !== null, "Checkout requires a shipping address before purchase intent is placed.");
+      assert(state.sourceType === "offer-intent", "Only offer-intent checkout can record a submitted offer.");
+      assert(state.orderIds.length === 0, "Purchase intent cannot be placed after orders are created.");
+      assert(!state.paymentId, "Purchase intent cannot be placed after payment starts.");
+      if (state.submittedOfferId) {
+        return [];
+      }
+      return [
+        {
+          type: "checkout.session.offer-submitted",
+          data: {
+            sessionId: state.sessionId,
+            offerId: normalizeRequiredText(
+              command.offerId,
+              "Checkout must record the submitted offer.",
+            ),
+            recordedAt: normalizeRequiredText(
+              command.recordedAt,
+              "Offer submission recording must include a timestamp.",
             ),
           },
         },
@@ -462,6 +513,7 @@ export const evolveCheckoutSession: AggregateEvolver<
         lines: event.data.lines,
         orderIds: [],
         paymentId: null,
+        submittedOfferId: null,
         createdAt: event.data.createdAt,
         updatedAt: event.data.createdAt,
       };
@@ -500,6 +552,12 @@ export const evolveCheckoutSession: AggregateEvolver<
       return {
         ...state,
         paymentId: event.data.paymentId,
+        updatedAt: event.data.recordedAt,
+      };
+    case "checkout.session.offer-submitted":
+      return {
+        ...state,
+        submittedOfferId: event.data.offerId,
         updatedAt: event.data.recordedAt,
       };
     default:

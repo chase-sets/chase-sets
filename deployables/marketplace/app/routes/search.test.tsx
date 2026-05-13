@@ -223,7 +223,7 @@ describe("marketplace search route", () => {
     mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&page=3"), vi.fn()]);
 
     render(<SearchRoute />);
-    fireEvent.click(screen.getByRole("button", { name: "Cards (2)" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Cards (2)" })[0]);
 
     expect(navigate).toHaveBeenCalledWith("/categories/cards?q=pikachu", {
       preventScrollReset: true,
@@ -262,7 +262,8 @@ describe("marketplace search route", () => {
     expect(screen.getByRole("link", { name: "View details" }).getAttribute("href")).toBe(
       "/items/pikachu",
     );
-    expect(screen.getByText("Language: en")).toBeTruthy();
+    expect(screen.getByText("English")).toBeTruthy();
+    expect(screen.queryByText("Language: en")).toBeNull();
     expect(screen.queryByText("Compare")).toBeNull();
     expect(
       screen.queryByText("Compare price, seller trust, and fulfillment before choosing."),

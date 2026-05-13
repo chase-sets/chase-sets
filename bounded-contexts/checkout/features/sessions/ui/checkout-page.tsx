@@ -58,10 +58,11 @@ export function CheckoutSessionPage({
   const lines = session.lines;
   const lineCount = lines.reduce((sum, line) => sum + line.quantity, 0);
   const hasPayment = Boolean(session.payment_id);
+  const isOfferIntent = session.source_type === "offer-intent";
   const preview = fulfillmentPreview ?? null;
-  const readyCount = preview?.readyLineKeys.length ?? lines.length;
-  const unavailableCount = preview?.unavailableLineKeys.length ?? 0;
-  const canConfirm = readyCount > 0;
+  const readyCount = isOfferIntent ? 0 : preview?.readyLineKeys.length ?? lines.length;
+  const unavailableCount = isOfferIntent ? lines.length : preview?.unavailableLineKeys.length ?? 0;
+  const canConfirm = isOfferIntent ? lines.length > 0 : readyCount > 0;
   const previewAllocationLines = preview?.sellerGroups.flatMap((group) => group.lines) ?? [];
   const hasOnlyLockedAllocations =
     previewAllocationLines.length > 0 &&
@@ -74,10 +75,19 @@ export function CheckoutSessionPage({
           { label: t("checkout.features.sessions.ui.checkoutPage.lines"), value: lines.length },
           { label: t("checkout.features.sessions.ui.checkoutPage.ready.now"), value: readyCount },
           { label: t("checkout.features.sessions.ui.checkoutPage.needs.supply"), value: unavailableCount },
-          { label: t("checkout.features.sessions.ui.checkoutPage.source"), value: session.source_type === "buy-now" ? t("checkout.features.sessions.ui.checkoutPage.buy.now") : t("checkout.features.sessions.ui.checkoutPage.cart") },
+          {
+            label: t("checkout.features.sessions.ui.checkoutPage.source"),
+            value: isOfferIntent
+              ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent")
+              : session.source_type === "buy-now"
+                ? t("checkout.features.sessions.ui.checkoutPage.buy.now")
+                : t("checkout.features.sessions.ui.checkoutPage.cart"),
+          },
           {
             label: t("checkout.features.sessions.ui.checkoutPage.pricing"),
-            value: session.order_ids.length > 0
+            value: isOfferIntent
+              ? t("checkout.features.sessions.ui.checkoutPage.offer.submitted.after.review")
+              : session.order_ids.length > 0
               ? t("checkout.features.sessions.ui.checkoutPage.order.totals.created")
               : "Previewed now, committed on confirmation",
           },
@@ -90,9 +100,15 @@ export function CheckoutSessionPage({
               ]
             : []),
         ]}
-        total={hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
+        total={hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
         totalLabel={t("checkout.features.sessions.ui.checkoutPage.checkout.status")}
-        reassurance={<SecurePaymentIndicator label={t("checkout.features.sessions.ui.checkoutPage.secure.payment")} />}
+        reassurance={
+          <SecurePaymentIndicator
+            label={isOfferIntent
+              ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
+              : t("checkout.features.sessions.ui.checkoutPage.secure.payment")}
+          />
+        }
       />
       <BuyerProtectionModule
         items={[
@@ -100,13 +116,20 @@ export function CheckoutSessionPage({
             title: t("checkout.features.sessions.ui.checkoutPage.buyer.protection"),
             description: t("checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment"),
           },
-          {
-            title: t("checkout.features.sessions.ui.checkoutPage.secure.payment"),
-            description: t("checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are"),
-          },
+          isOfferIntent
+            ? {
+                title: t("checkout.features.sessions.ui.checkoutPage.no.payment.today"),
+                description: t("checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order"),
+              }
+            : {
+                title: t("checkout.features.sessions.ui.checkoutPage.secure.payment"),
+                description: t("checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are"),
+              },
           {
             title: t("checkout.features.sessions.ui.checkoutPage.fulfillment.ready"),
-            description: t("checkout.features.sessions.ui.checkoutPage.shipping.preference.is.captured.before.order"),
+            description: isOfferIntent
+              ? t("checkout.features.sessions.ui.checkoutPage.shipping.preference.is.captured.for.purchase.intent")
+              : t("checkout.features.sessions.ui.checkoutPage.shipping.preference.is.captured.before.order"),
           },
         ]}
       />
@@ -118,7 +141,7 @@ export function CheckoutSessionPage({
       <PageHeader
         eyebrow={t("checkout.features.sessions.ui.checkoutPage.secure.checkout")}
         title={t("checkout.features.sessions.ui.checkoutPage.checkout")}
-        description={t("checkout.features.sessions.ui.checkoutPage.choose.shipping.create.purchases.grouped.by")}
+        description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.confirm.shipping.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.choose.shipping.create.purchases.grouped.by")}
         actions={
           <LinkButton href="/account/cart" tone="secondary">
             {t("checkout.features.sessions.ui.checkoutPage.back.to.cart")}</LinkButton>
@@ -144,10 +167,11 @@ export function CheckoutSessionPage({
             ) : null}
 
             <Banner
-              title={t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview")}
-              description={t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview.description")}
+              title={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review") : t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview")}
+              description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review.description") : t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview.description")}
             />
 
+            {!isOfferIntent ? (
             <PageSection
               title={t("checkout.features.sessions.ui.checkoutPage.fulfillment")}
               description={t("checkout.features.sessions.ui.checkoutPage.fulfillment.description")}
@@ -261,10 +285,11 @@ export function CheckoutSessionPage({
                 ) : null}
               </Stack>
             </PageSection>
+            ) : null}
 
             <PageSection
               title={t("checkout.features.sessions.ui.checkoutPage.review.items")}
-              description={t("checkout.features.sessions.ui.checkoutPage.checkout.creates.purchases.grouped.by.seller")}
+              description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review.items.description") : t("checkout.features.sessions.ui.checkoutPage.checkout.creates.purchases.grouped.by.seller")}
             >
               <Stack gap={3}>
                 {lines.map((line, index) => (
@@ -273,7 +298,7 @@ export function CheckoutSessionPage({
                       <Stack gap={1}>
                         <Text weight="semibold">{formatLineLabel(line)}</Text>
                         <Text size="sm" tone="secondary">
-                          {t("checkout.features.sessions.ui.checkoutPage.product.intent.saved")}
+                          {isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.saved") : t("checkout.features.sessions.ui.checkoutPage.product.intent.saved")}
                         </Text>
                       </Stack>
                       <Stack gap={1}>
@@ -305,7 +330,7 @@ export function CheckoutSessionPage({
             ) : (
               <PageSection
                 title={t("checkout.features.sessions.ui.checkoutPage.shipping")}
-                description={t("checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax")}
+                description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.destination.required.for.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax")}
               >
                 <Surface elevated glow>
                   <form id="checkout-confirmation-form" method="post">
@@ -323,8 +348,8 @@ export function CheckoutSessionPage({
                       />
                       <MarketplaceNotice
                         tone="info"
-                        title={t("checkout.features.sessions.ui.checkoutPage.transparent.totals")}
-                        description={t("checkout.features.sessions.ui.checkoutPage.transparent.totals.description")}
+                        title={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today") : t("checkout.features.sessions.ui.checkoutPage.transparent.totals")}
+                        description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.shipping.notice.description") : t("checkout.features.sessions.ui.checkoutPage.transparent.totals.description")}
                       />
                       <Grid columns={{ base: 1, md: 2 }} gap={3}>
                         <TextInput
@@ -395,31 +420,35 @@ export function CheckoutSessionPage({
                           { value: "priority", label: t("checkout.features.sessions.ui.checkoutPage.priority.signature") },
                         ]}
                       />
-                      <NativeSelect
-                        label={t("checkout.features.sessions.ui.checkoutPage.payment.method")}
-                        name="paymentMethodCategory"
-                        defaultValue="card"
-                        items={[
-                          { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
-                          { value: "bank-account", label: t("checkout.features.sessions.ui.checkoutPage.bank.account") },
-                          { value: "platform-credit", label: t("checkout.features.sessions.ui.checkoutPage.platform.credit.only") },
-                        ]}
-                        description={t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description")}
-                      />
-                      <TextInput
-                        label={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
-                        name="requestedBalanceCreditAmount"
-                        placeholder="0.00"
-                        inputMode="decimal"
-                        description={
-                          wallet
-                            ? t("checkout.features.sessions.ui.checkoutPage.wallet.available.description", {
-                                amount: wallet.available_balance_amount,
-                                currency: wallet.currency_code.toUpperCase(),
-                              })
-                            : t("checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this")
-                        }
-                      />
+                      {!isOfferIntent ? (
+                        <>
+                          <NativeSelect
+                            label={t("checkout.features.sessions.ui.checkoutPage.payment.method")}
+                            name="paymentMethodCategory"
+                            defaultValue="card"
+                            items={[
+                              { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
+                              { value: "bank-account", label: t("checkout.features.sessions.ui.checkoutPage.bank.account") },
+                              { value: "platform-credit", label: t("checkout.features.sessions.ui.checkoutPage.platform.credit.only") },
+                            ]}
+                            description={t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description")}
+                          />
+                          <TextInput
+                            label={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
+                            name="requestedBalanceCreditAmount"
+                            placeholder="0.00"
+                            inputMode="decimal"
+                            description={
+                              wallet
+                                ? t("checkout.features.sessions.ui.checkoutPage.wallet.available.description", {
+                                    amount: wallet.available_balance_amount,
+                                    currency: wallet.currency_code.toUpperCase(),
+                                  })
+                                : t("checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this")
+                            }
+                          />
+                        </>
+                      ) : null}
                       <Divider />
                       <Button
                         type="submit"
@@ -428,7 +457,11 @@ export function CheckoutSessionPage({
                         loading={isSubmitting}
                         disabled={isSubmitting || !canConfirm}
                       >
-                        {isSubmitting ? t("checkout.features.sessions.ui.checkoutPage.creating.purchases") : canConfirm ? t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2") : "No available supply"}
+                        {isSubmitting
+                          ? isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
+                          : canConfirm
+                            ? isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")
+                            : "No available supply"}
                       </Button>
                     </Stack>
                   </form>
@@ -436,8 +469,8 @@ export function CheckoutSessionPage({
               </PageSection>
             )}
             <StickyCtaBar
-              price={hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
-              context={t("checkout.features.sessions.ui.checkoutPage.final.totals.before.payment")}
+              price={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today") : hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
+              context={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.shipping.saved.for.seller.acceptance") : t("checkout.features.sessions.ui.checkoutPage.final.totals.before.payment")}
               primaryAction={
                 hasPayment && session.payment_id ? (
                   <LinkButton href={`/account/payments/${session.payment_id}`}>
@@ -451,7 +484,9 @@ export function CheckoutSessionPage({
                     disabled={isSubmitting || !canConfirm}
                     loading={isSubmitting}
                   >
-                    {isSubmitting ? t("checkout.features.sessions.ui.checkoutPage.creating.purchases") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}
+                    {isSubmitting
+                      ? isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
+                      : isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}
                   </Button>
                 )
               }

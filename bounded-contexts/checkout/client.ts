@@ -60,9 +60,25 @@ export type CreateBuyNowCheckoutSessionRequest = Readonly<{
   shippingOption?: string;
 }>;
 
+export type CreateOfferIntentCheckoutSessionRequest = Readonly<{
+  source: Readonly<{
+    type: "offer-intent";
+    catalogItemId: string;
+    productId: string;
+    itemTitle: string;
+    itemSubtitle?: string | null;
+    selectedOptions: readonly CheckoutSelectedOptionInput[];
+    productSummary?: string | null;
+    offerPriceAmount: string;
+    quantity: number;
+  }>;
+  shippingOption?: string;
+}>;
+
 export type CreateCheckoutSessionRequest =
   | CreateCartCheckoutSessionRequest
-  | CreateBuyNowCheckoutSessionRequest;
+  | CreateBuyNowCheckoutSessionRequest
+  | CreateOfferIntentCheckoutSessionRequest;
 
 export type SelectCheckoutShippingOptionRequest = Readonly<{
   shippingOption: string;
@@ -337,7 +353,12 @@ export function createCheckoutApiClient({
         acknowledgedMaterialChanges?: boolean;
         shippingAddress?: CheckoutShippingAddressInput | null;
       }> = {},
-    ): Promise<{ payment_id: string; order_ids: readonly string[] }> {
+    ): Promise<{
+      payment_id?: string;
+      order_ids?: readonly string[];
+      offer_id?: string;
+      status: string;
+    }> {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"].confirm.$post({
           param: { sessionId },

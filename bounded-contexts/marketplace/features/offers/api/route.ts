@@ -172,6 +172,10 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     try {
       const result = await services.submitOffer(
         {
+          offerId:
+            typeof body.offerId === "string" && body.offerId.trim()
+              ? body.offerId as never
+              : undefined,
           buyerAccountId: access.actor.accountId as never,
           catalogItemId: String(body.catalogItemId ?? ""),
           productId: String(body.productId ?? ""),

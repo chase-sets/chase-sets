@@ -297,12 +297,16 @@ function packingSlipPageStyles(format: FulfillmentPackingSlipFormat) {
         }
 
         .fulfillment-packing-slip--thermal .fulfillment-packing-slip__grid {
-          gap: 0.5rem;
-          grid-template-columns: 1fr;
+          gap: 0.35rem;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .fulfillment-packing-slip--thermal .fulfillment-packing-slip__title {
           font-size: 1rem;
+        }
+
+        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__section-title {
+          margin-bottom: 0.2rem;
         }
 
         .fulfillment-packing-slip--thermal .fulfillment-packing-slip__address-line,
@@ -351,6 +355,11 @@ function packingSlipPageStyles(format: FulfillmentPackingSlipFormat) {
           .fulfillment-packing-slip__header,
           .fulfillment-packing-slip__grid {
             grid-template-columns: 1fr;
+          }
+
+          .fulfillment-packing-slip--thermal .fulfillment-packing-slip__grid {
+            gap: 0.35rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
           .fulfillment-packing-slip__reference {

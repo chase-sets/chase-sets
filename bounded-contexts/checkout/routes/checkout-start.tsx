@@ -22,7 +22,10 @@ import {
   TextInput,
   formatMarketplaceNumber,
 } from "@chase-sets/design-system";
-import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import {
+  createCheckoutRequestApiClient,
+  type CreateCheckoutSessionRequest,
+} from "../support/request-support/api-client";
 import {
   appendClearedAnonymousCartCookie,
   appendGuestCheckoutCookie,
@@ -61,9 +64,24 @@ function parseQuantity(value: FormDataEntryValue | string | null) {
   return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
 }
 
-function buyNowSourceFromUrl(url: URL) {
-  if (url.searchParams.get("source") !== "buy-now") {
+function sourceFromUrl(url: URL) {
+  const sourceType = url.searchParams.get("source");
+  if (sourceType !== "buy-now" && sourceType !== "offer-intent") {
     return null;
+  }
+
+  if (sourceType === "offer-intent") {
+    return {
+      type: "offer-intent" as const,
+      catalogItemId: url.searchParams.get("catalogItemId") ?? "",
+      productId: url.searchParams.get("productId") ?? "",
+      itemTitle: url.searchParams.get("itemTitle") ?? "",
+      itemSubtitle: url.searchParams.get("itemSubtitle") || null,
+      selectedOptions: parseSelectedOptions(url.searchParams.get("selectedOptions")),
+      productSummary: url.searchParams.get("productSummary") || null,
+      offerPriceAmount: url.searchParams.get("offerPriceAmount") ?? url.searchParams.get("priceAmount") ?? "",
+      quantity: parseQuantity(url.searchParams.get("quantity") ?? url.searchParams.get("quantityRequested")),
+    };
   }
 
   return {
@@ -88,7 +106,23 @@ function buyNowSourceFromUrl(url: URL) {
   };
 }
 
-function buyNowSourceFromForm(formData: FormData) {
+function sourceFromForm(formData: FormData) {
+  if (String(formData.get("source") ?? "cart") === "offer-intent") {
+    return {
+      type: "offer-intent" as const,
+      catalogItemId: String(formData.get("catalogItemId") ?? ""),
+      productId: String(formData.get("productId") ?? ""),
+      itemTitle: String(formData.get("itemTitle") ?? ""),
+      itemSubtitle: String(formData.get("itemSubtitle") ?? "") || null,
+      selectedOptions: parseSelectedOptions(
+        String(formData.get("selectedOptions") ?? "[]"),
+      ),
+      productSummary: String(formData.get("productSummary") ?? "") || null,
+      offerPriceAmount: String(formData.get("offerPriceAmount") ?? formData.get("priceAmount") ?? ""),
+      quantity: parseQuantity(formData.get("quantity") ?? formData.get("quantityRequested")),
+    };
+  }
+
   return {
     type: "buy-now" as const,
     listingId: String(formData.get("listingId") ?? ""),
@@ -113,10 +147,83 @@ function buyNowSourceFromForm(formData: FormData) {
   };
 }
 
-function checkoutSessionRequestFromForm(formData: FormData) {
-  return String(formData.get("source") ?? "cart") === "buy-now"
-    ? { source: buyNowSourceFromForm(formData) }
-    : { source: { type: "cart" as const } };
+function checkoutSessionRequestFromForm(
+  formData: FormData,
+): CreateCheckoutSessionRequest {
+  const sourceType = String(formData.get("source") ?? "cart");
+  if (sourceType === "offer-intent") {
+    const source = sourceFromForm(formData);
+    if (source.type !== "offer-intent") {
+      throw new Error("Purchase intent source was not preserved.");
+    }
+    return { source };
+  }
+
+  if (sourceType === "buy-now") {
+    const source = sourceFromForm(formData);
+    if (source.type !== "buy-now") {
+      throw new Error("Buy now source was not preserved.");
+    }
+    return { source };
+  }
+
+  return { source: { type: "cart" as const } };
+}
+
+export function checkoutStartHeaderCopy(params: Readonly<{ isSignedIn: boolean; isOfferIntent: boolean }>) {
+  if (params.isOfferIntent) {
+    return params.isSignedIn
+      ? {
+          title: t("checkout.routes.checkoutStart.place.purchase.intent"),
+          description: t("checkout.routes.checkoutStart.confirm.shipping.so.the.seller.can.review"),
+        }
+      : {
+          title: t("checkout.routes.checkoutStart.register.to.place.purchase.intent"),
+          description: t("checkout.routes.checkoutStart.register.or.sign.in.purchase.intent.copy"),
+        };
+  }
+
+  return params.isSignedIn
+    ? {
+        title: t("checkout.routes.checkoutStart.continue.checkout"),
+        description: t("checkout.routes.checkoutStart.continue.with.your.account.so.purchases.payments"),
+      }
+    : {
+        title: t("checkout.routes.checkoutStart.sign.in.or.continue.as.guest"),
+        description: t("checkout.routes.checkoutStart.sign.in.to.keep.orders.with.your.account"),
+      };
+}
+
+export function checkoutStartBuyerProtectionItems(isOfferIntent: boolean) {
+  return isOfferIntent
+    ? [
+        {
+          title: t("checkout.routes.checkoutStart.transparent.next.step"),
+          description: t("checkout.routes.checkoutStart.sellers.review.purchase.intent.before.payment"),
+        },
+        {
+          title: t("checkout.routes.checkoutStart.recoverable.checkout"),
+          description: t("checkout.routes.checkoutStart.account.keeps.purchase.intent.traceable"),
+        },
+        {
+          title: t("checkout.routes.checkoutStart.protected.payment"),
+          description: t("checkout.routes.checkoutStart.payment.collected.only.after.seller.accepts"),
+        },
+      ]
+    : [
+        {
+          title: t("checkout.routes.checkoutStart.transparent.next.step"),
+          description: t("checkout.routes.checkoutStart.shipping.fees.and.final.totals.are.shown"),
+        },
+        {
+          title: t("checkout.routes.checkoutStart.recoverable.checkout"),
+          description: t("checkout.routes.checkoutStart.guest.receipts.and.signed.in.order.history"),
+        },
+        {
+          title: t("checkout.routes.checkoutStart.protected.payment"),
+          description: t("checkout.routes.checkoutStart.payment.begins.only.after.the.checkout.session"),
+        },
+      ];
 }
 
 function currentPathWithSearch(request: Request) {
@@ -146,7 +253,7 @@ function isAccountSignInRequiredError(error: unknown) {
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   const url = new URL(request.url);
-  const source = buyNowSourceFromUrl(url);
+  const source = sourceFromUrl(url);
   const api = createCheckoutRequestApiClient(request);
   const cart = actor || source
     ? null
@@ -182,6 +289,13 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     return response;
+  }
+
+  if (String(formData.get("source") ?? "cart") === "offer-intent") {
+    return {
+      error: t("checkout.routes.checkoutStart.register.or.sign.in.to.place.purchase.intent"),
+      signInPath: signInPathForReturnTo(currentPathWithSearch(request)),
+    };
   }
 
   const contactName = String(formData.get("contactName") ?? "").trim();
@@ -239,12 +353,21 @@ export default function CheckoutStartRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const source = data.source;
+  const isOfferIntent = source?.type === "offer-intent";
+  const headerCopy = checkoutStartHeaderCopy({
+    isSignedIn: data.isSignedIn,
+    isOfferIntent,
+  });
+  const signInReturnTo =
+    new URLSearchParams(data.signInPath.split("?")[1] ?? "").get("returnTo") ??
+    "/checkout/start";
+  const registerPath = `/register?returnTo=${encodeURIComponent(signInReturnTo)}`;
   const sourceFields = source ? (
     <>
-      <input type="hidden" name="source" value="buy-now" />
-      <input type="hidden" name="listingId" value={source.listingId} />
-      <input type="hidden" name="fulfillmentMode" value={source.fulfillmentMode} />
-      <input type="hidden" name="lockedListingId" value={source.lockedListingId ?? ""} />
+      <input type="hidden" name="source" value={source.type} />
+      {"listingId" in source ? <input type="hidden" name="listingId" value={source.listingId} /> : null}
+      {"fulfillmentMode" in source ? <input type="hidden" name="fulfillmentMode" value={source.fulfillmentMode} /> : null}
+      {"lockedListingId" in source ? <input type="hidden" name="lockedListingId" value={source.lockedListingId ?? ""} /> : null}
       <input type="hidden" name="catalogItemId" value={source.catalogItemId} />
       <input type="hidden" name="productId" value={source.productId} />
       <input type="hidden" name="itemTitle" value={source.itemTitle} />
@@ -252,10 +375,11 @@ export default function CheckoutStartRoute() {
       <input type="hidden" name="selectedOptions" value={JSON.stringify(source.selectedOptions)} />
       <input type="hidden" name="productSummary" value={source.productSummary ?? ""} />
       <input type="hidden" name="quantity" value={source.quantity} />
-      <input type="hidden" name="priceAmount" value={source.priceAmount ?? ""} />
-      <input type="hidden" name="sellerName" value={source.sellerName ?? ""} />
-      <input type="hidden" name="availability" value={source.availability ?? ""} />
-      <input type="hidden" name="fulfillment" value={source.fulfillment ?? ""} />
+      {"offerPriceAmount" in source ? <input type="hidden" name="offerPriceAmount" value={source.offerPriceAmount} /> : null}
+      {"priceAmount" in source ? <input type="hidden" name="priceAmount" value={source.priceAmount ?? ""} /> : null}
+      {"sellerName" in source ? <input type="hidden" name="sellerName" value={source.sellerName ?? ""} /> : null}
+      {"availability" in source ? <input type="hidden" name="availability" value={source.availability ?? ""} /> : null}
+      {"fulfillment" in source ? <input type="hidden" name="fulfillment" value={source.fulfillment ?? ""} /> : null}
     </>
   ) : (
     <input type="hidden" name="source" value="cart" />
@@ -265,7 +389,9 @@ export default function CheckoutStartRoute() {
       title={source.itemTitle || t("checkout.routes.checkoutStart.buy.now")}
       subtitle={source.itemSubtitle ?? source.productSummary ?? null}
       price={
-        source.priceAmount
+        source.type === "offer-intent"
+          ? `$${source.offerPriceAmount}`
+          : source.priceAmount
           ? `$${source.priceAmount}`
           : t("checkout.routes.checkoutStart.price.confirmed.before.payment")
       }
@@ -273,11 +399,11 @@ export default function CheckoutStartRoute() {
         source.quantity,
         t("checkout.routes.checkoutStart.quantity.confirmed.before.payment"),
       )}
-      seller={source.sellerName ?? t("checkout.routes.checkoutStart.marketplace.seller")}
-      availability={source.availability ?? t("checkout.routes.checkoutStart.availability.confirmed.before.payment")}
-      fulfillment={source.fulfillment ?? t("checkout.routes.checkoutStart.fulfillment.confirmed.before.payment")}
+      seller={source.type === "buy-now" ? source.sellerName ?? t("checkout.routes.checkoutStart.marketplace.seller") : t("checkout.routes.checkoutStart.marketplace.seller")}
+      availability={source.type === "buy-now" ? source.availability ?? t("checkout.routes.checkoutStart.availability.confirmed.before.payment") : t("checkout.routes.checkoutStart.waiting.for.seller.acceptance")}
+      fulfillment={source.type === "buy-now" ? source.fulfillment ?? t("checkout.routes.checkoutStart.fulfillment.confirmed.before.payment") : t("checkout.routes.checkoutStart.offer.submitted.after.registration")}
       protection={t("checkout.routes.checkoutStart.buyer.protection.included")}
-      paymentStatus={t("checkout.routes.checkoutStart.not.charged.yet")}
+      paymentStatus={source.type === "offer-intent" ? t("checkout.routes.checkoutStart.no.payment.today") : t("checkout.routes.checkoutStart.not.charged.yet")}
     />
   ) : null;
 
@@ -285,12 +411,8 @@ export default function CheckoutStartRoute() {
     <Page>
       <PageHeader
         eyebrow={t("checkout.routes.checkoutStart.secure.checkout")}
-        title={data.isSignedIn ? t("checkout.routes.checkoutStart.continue.checkout") : t("checkout.routes.checkoutStart.sign.in.or.continue.as.guest")}
-        description={
-          data.isSignedIn
-            ? t("checkout.routes.checkoutStart.continue.with.your.account.so.purchases.payments")
-            : t("checkout.routes.checkoutStart.sign.in.to.keep.orders.with.your.account")
-        }
+        title={headerCopy.title}
+        description={headerCopy.description}
       />
       <CheckoutLayout
         summary={
@@ -312,12 +434,16 @@ export default function CheckoutStartRoute() {
                   ? [
                       {
                         label: t("checkout.routes.checkoutStart.seller"),
-                        value: source.sellerName ?? t("checkout.routes.checkoutStart.marketplace.seller"),
+                        value: source.type === "buy-now"
+                          ? source.sellerName ?? t("checkout.routes.checkoutStart.marketplace.seller")
+                          : t("checkout.routes.checkoutStart.marketplace.seller"),
                       },
                       {
                         label: t("checkout.routes.checkoutStart.price"),
-                        value: source.priceAmount
-                          ? `$${source.priceAmount}`
+                        value: source.type === "offer-intent"
+                          ? `$${source.offerPriceAmount}`
+                          : source.priceAmount
+                            ? `$${source.priceAmount}`
                           : t("checkout.routes.checkoutStart.price.confirmed.before.payment"),
                       },
                       {
@@ -331,33 +457,22 @@ export default function CheckoutStartRoute() {
                   : []),
                 {
                   label: t("checkout.routes.checkoutStart.account.choice"),
-                  value: data.isSignedIn ? t("checkout.routes.checkoutStart.signed.in") : t("checkout.routes.checkoutStart.sign.in.or.guest"),
+                  value: data.isSignedIn
+                      ? t("checkout.routes.checkoutStart.signed.in")
+                      : isOfferIntent
+                      ? t("checkout.routes.checkoutStart.register.or.sign.in")
+                      : t("checkout.routes.checkoutStart.sign.in.or.guest"),
                 },
                 {
                   label: t("checkout.routes.checkoutStart.payment"),
-                  value: t("checkout.routes.checkoutStart.not.charged.yet"),
+                  value: isOfferIntent ? t("checkout.routes.checkoutStart.no.payment.today") : t("checkout.routes.checkoutStart.not.charged.yet"),
                 },
               ]}
               total={t("checkout.routes.checkoutStart.ready")}
               totalLabel={t("checkout.routes.checkoutStart.checkout.status")}
-              reassurance={<SecurePaymentIndicator label={t("checkout.routes.checkoutStart.secure.payment")} />}
+              reassurance={<SecurePaymentIndicator label={isOfferIntent ? t("checkout.routes.checkoutStart.no.payment.today") : t("checkout.routes.checkoutStart.secure.payment")} />}
             />
-            <BuyerProtectionModule
-              items={[
-                {
-                  title: t("checkout.routes.checkoutStart.transparent.next.step"),
-                  description: t("checkout.routes.checkoutStart.shipping.fees.and.final.totals.are.shown"),
-                },
-                {
-                  title: t("checkout.routes.checkoutStart.recoverable.checkout"),
-                  description: t("checkout.routes.checkoutStart.guest.receipts.and.signed.in.order.history"),
-                },
-                {
-                  title: t("checkout.routes.checkoutStart.protected.payment"),
-                  description: t("checkout.routes.checkoutStart.payment.begins.only.after.the.checkout.session"),
-                },
-              ]}
-            />
+            <BuyerProtectionModule items={checkoutStartBuyerProtectionItems(isOfferIntent)} />
           </Stack>
         }
       >
@@ -392,6 +507,24 @@ export default function CheckoutStartRoute() {
                 </Form>
               </Surface>
             </PageSection>
+          ) : isOfferIntent ? (
+            <>
+              <PageSection title={t("checkout.routes.checkoutStart.register.to.place.purchase.intent")}>
+                <Surface elevated glow>
+                  <Stack gap={3}>
+                    <Text tone="secondary">
+                      {t("checkout.routes.checkoutStart.registration.purchase.intent.copy")}
+                    </Text>
+                    <LinkButton href={registerPath} size="lg" leadingIcon="shield">
+                      {t("checkout.routes.checkoutStart.register.with.passkey")}
+                    </LinkButton>
+                    <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">
+                      {t("checkout.routes.checkoutStart.sign.in")}
+                    </LinkButton>
+                  </Stack>
+                </Surface>
+              </PageSection>
+            </>
           ) : (
             <>
               <PageSection title={t("checkout.routes.checkoutStart.account")}>

@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import { useRevalidator } from "react-router";
@@ -24,7 +24,7 @@ function buildColumns(): DataColumn<CatalogItemListItem>[] {
   return [
     { key: "title", header: t("catalog.features.catalogItems.ui.catalogItemListPage.title"), cell: (row) => row.title },
     { key: "subtitle", header: t("catalog.features.catalogItems.ui.catalogItemListPage.subtitle"), cell: (row) => row.subtitle ?? "—" },
-    { key: "language", header: t("catalog.features.catalogItems.ui.catalogItemListPage.language"), cell: (row) => row.language_code },
+    { key: "language", header: t("catalog.features.catalogItems.ui.catalogItemListPage.language"), cell: (row) => formatLanguageCodeLabel(row.language_code) },
     { key: "blueprint", header: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint"), cell: (row) => row.blueprint?.name ?? "—" },
     { key: "status", header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
   ];

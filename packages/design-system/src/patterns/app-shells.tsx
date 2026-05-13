@@ -303,7 +303,7 @@ export function SearchResultsLayout({
   children
 }: SearchResultsLayoutProps) {
   const content = (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {summary}
       {children}
     </div>
@@ -315,7 +315,9 @@ export function SearchResultsLayout({
 
   return (
     <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <div className="hidden lg:block">{filters}</div>
+      <div className="hidden lg:block">
+        <div className="sticky top-20 self-start">{filters}</div>
+      </div>
       {content}
     </div>
   );
