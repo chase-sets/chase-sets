@@ -162,7 +162,42 @@
       ]
     }
   ],
-  "shellContributions": [],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
+      "key": "wallet",
+      "label": "Wallet",
+      "icon": "wallet",
+      "href": "/account/settlement",
+      "order": 180,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "payouts.view"
+      ]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": [
+        "top-nav",
+        "bottom-nav"
+      ],
+      "key": "payouts",
+      "label": "Payouts",
+      "icon": "wallet",
+      "href": "/account/payouts",
+      "order": 185,
+      "visibility": "signed-in",
+      "requiredPermissions": [
+        "payouts.view"
+      ]
+    }
+  ],
   "directoryIntent": {
     "wallets": {
       "classification": "slice",
