@@ -52,6 +52,7 @@ locals {
     "insights",
     "inventory",
     "marketplace",
+    "notifications",
     "ordering",
     "payments",
     "pricing",
