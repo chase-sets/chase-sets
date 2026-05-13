@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   useEffect,
   useState,
@@ -749,7 +749,7 @@ function LoadedItemDetailPage({
   const metadataItems = [
     {
       key: t("discovery.features.itemDetail.ui.itemDetailPage.language"),
-      value: data.language_code,
+      value: formatLanguageCodeLabel(data.language_code),
     },
     ...(categories.length > 0
       ? [

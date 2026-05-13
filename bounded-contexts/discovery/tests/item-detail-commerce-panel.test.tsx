@@ -155,6 +155,7 @@ function createItem(
   return {
     catalog_item_id: "cat_charizard",
     slug: "charizard-base-set-cat_charizard",
+    language_code: "en",
     title: "Charizard",
     subtitle: "Base Set 4/102 Holo Rare",
     description: "The iconic Base Set Charizard.",
@@ -175,6 +176,13 @@ function createItem(
 }
 
 describe("item detail commerce panel", () => {
+  it("renders item detail language codes as localized labels", () => {
+    renderWithDataRouter(<ItemDetailPage data={createItem({ language_code: "ja" })} />);
+
+    expect(screen.getByText("Japanese")).toBeTruthy();
+    expect(screen.queryByText("ja")).toBeNull();
+  });
+
   it("shows the sell tab when seller tools are represented by a registration CTA", () => {
     render(
       <ItemCommercePanel

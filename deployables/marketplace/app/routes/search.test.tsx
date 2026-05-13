@@ -262,7 +262,8 @@ describe("marketplace search route", () => {
     expect(screen.getByRole("link", { name: "View details" }).getAttribute("href")).toBe(
       "/items/pikachu",
     );
-    expect(screen.getByText("Language: en")).toBeTruthy();
+    expect(screen.getByText("English")).toBeTruthy();
+    expect(screen.queryByText("Language: en")).toBeNull();
     expect(screen.queryByText("Compare")).toBeNull();
     expect(
       screen.queryByText("Compare price, seller trust, and fulfillment before choosing."),

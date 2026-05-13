@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   Badge,
@@ -149,7 +149,7 @@ export function MarketplaceListingDetailPage({
                 <Inline>
                   <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
                   {listing.item_language_code ? (
-                    <Badge tone="neutral">{listing.item_language_code}</Badge>
+                    <Badge tone="neutral">{formatLanguageCodeLabel(listing.item_language_code)}</Badge>
                   ) : null}
                   {listing.status === "active" ? (
                     <Badge tone="success">

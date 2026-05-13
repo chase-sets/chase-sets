@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Button,
@@ -276,7 +276,7 @@ export function InventoryItemListPage({
                     <Stack gap={1}>
                       <Text weight="semibold">{displayItemLabel(row)}</Text>
                       {row.language_code ? (
-                        <Badge tone="neutral">{row.language_code}</Badge>
+                        <Badge tone="neutral">{formatLanguageCodeLabel(row.language_code)}</Badge>
                       ) : null}
                       {row.item_subtitle ? (
                         <Text tone="secondary" size="sm">
