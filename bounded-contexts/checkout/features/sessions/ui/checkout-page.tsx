@@ -102,7 +102,13 @@ export function CheckoutSessionPage({
         ]}
         total={hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
         totalLabel={t("checkout.features.sessions.ui.checkoutPage.checkout.status")}
-        reassurance={<SecurePaymentIndicator label={t("checkout.features.sessions.ui.checkoutPage.secure.payment")} />}
+        reassurance={
+          <SecurePaymentIndicator
+            label={isOfferIntent
+              ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
+              : t("checkout.features.sessions.ui.checkoutPage.secure.payment")}
+          />
+        }
       />
       <BuyerProtectionModule
         items={[

@@ -56,6 +56,8 @@ vi.mock("../support/request-support/api-client", () => ({
 import { AuthApiError } from "@chase-sets/auth/server";
 import {
   action as checkoutStartAction,
+  checkoutStartBuyerProtectionItems,
+  checkoutStartHeaderCopy,
   loader as checkoutStartLoader,
 } from "./checkout-start";
 import {
@@ -420,6 +422,22 @@ describe("checkout web routes", () => {
     });
     expect(mockStartGuestCheckout).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("uses purchase-intent account copy instead of guest checkout copy", () => {
+    expect(checkoutStartHeaderCopy({ isSignedIn: false, isOfferIntent: true })).toEqual({
+      title: "Register to place purchase intent",
+      description:
+        "Register or sign in to place your purchase intent. Sellers review the offer before any payment is collected.",
+    });
+    expect(checkoutStartHeaderCopy({ isSignedIn: true, isOfferIntent: true })).toEqual({
+      title: "Place purchase intent",
+      description:
+        "Confirm shipping so the seller can review your purchase intent. No payment today.",
+    });
+    expect(checkoutStartBuyerProtectionItems(true).map((item) => item.description).join(" ")).not.toContain(
+      "Guest",
+    );
   });
 
   it("confirms checkout and redirects to the payment detail", async () => {

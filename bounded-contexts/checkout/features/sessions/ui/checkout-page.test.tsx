@@ -177,6 +177,7 @@ describe("checkout session page", () => {
     expect(markup).toContain("No payment today");
     expect(markup).toContain("Sellers can accept your purchase intent");
     expect(markup).toContain("Destination is required so a seller knows where the purchase intent would ship");
+    expect(markup).not.toContain("Secure Payment");
     expect(markup).not.toContain("Payment method");
     expect(markup).not.toContain("Live fulfillment preview");
     expect(markup).not.toContain("Destination is required before purchases are created");
