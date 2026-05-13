@@ -28,6 +28,10 @@ import {
   createCheckoutRequestApiClient,
   readAnonymousCartId,
 } from "@chase-sets/checkout/server";
+import {
+  createIdentityRequestApiClient,
+  type CurrentActorDisplay,
+} from "@chase-sets/identity/server";
 
 type MarketplaceRootActor = Awaited<ReturnType<typeof resolveMarketplaceActor>>;
 
@@ -52,11 +56,28 @@ async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
   }
 }
 
+async function resolveCurrentActorDisplay(
+  request: Request,
+  actor: MarketplaceRootActor,
+) {
+  if (!actor) {
+    return null;
+  }
+
+  try {
+    const identityApi = createIdentityRequestApiClient(request);
+    return await identityApi.getCurrentActorDisplay<CurrentActorDisplay>();
+  } catch {
+    return null;
+  }
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveMarketplaceActor(request);
 
   return {
     actor,
+    actorDisplay: await resolveCurrentActorDisplay(request, actor),
     cartCount: await resolveCartCount(request, actor),
     origin: new URL(request.url).origin,
     shouldIndex: shouldIndexMarketplace(),

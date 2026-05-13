@@ -10,3 +10,4 @@ export type { Membership } from "./features/memberships/api/contracts";
 export type { Invitation } from "./features/invitations/api/contracts";
 export type { ApiKey } from "./features/api-keys/api/contracts";
 export type { Consent } from "./features/consents/api/contracts";
+export type { CurrentActorDisplay } from "./support/request-support/current-actor-display";

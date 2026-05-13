@@ -11,6 +11,7 @@ export type {
   Account,
   ApiKey,
   Consent,
+  CurrentActorDisplay,
   IdentityApiClientOptions,
   Invitation,
   Membership,
