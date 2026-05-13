@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   lines jsonb NOT NULL DEFAULT '[]'::jsonb,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   payment_id text NULL,
+  submitted_offer_id text NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
@@ -22,5 +23,6 @@ ALTER TABLE checkout_session_pages
 
 ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS optimization_goal text NOT NULL DEFAULT 'lowest-total',
-  ADD COLUMN IF NOT EXISTS fulfillment_preview_revision text NULL;
+  ADD COLUMN IF NOT EXISTS fulfillment_preview_revision text NULL,
+  ADD COLUMN IF NOT EXISTS submitted_offer_id text NULL;
 `;

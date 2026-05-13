@@ -81,6 +81,23 @@ export type CheckoutSessionServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ sessionId: CheckoutSessionId }>;
+  createOfferIntent: (
+    params: Readonly<{
+      accountId: AccountId;
+      catalogItemId: string;
+      productId: string;
+      itemTitle: string;
+      itemSubtitle: string | null;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      productSummary: string | null;
+      offerPriceAmount: string;
+      quantity: number;
+      optimizationGoal?: CheckoutOptimizationGoal;
+      shippingOption?: string;
+      sessionIdOverride?: CheckoutSessionId;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ sessionId: CheckoutSessionId }>;
   selectShippingOption: (
     params: Readonly<{
       sessionId: string;
@@ -127,6 +144,14 @@ export type CheckoutSessionServices = Readonly<{
       sessionId: string;
       accountId: AccountId;
       paymentId: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ sessionId: string }>;
+  recordOfferSubmitted: (
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+      offerId: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ sessionId: string }>;
@@ -213,7 +238,7 @@ export function createCheckoutSessionRuntime(
 
   async function startSession(params: Readonly<{
     accountId: AccountId;
-    sourceType: "cart" | "buy-now";
+    sourceType: "cart" | "buy-now" | "offer-intent";
     optimizationGoal?: CheckoutOptimizationGoal;
     fulfillmentPreviewRevision?: string | null;
     shippingOption: ShippingOption;
@@ -288,6 +313,37 @@ export function createCheckoutSessionRuntime(
               lockedListingId,
               sellerPreferenceId: params.sellerPreferenceId?.trim() || null,
               availabilityState: "available",
+            },
+          ],
+        },
+        context,
+      );
+    },
+    createOfferIntent: async (params, context) => {
+      const descriptor = await validateCatalogSelection(params);
+      return startSession(
+        {
+          accountId: params.accountId,
+          sourceType: "offer-intent",
+          shippingOption: normalizeShippingOption(params.shippingOption ?? "standard"),
+          optimizationGoal: params.optimizationGoal,
+          sessionIdOverride: params.sessionIdOverride,
+          lines: [
+            {
+              listingId: null,
+              cartLineId: null,
+              catalogItemId: params.catalogItemId,
+              productId: descriptor.productId,
+              itemTitle: params.itemTitle,
+              itemSubtitle: params.itemSubtitle,
+              selectedOptions: descriptor.selection,
+              productSummary: params.productSummary,
+              offerPriceAmount: params.offerPriceAmount,
+              quantity: params.quantity,
+              fulfillmentMode: "optimize",
+              lockedListingId: null,
+              sellerPreferenceId: null,
+              availabilityState: "waiting-for-supply",
             },
           ],
         },
@@ -438,6 +494,27 @@ export function createCheckoutSessionRuntime(
         command: {
           type: "RecordPaymentStarted",
           paymentId: params.paymentId as PaymentId,
+          recordedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      return { sessionId: params.sessionId };
+    },
+    recordOfferSubmitted: async (params, context) => {
+      const session = await getCheckoutSession(
+        deps.db,
+        params.sessionId,
+        params.accountId,
+      );
+      if (!session) {
+        throw new CheckoutDomainError("Checkout session not found.");
+      }
+
+      await commandHandler({
+        streamId: `checkout.session-${params.sessionId}`,
+        command: {
+          type: "RecordOfferSubmitted",
+          offerId: params.offerId,
           recordedAt: new Date().toISOString(),
         },
         context,

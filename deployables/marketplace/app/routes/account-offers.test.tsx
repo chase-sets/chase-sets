@@ -241,7 +241,7 @@ describe("marketplace offer routes", () => {
     expect(result.offerMatch.buyer_display_name).toBe("Buyer One");
   });
 
-  it("submits an item-detail offer and redirects to submitted offers", async () => {
+  it("hands item-detail offers to checkout as purchase intent", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -317,9 +317,10 @@ describe("marketplace offer routes", () => {
 
     const response = result as Response;
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "/account/offers/submitted/off_1?feedbackWorkflow=offer-submit",
-    );
+    const location = response.headers.get("Location");
+    expect(location).toContain("/checkout/start?source=offer-intent");
+    expect(location).toContain("catalogItemId=item-1");
+    expect(location).toContain("offerPriceAmount=350.00");
+    expect(location).toContain("quantity=1");
   });
 });
-

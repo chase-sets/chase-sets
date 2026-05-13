@@ -107,6 +107,10 @@ describe("fulfillment packing slip UI", () => {
     expect(thermal).toContain("fulfillment-packing-slip--thermal");
     expect(thermal).toContain("size: 4in 6in");
     expect(thermal).toContain("data-packing-slip-page");
+    expect(thermal).toMatch(
+      /\.fulfillment-packing-slip--thermal \.fulfillment-packing-slip__grid \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/,
+    );
+    expect(thermal.match(/\.fulfillment-packing-slip--thermal \.fulfillment-packing-slip__grid/g)).toHaveLength(2);
     expect(thermal).not.toContain("@page fulfillment-packing-slip-thermal");
   });
 

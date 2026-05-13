@@ -29,9 +29,10 @@ export function buildCheckoutSessionProjectionHandlers(
            lines,
            order_ids,
            payment_id,
+           submitted_offer_id,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, '[]'::jsonb, NULL, $8, $8)
+         ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, '[]'::jsonb, NULL, NULL, $8, $8)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
@@ -146,6 +147,21 @@ export function buildCheckoutSessionProjectionHandlers(
              updated_at = $3
          WHERE session_id = $1`,
         [data.sessionId, data.paymentId, data.recordedAt],
+      );
+    },
+    "checkout.session.offer-submitted": async (event) => {
+      const data = event.data as {
+        sessionId: string;
+        offerId: string;
+        recordedAt: string;
+      };
+
+      await db.query(
+        `UPDATE checkout_session_pages
+         SET submitted_offer_id = $2,
+             updated_at = $3
+         WHERE session_id = $1`,
+        [data.sessionId, data.offerId, data.recordedAt],
       );
     },
   };

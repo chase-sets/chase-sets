@@ -25,6 +25,7 @@
     "@chase-sets/http": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/ordering": "workspace:*",
     "@chase-sets/payments": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",

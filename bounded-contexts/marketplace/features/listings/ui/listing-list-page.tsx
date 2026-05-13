@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   Badge,
   Banner,
@@ -456,7 +456,7 @@ export function MarketplaceListingListPage({
                 <Stack gap={1}>
                   <Text weight="semibold">{row.item_title ?? row.catalog_catalog_item_id}</Text>
                   {row.item_language_code ? (
-                    <Badge tone="neutral">{row.item_language_code}</Badge>
+                    <Badge tone="neutral">{formatLanguageCodeLabel(row.item_language_code)}</Badge>
                   ) : null}
                   {row.item_subtitle ? (
                     <Text tone="secondary" size="sm">
