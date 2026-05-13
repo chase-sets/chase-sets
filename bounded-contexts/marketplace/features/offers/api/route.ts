@@ -36,6 +36,23 @@ function requireOfferAccess(
   return { actor, response: null };
 }
 
+function requireSignedInAccount(c: {
+  get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"];
+}) {
+  const actor = c.get("actor");
+  if (!actor) {
+    return {
+      actor: null,
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("marketplace.features.offers.api.route.authentication.required") } }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
+  }
+
+  return { actor, response: null };
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("marketplace.features.offers.api.route.request.failed");
 }
@@ -140,7 +157,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
   });
 
   app.post("/offers/submitted", async (c) => {
-    const access = requireOfferAccess(c, "offers.manage");
+    const access = requireSignedInAccount(c);
     if (access.response) {
       return access.response;
     }

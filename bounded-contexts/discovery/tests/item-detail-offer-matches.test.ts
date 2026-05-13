@@ -77,7 +77,8 @@ describe("item detail offer matches", () => {
     ]);
   });
 
-  it("returns public offer matches on item detail payloads", async () => {
+  it("returns submitted public offer demand on item detail payloads", async () => {
+    const offerQueries: string[] = [];
     const db = {
       query: async (sql: string) => {
         if (sql.includes("FROM discovery_item_detail_pages")) {
@@ -119,6 +120,7 @@ describe("item detail offer matches", () => {
         }
 
         if (sql.includes("FROM discovery_buyer_offer_matches")) {
+          offerQueries.push(sql);
           return {
             rows: [
               {
@@ -133,11 +135,11 @@ describe("item detail offer matches", () => {
                 product_summary: "Raw",
                 price_amount: "350.00",
                 quantity_requested: 1,
-                status: "accepted",
-                accepted_seller_account_id: "seller_1",
-                accepted_at: "2026-04-28T01:00:00.000Z",
+                status: "submitted",
+                accepted_seller_account_id: null,
+                accepted_at: null,
                 created_at: "2026-04-28T00:00:00.000Z",
-                updated_at: "2026-04-28T01:00:00.000Z",
+                updated_at: "2026-04-28T00:00:00.000Z",
               },
             ],
           };
@@ -153,9 +155,11 @@ describe("item detail offer matches", () => {
       expect.objectContaining({
         offer_id: "offer_charizard",
         buyer_display_name: "Ash Ketchum",
-        status: "accepted",
-        accepted_seller_account_id: "seller_1",
+        status: "submitted",
+        accepted_seller_account_id: null,
       }),
     ]);
+    expect(offerQueries[0]).toContain("offer.status = 'submitted'");
+    expect(offerQueries[0]).not.toContain("offer.status IN ('submitted', 'accepted')");
   });
 });

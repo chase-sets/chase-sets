@@ -57,7 +57,7 @@ export function createDiscoveryOfferPatch(
   }>,
 ): RealtimeProjectionPatch {
   return createDiscoveryProjectionPatch(topics, [
-    offer.status === "submitted" || offer.status === "accepted"
+    offer.status === "submitted"
       ? {
           op: "upsert",
           entity: "discovery.buyerOffer",

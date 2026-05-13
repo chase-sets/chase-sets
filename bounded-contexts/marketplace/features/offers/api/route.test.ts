@@ -81,7 +81,7 @@ function createServices(): MarketplaceOfferServices {
 }
 
 describe("marketplace offer routes", () => {
-  it("submits an offer for the current account", async () => {
+  it("submits an offer for any signed-in account", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {
@@ -90,8 +90,8 @@ describe("marketplace offer routes", () => {
         userId: "usr_1",
         accountId: "acc_buyer",
         membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["offers.view", "offers.manage"],
+        roleKey: "viewer",
+        permissions: [],
       },
       services,
     });
@@ -127,6 +127,40 @@ describe("marketplace offer routes", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("rejects anonymous offer submission", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/offers/submitted", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          priceAmount: "350.00",
+          quantityRequested: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "authentication_required",
+        message: "Authentication required.",
+      },
+    });
+    expect(services.submitOffer).not.toHaveBeenCalled();
   });
 
   it("enforces offer permissions on buyer list routes", async () => {
