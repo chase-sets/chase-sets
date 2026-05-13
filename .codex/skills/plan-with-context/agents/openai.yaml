@@ -1,4 +1,4 @@
 interface:
   display_name: "Plan With Context"
   short_description: "Plan features against repo context"
-  default_prompt: "Use $plan-with-context to implement a feature by asking one question at a time, writing the plan/docs, and creating the implementation goal."
+  default_prompt: "Use $plan-with-context to implement a feature by asking one question at a time, writing the dated plan/docs, and creating the implementation goal through staging deploy verification."
