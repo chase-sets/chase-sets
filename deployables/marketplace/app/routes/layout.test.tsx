@@ -97,7 +97,7 @@ describe("marketplace route layout", () => {
       "Cart",
       "Purchases",
       "Sell",
-      "Account",
+      "Wallet",
     ]);
     expect(html).toContain('href="/account/inventory"');
     expect(html).toContain('href="/account/inventory/imports"');
@@ -169,16 +169,26 @@ describe("marketplace route layout", () => {
       .find((item) => item.key === "account");
     const bottomAccountNav = resolveMarketplaceNavItems("bottom-nav", actor)
       .find((item) => item.key === "account");
+    const bottomWalletNav = resolveMarketplaceNavItems("bottom-nav", actor)
+      .find((item) => item.key === "wallet");
 
     expect(topAccountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
       "Wallet",
       "Payouts",
     ]);
+    expect(bottomWalletNav?.href).toBe("/account/settlement");
     expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual([
       "Account",
       "Wallet",
       "Payouts",
+    ]);
+    expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
+      "Browse",
+      "Cart",
+      "Purchases",
+      "Wallet",
+      "Account",
     ]);
   });
 

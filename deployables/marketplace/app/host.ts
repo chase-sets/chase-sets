@@ -249,6 +249,7 @@ function buildMarketplaceBottomNav(
   const accountItems = orderAccountNav(
     visibleItems.filter((item) => ["search", "cart", "purchases", "account", "reviews"].includes(item.key)),
   );
+  const walletItem = visibleItems.find((item) => item.key === "wallet");
   const accountItem = accountItems.find((item) => item.key === "account");
   const accountGroup: NavigationItem | undefined = accountItem
     ? {
@@ -262,8 +263,9 @@ function buildMarketplaceBottomNav(
   if (sellingItems.length === 0) {
     return [
       ...accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+      ...(walletItem ? [walletItem] : []),
       ...(accountGroup ? [accountGroup] : []),
-    ];
+    ].slice(0, 5);
   }
 
   const sellingGroup: NavigationItem = {
@@ -277,6 +279,7 @@ function buildMarketplaceBottomNav(
   return [
     ...accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
     sellingGroup,
+    ...(walletItem ? [walletItem] : []),
     ...(accountGroup ? [accountGroup] : []),
   ].slice(0, 5);
 }
