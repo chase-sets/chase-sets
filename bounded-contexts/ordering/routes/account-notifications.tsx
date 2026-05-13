@@ -30,18 +30,20 @@ type FeedResponse = Readonly<{
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "accounts.view" });
   const ordering = createOrderingRequestApiClient(request);
-  const [orders, shipments] = await Promise.all([
+  const [orders, shipments, productAlerts] = await Promise.all([
     ordering.listOrderNotifications("limit=50&includeRead=true"),
     fetchNotificationFeed(request, "shipment-notifications"),
+    fetchNotificationFeed(request, "product-alert-notifications"),
   ]);
   const notifications = [
     ...mapFeed("orders", orders),
     ...mapFeed("shipments", shipments),
+    ...mapFeed("product-alerts", productAlerts),
   ].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 
   return {
     notifications,
-    unreadCount: orders.unread + shipments.unread,
+    unreadCount: orders.unread + shipments.unread + productAlerts.unread,
   };
 }
 
@@ -55,6 +57,7 @@ export async function action({ request }: ActionFunctionArgs) {
     await Promise.all([
       ordering.markAllOrderNotificationsRead(),
       postNotificationAction(request, "shipment-notifications/read-all"),
+      postNotificationAction(request, "product-alert-notifications/read-all"),
     ]);
     return redirect("/account/notifications");
   }
@@ -68,6 +71,11 @@ export async function action({ request }: ActionFunctionArgs) {
       await postNotificationAction(
         request,
         `shipment-notifications/${encodeURIComponent(deliveryId)}/read`,
+      );
+    } else if (source === "product-alerts") {
+      await postNotificationAction(
+        request,
+        `product-alert-notifications/${encodeURIComponent(deliveryId)}/read`,
       );
     }
   }
@@ -109,7 +117,7 @@ function mapFeed(
 
 async function fetchNotificationFeed(
   request: Request,
-  path: "shipment-notifications",
+  path: "shipment-notifications" | "product-alert-notifications",
 ): Promise<FeedResponse> {
   const fetchWithAuth = createForwardedAuthFetch(request);
   const baseUrl = resolveRequestApiBaseUrl(request, "/api/marketplace");

@@ -11,9 +11,14 @@ import type { DiscoveryServices } from "./support/runtime-support/services";
 import { buildDiscoveryApi } from "./api";
 import { buildDiscoveryCategoryProjectionHandlers } from "./features/categories/read-model/projection";
 import { buildDiscoveryItemDetailProjectionHandlers } from "./features/item-detail/read-model/projection";
+import { buildProductAlertNotificationProjectionHandlers } from "./features/product-alerts/integrations/notifications/notification-projector";
+import { buildProductAlertPageProjectionHandlers } from "./features/product-alerts/read-model/projection";
 import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support/projection";
 import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
-import { createDiscoveryServices } from "./support/runtime-support/services";
+import {
+  createDiscoveryServices,
+  type DiscoveryHostPorts,
+} from "./support/runtime-support/services";
 import { discoverySchemaSql } from "./support/runtime-support/schema";
 
 const eventSubscriptions =
@@ -40,20 +45,24 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, void> = {
+export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts> = {
   contextName: "discovery",
   routePrefix: "/api/marketplace",
   streamPrefix: "discovery.",
   schemaSql: discoverySchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<DiscoveryServices, PgTransactionalPool, void>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts>["apiMounts"],
   projectionGroups,
-  createServices: (pool) => createDiscoveryServices(pool),
+  createServices: (pool, ports) => createDiscoveryServices(pool, ports),
   buildApis: (services) => [buildDiscoveryApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const categorySubscription = getEventSubscription(
       "catalog",
       "discovery-category-projection",
+    );
+    const productAlertPageSubscription = getEventSubscription(
+      "discovery",
+      "discovery-product-alert-page-projection",
     );
     const searchSubscription = getEventSubscription(
       "catalog",
@@ -71,8 +80,22 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, void> =
       "marketplace",
       "discovery-market-projection",
     );
+    const productAlertSubscription = getEventSubscription(
+      "marketplace",
+      "discovery-product-alert-notification-projection",
+    );
 
     return [
+      {
+        subscriptionName: "discovery.product-alert-page-projection",
+        sourceContextName: "discovery",
+        projectionName: productAlertPageSubscription.projectionName,
+        subscriptionVersion: productAlertPageSubscription.subscriptionVersion,
+        handlers: buildProductAlertPageProjectionHandlers(services.db),
+        eventTypes: productAlertPageSubscription.eventTypes,
+        streamPrefixes: productAlertPageSubscription.streamPrefixes,
+        order: productAlertPageSubscription.order,
+      },
       {
         subscriptionName: "discovery.catalog-category-projection",
         sourceContextName: "catalog",
@@ -122,6 +145,20 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, void> =
         eventTypes: marketplaceSubscription.eventTypes,
         streamPrefixes: marketplaceSubscription.streamPrefixes,
         order: marketplaceSubscription.order,
+      },
+      {
+        subscriptionName: "discovery.marketplace-product-alert-notifications",
+        sourceContextName: "marketplace",
+        projectionName: productAlertSubscription.projectionName,
+        subscriptionVersion: productAlertSubscription.subscriptionVersion,
+        handlers: buildProductAlertNotificationProjectionHandlers(
+          services.db,
+          services.notificationOutbox,
+          productAlertSubscription.projectionName,
+        ),
+        eventTypes: productAlertSubscription.eventTypes,
+        streamPrefixes: productAlertSubscription.streamPrefixes,
+        order: productAlertSubscription.order,
       },
     ];
   },

@@ -34,6 +34,10 @@ function getActiveKey(pathname: string) {
     return "purchases";
   }
 
+  if (pathname.startsWith("/account/product-alerts")) {
+    return "product-alerts";
+  }
+
   if (pathname.startsWith("/account/sales")) {
     return "sales";
   }

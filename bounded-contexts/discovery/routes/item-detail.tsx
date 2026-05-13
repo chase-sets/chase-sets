@@ -300,6 +300,70 @@ function shippingDestinationFromForm(formData: FormData) {
   };
 }
 
+function ProductAlertCreationSection({
+  formId,
+  marketSide,
+  productId,
+  catalogItemId,
+  selectedOptions,
+  productSelectionDetails = [],
+  productSummary,
+}: {
+  formId: string;
+  marketSide: "listing" | "offer";
+  productId: string | null;
+  catalogItemId: string;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
+  productSummary: string | null;
+}) {
+  const isListingAlert = marketSide === "listing";
+
+  return (
+    <FormPanel variant="card">
+      <form id={formId} method="post">
+        <Stack gap={3}>
+          <input type="hidden" name="intent" value="create-product-alert" />
+          <input type="hidden" name="marketSide" value={marketSide} />
+          <input type="hidden" name="catalogItemId" value={catalogItemId} />
+          <input type="hidden" name="productId" value={productId ?? ""} />
+          <input
+            type="hidden"
+            name="selectedOptions"
+            value={JSON.stringify(selectedOptions)}
+          />
+          <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+          <Stack gap={1}>
+            <Text weight="semibold">
+              {isListingAlert ? "Watch for listings" : "Watch for offers"}
+            </Text>
+            <ProductSelectionSummary
+              selections={productSelectionDetails}
+              summary={productSummary ?? "Selected product"}
+              summaryAsChip={productSelectionDetails.length === 0}
+            />
+            <Text size="sm" tone="secondary">
+              {isListingAlert
+                ? "Get a web notification when a matching listing appears at your price."
+                : "Get a web notification when matching offer demand appears at your price."}
+            </Text>
+          </Stack>
+          <CurrencyInput
+            label={isListingAlert ? "Maximum listing price" : "Minimum offer price"}
+            name="thresholdAmount"
+            placeholder={isListingAlert ? "25.00" : "15.00"}
+            min="0"
+            step="0.01"
+          />
+          <Button type="submit" tone="secondary" disabled={!productId} block>
+            {t("discovery.routes.itemDetail.create.product.alert")}
+          </Button>
+        </Stack>
+      </form>
+    </FormPanel>
+  );
+}
+
 function MarketplaceOfferSubmissionSection({
   formId = "make-offer",
   panelVariant = "card",
@@ -1465,6 +1529,26 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const checkoutApi = createCheckoutRequestApiClient(request);
 
   try {
+    if (intent === "create-product-alert") {
+      await requireActorFromAuthApi({
+        request,
+        permission: "accounts.view",
+      });
+      const item = await discoveryApi.getItemDetail(params.id!);
+      await discoveryApi.createProductAlert({
+        marketSide: String(formData.get("marketSide") ?? "") === "offer"
+          ? "offer"
+          : "listing",
+        catalogItemId: item.catalog_item_id,
+        productId: String(formData.get("productId") ?? ""),
+        selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+        productSummary: String(formData.get("productSummary") ?? "") || null,
+        thresholdAmount: String(formData.get("thresholdAmount") ?? "") || null,
+      });
+
+      return redirect(`/items/${item.slug || item.catalog_item_id}?productAlertCreated=1`);
+    }
+
     if (intent === "submit-offer") {
       await requireActorFromAuthApi({
         request,
@@ -1753,6 +1837,20 @@ function DiscoveryItemDetailRealtimeView({
                   errorMessage={actionErrorMessage}
                 />
               );
+              const renderProductAlert = (
+                formId: string,
+                marketSide: "listing" | "offer",
+              ) => (
+                <ProductAlertCreationSection
+                  formId={formId}
+                  marketSide={marketSide}
+                  catalogItemId={context.itemId}
+                  productId={context.selectedProductId}
+                  selectedOptions={context.selectedProductOptions}
+                  productSelectionDetails={context.selectedProductSelectionDetails}
+                  productSummary={context.selectedProductSummary}
+                />
+              );
               const renderOffer = (
                 formId: string,
                 panelVariant: FormPanelVariant = "card",
@@ -1849,16 +1947,36 @@ function DiscoveryItemDetailRealtimeView({
                 ) : renderSellerRegistration();
               return (
                 {
-                  buy: renderBuy("buy-box"),
-                  offer: renderOffer("make-offer"),
+                  buy: (
+                    <Stack gap={4}>
+                      {renderBuy("buy-box")}
+                      {renderProductAlert("listing-product-alert", "listing")}
+                    </Stack>
+                  ),
+                  offer: (
+                    <Stack gap={4}>
+                      {renderOffer("make-offer")}
+                      {renderProductAlert("offer-product-alert", "offer")}
+                    </Stack>
+                  ),
                   sell: data.showSellerTab ? renderSeller("sell") : undefined,
                   mobile: {
                     buy: {
-                      content: renderBuy("mobile-buy-box", "plain", undefined, true),
+                      content: (
+                        <Stack gap={4}>
+                          {renderBuy("mobile-buy-box", "plain", undefined, true)}
+                          {renderProductAlert("mobile-listing-product-alert", "listing")}
+                        </Stack>
+                      ),
                       title: t("discovery.routes.itemDetail.buy"),
                     },
                     offer: {
-                      content: renderOffer("mobile-make-offer", "plain", undefined, true),
+                      content: (
+                        <Stack gap={4}>
+                          {renderOffer("mobile-make-offer", "plain", undefined, true)}
+                          {renderProductAlert("mobile-offer-product-alert", "offer")}
+                        </Stack>
+                      ),
                       title: t("discovery.routes.itemDetail.make.an.offer"),
                     },
                     sell: data.canUseSellerFeatures

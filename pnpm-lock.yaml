@@ -248,6 +248,9 @@ importers:
 
   bounded-contexts/discovery:
     dependencies:
+      '@chase-sets/auth-context':
+        specifier: workspace:*
+        version: link:../../contracts/auth-context
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
@@ -278,9 +281,21 @@ importers:
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../marketplace
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
+      '@chase-sets/web-notifications':
+        specifier: workspace:*
+        version: link:../../infrastructure/web-notifications
       hono:
         specifier: ^4.12.12
         version: 4.12.18

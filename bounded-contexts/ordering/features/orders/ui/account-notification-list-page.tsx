@@ -15,7 +15,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 
-export type AccountNotificationSource = "orders" | "shipments";
+export type AccountNotificationSource = "orders" | "shipments" | "product-alerts";
 
 export type AccountNotificationListItem = Readonly<{
   source: AccountNotificationSource;
@@ -88,7 +88,9 @@ export function AccountNotificationListPage({
                     <Badge tone={notification.source === "orders" ? "success" : "accent"}>
                       {notification.source === "orders"
                         ? t("ordering.features.orders.ui.accountNotificationListPage.orders")
-                        : t("ordering.features.orders.ui.accountNotificationListPage.shipments")}
+                        : notification.source === "shipments"
+                          ? t("ordering.features.orders.ui.accountNotificationListPage.shipments")
+                          : "Product Alerts"}
                     </Badge>
                     <Text size="sm" tone="secondary">
                       {new Date(notification.createdAt).toLocaleString()}

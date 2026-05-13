@@ -35,6 +35,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 
 Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 Seller fee confirmation rules are documented in [Seller Fee Confirmation](./docs/seller-fee-confirmation.md).
+Limited Product Alert demand visibility is documented in [Limited Offer Demand Signals](./docs/limited-offer-demand-signals.md).
 
 ## Core Aggregates and Process Managers
 

@@ -17,6 +17,7 @@
   "dependencies": {
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
+    "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/catalog": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
@@ -25,7 +26,11 @@
     "@chase-sets/http": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
+    "@chase-sets/notification-outbox": "workspace:*",
+    "@chase-sets/notifications": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/primitives": "workspace:*",
+    "@chase-sets/web-notifications": "workspace:*",
     "hono": "^4.12.12"
   },
   "devDependencies": {

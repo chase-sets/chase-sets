@@ -88,3 +88,14 @@ Examples:
 ### Detail Page
 
 A **Detail Page** is the discovery-owned presentation model used to render a single catalog item for browse and evaluation.
+
+### Product Alert
+
+A **Product Alert** is an account-owned watch on one resolved Catalog Product selected from a Discovery Detail Page.
+
+Notes:
+
+- Product Alert is owned by Discovery.
+- Product Alerts reference `catalog_item_id`, `product_id`, and the normalized `selected_options` snapshot.
+- Product Alerts may watch Listings at or below a maximum price, or limited Offer demand signals at or above a minimum price.
+- Product Alerts notify through the web notification feed in the first implementation and remain active until paused or deleted.
