@@ -1695,6 +1695,7 @@ export const englishTranslations = {
   "marketplace.app.host.cart": "Cart",
   "marketplace.app.host.shipping": "Shipping",
   "marketplace.app.host.submitted.offers": "Submitted Offers",
+  "marketplace.app.host.wallet": "Wallet",
   "marketplace.app.root.browse.marketplace": "Browse marketplace",
   "marketplace.app.root.error.trust.cue": "No payment or account changes were made. You can continue browsing safely.",
   "marketplace.app.root.go.home": "Go home",

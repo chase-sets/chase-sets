@@ -26,8 +26,12 @@ function getActiveKey(pathname: string) {
     return "reviews";
   }
 
-  if (pathname.startsWith("/account/payouts") || pathname.startsWith("/account/settlement")) {
+  if (pathname.startsWith("/account/payouts")) {
     return "payouts";
+  }
+
+  if (pathname.startsWith("/account/settlement")) {
+    return "wallet";
   }
 
   if (pathname.startsWith("/account/purchases")) {
