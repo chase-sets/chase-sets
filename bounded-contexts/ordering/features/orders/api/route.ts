@@ -42,6 +42,23 @@ function requireOrderAccess(
   return { actor, response: null };
 }
 
+function requireCheckoutAccess(c: {
+  get(key: "actor"): OrderingApiEnv["Variables"]["actor"];
+}) {
+  const actor = c.get("actor");
+  if (!actor) {
+    return {
+      actor: null,
+      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.required") } }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
+  }
+
+  return { actor, response: null };
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("ordering.features.orders.api.route.request.failed");
 }
@@ -90,9 +107,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
   const app = new Hono<OrderingApiEnv>();
 
   app.post("/purchases/checkout/preview", async (c) => {
-    const access = requireOrderAccess(c, "orders.manage", {
-      allowGuestCheckout: true,
-    });
+    const access = requireCheckoutAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -159,9 +174,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
   });
 
   app.post("/purchases/checkout", async (c) => {
-    const access = requireOrderAccess(c, "orders.manage", {
-      allowGuestCheckout: true,
-    });
+    const access = requireCheckoutAccess(c);
     if (access.response) {
       return access.response;
     }

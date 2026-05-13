@@ -130,9 +130,7 @@
       "href": "/account/cart",
       "order": 110,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "orders.manage"
-      ]
+      "requiredPermissions": []
     },
     {
       "deployable": "marketplace-web",
@@ -143,9 +141,7 @@
       "href": "/account/cart",
       "order": 110,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "orders.manage"
-      ]
+      "requiredPermissions": []
     }
   ],
   "directoryIntent": {

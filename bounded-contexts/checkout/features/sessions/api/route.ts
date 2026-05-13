@@ -12,8 +12,7 @@ import {
 function requireCheckoutAccess(
   c: {
     get(key: "actor"): CheckoutApiEnv["Variables"]["actor"];
-  },
-  permission: "orders.view" | "orders.manage",
+  }
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -21,20 +20,6 @@ function requireCheckoutAccess(
       actor: null,
       response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("checkout.features.sessions.api.route.authentication.required") } }), {
         status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
-    };
-  }
-
-  if (!actor.permissions.includes(permission)) {
-    if (actor.permissions.includes("guest-checkout.manage")) {
-      return { actor, response: null };
-    }
-
-    return {
-      actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("checkout.features.sessions.api.route.forbidden") } }), {
-        status: 403,
         headers: { "Content-Type": "application/json" },
       }),
     };
@@ -124,7 +109,7 @@ export function createAccountCheckoutSessionRoutes(
   const app = new Hono<CheckoutApiEnv>();
 
   app.post("/checkout-sessions", async (c) => {
-    const access = requireCheckoutAccess(c, "orders.manage");
+    const access = requireCheckoutAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -231,7 +216,7 @@ export function createAccountCheckoutSessionRoutes(
   });
 
   app.get("/checkout-sessions/:sessionId", async (c) => {
-    const access = requireCheckoutAccess(c, "orders.view");
+    const access = requireCheckoutAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -248,7 +233,7 @@ export function createAccountCheckoutSessionRoutes(
   });
 
   app.post("/checkout-sessions/:sessionId/shipping-option", async (c) => {
-    const access = requireCheckoutAccess(c, "orders.manage");
+    const access = requireCheckoutAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -279,7 +264,7 @@ export function createAccountCheckoutSessionRoutes(
   });
 
   app.post("/checkout-sessions/:sessionId/optimization-goal", async (c) => {
-    const access = requireCheckoutAccess(c, "orders.manage");
+    const access = requireCheckoutAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -310,7 +295,7 @@ export function createAccountCheckoutSessionRoutes(
   });
 
   app.post("/checkout-sessions/:sessionId/confirm", async (c) => {
-    const access = requireCheckoutAccess(c, "orders.manage");
+    const access = requireCheckoutAccess(c);
     if (access.response) {
       return access.response;
     }
