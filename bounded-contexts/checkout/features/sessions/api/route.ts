@@ -6,6 +6,7 @@ import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
   normalizeRequestedBalanceCreditAmount,
+  submitPurchaseIntentThroughMarketplace,
 } from "../../../support/request-support/checkout-confirmation";
 
 function requireCheckoutAccess(
@@ -151,6 +152,44 @@ export function createAccountCheckoutSessionRoutes(
       const source = body.source && typeof body.source === "object"
         ? body.source as Record<string, unknown>
         : body as Record<string, unknown>;
+      if (source.type === "offer-intent") {
+        if (access.actor.roleKey === "guest-buyer") {
+          return c.json(
+            {
+              error: {
+                code: "account_registration_required",
+                message: t("checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent"),
+              },
+            },
+            403,
+          );
+        }
+
+        const result = await services.createOfferIntent(
+          {
+            accountId: access.actor.accountId as never,
+            catalogItemId: String(source.catalogItemId ?? ""),
+            productId: String(source.productId ?? ""),
+            itemTitle: String(source.itemTitle ?? ""),
+            itemSubtitle:
+              source.itemSubtitle === null || source.itemSubtitle === undefined
+                ? null
+                : String(source.itemSubtitle),
+            selectedOptions: parseSelectedOptions(source.selectedOptions),
+            productSummary:
+              source.productSummary === null || source.productSummary === undefined
+                ? null
+                : String(source.productSummary),
+            offerPriceAmount: String(source.offerPriceAmount ?? source.priceAmount ?? ""),
+            quantity: Number(source.quantity ?? source.quantityRequested ?? 0),
+            optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
+            shippingOption: String(body.shippingOption ?? "standard"),
+          },
+          context,
+        );
+        return c.json({ session_id: result.sessionId, status: "started" }, 201);
+      }
+
       const result = await services.createBuyNow(
         {
           accountId: access.actor.accountId as never,
@@ -311,6 +350,14 @@ export function createAccountCheckoutSessionRoutes(
         });
       }
 
+      if (session.submitted_offer_id) {
+        return c.json({
+          offer_id: session.submitted_offer_id,
+          status: "purchase-intent-submitted",
+          session,
+        });
+      }
+
       if (
         session.fulfillment_preview_revision &&
         fulfillmentPreviewRevision !== session.fulfillment_preview_revision &&
@@ -338,6 +385,27 @@ export function createAccountCheckoutSessionRoutes(
       session = await services.getSession(sessionId, access.actor.accountId);
       if (!session) {
         return c.json({ error: { code: "not_found", message: t("checkout.features.sessions.api.route.checkout.session.not.found.2") } }, 404);
+      }
+
+      if (session.source_type === "offer-intent") {
+        const offerId = await submitPurchaseIntentThroughMarketplace(
+          c.req.raw,
+          session,
+        );
+        await services.recordOfferSubmitted(
+          {
+            sessionId,
+            accountId: access.actor.accountId as never,
+            offerId,
+          },
+          context,
+        );
+        session = await services.getSession(sessionId, access.actor.accountId);
+        return c.json({
+          offer_id: offerId,
+          status: "purchase-intent-submitted",
+          session,
+        });
       }
 
       let orderIds = [...session.order_ids];

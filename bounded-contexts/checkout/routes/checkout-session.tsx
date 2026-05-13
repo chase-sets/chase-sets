@@ -83,6 +83,10 @@ function checkoutPreviewRealtimeTopics(
   ];
 }
 
+function isOfferIntentSession(session: Readonly<{ source_type: string }>) {
+  return session.source_type === "offer-intent";
+}
+
 function reloadForRealtimeSync() {
   if (typeof window !== "undefined") {
     window.location.reload();
@@ -99,18 +103,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (session.payment_id) {
     throw redirect(paymentPathForActor(actor, session.payment_id));
   }
+  if (session.submitted_offer_id) {
+    throw redirect(`/account/offers/submitted/${session.submitted_offer_id}?feedbackWorkflow=offer-submit`);
+  }
 
   const wallet = actor && actor.roleKey !== "guest-buyer"
     ? await loadWalletBalance(request)
     : null;
   const orderingApi = createOrderingRequestApiClient(request);
-  const fulfillmentPreview = await orderingApi.previewCheckoutFulfillment({
-    checkoutSessionId: session.session_id,
-    sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
-    shippingOption: session.shipping_option,
-    optimizationGoal: session.optimization_goal,
-    lines: session.lines,
-  });
+  const fulfillmentPreview = isOfferIntentSession(session)
+    ? null
+    : await orderingApi.previewCheckoutFulfillment({
+        checkoutSessionId: session.session_id,
+        sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
+        shippingOption: session.shipping_option,
+        optimizationGoal: session.optimization_goal,
+        lines: session.lines,
+      });
 
   return {
     session,
@@ -154,6 +163,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
           String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
         shippingAddress: shippingAddressFromForm(formData),
       });
+      if (result.offer_id) {
+        return redirect(`/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`);
+      }
+      if (!result.payment_id) {
+        throw new Error("Checkout confirmation did not return a payment.");
+      }
       return redirect(paymentPathForActor(actor, result.payment_id));
     }
 

@@ -6,14 +6,17 @@ import type { CheckoutSessionServices } from "./runtime";
 const {
   mockCreateCheckoutOrdersThroughOrdering,
   mockCreateCheckoutPaymentThroughPayments,
+  mockSubmitPurchaseIntentThroughMarketplace,
 } = vi.hoisted(() => ({
   mockCreateCheckoutOrdersThroughOrdering: vi.fn(),
   mockCreateCheckoutPaymentThroughPayments: vi.fn(),
+  mockSubmitPurchaseIntentThroughMarketplace: vi.fn(),
 }));
 
 vi.mock("../../../support/request-support/checkout-confirmation", () => ({
   createCheckoutOrdersThroughOrdering: mockCreateCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments: mockCreateCheckoutPaymentThroughPayments,
+  submitPurchaseIntentThroughMarketplace: mockSubmitPurchaseIntentThroughMarketplace,
   normalizeRequestedBalanceCreditAmount: (value: unknown) =>
     value === null || value === undefined ? null : String(value),
 }));
@@ -85,6 +88,7 @@ function createSession(
     shipping_address: shippingAddress,
     order_ids: [],
     payment_id: null,
+    submitted_offer_id: null,
     created_at: "2026-04-29T00:00:00.000Z",
     updated_at: "2026-04-29T00:00:00.000Z",
     ...overrides,
@@ -98,10 +102,12 @@ function createServices(
     commandHandler: vi.fn() as never,
     createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
     createBuyNow: vi.fn(async () => ({ sessionId: "chk_buy_now" as never })),
+    createOfferIntent: vi.fn(async () => ({ sessionId: "chk_offer" as never })),
     selectShippingOption: vi.fn(async ({ sessionId }) => ({ sessionId })),
     setShippingAddress: vi.fn(async ({ sessionId }) => ({ sessionId })),
     recordOrdersCreated: vi.fn(async ({ sessionId }) => ({ sessionId })),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    recordOfferSubmitted: vi.fn(async ({ sessionId }) => ({ sessionId })),
     getSession: vi.fn(async () => createSession()),
     projectors: [],
     ...overrides,
@@ -113,6 +119,7 @@ describe("checkout session routes", () => {
     vi.clearAllMocks();
     mockCreateCheckoutOrdersThroughOrdering.mockReset();
     mockCreateCheckoutPaymentThroughPayments.mockReset();
+    mockSubmitPurchaseIntentThroughMarketplace.mockReset();
   });
 
   it("returns cart session validation errors from checkout", async () => {
@@ -181,6 +188,89 @@ describe("checkout session routes", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("normalizes offer-intent payloads into checkout-owned session creation", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "offer-intent",
+            catalogItemId: "cat_1",
+            productId: "cat_1::form:raw",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            productSummary: "Raw",
+            offerPriceAmount: "350.00",
+            quantity: 2,
+          },
+          shippingOption: "priority",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      session_id: "chk_offer",
+      status: "started",
+    });
+    expect(services.createOfferIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        productId: "cat_1::form:raw",
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        offerPriceAmount: "350.00",
+        quantity: 2,
+        shippingOption: "priority",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("blocks guest actors from starting offer-intent sessions", async () => {
+    const services = createServices();
+    const app = buildApp(services, {
+      sessionId: "guest:tok_1",
+      tenantId: "tnt_identity",
+      userId: "usr_guest_checkout",
+      accountId: "acc_guest",
+      membershipId: "guest:tok_1",
+      roleKey: "guest-buyer",
+      permissions: ["guest-checkout.manage"],
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "offer-intent",
+            catalogItemId: "cat_1",
+            productId: "cat_1::form:raw",
+            itemTitle: "Charizard",
+            selectedOptions: [],
+            offerPriceAmount: "350.00",
+            quantity: 1,
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "account_registration_required",
+        message: "Register or sign in before placing purchase intent.",
+      },
+    });
+    expect(services.createOfferIntent).not.toHaveBeenCalled();
   });
 
   it("records shipping selection on the checkout session", async () => {
@@ -323,6 +413,57 @@ describe("checkout session routes", () => {
       "quote_1",
       "/account/payments/:paymentId",
     );
+  });
+
+  it("submits purchase intent through Marketplace without creating orders or payment", async () => {
+    mockSubmitPurchaseIntentThroughMarketplace.mockResolvedValue("off_chk_1");
+    const services = createServices({
+      getSession: vi.fn(async () =>
+        createSession({
+          source_type: "offer-intent",
+          lines: [
+            {
+              listingId: null,
+              cartLineId: null,
+              catalogItemId: "cat_1",
+              productId: "cat_1::form:raw",
+              itemTitle: "Charizard",
+              itemSubtitle: null,
+              selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+              productSummary: "Raw",
+              offerPriceAmount: "350.00",
+              quantity: 1,
+              availabilityState: "waiting-for-supply",
+            },
+          ],
+        }),
+      ),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      offer_id: "off_chk_1",
+      status: "purchase-intent-submitted",
+    });
+    expect(mockSubmitPurchaseIntentThroughMarketplace).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({ source_type: "offer-intent" }),
+    );
+    expect(services.recordOfferSubmitted).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", offerId: "off_chk_1" }),
+      expect.any(Object),
+    );
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
   });
 
   it("uses the guest payment return path when confirming guest checkout", async () => {

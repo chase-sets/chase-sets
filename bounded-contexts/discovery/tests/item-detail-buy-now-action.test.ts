@@ -129,7 +129,7 @@ describe("item detail buy now action", () => {
     expect(result.item?.buyer_offer_matches).toHaveLength(1);
   });
 
-  it("lets a signed-in account submit a product offer without seller permissions", async () => {
+  it("hands product offer intent to checkout without seller permissions", async () => {
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: [],
@@ -178,44 +178,33 @@ describe("item detail buy now action", () => {
       context: {},
     });
 
-    expect(mockCreateSubmittedOffer).toHaveBeenCalledWith({
-      catalogItemId: "cat_charizard",
-      productId: "cat_charizard::form:raw",
-      itemTitle: "Charizard",
-      itemSubtitle: "Base Set 4/102 Holo Rare",
-      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
-      productSummary: "Raw",
-      priceAmount: "350.00",
-      quantityRequested: 1,
-      shippingDestinationSnapshot: {
-        name: "Jane Smith",
-        company: null,
-        line1: "100 Market Street",
-        line2: null,
-        city: "Chicago",
-        state: "IL",
-        postalCode: "60601",
-        country: "US",
-        phone: null,
-        email: null,
-      },
-    });
-    expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
-      request: expect.any(Request),
-    });
+    expect(mockCreateSubmittedOffer).not.toHaveBeenCalled();
+    expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "/items/charizard-base-set?market=sell&offerSubmitted=1",
-    );
+    const redirectUrl = new URL(response.headers.get("Location")!, "http://localhost");
+    expect(redirectUrl.pathname).toBe("/checkout/start");
+    expect(redirectUrl.searchParams.get("source")).toBe("offer-intent");
+    expect(redirectUrl.searchParams.get("catalogItemId")).toBe("cat_charizard");
+    expect(redirectUrl.searchParams.get("productId")).toBe("cat_charizard::form:raw");
+    expect(redirectUrl.searchParams.get("itemTitle")).toBe("Charizard");
+    expect(redirectUrl.searchParams.get("offerPriceAmount")).toBe("350.00");
+    expect(redirectUrl.searchParams.get("quantity")).toBe("1");
   });
 
-  it("requires sign-in before submitting a product offer", async () => {
+  it("lets signed-out buyers start purchase intent checkout before registration", async () => {
     const signInRedirect = new Response(null, {
       status: 302,
       headers: { Location: "/sign-in?returnTo=%2Fitems%2Fcharizard-base-set" },
     });
     mockRequireActorFromAuthApi.mockRejectedValue(signInRedirect);
-    mockCreateDiscoveryRequestApiClient.mockReturnValue({});
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       createSubmittedOffer: mockCreateSubmittedOffer,
     });
@@ -224,7 +213,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "submit-offer");
 
-    await expect(action({
+    const response = await action({
       request: new Request("http://localhost/items/charizard-base-set", {
         method: "POST",
         body: form,
@@ -234,11 +223,11 @@ describe("item detail buy now action", () => {
       }),
       params: { id: "charizard-base-set" },
       context: {},
-    })).rejects.toBe(signInRedirect);
-
-    expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
-      request: expect.any(Request),
     });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/checkout/start?source=offer-intent");
+    expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
     expect(mockCreateSubmittedOffer).not.toHaveBeenCalled();
   });
 

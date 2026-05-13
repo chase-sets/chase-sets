@@ -256,6 +256,53 @@ describe("checkout web routes", () => {
     expect(response.headers.get("Location")).toBe("/checkout/chk_buy_now");
   });
 
+  it("starts signed-in purchase-intent checkout from the preserved checkout start payload", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_offer" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "offer-intent");
+    form.set("catalogItemId", "cat_1");
+    form.set("productId", "prod_1");
+    form.set("itemTitle", "Charizard");
+    form.set("itemSubtitle", "Base Set");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]));
+    form.set("productSummary", "Raw");
+    form.set("offerPriceAmount", "350.00");
+    form.set("quantity", "2");
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "offer-intent",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        itemTitle: "Charizard",
+        itemSubtitle: "Base Set",
+        selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+        productSummary: "Raw",
+        offerPriceAmount: "350.00",
+        quantity: 2,
+      },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_offer");
+  });
+
   it("starts signed-out cart checkout by creating a guest account and merging the anonymous cart", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockStartGuestCheckout.mockResolvedValue({
@@ -348,6 +395,33 @@ describe("checkout web routes", () => {
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
   });
 
+  it("requires registration or sign-in before starting purchase-intent checkout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "offer-intent");
+
+    const result = await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start?source=offer-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      error: "Register or sign in to place purchase intent.",
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart%3Fsource%3Doffer-intent",
+    });
+    expect(mockStartGuestCheckout).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it("confirms checkout and redirects to the payment detail", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({});
     mockSelectShippingOption.mockResolvedValue({});
@@ -438,6 +512,48 @@ describe("checkout web routes", () => {
     expect(response.headers.get("Location")).toBe("/checkout/payments/pay_1");
   });
 
+  it("redirects confirmed purchase intent to the submitted offer", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({});
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockResolvedValue({ offer_id: "off_chk_1", status: "purchase-intent-submitted" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", expect.objectContaining({
+      paymentMethodCategory: "card",
+      shippingAddress: expect.objectContaining({
+        name: "Jane Smith",
+        postalCode: "60601",
+      }),
+    }));
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit",
+    );
+  });
+
   it("redirects completed checkout sessions to payment detail", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -467,6 +583,40 @@ describe("checkout web routes", () => {
 
     expect(redirectResponse?.status).toBe(302);
     expect(redirectResponse?.headers.get("Location")).toBe("/account/payments/pay_1");
+  });
+
+  it("redirects submitted purchase-intent sessions to the submitted offer", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => ({
+        session_id: "chk_1",
+        buyer_account_id: "acc_buyer",
+        source_type: "offer-intent",
+        shipping_option: "standard",
+        lines: [],
+        order_ids: [],
+        payment_id: null,
+        submitted_offer_id: "off_chk_1",
+        created_at: "2026-04-01T00:00:00.000Z",
+        updated_at: "2026-04-01T00:00:00.000Z",
+      })),
+    });
+
+    let redirectResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      redirectResponse = error as Response;
+    }
+
+    expect(redirectResponse?.status).toBe(302);
+    expect(redirectResponse?.headers.get("Location")).toBe(
+      "/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit",
+    );
   });
 
   it("keeps completed guest checkout sessions on the guest payment route", async () => {
