@@ -1,6 +1,6 @@
 # Headless Marketplace API
 
-The headless marketplace API is the REST surface used by `marketplace-web` and external clients. Most buyer, seller, order, payment, fulfillment, and review flows are mounted at `/api/marketplace`. Identity, inventory, and settlement keep their canonical context-owned base paths (`/api/identity`, `/api/inventory`, and `/api/settlement`) because those contexts already own the behavior and route clients.
+The headless marketplace API is the REST surface used by `marketplace-web` and external clients. Most buyer, seller, order, payment, fulfillment, and review flows are mounted at `/api/marketplace`. Identity, inventory, notifications, and settlement keep their canonical context-owned base paths (`/api/identity`, `/api/inventory`, `/api/notifications`, and `/api/settlement`) because those contexts already own the behavior and route clients.
 
 The canonical machine-readable contract is [`marketplace.openapi.json`](./marketplace.openapi.json). Keep endpoint coverage in the OpenAPI contract and generated route manifests rather than maintaining a separate manual parity matrix.
 
@@ -59,6 +59,7 @@ Fee-confirmed listing and offer actions may also return `fee_quote_stale` with a
 - Inventory intake and stock actions use `inventory.view` or `inventory.manage`.
 - Seller shipment operations use `orders.view` plus seller/listing permissions where enforced by the owning route.
 - Payout and wallet workflows use `payouts.view`, `payouts.setup`, `payouts.request`, `payouts.reconcile`, or `payouts.manage`.
+- Notification center feed and settings workflows use `accounts.view`.
 - Account team, invitations, and API keys use the identity permissions projected into Auth, including `memberships.*` and `security.manage`.
 
 ## Critical Workflows
@@ -96,6 +97,15 @@ Seller shipment printing:
 
 1. `GET /api/marketplace/account/sales/shipments`
 2. `GET /api/marketplace/account/sales/shipments/packing-slips?shipmentIds=shp_1,shp_2`
+
+Notification center:
+
+1. `GET /api/notifications/center`
+2. `GET /api/notifications/center/unread-count`
+3. `POST /api/notifications/center/{deliveryId}/read`
+4. `POST /api/notifications/center/read-all`
+5. `GET /api/notifications/preferences`
+6. `POST /api/notifications/preferences/{key}`
 
 Offer acceptance:
 

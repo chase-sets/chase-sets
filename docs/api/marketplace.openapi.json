@@ -28,7 +28,8 @@
     { "name": "Payments and Settlement" },
     { "name": "Reputation" },
     { "name": "Inventory" },
-    { "name": "Identity" }
+    { "name": "Identity" },
+    { "name": "Notifications" }
   ],
   "paths": {
     "/api/marketplace/items": { "get": { "tags": ["Discovery"], "summary": "Search marketplace items.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
@@ -149,6 +150,13 @@
     "/api/identity/api-keys/{id}/revoke": { "post": { "tags": ["Identity"], "summary": "Revoke API key.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/identity/api-keys/{id}/rotate": { "post": { "tags": ["Identity"], "summary": "Rotate API key secret.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/identity/consents": { "get": { "tags": ["Identity"], "summary": "List account consents.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
+
+    "/api/notifications/center": { "get": { "tags": ["Notifications"], "summary": "List notification center feed items for the current account.", "responses": { "200": { "$ref": "#/components/responses/List" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" } } } },
+    "/api/notifications/center/unread-count": { "get": { "tags": ["Notifications"], "summary": "Get unread notification count for the current account.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" } } } },
+    "/api/notifications/center/{deliveryId}/read": { "post": { "tags": ["Notifications"], "summary": "Mark one notification center delivery read.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" } } } },
+    "/api/notifications/center/read-all": { "post": { "tags": ["Notifications"], "summary": "Mark all notification center deliveries read for the current account.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" } } } },
+    "/api/notifications/preferences": { "get": { "tags": ["Notifications"], "summary": "List notification delivery preferences for the current account.", "responses": { "200": { "$ref": "#/components/responses/List" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" } } } },
+    "/api/notifications/preferences/{key}": { "post": { "tags": ["Notifications"], "summary": "Set one notification delivery preference for the current account.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" } } } },
 
     "/api/settlement/account-status": { "get": { "tags": ["Payments and Settlement"], "summary": "Get seller money status.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/settlement/wallet": { "get": { "tags": ["Payments and Settlement"], "summary": "Get seller wallet.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },

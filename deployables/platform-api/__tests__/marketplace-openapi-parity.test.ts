@@ -190,6 +190,7 @@ describe("marketplace OpenAPI parity", () => {
       "/api/identity",
       "/api/inventory",
       "/api/marketplace",
+      "/api/notifications",
       "/api/settlement",
     ]);
     for (const mountPath of readMarketplaceWebApiMounts()) {

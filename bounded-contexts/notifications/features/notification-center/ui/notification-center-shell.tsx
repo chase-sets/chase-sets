@@ -6,6 +6,7 @@ import {
   type NotificationCenterProductAlert,
   type NotificationCenterView,
 } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import {
   createNotificationCenterApiClient,
   type NotificationCenterFeedResponse,
@@ -31,21 +32,21 @@ export interface NotificationCenterShellProps {
   onViewChange?: (view: NotificationCenterView) => void;
 }
 
-const preferenceLabels: Record<NotificationPreference["key"], {
-  label: string;
-  description: string;
+const preferenceCopyKeys: Record<NotificationPreference["key"], {
+  labelKey: string;
+  descriptionKey: string;
 }> = {
   web: {
-    label: "In-app notifications",
-    description: "Show marketplace updates in the notification center.",
+    labelKey: "notifications.features.notificationCenter.ui.shell.preference.web.label",
+    descriptionKey: "notifications.features.notificationCenter.ui.shell.preference.web.description",
   },
   email: {
-    label: "Email notifications",
-    description: "Allow email delivery for eligible marketplace updates.",
+    labelKey: "notifications.features.notificationCenter.ui.shell.preference.email.label",
+    descriptionKey: "notifications.features.notificationCenter.ui.shell.preference.email.description",
   },
   "product-alerts": {
-    label: "Product alerts",
-    description: "Notify this account when watched products match alert rules.",
+    labelKey: "notifications.features.notificationCenter.ui.shell.preference.productAlerts.label",
+    descriptionKey: "notifications.features.notificationCenter.ui.shell.preference.productAlerts.description",
   },
 };
 
@@ -113,19 +114,23 @@ export function NotificationCenterShell({
         sourceLabel: sourceLabel(item.messageType),
         createdAtLabel: formatTimestamp(item.createdAt),
         actionHref: item.actionHref,
-        actionLabel: "Open",
+        actionLabel: t("notifications.features.notificationCenter.ui.shell.open"),
         read: Boolean(item.readAt),
       })),
     [feed.items],
   );
   const preferenceItems = useMemo<readonly NotificationCenterPreference[]>(
     () =>
-      preferences.map((preference) => ({
-        key: preference.key,
-        label: preferenceLabels[preference.key]?.label ?? preference.key,
-        description: preferenceLabels[preference.key]?.description,
-        enabled: preference.enabled,
-      })),
+      preferences.map((preference) => {
+        const copy = preferenceCopyKeys[preference.key];
+
+        return {
+          key: preference.key,
+          label: copy ? t(copy.labelKey) : preference.key,
+          description: copy ? t(copy.descriptionKey) : undefined,
+          enabled: preference.enabled,
+        };
+      }),
     [preferences],
   );
   const alertItems = useMemo<readonly NotificationCenterProductAlert[]>(
@@ -191,18 +196,18 @@ export function NotificationCenterShell({
 
 function sourceLabel(messageType: string) {
   if (messageType.startsWith("ordering.")) {
-    return "Orders";
+    return t("notifications.features.notificationCenter.ui.shell.source.orders");
   }
 
   if (messageType.startsWith("fulfillment.")) {
-    return "Shipments";
+    return t("notifications.features.notificationCenter.ui.shell.source.shipments");
   }
 
   if (messageType.startsWith("discovery.product-alert")) {
-    return "Product alerts";
+    return t("notifications.features.notificationCenter.ui.shell.source.productAlerts");
   }
 
-  return "Marketplace";
+  return t("notifications.features.notificationCenter.ui.shell.source.marketplace");
 }
 
 function formatTimestamp(value: string) {
@@ -211,12 +216,19 @@ function formatTimestamp(value: string) {
 }
 
 function productAlertDetail(alert: ProductAlertResponse["items"][number]) {
-  const side = alert.market_side === "listing" ? "Listings" : "Offers";
   if (!alert.threshold_amount) {
-    return `${side} · all new matches`;
+    return alert.market_side === "listing"
+      ? t("notifications.features.notificationCenter.ui.shell.productAlerts.listings.allNewMatches")
+      : t("notifications.features.notificationCenter.ui.shell.productAlerts.offers.allNewMatches");
   }
 
   return alert.market_side === "listing"
-    ? `${side} · at or below $${alert.threshold_amount}`
-    : `${side} · at or above $${alert.threshold_amount}`;
+    ? t(
+        "notifications.features.notificationCenter.ui.shell.productAlerts.listings.atOrBelow",
+        { amount: alert.threshold_amount },
+      )
+    : t(
+        "notifications.features.notificationCenter.ui.shell.productAlerts.offers.atOrAbove",
+        { amount: alert.threshold_amount },
+      );
 }
