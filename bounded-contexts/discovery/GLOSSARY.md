@@ -89,6 +89,12 @@ Examples:
 
 A **Detail Page** is the discovery-owned presentation model used to render a single catalog item for browse and evaluation.
 
+Notes:
+
+- Detail Pages may show submitted Marketplace Offers as public product demand.
+- Accepted Offers are no longer public product demand and should not remain visible as public offer rows.
+- Public offer rows follow public listing attribution norms for account identity and must not expose shipping destinations or private contact details.
+
 ### Product Alert
 
 A **Product Alert** is an account-owned watch on one resolved Catalog Product selected from a Discovery Detail Page.

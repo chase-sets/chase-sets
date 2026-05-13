@@ -63,7 +63,8 @@ Limited Product Alert demand visibility is documented in [Limited Offer Demand S
 1. Listings and Offers share the same negotiation boundary and stay in one context.
 2. Marketplace may expose product quantity but does not own inventory truth.
 3. Submitted offers remain marketplace-wide demand until a seller accepts one.
-4. Buyer and Seller are account roles, not Marketplace-specific entities.
+4. Offer submission is a signed-in account capability, not a seller workflow capability.
+5. Buyer and Seller are account roles, not Marketplace-specific entities.
 
 ## Open Extraction Candidates
 

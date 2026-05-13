@@ -4,6 +4,7 @@ import {
   applyDiscoveryItemPatch,
   applyDiscoverySearchPatch,
 } from "../support/client-support/realtime-market";
+import { createDiscoveryOfferPatch } from "../support/realtime-support/patches";
 import type {
   DiscoveryItemDetail,
   DiscoverySearchResponse,
@@ -46,6 +47,53 @@ describe("discovery realtime market patches", () => {
 
     expect(next?.market_listings).toHaveLength(1);
     expect(next?.market_summary?.active_listing_count).toBe(1);
+  });
+
+  it("removes accepted offers from public item detail demand", () => {
+    const item = {
+      catalog_item_id: "item_1",
+      market_listings: [],
+      buyer_offer_matches: [
+        {
+          offer_id: "offer_1",
+          catalog_catalog_item_id: "item_1",
+          status: "submitted",
+        },
+      ],
+      market_summary: null,
+    } as unknown as DiscoveryItemDetail;
+    const patch = {
+      kind: "projection.patch",
+      context: "discovery",
+      projection: "discovery-market-projection",
+      topics: ["item:item_1"],
+      changes: [
+        {
+          op: "remove",
+          entity: "discovery.buyerOffer",
+          id: "offer_1",
+        },
+      ],
+    } satisfies RealtimeProjectionPatch;
+
+    const next = applyDiscoveryItemPatch(item, patch);
+
+    expect(next?.buyer_offer_matches).toEqual([]);
+  });
+
+  it("emits accepted offer changes as public demand removals", () => {
+    const patch = createDiscoveryOfferPatch(["item:item_1"], {
+      offer_id: "offer_1",
+      status: "accepted",
+    });
+
+    expect(patch.changes).toEqual([
+      {
+        op: "remove",
+        entity: "discovery.buyerOffer",
+        id: "offer_1",
+      },
+    ]);
   });
 
   it("patches search rows already present", () => {

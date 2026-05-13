@@ -181,9 +181,8 @@ export async function getDiscoveryItemDetail(
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
      WHERE offer.catalog_catalog_item_id = $1
-       AND offer.status IN ('submitted', 'accepted')
+       AND offer.status = 'submitted'
      ORDER BY
-       (offer.status = 'submitted') DESC,
        offer.price_amount::numeric DESC,
        offer.quantity_requested DESC,
        offer.created_at ASC,

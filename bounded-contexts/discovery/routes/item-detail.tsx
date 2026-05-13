@@ -1434,7 +1434,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       actor?.permissions.includes("listings.view") &&
         actor.permissions.includes("listings.manage"),
     );
-    const canSubmitOffers = Boolean(actor?.permissions.includes("offers.manage"));
+    const canSubmitOffers = Boolean(actor);
     let accountOfferMatches: DiscoveryOfferMatchWithTerms[] = [];
     let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
 
@@ -1550,10 +1550,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "submit-offer") {
-      await requireActorFromAuthApi({
-        request,
-        permission: "offers.manage",
-      });
+      await requireActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
 
       const offerResult = await marketplaceApi.createSubmittedOffer({
